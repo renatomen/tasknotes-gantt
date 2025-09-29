@@ -137,9 +137,11 @@ JIRA_SERVER_URL="your-jira-url"
 
 ### System Dependencies
 
-- **Windows**: Primary development platform (CI runs on windows-latest)
+- **Cross-Platform**: Supports Windows, Linux, and macOS development
+- **Primary CI**: Runs on windows-latest (GitHub Actions)
 - **Git hooks**: Husky for pre-commit validation
 - **WebDriverIO**: For Obsidian E2E testing
+- **Line Endings**: Enforced LF across all platforms via .gitattributes
 
 ## 6. **Step-by-Step Setup Instructions**
 
@@ -230,12 +232,50 @@ git commit -m "test: verify setup"  # Should run pre-commit hooks
 - **jest.config.mjs**: Jest testing configuration
 - **svelte.config.js**: Svelte 5 with runes enabled
 
-### Missing Configuration Files (use defaults)
+### Cross-Platform Configuration Files
 
-- **Prettier**: Uses default settings (no .prettierrc found)
+- **.gitattributes**: Enforces LF line endings across all platforms
+- **.editorconfig**: Consistent editor settings for all team members
+- **.prettierrc.json**: Explicit formatting rules with LF line endings
 - **Environment**: No .env files (uses environment variables)
 
-## 8. **Troubleshooting Common Issues**
+## 8. **Cross-Platform Development**
+
+### Line Ending Configuration
+
+The repository is configured for consistent cross-platform development:
+
+- **All platforms use LF line endings** (enforced by `.gitattributes`)
+- **Git configuration**: `core.autocrlf=false` and `core.eol=lf` (set locally)
+- **Prettier configuration**: Explicit `endOfLine: "lf"` setting
+- **EditorConfig**: Standardizes editor behavior across IDEs
+
+### For New Collaborators
+
+When cloning the repository:
+
+```bash
+# The repository will automatically configure line endings
+git clone <repository-url>
+cd obsidian-gantt
+
+# Verify git configuration (should show LF settings)
+git config --local --list | grep -E "(core\.autocrlf|core\.eol)"
+
+# Install dependencies and verify formatting
+npm ci
+npm run format  # Should show all files as "(unchanged)"
+```
+
+### Platform-Specific Notes
+
+- **Windows**: Uses LF line endings (not the Windows default CRLF)
+- **Linux/Mac**: Uses native LF line endings (no conversion needed)
+- **All platforms**: Consistent formatting via Prettier and EditorConfig
+
+This prevents the common issue where different platforms create massive diffs due to line ending differences.
+
+## 9. **Troubleshooting Common Issues**
 
 ### Build Issues
 
