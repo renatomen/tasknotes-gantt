@@ -3,7 +3,7 @@
  * Replaces global CONFIG object with injectable configuration
  */
 
-export interface ISyncConfiguration {
+export interface ISyncConfigurationData {
   readonly featuresDir: string;
   readonly stagingDir: string;
   readonly syncBranchPrefix: string;
@@ -30,6 +30,13 @@ export interface ISyncConfiguration {
       readonly warning: string;
       readonly info: string;
     };
+  };
+}
+
+export interface ISyncConfiguration extends ISyncConfigurationData {
+  validateConfiguration(): {
+    isValid: boolean;
+    missingFields: string[];
   };
 }
 
@@ -62,9 +69,9 @@ export class SyncConfiguration implements ISyncConfiguration {
     };
   };
 
-  constructor(overrides: Partial<ISyncConfiguration> = {}) {
+  constructor(overrides: Partial<ISyncConfigurationData> = {}) {
     // Default configuration
-    const defaults: ISyncConfiguration = {
+    const defaults: ISyncConfigurationData = {
       featuresDir: "features",
       stagingDir: "featureSyncStage",
       syncBranchPrefix: "sync/assertthat",
