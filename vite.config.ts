@@ -19,7 +19,7 @@ export default defineConfig(() => {
     plugins: [
       svelte({
         compilerOptions: {
-          // Enable Svelte 5 runes mode
+          // Enable Svelte 5 runes mode (SVAR components are authored for Svelte 5)
           runes: true,
         },
       }),

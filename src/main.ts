@@ -1,14 +1,23 @@
-import { Plugin } from "obsidian";
+
+import { Plugin } from 'obsidian';
+import { registerBasesGantt } from './bases/register';
 
 export default class ObsidianGanttPlugin extends Plugin {
-  async onload() {
-    console.log("Loading Obsidian Gantt plugin");
+  private unregisterBases: (() => void) | null = null;
 
-    // TODO: Initialize plugin components
-    // This is a placeholder implementation for the development infrastructure setup
+  async onload() {
+    console.log('Loading Obsidian Gantt plugin');
+
+    // MVP: Register Obsidian Bases custom view "Gantt (OG)" (no chart yet)
+    try {
+      this.unregisterBases = registerBasesGantt(this);
+    } catch (e) {
+      console.warn('[Gantt] Failed to start Bases registration', e);
+    }
   }
 
   onunload() {
-    console.log("Unloading Obsidian Gantt plugin");
+    console.log('Unloading Obsidian Gantt plugin');
+    try { this.unregisterBases?.(); } catch {}
   }
 }

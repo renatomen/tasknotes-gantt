@@ -6,7 +6,7 @@ export default {
   preprocess: vitePreprocess(),
 
   compilerOptions: {
-    // Enable Svelte 5 runes mode
+    // Enable Svelte 5 runes mode for SVAR Svelte components
     runes: true,
   },
 };

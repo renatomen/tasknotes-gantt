@@ -1,6 +1,8 @@
-import js from "@eslint/js";
-import tsParser from "@typescript-eslint/parser";
-import tsPlugin from "@typescript-eslint/eslint-plugin";
+import js from '@eslint/js';
+import tsParser from '@typescript-eslint/parser';
+import tsPlugin from '@typescript-eslint/eslint-plugin';
+import sveltePlugin from 'eslint-plugin-svelte';
+import svelteParser from 'svelte-eslint-parser';
 
 export default [
   // Files/folders to ignore
@@ -64,6 +66,32 @@ export default [
         require: "readonly",
       },
     },
+  },
+  // Svelte files
+  {
+    files: ['**/*.svelte'],
+    languageOptions: {
+      parser: svelteParser,
+      parserOptions: {
+        parser: tsParser,
+        ecmaVersion: 2022,
+        sourceType: 'module'
+      },
+      globals: {
+        console: 'readonly',
+        window: 'readonly',
+        document: 'readonly'
+      }
+    },
+    plugins: {
+      svelte: sveltePlugin,
+      '@typescript-eslint': tsPlugin
+    },
+    rules: {
+      ...sveltePlugin.configs.recommended.rules,
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
+    }
   },
   {
     files: ["test/**/*.ts"],
