@@ -1,18 +1,37 @@
 /** @type {import('jest').Config} */
 const config = {
-  testEnvironment: 'node',
+  testEnvironment: "node",
+  preset: "ts-jest/presets/default-esm",
+  extensionsToTreatAsEsm: [".ts"],
   transform: {
-    '^.+\\.(t|j)sx?$': ['@swc/jest', {
-      jsc: {
-        parser: { syntax: 'typescript', tsx: true },
-        target: 'es2020'
+    "^.+\\.(t|j)sx?$": [
+      "@swc/jest",
+      {
+        jsc: {
+          parser: { syntax: "typescript", tsx: true },
+          target: "es2020",
+        },
+        module: { type: "es6" },
       },
-      module: { type: 'commonjs' }
-    }]
+    ],
+    "^.+\\.mjs$": [
+      "@swc/jest",
+      {
+        jsc: {
+          parser: { syntax: "ecmascript" },
+          target: "es2020",
+        },
+        module: { type: "es6" },
+      },
+    ],
   },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'mjs'],
-  roots: ['<rootDir>/src', '<rootDir>/test'],
-  testMatch: ['**/*.test.ts']
+  moduleFileExtensions: ["ts", "tsx", "js", "mjs"],
+  roots: ["<rootDir>/src", "<rootDir>/test", "<rootDir>/scripts"],
+  testMatch: ["**/*.test.ts"],
+  moduleNameMapping: {
+    "^(\\.{1,2}/.*)\\.mjs$": "$1",
+  },
+  transformIgnorePatterns: ["node_modules/(?!(@cucumber/gherkin)/)"],
 };
 
 export default config;

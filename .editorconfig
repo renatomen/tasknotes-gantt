@@ -1,0 +1,60 @@
+# EditorConfig helps maintain consistent coding styles across different editors and IDEs
+# See https://editorconfig.org for more information
+
+root = true
+
+# Default settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# TypeScript and JavaScript files
+[*.{ts,js,mjs,cjs}]
+indent_size = 2
+
+# Svelte files
+[*.svelte]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# YAML files
+[*.{yml,yaml}]
+indent_size = 2
+
+# Markdown files (preserve trailing whitespace for line breaks)
+[*.md]
+trim_trailing_whitespace = false
+
+# Package manager files
+[package.json]
+indent_size = 2
+
+[package-lock.json]
+indent_size = 2
+insert_final_newline = false
+
+# Configuration files
+[*.config.{js,ts,mjs}]
+indent_size = 2
+
+# Test files
+[*.test.{ts,js}]
+indent_size = 2
+
+[*.spec.{ts,js}]
+indent_size = 2
+
+# Feature files (Gherkin/BDD)
+[*.feature]
+indent_size = 2
+
+# Windows batch files
+[*.{cmd,bat}]
+end_of_line = crlf

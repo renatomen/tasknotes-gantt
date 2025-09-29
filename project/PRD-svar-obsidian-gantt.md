@@ -1,26 +1,34 @@
 # Product Requirements Document (PRD)
 
 **Product**: obsidian-gantt — Modern Svelte 5 Gantt chart visualization using SVAR Svelte Gantt
-**Owner**: Open Source Community
-**Status**: Active Development
-**Architecture**: Event-Driven Svelte 5 Components with Reactive State Management
+**Owner**: Open Source Community **Status**: Active Development **Architecture**: Event-Driven
+Svelte 5 Components with Reactive State Management
 
 ## 1. Vision & Strategic Goals
 
 ### Primary Objective
-Create a cutting-edge, Svelte 5-based Gantt chart plugin that leverages SVAR Svelte Gantt's latest features and reactive architecture to deliver exceptional performance, user experience, and developer productivity in Obsidian environments.
+
+Create a cutting-edge, Svelte 5-based Gantt chart plugin that leverages SVAR Svelte Gantt's latest
+features and reactive architecture to deliver exceptional performance, user experience, and
+developer productivity in Obsidian environments.
 
 ### Core Value Propositions
-- **Modern Svelte 5 Architecture**: Leverages runes ($state, $derived, $props) for optimal reactivity and performance
-- **Multi-Datasource Excellence**: Seamless support for Bases, Dataview (DQL/JS), and extensible data sources
-- **Reactive State Management**: Real-time data synchronization with Svelte's compile-time optimizations
+
+- **Modern Svelte 5 Architecture**: Leverages runes ($state, $derived, $props) for optimal
+  reactivity and performance
+- **Multi-Datasource Excellence**: Seamless support for Bases, Dataview (DQL/JS), and extensible
+  data sources
+- **Reactive State Management**: Real-time data synchronization with Svelte's compile-time
+  optimizations
 - **Component-First Design**: Modular, reusable Svelte components with clear separation of concerns
 - **Performance Excellence**: Sub-second rendering with virtual scrolling and intelligent caching
 - **Mobile-First Experience**: Touch-optimized interactions with responsive design patterns
 - **Developer Experience**: TypeScript-first with comprehensive testing and intuitive APIs
-- **Offline-First Architecture**: Zero external dependencies with complete vault-contained functionality
+- **Offline-First Architecture**: Zero external dependencies with complete vault-contained
+  functionality
 
 ### Non-Goals (Explicit Scope Boundaries)
+
 - Legacy browser support (targets modern evergreen browsers)
 - Real-time collaborative editing (future consideration)
 - External server dependencies or internet connectivity requirements
@@ -29,6 +37,7 @@ Create a cutting-edge, Svelte 5-based Gantt chart plugin that leverages SVAR Sve
 ## 2. Technical Architecture Overview
 
 ### Svelte 5 Component Hierarchy
+
 ```
 ObsidianGanttPlugin
 ├── DataSourceRegistry (reactive data providers)
@@ -54,6 +63,7 @@ ObsidianGanttPlugin
 ```
 
 ### Reactive Data Flow (Svelte 5 Runes)
+
 ```
 Data Source → $state → $derived → Svelte Components → SVAR Rendering
      ↓           ↓        ↓            ↓               ↓
@@ -62,6 +72,7 @@ Configuration → Reactive → Computed → Component → Gantt Display
 ```
 
 ### Multi-Datasource Architecture
+
 ```
 DataSource Interface
 ├── BasesDataSource
@@ -81,12 +92,14 @@ DataSource Interface
 ## 3. Core Technical Capabilities
 
 ### Svelte 5 Reactive Architecture
+
 - **Runes-Based Reactivity**: Leverage $state, $derived, and $props for optimal performance
 - **Compile-Time Optimization**: Svelte's compiler eliminates runtime overhead
 - **Fine-Grained Updates**: Surgical DOM updates with minimal re-rendering
 - **Memory Efficiency**: Automatic cleanup and garbage collection
 
 ### Offline-First Design
+
 - **Zero External Dependencies**: All processing happens locally within Obsidian
 - **Bundled SVAR Assets**: Complete SVAR Svelte Gantt packaged with plugin
 - **Local Data Sources**: Bases, TaskNotes, and Dataview integration without network calls
@@ -94,12 +107,14 @@ DataSource Interface
 - **CSP Compliance**: No external resource loading, full Content Security Policy compliance
 
 ### Multi-Instance Excellence
+
 - **Svelte Component Isolation**: Each view creates independent Svelte component tree
 - **Reactive State Encapsulation**: Instance-specific $state with no global pollution
 - **Event Namespace**: Unique identifiers for instance-specific event handling
 - **Memory Management**: Automatic Svelte cleanup with proper lifecycle management
 
 ### SVAR Svelte 5 Integration Patterns
+
 - **Reactive Props**: $props() drive SVAR component configuration
 - **Derived State**: $derived() for computed properties and data transformations
 - **Event Handling**: Native Svelte event system integrated with SVAR actions
@@ -107,6 +122,7 @@ DataSource Interface
 - **Performance Optimization**: Leverage Svelte's built-in performance features
 
 ### Cross-Platform Mobile Excellence
+
 - **Responsive Design**: Adaptive layout using CSS Grid and Flexbox
 - **Touch-First Interaction**: Native touch support with gesture recognition
 - **Multi-Input Support**: Mouse, touch, and pen input for all interactions
@@ -115,6 +131,7 @@ DataSource Interface
 - **Hardware Acceleration**: GPU-accelerated animations and transitions
 
 ### Intelligent Field Mapping System
+
 - **Runtime Configuration**: Dynamic field mappings via configuration objects
 - **User-Defined Properties**: Complete freedom in Obsidian property naming
 - **Minimal Requirements**: Only `id` and `text` mandatory; everything else optional
@@ -123,6 +140,7 @@ DataSource Interface
 - **Validation Engine**: Comprehensive validation with helpful error messages
 
 ### Advanced Data Modeling
+
 - **Virtual Task Management**: Elegant handling of multi-parent task relationships
 - **Obsidian ID Preservation**: Maintain original note references across virtual instances
 - **Hierarchical Flexibility**: Support complex parent-child relationships
@@ -131,19 +149,20 @@ DataSource Interface
 - **Schema Evolution**: Graceful handling of changing data structures
 
 ### Reactive Data Transformation Pipeline
+
 ```typescript
 interface ReactiveDataPipeline {
-  source: DataSourceAdapter;           // Reactive data source
-  mapper: DataMapper<any, SVARTask>;   // Type-safe data mapping
-  validator: ValidationEngine;         // Schema validation
-  transformer: SVARDataTransformer;    // SVAR format conversion
-  virtualizer: VirtualTaskManager;     // Virtual task handling
-  reactiveState: SvelteStore<any>;     // Svelte store integration
+  source: DataSourceAdapter; // Reactive data source
+  mapper: DataMapper<any, SVARTask>; // Type-safe data mapping
+  validator: ValidationEngine; // Schema validation
+  transformer: SVARDataTransformer; // SVAR format conversion
+  virtualizer: VirtualTaskManager; // Virtual task handling
+  reactiveState: SvelteStore<any>; // Svelte store integration
 }
 
 interface DataSourceAdapter {
-  readonly type: 'bases' | 'dataview' | 'custom';
-  readonly renderContext: 'bases-view' | 'code-block' | 'custom';
+  readonly type: "bases" | "dataview" | "custom";
+  readonly renderContext: "bases-view" | "code-block" | "custom";
 
   initialize(): Promise<void>;
   queryData(config: any): Promise<any[]>;
@@ -156,6 +175,7 @@ interface DataSourceAdapter {
 ## 4. Configuration Schema (SVAR Svelte 5 Optimized)
 
 ### Bases YAML Configuration
+
 ```yaml
 views:
   - type: obsidianGantt
@@ -185,42 +205,42 @@ views:
       tableWidth: 400
 
       # View mode configuration
-      viewMode: Day  # Day | Week | Month | Year
+      viewMode: Day # Day | Week | Month | Year
 
       # Field Mappings (User-Defined → Gantt Parameters)
       fieldMappings:
         # Mandatory fields
-        id: file.path         # Unique identifier (required)
-        text: file.basename   # Display name (required)
+        id: file.path # Unique identifier (required)
+        text: file.basename # Display name (required)
 
         # Optional date/duration fields
-        start: start          # Start date property
-        end: due              # End date property
-        duration: duration    # Duration in days
-        base_start: baseline_start     # Baseline start date
-        base_end: baseline_end         # Baseline end date
+        start: start # Start date property
+        end: due # End date property
+        duration: duration # Duration in days
+        base_start: baseline_start # Baseline start date
+        base_end: baseline_end # Baseline end date
         base_duration: baseline_duration # Baseline duration
 
         # Optional metadata fields
-        progress: progress    # Progress 0-1 or 0-100
-        parent: parent        # Single parent ID
-        parents: in           # Multiple parents support
-        type: taskType        # "task" | "summary" | "milestone"
+        progress: progress # Progress 0-1 or 0-100
+        parent: parent # Single parent ID
+        parents: in # Multiple parents support
+        type: taskType # "task" | "summary" | "milestone"
 
       # SVAR Svelte 5 specific configuration
       svarConfig:
-        theme: "willow"       # SVAR theme selection
-        locale: "en"          # Internationalization
-        animations: true      # Enable smooth animations
+        theme: "willow" # SVAR theme selection
+        locale: "en" # Internationalization
+        animations: true # Enable smooth animations
         virtualScrolling: true # Performance optimization
 
       # Display configuration
       show_today_marker: false
       hide_task_names: false
       showMissingDates: true
-      missingStartBehavior: infer   # infer | show | hide
-      missingEndBehavior: show      # show | infer | hide
-      defaultDuration: 5            # in days, when inferring end from start
+      missingStartBehavior: infer # infer | show | hide
+      missingEndBehavior: show # show | infer | hide
+      defaultDuration: 5 # in days, when inferring end from start
       showMissingDateIndicators: true
 
       # Dynamic column configuration (Bases integration)
@@ -230,6 +250,7 @@ views:
 ```
 
 ### Dataview Code Block Configuration (Future)
+
 ```obsidian-gantt
 {
   "query": "TABLE file.name, start, due, progress FROM #project WHERE start",
@@ -248,6 +269,7 @@ views:
 ```
 
 ### DataviewJS Code Block Configuration (Future)
+
 ```obsidian-gantt-js
 const tasks = dv.pages("#project")
   .where(p => p.start)
@@ -277,7 +299,7 @@ return {
   }
 };
 ```
-      
+
       # UI Configuration
       ui:
         readonly: true  # MVP: read-only mode
@@ -307,7 +329,8 @@ return {
           touchTargetSize: 44  # Minimum 44px for accessibility
           snapToGrid: false
           persistWidths: true
-```
+
+````
 
 ## 5. Implementation Phases
 
@@ -436,34 +459,35 @@ interface SVARConfig {
   virtualScrolling: boolean;
   performance: "high" | "balanced" | "memory";
 }
-```
+````
 
 ### SVAR Svelte 5 Task Format (Internal)
+
 ```typescript
 interface SVARTask {
   // Mapped from user's configured properties
-  id: string | number;            // From fieldMappings.id
-  text: string;                   // From fieldMappings.text
-  start?: Date;                   // From fieldMappings.start (converted to Date)
-  end?: Date;                     // From fieldMappings.end (converted to Date)
-  duration?: number;              // From fieldMappings.duration or computed
-  progress?: number;              // From fieldMappings.progress (normalized to 0-1)
-  parent?: string | number;       // From fieldMappings.parent
+  id: string | number; // From fieldMappings.id
+  text: string; // From fieldMappings.text
+  start?: Date; // From fieldMappings.start (converted to Date)
+  end?: Date; // From fieldMappings.end (converted to Date)
+  duration?: number; // From fieldMappings.duration or computed
+  progress?: number; // From fieldMappings.progress (normalized to 0-1)
+  parent?: string | number; // From fieldMappings.parent
   type?: "task" | "summary" | "milestone"; // From fieldMappings.type
 
   // SVAR Svelte 5 specific properties
-  open?: boolean;                 // For summary tasks
-  lazy?: boolean;                 // For dynamic loading
-  reactive?: boolean;             // Enable reactive updates
+  open?: boolean; // For summary tasks
+  lazy?: boolean; // For dynamic loading
+  reactive?: boolean; // Enable reactive updates
 
   // Extended properties from source data
   custom?: {
-    obsidianId: string;           // Original note identifier
-    isVirtual?: boolean;          // True for virtual duplicates
-    virtualIndex?: number;        // Index for multiple parents
-    originalItem?: any;           // Reference to source data
-    reactiveStore?: any;          // Svelte store reference
-    [key: string]: any;           // All other user properties (for columns)
+    obsidianId: string; // Original note identifier
+    isVirtual?: boolean; // True for virtual duplicates
+    virtualIndex?: number; // Index for multiple parents
+    originalItem?: any; // Reference to source data
+    reactiveStore?: any; // Svelte store reference
+    [key: string]: any; // All other user properties (for columns)
   };
 }
 
@@ -471,8 +495,8 @@ interface SVARLink {
   id: string | number;
   source: string | number;
   target: string | number;
-  type: "e2s" | "s2s" | "e2e" | "s2e";  // SVAR semantic types
-  reactive?: boolean;             // Enable reactive updates
+  type: "e2s" | "s2s" | "e2e" | "s2e"; // SVAR semantic types
+  reactive?: boolean; // Enable reactive updates
 }
 
 interface SVARColumn {
@@ -485,7 +509,7 @@ interface SVARColumn {
   minWidth?: number;
   maxWidth?: number;
   template?: (task: SVARTask) => string;
-  reactive?: boolean;             // Enable reactive column updates
+  reactive?: boolean; // Enable reactive column updates
 }
 
 interface ColumnResizeConfig {
@@ -500,10 +524,11 @@ interface ColumnResizeConfig {
 ```
 
 ### Svelte 5 Data Source Architecture Types
+
 ```typescript
 interface DataSourceAdapter {
-  readonly type: 'bases' | 'dataview' | 'custom';
-  readonly renderContext: 'bases-view' | 'code-block' | 'custom';
+  readonly type: "bases" | "dataview" | "custom";
+  readonly renderContext: "bases-view" | "code-block" | "custom";
 
   initialize(): Promise<void>;
   queryData(config: GanttConfig): Promise<any[]>;
@@ -514,17 +539,17 @@ interface DataSourceAdapter {
 }
 
 interface BasesDataSource extends DataSourceAdapter {
-  type: 'bases';
-  renderContext: 'bases-view';
+  type: "bases";
+  renderContext: "bases-view";
   queryBasesData(basesConfig: BasesConfig): Promise<BasesItem[]>;
-  getAvailableProperties(): Promise<string[]>;  // For dynamic column generation
+  getAvailableProperties(): Promise<string[]>; // For dynamic column generation
   generateColumnsFromProperties(selectedProps: string[]): SVARColumn[];
   createReactiveBasesStore(): SvelteStore<BasesItem[]>;
 }
 
 interface DataviewDataSource extends DataSourceAdapter {
-  type: 'dataview';
-  renderContext: 'code-block';
+  type: "dataview";
+  renderContext: "code-block";
   executeDQL(query: string): Promise<any[]>;
   executeDataviewJS(code: string): Promise<{ data: any[]; config?: any }>;
   createReactiveQueryStore(query: string): SvelteStore<any[]>;
@@ -547,6 +572,7 @@ interface SvelteGanttRenderer {
 ```
 
 ### Svelte 5 Reactive Event System Types
+
 ```typescript
 interface SvelteGanttEvent<T = any> {
   type: string;
@@ -562,16 +588,26 @@ interface SvelteCustomActions {
   "validate-gantt-data": { task: SVARTask; store: SvelteStore<SVARTask> };
   "apply-data-filters": { filters: any[]; reactiveFilters: SvelteStore<any[]> };
   "sync-virtual-task": { virtualTask: SVARTask; originalId: string; store: SvelteStore<SVARTask> };
-  "create-virtual-duplicates": { item: any; parents: string[]; reactiveParents: SvelteStore<string[]> };
+  "create-virtual-duplicates": {
+    item: any;
+    parents: string[];
+    reactiveParents: SvelteStore<string[]>;
+  };
   "code-block-render": { element: HTMLElement; config: any; component: SvelteComponent };
-  "bases-view-render": { container: HTMLElement; basesConfig: BasesConfig; reactiveConfig: SvelteStore<BasesConfig> };
+  "bases-view-render": {
+    container: HTMLElement;
+    basesConfig: BasesConfig;
+    reactiveConfig: SvelteStore<BasesConfig>;
+  };
 }
 ```
 
 ## 7. Svelte 5 Reactive Data Provider Architecture
 
 ### SvelteObsidianDataProvider Implementation
-The plugin implements a reactive data provider that leverages Svelte 5 stores and runes for optimal performance and reactivity:
+
+The plugin implements a reactive data provider that leverages Svelte 5 stores and runes for optimal
+performance and reactivity:
 
 ```typescript
 class SvelteObsidianDataProvider {
@@ -587,7 +623,7 @@ class SvelteObsidianDataProvider {
   get data() {
     return $derived({
       tasks: this.tasksStore,
-      links: this.linksStore
+      links: this.linksStore,
     });
   }
 
@@ -618,7 +654,7 @@ class SvelteObsidianDataProvider {
     const originalId = virtualTask.custom.obsidianId;
     const originalData = { ...virtualTask, id: originalId };
 
-    switch(action) {
+    switch (action) {
       case "update-task":
         await this.updateObsidianNote(originalData);
         await this.syncAllVirtualInstances(originalId);
@@ -642,7 +678,9 @@ class SvelteObsidianDataProvider {
 ```
 
 ### Virtual Task Duplication Pattern
-For tasks with multiple parents, the system creates virtual duplicates while preserving the original Obsidian note reference:
+
+For tasks with multiple parents, the system creates virtual duplicates while preserving the original
+Obsidian note reference:
 
 ```typescript
 class VirtualTaskManager {
@@ -678,8 +716,8 @@ class VirtualTaskManager {
         obsidianId: item.id,
         isVirtual: true,
         virtualIndex: index,
-        originalItem: item
-      }
+        originalItem: item,
+      },
     };
   }
 
@@ -698,6 +736,7 @@ class VirtualTaskManager {
 ```
 
 ### Benefits of This Approach
+
 1. **SVAR Compatibility**: Each parent sees the task as a direct child
 2. **Obsidian Integration**: All changes target the original note
 3. **Data Consistency**: Virtual instances stay synchronized
@@ -707,9 +746,13 @@ class VirtualTaskManager {
 ## 8. Dynamic Column Generation (Bases Integration)
 
 ### Automatic Column Creation from Bases Properties
-The plugin automatically generates Gantt tree columns based on properties selected in the Bases interface, supporting all Obsidian frontmatter properties as defined in the [Bases syntax documentation](https://help.obsidian.md/bases/syntax#Properties).
+
+The plugin automatically generates Gantt tree columns based on properties selected in the Bases
+interface, supporting all Obsidian frontmatter properties as defined in the
+[Bases syntax documentation](https://help.obsidian.md/bases/syntax#Properties).
 
 ### Supported Property Types
+
 ```typescript
 interface BasesPropertyTypes {
   // Core Obsidian properties
@@ -728,15 +771,16 @@ interface BasesPropertyTypes {
   "file.aliases": string[];
 
   // Custom frontmatter properties
-  [key: string]: any;             // User-defined YAML frontmatter
+  [key: string]: any; // User-defined YAML frontmatter
 }
 ```
 
 ### Dynamic Column Generation Process
+
 ```typescript
 class BasesColumnGenerator {
   generateColumns(selectedProperties: string[]): SVARColumn[] {
-    return selectedProperties.map(prop => {
+    return selectedProperties.map((prop) => {
       const propertyType = this.getPropertyType(prop);
       return {
         id: prop,
@@ -744,7 +788,7 @@ class BasesColumnGenerator {
         width: this.getDefaultWidth(propertyType),
         resizable: true,
         align: this.getAlignment(propertyType),
-        template: this.createTemplate(prop, propertyType)
+        template: this.createTemplate(prop, propertyType),
       };
     });
   }
@@ -758,22 +802,23 @@ class BasesColumnGenerator {
 
   private formatValue(value: any, type: PropertyType): string {
     switch (type) {
-      case 'date':
-        return value ? new Date(value).toLocaleDateString() : '';
-      case 'number':
-        return value?.toString() || '';
-      case 'array':
-        return Array.isArray(value) ? value.join(', ') : '';
-      case 'boolean':
-        return value ? '✓' : '';
+      case "date":
+        return value ? new Date(value).toLocaleDateString() : "";
+      case "number":
+        return value?.toString() || "";
+      case "array":
+        return Array.isArray(value) ? value.join(", ") : "";
+      case "boolean":
+        return value ? "✓" : "";
       default:
-        return value?.toString() || '';
+        return value?.toString() || "";
     }
   }
 }
 ```
 
 ### Integration with Bases UI
+
 ```typescript
 interface BasesIntegration {
   // Listen to Bases property selection changes
@@ -805,6 +850,7 @@ class BasesGanttView {
 ```
 
 ### Benefits of Dynamic Column Generation
+
 1. **User Control**: Users select which properties to display via familiar Bases interface
 2. **Automatic Updates**: Columns update immediately when property selection changes
 3. **Type-Aware Formatting**: Different property types formatted appropriately
@@ -814,7 +860,9 @@ class BasesGanttView {
 ## 9. Reusable Component Architecture
 
 ### Component Isolation Strategy
-The plugin architecture ensures that core Gantt rendering components are completely isolated from data source specifics, enabling seamless reuse across different contexts:
+
+The plugin architecture ensures that core Gantt rendering components are completely isolated from
+data source specifics, enabling seamless reuse across different contexts:
 
 ```typescript
 // Core reusable components
@@ -847,23 +895,25 @@ interface CodeBlockAdapter {
 ```
 
 ### Shared Service Layer
+
 ```typescript
 class GanttServiceRegistry {
   private static instance: GanttServiceRegistry;
 
   // Shared services used by all data sources
-  getDataMapper(): DataMapper<any, SVARTask> { }
-  getVirtualTaskManager(): VirtualTaskManager { }
-  getValidationEngine(): ValidationEngine { }
-  getEventBus(): EventBus { }
+  getDataMapper(): DataMapper<any, SVARTask> {}
+  getVirtualTaskManager(): VirtualTaskManager {}
+  getValidationEngine(): ValidationEngine {}
+  getEventBus(): EventBus {}
 
   // Factory for creating reusable components
-  createGanttContainer(): GanttContainer { }
-  createGanttComponent(): GanttComponent { }
+  createGanttContainer(): GanttContainer {}
+  createGanttComponent(): GanttComponent {}
 }
 ```
 
 ### Benefits of This Architecture
+
 1. **Single Implementation**: Core Gantt logic written once, used everywhere
 2. **Consistent UX**: Identical behavior across Bases views and code blocks
 3. **Maintainability**: Bug fixes and features automatically benefit all contexts
@@ -873,7 +923,9 @@ class GanttServiceRegistry {
 ## 9. Mobile & Multi-Input Support
 
 ### Cross-Platform Compatibility
-The plugin must provide a consistent, high-quality experience across all platforms where Obsidian runs:
+
+The plugin must provide a consistent, high-quality experience across all platforms where Obsidian
+runs:
 
 - **Desktop**: Windows, macOS, Linux with mouse and keyboard
 - **Mobile**: iOS and Android with touch input
@@ -887,10 +939,10 @@ interface ColumnResizerComponent {
   // Support all input types
   handleMouseDown(event: MouseEvent): void;
   handleTouchStart(event: TouchEvent): void;
-  handlePointerDown(event: PointerEvent): void;  // Unified for pen/touch/mouse
+  handlePointerDown(event: PointerEvent): void; // Unified for pen/touch/mouse
 
   // Responsive touch targets
-  getTouchTargetSize(): number;  // Minimum 44px for accessibility
+  getTouchTargetSize(): number; // Minimum 44px for accessibility
 
   // Persistence
   saveColumnWidths(widths: Record<string, number>): void;
@@ -912,9 +964,9 @@ class MultiInputColumnResizer {
 
   private setupEventListeners(): void {
     // Use Pointer Events API for unified input handling
-    document.addEventListener('pointerdown', this.handlePointerDown.bind(this));
-    document.addEventListener('pointermove', this.handlePointerMove.bind(this));
-    document.addEventListener('pointerup', this.handlePointerUp.bind(this));
+    document.addEventListener("pointerdown", this.handlePointerDown.bind(this));
+    document.addEventListener("pointermove", this.handlePointerMove.bind(this));
+    document.addEventListener("pointerup", this.handlePointerUp.bind(this));
 
     // Fallback for older browsers
     if (!window.PointerEvent) {
@@ -924,7 +976,7 @@ class MultiInputColumnResizer {
 
   private handlePointerDown(event: PointerEvent): void {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains('column-resizer')) return;
+    if (!target.classList.contains("column-resizer")) return;
 
     this.isDragging = true;
     this.startX = event.clientX;
@@ -1001,7 +1053,7 @@ class MobileGanttAdapter {
   }
 
   private optimizeTouchTargets(): void {
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     style.textContent = `
       .gantt-mobile .column-resizer {
         width: 44px;
@@ -1030,7 +1082,7 @@ class MobileGanttAdapter {
     const mobileColumnDefaults = {
       text: { minWidth: 120, flexGrow: 3 },
       start: { minWidth: 100, width: 120 },
-      duration: { minWidth: 80, width: 100 }
+      duration: { minWidth: 80, width: 100 },
     };
 
     this.ganttComponent.updateColumnDefaults(mobileColumnDefaults);
@@ -1050,7 +1102,9 @@ class MobileGanttAdapter {
 ## 8. Performance Requirements
 
 ### Svelte 5 Performance Targets
-- **Rendering**: 1000 tasks render in <1 second on desktop, <2 seconds on mobile (Svelte 5 optimization)
+
+- **Rendering**: 1000 tasks render in <1 second on desktop, <2 seconds on mobile (Svelte 5
+  optimization)
 - **Interaction**: Task selection response <50ms on desktop, <100ms on mobile (reactive updates)
 - **Column Resizing**: Smooth 60fps dragging on all input types (mouse/touch/pen)
 - **Touch Response**: Touch interactions respond within 8ms (120fps on modern devices)
@@ -1060,6 +1114,7 @@ class MobileGanttAdapter {
 - **Cross-Platform**: Consistent 60fps experience across iOS, Android, Windows, macOS
 
 ### Svelte 5 Optimization Strategies
+
 - **Compile-Time Optimization**: Svelte's compiler eliminates runtime overhead
 - **Reactive Efficiency**: $derived() for computed properties with minimal recalculation
 - **Virtual Scrolling**: Render only visible tasks with Svelte's reactive updates
@@ -1076,6 +1131,7 @@ class MobileGanttAdapter {
 ## 9. Testing Strategy
 
 ### Svelte 5 Test Architecture
+
 ```
 Unit Tests (Vitest + Svelte Testing Library)
 ├── Svelte Component Tests (GanttContainer, GanttComponent)
@@ -1092,12 +1148,14 @@ E2E Tests (Playwright)
 ```
 
 ### Test-Driven Development Process
+
 1. **Red**: Write failing test for new feature
 2. **Green**: Implement minimal code to pass test
 3. **Refactor**: Optimize while maintaining test coverage
 4. **Repeat**: Continue cycle for each feature increment
 
 ### Svelte 5 Mock Strategy
+
 - **SVAR Svelte Components**: Mock for unit tests, real for integration
 - **Obsidian APIs**: Comprehensive mocks for all plugin interactions
 - **Svelte Testing Library**: Use for component testing with reactive state
@@ -1107,6 +1165,7 @@ E2E Tests (Playwright)
 ## 10. Error Handling & Resilience
 
 ### Svelte 5 Error Classification
+
 ```typescript
 class SvelteGanttError extends Error {
   constructor(
@@ -1121,14 +1180,15 @@ class SvelteGanttError extends Error {
 }
 
 // Specific error types
-class ConfigurationError extends SvelteGanttError { }
-class DataMappingError extends SvelteGanttError { }
-class SvelteRenderingError extends SvelteGanttError { }
-class ReactiveStateError extends SvelteGanttError { }
-class EventSystemError extends SvelteGanttError { }
+class ConfigurationError extends SvelteGanttError {}
+class DataMappingError extends SvelteGanttError {}
+class SvelteRenderingError extends SvelteGanttError {}
+class ReactiveStateError extends SvelteGanttError {}
+class EventSystemError extends SvelteGanttError {}
 ```
 
 ### Svelte 5 Recovery Strategies
+
 - **Configuration Errors**: Show inline error with correction hints using reactive state
 - **Data Errors**: Skip invalid items, show warning count with reactive updates
 - **Rendering Errors**: Svelte Error Boundary with retry option and state recovery
@@ -1138,6 +1198,7 @@ class EventSystemError extends SvelteGanttError { }
 ## 11. Security & Privacy
 
 ### Data Handling
+
 - **Offline-First Design**: Zero external dependencies or network requirements
 - **Local Processing**: All data processing happens locally within Obsidian
 - **Bundled Assets**: SVAR Svelte components and dependencies packaged with plugin
@@ -1147,6 +1208,7 @@ class EventSystemError extends SvelteGanttError { }
 - **CSP Compliance**: No external resource loading, full Content Security Policy compliance
 
 ### Dependency Security
+
 - **SVAR Svelte Gantt**: Latest vetted library with security updates
 - **Svelte 5**: Latest stable version with security patches
 - **TypeScript**: Latest stable with security fixes
@@ -1156,6 +1218,7 @@ class EventSystemError extends SvelteGanttError { }
 ## 11. Obsidian Svelte Plugin Best Practices
 
 ### Vite Configuration Standards
+
 Following Obsidian community best practices for Svelte plugin development:
 
 ```typescript
@@ -1194,9 +1257,7 @@ export default defineConfig(({ mode }) => ({
         ...builtins,
       ],
     },
-    outDir: mode === "development" ?
-      "./test-vault/.obsidian/plugins/obsidian-gantt" :
-      "dist",
+    outDir: mode === "development" ? "./test-vault/.obsidian/plugins/obsidian-gantt" : "dist",
     emptyOutDir: false,
     sourcemap: "inline",
   },
@@ -1204,9 +1265,10 @@ export default defineConfig(({ mode }) => ({
 ```
 
 ### Component Mounting Best Practices
+
 ```typescript
 // Proper Svelte component mounting in Obsidian
-import { mount, unmount } from 'svelte';
+import { mount, unmount } from "svelte";
 
 export function mountSvelte<T extends Record<string, any>>(
   target: HTMLElement,
@@ -1225,6 +1287,7 @@ export function mountSvelte<T extends Record<string, any>>(
 ```
 
 ### Development Workflow
+
 - **Hot Reloading**: Use `vite build --mode development --watch` for development
 - **Test Vault**: Automatic deployment to test vault during development
 - **Source Maps**: Inline source maps for debugging without CSP issues
@@ -1233,6 +1296,7 @@ export function mountSvelte<T extends Record<string, any>>(
 ## 12. Compliance & Standards Adherence
 
 ### Svelte 5 Architecture Guidelines ✅
+
 - **Reactive Design**: Leverages Svelte 5 runes for optimal reactivity
 - **Component Isolation**: Clear boundaries with reactive state encapsulation
 - **Event-Driven**: SVAR actions + Svelte event system integration
@@ -1240,6 +1304,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **State Management**: Svelte 5 reactive state + SVAR integration
 
 ### Code Quality Standards ✅
+
 - **Single Responsibility**: Each Svelte component has focused purpose
 - **Naming Conventions**: Descriptive, intention-revealing names following Dave Farley standards
 - **Function Guidelines**: <50 lines, <4 parameters, single abstraction level
@@ -1247,6 +1312,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **Reactive Patterns**: Proper use of $state, $derived, and $props
 
 ### TypeScript Standards ✅
+
 - **Strict Mode**: Full type safety enabled with Svelte 5 support
 - **No Any Types**: Proper type definitions for all APIs and reactive state
 - **Interface Design**: Clear contracts for all components and stores
@@ -1254,6 +1320,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **Reactive Type Safety**: Type-safe reactive state management
 
 ### Testing Standards ✅
+
 - **TDD Approach**: Test-first development cycle with Svelte components
 - **Vitest Framework**: Modern testing with Svelte Testing Library
 - **Mocking Strategy**: Dependency injection enables comprehensive mocking
@@ -1261,6 +1328,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **Reactive Testing**: Test reactive state changes and component updates
 
 ### Obsidian Plugin Best Practices ✅
+
 - **Factory Pattern**: Svelte component creation through factory functions
 - **Modular Structure**: Separate concerns into focused Svelte modules
 - **Lifecycle Management**: Proper Svelte cleanup and memory management
@@ -1272,6 +1340,7 @@ export function mountSvelte<T extends Record<string, any>>(
 ## 13. Success Metrics
 
 ### Svelte 5 Technical Excellence Metrics
+
 - **Reactive Performance**: Sub-1-second rendering for 1000 tasks on desktop, <2 seconds on mobile
 - **Memory Efficiency**: <30MB heap usage on desktop, <20MB on mobile (Svelte 5 optimization)
 - **Bundle Size**: <500KB gzipped total bundle (compile-time optimization)
@@ -1293,6 +1362,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **Source Map Integration**: Perfect debugging experience with inline source maps
 
 ### User Experience Excellence Metrics
+
 - **Property Naming Freedom**: Users can name their Obsidian properties however they want
 - **Minimal Configuration**: Only `id` and `text` field mappings required to get started
 - **Dynamic Column Control**: Intuitive column selection via familiar Bases property interface
@@ -1308,6 +1378,7 @@ export function mountSvelte<T extends Record<string, any>>(
 - **Performance Perception**: Users perceive interactions as instantaneous (<100ms)
 
 ### Development Excellence Metrics
+
 - **Code Quality**: 85%+ test coverage with meaningful Svelte component tests
 - **Maintainability**: Clear Svelte 5 architecture enables easy feature additions
 - **Documentation**: Comprehensive API docs with Svelte 5 examples
@@ -1318,7 +1389,5 @@ export function mountSvelte<T extends Record<string, any>>(
 
 ---
 
-**Document Version**: 2.0 (Pure SVAR Svelte 5 Implementation)
-**Last Updated**: 2025-01-24
-**Next Review**: Phase 1 Completion
-**Architecture**: Svelte 5 + SVAR Svelte Gantt + TypeScript + Vite
+**Document Version**: 2.0 (Pure SVAR Svelte 5 Implementation) **Last Updated**: 2025-01-24 **Next
+Review**: Phase 1 Completion **Architecture**: Svelte 5 + SVAR Svelte Gantt + TypeScript + Vite
