@@ -1,10 +1,13 @@
 # BDD Scenarios for Obsidian Gantt Plugin
 
-This directory contains comprehensive Behavior-Driven Development (BDD) scenarios that serve as the **official requirements** for the Obsidian Gantt plugin. These scenarios follow the BDD best practices defined in `.augment/rules/BDD.md` and `project/BDD-Best-Practices.md`.
+This directory contains comprehensive Behavior-Driven Development (BDD) scenarios that serve as the
+**official requirements** for the Obsidian Gantt plugin. These scenarios follow the BDD best
+practices defined in `.augment/rules/BDD.md` and `project/BDD-Best-Practices.md`.
 
 ## 📋 **Scenario Overview**
 
 ### **Gantt Visualization** (`gantt-visualization/`)
+
 - **task-rendering.feature** (10 scenarios)
   - Basic task display with dates
   - Missing date handling and inference
@@ -32,6 +35,7 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Mobile performance constraints
 
 ### **Bases Integration** (`bases-integration/`)
+
 - **data-mapping.feature** (12 scenarios)
   - Basic property mapping to Gantt data
   - Custom field mappings and file properties
@@ -46,6 +50,7 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Debug support and cleanup
 
 ### **Task Management** (`task-management/`)
+
 - **virtual-task-handling.feature** (10 scenarios)
   - Multi-parent task virtual duplicates
   - Unique ID generation and data consistency
@@ -60,6 +65,7 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Bulk editing and undo/redo
 
 ### **Data Sources** (`data-sources/`)
+
 - **data-transformation.feature** (12 scenarios)
   - Field mapping and date conversion
   - Missing data inference and validation
@@ -67,6 +73,7 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Error handling and performance optimization
 
 ### **User Experience** (`user-experience/`)
+
 - **error-handling.feature** (15 scenarios)
   - Configuration and data loading errors
   - Plugin dependency and compatibility issues
@@ -82,16 +89,19 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
 ## 📝 **BDD Principles Applied**
 
 ### **Domain Language**
+
 - Scenarios written from user perspective
 - Business-focused language avoiding technical implementation details
 - Clear Given-When-Then structure
 
 ### **Behavior Focus**
+
 - Each scenario tests one specific behavior
 - Concrete examples with realistic data
 - Edge cases and error conditions covered
 
 ### **Tag Organization**
+
 - `@critical` - Essential functionality
 - `@smoke` - Basic functionality verification
 - `@performance` - Performance-related scenarios
@@ -115,7 +125,9 @@ These BDD scenarios serve as:
 ## 🔧 **Implementation Notes**
 
 ### **Step Definitions Required**
+
 Based on these scenarios, you'll need step definitions for:
+
 - Vault and note setup
 - Gantt view operations
 - Task interactions
@@ -124,12 +136,14 @@ Based on these scenarios, you'll need step definitions for:
 - Performance measurement
 
 ### **Test Data Requirements**
+
 - Sample vaults with various note structures
 - Bases configuration examples
 - Large datasets for performance testing
 - Corrupted data for error testing
 
 ### **Integration Points**
+
 - Obsidian API integration
 - Bases plugin integration
 - SVAR Svelte Gantt component
@@ -144,4 +158,5 @@ Based on these scenarios, you'll need step definitions for:
 4. **Create Test Data**: Build vault fixtures and test datasets
 5. **Run BDD Tests**: Execute scenarios to drive development
 
-These scenarios provide a complete blueprint for implementing the Obsidian Gantt plugin with confidence that all requirements are captured and testable.
+These scenarios provide a complete blueprint for implementing the Obsidian Gantt plugin with
+confidence that all requirements are captured and testable.

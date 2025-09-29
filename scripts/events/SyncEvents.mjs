@@ -5,55 +5,55 @@
 
 export const SYNC_EVENTS = {
   // Configuration Events
-  CONFIG_VALIDATED: 'config:validated',
-  CONFIG_VALIDATION_FAILED: 'config:validation-failed',
-  
+  CONFIG_VALIDATED: "config:validated",
+  CONFIG_VALIDATION_FAILED: "config:validation-failed",
+
   // Staging Events
-  STAGING_CREATED: 'staging:created',
-  STAGING_CLEANED: 'staging:cleaned',
-  STAGING_ERROR: 'staging:error',
-  
+  STAGING_CREATED: "staging:created",
+  STAGING_CLEANED: "staging:cleaned",
+  STAGING_ERROR: "staging:error",
+
   // Download Events
-  DOWNLOAD_STARTED: 'download:started',
-  DOWNLOAD_COMPLETED: 'download:completed',
-  DOWNLOAD_FAILED: 'download:failed',
-  
+  DOWNLOAD_STARTED: "download:started",
+  DOWNLOAD_COMPLETED: "download:completed",
+  DOWNLOAD_FAILED: "download:failed",
+
   // Change Detection Events
-  CHANGES_DETECTED: 'changes:detected',
-  CHANGES_CLASSIFIED: 'changes:classified',
-  CHANGES_ERROR: 'changes:error',
-  
+  CHANGES_DETECTED: "changes:detected",
+  CHANGES_CLASSIFIED: "changes:classified",
+  CHANGES_ERROR: "changes:error",
+
   // Validation Events
-  VALIDATION_STARTED: 'validation:started',
-  VALIDATION_COMPLETED: 'validation:completed',
-  VALIDATION_FAILED: 'validation:failed',
-  
+  VALIDATION_STARTED: "validation:started",
+  VALIDATION_COMPLETED: "validation:completed",
+  VALIDATION_FAILED: "validation:failed",
+
   // Conflict Events
-  CONFLICTS_DETECTED: 'conflicts:detected',
-  CONFLICTS_AUTO_RESOLVED: 'conflicts:auto-resolved',
-  CONFLICTS_REQUIRE_MANUAL: 'conflicts:require-manual',
-  CONFLICTS_RESOLVED: 'conflicts:resolved',
-  
+  CONFLICTS_DETECTED: "conflicts:detected",
+  CONFLICTS_AUTO_RESOLVED: "conflicts:auto-resolved",
+  CONFLICTS_REQUIRE_MANUAL: "conflicts:require-manual",
+  CONFLICTS_RESOLVED: "conflicts:resolved",
+
   // User Interaction Events
-  USER_PROMPT_STARTED: 'user:prompt-started',
-  USER_CHOICE_MADE: 'user:choice-made',
-  USER_INTERACTION_CANCELLED: 'user:interaction-cancelled',
-  
+  USER_PROMPT_STARTED: "user:prompt-started",
+  USER_CHOICE_MADE: "user:choice-made",
+  USER_INTERACTION_CANCELLED: "user:interaction-cancelled",
+
   // Progress Events
-  PROGRESS_UPDATE: 'progress:update',
-  PHASE_STARTED: 'phase:started',
-  PHASE_COMPLETED: 'phase:completed',
-  PHASE_FAILED: 'phase:failed',
-  
+  PROGRESS_UPDATE: "progress:update",
+  PHASE_STARTED: "phase:started",
+  PHASE_COMPLETED: "phase:completed",
+  PHASE_FAILED: "phase:failed",
+
   // Sync Events
-  SYNC_STARTED: 'sync:started',
-  SYNC_COMPLETED: 'sync:completed',
-  SYNC_FAILED: 'sync:failed',
-  
+  SYNC_STARTED: "sync:started",
+  SYNC_COMPLETED: "sync:completed",
+  SYNC_FAILED: "sync:failed",
+
   // Cache Events
-  CACHE_HIT: 'cache:hit',
-  CACHE_MISS: 'cache:miss',
-  CACHE_INVALIDATED: 'cache:invalidated',
+  CACHE_HIT: "cache:hit",
+  CACHE_MISS: "cache:miss",
+  CACHE_INVALIDATED: "cache:invalidated",
 };
 
 /**
@@ -61,51 +61,51 @@ export const SYNC_EVENTS = {
  */
 export const EVENT_SCHEMAS = {
   [SYNC_EVENTS.CONFIG_VALIDATED]: {
-    config: 'object',
-    isValid: 'boolean',
-    missingFields: 'array'
+    config: "object",
+    isValid: "boolean",
+    missingFields: "array",
   },
-  
+
   [SYNC_EVENTS.STAGING_CREATED]: {
-    stagingPath: 'string',
-    timestamp: 'string'
+    stagingPath: "string",
+    timestamp: "string",
   },
-  
+
   [SYNC_EVENTS.CHANGES_DETECTED]: {
-    additions: 'array',
-    modifications: 'array',
-    deletions: 'array',
-    totalChanges: 'number'
+    additions: "array",
+    modifications: "array",
+    deletions: "array",
+    totalChanges: "number",
   },
-  
+
   [SYNC_EVENTS.CONFLICTS_DETECTED]: {
-    simple: 'array',
-    complex: 'array',
-    autoResolved: 'array'
+    simple: "array",
+    complex: "array",
+    autoResolved: "array",
   },
-  
+
   [SYNC_EVENTS.PROGRESS_UPDATE]: {
-    phase: 'string',
-    progress: 'number', // 0-100
-    message: 'string'
+    phase: "string",
+    progress: "number", // 0-100
+    message: "string",
   },
-  
+
   [SYNC_EVENTS.PHASE_STARTED]: {
-    phase: 'string',
-    timestamp: 'string'
+    phase: "string",
+    timestamp: "string",
   },
-  
+
   [SYNC_EVENTS.PHASE_COMPLETED]: {
-    phase: 'string',
-    duration: 'number',
-    result: 'object'
+    phase: "string",
+    duration: "number",
+    result: "object",
   },
-  
+
   [SYNC_EVENTS.USER_CHOICE_MADE]: {
-    filename: 'string',
-    choice: 'string',
-    timestamp: 'string'
-  }
+    filename: "string",
+    choice: "string",
+    timestamp: "string",
+  },
 };
 
 /**
@@ -126,7 +126,7 @@ export class SyncEventEmitter {
       this.listeners.set(eventName, []);
     }
     this.listeners.get(eventName).push(listener);
-    
+
     return () => this.off(eventName, listener);
   }
 
@@ -162,7 +162,7 @@ export class SyncEventEmitter {
       name: eventName,
       data,
       timestamp: new Date().toISOString(),
-      id: this.generateEventId()
+      id: this.generateEventId(),
     };
 
     // Add to history
@@ -171,7 +171,7 @@ export class SyncEventEmitter {
     // Notify listeners
     const listeners = this.listeners.get(eventName);
     if (listeners) {
-      listeners.forEach(listener => {
+      listeners.forEach((listener) => {
         try {
           listener(eventData.data, eventData);
         } catch (error) {
@@ -188,11 +188,11 @@ export class SyncEventEmitter {
    */
   getHistory(eventName = null, limit = 100) {
     let history = this.eventHistory;
-    
+
     if (eventName) {
-      history = history.filter(event => event.name === eventName);
+      history = history.filter((event) => event.name === eventName);
     }
-    
+
     return history.slice(-limit);
   }
 
@@ -230,7 +230,7 @@ export class SyncEventEmitter {
    */
   addToHistory(eventData) {
     this.eventHistory.push(eventData);
-    
+
     // Maintain history size limit
     if (this.eventHistory.length > this.maxHistorySize) {
       this.eventHistory = this.eventHistory.slice(-this.maxHistorySize);
@@ -259,16 +259,20 @@ export function createEventData(eventName, data) {
     // Basic validation could be added here
     for (const [key, expectedType] of Object.entries(schema)) {
       if (data[key] !== undefined) {
-        const actualType = Array.isArray(data[key]) ? 'array' : typeof data[key];
+        const actualType = Array.isArray(data[key])
+          ? "array"
+          : typeof data[key];
         if (actualType !== expectedType) {
-          console.warn(`Event ${eventName}: Expected ${key} to be ${expectedType}, got ${actualType}`);
+          console.warn(
+            `Event ${eventName}: Expected ${key} to be ${expectedType}, got ${actualType}`
+          );
         }
       }
     }
   }
-  
+
   return {
     ...data,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 }

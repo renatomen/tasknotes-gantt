@@ -1,16 +1,16 @@
 /**
  * OG-19: BDD Framework Integration Tests
- * 
+ *
  * Tests for Cucumber framework integration with Jest
  * Following TDD principles - these tests should fail initially
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { BDDFramework } from '../../src/bdd/BDDFramework';
-import { FeatureFileLoader } from '../../src/bdd/FeatureFileLoader';
-import { StepDefinitionRegistry } from '../../src/bdd/StepDefinitionRegistry';
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import { BDDFramework } from "../../src/bdd/BDDFramework";
+import { FeatureFileLoader } from "../../src/bdd/FeatureFileLoader";
+import { StepDefinitionRegistry } from "../../src/bdd/StepDefinitionRegistry";
 
-describe('BDD Framework Integration', () => {
+describe("BDD Framework Integration", () => {
   let bddFramework: BDDFramework;
   let mockFeatureLoader: jest.Mocked<FeatureFileLoader>;
   let mockStepRegistry: jest.Mocked<StepDefinitionRegistry>;
@@ -20,20 +20,20 @@ describe('BDD Framework Integration', () => {
     mockFeatureLoader = {
       loadFeatureFiles: jest.fn(),
       validateGherkinSyntax: jest.fn(),
-      getFeatureMetadata: jest.fn()
+      getFeatureMetadata: jest.fn(),
     } as jest.Mocked<FeatureFileLoader>;
 
     mockStepRegistry = {
       registerStepDefinition: jest.fn(),
       findStepDefinition: jest.fn(),
-      getRegisteredSteps: jest.fn()
+      getRegisteredSteps: jest.fn(),
     } as jest.Mocked<StepDefinitionRegistry>;
 
     bddFramework = new BDDFramework(mockFeatureLoader, mockStepRegistry);
   });
 
-  describe('Cucumber Framework Integration', () => {
-    it('should initialize Cucumber framework with Jest', () => {
+  describe("Cucumber Framework Integration", () => {
+    it("should initialize Cucumber framework with Jest", () => {
       // Arrange & Act
       const isInitialized = bddFramework.isInitialized();
 
@@ -42,11 +42,11 @@ describe('BDD Framework Integration', () => {
       expect(bddFramework.getCucumberConfig()).toBeDefined();
     });
 
-    it('should load feature files from features directory', async () => {
+    it("should load feature files from features directory", async () => {
       // Arrange
       const expectedFeatures = [
-        'features/gantt-visualization/task-rendering.feature',
-        'features/bases-integration/data-mapping.feature'
+        "features/gantt-visualization/task-rendering.feature",
+        "features/bases-integration/data-mapping.feature",
       ];
       mockFeatureLoader.loadFeatureFiles.mockResolvedValue(expectedFeatures);
 
@@ -54,11 +54,13 @@ describe('BDD Framework Integration', () => {
       const loadedFeatures = await bddFramework.loadFeatures();
 
       // Assert
-      expect(mockFeatureLoader.loadFeatureFiles).toHaveBeenCalledWith('features');
+      expect(mockFeatureLoader.loadFeatureFiles).toHaveBeenCalledWith(
+        "features"
+      );
       expect(loadedFeatures).toEqual(expectedFeatures);
     });
 
-    it('should validate Gherkin syntax in feature files', async () => {
+    it("should validate Gherkin syntax in feature files", async () => {
       // Arrange
       const featureContent = `
         Feature: Task Rendering
@@ -73,17 +75,28 @@ describe('BDD Framework Integration', () => {
       const isValid = await bddFramework.validateFeatureSyntax(featureContent);
 
       // Assert
-      expect(mockFeatureLoader.validateGherkinSyntax).toHaveBeenCalledWith(featureContent);
+      expect(mockFeatureLoader.validateGherkinSyntax).toHaveBeenCalledWith(
+        featureContent
+      );
       expect(isValid).toBe(true);
     });
   });
 
-  describe('Step Definition Management', () => {
-    it('should register Given-When-Then step definitions', () => {
+  describe("Step Definition Management", () => {
+    it("should register Given-When-Then step definitions", () => {
       // Arrange
-      const givenStep = { pattern: /^a task with title "(.+)"$/, handler: jest.fn() };
-      const whenStep = { pattern: /^the Gantt chart is rendered$/, handler: jest.fn() };
-      const thenStep = { pattern: /^the task should be visible$/, handler: jest.fn() };
+      const givenStep = {
+        pattern: /^a task with title "(.+)"$/,
+        handler: jest.fn(),
+      };
+      const whenStep = {
+        pattern: /^the Gantt chart is rendered$/,
+        handler: jest.fn(),
+      };
+      const thenStep = {
+        pattern: /^the task should be visible$/,
+        handler: jest.fn(),
+      };
 
       // Act
       bddFramework.registerGivenStep(givenStep.pattern, givenStep.handler);
@@ -92,36 +105,51 @@ describe('BDD Framework Integration', () => {
 
       // Assert
       expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledTimes(3);
-      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith('Given', givenStep.pattern, givenStep.handler);
-      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith('When', whenStep.pattern, whenStep.handler);
-      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith('Then', thenStep.pattern, thenStep.handler);
+      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith(
+        "Given",
+        givenStep.pattern,
+        givenStep.handler
+      );
+      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith(
+        "When",
+        whenStep.pattern,
+        whenStep.handler
+      );
+      expect(mockStepRegistry.registerStepDefinition).toHaveBeenCalledWith(
+        "Then",
+        thenStep.pattern,
+        thenStep.handler
+      );
     });
 
-    it('should find step definitions by pattern', () => {
+    it("should find step definitions by pattern", () => {
       // Arrange
       const stepText = 'a task with title "Test Task"';
       const expectedHandler = jest.fn();
       mockStepRegistry.findStepDefinition.mockReturnValue(expectedHandler);
 
       // Act
-      const handler = bddFramework.findStepHandler('Given', stepText);
+      const handler = bddFramework.findStepHandler("Given", stepText);
 
       // Assert
-      expect(mockStepRegistry.findStepDefinition).toHaveBeenCalledWith('Given', stepText);
+      expect(mockStepRegistry.findStepDefinition).toHaveBeenCalledWith(
+        "Given",
+        stepText
+      );
       expect(handler).toBe(expectedHandler);
     });
   });
 
-  describe('Scenario Execution', () => {
-    it('should execute scenarios independently', async () => {
+  describe("Scenario Execution", () => {
+    it("should execute scenarios independently", async () => {
       // Arrange
       const scenario = {
-        name: 'Display basic task',
+        name: "Display basic task",
         steps: [
-          { keyword: 'Given', text: 'a task with title "Test Task"' },
-          { keyword: 'When', text: 'the Gantt chart is rendered' },
-          { keyword: 'Then', text: 'the task should be visible' }
-        ]
+          { keyword: "Given", text: 'a task with title "Test Task"' },
+          { keyword: "When", text: "the Gantt chart is rendered" },
+          { keyword: "Then", text: "the task should be visible" },
+        ],
       };
 
       const mockHandlers = [jest.fn(), jest.fn(), jest.fn()];
@@ -140,10 +168,10 @@ describe('BDD Framework Integration', () => {
       expect(mockHandlers[2]).toHaveBeenCalled();
     });
 
-    it('should isolate scenario execution contexts', async () => {
+    it("should isolate scenario execution contexts", async () => {
       // Arrange
-      const scenario1 = { name: 'Scenario 1', steps: [] };
-      const scenario2 = { name: 'Scenario 2', steps: [] };
+      const scenario1 = { name: "Scenario 1", steps: [] };
+      const scenario2 = { name: "Scenario 2", steps: [] };
 
       // Act
       const context1 = bddFramework.createScenarioContext(scenario1);
@@ -151,20 +179,20 @@ describe('BDD Framework Integration', () => {
 
       // Assert
       expect(context1).not.toBe(context2);
-      expect(context1.scenarioName).toBe('Scenario 1');
-      expect(context2.scenarioName).toBe('Scenario 2');
+      expect(context1.scenarioName).toBe("Scenario 1");
+      expect(context2.scenarioName).toBe("Scenario 2");
     });
   });
 
-  describe('Living Documentation Generation', () => {
-    it('should generate documentation from feature files', async () => {
+  describe("Living Documentation Generation", () => {
+    it("should generate documentation from feature files", async () => {
       // Arrange
-      const features = ['feature1.feature', 'feature2.feature'];
+      const features = ["feature1.feature", "feature2.feature"];
       mockFeatureLoader.loadFeatureFiles.mockResolvedValue(features);
       mockFeatureLoader.getFeatureMetadata.mockResolvedValue({
-        title: 'Task Rendering',
-        description: 'Tests for task rendering functionality',
-        scenarios: ['Display basic task', 'Display task with dependencies']
+        title: "Task Rendering",
+        description: "Tests for task rendering functionality",
+        scenarios: ["Display basic task", "Display task with dependencies"],
       });
 
       // Act

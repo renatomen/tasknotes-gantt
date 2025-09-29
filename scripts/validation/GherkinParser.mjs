@@ -3,9 +3,9 @@
  * Extracted from oversized GherkinValidator class (343 lines → ~100 lines)
  */
 
-import { syncEvents, SYNC_EVENTS } from '../events/SyncEvents.mjs';
-import { cacheManager } from '../cache/CacheManager.mjs';
-import { GherkinParseError } from '../errors/SyncErrors.mjs';
+import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
+import { cacheManager } from "../cache/CacheManager.mjs";
+import { GherkinParseError } from "../errors/SyncErrors.mjs";
 
 export class GherkinParser {
   constructor() {
@@ -15,20 +15,29 @@ export class GherkinParser {
   /**
    * Parse Gherkin content and extract AST data
    */
-  async parseFeatureContent(content, sourcePath = 'unknown') {
+  async parseFeatureContent(content, sourcePath = "unknown") {
     try {
       // Check cache first
       const fileHash = this.generateContentHash(content);
-      const cached = cacheManager.validationCache.getFeatureData(sourcePath, fileHash);
+      const cached = cacheManager.validationCache.getFeatureData(
+        sourcePath,
+        fileHash
+      );
       if (cached) {
-        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, { type: 'feature-data', sourcePath });
+        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, {
+          type: "feature-data",
+          sourcePath,
+        });
         return cached;
       }
 
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_STARTED, { sourcePath, type: 'parsing' });
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_STARTED, {
+        sourcePath,
+        type: "parsing",
+      });
 
       // Import Gherkin components dynamically
-      const gherkin = await import('@cucumber/gherkin');
+      const gherkin = await import("@cucumber/gherkin");
       const { generateMessages, makeSourceEnvelope } = gherkin;
 
       // Create source envelope and parse the feature file
@@ -45,36 +54,43 @@ export class GherkinParser {
       );
 
       // Find the GherkinDocument message
-      const gherkinDocumentMessage = messages.find(message => message.gherkinDocument);
+      const gherkinDocumentMessage = messages.find(
+        (message) => message.gherkinDocument
+      );
       const gherkinDocument = gherkinDocumentMessage?.gherkinDocument;
 
       if (!gherkinDocument || !gherkinDocument.feature) {
         throw new GherkinParseError(
-          'No valid feature found in file',
+          "No valid feature found in file",
           sourcePath,
-          'Missing feature definition'
+          "Missing feature definition"
         );
       }
 
       // Extract feature data from AST
-      const featureData = this.extractFeatureDataFromAST(gherkinDocument.feature);
-      
+      const featureData = this.extractFeatureDataFromAST(
+        gherkinDocument.feature
+      );
+
       // Cache the result
-      cacheManager.validationCache.cacheFeatureData(sourcePath, fileHash, featureData);
-      
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_COMPLETED, { 
-        sourcePath, 
-        type: 'parsing',
-        scenarioCount: featureData.scenarios.length 
+      cacheManager.validationCache.cacheFeatureData(
+        sourcePath,
+        fileHash,
+        featureData
+      );
+
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_COMPLETED, {
+        sourcePath,
+        type: "parsing",
+        scenarioCount: featureData.scenarios.length,
       });
 
       return featureData;
-
     } catch (error) {
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_FAILED, { 
-        sourcePath, 
-        type: 'parsing',
-        error: error.message 
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_FAILED, {
+        sourcePath,
+        type: "parsing",
+        error: error.message,
       });
 
       if (error instanceof GherkinParseError) {
@@ -94,12 +110,12 @@ export class GherkinParser {
    */
   extractFeatureDataFromAST(feature) {
     const metadata = {
-      name: feature.name || '',
-      description: feature.description || '',
+      name: feature.name || "",
+      description: feature.description || "",
       tags: this.extractTags(feature.tags),
       scenarios: [],
-      language: feature.language || 'en',
-      background: null
+      language: feature.language || "en",
+      background: null,
     };
 
     // Extract children (scenarios, rules, background)
@@ -123,11 +139,16 @@ export class GherkinParser {
    */
   extractScenario(scenario) {
     return {
-      name: scenario.name || '',
+      name: scenario.name || "",
       tags: this.extractTags(scenario.tags),
       steps: this.extractSteps(scenario.steps),
-      type: scenario.keyword?.toLowerCase() === 'scenario outline' ? 'outline' : 'scenario',
-      examples: scenario.examples ? this.extractExamples(scenario.examples) : []
+      type:
+        scenario.keyword?.toLowerCase() === "scenario outline"
+          ? "outline"
+          : "scenario",
+      examples: scenario.examples
+        ? this.extractExamples(scenario.examples)
+        : [],
     };
   }
 
@@ -136,8 +157,8 @@ export class GherkinParser {
    */
   extractBackground(background) {
     return {
-      name: background.name || '',
-      steps: this.extractSteps(background.steps)
+      name: background.name || "",
+      steps: this.extractSteps(background.steps),
     };
   }
 
@@ -146,7 +167,7 @@ export class GherkinParser {
    */
   extractRuleScenarios(rule) {
     const scenarios = [];
-    
+
     if (rule.children) {
       for (const child of rule.children) {
         if (child.scenario) {
@@ -156,7 +177,7 @@ export class GherkinParser {
         }
       }
     }
-    
+
     return scenarios;
   }
 
@@ -164,19 +185,23 @@ export class GherkinParser {
    * Extract tags from AST
    */
   extractTags(tags) {
-    return tags ? tags.map(tag => tag.name) : [];
+    return tags ? tags.map((tag) => tag.name) : [];
   }
 
   /**
    * Extract steps from AST
    */
   extractSteps(steps) {
-    return steps ? steps.map(step => ({
-      keyword: step.keyword?.trim(),
-      text: step.text || '',
-      docString: step.docString?.content,
-      dataTable: step.dataTable ? this.extractDataTable(step.dataTable) : null
-    })) : [];
+    return steps
+      ? steps.map((step) => ({
+          keyword: step.keyword?.trim(),
+          text: step.text || "",
+          docString: step.docString?.content,
+          dataTable: step.dataTable
+            ? this.extractDataTable(step.dataTable)
+            : null,
+        }))
+      : [];
   }
 
   /**
@@ -184,10 +209,10 @@ export class GherkinParser {
    */
   extractDataTable(dataTable) {
     return {
-      headers: dataTable.rows[0]?.cells?.map(cell => cell.value) || [],
-      rows: dataTable.rows.slice(1).map(row => 
-        row.cells?.map(cell => cell.value) || []
-      )
+      headers: dataTable.rows[0]?.cells?.map((cell) => cell.value) || [],
+      rows: dataTable.rows
+        .slice(1)
+        .map((row) => row.cells?.map((cell) => cell.value) || []),
     };
   }
 
@@ -195,12 +220,14 @@ export class GherkinParser {
    * Extract examples from scenario outline
    */
   extractExamples(examples) {
-    return examples.map(example => ({
-      name: example.name || '',
+    return examples.map((example) => ({
+      name: example.name || "",
       tags: this.extractTags(example.tags),
-      table: example.tableHeader ? this.extractDataTable({
-        rows: [example.tableHeader, ...example.tableBody]
-      }) : null
+      table: example.tableHeader
+        ? this.extractDataTable({
+            rows: [example.tableHeader, ...example.tableBody],
+          })
+        : null,
     }));
   }
 
@@ -212,7 +239,7 @@ export class GherkinParser {
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
       const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
     return hash.toString(36);
@@ -226,27 +253,33 @@ export class GherkinParser {
 
     // Check for empty feature
     if (!featureData.name.trim()) {
-      issues.push({ type: 'warning', message: 'Feature should have a descriptive name' });
+      issues.push({
+        type: "warning",
+        message: "Feature should have a descriptive name",
+      });
     }
 
     // Check for scenarios
     if (featureData.scenarios.length === 0) {
-      issues.push({ type: 'error', message: 'Feature must contain at least one scenario' });
+      issues.push({
+        type: "error",
+        message: "Feature must contain at least one scenario",
+      });
     }
 
     // Check scenarios for issues
     featureData.scenarios.forEach((scenario, index) => {
       if (!scenario.name.trim()) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Scenario ${index + 1} should have a descriptive name` 
+        issues.push({
+          type: "warning",
+          message: `Scenario ${index + 1} should have a descriptive name`,
         });
       }
 
       if (scenario.steps.length === 0) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Scenario "${scenario.name}" has no steps` 
+        issues.push({
+          type: "warning",
+          message: `Scenario "${scenario.name}" has no steps`,
         });
       }
     });

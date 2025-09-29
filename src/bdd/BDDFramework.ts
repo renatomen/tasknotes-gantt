@@ -1,12 +1,12 @@
 /**
  * OG-19: BDD Framework Core Implementation
- * 
+ *
  * Main BDD framework class that integrates Cucumber with Jest
  * Follows single responsibility principle and dependency injection
  */
 
-import { FeatureFileLoader } from './FeatureFileLoader';
-import { StepDefinitionRegistry } from './StepDefinitionRegistry';
+import { FeatureFileLoader } from "./FeatureFileLoader";
+import { StepDefinitionRegistry } from "./StepDefinitionRegistry";
 
 export interface CucumberConfig {
   featuresPath: string;
@@ -63,10 +63,10 @@ export class BDDFramework {
     private stepRegistry: StepDefinitionRegistry
   ) {
     this.cucumberConfig = {
-      featuresPath: 'features',
-      stepDefinitionsPath: 'test/step-definitions',
-      format: ['pretty', 'html:test-results/cucumber-report.html'],
-      requireModule: ['ts-node/register']
+      featuresPath: "features",
+      stepDefinitionsPath: "test/step-definitions",
+      format: ["pretty", "html:test-results/cucumber-report.html"],
+      requireModule: ["ts-node/register"],
     };
     this.initialized = true;
   }
@@ -88,7 +88,7 @@ export class BDDFramework {
   /**
    * Load feature files from the features directory
    */
-  async loadFeatures(featuresPath: string = 'features'): Promise<string[]> {
+  async loadFeatures(featuresPath: string = "features"): Promise<string[]> {
     return await this.featureLoader.loadFeatureFiles(featuresPath);
   }
 
@@ -103,21 +103,21 @@ export class BDDFramework {
    * Register a Given step definition
    */
   registerGivenStep(pattern: RegExp, handler: Function): void {
-    this.stepRegistry.registerStepDefinition('Given', pattern, handler);
+    this.stepRegistry.registerStepDefinition("Given", pattern, handler);
   }
 
   /**
    * Register a When step definition
    */
   registerWhenStep(pattern: RegExp, handler: Function): void {
-    this.stepRegistry.registerStepDefinition('When', pattern, handler);
+    this.stepRegistry.registerStepDefinition("When", pattern, handler);
   }
 
   /**
    * Register a Then step definition
    */
   registerThenStep(pattern: RegExp, handler: Function): void {
-    this.stepRegistry.registerStepDefinition('Then', pattern, handler);
+    this.stepRegistry.registerStepDefinition("Then", pattern, handler);
   }
 
   /**
@@ -133,15 +133,17 @@ export class BDDFramework {
   async executeScenario(scenario: Scenario): Promise<ScenarioResult> {
     const result: ScenarioResult = {
       success: true,
-      steps: []
+      steps: [],
     };
 
     try {
       for (const step of scenario.steps) {
         const handler = this.findStepHandler(step.keyword, step.text);
-        
+
         if (!handler) {
-          throw new Error(`No step definition found for: ${step.keyword} ${step.text}`);
+          throw new Error(
+            `No step definition found for: ${step.keyword} ${step.text}`
+          );
         }
 
         try {
@@ -168,7 +170,7 @@ export class BDDFramework {
   createScenarioContext(scenario: Scenario): ScenarioContext {
     return {
       scenarioName: scenario.name,
-      data: {}
+      data: {},
     };
   }
 
@@ -179,14 +181,14 @@ export class BDDFramework {
     const features = await this.loadFeatures();
     const documentation: LivingDocumentation = {
       features: [],
-      generatedAt: new Date()
+      generatedAt: new Date(),
     };
 
     for (const featurePath of features) {
       const metadata = await this.featureLoader.getFeatureMetadata(featurePath);
       documentation.features.push({
         name: featurePath,
-        metadata
+        metadata,
       });
     }
 

@@ -1,8 +1,10 @@
-I'll perform a comprehensive analysis of your obsidian-gantt repository to provide you with a complete environment setup guide. Let me examine all the key configuration files and dependencies.
+I'll perform a comprehensive analysis of your obsidian-gantt repository to provide you with a
+complete environment setup guide. Let me examine all the key configuration files and dependencies.
 
 # Comprehensive Development Environment Setup Guide
 
-Based on my analysis of your obsidian-gantt repository, here's a complete step-by-step guide to restore your development environment from scratch:
+Based on my analysis of your obsidian-gantt repository, here's a complete step-by-step guide to
+restore your development environment from scratch:
 
 ## 1. **Package Dependencies & Installation**
 
@@ -270,4 +272,5 @@ git commit -m "test: verify setup"  # Should run pre-commit hooks
 ✅ **E2E tests can run (`npm run e2e:local`)**  
 ✅ **Development mode works (`npm run dev`)**
 
-This setup will give you a fully functional development environment for the obsidian-gantt project with all build processes, testing, and automation scripts working correctly.
+This setup will give you a fully functional development environment for the obsidian-gantt project
+with all build processes, testing, and automation scripts working correctly.

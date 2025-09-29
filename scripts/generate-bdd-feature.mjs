@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 /**
  * OG-38: BDD Feature Template Generator
- * 
+ *
  * CLI tool to generate properly structured feature files following project conventions
  * Usage: npm run generate:feature <domain> <feature-name>
  */
 
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-import yaml from 'js-yaml';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
+import { join } from "path";
+import yaml from "js-yaml";
 
 // Project BDD conventions
 const DOMAINS = [
-  'gantt-visualization',
-  'task-management', 
-  'bases-integration',
-  'data-sources',
-  'user-experience',
-  'infrastructure',
-  'performance'
+  "gantt-visualization",
+  "task-management",
+  "bases-integration",
+  "data-sources",
+  "user-experience",
+  "infrastructure",
+  "performance",
 ];
 
 /**
@@ -26,12 +26,12 @@ const DOMAINS = [
  */
 function loadSemanticTags() {
   try {
-    const registryPath = '.bdd/semantic-tags.yaml';
+    const registryPath = ".bdd/semantic-tags.yaml";
     if (!existsSync(registryPath)) {
-      console.warn('⚠️  Semantic tag registry not found, using defaults');
+      console.warn("⚠️  Semantic tag registry not found, using defaults");
       return null;
     }
-    const content = readFileSync(registryPath, 'utf8');
+    const content = readFileSync(registryPath, "utf8");
     return yaml.load(content);
   } catch (error) {
     console.warn(`⚠️  Error loading semantic tags: ${error.message}`);
@@ -45,7 +45,7 @@ function loadSemanticTags() {
 function getSuggestedTags(domain, featureName, registry) {
   if (!registry) {
     // Fallback to default tags
-    return [`@${domain}`, '@priority-medium', '@regression'];
+    return [`@${domain}`, "@priority-medium", "@regression"];
   }
 
   const suggestions = [];
@@ -53,13 +53,13 @@ function getSuggestedTags(domain, featureName, registry) {
 
   // Suggest epic based on domain
   const domainToEpic = {
-    'gantt-visualization': '@epic-gantt-visualization',
-    'task-management': '@epic-task-management',
-    'bases-integration': '@epic-bases-integration',
-    'data-sources': '@epic-data-sources',
-    'user-experience': '@epic-user-experience',
-    'infrastructure': '@epic-infrastructure',
-    'performance': '@epic-performance'
+    "gantt-visualization": "@epic-gantt-visualization",
+    "task-management": "@epic-task-management",
+    "bases-integration": "@epic-bases-integration",
+    "data-sources": "@epic-data-sources",
+    "user-experience": "@epic-user-experience",
+    infrastructure: "@epic-infrastructure",
+    performance: "@epic-performance",
   };
 
   if (domainToEpic[domain]) {
@@ -73,7 +73,7 @@ function getSuggestedTags(domain, featureName, registry) {
   }
 
   // Default priority and test type
-  suggestions.push('@priority-medium', '@regression');
+  suggestions.push("@priority-medium", "@regression");
 
   return suggestions;
 }
@@ -84,20 +84,20 @@ function getSuggestedTags(domain, featureName, registry) {
 function generateFeatureTemplate(domain, featureName, options = {}) {
   const registry = loadSemanticTags();
   const {
-    userType = 'project manager',
-    functionality = 'perform an action',
-    businessValue = 'achieve a goal',
+    userType = "project manager",
+    functionality = "perform an action",
+    businessValue = "achieve a goal",
     includeBackground = true,
     includeScenarioOutline = false,
-    tags = getSuggestedTags(domain, featureName, registry)
+    tags = getSuggestedTags(domain, featureName, registry),
   } = options;
 
   const featureTitle = featureName
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 
-  const allTags = tags.join(' ');
+  const allTags = tags.join(" ");
 
   let template = `Feature: ${featureTitle}
   As a ${userType}
@@ -116,7 +116,7 @@ function generateFeatureTemplate(domain, featureName, options = {}) {
 
   template += `
   ${allTags}
-  Scenario: Basic ${featureName.replace(/-/g, ' ')} functionality
+  Scenario: Basic ${featureName.replace(/-/g, " ")} functionality
     Given I have the necessary setup
     When I perform the main action
     Then I should see the expected result
@@ -157,17 +157,19 @@ function createFeatureFile(domain, featureName, options = {}) {
   // Validate domain
   if (!DOMAINS.includes(domain)) {
     console.error(`❌ Invalid domain: ${domain}`);
-    console.error(`Available domains: ${DOMAINS.join(', ')}`);
+    console.error(`Available domains: ${DOMAINS.join(", ")}`);
     process.exit(1);
   }
 
   // Validate feature name
   if (!featureName || !/^[a-z0-9-]+$/.test(featureName)) {
-    console.error('❌ Feature name must be lowercase with hyphens (e.g., task-editing)');
+    console.error(
+      "❌ Feature name must be lowercase with hyphens (e.g., task-editing)"
+    );
     process.exit(1);
   }
 
-  const featuresDir = join(process.cwd(), 'features', domain);
+  const featuresDir = join(process.cwd(), "features", domain);
   const featureFile = join(featuresDir, `${featureName}.feature`);
 
   // Check if file already exists
@@ -196,22 +198,22 @@ function createFeatureFile(domain, featureName, options = {}) {
  * Interactive prompts for feature generation
  */
 function promptForFeatureDetails() {
-  console.log('🛠️ BDD Feature Generator - Interactive Mode\n');
-  
+  console.log("🛠️ BDD Feature Generator - Interactive Mode\n");
+
   // This is a simplified version - in a real implementation you'd use inquirer or similar
-  console.log('Available domains:');
+  console.log("Available domains:");
   DOMAINS.forEach((domain, index) => {
     console.log(`  ${index + 1}. ${domain}`);
   });
-  
-  console.log('\nUsage: npm run generate:feature <domain> <feature-name>');
-  console.log('Example: npm run generate:feature task-management task-editing');
-  console.log('\nOptions:');
+
+  console.log("\nUsage: npm run generate:feature <domain> <feature-name>");
+  console.log("Example: npm run generate:feature task-management task-editing");
+  console.log("\nOptions:");
   console.log('  --user-type "user type"');
   console.log('  --functionality "what they want"');
   console.log('  --business-value "why they want it"');
-  console.log('  --no-background (skip background section)');
-  console.log('  --scenario-outline (include scenario outline)');
+  console.log("  --no-background (skip background section)");
+  console.log("  --scenario-outline (include scenario outline)");
   console.log('  --tags "@tag1,@tag2" (custom tags)');
 }
 
@@ -220,7 +222,7 @@ function promptForFeatureDetails() {
  */
 function parseArgs() {
   const args = process.argv.slice(2);
-  
+
   if (args.length < 2) {
     promptForFeatureDetails();
     process.exit(0);
@@ -232,19 +234,19 @@ function parseArgs() {
   // Parse options
   for (let i = 2; i < args.length; i++) {
     const arg = args[i];
-    
-    if (arg === '--no-background') {
+
+    if (arg === "--no-background") {
       options.includeBackground = false;
-    } else if (arg === '--scenario-outline') {
+    } else if (arg === "--scenario-outline") {
       options.includeScenarioOutline = true;
-    } else if (arg === '--user-type' && args[i + 1]) {
+    } else if (arg === "--user-type" && args[i + 1]) {
       options.userType = args[++i];
-    } else if (arg === '--functionality' && args[i + 1]) {
+    } else if (arg === "--functionality" && args[i + 1]) {
       options.functionality = args[++i];
-    } else if (arg === '--business-value' && args[i + 1]) {
+    } else if (arg === "--business-value" && args[i + 1]) {
       options.businessValue = args[++i];
-    } else if (arg === '--tags' && args[i + 1]) {
-      options.tags = args[++i].split(',').map(tag => tag.trim());
+    } else if (arg === "--tags" && args[i + 1]) {
+      options.tags = args[++i].split(",").map((tag) => tag.trim());
     }
   }
 
@@ -255,9 +257,9 @@ function parseArgs() {
  * Show available tags from semantic registry
  */
 function showAvailableTags() {
-  console.log('\n📋 Available Tags from Semantic Registry:\n');
+  console.log("\n📋 Available Tags from Semantic Registry:\n");
   console.log('Use "npm run tags list" to see all available semantic tags');
-  console.log('');
+  console.log("");
 }
 
 /**
@@ -265,36 +267,35 @@ function showAvailableTags() {
  */
 function main() {
   try {
-    console.log('🧪 OG-38: BDD Feature Template Generator\n');
+    console.log("🧪 OG-38: BDD Feature Template Generator\n");
 
     // Show help if requested
-    if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    if (process.argv.includes("--help") || process.argv.includes("-h")) {
       promptForFeatureDetails();
       showAvailableTags();
       process.exit(0);
     }
 
     // Show available tags if requested
-    if (process.argv.includes('--tags-help')) {
+    if (process.argv.includes("--tags-help")) {
       showAvailableTags();
       process.exit(0);
     }
 
     const { domain, featureName, options } = parseArgs();
-    
+
     console.log(`📝 Generating feature: ${featureName}`);
     console.log(`📂 Domain: ${domain}`);
-    console.log(`🏷️ Tags: ${options.tags || ['@medium', '@regression']}\n`);
+    console.log(`🏷️ Tags: ${options.tags || ["@medium", "@regression"]}\n`);
 
     createFeatureFile(domain, featureName, options);
 
-    console.log('\n🎉 Feature file created successfully!');
-    console.log('\n📋 Next steps:');
-    console.log('1. Edit the feature file to add specific scenarios');
-    console.log('2. Run validation: npm run validate:bdd');
-    console.log('3. Implement step definitions in test/step-definitions/');
-    console.log('4. Run BDD tests: npm run test:bdd');
-    
+    console.log("\n🎉 Feature file created successfully!");
+    console.log("\n📋 Next steps:");
+    console.log("1. Edit the feature file to add specific scenarios");
+    console.log("2. Run validation: npm run validate:bdd");
+    console.log("3. Implement step definitions in test/step-definitions/");
+    console.log("4. Run BDD tests: npm run test:bdd");
   } catch (error) {
     console.error(`❌ Error generating feature: ${error.message}`);
     process.exit(1);
@@ -302,9 +303,18 @@ function main() {
 }
 
 // Export for testing
-export { generateFeatureTemplate, createFeatureFile, DOMAINS, loadSemanticTags, getSuggestedTags };
+export {
+  generateFeatureTemplate,
+  createFeatureFile,
+  DOMAINS,
+  loadSemanticTags,
+  getSuggestedTags,
+};
 
 // Run if called directly
-if (import.meta.url.endsWith(process.argv[1]) || process.argv[1].endsWith('generate-bdd-feature.mjs')) {
+if (
+  import.meta.url.endsWith(process.argv[1]) ||
+  process.argv[1].endsWith("generate-bdd-feature.mjs")
+) {
   main();
 }

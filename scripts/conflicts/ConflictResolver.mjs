@@ -3,10 +3,10 @@
  * Extracted from oversized ConflictResolver class (312 lines → ~100 lines)
  */
 
-import { syncEvents, SYNC_EVENTS } from '../events/SyncEvents.mjs';
-import { cacheManager } from '../cache/CacheManager.mjs';
-import { GitOperationError } from '../errors/SyncErrors.mjs';
-import { ConflictDetector } from './ConflictDetector.mjs';
+import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
+import { cacheManager } from "../cache/CacheManager.mjs";
+import { GitOperationError } from "../errors/SyncErrors.mjs";
+import { ConflictDetector } from "./ConflictDetector.mjs";
 
 export class ConflictResolver {
   constructor(detector = null, gitExecutor = null, fileSystem = null) {
@@ -19,11 +19,11 @@ export class ConflictResolver {
   async initialize() {
     if (!this._initialized) {
       if (!this.gitExecutor) {
-        const { execSync } = await import('child_process');
+        const { execSync } = await import("child_process");
         this.gitExecutor = execSync;
       }
       if (!this.fs) {
-        this.fs = await import('fs/promises');
+        this.fs = await import("fs/promises");
       }
       this._initialized = true;
     }
@@ -37,50 +37,50 @@ export class ConflictResolver {
     const results = {
       autoResolved: [],
       requiresManual: [],
-      failed: []
+      failed: [],
     };
 
-    syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, { 
-      type: 'resolution-started',
-      conflictCount: conflicts.length 
+    syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, {
+      type: "resolution-started",
+      conflictCount: conflicts.length,
     });
 
     for (const conflict of conflicts) {
       try {
         const resolution = await this.resolveConflict(conflict);
-        
+
         if (resolution.success) {
-          if (resolution.method === 'auto') {
+          if (resolution.method === "auto") {
             results.autoResolved.push({
               filename: conflict.filename,
               method: resolution.strategy,
-              reason: resolution.reason
+              reason: resolution.reason,
             });
           } else {
             results.requiresManual.push({
               filename: conflict.filename,
               method: resolution.strategy,
-              conflictMarkers: resolution.conflictMarkers
+              conflictMarkers: resolution.conflictMarkers,
             });
           }
         } else {
           results.failed.push({
             filename: conflict.filename,
-            error: resolution.error
+            error: resolution.error,
           });
         }
       } catch (error) {
         results.failed.push({
           filename: conflict.filename,
-          error: error.message
+          error: error.message,
         });
       }
     }
 
-    syncEvents.emit(SYNC_EVENTS.CONFLICTS_RESOLVED, { 
+    syncEvents.emit(SYNC_EVENTS.CONFLICTS_RESOLVED, {
       autoResolved: results.autoResolved.length,
       requiresManual: results.requiresManual.length,
-      failed: results.failed.length
+      failed: results.failed.length,
     });
 
     return results;
@@ -93,7 +93,7 @@ export class ConflictResolver {
     try {
       // Analyze the conflict type
       const analysis = await this.detector.analyzeConflictType(
-        conflict.githubFile, 
+        conflict.githubFile,
         conflict.assertThatFile
       );
 
@@ -103,11 +103,10 @@ export class ConflictResolver {
       } else {
         return await this.createConflictMarkers(conflict, analysis);
       }
-
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -121,24 +120,24 @@ export class ConflictResolver {
       let strategy;
 
       switch (analysis.reason) {
-        case 'whitespace-only':
+        case "whitespace-only":
           resolvedContent = await this.resolveWhitespaceConflict(conflict);
-          strategy = 'whitespace-normalization';
+          strategy = "whitespace-normalization";
           break;
 
-        case 'comments-only':
+        case "comments-only":
           resolvedContent = await this.resolveCommentConflict(conflict);
-          strategy = 'comment-merge';
+          strategy = "comment-merge";
           break;
 
-        case 'formatting-only':
+        case "formatting-only":
           resolvedContent = await this.resolveFormattingConflict(conflict);
-          strategy = 'formatting-normalization';
+          strategy = "formatting-normalization";
           break;
 
-        case 'minor-change':
+        case "minor-change":
           resolvedContent = await this.resolveMinorConflict(conflict);
-          strategy = 'minor-merge';
+          strategy = "minor-merge";
           break;
 
         default:
@@ -146,25 +145,24 @@ export class ConflictResolver {
       }
 
       // Write resolved content to staging file
-      await this.fs.writeFile(conflict.stagingFile, resolvedContent, 'utf8');
+      await this.fs.writeFile(conflict.stagingFile, resolvedContent, "utf8");
 
-      syncEvents.emit(SYNC_EVENTS.CONFLICTS_AUTO_RESOLVED, { 
+      syncEvents.emit(SYNC_EVENTS.CONFLICTS_AUTO_RESOLVED, {
         filename: conflict.filename,
         strategy,
-        reason: analysis.reason
+        reason: analysis.reason,
       });
 
       return {
         success: true,
-        method: 'auto',
+        method: "auto",
         strategy,
-        reason: analysis.reason
+        reason: analysis.reason,
       };
-
     } catch (error) {
       throw new GitOperationError(
         `Failed to auto-resolve conflict for ${conflict.filename}`,
-        'auto-resolution',
+        "auto-resolution",
         error.message
       );
     }
@@ -175,8 +173,11 @@ export class ConflictResolver {
    */
   async createConflictMarkers(conflict, analysis) {
     try {
-      const githubContent = await this.fs.readFile(conflict.githubFile, 'utf8');
-      const assertThatContent = await this.fs.readFile(conflict.assertThatFile, 'utf8');
+      const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
+      const assertThatContent = await this.fs.readFile(
+        conflict.assertThatFile,
+        "utf8"
+      );
 
       const conflictMarkers = this.generateConflictMarkers(
         githubContent,
@@ -185,25 +186,24 @@ export class ConflictResolver {
       );
 
       // Write conflict markers to staging file
-      await this.fs.writeFile(conflict.stagingFile, conflictMarkers, 'utf8');
+      await this.fs.writeFile(conflict.stagingFile, conflictMarkers, "utf8");
 
-      syncEvents.emit(SYNC_EVENTS.CONFLICTS_REQUIRE_MANUAL, { 
+      syncEvents.emit(SYNC_EVENTS.CONFLICTS_REQUIRE_MANUAL, {
         filename: conflict.filename,
         reason: analysis.reason,
-        confidence: analysis.confidence
+        confidence: analysis.confidence,
       });
 
       return {
         success: true,
-        method: 'manual',
-        strategy: 'conflict-markers',
-        conflictMarkers: true
+        method: "manual",
+        strategy: "conflict-markers",
+        conflictMarkers: true,
       };
-
     } catch (error) {
       throw new GitOperationError(
         `Failed to create conflict markers for ${conflict.filename}`,
-        'conflict-markers',
+        "conflict-markers",
         error.message
       );
     }
@@ -214,7 +214,7 @@ export class ConflictResolver {
    */
   async resolveWhitespaceConflict(conflict) {
     // Prefer GitHub version for whitespace conflicts (more likely to be standardized)
-    const githubContent = await this.fs.readFile(conflict.githubFile, 'utf8');
+    const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
     return githubContent;
   }
 
@@ -223,8 +223,11 @@ export class ConflictResolver {
    */
   async resolveCommentConflict(conflict) {
     // Merge comments from both versions
-    const githubContent = await this.fs.readFile(conflict.githubFile, 'utf8');
-    const assertThatContent = await this.fs.readFile(conflict.assertThatFile, 'utf8');
+    const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
+    const assertThatContent = await this.fs.readFile(
+      conflict.assertThatFile,
+      "utf8"
+    );
 
     // Simple strategy: prefer GitHub content but could be enhanced to merge comments
     return githubContent;
@@ -235,7 +238,7 @@ export class ConflictResolver {
    */
   async resolveFormattingConflict(conflict) {
     // Prefer GitHub version for formatting consistency
-    const githubContent = await this.fs.readFile(conflict.githubFile, 'utf8');
+    const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
     return githubContent;
   }
 
@@ -244,7 +247,7 @@ export class ConflictResolver {
    */
   async resolveMinorConflict(conflict) {
     // For minor conflicts, prefer GitHub version
-    const githubContent = await this.fs.readFile(conflict.githubFile, 'utf8');
+    const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
     return githubContent;
   }
 
@@ -253,14 +256,14 @@ export class ConflictResolver {
    */
   generateConflictMarkers(githubContent, assertThatContent, filename) {
     const lines = [];
-    
+
     lines.push(`<<<<<<< GitHub (${filename})`);
     lines.push(githubContent);
-    lines.push('=======');
+    lines.push("=======");
     lines.push(assertThatContent);
     lines.push(`>>>>>>> AssertThat (${filename})`);
-    
-    return lines.join('\n');
+
+    return lines.join("\n");
   }
 
   /**
@@ -268,8 +271,12 @@ export class ConflictResolver {
    */
   async hasConflictMarkers(filePath) {
     try {
-      const content = await this.fs.readFile(filePath, 'utf8');
-      return content.includes('<<<<<<<') || content.includes('>>>>>>>') || content.includes('=======');
+      const content = await this.fs.readFile(filePath, "utf8");
+      return (
+        content.includes("<<<<<<<") ||
+        content.includes(">>>>>>>") ||
+        content.includes("=======")
+      );
     } catch (error) {
       return false;
     }
@@ -281,7 +288,7 @@ export class ConflictResolver {
   getStats() {
     return {
       detector: this.detector.getStats(),
-      cache: cacheManager.gitCache.getStats()
+      cache: cacheManager.gitCache.getStats(),
     };
   }
 

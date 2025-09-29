@@ -7,10 +7,10 @@ export class SyncConfiguration {
   constructor(overrides = {}) {
     // Default configuration
     const defaults = {
-      featuresDir: 'features',
-      stagingDir: 'featureSyncStage',
-      syncBranchPrefix: 'sync/assertthat',
-      commitPrefix: 'chore/sync',
+      featuresDir: "features",
+      stagingDir: "featureSyncStage",
+      syncBranchPrefix: "sync/assertthat",
+      commitPrefix: "chore/sync",
       assertThat: {
         projectId: process.env.ASSERTTHAT_PROJECT_ID,
         accessKey: process.env.ASSERTTHAT_ACCESS_KEY,
@@ -21,17 +21,17 @@ export class SyncConfiguration {
         serverUrl: process.env.JIRA_SERVER_URL,
       },
       git: {
-        ignoreSpaceChange: '--ignore-space-change',
-        ignoreAllSpace: '--ignore-all-space',
-        ignoreBlankLines: '--ignore-blank-lines',
+        ignoreSpaceChange: "--ignore-space-change",
+        ignoreAllSpace: "--ignore-all-space",
+        ignoreBlankLines: "--ignore-blank-lines",
       },
       ui: {
         icons: {
-          debug: '🔧',
-          success: '✅',
-          error: '❌',
-          warning: '⚠️',
-          info: 'ℹ️',
+          debug: "🔧",
+          success: "✅",
+          error: "❌",
+          warning: "⚠️",
+          info: "ℹ️",
         },
       },
     };
@@ -39,26 +39,33 @@ export class SyncConfiguration {
     // Merge defaults with overrides
     this.featuresDir = overrides.featuresDir ?? defaults.featuresDir;
     this.stagingDir = overrides.stagingDir ?? defaults.stagingDir;
-    this.syncBranchPrefix = overrides.syncBranchPrefix ?? defaults.syncBranchPrefix;
+    this.syncBranchPrefix =
+      overrides.syncBranchPrefix ?? defaults.syncBranchPrefix;
     this.commitPrefix = overrides.commitPrefix ?? defaults.commitPrefix;
-    
+
     this.assertThat = {
-      projectId: overrides.assertThat?.projectId ?? defaults.assertThat.projectId,
-      accessKey: overrides.assertThat?.accessKey ?? defaults.assertThat.accessKey,
-      secretKey: overrides.assertThat?.secretKey ?? defaults.assertThat.secretKey,
+      projectId:
+        overrides.assertThat?.projectId ?? defaults.assertThat.projectId,
+      accessKey:
+        overrides.assertThat?.accessKey ?? defaults.assertThat.accessKey,
+      secretKey:
+        overrides.assertThat?.secretKey ?? defaults.assertThat.secretKey,
       token: overrides.assertThat?.token ?? defaults.assertThat.token,
     };
-    
+
     this.jira = {
       serverUrl: overrides.jira?.serverUrl ?? defaults.jira.serverUrl,
     };
-    
+
     this.git = {
-      ignoreSpaceChange: overrides.git?.ignoreSpaceChange ?? defaults.git.ignoreSpaceChange,
-      ignoreAllSpace: overrides.git?.ignoreAllSpace ?? defaults.git.ignoreAllSpace,
-      ignoreBlankLines: overrides.git?.ignoreBlankLines ?? defaults.git.ignoreBlankLines,
+      ignoreSpaceChange:
+        overrides.git?.ignoreSpaceChange ?? defaults.git.ignoreSpaceChange,
+      ignoreAllSpace:
+        overrides.git?.ignoreAllSpace ?? defaults.git.ignoreAllSpace,
+      ignoreBlankLines:
+        overrides.git?.ignoreBlankLines ?? defaults.git.ignoreBlankLines,
     };
-    
+
     this.ui = {
       icons: {
         debug: overrides.ui?.icons?.debug ?? defaults.ui.icons.debug,
@@ -78,15 +85,18 @@ export class SyncConfiguration {
 
     // Check for required AssertThat configuration
     if (!this.assertThat.projectId) {
-      missingFields.push('ASSERTTHAT_PROJECT_ID');
+      missingFields.push("ASSERTTHAT_PROJECT_ID");
     }
 
     // Check for authentication (either access/secret keys OR token)
-    const hasAccessKeys = this.assertThat.accessKey && this.assertThat.secretKey;
+    const hasAccessKeys =
+      this.assertThat.accessKey && this.assertThat.secretKey;
     const hasToken = this.assertThat.token;
-    
+
     if (!hasAccessKeys && !hasToken) {
-      missingFields.push('ASSERTTHAT_ACCESS_KEY & ASSERTTHAT_SECRET_KEY (or ASSERTTHAT_TOKEN)');
+      missingFields.push(
+        "ASSERTTHAT_ACCESS_KEY & ASSERTTHAT_SECRET_KEY (or ASSERTTHAT_TOKEN)"
+      );
     }
 
     return {
@@ -101,11 +111,11 @@ export class SyncConfiguration {
   static createDemoConfiguration() {
     return new SyncConfiguration({
       assertThat: {
-        projectId: 'demo-project',
-        token: 'demo-token',
+        projectId: "demo-project",
+        token: "demo-token",
       },
       jira: {
-        serverUrl: 'https://demo.atlassian.net',
+        serverUrl: "https://demo.atlassian.net",
       },
     });
   }

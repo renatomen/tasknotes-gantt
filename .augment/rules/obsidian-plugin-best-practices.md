@@ -7,6 +7,7 @@ type: "always_apply"
 ## Project Structure and Architecture
 
 ### File Organization
+
 - **Separate Concerns**: Move beyond single `main.ts` file structure
   - GOOD: `src/commands/`, `src/settings/`, `src/ui/`, `src/utils/`
   - GOOD: `src/main.ts`, `src/settings-tab.ts`, `src/commands.ts`
@@ -19,15 +20,8 @@ type: "always_apply"
 
 - **Modular Command Registration**
 
-  // GOOD: Factory pattern for commands
-  export const getEditorCommands = (plugin: MyPlugin) => [
-      buildGenerateNoteCommand(plugin),
-      buildFormatTextCommand(plugin)
-  ];
-  
-  // GOOD: Clean registration in main.ts
-  private addEditorCommands() {
-      for (const command of getEditorCommands(this)) {
-          this.addCommand(command);
-      }
-  }
+  // GOOD: Factory pattern for commands export const getEditorCommands = (plugin: MyPlugin) => [
+  buildGenerateNoteCommand(plugin), buildFormatTextCommand(plugin) ];
+
+  // GOOD: Clean registration in main.ts private addEditorCommands() { for (const command of
+  getEditorCommands(this)) { this.addCommand(command); } }

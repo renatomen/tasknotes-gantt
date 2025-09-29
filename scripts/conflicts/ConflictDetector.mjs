@@ -3,9 +3,9 @@
  * Extracted from oversized ConflictResolver class (312 lines → ~100 lines)
  */
 
-import { syncEvents, SYNC_EVENTS } from '../events/SyncEvents.mjs';
-import { cacheManager } from '../cache/CacheManager.mjs';
-import { GitOperationError } from '../errors/SyncErrors.mjs';
+import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
+import { cacheManager } from "../cache/CacheManager.mjs";
+import { GitOperationError } from "../errors/SyncErrors.mjs";
 
 export class ConflictDetector {
   constructor(gitExecutor = null) {
@@ -15,7 +15,7 @@ export class ConflictDetector {
 
   async initialize() {
     if (!this._initialized && !this.gitExecutor) {
-      const { execSync } = await import('child_process');
+      const { execSync } = await import("child_process");
       this.gitExecutor = execSync;
       this._initialized = true;
     }
@@ -29,79 +29,88 @@ export class ConflictDetector {
     try {
       // Check cache first
       const cacheKey = `${githubFile}:${assertThatFile}`;
-      const cached = cacheManager.gitCache.getDiff(githubFile, assertThatFile, { type: 'conflict-analysis' });
+      const cached = cacheManager.gitCache.getDiff(githubFile, assertThatFile, {
+        type: "conflict-analysis",
+      });
       if (cached) {
-        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, { type: 'conflict-analysis', files: [githubFile, assertThatFile] });
+        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, {
+          type: "conflict-analysis",
+          files: [githubFile, assertThatFile],
+        });
         return cached;
       }
 
-      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, { 
-        type: 'analysis-started',
-        files: [githubFile, assertThatFile] 
+      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, {
+        type: "analysis-started",
+        files: [githubFile, assertThatFile],
       });
 
       // Get diff between files
       const diffOutput = await this.generateDiff(githubFile, assertThatFile);
-      
+
       // Analyze the diff to determine conflict type
       const analysis = {
         isSimple: false,
-        reason: '',
+        reason: "",
         confidence: 0,
-        diffLines: diffOutput.split('\n').length,
-        changeType: 'unknown'
+        diffLines: diffOutput.split("\n").length,
+        changeType: "unknown",
       };
 
       // Check for different types of simple conflicts
       if (await this.isWhitespaceOnlyChange(diffOutput)) {
         analysis.isSimple = true;
-        analysis.reason = 'whitespace-only';
+        analysis.reason = "whitespace-only";
         analysis.confidence = 0.95;
-        analysis.changeType = 'formatting';
+        analysis.changeType = "formatting";
       } else if (await this.isCommentOnlyChange(diffOutput)) {
         analysis.isSimple = true;
-        analysis.reason = 'comments-only';
-        analysis.confidence = 0.90;
-        analysis.changeType = 'documentation';
+        analysis.reason = "comments-only";
+        analysis.confidence = 0.9;
+        analysis.changeType = "documentation";
       } else if (await this.isFormattingChange(diffOutput)) {
         analysis.isSimple = true;
-        analysis.reason = 'formatting-only';
+        analysis.reason = "formatting-only";
         analysis.confidence = 0.85;
-        analysis.changeType = 'formatting';
+        analysis.changeType = "formatting";
       } else if (await this.isMinorChange(diffOutput)) {
         analysis.isSimple = true;
-        analysis.reason = 'minor-change';
-        analysis.confidence = 0.70;
-        analysis.changeType = 'minor';
+        analysis.reason = "minor-change";
+        analysis.confidence = 0.7;
+        analysis.changeType = "minor";
       } else {
         analysis.isSimple = false;
-        analysis.reason = 'complex-change';
+        analysis.reason = "complex-change";
         analysis.confidence = 0.95;
-        analysis.changeType = 'structural';
+        analysis.changeType = "structural";
       }
 
       // Cache the result
-      cacheManager.gitCache.cacheDiff(githubFile, assertThatFile, { type: 'conflict-analysis' }, analysis);
+      cacheManager.gitCache.cacheDiff(
+        githubFile,
+        assertThatFile,
+        { type: "conflict-analysis" },
+        analysis
+      );
 
-      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, { 
-        type: 'analysis-completed',
+      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, {
+        type: "analysis-completed",
         files: [githubFile, assertThatFile],
         isSimple: analysis.isSimple,
-        reason: analysis.reason
+        reason: analysis.reason,
       });
 
       return analysis;
-
     } catch (error) {
-      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, { 
-        type: 'analysis-failed',
+      syncEvents.emit(SYNC_EVENTS.CONFLICTS_DETECTED, {
+        type: "analysis-failed",
         files: [githubFile, assertThatFile],
-        error: error.message
+        error: error.message,
       });
 
       throw new GitOperationError(
         `Failed to analyze conflict between ${githubFile} and ${assertThatFile}`,
-        'conflict-analysis',
+        "conflict-analysis",
         error.message
       );
     }
@@ -113,7 +122,7 @@ export class ConflictDetector {
   async generateDiff(file1, file2) {
     try {
       const command = `git diff --no-index --no-prefix "${file1}" "${file2}"`;
-      const result = this.gitExecutor(command, { encoding: 'utf8' });
+      const result = this.gitExecutor(command, { encoding: "utf8" });
       return result.toString();
     } catch (error) {
       // git diff returns exit code 1 when files differ, which is expected
@@ -130,21 +139,19 @@ export class ConflictDetector {
   async isWhitespaceOnlyChange(diffOutput) {
     try {
       // Look for lines that only contain whitespace changes
-      const diffLines = diffOutput.split('\n');
-      const contentLines = diffLines.filter(line => 
-        line.startsWith('+') || line.startsWith('-')
-      ).filter(line => 
-        !line.startsWith('+++') && !line.startsWith('---')
-      );
+      const diffLines = diffOutput.split("\n");
+      const contentLines = diffLines
+        .filter((line) => line.startsWith("+") || line.startsWith("-"))
+        .filter((line) => !line.startsWith("+++") && !line.startsWith("---"));
 
       if (contentLines.length === 0) return false;
 
       // Check if all changes are just whitespace
       for (const line of contentLines) {
         const content = line.substring(1); // Remove +/- prefix
-        if (content.trim() !== '' && !/^\s*$/.test(content)) {
+        if (content.trim() !== "" && !/^\s*$/.test(content)) {
           // This line has non-whitespace content changes
-          const normalizedContent = content.replace(/\s+/g, ' ').trim();
+          const normalizedContent = content.replace(/\s+/g, " ").trim();
           if (normalizedContent.length > 0) {
             return false;
           }
@@ -162,10 +169,12 @@ export class ConflictDetector {
    */
   async isCommentOnlyChange(diffOutput) {
     try {
-      const diffLines = diffOutput.split('\n');
-      const contentLines = diffLines.filter(line => 
-        (line.startsWith('+') || line.startsWith('-')) &&
-        !line.startsWith('+++') && !line.startsWith('---')
+      const diffLines = diffOutput.split("\n");
+      const contentLines = diffLines.filter(
+        (line) =>
+          (line.startsWith("+") || line.startsWith("-")) &&
+          !line.startsWith("+++") &&
+          !line.startsWith("---")
       );
 
       if (contentLines.length === 0) return false;
@@ -173,17 +182,17 @@ export class ConflictDetector {
       // Check if all changes are in comments
       for (const line of contentLines) {
         const content = line.substring(1).trim(); // Remove +/- prefix and trim
-        
-        if (content === '') continue; // Empty lines are OK
-        
+
+        if (content === "") continue; // Empty lines are OK
+
         // Check for common comment patterns
-        const isComment = 
-          content.startsWith('#') ||           // Gherkin comments
-          content.startsWith('//') ||          // C-style comments
-          content.startsWith('/*') ||          // Block comment start
-          content.startsWith('*/') ||          // Block comment end
-          content.startsWith('*') ||           // Block comment middle
-          /^\s*#/.test(content);               // Indented comments
+        const isComment =
+          content.startsWith("#") || // Gherkin comments
+          content.startsWith("//") || // C-style comments
+          content.startsWith("/*") || // Block comment start
+          content.startsWith("*/") || // Block comment end
+          content.startsWith("*") || // Block comment middle
+          /^\s*#/.test(content); // Indented comments
 
         if (!isComment) {
           return false;
@@ -201,10 +210,12 @@ export class ConflictDetector {
    */
   async isFormattingChange(diffOutput) {
     try {
-      const diffLines = diffOutput.split('\n');
-      const contentLines = diffLines.filter(line => 
-        (line.startsWith('+') || line.startsWith('-')) &&
-        !line.startsWith('+++') && !line.startsWith('---')
+      const diffLines = diffOutput.split("\n");
+      const contentLines = diffLines.filter(
+        (line) =>
+          (line.startsWith("+") || line.startsWith("-")) &&
+          !line.startsWith("+++") &&
+          !line.startsWith("---")
       );
 
       if (contentLines.length === 0) return false;
@@ -215,8 +226,8 @@ export class ConflictDetector {
         if (i + 1 < contentLines.length) {
           const removed = contentLines[i];
           const added = contentLines[i + 1];
-          
-          if (removed.startsWith('-') && added.startsWith('+')) {
+
+          if (removed.startsWith("-") && added.startsWith("+")) {
             pairs.push([removed.substring(1), added.substring(1)]);
           }
         }
@@ -226,7 +237,7 @@ export class ConflictDetector {
       for (const [removed, added] of pairs) {
         const normalizedRemoved = this.normalizeFormatting(removed);
         const normalizedAdded = this.normalizeFormatting(added);
-        
+
         if (normalizedRemoved !== normalizedAdded) {
           return false;
         }
@@ -243,10 +254,14 @@ export class ConflictDetector {
    */
   async isMinorChange(diffOutput) {
     try {
-      const diffLines = diffOutput.split('\n');
-      const addedLines = diffLines.filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
-      const removedLines = diffLines.filter(line => line.startsWith('-') && !line.startsWith('---')).length;
-      
+      const diffLines = diffOutput.split("\n");
+      const addedLines = diffLines.filter(
+        (line) => line.startsWith("+") && !line.startsWith("+++")
+      ).length;
+      const removedLines = diffLines.filter(
+        (line) => line.startsWith("-") && !line.startsWith("---")
+      ).length;
+
       // Consider minor if:
       // - Less than 5 lines changed
       // - No structural changes (no Feature/Scenario/Given/When/Then keyword changes)
@@ -254,11 +269,19 @@ export class ConflictDetector {
       if (totalChanges > 5) return false;
 
       // Check for structural keyword changes
-      const structuralKeywords = ['Feature:', 'Scenario:', 'Given', 'When', 'Then', 'And', 'But'];
-      const hasStructuralChanges = diffLines.some(line => {
-        if (!line.startsWith('+') && !line.startsWith('-')) return false;
+      const structuralKeywords = [
+        "Feature:",
+        "Scenario:",
+        "Given",
+        "When",
+        "Then",
+        "And",
+        "But",
+      ];
+      const hasStructuralChanges = diffLines.some((line) => {
+        if (!line.startsWith("+") && !line.startsWith("-")) return false;
         const content = line.substring(1).trim();
-        return structuralKeywords.some(keyword => content.includes(keyword));
+        return structuralKeywords.some((keyword) => content.includes(keyword));
       });
 
       return !hasStructuralChanges;
@@ -272,10 +295,10 @@ export class ConflictDetector {
    */
   normalizeFormatting(text) {
     return text
-      .replace(/\s+/g, ' ')           // Normalize whitespace
-      .replace(/\t/g, ' ')            // Convert tabs to spaces
-      .trim()                         // Remove leading/trailing whitespace
-      .toLowerCase();                 // Case insensitive comparison
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .replace(/\t/g, " ") // Convert tabs to spaces
+      .trim() // Remove leading/trailing whitespace
+      .toLowerCase(); // Case insensitive comparison
   }
 
   /**

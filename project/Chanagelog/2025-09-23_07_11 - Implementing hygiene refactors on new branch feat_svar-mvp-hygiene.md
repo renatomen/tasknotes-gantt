@@ -1,6 +1,7 @@
-
 # Implementing hygiene refactors on new branch: feat/svar-mvp-hygiene
-Plan: 
+
+Plan:
+
 - Create a new branch feat/svar-mvp-hygiene.
 - Add ErrorBoundary and mountReact helpers; create GanttContainer component (moved from GanttMvp).
 - Update basesGanttViewFactory to use the helpers and new component.
@@ -11,17 +12,11 @@ Plan:
 
 Executing branch creation, file additions, edits, and validation.
 
-
-
-
-
-
-
-
-
 ## Refactor complete on new branch: feat/svar-mvp-hygiene
 
-I implemented the agreed hygiene refactors without changing runtime behavior, created a new branch locally, and validated via type-checks, unit tests, and build. No commits were made, per your preference to verify in the test vault first.
+I implemented the agreed hygiene refactors without changing runtime behavior, created a new branch
+locally, and validated via type-checks, unit tests, and build. No commits were made, per your
+preference to verify in the test vault first.
 
 ### What changed
 
@@ -50,27 +45,46 @@ I implemented the agreed hygiene refactors without changing runtime behavior, cr
 - .eslintignore
 
 Example excerpts
+
 - ErrorBoundary:
-````tsx path=src/ui/ErrorBoundary.tsx mode=EXCERPT
+
+```tsx path=src/ui/ErrorBoundary.tsx mode=EXCERPT
 export class ErrorBoundary extends React.Component<any, { hasError: boolean }> {
-  static getDerivedStateFromError() { return { hasError: true }; }
-  render() { return this.state?.hasError ? <div className="ogantt-error">Render error in Gantt view</div> : this.props.children; }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    return this.state?.hasError ? (
+      <div className="ogantt-error">Render error in Gantt view</div>
+    ) : (
+      this.props.children
+    );
+  }
 }
-````
+```
 
 - mountReact:
-````tsx path=src/ui/mountReact.tsx mode=EXCERPT
+
+```tsx path=src/ui/mountReact.tsx mode=EXCERPT
 export function mountReact(el: HTMLElement, node: React.ReactNode): () => void {
   const root = createRoot(el);
   root.render(node);
-  return () => { try { root.unmount(); } catch {} };
+  return () => {
+    try {
+      root.unmount();
+    } catch {}
+  };
 }
-````
+```
 
 - Factory integration:
-````ts path=src/views/basesGanttViewFactory.ts mode=EXCERPT
-unmount = mountReact(hostEl, React.createElement(ErrorBoundary, null, React.createElement(GanttContainer)));
-````
+
+```ts path=src/views/basesGanttViewFactory.ts mode=EXCERPT
+unmount = mountReact(
+  hostEl,
+  React.createElement(ErrorBoundary, null, React.createElement(GanttContainer))
+);
+```
 
 ### Files updated
 
@@ -89,6 +103,7 @@ unmount = mountReact(hostEl, React.createElement(ErrorBoundary, null, React.crea
   - npm run build → OK; postbuild installed to your test vault path reported in scripts
 
 Key log lines:
+
 - [build] Done
 - [install] Installed plugin to ... obsidian-gantt-test-vault\.obsidian\plugins\obsidian-gantt
 
@@ -96,8 +111,10 @@ No commits were made (in line with your preference to test in the vault first).
 
 ## What you can verify now
 
-- Open your test vault and ensure the Bases view “Gantt (OG)” continues to render the dummy timeline as before.
-- Intentionally trigger an error inside the component (optional) to see the ErrorBoundary message, if you want to test robustness.
+- Open your test vault and ensure the Bases view “Gantt (OG)” continues to render the dummy timeline
+  as before.
+- Intentionally trigger an error inside the component (optional) to see the ErrorBoundary message,
+  if you want to test robustness.
 
 ## Suggested next steps
 
@@ -111,4 +128,5 @@ No commits were made (in line with your preference to test in the vault first).
     - Introduce Bases adapter skeleton (no real data yet)
     - Unit tests for mapping/validation
 
-Would you like me to commit these changes on feat/svar-mvp-hygiene and open a PR, or would you prefer to test in your vault first and then signal me to commit?
+Would you like me to commit these changes on feat/svar-mvp-hygiene and open a PR, or would you
+prefer to test in your vault first and then signal me to commit?

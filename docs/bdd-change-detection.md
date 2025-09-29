@@ -2,13 +2,16 @@
 
 ## Overview
 
-The BDD Change Detection system optimizes CI pipeline performance by only running BDD validation and processing when relevant files have changed. This prevents unnecessary processing of unchanged feature files and reduces CI execution time.
+The BDD Change Detection system optimizes CI pipeline performance by only running BDD validation and
+processing when relevant files have changed. This prevents unnecessary processing of unchanged
+feature files and reduces CI execution time.
 
 ## How It Works
 
 ### Change Detection Script
 
-The `scripts/detect-bdd-changes.mjs` script analyzes git changes and determines if BDD-related files have been modified:
+The `scripts/detect-bdd-changes.mjs` script analyzes git changes and determines if BDD-related files
+have been modified:
 
 ```bash
 npm run detect:bdd-changes
@@ -56,6 +59,7 @@ The GitHub Actions workflow includes conditional BDD validation:
 ### Example Scenarios
 
 #### Scenario 1: Source Code Changes Only
+
 ```
 Changed files:
 - src/main.ts
@@ -66,6 +70,7 @@ Result: BDD validation skipped ⏭️
 ```
 
 #### Scenario 2: BDD Changes Detected
+
 ```
 Changed files:
 - features/gantt-visualization/task-rendering.feature
@@ -101,6 +106,7 @@ The system automatically runs in GitHub Actions:
 ### Output Examples
 
 #### When BDD Changes Detected:
+
 ```
 🔍 OG-40: Detecting BDD file changes...
 
@@ -120,6 +126,7 @@ The system automatically runs in GitHub Actions:
 ```
 
 #### When No BDD Changes:
+
 ```
 🔍 OG-40: Detecting BDD file changes...
 
@@ -141,9 +148,9 @@ Edit `scripts/detect-bdd-changes.mjs` to modify the detection patterns:
 
 ```javascript
 const bddPatterns = [
-  /^features\/.*\.feature$/,           // Feature files
-  /^\.bdd\/.*$/,                       // BDD configuration
-  /^scripts\/.*bdd.*\.m?js$/,          // BDD scripts
+  /^features\/.*\.feature$/, // Feature files
+  /^\.bdd\/.*$/, // BDD configuration
+  /^scripts\/.*bdd.*\.m?js$/, // BDD scripts
   // Add custom patterns here
 ];
 ```
@@ -174,6 +181,7 @@ npm test test/unit/bdd-change-detection.test.ts
 ### Semantic Tag Validation
 
 When semantic tag registry changes, the system:
+
 - Validates all existing feature files against new tags
 - Ensures tag compliance across the codebase
 - Provides suggestions for tag updates
@@ -181,6 +189,7 @@ When semantic tag registry changes, the system:
 ### AssertThat Integration
 
 Future integration (OG-26, OG-27) will use change detection to:
+
 - Upload only modified feature files to AssertThat
 - Sync test results for changed scenarios
 - Optimize API calls and reduce processing time
@@ -190,10 +199,11 @@ Future integration (OG-26, OG-27) will use change detection to:
 ### Common Issues
 
 1. **Git History Missing**: Ensure full git history in CI
+
    ```yaml
    - uses: actions/checkout@v4
      with:
-       fetch-depth: 0  # Fetch full history
+       fetch-depth: 0 # Fetch full history
    ```
 
 2. **False Positives**: Check file patterns if unexpected files trigger BDD validation
@@ -212,7 +222,7 @@ DEBUG=1 npm run detect:bdd-changes
 ## Related Tasks
 
 - **OG-37**: Pre-commit BDD validation
-- **OG-38**: BDD feature template generator  
+- **OG-38**: BDD feature template generator
 - **OG-39**: Semantic tagging system
 - **OG-26**: AssertThat scenario upload (future)
 - **OG-27**: AssertThat test result sync (future)

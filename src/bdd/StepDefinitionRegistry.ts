@@ -1,6 +1,6 @@
 /**
  * OG-19: Step Definition Registry Implementation
- * 
+ *
  * Manages registration and lookup of BDD step definitions
  * Follows single responsibility principle
  */
@@ -19,17 +19,21 @@ export class StepDefinitionRegistry {
 
   constructor() {
     // Initialize maps for each step type
-    this.stepDefinitions.set('Given', []);
-    this.stepDefinitions.set('When', []);
-    this.stepDefinitions.set('Then', []);
-    this.stepDefinitions.set('And', []);
-    this.stepDefinitions.set('But', []);
+    this.stepDefinitions.set("Given", []);
+    this.stepDefinitions.set("When", []);
+    this.stepDefinitions.set("Then", []);
+    this.stepDefinitions.set("And", []);
+    this.stepDefinitions.set("But", []);
   }
 
   /**
    * Register a step definition for a specific keyword
    */
-  registerStepDefinition(keyword: string, pattern: RegExp, handler: Function): void {
+  registerStepDefinition(
+    keyword: string,
+    pattern: RegExp,
+    handler: Function
+  ): void {
     if (!this.stepDefinitions.has(keyword)) {
       this.stepDefinitions.set(keyword, []);
     }
@@ -37,7 +41,7 @@ export class StepDefinitionRegistry {
     const stepDef: StepDefinition = {
       keyword,
       pattern,
-      handler
+      handler,
     };
 
     this.stepDefinitions.get(keyword)!.push(stepDef);
@@ -48,7 +52,7 @@ export class StepDefinitionRegistry {
    */
   findStepDefinition(keyword: string, stepText: string): Function | null {
     const steps = this.stepDefinitions.get(keyword);
-    
+
     if (!steps) {
       return null;
     }
@@ -103,11 +107,11 @@ export class StepDefinitionRegistry {
    */
   hasStepDefinition(keyword: string, pattern: RegExp): boolean {
     const steps = this.stepDefinitions.get(keyword);
-    
+
     if (!steps) {
       return false;
     }
 
-    return steps.some(stepDef => stepDef.pattern.source === pattern.source);
+    return steps.some((stepDef) => stepDef.pattern.source === pattern.source);
   }
 }

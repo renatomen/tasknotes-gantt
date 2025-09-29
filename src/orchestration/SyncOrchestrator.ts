@@ -2,12 +2,12 @@
  * Refactored SyncOrchestrator with dependency injection and single responsibility methods
  */
 
-import { ISyncConfiguration } from '../config/SyncConfiguration.js';
-import { 
-  SyncOrchestrationError, 
+import { ISyncConfiguration } from "../config/SyncConfiguration.js";
+import {
+  SyncOrchestrationError,
   SyncConfigurationError,
-  SyncErrorFactory 
-} from '../errors/SyncErrors.js';
+  SyncErrorFactory,
+} from "../errors/SyncErrors.js";
 
 export interface IStagingAreaManager {
   createStagingArea(): Promise<boolean>;
@@ -21,7 +21,11 @@ export interface IGitDiffManager {
 }
 
 export interface IConflictResolver {
-  resolveConflicts(changes: any, stagingPath: string, featuresPath: string): Promise<any>;
+  resolveConflicts(
+    changes: any,
+    stagingPath: string,
+    featuresPath: string
+  ): Promise<any>;
 }
 
 export interface IGherkinValidator {
@@ -79,36 +83,36 @@ export class SyncOrchestrator {
    */
   async execute(): Promise<ISyncResult> {
     try {
-      this.logger.info('Starting GitHub ↔ AssertThat sync...');
-      
+      this.logger.info("Starting GitHub ↔ AssertThat sync...");
+
       // Phase 1: Configuration validation
       await this.validateConfigurationPhase();
-      
+
       // Phase 2: Staging area setup
       await this.setupStagingPhase();
-      
+
       // Phase 3: Change detection and validation
       const changes = await this.detectChangesPhase();
-      
+
       // Phase 4: Conflict resolution
       const classified = await this.resolveConflictsPhase(changes);
-      
+
       // Phase 5: Interactive resolution if needed
-      const resolutionResults = await this.handleInteractiveResolutionPhase(classified);
-      
+      const resolutionResults =
+        await this.handleInteractiveResolutionPhase(classified);
+
       // Phase 6: Cleanup
       await this.cleanupPhase();
-      
-      this.logger.success('Sync process completed');
-      
+
+      this.logger.success("Sync process completed");
+
       return {
         success: true,
-        phase: 'completed',
+        phase: "completed",
         changes,
         classified,
         resolutionResults,
       };
-      
     } catch (error) {
       return await this.handleExecutionError(error as Error);
     }
@@ -120,16 +124,15 @@ export class SyncOrchestrator {
   private async validateConfigurationPhase(): Promise<void> {
     try {
       const validation = this.config.validateConfiguration();
-      
+
       if (!validation.isValid) {
         this.logger.warning(`Missing environment variables, using demo mode`);
-        this.logger.warning(`Missing: ${validation.missingFields.join(', ')}`);
+        this.logger.warning(`Missing: ${validation.missingFields.join(", ")}`);
       }
-      
     } catch (error) {
       throw new SyncOrchestrationError(
-        'Configuration validation failed',
-        'configuration',
+        "Configuration validation failed",
+        "configuration",
         { validationError: (error as Error).message }
       );
     }
@@ -142,13 +145,10 @@ export class SyncOrchestrator {
     try {
       await this.stagingManager.createStagingArea();
       await this.stagingManager.downloadAssertThatFeatures();
-      
     } catch (error) {
-      throw new SyncOrchestrationError(
-        'Staging area setup failed',
-        'staging',
-        { setupError: (error as Error).message }
-      );
+      throw new SyncOrchestrationError("Staging area setup failed", "staging", {
+        setupError: (error as Error).message,
+      });
     }
   }
 
@@ -157,20 +157,17 @@ export class SyncOrchestrator {
    */
   private async detectChangesPhase(): Promise<any> {
     try {
-      this.logger.info('Detecting changes between GitHub and AssertThat...');
+      this.logger.info("Detecting changes between GitHub and AssertThat...");
       const changes = await this.diffManager.detectChanges();
-      
-      this.logger.info('Validating feature files...');
+
+      this.logger.info("Validating feature files...");
       await this.validateFeatureFiles(changes);
-      
+
       return changes;
-      
     } catch (error) {
-      throw new SyncOrchestrationError(
-        'Change detection failed',
-        'detection',
-        { detectionError: (error as Error).message }
-      );
+      throw new SyncOrchestrationError("Change detection failed", "detection", {
+        detectionError: (error as Error).message,
+      });
     }
   }
 
@@ -179,17 +176,16 @@ export class SyncOrchestrator {
    */
   private async resolveConflictsPhase(changes: any): Promise<any> {
     try {
-      this.logger.info('Classifying changes for conflict resolution...');
+      this.logger.info("Classifying changes for conflict resolution...");
       const classified = await this.diffManager.classifyChanges(changes);
-      
+
       this.logClassificationResults(classified);
-      
+
       return classified;
-      
     } catch (error) {
       throw new SyncOrchestrationError(
-        'Conflict resolution failed',
-        'resolution',
+        "Conflict resolution failed",
+        "resolution",
         { resolutionError: (error as Error).message }
       );
     }
@@ -198,24 +194,31 @@ export class SyncOrchestrator {
   /**
    * Phase 5: Handle interactive resolution for complex conflicts
    */
-  private async handleInteractiveResolutionPhase(classified: any): Promise<any> {
+  private async handleInteractiveResolutionPhase(
+    classified: any
+  ): Promise<any> {
     if (classified.complex.length === 0) {
-      this.logger.success('All conflicts resolved automatically - sync can proceed');
+      this.logger.success(
+        "All conflicts resolved automatically - sync can proceed"
+      );
       return { resolved: [], skipped: [], failed: [] };
     }
 
     try {
-      this.logger.warning('Interactive resolution required for complex conflicts...');
-      const resolutionResults = await this.handleInteractiveResolution(classified.complex);
-      
+      this.logger.warning(
+        "Interactive resolution required for complex conflicts..."
+      );
+      const resolutionResults = await this.handleInteractiveResolution(
+        classified.complex
+      );
+
       this.logResolutionSummary(resolutionResults);
-      
+
       return resolutionResults;
-      
     } catch (error) {
       throw new SyncOrchestrationError(
-        'Interactive resolution failed',
-        'interactive',
+        "Interactive resolution failed",
+        "interactive",
         { interactiveError: (error as Error).message }
       );
     }
@@ -227,13 +230,10 @@ export class SyncOrchestrator {
   private async cleanupPhase(): Promise<void> {
     try {
       await this.stagingManager.cleanStagingArea();
-      
     } catch (error) {
-      throw new SyncOrchestrationError(
-        'Cleanup failed',
-        'cleanup',
-        { cleanupError: (error as Error).message }
-      );
+      throw new SyncOrchestrationError("Cleanup failed", "cleanup", {
+        cleanupError: (error as Error).message,
+      });
     }
   }
 
@@ -242,17 +242,17 @@ export class SyncOrchestrator {
    */
   private async handleExecutionError(error: Error): Promise<ISyncResult> {
     this.logger.error(`Sync failed: ${error.message}`);
-    
+
     // Attempt cleanup on error
     try {
       await this.stagingManager.cleanStagingArea();
     } catch (cleanupError) {
       this.logger.error(`Cleanup failed: ${(cleanupError as Error).message}`);
     }
-    
+
     return {
       success: false,
-      phase: 'error',
+      phase: "error",
       error,
     };
   }
@@ -268,7 +268,9 @@ export class SyncOrchestrator {
   /**
    * Handle interactive resolution for complex files
    */
-  private async handleInteractiveResolution(complexFiles: string[]): Promise<any> {
+  private async handleInteractiveResolution(
+    complexFiles: string[]
+  ): Promise<any> {
     // Implementation would handle interactive resolution
     // This is a placeholder for the actual resolution logic
     return { resolved: [], skipped: [], failed: [] };
@@ -280,7 +282,9 @@ export class SyncOrchestrator {
   private logClassificationResults(classified: any): void {
     this.logger.info(`Classification results:`);
     this.logger.success(`Simple: ${classified.simple?.length || 0} files`);
-    this.logger.info(`Auto-resolved: ${classified.autoResolved?.length || 0} files`);
+    this.logger.info(
+      `Auto-resolved: ${classified.autoResolved?.length || 0} files`
+    );
     this.logger.warning(`Complex: ${classified.complex?.length || 0} files`);
   }
 
@@ -288,14 +292,16 @@ export class SyncOrchestrator {
    * Log resolution summary
    */
   private logResolutionSummary(resolutionResults: any): void {
-    this.logger.info('Interactive resolution summary:');
+    this.logger.info("Interactive resolution summary:");
     this.logger.success(`Resolved: ${resolutionResults.resolved.length} files`);
     this.logger.info(`Skipped: ${resolutionResults.skipped.length} files`);
     this.logger.error(`Failed: ${resolutionResults.failed.length} files`);
 
     if (resolutionResults.skipped.length > 0) {
-      this.logger.warning('Skipped files will need manual resolution before next sync:');
-      resolutionResults.skipped.forEach((file: string) => 
+      this.logger.warning(
+        "Skipped files will need manual resolution before next sync:"
+      );
+      resolutionResults.skipped.forEach((file: string) =>
         console.log(`  - ${file}`)
       );
     }

@@ -9,7 +9,7 @@ export class SyncError extends Error {
     this.name = this.constructor.name;
     this.timestamp = new Date();
     this.context = context;
-    
+
     // Maintain proper stack trace
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
@@ -63,7 +63,11 @@ export class GherkinParseError extends SyncError {
  */
 export class FileSystemError extends SyncError {
   constructor(message, operation, filePath, originalError) {
-    super(message, { operation, filePath, originalError: originalError?.message });
+    super(message, {
+      operation,
+      filePath,
+      originalError: originalError?.message,
+    });
     this.operation = operation;
     this.filePath = filePath;
   }
@@ -141,12 +145,12 @@ export class SyncOrchestrationError extends SyncError {
  */
 export class SyncErrorFactory {
   static createConfigurationError(missingFields) {
-    const message = `Missing required configuration: ${missingFields.join(', ')}`;
+    const message = `Missing required configuration: ${missingFields.join(", ")}`;
     return new SyncConfigurationError(message, missingFields);
   }
 
   static createFeatureValidationError(filePath, errors) {
-    const message = `Feature validation failed for ${filePath}: ${errors.join(', ')}`;
+    const message = `Feature validation failed for ${filePath}: ${errors.join(", ")}`;
     return new FeatureValidationError(message, filePath, errors);
   }
 

@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch full history for change detection
+          fetch-depth: 0 # Fetch full history for change detection
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

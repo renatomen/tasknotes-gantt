@@ -12,7 +12,7 @@ export abstract class SyncError extends Error {
     this.name = this.constructor.name;
     this.timestamp = new Date();
     this.context = context;
-    
+
     // Maintain proper stack trace
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
@@ -46,7 +46,11 @@ export class FeatureValidationError extends SyncError {
   public readonly filePath: string;
   public readonly validationErrors: string[];
 
-  constructor(message: string, filePath: string, validationErrors: string[] = []) {
+  constructor(
+    message: string,
+    filePath: string,
+    validationErrors: string[] = []
+  ) {
     super(message, { filePath, validationErrors });
     this.filePath = filePath;
     this.validationErrors = validationErrors;
@@ -74,8 +78,17 @@ export class FileSystemError extends SyncError {
   public readonly operation: string;
   public readonly filePath: string;
 
-  constructor(message: string, operation: string, filePath: string, originalError?: Error) {
-    super(message, { operation, filePath, originalError: originalError?.message });
+  constructor(
+    message: string,
+    operation: string,
+    filePath: string,
+    originalError?: Error
+  ) {
+    super(message, {
+      operation,
+      filePath,
+      originalError: originalError?.message,
+    });
     this.operation = operation;
     this.filePath = filePath;
   }
@@ -89,7 +102,12 @@ export class GitOperationError extends SyncError {
   public readonly exitCode?: number;
   public readonly stderr?: string;
 
-  constructor(message: string, command: string, exitCode?: number, stderr?: string) {
+  constructor(
+    message: string,
+    command: string,
+    exitCode?: number,
+    stderr?: string
+  ) {
     super(message, { command, exitCode, stderr });
     this.command = command;
     this.exitCode = exitCode;
@@ -133,7 +151,12 @@ export class AssertThatApiError extends SyncError {
   public readonly statusCode?: number;
   public readonly responseBody?: string;
 
-  constructor(message: string, endpoint: string, statusCode?: number, responseBody?: string) {
+  constructor(
+    message: string,
+    endpoint: string,
+    statusCode?: number,
+    responseBody?: string
+  ) {
     super(message, { endpoint, statusCode, responseBody });
     this.endpoint = endpoint;
     this.statusCode = statusCode;
@@ -160,7 +183,11 @@ export class SyncOrchestrationError extends SyncError {
   public readonly phase: string;
   public readonly partialResults?: Record<string, unknown>;
 
-  constructor(message: string, phase: string, partialResults?: Record<string, unknown>) {
+  constructor(
+    message: string,
+    phase: string,
+    partialResults?: Record<string, unknown>
+  ) {
     super(message, { phase, partialResults });
     this.phase = phase;
     this.partialResults = partialResults;
@@ -171,13 +198,18 @@ export class SyncOrchestrationError extends SyncError {
  * Error factory for creating appropriate error types
  */
 export class SyncErrorFactory {
-  public static createConfigurationError(missingFields: string[]): SyncConfigurationError {
-    const message = `Missing required configuration: ${missingFields.join(', ')}`;
+  public static createConfigurationError(
+    missingFields: string[]
+  ): SyncConfigurationError {
+    const message = `Missing required configuration: ${missingFields.join(", ")}`;
     return new SyncConfigurationError(message, missingFields);
   }
 
-  public static createFeatureValidationError(filePath: string, errors: string[]): FeatureValidationError {
-    const message = `Feature validation failed for ${filePath}: ${errors.join(', ')}`;
+  public static createFeatureValidationError(
+    filePath: string,
+    errors: string[]
+  ): FeatureValidationError {
+    const message = `Feature validation failed for ${filePath}: ${errors.join(", ")}`;
     return new FeatureValidationError(message, filePath, errors);
   }
 
@@ -186,7 +218,11 @@ export class SyncErrorFactory {
     return new GitOperationError(message, command, error.status, error.stderr);
   }
 
-  public static createFileSystemError(operation: string, filePath: string, originalError: Error): FileSystemError {
+  public static createFileSystemError(
+    operation: string,
+    filePath: string,
+    originalError: Error
+  ): FileSystemError {
     const message = `File system operation '${operation}' failed for ${filePath}: ${originalError.message}`;
     return new FileSystemError(message, operation, filePath, originalError);
   }

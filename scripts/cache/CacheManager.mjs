@@ -3,7 +3,7 @@
  * Improves performance by avoiding redundant file reads, git operations, and validations
  */
 
-import { syncEvents, SYNC_EVENTS } from '../events/SyncEvents.mjs';
+import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
 
 /**
  * Generic cache implementation with TTL and size limits
@@ -28,7 +28,7 @@ export class Cache {
 
     if (this.isExpired(entry)) {
       this.delete(key);
-      syncEvents.emit(SYNC_EVENTS.CACHE_MISS, { key, reason: 'expired' });
+      syncEvents.emit(SYNC_EVENTS.CACHE_MISS, { key, reason: "expired" });
       return undefined;
     }
 
@@ -51,7 +51,7 @@ export class Cache {
       value,
       createdAt: Date.now(),
       lastAccessed: Date.now(),
-      ttl
+      ttl,
     };
 
     this.cache.set(key, entry);
@@ -88,7 +88,7 @@ export class Cache {
     }
     this.timers.clear();
     this.cache.clear();
-    syncEvents.emit(SYNC_EVENTS.CACHE_INVALIDATED, { reason: 'manual-clear' });
+    syncEvents.emit(SYNC_EVENTS.CACHE_INVALIDATED, { reason: "manual-clear" });
   }
 
   /**
@@ -99,7 +99,7 @@ export class Cache {
       size: this.cache.size,
       maxSize: this.maxSize,
       hitRate: this.calculateHitRate(),
-      entries: Array.from(this.cache.keys())
+      entries: Array.from(this.cache.keys()),
     };
   }
 
@@ -147,7 +147,7 @@ export class FileCache extends Cache {
     super({
       maxSize: 500,
       defaultTTL: 2 * 60 * 1000, // 2 minutes for files
-      ...options
+      ...options,
     });
   }
 
@@ -201,7 +201,7 @@ export class GitCache extends Cache {
     super({
       maxSize: 200,
       defaultTTL: 30 * 1000, // 30 seconds for git operations
-      ...options
+      ...options,
     });
   }
 
@@ -246,7 +246,7 @@ export class ValidationCache extends Cache {
     super({
       maxSize: 300,
       defaultTTL: 10 * 60 * 1000, // 10 minutes for validation results
-      ...options
+      ...options,
     });
   }
 
@@ -323,10 +323,11 @@ export class CacheManager {
       git: this.gitCache.getStats(),
       validation: this.validationCache.getStats(),
       total: {
-        entries: this.fileCache.getStats().size + 
-                this.gitCache.getStats().size + 
-                this.validationCache.getStats().size
-      }
+        entries:
+          this.fileCache.getStats().size +
+          this.gitCache.getStats().size +
+          this.validationCache.getStats().size,
+      },
     };
   }
 

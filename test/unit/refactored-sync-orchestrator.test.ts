@@ -3,29 +3,29 @@
  * Validates event-driven architecture and component composition
  */
 
-import { RefactoredSyncOrchestrator } from '../../scripts/orchestration/RefactoredSyncOrchestrator.mjs';
-import { syncEvents, SYNC_EVENTS } from '../../scripts/events/SyncEvents.mjs';
-import { SyncConfiguration } from '../../scripts/config/SyncConfiguration.mjs';
+import { RefactoredSyncOrchestrator } from "../../scripts/orchestration/RefactoredSyncOrchestrator.mjs";
+import { syncEvents, SYNC_EVENTS } from "../../scripts/events/SyncEvents.mjs";
+import { SyncConfiguration } from "../../scripts/config/SyncConfiguration.mjs";
 
 // Mock dependencies
 class MockStagingManager {
   createStagingArea = jest.fn().mockResolvedValue(true);
   downloadAssertThatFeatures = jest.fn().mockResolvedValue(undefined);
   cleanStagingArea = jest.fn().mockResolvedValue(undefined);
-  getStagingFeatures = jest.fn().mockResolvedValue(['test.feature']);
-  stagingPath = '/test/staging';
+  getStagingFeatures = jest.fn().mockResolvedValue(["test.feature"]);
+  stagingPath = "/test/staging";
 }
 
 class MockDiffManager {
   detectChanges = jest.fn().mockResolvedValue({
-    additions: ['new.feature'],
-    modifications: ['modified.feature'],
-    deletions: []
+    additions: ["new.feature"],
+    modifications: ["modified.feature"],
+    deletions: [],
   });
   classifyChanges = jest.fn().mockResolvedValue({
-    simple: ['new.feature'],
+    simple: ["new.feature"],
     complex: [],
-    autoResolved: ['modified.feature']
+    autoResolved: ["modified.feature"],
   });
 }
 
@@ -35,11 +35,11 @@ class MockFeatureProcessor {
     validFiles: 1,
     invalidFiles: 0,
     totalErrors: 0,
-    totalWarnings: 0
+    totalWarnings: 0,
   });
   getStats = jest.fn().mockReturnValue({ processed: 1 });
   validator = {
-    clearCache: jest.fn()
+    clearCache: jest.fn(),
   };
 }
 
@@ -47,7 +47,7 @@ class MockConflictResolver {
   resolveConflicts = jest.fn().mockResolvedValue({
     autoResolved: [],
     requiresManual: [],
-    failed: []
+    failed: [],
   });
   getStats = jest.fn().mockReturnValue({ resolved: 0 });
   clearCache = jest.fn();
@@ -71,7 +71,7 @@ class MockLogger {
   debug = jest.fn();
 }
 
-describe('RefactoredSyncOrchestrator', () => {
+describe("RefactoredSyncOrchestrator", () => {
   let orchestrator: RefactoredSyncOrchestrator;
   let mockDependencies: any;
   let eventSpy: jest.SpyInstance;
@@ -83,12 +83,12 @@ describe('RefactoredSyncOrchestrator', () => {
 
     mockDependencies = {
       config: new SyncConfiguration({
-        stagingDir: 'test-staging',
+        stagingDir: "test-staging",
         assertThat: {
-          projectId: 'test-project',
-          accessKey: 'test-key',
-          secretKey: 'test-secret'
-        }
+          projectId: "test-project",
+          accessKey: "test-key",
+          secretKey: "test-secret",
+        },
       }),
       stagingManager: new MockStagingManager(),
       diffManager: new MockDiffManager(),
@@ -96,11 +96,11 @@ describe('RefactoredSyncOrchestrator', () => {
       conflictResolver: new MockConflictResolver(),
       userInteraction: new MockUserInteraction(),
       cacheManager: new MockCacheManager(),
-      logger: new MockLogger()
+      logger: new MockLogger(),
     };
 
     orchestrator = new RefactoredSyncOrchestrator(mockDependencies);
-    eventSpy = jest.spyOn(syncEvents, 'emit');
+    eventSpy = jest.spyOn(syncEvents, "emit");
   });
 
   afterEach(() => {
@@ -108,119 +108,165 @@ describe('RefactoredSyncOrchestrator', () => {
     eventSpy.mockRestore();
   });
 
-  describe('execute', () => {
-    it('should complete successful sync with all phases', async () => {
+  describe("execute", () => {
+    it("should complete successful sync with all phases", async () => {
       await orchestrator.execute();
 
       // Verify all phases were executed
-      expect(mockDependencies.stagingManager.createStagingArea).toHaveBeenCalled();
-      expect(mockDependencies.stagingManager.downloadAssertThatFeatures).toHaveBeenCalled();
+      expect(
+        mockDependencies.stagingManager.createStagingArea
+      ).toHaveBeenCalled();
+      expect(
+        mockDependencies.stagingManager.downloadAssertThatFeatures
+      ).toHaveBeenCalled();
       expect(mockDependencies.diffManager.detectChanges).toHaveBeenCalled();
-      expect(mockDependencies.featureProcessor.validateFeatureFiles).toHaveBeenCalled();
-      expect(mockDependencies.stagingManager.cleanStagingArea).toHaveBeenCalled();
+      expect(
+        mockDependencies.featureProcessor.validateFeatureFiles
+      ).toHaveBeenCalled();
+      expect(
+        mockDependencies.stagingManager.cleanStagingArea
+      ).toHaveBeenCalled();
 
       // Verify events were emitted
-      expect(eventSpy).toHaveBeenCalledWith(SYNC_EVENTS.SYNC_STARTED, expect.any(Object));
-      expect(eventSpy).toHaveBeenCalledWith(SYNC_EVENTS.SYNC_COMPLETED, expect.any(Object));
-      expect(eventSpy).toHaveBeenCalledWith(SYNC_EVENTS.PHASE_STARTED, expect.any(Object));
-      expect(eventSpy).toHaveBeenCalledWith(SYNC_EVENTS.PHASE_COMPLETED, expect.any(Object));
+      expect(eventSpy).toHaveBeenCalledWith(
+        SYNC_EVENTS.SYNC_STARTED,
+        expect.any(Object)
+      );
+      expect(eventSpy).toHaveBeenCalledWith(
+        SYNC_EVENTS.SYNC_COMPLETED,
+        expect.any(Object)
+      );
+      expect(eventSpy).toHaveBeenCalledWith(
+        SYNC_EVENTS.PHASE_STARTED,
+        expect.any(Object)
+      );
+      expect(eventSpy).toHaveBeenCalledWith(
+        SYNC_EVENTS.PHASE_COMPLETED,
+        expect.any(Object)
+      );
     });
 
-    it('should handle conflicts when modifications exist', async () => {
+    it("should handle conflicts when modifications exist", async () => {
       mockDependencies.diffManager.detectChanges.mockResolvedValue({
         additions: [],
-        modifications: ['conflict.feature'],
-        deletions: []
+        modifications: ["conflict.feature"],
+        deletions: [],
       });
 
       await orchestrator.execute();
 
       expect(mockDependencies.diffManager.classifyChanges).toHaveBeenCalled();
-      expect(mockDependencies.conflictResolver.resolveConflicts).toHaveBeenCalled();
+      expect(
+        mockDependencies.conflictResolver.resolveConflicts
+      ).toHaveBeenCalled();
     });
 
-    it('should skip conflict resolution when no modifications', async () => {
+    it("should skip conflict resolution when no modifications", async () => {
       mockDependencies.diffManager.detectChanges.mockResolvedValue({
-        additions: ['new.feature'],
+        additions: ["new.feature"],
         modifications: [],
-        deletions: []
+        deletions: [],
       });
 
       await orchestrator.execute();
 
-      expect(mockDependencies.diffManager.classifyChanges).not.toHaveBeenCalled();
-      expect(mockDependencies.conflictResolver.resolveConflicts).not.toHaveBeenCalled();
+      expect(
+        mockDependencies.diffManager.classifyChanges
+      ).not.toHaveBeenCalled();
+      expect(
+        mockDependencies.conflictResolver.resolveConflicts
+      ).not.toHaveBeenCalled();
     });
 
-    it('should handle phase failures gracefully', async () => {
-      const error = new Error('Staging setup failed');
-      mockDependencies.stagingManager.createStagingArea.mockRejectedValue(error);
+    it("should handle phase failures gracefully", async () => {
+      const error = new Error("Staging setup failed");
+      mockDependencies.stagingManager.createStagingArea.mockRejectedValue(
+        error
+      );
 
-      await expect(orchestrator.execute()).rejects.toThrow('Phase staging-setup failed');
+      await expect(orchestrator.execute()).rejects.toThrow(
+        "Phase staging-setup failed"
+      );
 
       // Verify cleanup was attempted
-      expect(mockDependencies.stagingManager.cleanStagingArea).toHaveBeenCalled();
+      expect(
+        mockDependencies.stagingManager.cleanStagingArea
+      ).toHaveBeenCalled();
       expect(mockDependencies.userInteraction.close).toHaveBeenCalled();
 
       // Verify failure event was emitted
-      expect(eventSpy).toHaveBeenCalledWith(SYNC_EVENTS.SYNC_FAILED, expect.any(Object));
+      expect(eventSpy).toHaveBeenCalledWith(
+        SYNC_EVENTS.SYNC_FAILED,
+        expect.any(Object)
+      );
     });
 
-    it('should handle cleanup failure during error handling', async () => {
-      const setupError = new Error('Setup failed');
-      const cleanupError = new Error('Cleanup failed');
-      
-      mockDependencies.stagingManager.createStagingArea.mockRejectedValue(setupError);
-      mockDependencies.stagingManager.cleanStagingArea.mockRejectedValue(cleanupError);
+    it("should handle cleanup failure during error handling", async () => {
+      const setupError = new Error("Setup failed");
+      const cleanupError = new Error("Cleanup failed");
 
-      await expect(orchestrator.execute()).rejects.toThrow('Phase staging-setup failed');
+      mockDependencies.stagingManager.createStagingArea.mockRejectedValue(
+        setupError
+      );
+      mockDependencies.stagingManager.cleanStagingArea.mockRejectedValue(
+        cleanupError
+      );
+
+      await expect(orchestrator.execute()).rejects.toThrow(
+        "Phase staging-setup failed"
+      );
 
       expect(mockDependencies.logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Cleanup failed')
+        expect.stringContaining("Cleanup failed")
       );
     });
   });
 
-  describe('executePhase', () => {
-    it('should emit phase events correctly', async () => {
-      const mockPhaseFunction = jest.fn().mockResolvedValue({ result: 'success' });
+  describe("executePhase", () => {
+    it("should emit phase events correctly", async () => {
+      const mockPhaseFunction = jest
+        .fn()
+        .mockResolvedValue({ result: "success" });
 
-      const result = await orchestrator.executePhase('test-phase', mockPhaseFunction);
+      const result = await orchestrator.executePhase(
+        "test-phase",
+        mockPhaseFunction
+      );
 
-      expect(result).toEqual({ result: 'success' });
+      expect(result).toEqual({ result: "success" });
       expect(eventSpy).toHaveBeenCalledWith(
         SYNC_EVENTS.PHASE_STARTED,
-        expect.objectContaining({ phase: 'test-phase' })
+        expect.objectContaining({ phase: "test-phase" })
       );
       expect(eventSpy).toHaveBeenCalledWith(
         SYNC_EVENTS.PHASE_COMPLETED,
         expect.objectContaining({
-          phase: 'test-phase',
-          result: { result: 'success' }
+          phase: "test-phase",
+          result: { result: "success" },
         })
       );
     });
 
-    it('should handle phase function failures', async () => {
-      const error = new Error('Phase function failed');
+    it("should handle phase function failures", async () => {
+      const error = new Error("Phase function failed");
       const mockPhaseFunction = jest.fn().mockRejectedValue(error);
 
-      await expect(orchestrator.executePhase('test-phase', mockPhaseFunction)).rejects.toThrow(
-        'Phase test-phase failed'
-      );
+      await expect(
+        orchestrator.executePhase("test-phase", mockPhaseFunction)
+      ).rejects.toThrow("Phase test-phase failed");
 
       expect(eventSpy).toHaveBeenCalledWith(
         SYNC_EVENTS.PHASE_FAILED,
         expect.objectContaining({
-          phase: 'test-phase',
-          error: 'Phase function failed'
+          phase: "test-phase",
+          error: "Phase function failed",
         })
       );
     });
   });
 
-  describe('configuration validation', () => {
-    it('should validate configuration successfully', async () => {
+  describe("configuration validation", () => {
+    it("should validate configuration successfully", async () => {
       const validation = await orchestrator.validateConfiguration();
 
       expect(validation.isValid).toBe(true);
@@ -230,63 +276,63 @@ describe('RefactoredSyncOrchestrator', () => {
       );
     });
 
-    it('should handle configuration validation failure', async () => {
+    it("should handle configuration validation failure", async () => {
       const invalidConfig = new SyncConfiguration({});
       orchestrator.config = invalidConfig;
 
       await expect(orchestrator.validateConfiguration()).rejects.toThrow(
-        'Configuration validation failed'
+        "Configuration validation failed"
       );
     });
   });
 
-  describe('event listeners', () => {
-    it('should log progress updates', () => {
+  describe("event listeners", () => {
+    it("should log progress updates", () => {
       syncEvents.emit(SYNC_EVENTS.PROGRESS_UPDATE, {
-        message: 'Test progress',
-        progress: 50
+        message: "Test progress",
+        progress: 50,
       });
 
       expect(mockDependencies.logger.info).toHaveBeenCalledWith(
-        '📊 Test progress (50%)'
+        "📊 Test progress (50%)"
       );
     });
 
-    it('should log cache hits', () => {
+    it("should log cache hits", () => {
       syncEvents.emit(SYNC_EVENTS.CACHE_HIT, {
-        type: 'test-cache'
+        type: "test-cache",
       });
 
       expect(mockDependencies.logger.debug).toHaveBeenCalledWith(
-        '🎯 Cache hit: test-cache'
+        "🎯 Cache hit: test-cache"
       );
     });
 
-    it('should log phase failures', () => {
+    it("should log phase failures", () => {
       syncEvents.emit(SYNC_EVENTS.PHASE_FAILED, {
-        phase: 'test-phase',
+        phase: "test-phase",
         duration: 1000,
-        error: 'Test error'
+        error: "Test error",
       });
 
       expect(mockDependencies.logger.error).toHaveBeenCalledWith(
-        '💥 Phase test-phase failed in 1000ms: Test error'
+        "💥 Phase test-phase failed in 1000ms: Test error"
       );
     });
   });
 
-  describe('statistics and cache management', () => {
-    it('should return comprehensive stats', () => {
+  describe("statistics and cache management", () => {
+    it("should return comprehensive stats", () => {
       const stats = orchestrator.getStats();
 
-      expect(stats).toHaveProperty('cache');
-      expect(stats).toHaveProperty('events');
-      expect(stats).toHaveProperty('conflicts');
-      expect(stats).toHaveProperty('validation');
-      expect(stats).toHaveProperty('userInteraction');
+      expect(stats).toHaveProperty("cache");
+      expect(stats).toHaveProperty("events");
+      expect(stats).toHaveProperty("conflicts");
+      expect(stats).toHaveProperty("validation");
+      expect(stats).toHaveProperty("userInteraction");
     });
 
-    it('should clear all caches', () => {
+    it("should clear all caches", () => {
       orchestrator.clearCaches();
 
       expect(mockDependencies.cacheManager.clearAll).toHaveBeenCalled();
@@ -295,17 +341,17 @@ describe('RefactoredSyncOrchestrator', () => {
     });
   });
 
-  describe('dependency injection', () => {
-    it('should work with minimal dependencies', () => {
+  describe("dependency injection", () => {
+    it("should work with minimal dependencies", () => {
       const minimalOrchestrator = new RefactoredSyncOrchestrator({
         config: new SyncConfiguration({
-          stagingDir: 'test',
+          stagingDir: "test",
           assertThat: {
-            projectId: 'test',
-            accessKey: 'test',
-            secretKey: 'test'
-          }
-        })
+            projectId: "test",
+            accessKey: "test",
+            secretKey: "test",
+          },
+        }),
       });
 
       expect(minimalOrchestrator.config).toBeDefined();
@@ -313,7 +359,7 @@ describe('RefactoredSyncOrchestrator', () => {
       expect(minimalOrchestrator.conflictResolver).toBeDefined();
     });
 
-    it('should use injected dependencies correctly', () => {
+    it("should use injected dependencies correctly", () => {
       expect(orchestrator.config).toBe(mockDependencies.config);
       expect(orchestrator.stagingManager).toBe(mockDependencies.stagingManager);
       expect(orchestrator.diffManager).toBe(mockDependencies.diffManager);

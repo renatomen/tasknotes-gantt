@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { GherkinParseError, FeatureValidationError } from '../../scripts/errors/SyncErrors.mjs';
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import {
+  GherkinParseError,
+  FeatureValidationError,
+} from "../../scripts/errors/SyncErrors.mjs";
 
 // Mock @cucumber/gherkin
 const mockGherkin = {
@@ -7,7 +10,7 @@ const mockGherkin = {
   makeSourceEnvelope: jest.fn(),
 };
 
-jest.mock('@cucumber/gherkin', () => mockGherkin);
+jest.mock("@cucumber/gherkin", () => mockGherkin);
 
 // GherkinValidator implementation for testing
 class GherkinValidator {
@@ -19,8 +22,8 @@ class GherkinValidator {
 
   async validateFeatureFile(filePath: string): Promise<any> {
     try {
-      const fs = await import('fs/promises');
-      const content = await fs.readFile(filePath, 'utf8');
+      const fs = await import("fs/promises");
+      const content = await fs.readFile(filePath, "utf8");
       return this.validateFeatureContent(content, filePath);
     } catch (error) {
       throw new FeatureValidationError(
@@ -31,7 +34,10 @@ class GherkinValidator {
     }
   }
 
-  async validateFeatureContent(content: string, sourcePath = 'unknown'): Promise<any> {
+  async validateFeatureContent(
+    content: string,
+    sourcePath = "unknown"
+  ): Promise<any> {
     const result = {
       isValid: true,
       errors: [] as string[],
@@ -41,7 +47,7 @@ class GherkinValidator {
 
     try {
       // Import Gherkin components dynamically
-      const gherkin = await import('@cucumber/gherkin');
+      const gherkin = await import("@cucumber/gherkin");
       const { generateMessages, makeSourceEnvelope } = gherkin;
 
       // Create source envelope and parse the feature file
@@ -58,16 +64,20 @@ class GherkinValidator {
       );
 
       // Find the GherkinDocument message
-      const gherkinDocumentMessage = messages.find((message: any) => message.gherkinDocument);
+      const gherkinDocumentMessage = messages.find(
+        (message: any) => message.gherkinDocument
+      );
       const gherkinDocument = gherkinDocumentMessage?.gherkinDocument;
 
       // Extract feature information from AST
       if (gherkinDocument && gherkinDocument.feature) {
-        result.metadata = this.extractFeatureDataFromAST(gherkinDocument.feature);
+        result.metadata = this.extractFeatureDataFromAST(
+          gherkinDocument.feature
+        );
         this.validateFeatureStructure(gherkinDocument.feature, result);
       } else {
         result.isValid = false;
-        result.errors.push('No valid feature found in file');
+        result.errors.push("No valid feature found in file");
       }
     } catch (error) {
       throw new GherkinParseError(
@@ -82,11 +92,11 @@ class GherkinValidator {
 
   extractFeatureDataFromAST(feature: any): any {
     const metadata = {
-      name: feature.name || '',
-      description: feature.description || '',
+      name: feature.name || "",
+      description: feature.description || "",
       tags: feature.tags ? feature.tags.map((tag: any) => tag.name) : [],
       scenarios: [] as any[],
-      language: feature.language || 'en',
+      language: feature.language || "en",
     };
 
     // Extract scenarios from AST
@@ -95,10 +105,12 @@ class GherkinValidator {
         if (child.scenario) {
           const scenario = child.scenario;
           metadata.scenarios.push({
-            name: scenario.name || '',
-            tags: scenario.tags ? scenario.tags.map((tag: any) => tag.name) : [],
+            name: scenario.name || "",
+            tags: scenario.tags
+              ? scenario.tags.map((tag: any) => tag.name)
+              : [],
             steps: scenario.steps ? scenario.steps.length : 0,
-            type: 'scenario',
+            type: "scenario",
           });
         } else if (child.rule) {
           // Handle rules containing scenarios
@@ -108,10 +120,12 @@ class GherkinValidator {
               if (ruleChild.scenario) {
                 const scenario = ruleChild.scenario;
                 metadata.scenarios.push({
-                  name: scenario.name || '',
-                  tags: scenario.tags ? scenario.tags.map((tag: any) => tag.name) : [],
+                  name: scenario.name || "",
+                  tags: scenario.tags
+                    ? scenario.tags.map((tag: any) => tag.name)
+                    : [],
                   steps: scenario.steps ? scenario.steps.length : 0,
-                  type: 'scenario',
+                  type: "scenario",
                   rule: rule.name,
                 });
               }
@@ -126,13 +140,13 @@ class GherkinValidator {
 
   validateFeatureStructure(feature: any, result: any): void {
     // Validate feature has a name
-    if (!feature.name || feature.name.trim() === '') {
-      result.warnings.push('Feature should have a descriptive name');
+    if (!feature.name || feature.name.trim() === "") {
+      result.warnings.push("Feature should have a descriptive name");
     }
 
     // Validate feature has scenarios
     if (!feature.children || feature.children.length === 0) {
-      result.errors.push('Feature must contain at least one scenario');
+      result.errors.push("Feature must contain at least one scenario");
       result.isValid = false;
     }
 
@@ -144,8 +158,10 @@ class GherkinValidator {
           if (!scenario.steps || scenario.steps.length === 0) {
             result.warnings.push(`Scenario ${index + 1} has no steps`);
           }
-          if (!scenario.name || scenario.name.trim() === '') {
-            result.warnings.push(`Scenario ${index + 1} should have a descriptive name`);
+          if (!scenario.name || scenario.name.trim() === "") {
+            result.warnings.push(
+              `Scenario ${index + 1} should have a descriptive name`
+            );
           }
         }
       });
@@ -204,7 +220,7 @@ class GherkinValidator {
   }
 }
 
-describe('GherkinValidator', () => {
+describe("GherkinValidator", () => {
   let validator: GherkinValidator;
 
   beforeEach(() => {
@@ -212,8 +228,8 @@ describe('GherkinValidator', () => {
     validator = new GherkinValidator();
   });
 
-  describe('validateFeatureContent', () => {
-    it('should validate valid Gherkin content', async () => {
+  describe("validateFeatureContent", () => {
+    it("should validate valid Gherkin content", async () => {
       const validContent = `Feature: Test Feature
   As a user
   I want to test something
@@ -225,115 +241,132 @@ describe('GherkinValidator', () => {
     Then it should pass`;
 
       const mockFeature = {
-        name: 'Test Feature',
-        description: 'As a user\nI want to test something\nSo that I can verify it works',
+        name: "Test Feature",
+        description:
+          "As a user\nI want to test something\nSo that I can verify it works",
         tags: [],
         children: [
           {
             scenario: {
-              name: 'Test scenario',
+              name: "Test scenario",
               tags: [],
               steps: [
-                { keyword: 'Given', text: 'I have a test' },
-                { keyword: 'When', text: 'I run it' },
-                { keyword: 'Then', text: 'it should pass' },
+                { keyword: "Given", text: "I have a test" },
+                { keyword: "When", text: "I run it" },
+                { keyword: "Then", text: "it should pass" },
               ],
             },
           },
         ],
-        language: 'en',
+        language: "en",
       };
 
       mockGherkin.makeSourceEnvelope.mockReturnValue({
-        source: { data: validContent, uri: 'test.feature', mediaType: 'text/x.cucumber.gherkin+plain' },
+        source: {
+          data: validContent,
+          uri: "test.feature",
+          mediaType: "text/x.cucumber.gherkin+plain",
+        },
       });
 
       mockGherkin.generateMessages.mockReturnValue([
         { gherkinDocument: { feature: mockFeature } },
       ]);
 
-      const result = await validator.validateFeatureContent(validContent, 'test.feature');
+      const result = await validator.validateFeatureContent(
+        validContent,
+        "test.feature"
+      );
 
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
-      expect(result.metadata.name).toBe('Test Feature');
+      expect(result.metadata.name).toBe("Test Feature");
       expect(result.metadata.scenarios).toHaveLength(1);
     });
 
-    it('should handle Gherkin parse errors', async () => {
-      const invalidContent = 'Invalid Gherkin content';
+    it("should handle Gherkin parse errors", async () => {
+      const invalidContent = "Invalid Gherkin content";
 
       mockGherkin.makeSourceEnvelope.mockReturnValue({
-        source: { data: invalidContent, uri: 'test.feature', mediaType: 'text/x.cucumber.gherkin+plain' },
+        source: {
+          data: invalidContent,
+          uri: "test.feature",
+          mediaType: "text/x.cucumber.gherkin+plain",
+        },
       });
 
       mockGherkin.generateMessages.mockImplementation(() => {
-        throw new Error('Parse error: Invalid syntax');
+        throw new Error("Parse error: Invalid syntax");
       });
 
-      await expect(validator.validateFeatureContent(invalidContent, 'test.feature'))
-        .rejects.toThrow(GherkinParseError);
+      await expect(
+        validator.validateFeatureContent(invalidContent, "test.feature")
+      ).rejects.toThrow(GherkinParseError);
     });
 
-    it('should detect missing feature', async () => {
+    it("should detect missing feature", async () => {
       mockGherkin.makeSourceEnvelope.mockReturnValue({
-        source: { data: '', uri: 'test.feature', mediaType: 'text/x.cucumber.gherkin+plain' },
+        source: {
+          data: "",
+          uri: "test.feature",
+          mediaType: "text/x.cucumber.gherkin+plain",
+        },
       });
 
       mockGherkin.generateMessages.mockReturnValue([]);
 
-      const result = await validator.validateFeatureContent('', 'test.feature');
+      const result = await validator.validateFeatureContent("", "test.feature");
 
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('No valid feature found in file');
+      expect(result.errors).toContain("No valid feature found in file");
     });
   });
 
-  describe('extractFeatureDataFromAST', () => {
-    it('should extract feature metadata correctly', () => {
+  describe("extractFeatureDataFromAST", () => {
+    it("should extract feature metadata correctly", () => {
       const feature = {
-        name: 'Test Feature',
-        description: 'Feature description',
-        tags: [{ name: '@tag1' }, { name: '@tag2' }],
+        name: "Test Feature",
+        description: "Feature description",
+        tags: [{ name: "@tag1" }, { name: "@tag2" }],
         children: [
           {
             scenario: {
-              name: 'Scenario 1',
-              tags: [{ name: '@scenario-tag' }],
+              name: "Scenario 1",
+              tags: [{ name: "@scenario-tag" }],
               steps: [
-                { keyword: 'Given', text: 'step 1' },
-                { keyword: 'When', text: 'step 2' },
+                { keyword: "Given", text: "step 1" },
+                { keyword: "When", text: "step 2" },
               ],
             },
           },
         ],
-        language: 'en',
+        language: "en",
       };
 
       const metadata = validator.extractFeatureDataFromAST(feature);
 
-      expect(metadata.name).toBe('Test Feature');
-      expect(metadata.description).toBe('Feature description');
-      expect(metadata.tags).toEqual(['@tag1', '@tag2']);
+      expect(metadata.name).toBe("Test Feature");
+      expect(metadata.description).toBe("Feature description");
+      expect(metadata.tags).toEqual(["@tag1", "@tag2"]);
       expect(metadata.scenarios).toHaveLength(1);
-      expect(metadata.scenarios[0].name).toBe('Scenario 1');
-      expect(metadata.scenarios[0].tags).toEqual(['@scenario-tag']);
+      expect(metadata.scenarios[0].name).toBe("Scenario 1");
+      expect(metadata.scenarios[0].tags).toEqual(["@scenario-tag"]);
       expect(metadata.scenarios[0].steps).toBe(2);
     });
 
-    it('should handle rules with scenarios', () => {
+    it("should handle rules with scenarios", () => {
       const feature = {
-        name: 'Test Feature',
+        name: "Test Feature",
         children: [
           {
             rule: {
-              name: 'Test Rule',
+              name: "Test Rule",
               children: [
                 {
                   scenario: {
-                    name: 'Rule Scenario',
+                    name: "Rule Scenario",
                     tags: [],
-                    steps: [{ keyword: 'Given', text: 'step' }],
+                    steps: [{ keyword: "Given", text: "step" }],
                   },
                 },
               ],
@@ -345,19 +378,19 @@ describe('GherkinValidator', () => {
       const metadata = validator.extractFeatureDataFromAST(feature);
 
       expect(metadata.scenarios).toHaveLength(1);
-      expect(metadata.scenarios[0].name).toBe('Rule Scenario');
-      expect(metadata.scenarios[0].rule).toBe('Test Rule');
+      expect(metadata.scenarios[0].name).toBe("Rule Scenario");
+      expect(metadata.scenarios[0].rule).toBe("Test Rule");
     });
   });
 
-  describe('validateFeatureStructure', () => {
-    it('should validate feature structure and add warnings', () => {
+  describe("validateFeatureStructure", () => {
+    it("should validate feature structure and add warnings", () => {
       const feature = {
-        name: '',
+        name: "",
         children: [
           {
             scenario: {
-              name: '',
+              name: "",
               steps: [],
             },
           },
@@ -367,14 +400,18 @@ describe('GherkinValidator', () => {
       const result = { isValid: true, errors: [], warnings: [] };
       validator.validateFeatureStructure(feature, result);
 
-      expect(result.warnings).toContain('Feature should have a descriptive name');
-      expect(result.warnings).toContain('Scenario 1 has no steps');
-      expect(result.warnings).toContain('Scenario 1 should have a descriptive name');
+      expect(result.warnings).toContain(
+        "Feature should have a descriptive name"
+      );
+      expect(result.warnings).toContain("Scenario 1 has no steps");
+      expect(result.warnings).toContain(
+        "Scenario 1 should have a descriptive name"
+      );
     });
 
-    it('should add error for feature without scenarios', () => {
+    it("should add error for feature without scenarios", () => {
       const feature = {
-        name: 'Test Feature',
+        name: "Test Feature",
         children: [],
       };
 
@@ -382,33 +419,50 @@ describe('GherkinValidator', () => {
       validator.validateFeatureStructure(feature, result);
 
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Feature must contain at least one scenario');
+      expect(result.errors).toContain(
+        "Feature must contain at least one scenario"
+      );
     });
   });
 
-  describe('processMultipleFiles', () => {
-    it('should process multiple files and return results', async () => {
+  describe("processMultipleFiles", () => {
+    it("should process multiple files and return results", async () => {
       // Mock fs.readFile
-      const mockReadFile = jest.fn()
-        .mockResolvedValueOnce('Feature: Test 1\nScenario: Test')
-        .mockResolvedValueOnce('Feature: Test 2\nScenario: Test');
+      const mockReadFile = jest
+        .fn()
+        .mockResolvedValueOnce("Feature: Test 1\nScenario: Test")
+        .mockResolvedValueOnce("Feature: Test 2\nScenario: Test");
 
       // Mock the dynamic import
-      jest.doMock('fs/promises', () => ({ readFile: mockReadFile }));
+      jest.doMock("fs/promises", () => ({ readFile: mockReadFile }));
 
       mockGherkin.makeSourceEnvelope.mockReturnValue({
-        source: { data: 'content', uri: 'test.feature', mediaType: 'text/x.cucumber.gherkin+plain' },
+        source: {
+          data: "content",
+          uri: "test.feature",
+          mediaType: "text/x.cucumber.gherkin+plain",
+        },
       });
 
       mockGherkin.generateMessages.mockReturnValue([
-        { gherkinDocument: { feature: { name: 'Test', children: [{ scenario: { steps: [{}] } }] } } },
+        {
+          gherkinDocument: {
+            feature: {
+              name: "Test",
+              children: [{ scenario: { steps: [{}] } }],
+            },
+          },
+        },
       ]);
 
-      const results = await validator.processMultipleFiles(['file1.feature', 'file2.feature']);
+      const results = await validator.processMultipleFiles([
+        "file1.feature",
+        "file2.feature",
+      ]);
 
       expect(results).toHaveLength(2);
-      expect(results[0].filePath).toBe('file1.feature');
-      expect(results[1].filePath).toBe('file2.feature');
+      expect(results[0].filePath).toBe("file1.feature");
+      expect(results[1].filePath).toBe("file2.feature");
     });
   });
 });

@@ -3,10 +3,10 @@
  * Extracted from oversized GherkinValidator class (343 lines → ~100 lines)
  */
 
-import { syncEvents, SYNC_EVENTS } from '../events/SyncEvents.mjs';
-import { cacheManager } from '../cache/CacheManager.mjs';
-import { FeatureValidationError } from '../errors/SyncErrors.mjs';
-import { GherkinParser } from './GherkinParser.mjs';
+import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
+import { cacheManager } from "../cache/CacheManager.mjs";
+import { FeatureValidationError } from "../errors/SyncErrors.mjs";
+import { GherkinParser } from "./GherkinParser.mjs";
 
 export class GherkinValidator {
   constructor(parser = null) {
@@ -18,8 +18,8 @@ export class GherkinValidator {
    */
   async validateFeatureFile(filePath) {
     try {
-      const fs = await import('fs/promises');
-      const content = await fs.readFile(filePath, 'utf8');
+      const fs = await import("fs/promises");
+      const content = await fs.readFile(filePath, "utf8");
       return await this.validateFeatureContent(content, filePath);
     } catch (error) {
       throw new FeatureValidationError(
@@ -33,38 +33,50 @@ export class GherkinValidator {
   /**
    * Validate feature content
    */
-  async validateFeatureContent(content, sourcePath = 'unknown') {
+  async validateFeatureContent(content, sourcePath = "unknown") {
     const result = {
       isValid: true,
       errors: [],
       warnings: [],
-      metadata: null
+      metadata: null,
     };
 
     try {
       // Check cache first
       const fileHash = this.parser.generateContentHash(content);
-      const cached = cacheManager.validationCache.getValidation(sourcePath, fileHash);
+      const cached = cacheManager.validationCache.getValidation(
+        sourcePath,
+        fileHash
+      );
       if (cached) {
-        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, { type: 'validation', sourcePath });
+        syncEvents.emit(SYNC_EVENTS.CACHE_HIT, {
+          type: "validation",
+          sourcePath,
+        });
         return cached;
       }
 
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_STARTED, { sourcePath, type: 'validation' });
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_STARTED, {
+        sourcePath,
+        type: "validation",
+      });
 
       // Parse the feature content
-      const featureData = await this.parser.parseFeatureContent(content, sourcePath);
+      const featureData = await this.parser.parseFeatureContent(
+        content,
+        sourcePath
+      );
       result.metadata = featureData;
 
       // Validate the parsed data
       const validationIssues = this.validateFeatureData(featureData);
-      
+
       // Categorize issues
       for (const issue of validationIssues) {
-        if (issue.type === 'error') {
+        if (issue.type === "error") {
           result.errors.push(issue.message);
           result.isValid = false;
-        } else if (issue.type === 'warning') {
+        } else if (issue.type === "warning") {
           result.warnings.push(issue.message);
         }
       }
@@ -73,26 +85,29 @@ export class GherkinValidator {
       this.validateBusinessRules(featureData, result);
 
       // Cache the result
-      cacheManager.validationCache.cacheValidation(sourcePath, fileHash, result);
+      cacheManager.validationCache.cacheValidation(
+        sourcePath,
+        fileHash,
+        result
+      );
 
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_COMPLETED, { 
-        sourcePath, 
-        type: 'validation',
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_COMPLETED, {
+        sourcePath,
+        type: "validation",
         isValid: result.isValid,
         errorCount: result.errors.length,
-        warningCount: result.warnings.length
+        warningCount: result.warnings.length,
       });
 
       return result;
-
     } catch (error) {
       result.isValid = false;
       result.errors.push(error.message);
 
-      syncEvents.emit(SYNC_EVENTS.VALIDATION_FAILED, { 
-        sourcePath, 
-        type: 'validation',
-        error: error.message 
+      syncEvents.emit(SYNC_EVENTS.VALIDATION_FAILED, {
+        sourcePath,
+        type: "validation",
+        error: error.message,
       });
 
       return result;
@@ -122,18 +137,19 @@ export class GherkinValidator {
    */
   validateFeatureNaming(featureData, issues) {
     const name = featureData.name.trim();
-    
+
     if (name.length < 5) {
-      issues.push({ 
-        type: 'warning', 
-        message: 'Feature name should be more descriptive (at least 5 characters)' 
+      issues.push({
+        type: "warning",
+        message:
+          "Feature name should be more descriptive (at least 5 characters)",
       });
     }
 
-    if (name.toLowerCase().includes('test')) {
-      issues.push({ 
-        type: 'warning', 
-        message: 'Feature name should describe business value, not testing' 
+    if (name.toLowerCase().includes("test")) {
+      issues.push({
+        type: "warning",
+        message: "Feature name should describe business value, not testing",
       });
     }
   }
@@ -147,26 +163,26 @@ export class GherkinValidator {
     featureData.scenarios.forEach((scenario, index) => {
       // Check for duplicate scenario names
       if (scenarioNames.has(scenario.name)) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Duplicate scenario name: "${scenario.name}"` 
+        issues.push({
+          type: "warning",
+          message: `Duplicate scenario name: "${scenario.name}"`,
         });
       }
       scenarioNames.add(scenario.name);
 
       // Validate scenario structure
-      if (scenario.type === 'outline' && scenario.examples.length === 0) {
-        issues.push({ 
-          type: 'error', 
-          message: `Scenario Outline "${scenario.name}" must have examples` 
+      if (scenario.type === "outline" && scenario.examples.length === 0) {
+        issues.push({
+          type: "error",
+          message: `Scenario Outline "${scenario.name}" must have examples`,
         });
       }
 
       // Check for overly long scenarios
       if (scenario.steps.length > 10) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Scenario "${scenario.name}" has many steps (${scenario.steps.length}). Consider breaking it down.` 
+        issues.push({
+          type: "warning",
+          message: `Scenario "${scenario.name}" has many steps (${scenario.steps.length}). Consider breaking it down.`,
         });
       }
     });
@@ -178,22 +194,22 @@ export class GherkinValidator {
   validateTags(featureData, issues) {
     const allTags = [
       ...featureData.tags,
-      ...featureData.scenarios.flatMap(s => s.tags)
+      ...featureData.scenarios.flatMap((s) => s.tags),
     ];
 
     // Check for malformed tags
-    allTags.forEach(tag => {
-      if (!tag.startsWith('@')) {
-        issues.push({ 
-          type: 'error', 
-          message: `Invalid tag format: "${tag}". Tags must start with @` 
+    allTags.forEach((tag) => {
+      if (!tag.startsWith("@")) {
+        issues.push({
+          type: "error",
+          message: `Invalid tag format: "${tag}". Tags must start with @`,
         });
       }
 
-      if (tag.includes(' ')) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Tag "${tag}" contains spaces. Consider using hyphens or underscores.` 
+      if (tag.includes(" ")) {
+        issues.push({
+          type: "warning",
+          message: `Tag "${tag}" contains spaces. Consider using hyphens or underscores.`,
         });
       }
     });
@@ -203,32 +219,32 @@ export class GherkinValidator {
    * Validate steps
    */
   validateSteps(featureData, issues) {
-    featureData.scenarios.forEach(scenario => {
+    featureData.scenarios.forEach((scenario) => {
       let hasGiven = false;
       let hasWhen = false;
       let hasThen = false;
 
-      scenario.steps.forEach(step => {
+      scenario.steps.forEach((step) => {
         const keyword = step.keyword?.toLowerCase();
-        
-        if (keyword?.includes('given')) hasGiven = true;
-        if (keyword?.includes('when')) hasWhen = true;
-        if (keyword?.includes('then')) hasThen = true;
+
+        if (keyword?.includes("given")) hasGiven = true;
+        if (keyword?.includes("when")) hasWhen = true;
+        if (keyword?.includes("then")) hasThen = true;
 
         // Check for overly long step text
         if (step.text.length > 100) {
-          issues.push({ 
-            type: 'warning', 
-            message: `Step text is very long (${step.text.length} chars). Consider breaking it down.` 
+          issues.push({
+            type: "warning",
+            message: `Step text is very long (${step.text.length} chars). Consider breaking it down.`,
           });
         }
       });
 
       // Check for complete Given-When-Then structure
       if (scenario.steps.length > 0 && (!hasGiven || !hasWhen || !hasThen)) {
-        issues.push({ 
-          type: 'warning', 
-          message: `Scenario "${scenario.name}" should follow Given-When-Then structure` 
+        issues.push({
+          type: "warning",
+          message: `Scenario "${scenario.name}" should follow Given-When-Then structure`,
         });
       }
     });
@@ -239,18 +255,22 @@ export class GherkinValidator {
    */
   validateBusinessRules(featureData, result) {
     // Check for critical tags
-    const criticalTags = ['@critical', '@smoke', '@regression'];
-    const hasCriticalTag = featureData.scenarios.some(scenario => 
-      scenario.tags.some(tag => criticalTags.includes(tag))
+    const criticalTags = ["@critical", "@smoke", "@regression"];
+    const hasCriticalTag = featureData.scenarios.some((scenario) =>
+      scenario.tags.some((tag) => criticalTags.includes(tag))
     );
 
     if (!hasCriticalTag && featureData.scenarios.length > 5) {
-      result.warnings.push('Large feature without critical scenarios. Consider adding @critical tags.');
+      result.warnings.push(
+        "Large feature without critical scenarios. Consider adding @critical tags."
+      );
     }
 
     // Check for missing descriptions
     if (!featureData.description.trim()) {
-      result.warnings.push('Feature should have a description explaining its business value.');
+      result.warnings.push(
+        "Feature should have a description explaining its business value."
+      );
     }
   }
 
