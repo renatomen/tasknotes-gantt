@@ -1,0 +1,47 @@
+# Ensure consistent line endings across all platforms
+# This prevents line ending conflicts between Windows (CRLF), Linux/Mac (LF)
+
+# Default: normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Explicitly set LF for source code files
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.svelte text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+
+# Configuration files
+*.config.* text eol=lf
+.*rc text eol=lf
+.*ignore text eol=lf
+
+# Windows-specific files should keep CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files (don't normalize)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.tar.gz binary
+*.wasm binary
+
+# Package manager files
+package-lock.json text eol=lf
+yarn.lock text eol=lf
+pnpm-lock.yaml text eol=lf
