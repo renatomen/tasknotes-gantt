@@ -58,6 +58,7 @@ jobs:
       
       - name: Check for changes
         id: changes
+        shell: bash
         run: |
           if git diff --quiet features/ featureSyncStage/; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -140,10 +141,11 @@ jobs:
       
       - name: Cleanup on failure
         if: failure()
+        shell: bash
         run: |
           echo "Sync failed, cleaning up..."
           git checkout main
-          git branch -D sync/assertthat-* 2>$null || echo "No sync branches to clean up"
+          git branch -D sync/assertthat-* 2>/dev/null || echo "No sync branches to clean up"
       
       - name: Notify on failure
         if: failure()
