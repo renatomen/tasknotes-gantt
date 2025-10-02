@@ -310,6 +310,8 @@ export class ConflictDetector {
     return text
       .replace(/\s+/g, " ") // Normalize whitespace
       .replace(/\t/g, " ") // Convert tabs to spaces
+      .replace(/\s*:\s*/g, ":") // Normalize spaces around colons
+      .replace(/\s*,\s*/g, ",") // Normalize spaces around commas
       .trim() // Remove leading/trailing whitespace
       .toLowerCase(); // Case insensitive comparison
   }

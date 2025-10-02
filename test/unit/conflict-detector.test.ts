@@ -9,6 +9,7 @@ import {
 
 // Import actual class from refactored architecture
 import { ConflictDetector } from "../../scripts/conflicts/ConflictDetector.mjs";
+import { cacheManager } from "../../scripts/cache/CacheManager.mjs";
 
 // Mock dependencies
 const mockGitExecutor = jest.fn();
@@ -19,6 +20,8 @@ describe("ConflictDetector", () => {
   beforeEach(() => {
     conflictDetector = new ConflictDetector(mockGitExecutor);
     jest.clearAllMocks();
+    // Clear cache to prevent test interference
+    cacheManager.gitCache.clear();
   });
 
   afterEach(() => {
