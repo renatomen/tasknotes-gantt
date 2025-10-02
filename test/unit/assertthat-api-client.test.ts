@@ -3,23 +3,22 @@
  * Test-driven development for AssertThat BDD Jira Cloud V2 REST API client
  */
 
-import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import { describe, it, expect, beforeEach, beforeAll, jest } from "@jest/globals";
 import type { Mock } from "jest-mock";
+import { AssertThatApiClient } from "../../scripts/api/AssertThatApiClient.mjs";
+import { AssertThatApiError } from "../../scripts/errors/SyncErrors.mjs";
 
-// Mock https module BEFORE importing the client
+// Mock https module
 const mockRequest = jest.fn();
-jest.unstable_mockModule("https", () => ({
+jest.mock("https", () => ({
   default: {
     request: mockRequest,
   },
+  request: mockRequest,
 }));
 
-// Import after mocking
-const { AssertThatApiClient } = await import("../../scripts/api/AssertThatApiClient.mjs");
-const { AssertThatApiError } = await import("../../scripts/errors/SyncErrors.mjs");
-
 describe("AssertThatApiClient", () => {
-  let client: AssertThatApiClient;
+  let client: any;
   let mockResponse: any;
   let mockRequestObj: any;
 
