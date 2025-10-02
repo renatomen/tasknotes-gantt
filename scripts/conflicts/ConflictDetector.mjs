@@ -138,7 +138,6 @@ export class ConflictDetector {
    */
   async isWhitespaceOnlyChange(diffOutput) {
     try {
-      // Look for lines that only contain whitespace changes
       const diffLines = diffOutput.split("\n");
       const contentLines = diffLines
         .filter((line) => line.startsWith("+") || line.startsWith("-"))
@@ -146,15 +145,29 @@ export class ConflictDetector {
 
       if (contentLines.length === 0) return false;
 
-      // Check if all changes are just whitespace
+      // Group lines into pairs (removed/added) and check if they're the same when normalized
+      const removedLines = [];
+      const addedLines = [];
+
       for (const line of contentLines) {
         const content = line.substring(1); // Remove +/- prefix
-        if (content.trim() !== "" && !/^\s*$/.test(content)) {
-          // This line has non-whitespace content changes
-          const normalizedContent = content.replace(/\s+/g, " ").trim();
-          if (normalizedContent.length > 0) {
-            return false;
-          }
+        if (line.startsWith("-")) {
+          removedLines.push(content);
+        } else if (line.startsWith("+")) {
+          addedLines.push(content);
+        }
+      }
+
+      // Must have same number of removed and added lines
+      if (removedLines.length !== addedLines.length) return false;
+
+      // Check if each pair has the same content when whitespace is normalized
+      for (let i = 0; i < removedLines.length; i++) {
+        const normalizedRemoved = removedLines[i].replace(/\s+/g, " ").trim();
+        const normalizedAdded = addedLines[i].replace(/\s+/g, " ").trim();
+
+        if (normalizedRemoved !== normalizedAdded) {
+          return false;
         }
       }
 
@@ -297,6 +310,8 @@ export class ConflictDetector {
     return text
       .replace(/\s+/g, " ") // Normalize whitespace
       .replace(/\t/g, " ") // Convert tabs to spaces
+      .replace(/\s*:\s*/g, ":") // Normalize spaces around colons
+      .replace(/\s*,\s*/g, ",") // Normalize spaces around commas
       .trim() // Remove leading/trailing whitespace
       .toLowerCase(); // Case insensitive comparison
   }

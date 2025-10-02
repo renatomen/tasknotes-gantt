@@ -1,7 +1,7 @@
 /**
  * OG-49: Sync Script Configuration Validation Tests
  *
- * Tests for environment variable validation in sync-assertthat.mjs
+ * Tests for environment variable validation in SyncConfiguration
  * Following TDD principles - tests for enhanced validation
  */
 

@@ -20,7 +20,7 @@
     "generate:feature": "node scripts/generate-bdd-feature.mjs",
     "tags": "node scripts/semantic-tag-manager.mjs",
     "detect:bdd-changes": "node scripts/detect-bdd-changes.mjs",
-    "sync:assertthat": "node scripts/sync-assertthat.mjs",
+    "sync:assertthat": "node scripts/sync-features.mjs",
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",
@@ -33,6 +33,7 @@
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@swc/core": "^1.13.5",
     "@swc/jest": "^0.2.39",
+    "@types/adm-zip": "^0.5.7",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
     "@typescript-eslint/eslint-plugin": "^8.44.0",
@@ -62,11 +63,14 @@
     "webdriverio": "^9.19.2"
   },
   "dependencies": {
-    "@svar-ui/svelte-gantt": "^2.3.0",
     "@cucumber/gherkin": "^27.0.0",
+    "@svar-ui/svelte-gantt": "^2.3.0",
+    "@svar-ui/svelte-toolbar": "^2.3.0",
+    "adm-zip": "^0.5.16",
     "axios": "^1.6.0",
+    "dotenv": "^17.2.3",
+    "glob": "^11.0.3",
     "inquirer": "^9.2.0",
-    "simple-git": "^3.20.0",
-    "@svar-ui/svelte-toolbar": "^2.3.0"
+    "simple-git": "^3.20.0"
   }
 }
