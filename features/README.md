@@ -4,6 +4,17 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
 **official requirements** for the Obsidian Gantt plugin. These scenarios follow the BDD best
 practices defined in `.augment/rules/BDD.md` and `project/BDD-Best-Practices.md`.
 
+## 🔄 **Automated Sync with AssertThat**
+
+This directory is automatically synchronized with AssertThat BDD plugin in Jira:
+
+- **Scheduled Sync**: Daily at 2 AM UTC
+- **Manual Sync**: Via GitHub Actions workflow dispatch
+- **Bidirectional**: Changes flow both ways (GitHub ↔ AssertThat)
+- **PR-based**: All syncs create pull requests for review
+
+**Quick Start**: See [docs/QUICKSTART-SYNC.md](../docs/QUICKSTART-SYNC.md) for setup instructions.
+
 ## 📋 **Scenario Overview**
 
 ### **Gantt Visualization** (`gantt-visualization/`)
