@@ -174,8 +174,45 @@ class StagingAreaManager {
   }
 
   private async fetchFromAssertThatAPI(): Promise<void> {
-    // Placeholder for real API implementation
-    throw new Error("AssertThat API integration not implemented");
+    // Import API client dynamically to avoid circular dependencies
+    const { AssertThatApiClient } = await import(
+      "../../scripts/api/AssertThatApiClient.mjs"
+    );
+
+    // Create API client with configuration
+    const apiClient = new AssertThatApiClient({
+      projectId: this.config.assertThat.projectId,
+      accessKey: this.config.assertThat.accessKey,
+      secretKey: this.config.assertThat.secretKey,
+      token: this.config.assertThat.token,
+    });
+
+    // Download features as ZIP
+    const zipBuffer = await apiClient.downloadFeatures({
+      mode: "automated",
+    });
+
+    // Extract ZIP to staging area
+    await this.extractZipToStaging(zipBuffer);
+  }
+
+  private async extractZipToStaging(zipBuffer: Buffer): Promise<void> {
+    // Import AdmZip for ZIP extraction
+    const AdmZip = (await import("adm-zip")).default;
+    const zip = new AdmZip(zipBuffer);
+
+    // Extract all entries
+    const zipEntries = zip.getEntries();
+
+    for (const entry of zipEntries) {
+      if (!entry.isDirectory && entry.entryName.endsWith(".feature")) {
+        const content = entry.getData().toString("utf8");
+        const fileName = path.basename(entry.entryName);
+        const filePath = path.join(this.stagingPath, fileName);
+
+        await this.fs.writeFile(filePath, content, "utf8");
+      }
+    }
   }
 }
 
