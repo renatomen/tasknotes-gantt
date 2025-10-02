@@ -21,6 +21,7 @@
     "tags": "node scripts/semantic-tag-manager.mjs",
     "detect:bdd-changes": "node scripts/detect-bdd-changes.mjs",
     "sync:assertthat": "node scripts/sync-features.mjs",
+    "sync:pr": "node scripts/sync-with-pr.mjs",
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",
