@@ -7,153 +7,9 @@ import {
   jest,
 } from "@jest/globals";
 
-// Create a proper ConflictResolver implementation for testing
-class ConflictResolver {
-  constructor(
-    public gitExecutor: any,
-    public fs: any
-  ) {}
-
-  async resolveConflicts(
-    changes: any,
-    stagingPath: string,
-    featuresPath: string
-  ) {
-    const results = { autoResolved: [], requiresManual: [], failed: [] };
-
-    for (const filename of changes.modifications) {
-      try {
-        const resolution = await this.resolveFileConflict(
-          filename,
-          stagingPath,
-          featuresPath
-        );
-        if (resolution.autoResolved) {
-          results.autoResolved.push(filename);
-        } else {
-          results.requiresManual.push(filename);
-        }
-      } catch (error) {
-        results.failed.push({ filename, error: error.message });
-      }
-    }
-
-    return results;
-  }
-
-  async resolveFileConflict(
-    filename: string,
-    stagingPath: string,
-    featuresPath: string
-  ) {
-    try {
-      const mergeResult = await this.attemptGitMerge(
-        "base",
-        "their",
-        "output",
-        "--ignore-space-change"
-      );
-      return {
-        autoResolved: mergeResult.success,
-        strategy: "ignore-space-change",
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async attemptGitMerge(
-    baseFile: string,
-    theirFile: string,
-    outputFile: string,
-    strategy?: string
-  ) {
-    try {
-      const mergedContent = this.gitExecutor(
-        `git merge-file ${strategy} -p "${baseFile}" "${outputFile}" "${theirFile}"`,
-        { encoding: "utf8" }
-      );
-      await this.fs.writeFile(outputFile, mergedContent);
-      const hasConflicts = await this.hasConflictMarkers(outputFile);
-      return { success: !hasConflicts, content: mergedContent };
-    } catch (error) {
-      if (error.stdout) {
-        await this.fs.writeFile(outputFile, error.stdout);
-        const hasConflicts = await this.hasConflictMarkers(outputFile);
-        return { success: !hasConflicts, content: error.stdout };
-      }
-      throw error;
-    }
-  }
-
-  async hasConflictMarkers(filePath: string) {
-    try {
-      const content = await this.fs.readFile(filePath, "utf8");
-      return (
-        content.includes("<<<<<<<") ||
-        content.includes("=======") ||
-        content.includes(">>>>>>>")
-      );
-    } catch (error) {
-      return true;
-    }
-  }
-
-  async analyzeConflictType(githubFile: string, stagingFile: string) {
-    try {
-      this.gitExecutor(
-        `git diff --no-index --ignore-space-change "${stagingFile}" "${githubFile}"`,
-        { encoding: "utf8" }
-      );
-      return { isSimple: true, reason: "whitespace-only" };
-    } catch (error: any) {
-      if (await this.isCommentOnlyChange(error.stdout || "")) {
-        return { isSimple: true, reason: "comments-only" };
-      }
-      return { isSimple: false, reason: "content-changes" };
-    }
-  }
-
-  async isCommentOnlyChange(diffOutput: string) {
-    if (!diffOutput) return false;
-    const lines = diffOutput.split("\n");
-    const changeLines = lines.filter(
-      (line) => line.startsWith("+") || line.startsWith("-")
-    );
-    const contentChanges = changeLines.filter((line) => {
-      const content = line.substring(1).trim();
-      return content && !content.startsWith("#");
-    });
-    return contentChanges.length === 0;
-  }
-
-  async createConflictMarkers(
-    filename: string,
-    stagingPath: string,
-    featuresPath: string
-  ) {
-    try {
-      const githubContent = await this.fs.readFile(
-        `${featuresPath}/${filename}`,
-        "utf8"
-      );
-      const stagingContent = await this.fs.readFile(
-        `${stagingPath}/${filename}`,
-        "utf8"
-      );
-      const conflictContent = [
-        "<<<<<<< GitHub (incoming changes)",
-        githubContent.trim(),
-        "=======",
-        stagingContent.trim(),
-        ">>>>>>> AssertThat (current version)",
-      ].join("\n");
-      await this.fs.writeFile(`${stagingPath}/${filename}`, conflictContent);
-    } catch (error) {
-      throw new Error(`Failed to create conflict markers: ${error.message}`);
-    }
-  }
-}
+// Import actual classes from refactored architecture
+import { ConflictDetector } from "../../scripts/conflicts/ConflictDetector.mjs";
+import { ConflictResolver } from "../../scripts/conflicts/ConflictResolver.mjs";
 
 // Mock dependencies
 const mockGitExecutor = jest.fn();
@@ -164,13 +20,143 @@ const mockFileSystem = {
   unlink: jest.fn(),
 };
 
+describe("ConflictDetector", () => {
+  let conflictDetector: ConflictDetector;
+
+  beforeEach(() => {
+    conflictDetector = new ConflictDetector(mockGitExecutor);
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  describe("analyzeConflictType", () => {
+    it("should identify whitespace-only conflicts", async () => {
+      const diffOutput = `--- a/staging/file.feature
++++ b/github/file.feature
+@@ -1,3 +1,3 @@
+ Feature: Test
+-  Scenario: Test
++  Scenario: Test
+   Given something`;
+
+      const error: any = new Error("Files differ");
+      error.status = 1;
+      error.stdout = diffOutput;
+
+      mockGitExecutor.mockImplementationOnce(() => {
+        throw error;
+      });
+
+      const result = await conflictDetector.analyzeConflictType(
+        "/github/file.feature",
+        "/staging/file.feature"
+      );
+
+      expect(result.isSimple).toBe(true);
+      expect(result.reason).toBe("whitespace-only");
+    });
+
+    it("should identify comment-only conflicts", async () => {
+      const diffOutput = `--- a/staging/file.feature
++++ b/github/file.feature
+@@ -1,3 +1,3 @@
+ Feature: Test
+-# Old comment
++# New comment
+ Scenario: Test`;
+
+      const error: any = new Error("Files differ");
+      error.status = 1;
+      error.stdout = diffOutput;
+
+      mockGitExecutor.mockImplementationOnce(() => {
+        throw error;
+      });
+
+      const result = await conflictDetector.analyzeConflictType(
+        "/github/file.feature",
+        "/staging/file.feature"
+      );
+
+      expect(result.isSimple).toBe(true);
+      expect(result.reason).toBe("comments-only");
+    });
+
+    it("should identify complex content conflicts", async () => {
+      const diffOutput = `--- a/staging/file.feature
++++ b/github/file.feature
+@@ -1,3 +1,3 @@
+ Feature: Test
+-Scenario: Old scenario
++Scenario: New scenario
+  Given something`;
+
+      const error: any = new Error("Files differ");
+      error.status = 1;
+      error.stdout = diffOutput;
+
+      mockGitExecutor.mockImplementationOnce(() => {
+        throw error;
+      });
+
+      const result = await conflictDetector.analyzeConflictType(
+        "/github/file.feature",
+        "/staging/file.feature"
+      );
+
+      expect(result.isSimple).toBe(false);
+      expect(result.reason).toBe("complex-change");
+    });
+  });
+
+  describe("isCommentOnlyChange", () => {
+    it("should return true for comment-only changes", async () => {
+      const diffOutput = `--- a/file.feature
++++ b/file.feature
+@@ -1,4 +1,4 @@
+ Feature: Test
+-# Old comment
++# New comment
+-  # Another old comment
++  # Another new comment`;
+
+      const result = await conflictDetector.isCommentOnlyChange(diffOutput);
+
+      expect(result).toBe(true);
+    });
+
+    it("should return false for content changes", async () => {
+      const diffOutput = `--- a/file.feature
++++ b/file.feature
+@@ -1,4 +1,4 @@
+ Feature: Test
+-Scenario: Old
++Scenario: New
+ # Comment`;
+
+      const result = await conflictDetector.isCommentOnlyChange(diffOutput);
+
+      expect(result).toBe(false);
+    });
+  });
+});
+
 describe("ConflictResolver", () => {
   let conflictResolver: ConflictResolver;
+  let conflictDetector: ConflictDetector;
   const stagingPath = "/test/staging";
   const featuresPath = "/test/features";
 
   beforeEach(() => {
-    conflictResolver = new ConflictResolver(mockGitExecutor, mockFileSystem);
+    conflictDetector = new ConflictDetector(mockGitExecutor);
+    conflictResolver = new ConflictResolver(
+      conflictDetector,
+      mockGitExecutor,
+      mockFileSystem
+    );
     jest.clearAllMocks();
   });
 
