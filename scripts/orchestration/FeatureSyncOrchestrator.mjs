@@ -1,6 +1,9 @@
 /**
- * Refactored Sync Orchestrator - Event-driven architecture with decomposed components
- * Reduced from 245 lines to ~120 lines using composition and events
+ * Feature Sync Orchestrator - Event-driven bidirectional sync between GitHub and AssertThat
+ *
+ * Orchestrates the synchronization of BDD feature files between the local GitHub repository
+ * and the AssertThat BDD plugin in Jira. Uses event-driven architecture with decomposed
+ * components for maintainability and testability.
  */
 
 import {
@@ -17,7 +20,7 @@ import { FeatureProcessor } from "../validation/FeatureProcessor.mjs";
 import { ConflictResolver } from "../conflicts/ConflictResolver.mjs";
 import { UserInteraction } from "../conflicts/UserInteraction.mjs";
 
-export class RefactoredSyncOrchestrator {
+export class FeatureSyncOrchestrator {
   constructor(dependencies = {}) {
     // Dependency injection for all components
     this.config = dependencies.config || new SyncConfiguration();

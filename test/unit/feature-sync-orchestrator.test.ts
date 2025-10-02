@@ -1,9 +1,9 @@
 /**
- * Tests for RefactoredSyncOrchestrator
+ * Tests for FeatureSyncOrchestrator
  * Validates event-driven architecture and component composition
  */
 
-import { RefactoredSyncOrchestrator } from "../../scripts/orchestration/RefactoredSyncOrchestrator.mjs";
+import { FeatureSyncOrchestrator } from "../../scripts/orchestration/FeatureSyncOrchestrator.mjs";
 import { syncEvents, SYNC_EVENTS } from "../../scripts/events/SyncEvents.mjs";
 import { SyncConfiguration } from "../../scripts/config/SyncConfiguration.mjs";
 
@@ -71,8 +71,8 @@ class MockLogger {
   debug = jest.fn();
 }
 
-describe("RefactoredSyncOrchestrator", () => {
-  let orchestrator: RefactoredSyncOrchestrator;
+describe("FeatureSyncOrchestrator", () => {
+  let orchestrator: FeatureSyncOrchestrator;
   let mockDependencies: any;
   let eventSpy: jest.SpyInstance;
 
@@ -99,7 +99,7 @@ describe("RefactoredSyncOrchestrator", () => {
       logger: new MockLogger(),
     };
 
-    orchestrator = new RefactoredSyncOrchestrator(mockDependencies);
+    orchestrator = new FeatureSyncOrchestrator(mockDependencies);
     eventSpy = jest.spyOn(syncEvents, "emit");
   });
 
@@ -343,7 +343,7 @@ describe("RefactoredSyncOrchestrator", () => {
 
   describe("dependency injection", () => {
     it("should work with minimal dependencies", () => {
-      const minimalOrchestrator = new RefactoredSyncOrchestrator({
+      const minimalOrchestrator = new FeatureSyncOrchestrator({
         config: new SyncConfiguration({
           stagingDir: "test",
           assertThat: {

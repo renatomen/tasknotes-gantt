@@ -3,10 +3,10 @@
 /**
  * GitHub ↔ AssertThat BDD Feature Sync
  * Entry point for bidirectional feature file synchronization
- * Uses refactored modular architecture from OG-50/OG-51
+ * Uses event-driven modular architecture from OG-50/OG-51
  */
 
-import { RefactoredSyncOrchestrator } from "./orchestration/RefactoredSyncOrchestrator.mjs";
+import { FeatureSyncOrchestrator } from "./orchestration/FeatureSyncOrchestrator.mjs";
 import { SyncConfiguration } from "./config/SyncConfiguration.mjs";
 
 /**
@@ -28,7 +28,7 @@ async function main() {
     }
 
     // Create and execute orchestrator
-    const orchestrator = new RefactoredSyncOrchestrator({ config });
+    const orchestrator = new FeatureSyncOrchestrator({ config });
     await orchestrator.execute();
 
     console.log("\n✅ Sync completed successfully!");
