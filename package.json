@@ -68,6 +68,7 @@
     "@svar-ui/svelte-toolbar": "^2.3.0",
     "adm-zip": "^0.5.16",
     "axios": "^1.6.0",
+    "dotenv": "^17.2.3",
     "inquirer": "^9.2.0",
     "simple-git": "^3.20.0"
   }
