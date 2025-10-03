@@ -12,8 +12,8 @@ import { PRAutomation } from './automation/PRAutomation.mjs';
 import { SyncConfiguration } from './config/SyncConfiguration.mjs';
 import { AssertThatApiClient } from './api/AssertThatApiClient.mjs';
 import { IdBasedDiffManager } from './diff/IdBasedDiffManager.mjs';
-import fs from 'fs/promises';
-import path from 'path';
+import { FeatureFileUpdater } from './updater/FeatureFileUpdater.mjs';
+import { FeatureFileComposer } from './composer/FeatureFileComposer.mjs';
 
 // Load environment variables
 dotenv.config();
@@ -69,54 +69,46 @@ async function main() {
       process.exit(0);
     }
 
-    // Step 2: Download changed scenarios and update feature files
-    console.log('\n📥 Fetching updated scenarios from AssertThat...');
+    // Step 2: Fetch all scenarios from V2 API (includes full content with steps)
+    console.log('\n📥 Fetching all scenarios from AssertThat V2 API...');
     const allScenarios = await apiClient.getAllScenarios();
     console.log(`✅ Fetched ${allScenarios.length} scenarios`);
 
-    // Step 3: Update feature files with changes
-    console.log('\n📝 Updating feature files...');
+    // Step 3: Check if we have existing feature files or need to create from scratch
+    const fs = await import('fs/promises');
+    const existingFiles = await fs.readdir(config.featuresDir);
+    const hasFeatureFiles = existingFiles.some(f => f.endsWith('.feature'));
 
-    for (const addition of changes.additions) {
-      console.log(`   🆕 Adding: ${addition.scenarioName} (${addition.feature})`);
-      // Find the scenario in allScenarios
-      const scenario = allScenarios.find(s => s.id === addition.scenarioId);
-      if (scenario) {
-        // Find or create the feature file
-        const featureFileName = `${addition.feature.toLowerCase().replace(/\s+/g, '-')}.feature`;
-        const featureFilePath = path.join(config.featuresDir, featureFileName);
+    let stats;
 
-        // For now, just log - we'll need to implement proper feature file creation
-        console.log(`      → Would create/update: ${featureFilePath}`);
-      }
+    if (!hasFeatureFiles) {
+      // No existing files - create all from V2 API (baseline reset)
+      console.log('\n📝 Creating all feature files from V2 API (baseline reset)...');
+
+      const composer = new FeatureFileComposer();
+      const featureFiles = composer.composeAllFeatures(allScenarios);
+      stats = await composer.writeFeatureFiles(featureFiles, config.featuresDir);
+
+      console.log(`✅ Created ${stats.filesWritten} files with ${stats.totalScenarios} scenarios`);
+    } else {
+      // Existing files - update only changed scenarios
+      const changedScenarioIds = new Set([
+        ...changes.modifications.map(m => m.scenarioId),
+        ...changes.additions.map(a => a.scenarioId),
+      ]);
+
+      const changedScenarios = allScenarios.filter(s => changedScenarioIds.has(s.id));
+
+      console.log(`\n📝 Updating ${changedScenarios.length} changed scenarios...`);
+
+      const updater = new FeatureFileUpdater();
+      stats = await updater.updateFeatureFiles(config.featuresDir, changedScenarios);
+
+      console.log(`✅ Updated ${stats.filesUpdated} files, ${stats.scenariosUpdated} scenarios changed`);
+      console.log(`   ${stats.filesUnchanged} files unchanged`);
     }
 
-    for (const modification of changes.modifications) {
-      console.log(`   ✏️  Renaming: ${modification.oldName} → ${modification.newName}`);
-      // Find the feature file containing this scenario ID
-      const featureFiles = await fs.readdir(config.featuresDir);
-      for (const file of featureFiles) {
-        if (!file.endsWith('.feature')) continue;
-
-        const filePath = path.join(config.featuresDir, file);
-        let content = await fs.readFile(filePath, 'utf-8');
-
-        // Check if this file contains the scenario ID
-        if (content.includes(`# @assertthat-scenario-id: ${modification.scenarioId}`)) {
-          // Update the scenario name in the file
-          const scenarioRegex = new RegExp(
-            `(# @assertthat-scenario-id: ${modification.scenarioId}\\s+Scenario: )${modification.oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-            'g'
-          );
-          content = content.replace(scenarioRegex, `$1${modification.newName}`);
-          await fs.writeFile(filePath, content, 'utf-8');
-          console.log(`      → Updated: ${file}`);
-          break;
-        }
-      }
-    }
-
-    // Step 4: Check if there are actual file changes
+    // Step 4: Check git diff to see what actually changed
     const { execSync } = await import('child_process');
     const gitStatus = execSync('git status --porcelain features/', { encoding: 'utf-8' }).trim();
 
