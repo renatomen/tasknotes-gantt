@@ -74,13 +74,21 @@ export class IdBasedDiffManager {
           type: "deleted",
         });
       } else if (github && assertThat) {
-        if (github.scenarioName !== assertThat.name) {
+        // Check if name changed
+        const nameChanged = github.scenarioName !== assertThat.name;
+
+        // Check if content (steps) changed
+        const contentChanged = this.hasContentChanged(github, assertThat);
+
+        if (nameChanged || contentChanged) {
           modifications.push({
             scenarioId,
             oldName: github.scenarioName,
             newName: assertThat.name,
             feature: assertThat.feature,
-            type: "renamed",
+            type: nameChanged ? "renamed" : "content-changed",
+            nameChanged,
+            contentChanged,
           });
         }
       }
@@ -118,5 +126,87 @@ export class IdBasedDiffManager {
       inSync: 0,
       needsUpdate: 0,
     };
+  }
+
+  /**
+   * Check if scenario content (steps) has changed
+   *
+   * @param {Object} github - GitHub scenario data
+   * @param {Object} assertThat - AssertThat scenario data
+   * @returns {boolean} True if content changed
+   */
+  hasContentChanged(github, assertThat) {
+    // Extract steps from GitHub scenario
+    const githubSteps = this.extractStepsFromGitHub(github);
+
+    // Extract steps from AssertThat scenario
+    const assertThatSteps = this.extractStepsFromAssertThat(assertThat);
+
+    // Compare normalized steps
+    return githubSteps !== assertThatSteps;
+  }
+
+  /**
+   * Extract and normalize steps from GitHub scenario
+   *
+   * @param {Object} github - GitHub scenario data
+   * @returns {string} Normalized steps string
+   */
+  extractStepsFromGitHub(github) {
+    // GitHub scenario data has feature.content (full file) and scenarioName
+    if (!github.feature || !github.feature.content) return '';
+
+    const content = github.feature.content;
+    const scenarioName = github.scenarioName;
+
+    // Find the scenario by name in the content
+    const lines = content.split('\n');
+    let scenarioIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.includes('Scenario:') && line.includes(scenarioName)) {
+        scenarioIndex = i;
+        break;
+      }
+    }
+
+    if (scenarioIndex === -1) return '';
+
+    // Get all lines after scenario until next scenario or end
+    const steps = [];
+    for (let i = scenarioIndex + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Stop at next scenario, tag, or ID comment
+      if (line.startsWith('Scenario:') ||
+          line.startsWith('@') ||
+          line.startsWith('# @assertthat-scenario-id:')) {
+        break;
+      }
+
+      if (line.length > 0) {
+        steps.push(line);
+      }
+    }
+
+    return steps.join('\n');
+  }
+
+  /**
+   * Extract and normalize steps from AssertThat scenario
+   *
+   * @param {Object} assertThat - AssertThat scenario data
+   * @returns {string} Normalized steps string
+   */
+  extractStepsFromAssertThat(assertThat) {
+    if (!assertThat.steps) return '';
+
+    // AssertThat steps come as a string with newlines
+    return assertThat.steps
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n');
   }
 }
