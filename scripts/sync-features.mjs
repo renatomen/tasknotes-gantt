@@ -40,13 +40,17 @@ async function main() {
     console.log("✅ Configuration validated\n");
 
     // Initialize API client with flattened config
+    // NOTE: For AssertThat Cloud, leave jiraServerUrl undefined to use bdd.assertthat.app
+    // For Jira Server/DC with AssertThat plugin, provide the Jira base URL
     const apiClient = new AssertThatApiClient({
       projectId: config.assertThat.projectId,
       accessKey: config.assertThat.accessKey,
       secretKey: config.assertThat.secretKey,
       token: config.assertThat.token,
-      jiraServerUrl: config.jira.serverUrl,
+      jiraServerUrl: undefined, // Force use of bdd.assertthat.app for now
     });
+
+    console.log(`🔗 Using API: ${apiClient.baseUrl}`);
 
     // Initialize downloader
     const downloader = new FeatureDownloader(apiClient, config, syncEvents);
@@ -64,16 +68,32 @@ async function main() {
       organizeByFolder: true,
     });
 
-    console.log(`✅ Downloaded ${result.filesExtracted} feature files`);
+    console.log(`✅ Downloaded ${result.filesExtracted || result.extractedFiles || 'unknown'} feature files`);
+    console.log(`📊 Download result:`, JSON.stringify(result, null, 2));
+
+    // List what was downloaded
+    const stagingFiles = await listFeatureFiles(stagingPath);
+    console.log(`\n📁 Files in staging (${stagingFiles.length}):`);
+    stagingFiles.forEach(f => console.log(`   - ${f}`));
 
     // Copy to features directory (overwrite)
     const featuresPath = path.resolve(config.featuresDir);
-    console.log(`📋 Copying features to: ${featuresPath}`);
+    console.log(`\n📋 Copying features to: ${featuresPath}`);
 
     // Copy all files from staging to features
     await copyDirectory(stagingPath, featuresPath);
 
     console.log("✅ Features copied successfully");
+
+    // Check for git changes
+    console.log("\n🔍 Checking for changes...");
+    const { execSync } = await import('child_process');
+    try {
+      execSync('git diff --quiet features/', { cwd: process.cwd() });
+      console.log("❌ No changes detected - features are identical to GitHub");
+    } catch (error) {
+      console.log("✅ Changes detected! Run 'git diff features/' to see them");
+    }
 
     // Cleanup staging
     console.log("🧹 Cleaning up staging area...");
@@ -108,6 +128,25 @@ async function copyDirectory(src, dest) {
       await fs.copyFile(srcPath, destPath);
     }
   }
+}
+
+/**
+ * Recursively list all .feature files in a directory
+ */
+async function listFeatureFiles(dir, baseDir = dir) {
+  const files = [];
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listFeatureFiles(fullPath, baseDir));
+    } else if (entry.name.endsWith('.feature')) {
+      files.push(path.relative(baseDir, fullPath));
+    }
+  }
+
+  return files.sort();
 }
 
 // Execute main function

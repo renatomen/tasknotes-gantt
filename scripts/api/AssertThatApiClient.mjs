@@ -28,10 +28,11 @@ export class AssertThatApiClient {
     this.retryDelay = config.retryDelay || 1000;
     this.timeout = config.timeout || 30000;
 
-    // Determine API base URL (using v1 API as per Postman collection)
-    this.baseUrl = this.jiraServerUrl
-      ? `${this.jiraServerUrl}/rest/assertthat/latest`
-      : "https://bdd.assertthat.app";
+    // Determine API base URL
+    // For AssertThat Cloud: use bdd.assertthat.app
+    // For Jira Server/DC: jiraServerUrl should be the base URL (e.g., https://jira.company.com)
+    // The API paths already include /rest/api/1/... so we don't add it here
+    this.baseUrl = this.jiraServerUrl || "https://bdd.assertthat.app";
   }
 
   /**
@@ -185,6 +186,9 @@ export class AssertThatApiClient {
   async makeRequest(options, retryCount = 0) {
     return new Promise((resolve, reject) => {
       const url = new URL(this.baseUrl + options.path);
+
+      // Debug logging
+      console.log(`🌐 API Request: ${options.method} ${url.href}`);
 
       const requestOptions = {
         hostname: url.hostname,
