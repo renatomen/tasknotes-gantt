@@ -24,6 +24,7 @@
     "sync:pr": "node scripts/sync-with-pr.mjs",
     "verify:secrets": "node scripts/verify-secrets.mjs",
     "test:v2-api": "node scripts/test-v2-api.mjs",
+    "assign:ids": "node scripts/workflows/assign-ids-workflow.mjs",
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",

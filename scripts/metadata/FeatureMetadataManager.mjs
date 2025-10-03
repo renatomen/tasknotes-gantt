@@ -129,46 +129,54 @@ export class FeatureMetadataManager {
   }
 
   /**
-   * Extract metadata from AssertThat API response
-   * 
-   * @param {Object} apiResponse - AssertThat API response with scenarios
-   * @returns {Object} Metadata object with feature and scenario IDs
+   * Extract metadata from AssertThat V2 API response
+   *
+   * V2 API Response Format:
+   * {
+   *   "page": 0,
+   *   "size": 100,
+   *   "total": 137,
+   *   "scenarios": [
+   *     {
+   *       "id": "b9369f7ed1840a2099e9e40ea0477c90",
+   *       "name": "Scenario name",
+   *       "feature": "Feature name",
+   *       "mode": "automated",
+   *       "steps": "...",
+   *       "created_at": "2025-10-02T08:11:02",
+   *       "updated_at": "2025-10-03T03:26:00",
+   *       "tags": [],
+   *       "deleted": false
+   *     }
+   *   ]
+   * }
+   *
+   * @param {Object} apiResponse - AssertThat V2 API response with scenarios
+   * @returns {Map<string, Object>} Map of feature name to metadata {featureId, scenarioIds}
    */
   extractFromApiResponse(apiResponse) {
-    const metadata = {
-      featureId: null,
-      scenarioIds: new Map(),
-    };
+    const metadataByFeature = new Map();
 
     if (!apiResponse.scenarios || !Array.isArray(apiResponse.scenarios)) {
-      return metadata;
+      return metadataByFeature;
     }
 
     // Group scenarios by feature
-    const featureGroups = new Map();
     for (const scenario of apiResponse.scenarios) {
       const featureName = scenario.feature;
-      if (!featureGroups.has(featureName)) {
-        featureGroups.set(featureName, []);
+
+      if (!metadataByFeature.has(featureName)) {
+        metadataByFeature.set(featureName, {
+          featureId: featureName, // V2 API doesn't provide feature-level IDs, use name
+          scenarioIds: new Map(),
+        });
       }
-      featureGroups.get(featureName).push(scenario);
+
+      const metadata = metadataByFeature.get(featureName);
+      metadata.scenarioIds.set(scenario.name, scenario.id);
     }
 
-    // For now, we'll use the first feature's scenarios
-    // In a multi-feature file scenario, this would need to be more sophisticated
-    const firstFeature = Array.from(featureGroups.values())[0];
-    if (firstFeature && firstFeature.length > 0) {
-      // Use first scenario's feature name as a proxy for feature ID
-      // (AssertThat API doesn't provide feature-level IDs in this response)
-      metadata.featureId = firstFeature[0].feature;
-
-      // Map scenario names to IDs
-      for (const scenario of firstFeature) {
-        metadata.scenarioIds.set(scenario.name, scenario.id);
-      }
-    }
-
-    return metadata;
+    return metadataByFeature;
   }
 
   /**
