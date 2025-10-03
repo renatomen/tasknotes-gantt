@@ -1,4 +1,4 @@
-/**
+﻿/**
  * FeatureMetadataManager - Manages AssertThat ID metadata in feature files
  * 
  * Stores AssertThat unique IDs as comments in feature files for reliable tracking:

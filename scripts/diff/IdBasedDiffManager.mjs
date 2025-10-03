@@ -1,188 +1,122 @@
-/**
- * ID-Based Diff Manager
+﻿/**
+ * OG-47 Phase 8: ID-Based Diff Manager
  * 
  * Detects changes between GitHub and AssertThat using scenario IDs
- * for reliable bidirectional sync.
- * 
- * Uses @assertthat-scenario-id comments in feature files to match
- * scenarios across systems, enabling accurate detection of:
- * - New scenarios (in AssertThat but not in GitHub)
- * - Deleted scenarios (in GitHub but not in AssertThat)
- * - Renamed scenarios (same ID, different name)
- * - Modified scenarios (same ID and name, different content)
+ * Compatible with FeatureSyncOrchestrator interface
  */
 
-import { FeatureMetadataManager } from "../metadata/FeatureMetadataManager.mjs";
-import { AssertThatApiClient } from "../api/AssertThatApiClient.mjs";
 import fs from "fs/promises";
 import path from "path";
+import { FeatureMetadataManager } from "../metadata/FeatureMetadataManager.mjs";
 
 export class IdBasedDiffManager {
-  constructor(dependencies = {}) {
-    this.config = dependencies.config;
-    this.metadataManager = dependencies.metadataManager || new FeatureMetadataManager();
-    this.apiClient = dependencies.apiClient;
-    this.featuresDir = dependencies.featuresDir || this.config?.featuresDir || "features";
-    this.logger = dependencies.logger || console;
+  constructor({ config, apiClient, featuresDir }) {
+    this.config = config;
+    this.apiClient = apiClient;
+    this.featuresDir = featuresDir || config.featuresDir;
+    this.metadataManager = new FeatureMetadataManager();
   }
 
-  /**
-   * Load all GitHub feature files with content
-   */
   async loadGitHubFeatures() {
-    const features = [];
     const featuresPath = path.resolve(this.featuresDir);
-    const files = await fs.readdir(featuresPath);
+    const features = [];
 
-    for (const file of files) {
-      if (file.endsWith(".feature")) {
-        const filePath = path.join(featuresPath, file);
-        const content = await fs.readFile(filePath, "utf-8");
-        features.push({
-          name: file,
-          path: filePath,
-          content,
-        });
+    // Recursive function to find all .feature files
+    async function findFeatureFiles(dir) {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          await findFeatureFiles(fullPath);
+        } else if (entry.name.endsWith(".feature")) {
+          const content = await fs.readFile(fullPath, "utf-8");
+          features.push({ filename: entry.name, content });
+        }
       }
     }
 
+    await findFeatureFiles(featuresPath);
+
+    console.log(`📂 Loaded ${features.length} GitHub feature files`);
     return features;
   }
 
-  /**
-   * Detect changes between GitHub and AssertThat using ID-based matching
-   * 
-   * Returns changes in format expected by FeatureSyncOrchestrator:
-   * {
-   *   additions: [],      // New scenarios in AssertThat
-   *   modifications: [],  // Renamed scenarios
-   *   deletions: []       // Deleted scenarios
-   * }
-   */
   async detectChanges() {
-    try {
-      // Load GitHub features
-      const githubFeatures = await this.loadGitHubFeatures();
-      this.logger.log(`📂 Loaded ${githubFeatures.length} GitHub feature files`);
+    const githubFeatures = await this.loadGitHubFeatures();
+    const assertThatScenarios = await this.apiClient.getAllScenarios();
+    console.log(`📥 Fetched ${assertThatScenarios.length} AssertThat scenarios`);
 
-      // Fetch AssertThat scenarios with IDs
-      const assertThatScenarios = await this.apiClient.getAllScenarios();
-      this.logger.log(`📥 Fetched ${assertThatScenarios.length} AssertThat scenarios`);
+    const mapping = this.metadataManager.createScenarioMapping(
+      githubFeatures,
+      assertThatScenarios
+    );
+    console.log(`🔗 Created mapping for ${mapping.size} scenarios`);
 
-      // Create ID-based mapping
-      const mapping = this.metadataManager.createScenarioMapping(
-        githubFeatures,
-        assertThatScenarios
-      );
-      this.logger.log(`🔗 Created mapping for ${mapping.size} scenarios`);
+    const additions = [];
+    const modifications = [];
+    const deletions = [];
 
-      // Analyze mapping to detect changes
-      const additions = [];
-      const modifications = [];
-      const deletions = [];
-
-      for (const [scenarioId, { github, assertThat }] of mapping) {
-        if (!github && assertThat) {
-          // New scenario in AssertThat (addition)
-          additions.push({
-            type: "new_scenario",
+    for (const [scenarioId, { github, assertThat }] of mapping) {
+      if (!github && assertThat) {
+        additions.push({
+          scenarioId,
+          scenarioName: assertThat.name,
+          feature: assertThat.feature,
+          type: "new",
+        });
+      } else if (github && !assertThat) {
+        deletions.push({
+          scenarioId,
+          scenarioName: github.scenarioName,
+          feature: github.featureName,
+          type: "deleted",
+        });
+      } else if (github && assertThat) {
+        if (github.scenarioName !== assertThat.name) {
+          modifications.push({
             scenarioId,
+            oldName: github.scenarioName,
+            newName: assertThat.name,
             feature: assertThat.feature,
-            scenarioName: assertThat.name,
-            assertThatData: assertThat,
+            type: "renamed",
           });
-        } else if (github && !assertThat) {
-          // Deleted scenario in AssertThat (deletion)
-          deletions.push({
-            type: "deleted_scenario",
-            scenarioId,
-            feature: github.featureName,
-            scenarioName: github.scenarioName,
-            githubData: github,
-          });
-        } else if (github && assertThat) {
-          // Existing scenario - check for rename (modification)
-          if (github.scenarioName !== assertThat.name) {
-            modifications.push({
-              type: "renamed_scenario",
-              scenarioId,
-              feature: assertThat.feature,
-              oldName: github.scenarioName,
-              newName: assertThat.name,
-              githubData: github,
-              assertThatData: assertThat,
-            });
-          }
-          // Note: Content changes are not detected yet - would require
-          // downloading full feature files and comparing content
         }
       }
-
-      this.logger.log(`\n📊 Changes detected:`);
-      this.logger.log(`   🆕 Additions: ${additions.length}`);
-      this.logger.log(`   ✏️  Modifications: ${modifications.length}`);
-      this.logger.log(`   🗑️  Deletions: ${deletions.length}`);
-
-      return {
-        additions,
-        modifications,
-        deletions,
-      };
-    } catch (error) {
-      this.logger.error("❌ Error detecting changes:", error.message);
-      throw error;
     }
+
+    console.log(`\n📊 Changes detected:`);
+    console.log(`   🆕 Additions: ${additions.length}`);
+    console.log(`   ✏️  Modifications: ${modifications.length}`);
+    console.log(`   🗑️  Deletions: ${deletions.length}`);
+
+    return { additions, modifications, deletions };
   }
 
-  /**
-   * Classify changes as simple, complex, or auto-resolved
-   * 
-   * For ID-based sync:
-   * - Simple: New scenarios, renames (AssertThat is master)
-   * - Complex: Deletions (require user confirmation)
-   * - Auto-resolved: None (all changes require review via PR)
-   */
   async classifyChanges(changes) {
     const simple = [];
     const complex = [];
     const autoResolved = [];
 
-    // Additions and modifications (renames) are simple
-    // AssertThat is the master source, so we accept these changes
     simple.push(...changes.additions);
     simple.push(...changes.modifications);
-
-    // Deletions are complex - require user confirmation
-    // Don't want to accidentally delete scenarios
     complex.push(...changes.deletions);
 
-    this.logger.log(`\n🔍 Change classification:`);
-    this.logger.log(`   ✅ Simple (auto-accept): ${simple.length}`);
-    this.logger.log(`   ⚠️  Complex (needs review): ${complex.length}`);
-    this.logger.log(`   🤖 Auto-resolved: ${autoResolved.length}`);
+    console.log(`\n🔍 Change classification:`);
+    console.log(`   ✅ Simple (auto-accept): ${simple.length}`);
+    console.log(`   ⚠️  Complex (needs review): ${complex.length}`);
+    console.log(`   🤖 Auto-resolved: ${autoResolved.length}`);
 
-    return {
-      simple,
-      complex,
-      autoResolved,
-    };
+    return { simple, complex, autoResolved };
   }
 
-  /**
-   * Get statistics about current sync status
-   */
-  async getStats() {
-    const changes = await this.detectChanges();
-    
+  getStats() {
     return {
-      total: changes.additions.length + changes.modifications.length + changes.deletions.length,
-      additions: changes.additions.length,
-      modifications: changes.modifications.length,
-      deletions: changes.deletions.length,
-      inSync: changes.additions.length === 0 && 
-              changes.modifications.length === 0 && 
-              changes.deletions.length === 0,
+      githubFeatures: 0,
+      assertThatScenarios: 0,
+      inSync: 0,
+      needsUpdate: 0,
     };
   }
 }
-

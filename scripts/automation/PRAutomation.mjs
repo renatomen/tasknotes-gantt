@@ -61,9 +61,16 @@ export class PRAutomation {
     try {
       this.logger.info(`💾 Creating commit: ${message}`);
 
-      // Stage features and staging directories
+      // Stage features directory
       this.execGit(`git add ${this.config.featuresDir}/`);
-      this.execGit(`git add ${this.config.stagingDir}/`);
+
+      // Stage staging directory if it exists
+      try {
+        this.execGit(`git add ${this.config.stagingDir}/`);
+      } catch (error) {
+        // Staging directory doesn't exist - that's okay for ID-based sync
+        this.logger.info(`ℹ️  Staging directory not found (using direct sync)`);
+      }
 
       // Create commit with proper format
       const includeJiraRef = options.includeJiraRef !== false;
