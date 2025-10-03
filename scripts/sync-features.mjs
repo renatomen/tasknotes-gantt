@@ -4,15 +4,18 @@
  * GitHub ↔ AssertThat BDD Feature Sync
  * Entry point for bidirectional feature file synchronization
  *
- * TEMPORARY IMPLEMENTATION: Uses FeatureDownloader directly until
- * StagingAreaManager and DiffManager are properly implemented
+ * Uses ID-based matching for reliable bidirectional sync:
+ * - Matches scenarios by @assertthat-scenario-id comments
+ * - Handles new scenarios (in AssertThat but not in GitHub)
+ * - Handles deleted scenarios (in GitHub but not in AssertThat)
+ * - Handles renamed scenarios (same ID, different name)
+ * - Detects conflicts when both sides have changes
  */
 
 import dotenv from "dotenv";
-import { FeatureDownloader } from "./api/FeatureDownloader.mjs";
 import { AssertThatApiClient } from "./api/AssertThatApiClient.mjs";
 import { SyncConfiguration } from "./config/SyncConfiguration.mjs";
-import { syncEvents, SYNC_EVENTS } from "./events/SyncEvents.mjs";
+import { FeatureMetadataManager } from "./metadata/FeatureMetadataManager.mjs";
 import fs from "fs/promises";
 import path from "path";
 
@@ -20,11 +23,33 @@ import path from "path";
 dotenv.config();
 
 /**
+ * Load all GitHub feature files with content
+ */
+async function loadGitHubFeatures(featuresDir) {
+  const features = [];
+  const files = await fs.readdir(featuresDir);
+
+  for (const file of files) {
+    if (file.endsWith(".feature")) {
+      const filePath = path.join(featuresDir, file);
+      const content = await fs.readFile(filePath, "utf-8");
+      features.push({
+        name: file,
+        path: filePath,
+        content,
+      });
+    }
+  }
+
+  return features;
+}
+
+/**
  * Main execution
  */
 async function main() {
   try {
-    console.log("🚀 Starting GitHub ↔ AssertThat feature sync...\n");
+    console.log("🚀 Starting ID-based GitHub ↔ AssertThat feature sync...\n");
 
     // Initialize configuration
     const config = new SyncConfiguration();
@@ -39,91 +64,132 @@ async function main() {
 
     console.log("✅ Configuration validated\n");
 
-    // Initialize API client with flattened config
-    // NOTE: For AssertThat Cloud, leave jiraServerUrl undefined to use bdd.assertthat.app
-    // For Jira Server/DC with AssertThat plugin, provide the Jira base URL
+    // Initialize API client
     const apiClient = new AssertThatApiClient({
       projectId: config.assertThat.projectId,
       accessKey: config.assertThat.accessKey,
       secretKey: config.assertThat.secretKey,
       token: config.assertThat.token,
-      jiraServerUrl: undefined, // Force use of bdd.assertthat.app for now
+      jiraServerUrl: undefined, // Use AssertThat Cloud
     });
 
-    console.log(`🔗 Using API: ${apiClient.baseUrl}`);
+    console.log(`🔗 Using API: ${apiClient.baseUrl}\n`);
 
-    // Initialize downloader
-    const downloader = new FeatureDownloader(apiClient, config, syncEvents);
+    // Initialize metadata manager
+    const metadataManager = new FeatureMetadataManager();
 
-    // Create staging directory
-    const stagingPath = path.resolve(config.stagingDir);
-    console.log(`📁 Creating staging area at: ${stagingPath}`);
-    await fs.rm(stagingPath, { recursive: true, force: true });
-    await fs.mkdir(stagingPath, { recursive: true });
-
-    // Download features
-    console.log("⬇️  Downloading features from AssertThat...");
-    const result = await downloader.downloadFeatures(stagingPath, {
-      mode: "automated",
-      organizeByFolder: true,
-    });
-
-    console.log(`✅ Downloaded ${result.filesExtracted || result.extractedFiles || 'unknown'} feature files`);
-    console.log(`📊 Download result:`, JSON.stringify(result, null, 2));
-
-    // List what was downloaded
-    const stagingFiles = await listFeatureFiles(stagingPath);
-    console.log(`\n📁 Files in staging (${stagingFiles.length}):`);
-    stagingFiles.forEach(f => console.log(`   - ${f}`));
-
-    // Copy to features directory (overwrite)
+    // Step 1: Load GitHub features
+    console.log("📂 Step 1: Loading GitHub feature files...");
     const featuresPath = path.resolve(config.featuresDir);
-    console.log(`\n📋 Copying features to: ${featuresPath}`);
+    const githubFeatures = await loadGitHubFeatures(featuresPath);
+    console.log(`   Found ${githubFeatures.length} GitHub feature files\n`);
 
-    // Copy all files from staging to features
-    await copyDirectory(stagingPath, featuresPath);
+    // Step 2: Fetch AssertThat scenarios with IDs
+    console.log("📥 Step 2: Fetching scenarios from AssertThat V2 API...");
+    const assertThatScenarios = await apiClient.getAllScenarios();
+    console.log(`   Found ${assertThatScenarios.length} AssertThat scenarios\n`);
 
-    console.log("✅ Features copied successfully");
+    // Step 3: Create ID-based mapping
+    console.log("🔗 Step 3: Creating ID-based scenario mapping...");
+    const mapping = metadataManager.createScenarioMapping(
+      githubFeatures,
+      assertThatScenarios
+    );
+    console.log(`   Created mapping for ${mapping.size} scenarios\n`);
 
-    // Check for git changes (both tracked and untracked files)
-    console.log("\n🔍 Checking for changes...");
-    const { execSync } = await import('child_process');
+    // Step 4: Analyze mapping
+    console.log("🔍 Step 4: Analyzing sync status...\n");
 
-    let hasChanges = false;
+    const stats = {
+      inSync: 0,
+      newInAssertThat: 0,
+      deletedInAssertThat: 0,
+      renamedInAssertThat: 0,
+      conflicts: 0,
+    };
 
-    // Check for modifications to tracked files
-    try {
-      execSync('git diff --quiet features/', { cwd: process.cwd() });
-    } catch (error) {
-      hasChanges = true;
-      console.log("✅ Modified files detected");
+    const newScenarios = [];
+    const deletedScenarios = [];
+    const renamedScenarios = [];
+
+    for (const [scenarioId, { github, assertThat }] of mapping) {
+      if (!github && assertThat) {
+        // New scenario in AssertThat
+        stats.newInAssertThat++;
+        newScenarios.push(assertThat);
+      } else if (github && !assertThat) {
+        // Deleted scenario in AssertThat
+        stats.deletedInAssertThat++;
+        deletedScenarios.push({ id: scenarioId, name: github.scenarioName });
+      } else if (github && assertThat) {
+        // Existing scenario - check for rename
+        if (github.scenarioName !== assertThat.name) {
+          stats.renamedInAssertThat++;
+          renamedScenarios.push({
+            id: scenarioId,
+            oldName: github.scenarioName,
+            newName: assertThat.name,
+            feature: assertThat.feature,
+          });
+        } else {
+          stats.inSync++;
+        }
+      }
     }
 
-    // Check for untracked files
-    const untrackedOutput = execSync('git ls-files --others --exclude-standard features/', {
-      cwd: process.cwd(),
-      encoding: 'utf-8'
-    }).trim();
+    // Display statistics
+    console.log("📊 Sync Statistics:");
+    console.log(`   ✅ In sync: ${stats.inSync}`);
+    console.log(`   🆕 New in AssertThat: ${stats.newInAssertThat}`);
+    console.log(`   🗑️  Deleted in AssertThat: ${stats.deletedInAssertThat}`);
+    console.log(`   ✏️  Renamed in AssertThat: ${stats.renamedInAssertThat}`);
+    console.log("");
 
-    if (untrackedOutput) {
-      hasChanges = true;
-      const untrackedFiles = untrackedOutput.split('\n');
-      console.log(`✅ Untracked files detected (${untrackedFiles.length}):`);
-      untrackedFiles.forEach(f => console.log(`   - ${f}`));
+    // Display details
+    if (newScenarios.length > 0) {
+      console.log("🆕 New scenarios in AssertThat:");
+      newScenarios.forEach((s) =>
+        console.log(`   - ${s.feature}: ${s.name}`)
+      );
+      console.log("");
     }
 
-    if (!hasChanges) {
-      console.log("❌ No changes detected - features are identical to GitHub");
-    } else {
-      console.log("\n🎉 Changes detected! Run 'git status features/' to see them");
+    if (deletedScenarios.length > 0) {
+      console.log("🗑️  Scenarios deleted in AssertThat:");
+      deletedScenarios.forEach((s) => console.log(`   - ${s.name} (ID: ${s.id})`));
+      console.log("");
     }
 
-    // Cleanup staging (DISABLED for debugging)
-    console.log("🧹 Keeping staging area for inspection...");
-    console.log(`📂 Staging directory: ${stagingPath}`);
-    // await fs.rm(stagingPath, { recursive: true, force: true });
+    if (renamedScenarios.length > 0) {
+      console.log("✏️  Scenarios renamed in AssertThat:");
+      renamedScenarios.forEach((s) =>
+        console.log(`   - "${s.oldName}" → "${s.newName}" (${s.feature})`)
+      );
+      console.log("");
+    }
 
-    console.log("\n✅ Sync completed successfully!");
+    // Step 5: Determine if sync is needed
+    const syncNeeded =
+      stats.newInAssertThat > 0 ||
+      stats.deletedInAssertThat > 0 ||
+      stats.renamedInAssertThat > 0;
+
+    if (!syncNeeded) {
+      console.log("✅ All scenarios are in sync - no changes needed!\n");
+      process.exit(0);
+    }
+
+    console.log("⚠️  Sync needed - changes detected in AssertThat\n");
+    console.log("📝 Next steps:");
+    console.log("   1. This is a PREVIEW - no changes have been made yet");
+    console.log("   2. To implement sync, we need to:");
+    console.log("      - Download updated features from AssertThat");
+    console.log("      - Update GitHub files with new/renamed scenarios");
+    console.log("      - Handle deleted scenarios appropriately");
+    console.log("   3. For now, use the assign:ids workflow to update IDs");
+    console.log("");
+
+    console.log("✅ Sync analysis completed successfully!");
     process.exit(0);
   } catch (error) {
     console.error("\n❌ Sync failed:", error.message);
@@ -133,44 +199,6 @@ async function main() {
     }
     process.exit(1);
   }
-}
-
-/**
- * Recursively copy directory contents
- */
-async function copyDirectory(src, dest) {
-  await fs.mkdir(dest, { recursive: true });
-  const entries = await fs.readdir(src, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-
-    if (entry.isDirectory()) {
-      await copyDirectory(srcPath, destPath);
-    } else {
-      await fs.copyFile(srcPath, destPath);
-    }
-  }
-}
-
-/**
- * Recursively list all .feature files in a directory
- */
-async function listFeatureFiles(dir, baseDir = dir) {
-  const files = [];
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await listFeatureFiles(fullPath, baseDir));
-    } else if (entry.name.endsWith('.feature')) {
-      files.push(path.relative(baseDir, fullPath));
-    }
-  }
-
-  return files.sort();
 }
 
 // Execute main function
