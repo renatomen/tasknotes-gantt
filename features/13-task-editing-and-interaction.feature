@@ -1,4 +1,5 @@
 # language: en
+# @assertthat-feature-id: Task Editing and Interaction
 Feature: Task Editing and Interaction
 
     As a project manager
@@ -12,6 +13,7 @@ Feature: Task Editing and Interaction
         And I have task data loaded in the Gantt view
 
     @AUTOMATED @critical @task-editing @task-selection 
+    # @assertthat-scenario-id: 82f2f0b6c28783d0b1cae69bd11d1c31
     Scenario: Select tasks by clicking on task bars
         
         Given I have multiple tasks displayed in the Gantt chart
@@ -22,6 +24,7 @@ Feature: Task Editing and Interaction
         And task selection events should be triggered
 
     @AUTOMATED @critical @double-click-editing @task-editing 
+    # @assertthat-scenario-id: 39eaa95468aed69f486c696183536a2d
     Scenario: Open task editor by double-clicking task bar
         
         Given I have a task "Development Phase" displayed in the Gantt
@@ -32,6 +35,7 @@ Feature: Task Editing and Interaction
         And the editor should be focused and ready for input
 
     @AUTOMATED @basic-properties @property-editing @task-editing 
+    # @assertthat-scenario-id: 5f74a24f77bcb129bf40f35eac1cc9b5
     Scenario: Edit basic task properties
         
         Given I have a task editor open for "Research Task"
@@ -44,6 +48,7 @@ Feature: Task Editing and Interaction
         And the task title should be updated in the grid
 
     @AUTOMATED @progress-editing @task-editing 
+    # @assertthat-scenario-id: 288be578f696e48a47b9d5965df03004
     Scenario: Edit task progress
         
         Given I have a task editor open for "Development"
@@ -54,6 +59,7 @@ Feature: Task Editing and Interaction
         And the underlying note should be updated with the new progress
 
     @AUTOMATED @date-editing @drag-resize @task-editing 
+    # @assertthat-scenario-id: cc84156fd8d6b5f0a917b316f26ed4a5
     Scenario: Resize task duration by dragging task bar edges
         
         Given I have a task "Planning" with duration from "2025-01-01" to "2025-01-05"
@@ -64,6 +70,7 @@ Feature: Task Editing and Interaction
         And the change should be saved automatically
 
     @AUTOMATED @date-editing @drag-move @task-editing 
+    # @assertthat-scenario-id: 418160f7f622c7dc220fd57a5492b08a
     Scenario: Move task by dragging the entire task bar
         
         Given I have a task "Implementation" scheduled from "2025-01-05" to "2025-01-10"
@@ -74,6 +81,7 @@ Feature: Task Editing and Interaction
         And the change should be saved automatically
 
     @AUTOMATED @keyboard-interaction @task-editing 
+    # @assertthat-scenario-id: 1164259ebf0a34c9187fd09e0a54d92c
     Scenario: Navigate and edit tasks using keyboard
         
         Given I have multiple tasks in the Gantt view
@@ -85,6 +93,7 @@ Feature: Task Editing and Interaction
         And I should be able to edit using keyboard input
 
     @AUTOMATED @bulk-editing @multi-selection @task-editing 
+    # @assertthat-scenario-id: d4a36fbb58ab38b7304a539c89b58e01
     Scenario: Select and edit multiple tasks
         
         Given I have multiple tasks in the Gantt view
@@ -96,6 +105,7 @@ Feature: Task Editing and Interaction
         And the Gantt should reflect all changes
 
     @AUTOMATED @date-validation @task-editing @validation 
+    # @assertthat-scenario-id: 7952eaf4c3a21263b08bc1bffe362b85
     Scenario: Validate task edits before saving
         
         Given I have a task editor open
@@ -107,6 +117,7 @@ Feature: Task Editing and Interaction
         And the original task data should remain unchanged
 
     @AUTOMATED @task-editing @undo-redo 
+    # @assertthat-scenario-id: a052ee43acd8bc3305346f48869a3d27
     Scenario: Undo and redo task edits
         
         Given I have made changes to a task "Planning"
@@ -118,6 +129,7 @@ Feature: Task Editing and Interaction
         And the change history should be maintained
 
     @AUTOMATED @collaborative-editing @real-time-sync @task-editing 
+    # @assertthat-scenario-id: a4b7e13c80ada3806cf8db4d3cc84086
     Scenario: Handle concurrent edits to the same task
         
         Given I have a task open for editing
@@ -129,6 +141,7 @@ Feature: Task Editing and Interaction
         And no changes should be lost
 
     @AUTOMATED @multi-parent-editing @task-editing @virtual-tasks 
+    # @assertthat-scenario-id: acd97954b8befd7a26006595f2827d0d
     Scenario: Edit virtual tasks with multiple parents
         
         Given I have a task "Shared Resource" that appears under multiple parents
@@ -139,6 +152,7 @@ Feature: Task Editing and Interaction
         And the synchronization should be immediate
 
     @AUTOMATED @custom-properties @task-editing 
+    # @assertthat-scenario-id: 4646ee49dc19071622822491b97b9440
     Scenario: Edit custom task properties
         
         Given I have a task with custom properties like "priority" and "assignee"
@@ -150,6 +164,7 @@ Feature: Task Editing and Interaction
         And the Gantt columns should reflect the changes if displayed
 
     @AUTOMATED @error-handling @save-failures @task-editing 
+    # @assertthat-scenario-id: 67a0f7fb18ccf106246d1859fa99fcd3
     Scenario: Handle save failures gracefully
         
         Given I have made changes to a task
@@ -160,6 +175,7 @@ Feature: Task Editing and Interaction
         And the Gantt should not show unsaved changes as committed
 
     @AUTOMATED @accessibility @screen-reader @task-editing 
+    # @assertthat-scenario-id: 6243ec7c2a3d8ecf78a5ba999f23572f
     Scenario: Support screen reader accessibility for task editing
         
         Given I am using a screen reader

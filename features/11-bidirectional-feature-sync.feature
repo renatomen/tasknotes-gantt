@@ -1,4 +1,5 @@
 # language: en
+# @assertthat-feature-id: Bidirectional Feature Sync
 Feature: Bidirectional Feature Sync
 
     As a developer
@@ -12,6 +13,7 @@ Feature: Bidirectional Feature Sync
         And the GitHub repository contains feature files
 
     @AUTOMATED @download @sync 
+    # @assertthat-scenario-id: 82418a286b114d37195d45f766406e3d
     Scenario: Download features from AssertThat to GitHub
         
         Given AssertThat contains 11 feature files
@@ -21,6 +23,7 @@ Feature: Bidirectional Feature Sync
         And the download metadata should include source and timestamp
 
     @AUTOMATED @sync @upload 
+    # @assertthat-scenario-id: 8820867c6f6b69b61b6678c21c54472d
     Scenario: Upload features from GitHub to AssertThat
         
         Given the GitHub repository contains feature files
@@ -30,6 +33,7 @@ Feature: Bidirectional Feature Sync
         And AssertThat should be established as the master source
 
     @AUTOMATED @round-trip @sync 
+    # @assertthat-scenario-id: 21aa5f982e86f03ee8c1049cb491751e
     Scenario: Round-trip sync preserves feature content
         
         Given a feature file exists in GitHub
@@ -41,6 +45,7 @@ Feature: Bidirectional Feature Sync
         And the Gherkin syntax should remain valid
 
     @AUTOMATED @batch @sync 
+    # @assertthat-scenario-id: 40cbe73c57b93afab09ea0d7b7ef1bdd
     Scenario: Batch upload and download operations
         
         Given multiple feature files exist in GitHub
@@ -51,6 +56,7 @@ Feature: Bidirectional Feature Sync
         And all @imported-from-github tags should be preserved
 
     @AUTOMATED @sync @tags 
+    # @assertthat-scenario-id: 70c1c73b675c6308a3a18a1b7740e99d
     Scenario: Preserve imported tags during sync
         
         Given a feature is uploaded from GitHub to AssertThat
@@ -61,6 +67,7 @@ Feature: Bidirectional Feature Sync
         And no duplicate tags should be created
 
     @AUTOMATED @sync @transaction 
+    # @assertthat-scenario-id: dfcdab769e856902290916f30477fb7f
     Scenario: Transaction rollback on sync failure
         
         Given a sync transaction is started
@@ -72,6 +79,7 @@ Feature: Bidirectional Feature Sync
         And the backup should be preserved for safety
 
     @AUTOMATED @error-handling @sync 
+    # @assertthat-scenario-id: f979418aa171b52424b197ea0e962c3d
     Scenario: Graceful handling of download errors
         
         Given invalid API credentials are provided
@@ -81,6 +89,7 @@ Feature: Bidirectional Feature Sync
         And no partial files should be created
 
     @AUTOMATED @error-handling @sync 
+    # @assertthat-scenario-id: 29e37fdb54f571724df5349fd6c3dfde
     Scenario: Graceful handling of upload errors
         
         Given invalid API credentials are provided
@@ -90,6 +99,7 @@ Feature: Bidirectional Feature Sync
         And the failure should be logged
 
     @AUTOMATED @sync @validation 
+    # @assertthat-scenario-id: 1864b6ddc20c2c5a5bb4affcc306b6d5
     Scenario: Validate Gherkin syntax after download
         
         Given features are downloaded from AssertThat
@@ -99,6 +109,7 @@ Feature: Bidirectional Feature Sync
         And the Gherkin syntax should be valid
 
     @AUTOMATED @metadata @sync 
+    # @assertthat-scenario-id: b75058aabfc7965a2e7336b365bbcdba
     Scenario: Track sync metadata
         
         Given a feature is downloaded from AssertThat

@@ -1,4 +1,5 @@
 # language: en
+# @assertthat-feature-id: BDD Framework Validation
 Feature: BDD Framework Validation
 
     As a developer
@@ -10,6 +11,7 @@ Feature: BDD Framework Validation
         Given a Gantt chart is initialized
 
     @AUTOMATED 
+    # @assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
     Scenario: Basic task creation and rendering
         
         Given a task with title "Sample Task"
@@ -20,6 +22,7 @@ Feature: BDD Framework Validation
         And the task should have title "Sample Task"
 
     @AUTOMATED 
+    # @assertthat-scenario-id: b4fec64791865708204844c196194258
     Scenario: Multiple tasks rendering
         
         Given a task with title "First Task"

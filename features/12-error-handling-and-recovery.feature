@@ -1,4 +1,5 @@
 # language: en
+# @assertthat-feature-id: Error Handling and Recovery
 Feature: Error Handling and Recovery
 
     As a user of the Gantt plugin
@@ -10,6 +11,7 @@ Feature: Error Handling and Recovery
         Given I have the Obsidian Gantt plugin enabled
 
     @AUTOMATED @configuration-errors @critical @error-handling 
+    # @assertthat-scenario-id: b9369f7ed1840a2099e9e40ea0477c90
     Scenario: Display clear error for invalid Gantt configuration
         
         Given I have a Bases view with invalid obsidianGantt configuration:
@@ -23,6 +25,7 @@ Feature: Error Handling and Recovery
         And I should be given guidance on how to fix the configuration
 
     @AUTOMATED @data-loading @error-handling @missing-data 
+    # @assertthat-scenario-id: fbcffafad0bc689436052260a957059b
     Scenario: Handle missing or corrupted data gracefully
         
         Given I have a Bases view that returns corrupted data
@@ -33,6 +36,7 @@ Feature: Error Handling and Recovery
         And I should be able to retry loading after fixing the data
 
     @AUTOMATED @bases-unavailable @error-handling @plugin-dependencies 
+    # @assertthat-scenario-id: 0282e7db2fc8c51437923464af526eeb
     Scenario: Handle missing Bases plugin gracefully
         
         Given the Bases plugin is not installed or disabled
@@ -43,6 +47,7 @@ Feature: Error Handling and Recovery
         And I should be informed about the missing dependency
 
     @AUTOMATED @api-compatibility @error-handling @version-mismatch 
+    # @assertthat-scenario-id: 3ba3c8d3b452dd62d6571237cc3480c3
     Scenario: Handle Obsidian API version incompatibility
         
         Given the Obsidian API version is below the required minimum
@@ -53,6 +58,7 @@ Feature: Error Handling and Recovery
         And I should be informed about the version requirement
 
     @AUTOMATED @error-handling @file-system @permission-errors 
+    # @assertthat-scenario-id: eaae16cfd2ace6c6a4081a4aa7b5aff6
     Scenario: Handle file system permission errors
         
         Given I have read-only permissions on some note files
@@ -63,6 +69,7 @@ Feature: Error Handling and Recovery
         And I should be guided on how to resolve the permission issue
 
     @AUTOMATED @error-handling @memory-limits @resource-exhaustion 
+    # @assertthat-scenario-id: e69136b167e3c9cef4db5805d96730a8
     Scenario: Handle memory or resource exhaustion gracefully
         
         Given I have an extremely large dataset that exceeds memory limits
@@ -73,6 +80,7 @@ Feature: Error Handling and Recovery
         And alternative approaches should be suggested
 
     @AUTOMATED @error-handling @network-issues @offline-operation 
+    # @assertthat-scenario-id: d0797ad4b23807a6ab42a28f005cfed9
     Scenario: Maintain functionality during network issues
         
         Given I am working offline or have network connectivity issues
@@ -83,6 +91,7 @@ Feature: Error Handling and Recovery
         And performance should not be affected by network status
 
     @AUTOMATED @data-corruption @error-handling @recovery 
+    # @assertthat-scenario-id: b3e9bbe13efe49182cf9d57ec02eba87
     Scenario: Recover from data corruption
         
         Given some of my note files have corrupted frontmatter
@@ -93,6 +102,7 @@ Feature: Error Handling and Recovery
         And the Gantt should remain functional with available data
 
     @AUTOMATED @concurrent-access @error-handling @file-conflicts 
+    # @assertthat-scenario-id: 30da8ddb1d4812e65a0ce65778c698bb
     Scenario: Handle concurrent file access conflicts
         
         Given multiple processes are accessing the same note files
@@ -103,6 +113,7 @@ Feature: Error Handling and Recovery
         And data integrity should be maintained
 
     @AUTOMATED @compatibility @error-handling @plugin-conflicts 
+    # @assertthat-scenario-id: a08217d35bebffe8b9e1daee82f1f364
     Scenario: Handle conflicts with other plugins
         
         Given I have other plugins that might conflict with Gantt functionality
@@ -113,6 +124,7 @@ Feature: Error Handling and Recovery
         And fallback behavior should be implemented where possible
 
     @AUTOMATED @error-handling @error-reporting @user-feedback 
+    # @assertthat-scenario-id: 3cfc8a4545115d4ffa49686bd54c6d32
     Scenario: Provide helpful error reporting and feedback
         
         Given an unexpected error occurs in the Gantt plugin
@@ -123,6 +135,7 @@ Feature: Error Handling and Recovery
         And I should be given options for reporting or resolving the issue
 
     @AUTOMATED @error-handling @graceful-degradation @partial-functionality 
+    # @assertthat-scenario-id: 4407503c87bd717819355f3e7026c1da
     Scenario: Maintain partial functionality when components fail
         
         Given a non-critical component of the Gantt plugin fails
@@ -133,6 +146,7 @@ Feature: Error Handling and Recovery
         And recovery should be possible without restarting Obsidian
 
     @AUTOMATED @error-handling @input-validation @validation 
+    # @assertthat-scenario-id: 6d41e1335692475f819ea878063321f7
     Scenario: Validate user input and provide helpful feedback
         
         Given I am editing task properties in the Gantt
@@ -143,6 +157,7 @@ Feature: Error Handling and Recovery
         And I should be prevented from saving invalid data
 
     @AUTOMATED @automatic-recovery @error-handling @recovery 
+    # @assertthat-scenario-id: 87f018dc24b60a313a9578503d547aca
     Scenario: Automatically recover from transient errors
         
         Given a transient error occurs (like temporary file lock)
@@ -153,6 +168,7 @@ Feature: Error Handling and Recovery
         And manual recovery options should be provided
 
     @AUTOMATED @debugging @development-support @error-handling 
+    # @assertthat-scenario-id: ee7d89d0374011973ffbfad85319e531
     Scenario: Provide debugging support for development and troubleshooting
         
         Given I am experiencing issues with the Gantt plugin
