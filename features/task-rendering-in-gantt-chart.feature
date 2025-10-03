@@ -13,7 +13,7 @@ Feature: Task Rendering in Gantt Chart
         And the task bar should span from "2025-01-01" to "2025-01-05"
         And the task should display the title "Project Planning"
 
-    @AUTOMATED @gantt-visualization @critical @data-mapping @imported-from-github
+    @AUTOMATED @gantt-visualization @data-mapping @critical @imported-from-github
     # @assertthat-scenario-id: 1bec8c8b66cdcbf8fad1d72a3b46d1bb
     Scenario: Display task with missing start date
         Given I have a task note "Research Phase" with properties:
@@ -24,7 +24,7 @@ Feature: Task Rendering in Gantt Chart
         And the task bar should start and end on "2025-01-10"
         And the task should be marked as having inferred dates
 
-    @AUTOMATED @gantt-visualization @critical @data-mapping @imported-from-github
+    @AUTOMATED @gantt-visualization @data-mapping @critical @imported-from-github
     # @assertthat-scenario-id: 72608714d15f0c7fb7ff7b4ac1468df8
     Scenario: Display task with missing end date
         Given I have a task note "Development" with properties:
@@ -56,7 +56,7 @@ Feature: Task Rendering in Gantt Chart
         And the task bar should span from "2025-01-05" to "2025-01-10"
         And the task should be marked as having swapped dates
 
-    @AUTOMATED @gantt-visualization @task-types @imported-from-github
+    @AUTOMATED @task-types @gantt-visualization @imported-from-github
     # @assertthat-scenario-id: 156e70e495f9e98b5e0dc4ad653fd1ea
     Scenario: Display different task types
         Given I have task notes with different types:

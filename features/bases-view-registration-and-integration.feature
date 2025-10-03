@@ -1,7 +1,7 @@
 # @assertthat-feature-id: Bases View Registration and Integration
 Feature: Bases View Registration and Integration
 
-    @AUTOMATED @critical @bases-integration @plugin-loading @imported-from-github
+    @AUTOMATED @bases-integration @critical @plugin-loading @imported-from-github
     # @assertthat-scenario-id: 6b5ef77a494b8c3882b6e048eee56c60
     Scenario: Register Gantt view type with Bases on plugin load
         Given the Obsidian API version is 1.9.12 or higher
@@ -11,7 +11,7 @@ Feature: Bases View Registration and Integration
         And the view should have a calendar-gantt icon
         And the registration should complete successfully
 
-    @AUTOMATED @api-version-check @bases-integration @plugin-loading @imported-from-github
+    @AUTOMATED @bases-integration @api-version-check @plugin-loading @imported-from-github
     # @assertthat-scenario-id: f6b172c0201aa4c8ecd822cc5d92b29c
     Scenario: Handle insufficient Obsidian API version gracefully
         Given the Obsidian API version is below 1.9.12
@@ -30,7 +30,7 @@ Feature: Bases View Registration and Integration
         And it should return a no-op unregister function
         And the plugin should continue functioning for other features
 
-    @AUTOMATED @container-creation @view-factory @bases-integration @imported-from-github
+    @AUTOMATED @bases-integration @view-factory @container-creation @imported-from-github
     # @assertthat-scenario-id: 492978e8bb160b881b9bebf6f03c5f86
     Scenario: Create Gantt view from Bases container
         Given I have a Bases view configured with data
@@ -40,7 +40,7 @@ Feature: Bases View Registration and Integration
         And it should return a BasesViewLike object with required methods
         And the view should have load, refresh, and onDataUpdated capabilities
 
-    @AUTOMATED @bases-integration @mounting @view-lifecycle @imported-from-github
+    @AUTOMATED @view-lifecycle @bases-integration @mounting @imported-from-github
     # @assertthat-scenario-id: edf270fe76694d7002cb6b64fc772bdf
     Scenario: Mount Svelte Gantt component in Bases container
         Given I have a Bases view with task data
@@ -50,7 +50,7 @@ Feature: Bases View Registration and Integration
         And the component should receive task data as props
         And the component should render the SVAR Gantt chart
 
-    @AUTOMATED @unmounting @bases-integration @view-lifecycle @imported-from-github
+    @AUTOMATED @view-lifecycle @bases-integration @unmounting @imported-from-github
     # @assertthat-scenario-id: b607029083a5a1f78dc4c620dad2faa9
     Scenario: Clean up Gantt view when Bases view is destroyed
         Given I have a Gantt view loaded in Bases
@@ -60,7 +60,7 @@ Feature: Bases View Registration and Integration
         And all event listeners should be removed
         And memory should be freed appropriately
 
-    @AUTOMATED @data-flow @bases-integration @query-integration @imported-from-github
+    @AUTOMATED @query-integration @bases-integration @data-flow @imported-from-github
     # @assertthat-scenario-id: 70830f1f9ba70fb2d2c539a2b84e856c
     Scenario: Integrate with Bases query system
         Given I have a Bases view with a configured query
@@ -70,7 +70,7 @@ Feature: Bases View Registration and Integration
         And it should transform the Bases data to SVAR format
         And it should render the transformed data in the Gantt chart
 
-    @AUTOMATED @configuration @bases-integration @view-config @imported-from-github
+    @AUTOMATED @view-config @bases-integration @configuration @imported-from-github
     # @assertthat-scenario-id: b18ddd5363279345f66af3bc64116a03
     Scenario: Read Gantt configuration from Bases view settings
         Given I have a Bases view with obsidianGantt configuration:
@@ -86,7 +86,7 @@ Feature: Bases View Registration and Integration
         And it should apply the field mappings to the data transformation
         And it should use the specified view mode and duration settings
 
-    @AUTOMATED @configuration-errors @bases-integration @error-handling @imported-from-github
+    @AUTOMATED @error-handling @bases-integration @configuration-errors @imported-from-github
     # @assertthat-scenario-id: 6d4ae06ceacafc34a6feb4271cdc1108
     Scenario: Handle invalid Gantt configuration gracefully
         Given I have a Bases view with invalid obsidianGantt configuration:
@@ -99,7 +99,7 @@ Feature: Bases View Registration and Integration
         And it should not crash or break the Bases view
         And it should provide guidance on fixing the configuration
 
-    @AUTOMATED @reactive-updates @bases-integration @data-updates @imported-from-github
+    @AUTOMATED @data-updates @bases-integration @reactive-updates @imported-from-github
     # @assertthat-scenario-id: ee426bfedaf14a8264e4a2c20a6a7d25
     Scenario: Respond to Bases data updates
         Given I have a Gantt view loaded with initial data
@@ -110,7 +110,7 @@ Feature: Bases View Registration and Integration
         And it should update the Gantt display with new data
         And the update should happen without full page reload
 
-    @AUTOMATED @e2e-integration @bases-integration @debug-support @imported-from-github
+    @AUTOMATED @bases-integration @e2e-integration @debug-support @imported-from-github
     # @assertthat-scenario-id: ce6be9a5509f0978e89937145d78edcf
     Scenario: Support debugging and E2E testing
         Given I have a Gantt view loaded in Bases

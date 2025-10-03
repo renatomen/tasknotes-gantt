@@ -1,7 +1,7 @@
 # @assertthat-feature-id: Responsive Design and Mobile Support
 Feature: Responsive Design and Mobile Support
 
-    @AUTOMATED @responsive-design @touch-interaction @mobile @imported-from-github
+    @AUTOMATED @responsive-design @mobile @touch-interaction @imported-from-github
     # @assertthat-scenario-id: 94dc53791b56374115589bd93840b9c0
     Scenario: Support touch interactions on mobile devices
         Given I am using a mobile device with touch input
@@ -11,7 +11,7 @@ Feature: Responsive Design and Mobile Support
         And touch feedback should be provided
         And the interaction should feel responsive
 
-    @AUTOMATED @responsive-design @touch-interaction @mobile @imported-from-github
+    @AUTOMATED @responsive-design @mobile @touch-interaction @imported-from-github
     # @assertthat-scenario-id: a59da488de73b6caeac4f658d63c1564
     Scenario: Support touch scrolling in timeline area
         Given I am using a mobile device
@@ -21,7 +21,7 @@ Feature: Responsive Design and Mobile Support
         And the scrolling should be smooth and responsive
         And momentum scrolling should be supported
 
-    @AUTOMATED @responsive-design @touch-interaction @mobile @imported-from-github
+    @AUTOMATED @responsive-design @mobile @touch-interaction @imported-from-github
     # @assertthat-scenario-id: 3ac8dc612c267eefd0474204e469ec9a
     Scenario: Support pinch-to-zoom for timeline scale
         Given I am using a mobile device with multi-touch support
@@ -31,7 +31,7 @@ Feature: Responsive Design and Mobile Support
         And the zoom should be centered on the pinch point
         And the zoom level should be constrained to reasonable limits
 
-    @AUTOMATED @responsive-design @small-screens @layout @imported-from-github
+    @AUTOMATED @responsive-design @layout @small-screens @imported-from-github
     # @assertthat-scenario-id: 148572026dd92eeb6f5ee3842d0212a4
     Scenario: Adapt layout for small screen sizes
         Given I am using a device with a small screen (width < 768px)
@@ -41,7 +41,7 @@ Feature: Responsive Design and Mobile Support
         And the timeline should remain usable
         And horizontal scrolling should be available when needed
 
-    @AUTOMATED @responsive-design @tablet-screens @layout @imported-from-github
+    @AUTOMATED @responsive-design @layout @tablet-screens @imported-from-github
     # @assertthat-scenario-id: 4bf39f9db2bd92f164dce5874bb5da13
     Scenario: Optimize layout for tablet screens
         Given I am using a tablet device (width 768px - 1024px)
@@ -61,7 +61,7 @@ Feature: Responsive Design and Mobile Support
         And all interactive features should be available
         And the layout should make full use of the available space
 
-    @AUTOMATED @responsive-design @columns @adaptive-columns @imported-from-github
+    @AUTOMATED @adaptive-columns @responsive-design @columns @imported-from-github
     # @assertthat-scenario-id: 219845d85d6403e167bd7de2f862fac7
     Scenario: Adapt column visibility based on screen width
         Given I have a Gantt view with multiple columns configured
@@ -81,7 +81,7 @@ Feature: Responsive Design and Mobile Support
         And on desktop devices, the timeline should show a comprehensive view
         And users should be able to navigate to see all time periods
 
-    @AUTOMATED @responsive-design @mobile-navigation @navigation @imported-from-github
+    @AUTOMATED @responsive-design @navigation @mobile-navigation @imported-from-github
     # @assertthat-scenario-id: 65ef6350d0fc0e30df59e0466d466c28
     Scenario: Provide mobile-friendly navigation controls
         Given I am using a mobile device
@@ -92,7 +92,7 @@ Feature: Responsive Design and Mobile Support
         And I should be able to zoom to fit all tasks
         And navigation should not interfere with task interactions
 
-    @AUTOMATED @mobile-performance @responsive-design @performance @imported-from-github
+    @AUTOMATED @responsive-design @mobile-performance @performance @imported-from-github
     # @assertthat-scenario-id: a197928df7b92fbdddd6ef7620214014
     Scenario: Maintain performance on mobile devices
         Given I am using a mobile device with limited processing power
@@ -124,7 +124,7 @@ Feature: Responsive Design and Mobile Support
         And accidental touches should be minimized
         And the interface should be usable with various finger sizes
 
-    @AUTOMATED @responsive-design @text-scaling @text @imported-from-github
+    @AUTOMATED @text-scaling @responsive-design @text @imported-from-github
     # @assertthat-scenario-id: 9b3c3fdd90720a82271411ff6d89542a
     Scenario: Support system text scaling preferences
         Given I have system text scaling set to a larger size
@@ -134,7 +134,7 @@ Feature: Responsive Design and Mobile Support
         And readability should be maintained
         And the interface should remain functional
 
-    @AUTOMATED @responsive-design @dark-mode @theme-adaptation @imported-from-github
+    @AUTOMATED @responsive-design @theme-adaptation @dark-mode @imported-from-github
     # @assertthat-scenario-id: 9e72524c3eb2b32eb2397eac5d50b238
     Scenario: Adapt to system dark mode preferences
         Given I have dark mode enabled in my system or Obsidian

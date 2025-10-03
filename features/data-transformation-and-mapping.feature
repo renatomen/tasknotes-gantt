@@ -21,7 +21,7 @@ Feature: Data Transformation and Mapping
         | start    | 2025-01-01 |
         | end      | 2025-01-05 |
 
-    @AUTOMATED @date-conversion @data-transformation @imported-from-github
+    @AUTOMATED @data-transformation @date-conversion @imported-from-github
     # @assertthat-scenario-id: 215fde7d9ead539322e2530fca9e0ef9
     Scenario: Convert various date formats to Date objects
         Given I have raw data with different date formats:
@@ -34,7 +34,7 @@ Feature: Data Transformation and Mapping
         And all dates should be correctly parsed and positioned
         And timezone information should be handled appropriately
 
-    @AUTOMATED @date-inference @missing-data @data-transformation @imported-from-github
+    @AUTOMATED @missing-data @date-inference @data-transformation @imported-from-github
     # @assertthat-scenario-id: 3399a5c06c2eff19722d35f05a671358
     Scenario: Handle missing dates with inference strategy
         Given I have raw data with missing dates:
@@ -49,7 +49,7 @@ Feature: Data Transformation and Mapping
         And task C should have both dates set to today
         And all tasks should be marked with missing date indicators
 
-    @AUTOMATED @date-validation @inverted-ranges @data-transformation @imported-from-github
+    @AUTOMATED @inverted-ranges @data-transformation @date-validation @imported-from-github
     # @assertthat-scenario-id: 0d63d6e39667ef65f774b41bbdb49096
     Scenario: Handle inverted date ranges by swapping
         Given I have raw data with inverted dates:
@@ -60,7 +60,7 @@ Feature: Data Transformation and Mapping
         And the task should have end date "2025-01-10"
         And the task should be marked as having swapped dates
 
-    @AUTOMATED @property-preservation @data-transformation @imported-from-github
+    @AUTOMATED @data-transformation @property-preservation @imported-from-github
     # @assertthat-scenario-id: cd1817711bb11549d8719f680e25f039
     Scenario: Preserve all source properties in transformed tasks
         Given I have raw data with custom properties:
@@ -71,7 +71,7 @@ Feature: Data Transformation and Mapping
         And custom properties should be accessible for column display
         And reserved SVAR properties should not be overwritten
 
-    @AUTOMATED @multi-parent @virtual-expansion @data-transformation @imported-from-github
+    @AUTOMATED @virtual-expansion @multi-parent @data-transformation @imported-from-github
     # @assertthat-scenario-id: 10e915946ef97a11445c7be832a8cca3
     Scenario: Expand tasks with multiple parents into virtual duplicates
         Given I have raw data with multi-parent tasks:
@@ -110,7 +110,7 @@ Feature: Data Transformation and Mapping
         And task B should have progress 0.5 (assuming 50 means 50%)
         And task C should have progress 0.75
 
-    @AUTOMATED @duration-calculation @data-transformation @imported-from-github
+    @AUTOMATED @data-transformation @duration-calculation @imported-from-github
     # @assertthat-scenario-id: 59eb847b100ebba56bcadf52ed169549
     Scenario: Calculate duration from start and end dates
         Given I have raw data with date ranges:
@@ -122,7 +122,7 @@ Feature: Data Transformation and Mapping
         And task B should have a duration representing a single day
         And duration should be consistent with the date range
 
-    @AUTOMATED @data-transformation @validation @config-validation @imported-from-github
+    @AUTOMATED @validation @data-transformation @config-validation @imported-from-github
     # @assertthat-scenario-id: b79664037d5449835182cfe67c52c88f
     Scenario: Validate transformation configuration
         Given I have a transformation configuration with missing required fields:
@@ -134,7 +134,7 @@ Feature: Data Transformation and Mapping
         And I should receive an error about missing required field mappings
         And the error should specify which fields are required
 
-    @AUTOMATED @error-handling @data-transformation @malformed-data @imported-from-github
+    @AUTOMATED @malformed-data @error-handling @data-transformation @imported-from-github
     # @assertthat-scenario-id: 31f421e937527a04d3ade53b71a276e4
     Scenario: Handle malformed source data gracefully
         Given I have raw data with malformed entries:
@@ -148,7 +148,7 @@ Feature: Data Transformation and Mapping
         And the transformation should not fail completely
         And appropriate fallback values should be used for invalid data
 
-    @AUTOMATED @performance @large-datasets @data-transformation @imported-from-github
+    @AUTOMATED @large-datasets @performance @data-transformation @imported-from-github
     # @assertthat-scenario-id: 479f557c9fcfe8c65eef306ea48b2345
     Scenario: Transform large datasets efficiently
         Given I have a dataset with 1000 task entries

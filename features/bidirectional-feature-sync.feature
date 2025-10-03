@@ -10,7 +10,7 @@ Feature: Bidirectional Feature Sync
         And each feature file should have valid Gherkin syntax
         And the download metadata should include source and timestamp
 
-    @AUTOMATED @upload @sync @imported-from-github
+    @AUTOMATED @sync @upload @imported-from-github
     # @assertthat-scenario-id: 8820867c6f6b69b61b6678c21c54472d
     Scenario: Upload features from GitHub to AssertThat
         Given the GitHub repository contains feature files
@@ -30,7 +30,7 @@ Feature: Bidirectional Feature Sync
         And the @imported-from-github tag should be present
         And the Gherkin syntax should remain valid
 
-    @AUTOMATED @batch @sync @imported-from-github
+    @AUTOMATED @sync @batch @imported-from-github
     # @assertthat-scenario-id: 40cbe73c57b93afab09ea0d7b7ef1bdd
     Scenario: Batch upload and download operations
         Given multiple feature files exist in GitHub
@@ -50,7 +50,7 @@ Feature: Bidirectional Feature Sync
         And existing scenario tags should remain intact
         And no duplicate tags should be created
 
-    @AUTOMATED @sync @transaction @imported-from-github
+    @AUTOMATED @transaction @sync @imported-from-github
     # @assertthat-scenario-id: dfcdab769e856902290916f30477fb7f
     Scenario: Transaction rollback on sync failure
         Given a sync transaction is started
@@ -61,7 +61,7 @@ Feature: Bidirectional Feature Sync
         Then the original feature file should be restored
         And the backup should be preserved for safety
 
-    @AUTOMATED @error-handling @sync @imported-from-github
+    @AUTOMATED @sync @error-handling @imported-from-github
     # @assertthat-scenario-id: f979418aa171b52424b197ea0e962c3d
     Scenario: Graceful handling of download errors
         Given invalid API credentials are provided
@@ -70,7 +70,7 @@ Feature: Bidirectional Feature Sync
         And an error message should be returned
         And no partial files should be created
 
-    @AUTOMATED @error-handling @sync @imported-from-github
+    @AUTOMATED @sync @error-handling @imported-from-github
     # @assertthat-scenario-id: 29e37fdb54f571724df5349fd6c3dfde
     Scenario: Graceful handling of upload errors
         Given invalid API credentials are provided
@@ -88,7 +88,7 @@ Feature: Bidirectional Feature Sync
         And each file should contain at least one Scenario
         And the Gherkin syntax should be valid
 
-    @AUTOMATED @metadata @sync @imported-from-github
+    @AUTOMATED @sync @metadata @imported-from-github
     # @assertthat-scenario-id: b75058aabfc7965a2e7336b365bbcdba
     Scenario: Track sync metadata
         Given a feature is downloaded from AssertThat

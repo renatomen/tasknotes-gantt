@@ -14,7 +14,7 @@ Feature: Error Handling and Recovery
         And the Gantt should not attempt to render
         And I should be given guidance on how to fix the configuration
 
-    @AUTOMATED @error-handling @missing-data @data-loading @imported-from-github
+    @AUTOMATED @missing-data @data-loading @error-handling @imported-from-github
     # @assertthat-scenario-id: fbcffafad0bc689436052260a957059b
     Scenario: Handle missing or corrupted data gracefully
         Given I have a Bases view that returns corrupted data
@@ -44,7 +44,7 @@ Feature: Error Handling and Recovery
         And it should gracefully degrade functionality
         And I should be informed about the version requirement
 
-    @AUTOMATED @error-handling @permission-errors @file-system @imported-from-github
+    @AUTOMATED @file-system @permission-errors @error-handling @imported-from-github
     # @assertthat-scenario-id: eaae16cfd2ace6c6a4081a4aa7b5aff6
     Scenario: Handle file system permission errors
         Given I have read-only permissions on some note files
@@ -54,7 +54,7 @@ Feature: Error Handling and Recovery
         And the Gantt should remain functional for other tasks
         And I should be guided on how to resolve the permission issue
 
-    @AUTOMATED @memory-limits @error-handling @resource-exhaustion @imported-from-github
+    @AUTOMATED @resource-exhaustion @memory-limits @error-handling @imported-from-github
     # @assertthat-scenario-id: e69136b167e3c9cef4db5805d96730a8
     Scenario: Handle memory or resource exhaustion gracefully
         Given I have an extremely large dataset that exceeds memory limits
@@ -64,7 +64,7 @@ Feature: Error Handling and Recovery
         And I should be informed about the limitation
         And alternative approaches should be suggested
 
-    @AUTOMATED @offline-operation @error-handling @network-issues @imported-from-github
+    @AUTOMATED @network-issues @offline-operation @error-handling @imported-from-github
     # @assertthat-scenario-id: d0797ad4b23807a6ab42a28f005cfed9
     Scenario: Maintain functionality during network issues
         Given I am working offline or have network connectivity issues
@@ -84,7 +84,7 @@ Feature: Error Handling and Recovery
         And I should be informed about which files have issues
         And the Gantt should remain functional with available data
 
-    @AUTOMATED @concurrent-access @error-handling @file-conflicts @imported-from-github
+    @AUTOMATED @file-conflicts @error-handling @concurrent-access @imported-from-github
     # @assertthat-scenario-id: 30da8ddb1d4812e65a0ce65778c698bb
     Scenario: Handle concurrent file access conflicts
         Given multiple processes are accessing the same note files
@@ -94,7 +94,7 @@ Feature: Error Handling and Recovery
         And I should be informed if conflicts cannot be resolved
         And data integrity should be maintained
 
-    @AUTOMATED @error-handling @plugin-conflicts @compatibility @imported-from-github
+    @AUTOMATED @compatibility @error-handling @plugin-conflicts @imported-from-github
     # @assertthat-scenario-id: a08217d35bebffe8b9e1daee82f1f364
     Scenario: Handle conflicts with other plugins
         Given I have other plugins that might conflict with Gantt functionality
@@ -104,7 +104,7 @@ Feature: Error Handling and Recovery
         And the Gantt plugin should attempt to work around conflicts
         And fallback behavior should be implemented where possible
 
-    @AUTOMATED @error-reporting @error-handling @user-feedback @imported-from-github
+    @AUTOMATED @user-feedback @error-handling @error-reporting @imported-from-github
     # @assertthat-scenario-id: 3cfc8a4545115d4ffa49686bd54c6d32
     Scenario: Provide helpful error reporting and feedback
         Given an unexpected error occurs in the Gantt plugin
@@ -124,7 +124,7 @@ Feature: Error Handling and Recovery
         And the plugin should not become completely unusable
         And recovery should be possible without restarting Obsidian
 
-    @AUTOMATED @error-handling @input-validation @validation @imported-from-github
+    @AUTOMATED @validation @error-handling @input-validation @imported-from-github
     # @assertthat-scenario-id: 6d41e1335692475f819ea878063321f7
     Scenario: Validate user input and provide helpful feedback
         Given I am editing task properties in the Gantt
@@ -134,7 +134,7 @@ Feature: Error Handling and Recovery
         And the error message should explain what input is expected
         And I should be prevented from saving invalid data
 
-    @AUTOMATED @recovery @automatic-recovery @error-handling @imported-from-github
+    @AUTOMATED @automatic-recovery @recovery @error-handling @imported-from-github
     # @assertthat-scenario-id: 87f018dc24b60a313a9578503d547aca
     Scenario: Automatically recover from transient errors
         Given a transient error occurs (like temporary file lock)
@@ -144,7 +144,7 @@ Feature: Error Handling and Recovery
         And I should be informed if automatic recovery fails
         And manual recovery options should be provided
 
-    @AUTOMATED @development-support @error-handling @debugging @imported-from-github
+    @AUTOMATED @debugging @development-support @error-handling @imported-from-github
     # @assertthat-scenario-id: ee7d89d0374011973ffbfad85319e531
     Scenario: Provide debugging support for development and troubleshooting
         Given I am experiencing issues with the Gantt plugin

@@ -1,7 +1,7 @@
 # @assertthat-feature-id: Virtual Task Handling for Multi-Parent Scenarios
 Feature: Virtual Task Handling for Multi-Parent Scenarios
 
-    @AUTOMATED @multi-parent @virtual-tasks @task-management @critical @imported-from-github
+    @AUTOMATED @virtual-tasks @multi-parent @task-management @critical @imported-from-github
     # @assertthat-scenario-id: d71e5eff87aa23931cbca4fa87f540a4
     Scenario: Create virtual duplicates for tasks with multiple parents
         Given I have a task note "Shared Resource" with properties:
@@ -16,7 +16,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And both instances should have the same dates and properties
         And both instances should reference the same original note ID
 
-    @AUTOMATED @unique-ids @virtual-tasks @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @unique-ids @task-management @imported-from-github
     # @assertthat-scenario-id: 20eaa2354b5ab2367e23768833f7b752
     Scenario: Generate unique IDs for virtual task duplicates
         Given I have a task note "Multi-Parent Task" with properties:
@@ -28,7 +28,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And the second virtual duplicate should have ID ending with "::v2"
         And all instances should preserve the original note ID for reference
 
-    @AUTOMATED @virtual-tasks @data-consistency @task-management @imported-from-github
+    @AUTOMATED @data-consistency @virtual-tasks @task-management @imported-from-github
     # @assertthat-scenario-id: 3fb143dfb95508d373ad75159c1ee089
     Scenario: Maintain data consistency across virtual duplicates
         Given I have a task note "Consistent Task" with properties:
@@ -48,7 +48,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         | progress | 0.5             |
         | priority | High            |
 
-    @AUTOMATED @single-parent-fallback @virtual-tasks @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @task-management @single-parent-fallback @imported-from-github
     # @assertthat-scenario-id: ccfdafa17018dca7c960fbeb52709036
     Scenario: Handle tasks with single parent normally
         Given I have a task note "Single Parent Task" with properties:
@@ -62,7 +62,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And it should appear under "project-main"
         And no virtual duplicates should be created
 
-    @AUTOMATED @virtual-tasks @no-parent-handling @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @task-management @no-parent-handling @imported-from-github
     # @assertthat-scenario-id: 38f56b09e4eb484455957799c3950205
     Scenario: Handle tasks with no parents
         Given I have a task note "Orphan Task" with properties:
@@ -90,7 +90,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And no virtual duplicates should be created
         And the task should be treated as having no parents
 
-    @AUTOMATED @mixed-parent-types @virtual-tasks @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @task-management @mixed-parent-types @imported-from-github
     # @assertthat-scenario-id: 36b26732ccb3bc473b7603a17721fe4b
     Scenario: Handle tasks with both single parent and parents array
         Given I have a task note "Mixed Parents Task" with properties:
@@ -106,7 +106,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And I should see "Mixed Parents Task" under "secondary-b"
         And the single parent property should be ignored
 
-    @AUTOMATED @performance @virtual-tasks @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @task-management @performance @imported-from-github
     # @assertthat-scenario-id: 020fa15183f0c9e08b3096cfd3dc9925
     Scenario: Handle large numbers of virtual duplicates efficiently
         Given I have task notes with extensive multi-parent relationships:
@@ -119,7 +119,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And the Gantt should render without performance degradation
         And each task should appear under all its specified parents
 
-    @AUTOMATED @virtual-tasks @task-management @data-integrity @imported-from-github
+    @AUTOMATED @virtual-tasks @data-integrity @task-management @imported-from-github
     # @assertthat-scenario-id: a80da357d68c4317938c4ca1538dfcf6
     Scenario: Preserve original note reference in virtual tasks
         Given I have a task note "Reference Task" with properties:
@@ -130,7 +130,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
         And the original note ID should be preserved for data synchronization
         And any updates to the original note should affect all virtual instances
 
-    @AUTOMATED @hierarchy-display @virtual-tasks @task-management @imported-from-github
+    @AUTOMATED @virtual-tasks @task-management @hierarchy-display @imported-from-github
     # @assertthat-scenario-id: 6254fe21cff417e0d7b51e09b27d0a48
     Scenario: Display virtual tasks correctly in hierarchical view
         Given I have a project structure with virtual tasks:
