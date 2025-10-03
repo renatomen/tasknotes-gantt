@@ -1,64 +1,50 @@
-# language: en
 # @assertthat-feature-id: Column Management in Gantt View
 Feature: Column Management in Gantt View
 
-    As a project manager
-    I want to customize which columns are displayed in the Gantt grid
-    So that I can see the most relevant task information for my workflow
-
-    Background: 
-        
-        Given I have a vault with task notes
-        And the Obsidian Gantt plugin is enabled
-        And I have Bases integration configured
-
-    @AUTOMATED @bases-integration @column-management @critical 
+    @AUTOMATED @column-management @critical @bases-integration @imported-from-github
     # @assertthat-scenario-id: 38dd10096e36a479c02b3e93bdcaa318
     Scenario: Display default columns when no configuration exists
-        
         Given I have task notes with basic properties
         And no column configuration is set
         When I open the Gantt view
         Then I should see the default columns:
-          | column   | header     |
-          | text     | Task name  |
-          | start    | Start date |
-          | duration | Duration   |
+        | column   | header     |
+        | text     | Task name  |
+        | start    | Start date |
+        | duration | Duration   |
 
-    @AUTOMATED @bases-integration @column-management @critical 
+    @AUTOMATED @column-management @critical @bases-integration @imported-from-github
     # @assertthat-scenario-id: d8301b5ff6eb7f5bd27da57e3856858d
     Scenario: Display columns based on Bases property selection
-        
         Given I have task notes with various properties:
-          | title  | start      | due        | status      | priority |
-          | Task A | 2025-01-01 | 2025-01-05 | In Progress | High     |
-          | Task B | 2025-01-03 | 2025-01-08 | Planned     | Medium   |
+        | title  | start      | due        | status      | priority |
+        | Task A | 2025-01-01 | 2025-01-05 | In Progress | High     |
+        | Task B | 2025-01-03 | 2025-01-08 | Planned     | Medium   |
         And I have selected these columns in Bases:
-          | column   |
-          | title    |
-          | start    |
-          | status   |
-          | priority |
+        | column   |
+        | title    |
+        | start    |
+        | status   |
+        | priority |
         When I open the Gantt view
         Then I should see columns for:
-          | column   | header   |
-          | title    | Title    |
-          | start    | Start    |
-          | status   | Status   |
-          | priority | Priority |
+        | column   | header   |
+        | title    | Title    |
+        | start    | Start    |
+        | status   | Status   |
+        | priority | Priority |
 
-    @AUTOMATED @column-management @data-types 
+    @AUTOMATED @data-types @column-management @imported-from-github
     # @assertthat-scenario-id: 12149b10a46c6aaf4451318327f2014f
     Scenario: Display different data types in columns
-        
         Given I have a task note "Complex Task" with properties:
-          | property  | value          | type    |
-          | title     | Complex Task   | text    |
-          | start     | 2025-01-01     | date    |
-          | effort    | 40             | number  |
-          | completed | true           | boolean |
-          | tags      | [work, urgent] | array   |
-          | link      | [[Related]]    | link    |
+        | property  | value          | type    |
+        | title     | Complex Task   | text    |
+        | start     | 2025-01-01     | date    |
+        | effort    | 40             | number  |
+        | completed | true           | boolean |
+        | tags      | [work, urgent] | array   |
+        | link      | [[Related]]    | link    |
         And I have selected all these columns in Bases
         When I open the Gantt view
         Then the "title" column should display "Complex Task"
@@ -68,58 +54,54 @@ Feature: Column Management in Gantt View
         And the "tags" column should display "work, urgent"
         And the "link" column should display "Related"
 
-    @AUTOMATED @column-management @column-widths 
+    @AUTOMATED @column-management @column-widths @imported-from-github
     # @assertthat-scenario-id: 3f29cfe5ae8f8851c88c1d34f9e498ed
     Scenario: Apply custom column widths from Bases configuration
-        
         Given I have task notes with properties
         And I have configured column widths in Bases:
-          | column | width |
-          | title  | 300   |
-          | start  | 120   |
-          | status | 100   |
+        | column | width |
+        | title  | 300   |
+        | start  | 120   |
+        | status | 100   |
         When I open the Gantt view
         Then the "title" column should have width 300 pixels
         And the "start" column should have width 120 pixels
         And the "status" column should have width 100 pixels
 
-    @AUTOMATED @column-management @column-ordering 
+    @AUTOMATED @column-management @column-ordering @imported-from-github
     # @assertthat-scenario-id: a63b71d479cacb40637e50a7e54622a1
     Scenario: Respect column order from Bases configuration
-        
         Given I have task notes with properties
         And I have ordered columns in Bases as:
-          | order | column   |
-          | 1     | priority |
-          | 2     | title    |
-          | 3     | status   |
-          | 4     | start    |
+        | order | column   |
+        | 1     | priority |
+        | 2     | title    |
+        | 3     | status   |
+        | 4     | start    |
         When I open the Gantt view
         Then the columns should appear in this order:
-          | position | column   |
-          | 1        | priority |
-          | 2        | title    |
-          | 3        | status   |
-          | 4        | start    |
+        | position | column   |
+        | 1        | priority |
+        | 2        | title    |
+        | 3        | status   |
+        | 4        | start    |
 
-    @AUTOMATED @column-management @file-basename 
+    @AUTOMATED @column-management @file-basename @imported-from-github
     # @assertthat-scenario-id: c1c222c4e5d2a2d92cdc7c3023673d99
     Scenario: Use file basename as task name column
-        
         Given I have task notes:
-          | filename     | title property |
-          | Project-A.md | Different Name |
-          | Task-B.md    |                |
+        | filename     | title property |
+        | Project-A.md | Different Name |
+        | Task-B.md    |                |
         And Bases is configured to show "file.basename" column
         When I open the Gantt view
         Then the task name column should display "Project-A" for the first task
         And the task name column should display "Task-B" for the second task
         And the column header should reflect the Bases display name for "file.basename"
 
-    @AUTOMATED @column-management @empty-columns 
+    @AUTOMATED @column-management @empty-columns @imported-from-github
     # @assertthat-scenario-id: ee0df0194df670a94c4b2c48ef65711c
     Scenario: Hide grid when no columns are selected
-        
         Given I have task notes with properties
         And no columns are selected in Bases configuration
         When I open the Gantt view
@@ -127,17 +109,16 @@ Feature: Column Management in Gantt View
         And only the timeline area should be visible
         And tasks should still be displayed in the timeline
 
-    @AUTOMATED @column-formatting @column-management 
+    @AUTOMATED @column-formatting @column-management @imported-from-github
     # @assertthat-scenario-id: 38d8c310106f8ce438469ff79c7c914d
     Scenario: Format column values according to data type
-        
         Given I have a task note with properties:
-          | property    | value                |
-          | start       | 2025-01-01T10:30:00Z |
-          | effort      | 42.5                 |
-          | completed   | false                |
-          | tags        | []                   |
-          | description | null                 |
+        | property    | value                |
+        | start       | 2025-01-01T10:30:00Z |
+        | effort      | 42.5                 |
+        | completed   | false                |
+        | tags        | []                   |
+        | description | null                 |
         When I open the Gantt view with these columns
         Then the "start" column should display the date in locale format
         And the "effort" column should display "42.5"
@@ -145,20 +126,18 @@ Feature: Column Management in Gantt View
         And the "tags" column should display empty
         And the "description" column should display empty
 
-    @AUTOMATED @column-management @dynamic-properties 
+    @AUTOMATED @column-management @dynamic-properties @imported-from-github
     # @assertthat-scenario-id: 4886a9fd2cf3487e304bd98c77385738
     Scenario: Automatically detect available properties for column selection
-        
         Given I have task notes with varying properties:
-          | note   | title | start      | priority | assignee |
-          | Task 1 | A     | 2025-01-01 | High     |          |
-          | Task 2 | B     | 2025-01-02 |          | John     |
+        | note   | title | start      | priority | assignee |
+        | Task 1 | A     | 2025-01-01 | High     |          |
+        | Task 2 | B     | 2025-01-02 |          | John     |
         When I access the Bases column configuration
         Then the available properties should include:
-          | property |
-          | title    |
-          | start    |
-          | priority |
-          | assignee |
+        | property |
+        | title    |
+        | start    |
+        | priority |
+        | assignee |
         And each property should have appropriate type detection
-
