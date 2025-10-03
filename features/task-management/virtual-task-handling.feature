@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Virtual Task Handling for Multi-Parent Scenarios
 Feature: Virtual Task Handling for Multi-Parent Scenarios
   As a project manager working with complex project structures
   I want tasks to appear under multiple parent projects when they have multiple parents
@@ -9,6 +10,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And I have Bases integration configured
 
   @critical @task-management @multi-parent @virtual-tasks
+    # @assertthat-scenario-id: d71e5eff87aa23931cbca4fa87f540a4
   Scenario: Create virtual duplicates for tasks with multiple parents
     Given I have a task note "Shared Resource" with properties:
       | property | value                    |
@@ -23,6 +25,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And both instances should reference the same original note ID
 
   @task-management @virtual-tasks @unique-ids
+    # @assertthat-scenario-id: 20eaa2354b5ab2367e23768833f7b752
   Scenario: Generate unique IDs for virtual task duplicates
     Given I have a task note "Multi-Parent Task" with properties:
       | property | value                      |
@@ -34,6 +37,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And all instances should preserve the original note ID for reference
 
   @task-management @virtual-tasks @data-consistency
+    # @assertthat-scenario-id: 3fb143dfb95508d373ad75159c1ee089
   Scenario: Maintain data consistency across virtual duplicates
     Given I have a task note "Consistent Task" with properties:
       | property | value                    |
@@ -53,6 +57,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
       | priority | High            |
 
   @task-management @virtual-tasks @single-parent-fallback
+    # @assertthat-scenario-id: ccfdafa17018dca7c960fbeb52709036
   Scenario: Handle tasks with single parent normally
     Given I have a task note "Single Parent Task" with properties:
       | property | value             |
@@ -66,6 +71,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And no virtual duplicates should be created
 
   @task-management @virtual-tasks @no-parent-handling
+    # @assertthat-scenario-id: 38f56b09e4eb484455957799c3950205
   Scenario: Handle tasks with no parents
     Given I have a task note "Orphan Task" with properties:
       | property | value       |
@@ -79,6 +85,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And the task should be displayed normally
 
   @task-management @virtual-tasks @empty-parents-array
+    # @assertthat-scenario-id: 786df0ca12ca3995f07fd775e4438a2b
   Scenario: Handle tasks with empty parents array
     Given I have a task note "Empty Parents Task" with properties:
       | property | value             |
@@ -92,6 +99,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And the task should be treated as having no parents
 
   @task-management @virtual-tasks @mixed-parent-types
+    # @assertthat-scenario-id: 36b26732ccb3bc473b7603a17721fe4b
   Scenario: Handle tasks with both single parent and parents array
     Given I have a task note "Mixed Parents Task" with properties:
       | property | value                    |
@@ -107,6 +115,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And the single parent property should be ignored
 
   @task-management @virtual-tasks @performance
+    # @assertthat-scenario-id: 020fa15183f0c9e08b3096cfd3dc9925
   Scenario: Handle large numbers of virtual duplicates efficiently
     Given I have task notes with extensive multi-parent relationships:
       | title    | parents                                    |
@@ -119,6 +128,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And each task should appear under all its specified parents
 
   @task-management @virtual-tasks @data-integrity
+    # @assertthat-scenario-id: a80da357d68c4317938c4ca1538dfcf6
   Scenario: Preserve original note reference in virtual tasks
     Given I have a task note "Reference Task" with properties:
       | property | value                    |
@@ -129,6 +139,7 @@ Feature: Virtual Task Handling for Multi-Parent Scenarios
     And any updates to the original note should affect all virtual instances
 
   @task-management @virtual-tasks @hierarchy-display
+    # @assertthat-scenario-id: 6254fe21cff417e0d7b51e09b27d0a48
   Scenario: Display virtual tasks correctly in hierarchical view
     Given I have a project structure with virtual tasks:
       | title        | parents              | start      | due        |

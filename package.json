@@ -22,6 +22,7 @@
     "detect:bdd-changes": "node scripts/detect-bdd-changes.mjs",
     "sync:assertthat": "node scripts/sync-features.mjs",
     "sync:pr": "node scripts/sync-with-pr.mjs",
+    "assign:ids": "node scripts/workflows/assign-ids-workflow.mjs",
     "verify:secrets": "node scripts/verify-secrets.mjs",
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",

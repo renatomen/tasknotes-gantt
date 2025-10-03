@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Task Rendering in Gantt Chart
 Feature: Task Rendering in Gantt Chart
   As a project manager
   I want to see my tasks displayed as visual bars in a Gantt chart
@@ -9,6 +10,7 @@ Feature: Task Rendering in Gantt Chart
     And I have Bases integration configured
 
   @critical @smoke @gantt-visualization
+    # @assertthat-scenario-id: 8d98feb5a6dedcd448c98fa9387b8c1e
   Scenario: Display basic task with start and end dates
     Given I have a task note "Project Planning" with properties:
       | property | value      |
@@ -20,6 +22,7 @@ Feature: Task Rendering in Gantt Chart
     And the task should display the title "Project Planning"
 
   @critical @gantt-visualization @data-mapping
+    # @assertthat-scenario-id: 1bec8c8b66cdcbf8fad1d72a3b46d1bb
   Scenario: Display task with missing start date
     Given I have a task note "Research Phase" with properties:
       | property | value      |
@@ -30,6 +33,7 @@ Feature: Task Rendering in Gantt Chart
     And the task should be marked as having inferred dates
 
   @critical @gantt-visualization @data-mapping
+    # @assertthat-scenario-id: 72608714d15f0c7fb7ff7b4ac1468df8
   Scenario: Display task with missing end date
     Given I have a task note "Development" with properties:
       | property | value      |
@@ -40,6 +44,7 @@ Feature: Task Rendering in Gantt Chart
     And the task should be marked as having inferred dates
 
   @gantt-visualization @data-mapping
+    # @assertthat-scenario-id: 016cda90a5f64cfa099b4a5b995ea6e0
   Scenario: Display task with no dates
     Given I have a task note "Future Task" with no date properties
     When I open the Gantt view
@@ -48,6 +53,7 @@ Feature: Task Rendering in Gantt Chart
     And the task should be marked as having placeholder dates
 
   @gantt-visualization @data-mapping
+    # @assertthat-scenario-id: a208cbd1e0dca560bfa4d27816413c66
   Scenario: Handle inverted date ranges
     Given I have a task note "Backwards Task" with properties:
       | property | value      |
@@ -59,6 +65,7 @@ Feature: Task Rendering in Gantt Chart
     And the task should be marked as having swapped dates
 
   @gantt-visualization @task-types
+    # @assertthat-scenario-id: 156e70e495f9e98b5e0dc4ad653fd1ea
   Scenario: Display different task types
     Given I have task notes with different types:
       | title     | type      | start      | due        |
@@ -71,6 +78,7 @@ Feature: Task Rendering in Gantt Chart
     And I should see "Deadline" displayed as a milestone marker
 
   @gantt-visualization @progress
+    # @assertthat-scenario-id: 936bc646b235e560fccab4b4f09be5a4
   Scenario: Display task progress
     Given I have a task note "Development" with properties:
       | property | value      |
@@ -83,6 +91,7 @@ Feature: Task Rendering in Gantt Chart
     And the progress should be visually indicated within the task bar
 
   @gantt-visualization @empty-state
+    # @assertthat-scenario-id: 663eb265afad324c005aa297f3494fc5
   Scenario: Display empty state when no tasks exist
     Given I have a vault with no task notes
     When I open the Gantt view
@@ -90,6 +99,7 @@ Feature: Task Rendering in Gantt Chart
     And the message should indicate "No items match"
 
   @gantt-visualization @error-handling
+    # @assertthat-scenario-id: 4c7cb7633e45b483e84a2624a96fc373
   Scenario: Handle tasks with invalid data gracefully
     Given I have a task note "Invalid Task" with properties:
       | property | value        |

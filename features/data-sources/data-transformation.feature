@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Data Transformation and Mapping
 Feature: Data Transformation and Mapping
   As a developer integrating various data sources
   I want consistent data transformation from any source to SVAR Gantt format
@@ -8,6 +9,7 @@ Feature: Data Transformation and Mapping
     And I have various data sources available
 
   @critical @data-transformation @field-mapping
+    # @assertthat-scenario-id: ee31ec10e660247c9b7cb493daf083f1
   Scenario: Transform basic note data to SVAR task format
     Given I have raw note data:
       | path        | title      | start      | due        |
@@ -27,6 +29,7 @@ Feature: Data Transformation and Mapping
       | end      | 2025-01-05 |
 
   @data-transformation @date-conversion
+    # @assertthat-scenario-id: 215fde7d9ead539322e2530fca9e0ef9
   Scenario: Convert various date formats to Date objects
     Given I have raw data with different date formats:
       | task | start_date           | end_date             |
@@ -39,6 +42,7 @@ Feature: Data Transformation and Mapping
     And timezone information should be handled appropriately
 
   @data-transformation @missing-data @date-inference
+    # @assertthat-scenario-id: 3399a5c06c2eff19722d35f05a671358
   Scenario: Handle missing dates with inference strategy
     Given I have raw data with missing dates:
       | task | start      | end        |
@@ -53,6 +57,7 @@ Feature: Data Transformation and Mapping
     And all tasks should be marked with missing date indicators
 
   @data-transformation @date-validation @inverted-ranges
+    # @assertthat-scenario-id: 0d63d6e39667ef65f774b41bbdb49096
   Scenario: Handle inverted date ranges by swapping
     Given I have raw data with inverted dates:
       | task | start      | end        |
@@ -63,6 +68,7 @@ Feature: Data Transformation and Mapping
     And the task should be marked as having swapped dates
 
   @data-transformation @property-preservation
+    # @assertthat-scenario-id: cd1817711bb11549d8719f680e25f039
   Scenario: Preserve all source properties in transformed tasks
     Given I have raw data with custom properties:
       | path      | title | start      | priority | assignee | custom_field |
@@ -73,6 +79,7 @@ Feature: Data Transformation and Mapping
     And reserved SVAR properties should not be overwritten
 
   @data-transformation @multi-parent @virtual-expansion
+    # @assertthat-scenario-id: 10e915946ef97a11445c7be832a8cca3
   Scenario: Expand tasks with multiple parents into virtual duplicates
     Given I have raw data with multi-parent tasks:
       | path        | title        | parents           | start      |
@@ -85,6 +92,7 @@ Feature: Data Transformation and Mapping
     And the second task should have ID ending with "::v1"
 
   @data-transformation @type-mapping
+    # @assertthat-scenario-id: 6466952ec94fefad983431beb9ddc840
   Scenario: Map task types to SVAR format
     Given I have raw data with task types:
       | task | type      | start      | end        |
@@ -97,6 +105,7 @@ Feature: Data Transformation and Mapping
     And task C should have type "milestone"
 
   @data-transformation @progress-normalization
+    # @assertthat-scenario-id: 7c16b0bf78f7712c8552a8c3c154977b
   Scenario: Normalize progress values to 0-1 range
     Given I have raw data with various progress formats:
       | task | progress |
@@ -109,6 +118,7 @@ Feature: Data Transformation and Mapping
     And task C should have progress 0.75
 
   @data-transformation @duration-calculation
+    # @assertthat-scenario-id: 59eb847b100ebba56bcadf52ed169549
   Scenario: Calculate duration from start and end dates
     Given I have raw data with date ranges:
       | task | start      | end        |
@@ -120,6 +130,7 @@ Feature: Data Transformation and Mapping
     And duration should be consistent with the date range
 
   @data-transformation @validation @config-validation
+    # @assertthat-scenario-id: b79664037d5449835182cfe67c52c88f
   Scenario: Validate transformation configuration
     Given I have a transformation configuration with missing required fields:
       | field_mapping | value |
@@ -131,6 +142,7 @@ Feature: Data Transformation and Mapping
     And the error should specify which fields are required
 
   @data-transformation @error-handling @malformed-data
+    # @assertthat-scenario-id: 31f421e937527a04d3ade53b71a276e4
   Scenario: Handle malformed source data gracefully
     Given I have raw data with malformed entries:
       | entry | data                    |
@@ -144,6 +156,7 @@ Feature: Data Transformation and Mapping
     And appropriate fallback values should be used for invalid data
 
   @data-transformation @performance @large-datasets
+    # @assertthat-scenario-id: 479f557c9fcfe8c65eef306ea48b2345
   Scenario: Transform large datasets efficiently
     Given I have a dataset with 1000 task entries
     And each entry has 10 custom properties
