@@ -15,9 +15,13 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
 
 **Quick Start**: See [docs/QUICKSTART-SYNC.md](../docs/QUICKSTART-SYNC.md) for setup instructions.
 
-## 📋 **Scenario Overview**
+## 📁 **Directory Structure**
 
-### **Gantt Visualization** (`gantt-visualization/`)
+All feature files are stored in a **flat structure** (no subdirectories) to maintain compatibility with AssertThat BDD plugin, which does not support folder organization.
+
+## 📋 **Feature Files**
+
+### **Gantt Visualization**
 
 - **task-rendering.feature** (10 scenarios)
   - Basic task display with dates
@@ -45,7 +49,7 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
   - Svelte reactivity optimization
   - Mobile performance constraints
 
-### **Bases Integration** (`bases-integration/`)
+### **Bases Integration**
 
 - **data-mapping.feature** (12 scenarios)
   - Basic property mapping to Gantt data
@@ -60,7 +64,7 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
   - Configuration reading and error handling
   - Debug support and cleanup
 
-### **Task Management** (`task-management/`)
+### **Task Management**
 
 - **virtual-task-handling.feature** (10 scenarios)
   - Multi-parent task virtual duplicates
@@ -75,7 +79,7 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
   - Keyboard navigation and accessibility
   - Bulk editing and undo/redo
 
-### **Data Sources** (`data-sources/`)
+### **Data Sources**
 
 - **data-transformation.feature** (12 scenarios)
   - Field mapping and date conversion
@@ -83,7 +87,7 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
   - Property preservation and type mapping
   - Error handling and performance optimization
 
-### **User Experience** (`user-experience/`)
+### **User Experience**
 
 - **error-handling.feature** (15 scenarios)
   - Configuration and data loading errors
@@ -91,11 +95,43 @@ This directory is automatically synchronized with AssertThat BDD plugin in Jira:
   - File system and permission handling
   - Graceful degradation and recovery
 
+### **BDD Framework**
+
+- **framework-validation.feature** (2 scenarios)
+  - BDD framework setup and validation
+  - Basic test execution
+
+- **bidirectional-sync.feature** (8 scenarios)
+  - GitHub ↔ AssertThat synchronization
+  - Upload, download, and round-trip sync
+  - Metadata tracking and conflict handling
+
 ## 🎯 **Total Coverage**
 
-- **9 Feature Files**
-- **125 BDD Scenarios**
+- **12 Feature Files**
+- **125+ BDD Scenarios**
 - **Complete functional coverage** of implemented and planned features
+
+## 🔑 **AssertThat ID Tracking**
+
+Each feature and scenario contains unique AssertThat IDs stored as comments:
+
+```gherkin
+# @assertthat-feature-id: BDD Framework Validation
+Feature: BDD Framework Validation
+
+  # @assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
+  Scenario: Basic task creation and rendering
+    Given a task with title "Sample Task"
+```
+
+These IDs enable:
+- ✅ Resilient sync even when names change
+- ✅ Proper conflict detection and resolution
+- ✅ Tracking of new/deleted scenarios
+- ✅ Stable identifier for bidirectional sync
+
+See [docs/assertthat-id-tracking.md](../docs/assertthat-id-tracking.md) for details.
 
 ## 📝 **BDD Principles Applied**
 
