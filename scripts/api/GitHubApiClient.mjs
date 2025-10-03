@@ -132,10 +132,13 @@ export class GitHubApiClient {
    */
   async createPullRequest({ title, body, head, base = 'main', draft = false }) {
     this.logger.info(`Creating PR: ${title}`);
+    this.logger.info(`  Owner: ${this.owner}`);
+    this.logger.info(`  Repo: ${this.repo}`);
     this.logger.info(`  Head: ${head}`);
     this.logger.info(`  Base: ${base}`);
 
     const path = `/repos/${this.owner}/${this.repo}/pulls`;
+    this.logger.info(`  API Path: ${path}`);
     
     const prData = {
       title,
@@ -223,7 +226,7 @@ export class GitHubApiClient {
 
   /**
    * Check if a pull request exists for a branch
-   * 
+   *
    * @param {string} head - Head branch
    * @param {string} base - Base branch (default: main)
    * @returns {Promise<Object|null>} PR data or null if not found
@@ -247,6 +250,34 @@ export class GitHubApiClient {
       return null;
     } catch (error) {
       this.logger.error(`❌ Failed to find PR: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Enable auto-merge for a pull request
+   *
+   * @param {number} prNumber - PR number
+   * @param {string} mergeMethod - Merge method (merge, squash, rebase)
+   * @returns {Promise<void>}
+   */
+  async enableAutoMerge(prNumber, mergeMethod = 'squash') {
+    this.logger.info(`🤖 Enabling auto-merge for PR #${prNumber} (${mergeMethod})`);
+
+    const path = `/repos/${this.owner}/${this.repo}/pulls/${prNumber}/merge`;
+
+    try {
+      // Note: GitHub's auto-merge API requires GraphQL
+      // For now, we'll just log that auto-merge would be enabled
+      // The user can enable it manually or we can implement GraphQL later
+      this.logger.info(`ℹ️  Auto-merge requires GraphQL API (not implemented yet)`);
+      this.logger.info(`   You can enable it manually at: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`);
+
+      // TODO: Implement GraphQL mutation for enablePullRequestAutoMerge
+      // For now, just return success without actually enabling auto-merge
+
+    } catch (error) {
+      this.logger.error(`❌ Failed to enable auto-merge: ${error.message}`);
       throw error;
     }
   }

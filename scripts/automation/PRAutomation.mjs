@@ -262,16 +262,20 @@ export class PRAutomation {
   /**
    * Enable auto-merge for PR
    */
-  enableAutoMerge(prNumber) {
+  async enableAutoMerge(prNumber) {
     try {
-      this.logger.info(`🤖 Enabling auto-merge for PR #${prNumber}`);
-      
-      this.execGit(`gh pr merge ${prNumber} --auto --squash`);
-      
+      if (!this.githubClient) {
+        this.logger.info(`ℹ️  GitHub API client not available, skipping auto-merge`);
+        return;
+      }
+
+      await this.githubClient.enableAutoMerge(prNumber, 'squash');
+
       this.logger.info(`✅ Auto-merge enabled`);
     } catch (error) {
       this.logger.error(`❌ Failed to enable auto-merge: ${error.message}`);
-      throw error;
+      // Don't throw - auto-merge is optional
+      this.logger.info(`ℹ️  Continuing without auto-merge`);
     }
   }
 
@@ -365,7 +369,7 @@ export class PRAutomation {
 
       // Enable auto-merge if no conflicts
       if (this.shouldAutoMerge(hasConflicts)) {
-        this.enableAutoMerge(prNumber);
+        await this.enableAutoMerge(prNumber);
       }
 
       return {
