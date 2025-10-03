@@ -3,8 +3,8 @@
 Feature: Task Rendering in Gantt Chart
 
     As a project manager
-    I want to see my tasks displayed as visual bars in a Gantt chart
-    So that I can understand project timelines and dependencies at a glance
+      I want to see my tasks displayed as visual bars in a Gantt chart
+      So that I can understand project timelines and dependencies at a glance
 
     Background: 
         
@@ -13,7 +13,7 @@ Feature: Task Rendering in Gantt Chart
         And I have Bases integration configured
 
     @AUTOMATED @critical @gantt-visualization @smoke 
-    # @assertthat-scenario-id: 8d98feb5a6dedcd448c98fa9387b8c1e
+        # @assertthat-scenario-id: 8d98feb5a6dedcd448c98fa9387b8c1e
     Scenario: Display basic task with start and end dates
         
         Given I have a task note "Project Planning" with properties:
@@ -26,7 +26,7 @@ Feature: Task Rendering in Gantt Chart
         And the task should display the title "Project Planning"
 
     @AUTOMATED @critical @data-mapping @gantt-visualization 
-    # @assertthat-scenario-id: 1bec8c8b66cdcbf8fad1d72a3b46d1bb
+        # @assertthat-scenario-id: 1bec8c8b66cdcbf8fad1d72a3b46d1bb
     Scenario: Display task with missing start date
         
         Given I have a task note "Research Phase" with properties:
@@ -38,7 +38,7 @@ Feature: Task Rendering in Gantt Chart
         And the task should be marked as having inferred dates
 
     @AUTOMATED @critical @data-mapping @gantt-visualization 
-    # @assertthat-scenario-id: 72608714d15f0c7fb7ff7b4ac1468df8
+        # @assertthat-scenario-id: 72608714d15f0c7fb7ff7b4ac1468df8
     Scenario: Display task with missing end date
         
         Given I have a task note "Development" with properties:
@@ -50,7 +50,7 @@ Feature: Task Rendering in Gantt Chart
         And the task should be marked as having inferred dates
 
     @AUTOMATED @data-mapping @gantt-visualization 
-    # @assertthat-scenario-id: 016cda90a5f64cfa099b4a5b995ea6e0
+        # @assertthat-scenario-id: 016cda90a5f64cfa099b4a5b995ea6e0
     Scenario: Display task with no dates
         
         Given I have a task note "Future Task" with no date properties
@@ -60,7 +60,7 @@ Feature: Task Rendering in Gantt Chart
         And the task should be marked as having placeholder dates
 
     @AUTOMATED @data-mapping @gantt-visualization 
-    # @assertthat-scenario-id: a208cbd1e0dca560bfa4d27816413c66
+        # @assertthat-scenario-id: a208cbd1e0dca560bfa4d27816413c66
     Scenario: Handle inverted date ranges
         
         Given I have a task note "Backwards Task" with properties:
@@ -73,7 +73,7 @@ Feature: Task Rendering in Gantt Chart
         And the task should be marked as having swapped dates
 
     @AUTOMATED @gantt-visualization @task-types 
-    # @assertthat-scenario-id: 156e70e495f9e98b5e0dc4ad653fd1ea
+        # @assertthat-scenario-id: 156e70e495f9e98b5e0dc4ad653fd1ea
     Scenario: Display different task types
         
         Given I have task notes with different types:
@@ -87,7 +87,7 @@ Feature: Task Rendering in Gantt Chart
         And I should see "Deadline" displayed as a milestone marker
 
     @AUTOMATED @gantt-visualization @progress 
-    # @assertthat-scenario-id: 936bc646b235e560fccab4b4f09be5a4
+        # @assertthat-scenario-id: 936bc646b235e560fccab4b4f09be5a4
     Scenario: Display task progress
         
         Given I have a task note "Development" with properties:
@@ -101,7 +101,7 @@ Feature: Task Rendering in Gantt Chart
         And the progress should be visually indicated within the task bar
 
     @AUTOMATED @empty-state @gantt-visualization 
-    # @assertthat-scenario-id: 663eb265afad324c005aa297f3494fc5
+        # @assertthat-scenario-id: 663eb265afad324c005aa297f3494fc5
     Scenario: Display empty state when no tasks exist
         
         Given I have a vault with no task notes
@@ -110,7 +110,7 @@ Feature: Task Rendering in Gantt Chart
         And the message should indicate "No items match"
 
     @AUTOMATED @error-handling @gantt-visualization 
-    # @assertthat-scenario-id: 4c7cb7633e45b483e84a2624a96fc373
+        # @assertthat-scenario-id: 4c7cb7633e45b483e84a2624a96fc373
     Scenario: Handle tasks with invalid data gracefully
         
         Given I have a task note "Invalid Task" with properties:

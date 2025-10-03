@@ -3,8 +3,8 @@
 Feature: Responsive Design and Mobile Support
 
     As a user accessing Obsidian on various devices
-    I want the Gantt chart to work well on different screen sizes
-    So that I can manage my projects effectively regardless of the device I'm using
+      I want the Gantt chart to work well on different screen sizes
+      So that I can manage my projects effectively regardless of the device I'm using
 
     Background: 
         
@@ -13,7 +13,7 @@ Feature: Responsive Design and Mobile Support
         And I have task data loaded in the Gantt view
 
     @AUTOMATED @mobile @responsive-design @touch-interaction 
-    # @assertthat-scenario-id: 94dc53791b56374115589bd93840b9c0
+        # @assertthat-scenario-id: 94dc53791b56374115589bd93840b9c0
     Scenario: Support touch interactions on mobile devices
         
         Given I am using a mobile device with touch input
@@ -24,7 +24,7 @@ Feature: Responsive Design and Mobile Support
         And the interaction should feel responsive
 
     @AUTOMATED @mobile @responsive-design @touch-interaction 
-    # @assertthat-scenario-id: a59da488de73b6caeac4f658d63c1564
+        # @assertthat-scenario-id: a59da488de73b6caeac4f658d63c1564
     Scenario: Support touch scrolling in timeline area
         
         Given I am using a mobile device
@@ -35,7 +35,7 @@ Feature: Responsive Design and Mobile Support
         And momentum scrolling should be supported
 
     @AUTOMATED @mobile @responsive-design @touch-interaction 
-    # @assertthat-scenario-id: 3ac8dc612c267eefd0474204e469ec9a
+        # @assertthat-scenario-id: 3ac8dc612c267eefd0474204e469ec9a
     Scenario: Support pinch-to-zoom for timeline scale
         
         Given I am using a mobile device with multi-touch support
@@ -46,7 +46,7 @@ Feature: Responsive Design and Mobile Support
         And the zoom level should be constrained to reasonable limits
 
     @AUTOMATED @layout @responsive-design @small-screens 
-    # @assertthat-scenario-id: 148572026dd92eeb6f5ee3842d0212a4
+        # @assertthat-scenario-id: 148572026dd92eeb6f5ee3842d0212a4
     Scenario: Adapt layout for small screen sizes
         
         Given I am using a device with a small screen (width < 768px)
@@ -57,7 +57,7 @@ Feature: Responsive Design and Mobile Support
         And horizontal scrolling should be available when needed
 
     @AUTOMATED @layout @responsive-design @tablet-screens 
-    # @assertthat-scenario-id: 4bf39f9db2bd92f164dce5874bb5da13
+        # @assertthat-scenario-id: 4bf39f9db2bd92f164dce5874bb5da13
     Scenario: Optimize layout for tablet screens
         
         Given I am using a tablet device (width 768px - 1024px)
@@ -68,7 +68,7 @@ Feature: Responsive Design and Mobile Support
         And touch targets should be sized appropriately
 
     @AUTOMATED @desktop-screens @layout @responsive-design 
-    # @assertthat-scenario-id: c95fea87a15e0332db54c692f5038d78
+        # @assertthat-scenario-id: c95fea87a15e0332db54c692f5038d78
     Scenario: Provide full functionality on desktop screens
         
         Given I am using a desktop device (width > 1024px)
@@ -79,7 +79,7 @@ Feature: Responsive Design and Mobile Support
         And the layout should make full use of the available space
 
     @AUTOMATED @adaptive-columns @columns @responsive-design 
-    # @assertthat-scenario-id: 219845d85d6403e167bd7de2f862fac7
+        # @assertthat-scenario-id: 219845d85d6403e167bd7de2f862fac7
     Scenario: Adapt column visibility based on screen width
         
         Given I have a Gantt view with multiple columns configured
@@ -90,7 +90,7 @@ Feature: Responsive Design and Mobile Support
         And column priority should determine visibility order
 
     @AUTOMATED @responsive-design @scale-adaptation @timeline 
-    # @assertthat-scenario-id: e2f9f91769c7215006fe4938bd58f9ed
+        # @assertthat-scenario-id: e2f9f91769c7215006fe4938bd58f9ed
     Scenario: Adapt timeline scale for different screen sizes
         
         Given I have a Gantt chart with tasks spanning several months
@@ -101,7 +101,7 @@ Feature: Responsive Design and Mobile Support
         And users should be able to navigate to see all time periods
 
     @AUTOMATED @mobile-navigation @navigation @responsive-design 
-    # @assertthat-scenario-id: 65ef6350d0fc0e30df59e0466d466c28
+        # @assertthat-scenario-id: 65ef6350d0fc0e30df59e0466d466c28
     Scenario: Provide mobile-friendly navigation controls
         
         Given I am using a mobile device
@@ -113,7 +113,7 @@ Feature: Responsive Design and Mobile Support
         And navigation should not interfere with task interactions
 
     @AUTOMATED @mobile-performance @performance @responsive-design 
-    # @assertthat-scenario-id: a197928df7b92fbdddd6ef7620214014
+        # @assertthat-scenario-id: a197928df7b92fbdddd6ef7620214014
     Scenario: Maintain performance on mobile devices
         
         Given I am using a mobile device with limited processing power
@@ -125,7 +125,7 @@ Feature: Responsive Design and Mobile Support
         And memory usage should be optimized for mobile constraints
 
     @AUTOMATED @orientation @orientation-changes @responsive-design 
-    # @assertthat-scenario-id: a6dd551f904833612451d19163eb05a9
+        # @assertthat-scenario-id: a6dd551f904833612451d19163eb05a9
     Scenario: Handle device orientation changes gracefully
         
         Given I am using a mobile device
@@ -137,7 +137,7 @@ Feature: Responsive Design and Mobile Support
         And the current view state should be preserved
 
     @AUTOMATED @accessibility @responsive-design @touch-targets 
-    # @assertthat-scenario-id: cc365ce7459a62b9c9e2a59837e88781
+        # @assertthat-scenario-id: cc365ce7459a62b9c9e2a59837e88781
     Scenario: Ensure touch targets meet accessibility guidelines
         
         Given I am using a touch device
@@ -148,7 +148,7 @@ Feature: Responsive Design and Mobile Support
         And the interface should be usable with various finger sizes
 
     @AUTOMATED @responsive-design @text @text-scaling 
-    # @assertthat-scenario-id: 9b3c3fdd90720a82271411ff6d89542a
+        # @assertthat-scenario-id: 9b3c3fdd90720a82271411ff6d89542a
     Scenario: Support system text scaling preferences
         
         Given I have system text scaling set to a larger size
@@ -159,7 +159,7 @@ Feature: Responsive Design and Mobile Support
         And the interface should remain functional
 
     @AUTOMATED @dark-mode @responsive-design @theme-adaptation 
-    # @assertthat-scenario-id: 9e72524c3eb2b32eb2397eac5d50b238
+        # @assertthat-scenario-id: 9e72524c3eb2b32eb2397eac5d50b238
     Scenario: Adapt to system dark mode preferences
         
         Given I have dark mode enabled in my system or Obsidian
