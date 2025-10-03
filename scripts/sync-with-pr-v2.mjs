@@ -19,10 +19,7 @@ import path from "path";
 // Load environment variables
 dotenv.config();
 
-console.log("DEBUG: Script loaded successfully");
-
 async function main() {
-  console.log("DEBUG: main() function called");
   console.log("🔄 Starting ID-based sync with PR creation...\n");
 
   try {
