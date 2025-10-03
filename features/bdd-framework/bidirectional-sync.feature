@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Bidirectional Feature Sync
 Feature: Bidirectional Feature Sync
   As a developer
   I want to synchronize BDD feature files between GitHub and AssertThat
@@ -9,6 +10,7 @@ Feature: Bidirectional Feature Sync
     And the GitHub repository contains feature files
 
   @sync @download @automated
+    # @assertthat-scenario-id: 82418a286b114d37195d45f766406e3d
   Scenario: Download features from AssertThat to GitHub
     Given AssertThat contains 11 feature files
     When I download features to a local directory
@@ -17,6 +19,7 @@ Feature: Bidirectional Feature Sync
     And the download metadata should include source and timestamp
 
   @sync @upload @automated
+    # @assertthat-scenario-id: 8820867c6f6b69b61b6678c21c54472d
   Scenario: Upload features from GitHub to AssertThat
     Given the GitHub repository contains feature files
     When I upload all features to AssertThat
@@ -25,6 +28,7 @@ Feature: Bidirectional Feature Sync
     And AssertThat should be established as the master source
 
   @sync @round-trip @automated
+    # @assertthat-scenario-id: 21aa5f982e86f03ee8c1049cb491751e
   Scenario: Round-trip sync preserves feature content
     Given a feature file exists in GitHub
     When I upload the feature to AssertThat
@@ -35,6 +39,7 @@ Feature: Bidirectional Feature Sync
     And the Gherkin syntax should remain valid
 
   @sync @batch @automated
+    # @assertthat-scenario-id: 40cbe73c57b93afab09ea0d7b7ef1bdd
   Scenario: Batch upload and download operations
     Given multiple feature files exist in GitHub
     When I upload all features in a batch operation
@@ -44,6 +49,7 @@ Feature: Bidirectional Feature Sync
     And all @imported-from-github tags should be preserved
 
   @sync @tags @automated
+    # @assertthat-scenario-id: 70c1c73b675c6308a3a18a1b7740e99d
   Scenario: Preserve imported tags during sync
     Given a feature is uploaded from GitHub to AssertThat
     And the feature is tagged with @imported-from-github
@@ -53,6 +59,7 @@ Feature: Bidirectional Feature Sync
     And no duplicate tags should be created
 
   @sync @transaction @automated
+    # @assertthat-scenario-id: dfcdab769e856902290916f30477fb7f
   Scenario: Transaction rollback on sync failure
     Given a sync transaction is started
     And a feature file is backed up
@@ -63,6 +70,7 @@ Feature: Bidirectional Feature Sync
     And the backup should be preserved for safety
 
   @sync @error-handling @automated
+    # @assertthat-scenario-id: f979418aa171b52424b197ea0e962c3d
   Scenario: Graceful handling of download errors
     Given invalid API credentials are provided
     When I attempt to download features from AssertThat
@@ -71,6 +79,7 @@ Feature: Bidirectional Feature Sync
     And no partial files should be created
 
   @sync @error-handling @automated
+    # @assertthat-scenario-id: 29e37fdb54f571724df5349fd6c3dfde
   Scenario: Graceful handling of upload errors
     Given invalid API credentials are provided
     When I attempt to upload a feature to AssertThat
@@ -79,6 +88,7 @@ Feature: Bidirectional Feature Sync
     And the failure should be logged
 
   @sync @validation @automated
+    # @assertthat-scenario-id: 1864b6ddc20c2c5a5bb4affcc306b6d5
   Scenario: Validate Gherkin syntax after download
     Given features are downloaded from AssertThat
     When I inspect the downloaded feature files
@@ -87,6 +97,7 @@ Feature: Bidirectional Feature Sync
     And the Gherkin syntax should be valid
 
   @sync @metadata @automated
+    # @assertthat-scenario-id: b75058aabfc7965a2e7336b365bbcdba
   Scenario: Track sync metadata
     Given a feature is downloaded from AssertThat
     Then the download metadata should include the source system

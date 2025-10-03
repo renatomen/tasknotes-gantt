@@ -14,18 +14,36 @@ import {
 import { cacheManager } from "../cache/CacheManager.mjs";
 import { SyncConfiguration } from "../config/SyncConfiguration.mjs";
 import { SyncError } from "../errors/SyncErrors.mjs";
+import { AssertThatApiClient } from "../api/AssertThatApiClient.mjs";
 
 // Import decomposed components
 import { FeatureProcessor } from "../validation/FeatureProcessor.mjs";
 import { ConflictResolver } from "../conflicts/ConflictResolver.mjs";
 import { UserInteraction } from "../conflicts/UserInteraction.mjs";
+import { IdBasedDiffManager } from "../diff/IdBasedDiffManager.mjs";
 
 export class FeatureSyncOrchestrator {
   constructor(dependencies = {}) {
     // Dependency injection for all components
     this.config = dependencies.config || new SyncConfiguration();
     this.stagingManager = dependencies.stagingManager;
-    this.diffManager = dependencies.diffManager;
+
+    // Initialize API client if not provided
+    this.apiClient = dependencies.apiClient || new AssertThatApiClient({
+      projectId: this.config.assertThat.projectId,
+      accessKey: this.config.assertThat.accessKey,
+      secretKey: this.config.assertThat.secretKey,
+      token: this.config.assertThat.token,
+      jiraServerUrl: undefined,
+    });
+
+    // Initialize ID-based diff manager if not provided
+    this.diffManager = dependencies.diffManager || new IdBasedDiffManager({
+      config: this.config,
+      apiClient: this.apiClient,
+      featuresDir: this.config.featuresDir,
+    });
+
     this.featureProcessor =
       dependencies.featureProcessor || new FeatureProcessor();
     this.conflictResolver =
@@ -58,19 +76,25 @@ export class FeatureSyncOrchestrator {
         this.validateConfiguration()
       );
 
-      // Phase 2: Staging area setup
-      await this.executePhase("staging-setup", () => this.setupStagingArea());
+      // Phase 2: Staging area setup (skip if using ID-based direct sync)
+      if (this.stagingManager) {
+        await this.executePhase("staging-setup", () => this.setupStagingArea());
 
-      // Phase 3: Feature download
-      await this.executePhase("download", () => this.downloadFeatures());
+        // Phase 3: Feature download (only needed with staging)
+        await this.executePhase("download", () => this.downloadFeatures());
+      } else {
+        this.logger.info("ℹ️  Skipping staging area (using ID-based direct sync)");
+      }
 
       // Phase 4: Change detection
       const changes = await this.executePhase("change-detection", () =>
         this.detectChanges()
       );
 
-      // Phase 5: Feature validation
-      await this.executePhase("validation", () => this.validateFeatures());
+      // Phase 5: Feature validation (skip if using ID-based direct sync)
+      if (this.stagingManager) {
+        await this.executePhase("validation", () => this.validateFeatures());
+      }
 
       // Phase 6: Conflict resolution
       if (changes.modifications.length > 0 || changes.deletions.length > 0) {
@@ -316,14 +340,16 @@ export class FeatureSyncOrchestrator {
    * Cleanup staging area
    */
   async cleanup() {
-    await this.stagingManager.cleanStagingArea();
+    if (this.stagingManager) {
+      await this.stagingManager.cleanStagingArea();
 
-    syncEvents.emit(
-      SYNC_EVENTS.STAGING_CLEANED,
-      createEventData(SYNC_EVENTS.STAGING_CLEANED, {
-        timestamp: new Date().toISOString(),
-      })
-    );
+      syncEvents.emit(
+        SYNC_EVENTS.STAGING_CLEANED,
+        createEventData(SYNC_EVENTS.STAGING_CLEANED, {
+          timestamp: new Date().toISOString(),
+        })
+      );
+    }
 
     return { cleaned: true };
   }

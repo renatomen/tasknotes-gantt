@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Column Management in Gantt View
 Feature: Column Management in Gantt View
   As a project manager
   I want to customize which columns are displayed in the Gantt grid
@@ -9,6 +10,7 @@ Feature: Column Management in Gantt View
     And I have Bases integration configured
 
   @critical @column-management @bases-integration
+    # @assertthat-scenario-id: 38dd10096e36a479c02b3e93bdcaa318
   Scenario: Display default columns when no configuration exists
     Given I have task notes with basic properties
     And no column configuration is set
@@ -20,6 +22,7 @@ Feature: Column Management in Gantt View
       | duration  | Duration    |
 
   @critical @column-management @bases-integration
+    # @assertthat-scenario-id: d8301b5ff6eb7f5bd27da57e3856858d
   Scenario: Display columns based on Bases property selection
     Given I have task notes with various properties:
       | title     | start      | due        | status     | priority |
@@ -40,6 +43,7 @@ Feature: Column Management in Gantt View
       | priority | Priority |
 
   @column-management @data-types
+    # @assertthat-scenario-id: 12149b10a46c6aaf4451318327f2014f
   Scenario: Display different data types in columns
     Given I have a task note "Complex Task" with properties:
       | property    | value           | type    |
@@ -59,6 +63,7 @@ Feature: Column Management in Gantt View
     And the "link" column should display "Related"
 
   @column-management @column-widths
+    # @assertthat-scenario-id: 3f29cfe5ae8f8851c88c1d34f9e498ed
   Scenario: Apply custom column widths from Bases configuration
     Given I have task notes with properties
     And I have configured column widths in Bases:
@@ -72,6 +77,7 @@ Feature: Column Management in Gantt View
     And the "status" column should have width 100 pixels
 
   @column-management @column-ordering
+    # @assertthat-scenario-id: a63b71d479cacb40637e50a7e54622a1
   Scenario: Respect column order from Bases configuration
     Given I have task notes with properties
     And I have ordered columns in Bases as:
@@ -89,6 +95,7 @@ Feature: Column Management in Gantt View
       | 4        | start    |
 
   @column-management @file-basename
+    # @assertthat-scenario-id: c1c222c4e5d2a2d92cdc7c3023673d99
   Scenario: Use file basename as task name column
     Given I have task notes:
       | filename        | title property |
@@ -101,6 +108,7 @@ Feature: Column Management in Gantt View
     And the column header should reflect the Bases display name for "file.basename"
 
   @column-management @empty-columns
+    # @assertthat-scenario-id: ee0df0194df670a94c4b2c48ef65711c
   Scenario: Hide grid when no columns are selected
     Given I have task notes with properties
     And no columns are selected in Bases configuration
@@ -110,6 +118,7 @@ Feature: Column Management in Gantt View
     And tasks should still be displayed in the timeline
 
   @column-management @column-formatting
+    # @assertthat-scenario-id: 38d8c310106f8ce438469ff79c7c914d
   Scenario: Format column values according to data type
     Given I have a task note with properties:
       | property     | value                    |
@@ -126,6 +135,7 @@ Feature: Column Management in Gantt View
     And the "description" column should display empty
 
   @column-management @dynamic-properties
+    # @assertthat-scenario-id: 4886a9fd2cf3487e304bd98c77385738
   Scenario: Automatically detect available properties for column selection
     Given I have task notes with varying properties:
       | note   | title | start      | priority | assignee |

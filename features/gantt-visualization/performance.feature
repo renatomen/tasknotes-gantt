@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Performance and Scalability
 Feature: Performance and Scalability
   As a project manager working with large datasets
   I want the Gantt chart to perform well with hundreds or thousands of tasks
@@ -8,6 +9,7 @@ Feature: Performance and Scalability
     And I have Bases integration configured
 
   @critical @performance @large-datasets
+    # @assertthat-scenario-id: 77f6f2783c9ec801f4cd60b673c81e8e
   Scenario: Render 1000+ tasks efficiently
     Given I have 1000 task notes with complete properties
     When I open the Gantt view
@@ -17,6 +19,7 @@ Feature: Performance and Scalability
     And the interface should remain responsive
 
   @performance @virtual-scrolling
+    # @assertthat-scenario-id: 5e29777348257520c4419cb436e5a176
   Scenario: Use virtual scrolling for large task lists
     Given I have 5000 tasks in the Gantt view
     When I scroll through the task list
@@ -26,6 +29,7 @@ Feature: Performance and Scalability
     And the scroll position should be accurately maintained
 
   @performance @data-loading @incremental-loading
+    # @assertthat-scenario-id: 4078a9dff9cd130a5522f423fb638abc
   Scenario: Load large datasets incrementally
     Given I have a Bases view with 2000+ notes
     When I open the Gantt view
@@ -35,6 +39,7 @@ Feature: Performance and Scalability
     And the interface should remain usable during loading
 
   @performance @svelte-reactivity @efficient-updates
+    # @assertthat-scenario-id: 0b6005f0aed6734c1ad1c9835dcba994
   Scenario: Update tasks efficiently using Svelte reactivity
     Given I have 500 tasks loaded in the Gantt view
     When I update a single task's properties
@@ -44,6 +49,7 @@ Feature: Performance and Scalability
     And the Svelte reactivity system should minimize DOM operations
 
   @performance @memory-management @cleanup
+    # @assertthat-scenario-id: 4a8f4acc3f2ef0933befb7ee68d59962
   Scenario: Manage memory efficiently with proper cleanup
     Given I have multiple Gantt views open with large datasets
     When I close a Gantt view
@@ -53,6 +59,7 @@ Feature: Performance and Scalability
     And there should be no memory leaks
 
   @performance @column-rendering @dynamic-columns
+    # @assertthat-scenario-id: 760990e64d3d29e67c8a58a14a2fd0a7
   Scenario: Render dynamic columns efficiently
     Given I have 1000 tasks with 20 different properties each
     And I have 10 columns configured for display
@@ -63,6 +70,7 @@ Feature: Performance and Scalability
     And the rendering should complete within reasonable time
 
   @performance @virtual-tasks @multi-parent-efficiency
+    # @assertthat-scenario-id: 949f1576802a2d087674e65eac5d15c9
   Scenario: Handle virtual task duplicates efficiently
     Given I have 200 tasks where 50% have multiple parents
     And the average task has 3 parents
@@ -73,6 +81,7 @@ Feature: Performance and Scalability
     And virtual task management should be optimized
 
   @performance @date-processing @bulk-operations
+    # @assertthat-scenario-id: c925121a585c66bc80f604f19582b4be
   Scenario: Process date transformations efficiently in bulk
     Given I have 1500 tasks with various date formats
     When the data is transformed to SVAR format
@@ -82,6 +91,7 @@ Feature: Performance and Scalability
     And the process should handle edge cases without performance impact
 
   @performance @timeline-rendering @zoom-levels
+    # @assertthat-scenario-id: 879be00cd5c1db40e27cd35945d85ad8
   Scenario: Maintain performance across different timeline zoom levels
     Given I have 800 tasks spanning 2 years
     When I change the timeline zoom level
@@ -91,6 +101,7 @@ Feature: Performance and Scalability
     And memory usage should not increase significantly
 
   @performance @search-filtering @real-time-filtering
+    # @assertthat-scenario-id: a28efaea6e652c6270c47640c4d774a5
   Scenario: Filter large datasets in real-time
     Given I have 2000 tasks loaded in the Gantt view
     When I apply a filter to show only high-priority tasks
@@ -100,6 +111,7 @@ Feature: Performance and Scalability
     And the filter should work with virtual scrolling
 
   @performance @concurrent-operations @multi-instance
+    # @assertthat-scenario-id: b535c2e65a3bd669143aa47e5eedcc21
   Scenario: Handle multiple Gantt instances efficiently
     Given I have 3 different Gantt views open simultaneously
     And each view has 300+ tasks
@@ -110,6 +122,7 @@ Feature: Performance and Scalability
     And CPU usage should remain reasonable
 
   @performance @data-updates @incremental-updates
+    # @assertthat-scenario-id: 332e9b22db3c7bdc42556b8fbd5c28ab
   Scenario: Handle data updates efficiently
     Given I have 1000 tasks loaded in the Gantt view
     When the underlying Bases data changes for 10 tasks
@@ -119,6 +132,7 @@ Feature: Performance and Scalability
     And the Svelte reactivity should optimize the update process
 
   @performance @initialization @cold-start
+    # @assertthat-scenario-id: b5f915bb71b1ce6a5e79ffd62d2178c3
   Scenario: Optimize initial plugin loading time
     Given the Obsidian Gantt plugin is not yet loaded
     When Obsidian starts up
@@ -128,6 +142,7 @@ Feature: Performance and Scalability
     And subsequent Gantt view creation should be fast
 
   @performance @mobile-optimization @resource-constraints
+    # @assertthat-scenario-id: 86415839c744d07e023b0253c8c80f3e
   Scenario: Optimize performance for mobile devices
     Given I am using a mobile device with limited resources
     And I have 500 tasks in the Gantt view
@@ -138,6 +153,7 @@ Feature: Performance and Scalability
     And the interface should adapt to performance constraints
 
   @performance @caching @intelligent-caching
+    # @assertthat-scenario-id: f4af3e25c0b8d7a4608b7d84e9833a14
   Scenario: Use intelligent caching for computed data
     Given I have complex task hierarchies and dependencies
     When I navigate between different views of the same data
@@ -147,6 +163,7 @@ Feature: Performance and Scalability
     And memory usage for caching should be reasonable
 
   @performance @error-recovery @graceful-degradation
+    # @assertthat-scenario-id: 218850453254a00ee2533a8507be2c64
   Scenario: Maintain performance during error conditions
     Given I have a large dataset with some corrupted entries
     When the Gantt view processes the data

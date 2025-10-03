@@ -1,3 +1,4 @@
+# @assertthat-feature-id: Bases View Registration and Integration
 Feature: Bases View Registration and Integration
   As an Obsidian user with the Bases plugin
   I want the Gantt plugin to integrate seamlessly with Bases views
@@ -8,6 +9,7 @@ Feature: Bases View Registration and Integration
     And the Obsidian Gantt plugin is installed and enabled
 
   @critical @bases-integration @plugin-loading
+    # @assertthat-scenario-id: 6b5ef77a494b8c3882b6e048eee56c60
   Scenario: Register Gantt view type with Bases on plugin load
     Given the Obsidian API version is 1.9.12 or higher
     When the Obsidian Gantt plugin loads
@@ -17,6 +19,7 @@ Feature: Bases View Registration and Integration
     And the registration should complete successfully
 
   @bases-integration @plugin-loading @api-version-check
+    # @assertthat-scenario-id: f6b172c0201aa4c8ecd822cc5d92b29c
   Scenario: Handle insufficient Obsidian API version gracefully
     Given the Obsidian API version is below 1.9.12
     When the Obsidian Gantt plugin loads
@@ -25,6 +28,7 @@ Feature: Bases View Registration and Integration
     And the plugin should continue loading without errors
 
   @bases-integration @plugin-loading @bases-unavailable
+    # @assertthat-scenario-id: 8c8c960d853b87a8b74478f4a3aef03d
   Scenario: Handle missing Bases plugin gracefully
     Given the Bases plugin is not installed or enabled
     When the Obsidian Gantt plugin loads
@@ -34,6 +38,7 @@ Feature: Bases View Registration and Integration
     And the plugin should continue functioning for other features
 
   @bases-integration @view-factory @container-creation
+    # @assertthat-scenario-id: 492978e8bb160b881b9bebf6f03c5f86
   Scenario: Create Gantt view from Bases container
     Given I have a Bases view configured with data
     And the Obsidian Gantt plugin is registered with Bases
@@ -43,6 +48,7 @@ Feature: Bases View Registration and Integration
     And the view should have load, refresh, and onDataUpdated capabilities
 
   @bases-integration @view-lifecycle @mounting
+    # @assertthat-scenario-id: edf270fe76694d7002cb6b64fc772bdf
   Scenario: Mount Svelte Gantt component in Bases container
     Given I have a Bases view with task data
     When the Gantt view is loaded
@@ -52,6 +58,7 @@ Feature: Bases View Registration and Integration
     And the component should render the SVAR Gantt chart
 
   @bases-integration @view-lifecycle @unmounting
+    # @assertthat-scenario-id: b607029083a5a1f78dc4c620dad2faa9
   Scenario: Clean up Gantt view when Bases view is destroyed
     Given I have a Gantt view loaded in Bases
     When the Bases view is closed or destroyed
@@ -61,6 +68,7 @@ Feature: Bases View Registration and Integration
     And memory should be freed appropriately
 
   @bases-integration @data-flow @query-integration
+    # @assertthat-scenario-id: 70830f1f9ba70fb2d2c539a2b84e856c
   Scenario: Integrate with Bases query system
     Given I have a Bases view with a configured query
     And the query returns note data
@@ -70,6 +78,7 @@ Feature: Bases View Registration and Integration
     And it should render the transformed data in the Gantt chart
 
   @bases-integration @configuration @view-config
+    # @assertthat-scenario-id: b18ddd5363279345f66af3bc64116a03
   Scenario: Read Gantt configuration from Bases view settings
     Given I have a Bases view with obsidianGantt configuration:
       | setting              | value    |
@@ -85,6 +94,7 @@ Feature: Bases View Registration and Integration
     And it should use the specified view mode and duration settings
 
   @bases-integration @error-handling @configuration-errors
+    # @assertthat-scenario-id: 6d4ae06ceacafc34a6feb4271cdc1108
   Scenario: Handle invalid Gantt configuration gracefully
     Given I have a Bases view with invalid obsidianGantt configuration:
       | setting              | value |
@@ -97,6 +107,7 @@ Feature: Bases View Registration and Integration
     And it should provide guidance on fixing the configuration
 
   @bases-integration @data-updates @reactive-updates
+    # @assertthat-scenario-id: ee426bfedaf14a8264e4a2c20a6a7d25
   Scenario: Respond to Bases data updates
     Given I have a Gantt view loaded with initial data
     When the underlying Bases data changes
@@ -107,6 +118,7 @@ Feature: Bases View Registration and Integration
     And the update should happen without full page reload
 
   @bases-integration @debug-support @e2e-integration
+    # @assertthat-scenario-id: ce6be9a5509f0978e89937145d78edcf
   Scenario: Support debugging and E2E testing
     Given I have a Gantt view loaded in Bases
     And E2E testing is configured with debug collection
@@ -121,6 +133,7 @@ Feature: Bases View Registration and Integration
     And the debug data should be available for E2E test inspection
 
   @bases-integration @plugin-unload @cleanup
+    # @assertthat-scenario-id: 95bb512d5f41ed7d3ce87ce62ca21c4a
   Scenario: Clean up Bases registration on plugin unload
     Given the Obsidian Gantt plugin is loaded and registered with Bases
     When the plugin is unloaded or disabled

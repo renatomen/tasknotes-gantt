@@ -28,10 +28,11 @@ export class AssertThatApiClient {
     this.retryDelay = config.retryDelay || 1000;
     this.timeout = config.timeout || 30000;
 
-    // Determine API base URL (using v1 API as per Postman collection)
-    this.baseUrl = this.jiraServerUrl
-      ? `${this.jiraServerUrl}/rest/assertthat/latest`
-      : "https://bdd.assertthat.app";
+    // Determine API base URL
+    // For AssertThat Cloud: use bdd.assertthat.app
+    // For Jira Server/DC: jiraServerUrl should be the base URL (e.g., https://jira.company.com)
+    // The API paths already include /rest/api/1/... so we don't add it here
+    this.baseUrl = this.jiraServerUrl || "https://bdd.assertthat.app";
   }
 
   /**
@@ -93,6 +94,57 @@ export class AssertThatApiClient {
       path,
       expectBinary: true,
     });
+  }
+
+  /**
+   * Get scenarios from AssertThat (V2 API)
+   *
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number (default: 0)
+   * @param {number} options.size - Page size (default: 100)
+   * @returns {Promise<Object>} Scenario data with pagination info
+   */
+  async getScenarios(options = {}) {
+    const page = options.page !== undefined ? options.page : 0;
+    const size = options.size || 100;
+
+    // API v2 endpoint: GET /rest/api/2/project/{projectId}/report/scenarios
+    const path = `/rest/api/2/project/${this.projectId}/report/scenarios?page=${page}&size=${size}`;
+
+    return this.makeRequest({
+      method: "GET",
+      path,
+      expectBinary: false,
+    });
+  }
+
+  /**
+   * Get all scenarios from AssertThat with automatic pagination (V2 API)
+   *
+   * @returns {Promise<Array>} Array of all scenarios
+   */
+  async getAllScenarios() {
+    const allScenarios = [];
+    let page = 0;
+    let hasMore = true;
+    const maxPages = 100; // Safety limit
+
+    while (hasMore && page < maxPages) {
+      const response = await this.getScenarios({ page, size: 100 });
+
+      // Handle different response formats
+      const scenarios = response.content || response.scenarios || response.data || [];
+
+      if (scenarios.length > 0) {
+        allScenarios.push(...scenarios);
+      }
+
+      // Check if there are more pages
+      hasMore = !response.last && scenarios.length > 0;
+      page++;
+    }
+
+    return allScenarios;
   }
 
   /**
@@ -185,6 +237,9 @@ export class AssertThatApiClient {
   async makeRequest(options, retryCount = 0) {
     return new Promise((resolve, reject) => {
       const url = new URL(this.baseUrl + options.path);
+
+      // Debug logging
+      console.log(`🌐 API Request: ${options.method} ${url.href}`);
 
       const requestOptions = {
         hostname: url.hostname,
@@ -299,6 +354,93 @@ export class AssertThatApiClient {
         reject(error);
       }
     }, delay);
+  }
+
+  /**
+   * Get scenarios from AssertThat using V2 API
+   *
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number (default: 0)
+   * @param {number} options.size - Page size (default: 100)
+   * @returns {Promise<Object>} Scenarios data with IDs
+   */
+  async getScenarios(options = {}) {
+    const page = options.page !== undefined ? options.page : 0;
+    const size = options.size || 100;
+
+    // API v2 endpoint: GET /rest/api/2/project/{projectId}/report/scenarios
+    const path = `/rest/api/2/project/${this.projectId}/report/scenarios?page=${page}&size=${size}`;
+
+    return this.makeRequest({
+      method: 'GET',
+      path,
+      expectBinary: false,
+    });
+  }
+
+  /**
+   * Get all scenarios with pagination
+   *
+   * Automatically handles pagination to fetch all scenarios from AssertThat.
+   *
+   * @returns {Promise<Array>} All scenarios with IDs
+   */
+  async getAllScenarios() {
+    const allScenarios = [];
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await this.getScenarios({ page, size: 100 });
+
+      // Handle different possible response formats
+      // The actual format will be determined by testing
+      const scenarios = response.content || response.scenarios || response.data || [];
+
+      if (scenarios.length > 0) {
+        allScenarios.push(...scenarios);
+      }
+
+      // Check if there are more pages
+      // Common pagination indicators: last, hasMore, totalPages
+      hasMore = !response.last && scenarios.length > 0;
+
+      if (response.totalPages && page >= response.totalPages - 1) {
+        hasMore = false;
+      }
+
+      page++;
+
+      // Safety limit to prevent infinite loops
+      if (page > 100) {
+        console.warn('⚠️  Reached pagination safety limit (100 pages)');
+        break;
+      }
+    }
+
+    return allScenarios;
+  }
+
+  /**
+   * Get deleted scenarios from AssertThat using V2 API
+   *
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number (default: 0)
+   * @param {number} options.size - Page size (default: 100)
+   * @returns {Promise<Object>} Deleted scenarios data
+   */
+  async getDeletedScenarios(options = {}) {
+    const page = options.page !== undefined ? options.page : 0;
+    const size = options.size || 100;
+
+    // API v2 endpoint: GET /rest/api/2/project/{projectId}/report/scenarios/deleted
+    const path = `/rest/api/2/project/${this.projectId}/report/scenarios/deleted?page=${page}&size=${size}`;
+
+    return this.makeRequest({
+      method: 'GET',
+      path,
+      expectBinary: false,
+    });
   }
 
   /**

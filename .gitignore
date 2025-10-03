@@ -26,3 +26,6 @@ Thumbs.db
 # Obsidian local config / E2E cache
 .obsidian/
 test/wdio/.obsidian-cache/
+
+# AssertThat sync staging area
+featureSyncStage/
