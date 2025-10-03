@@ -1,0 +1,124 @@
+{
+  "version": "1.0",
+  "createdAt": "2025-10-03T03:29:42.024Z",
+  "mapping": [
+    {
+      "github": "1-virtual-task-handling-for-multi-parent-scenarios.feature",
+      "assertThat": "1-virtual-task-handling-for-multi-parent-scenarios.feature",
+      "featureName": "Virtual Task Handling for Multi-Parent Scenarios"
+    },
+    {
+      "github": "10-round-trip-test.feature",
+      "assertThat": "10-round-trip-test.feature",
+      "featureName": "Round Trip Test"
+    },
+    {
+      "github": "11-bidirectional-feature-sync.feature",
+      "assertThat": "11-bidirectional-feature-sync.feature",
+      "featureName": "Bidirectional Feature Sync"
+    },
+    {
+      "github": "12-error-handling-and-recovery.feature",
+      "assertThat": "12-error-handling-and-recovery.feature",
+      "featureName": "Error Handling and Recovery"
+    },
+    {
+      "github": "13-task-editing-and-interaction.feature",
+      "assertThat": "13-task-editing-and-interaction.feature",
+      "featureName": "Task Editing and Interaction"
+    },
+    {
+      "github": "2-task-rendering-in-gantt-chart.feature",
+      "assertThat": "2-task-rendering-in-gantt-chart.feature",
+      "featureName": "Task Rendering in Gantt Chart"
+    },
+    {
+      "github": "3-performance-and-scalability.feature",
+      "assertThat": "3-performance-and-scalability.feature",
+      "featureName": "Performance and Scalability"
+    },
+    {
+      "github": "4-responsive-design-and-mobile-support.feature",
+      "assertThat": "4-responsive-design-and-mobile-support.feature",
+      "featureName": "Responsive Design and Mobile Support"
+    },
+    {
+      "github": "5-column-management-in-gantt-view.feature",
+      "assertThat": "5-column-management-in-gantt-view.feature",
+      "featureName": "Column Management in Gantt View"
+    },
+    {
+      "github": "6-bdd-framework-validation.feature",
+      "assertThat": "6-bdd-framework-validation.feature",
+      "featureName": "BDD Framework Validation"
+    },
+    {
+      "github": "7-bases-data-mapping.feature",
+      "assertThat": "7-bases-data-mapping.feature",
+      "featureName": "Bases Data Mapping"
+    },
+    {
+      "github": "8-data-transformation-and-mapping.feature",
+      "assertThat": "8-data-transformation-and-mapping.feature",
+      "featureName": "Data Transformation and Mapping"
+    },
+    {
+      "github": "9-bases-view-registration-and-integration.feature",
+      "assertThat": "9-bases-view-registration-and-integration.feature",
+      "featureName": "Bases View Registration and Integration"
+    }
+  ],
+  "unmapped": {
+    "github": [
+      {
+        "filename": "bidirectional-sync.feature",
+        "featureName": "Bidirectional Feature Sync"
+      },
+      {
+        "filename": "column-management.feature",
+        "featureName": "Column Management in Gantt View"
+      },
+      {
+        "filename": "data-mapping.feature",
+        "featureName": "Bases Data Mapping"
+      },
+      {
+        "filename": "data-transformation.feature",
+        "featureName": "Data Transformation and Mapping"
+      },
+      {
+        "filename": "error-handling.feature",
+        "featureName": "Error Handling and Recovery"
+      },
+      {
+        "filename": "framework-validation.feature",
+        "featureName": "BDD Framework Validation"
+      },
+      {
+        "filename": "performance.feature",
+        "featureName": "Performance and Scalability"
+      },
+      {
+        "filename": "responsive-design.feature",
+        "featureName": "Responsive Design and Mobile Support"
+      },
+      {
+        "filename": "task-editing.feature",
+        "featureName": "Task Editing and Interaction"
+      },
+      {
+        "filename": "task-rendering.feature",
+        "featureName": "Task Rendering in Gantt Chart"
+      },
+      {
+        "filename": "view-registration.feature",
+        "featureName": "Bases View Registration and Integration"
+      },
+      {
+        "filename": "virtual-task-handling.feature",
+        "featureName": "Virtual Task Handling for Multi-Parent Scenarios"
+      }
+    ],
+    "assertThat": []
+  }
+}
