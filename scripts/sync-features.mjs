@@ -6,8 +6,12 @@
  * Uses event-driven modular architecture from OG-50/OG-51
  */
 
+import dotenv from "dotenv";
 import { FeatureSyncOrchestrator } from "./orchestration/FeatureSyncOrchestrator.mjs";
 import { SyncConfiguration } from "./config/SyncConfiguration.mjs";
+
+// Load environment variables
+dotenv.config();
 
 /**
  * Main execution
@@ -18,12 +22,12 @@ async function main() {
 
     // Initialize configuration
     const config = new SyncConfiguration();
-    
+
     // Validate environment variables
-    const validation = config.validate();
+    const validation = config.validateConfiguration();
     if (!validation.isValid) {
       console.error("❌ Configuration validation failed:");
-      validation.errors.forEach((error) => console.error(`  - ${error}`));
+      validation.missingFields.forEach((field) => console.error(`  - ${field}`));
       process.exit(1);
     }
 
@@ -43,10 +47,11 @@ async function main() {
   }
 }
 
-// Execute if run directly
-if (import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}`) {
-  main();
-}
+// Execute main
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
+});
 
 export { main };
 

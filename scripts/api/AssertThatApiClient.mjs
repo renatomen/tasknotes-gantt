@@ -96,6 +96,57 @@ export class AssertThatApiClient {
   }
 
   /**
+   * Get scenarios from AssertThat (V2 API)
+   *
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number (default: 0)
+   * @param {number} options.size - Page size (default: 100)
+   * @returns {Promise<Object>} Scenario data with pagination info
+   */
+  async getScenarios(options = {}) {
+    const page = options.page !== undefined ? options.page : 0;
+    const size = options.size || 100;
+
+    // API v2 endpoint: GET /rest/api/2/project/{projectId}/report/scenarios
+    const path = `/rest/api/2/project/${this.projectId}/report/scenarios?page=${page}&size=${size}`;
+
+    return this.makeRequest({
+      method: "GET",
+      path,
+      expectBinary: false,
+    });
+  }
+
+  /**
+   * Get all scenarios from AssertThat with automatic pagination (V2 API)
+   *
+   * @returns {Promise<Array>} Array of all scenarios
+   */
+  async getAllScenarios() {
+    const allScenarios = [];
+    let page = 0;
+    let hasMore = true;
+    const maxPages = 100; // Safety limit
+
+    while (hasMore && page < maxPages) {
+      const response = await this.getScenarios({ page, size: 100 });
+
+      // Handle different response formats
+      const scenarios = response.content || response.scenarios || response.data || [];
+
+      if (scenarios.length > 0) {
+        allScenarios.push(...scenarios);
+      }
+
+      // Check if there are more pages
+      hasMore = !response.last && scenarios.length > 0;
+      page++;
+    }
+
+    return allScenarios;
+  }
+
+  /**
    * Upload a single feature file to AssertThat
    *
    * @param {Object} feature - Feature object {name, content}
