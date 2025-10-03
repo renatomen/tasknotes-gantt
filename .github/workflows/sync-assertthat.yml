@@ -60,13 +60,29 @@ jobs:
         id: changes
         shell: bash
         run: |
-          # Check if there are any uncommitted changes in features/ directory
-          if git diff --quiet features/ && git diff --cached --quiet features/; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "No changes detected"
-          else
+          # Check if there are any uncommitted changes or untracked files in features/ directory
+          HAS_CHANGES=false
+
+          # Check for modifications to tracked files
+          if ! git diff --quiet features/ || ! git diff --cached --quiet features/; then
+            echo "Modified files detected"
+            HAS_CHANGES=true
+          fi
+
+          # Check for untracked files
+          UNTRACKED=$(git ls-files --others --exclude-standard features/)
+          if [ -n "$UNTRACKED" ]; then
+            echo "Untracked files detected:"
+            echo "$UNTRACKED"
+            HAS_CHANGES=true
+          fi
+
+          if [ "$HAS_CHANGES" = true ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "Changes detected"
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected"
           fi
       
       - name: Create sync branch and PR

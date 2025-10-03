@@ -85,19 +85,43 @@ async function main() {
 
     console.log("✅ Features copied successfully");
 
-    // Check for git changes
+    // Check for git changes (both tracked and untracked files)
     console.log("\n🔍 Checking for changes...");
     const { execSync } = await import('child_process');
+
+    let hasChanges = false;
+
+    // Check for modifications to tracked files
     try {
       execSync('git diff --quiet features/', { cwd: process.cwd() });
-      console.log("❌ No changes detected - features are identical to GitHub");
     } catch (error) {
-      console.log("✅ Changes detected! Run 'git diff features/' to see them");
+      hasChanges = true;
+      console.log("✅ Modified files detected");
     }
 
-    // Cleanup staging
-    console.log("🧹 Cleaning up staging area...");
-    await fs.rm(stagingPath, { recursive: true, force: true });
+    // Check for untracked files
+    const untrackedOutput = execSync('git ls-files --others --exclude-standard features/', {
+      cwd: process.cwd(),
+      encoding: 'utf-8'
+    }).trim();
+
+    if (untrackedOutput) {
+      hasChanges = true;
+      const untrackedFiles = untrackedOutput.split('\n');
+      console.log(`✅ Untracked files detected (${untrackedFiles.length}):`);
+      untrackedFiles.forEach(f => console.log(`   - ${f}`));
+    }
+
+    if (!hasChanges) {
+      console.log("❌ No changes detected - features are identical to GitHub");
+    } else {
+      console.log("\n🎉 Changes detected! Run 'git status features/' to see them");
+    }
+
+    // Cleanup staging (DISABLED for debugging)
+    console.log("🧹 Keeping staging area for inspection...");
+    console.log(`📂 Staging directory: ${stagingPath}`);
+    // await fs.rm(stagingPath, { recursive: true, force: true });
 
     console.log("\n✅ Sync completed successfully!");
     process.exit(0);
