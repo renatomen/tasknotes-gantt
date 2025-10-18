@@ -171,8 +171,15 @@ Feature: Test Feature
         ],
       };
 
-      const metadata = manager.extractFromApiResponse(apiResponse);
-      
+      const metadataByFeature = manager.extractFromApiResponse(apiResponse);
+
+      // Should return a Map with feature name as key
+      expect(metadataByFeature).toBeInstanceOf(Map);
+      expect(metadataByFeature.size).toBe(1);
+      expect(metadataByFeature.has('BDD Framework Validation')).toBe(true);
+
+      // Get metadata for the feature
+      const metadata = metadataByFeature.get('BDD Framework Validation');
       expect(metadata.featureId).toBe('BDD Framework Validation');
       expect(metadata.scenarioIds.get('Basic task creation and rendering')).toBe('0e35e68f664b0a2aec4cd33289a19889');
       expect(metadata.scenarioIds.get('Multiple tasks rendering')).toBe('abc123def456');
@@ -180,11 +187,12 @@ Feature: Test Feature
 
     it('should handle empty API response', () => {
       const apiResponse = { scenarios: [] };
-      
-      const metadata = manager.extractFromApiResponse(apiResponse);
-      
-      expect(metadata.featureId).toBeNull();
-      expect(metadata.scenarioIds.size).toBe(0);
+
+      const metadataByFeature = manager.extractFromApiResponse(apiResponse);
+
+      // Should return an empty Map
+      expect(metadataByFeature).toBeInstanceOf(Map);
+      expect(metadataByFeature.size).toBe(0);
     });
   });
 
