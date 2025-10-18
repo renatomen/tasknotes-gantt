@@ -279,9 +279,11 @@ describe("FeatureSyncOrchestrator", () => {
     it("should handle configuration validation failure", async () => {
       // Explicitly create config without credentials (ignore env vars)
       const invalidConfig = new SyncConfiguration({
-        projectId: "",
-        accessKey: "",
-        secretKey: "",
+        assertThat: {
+          projectId: "",
+          accessKey: "",
+          secretKey: "",
+        },
       });
       orchestrator.config = invalidConfig;
 

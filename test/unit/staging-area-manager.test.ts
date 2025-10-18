@@ -282,9 +282,11 @@ describe("StagingAreaManager", () => {
     it("should use demo mode when configuration is invalid", async () => {
       // Explicitly create config without credentials (ignore env vars)
       const demoConfig = new SyncConfiguration({
-        projectId: "",
-        accessKey: "",
-        secretKey: "",
+        assertThat: {
+          projectId: "",
+          accessKey: "",
+          secretKey: "",
+        },
       });
       const demoManager = new StagingAreaManager(demoConfig, mockFs);
 
@@ -300,9 +302,11 @@ describe("StagingAreaManager", () => {
     it("should throw StagingAreaError when demo feature creation fails", async () => {
       // Explicitly create config without credentials
       const invalidConfig = new SyncConfiguration({
-        projectId: "",
-        accessKey: "",
-        secretKey: "",
+        assertThat: {
+          projectId: "",
+          accessKey: "",
+          secretKey: "",
+        },
       });
       const invalidManager = new StagingAreaManager(invalidConfig, mockFs);
 
