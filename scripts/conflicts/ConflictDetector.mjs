@@ -171,7 +171,8 @@ export class ConflictDetector {
       }
 
       return true;
-    } catch (_error) {
+    } catch (error) {
+      console.error("Error checking whitespace-only change:", error.message);
       return false;
     }
   }
@@ -212,7 +213,8 @@ export class ConflictDetector {
       }
 
       return true;
-    } catch (_error) {
+    } catch (error) {
+      console.error("Error checking comment-only change:", error.message);
       return false;
     }
   }
@@ -256,7 +258,8 @@ export class ConflictDetector {
       }
 
       return pairs.length > 0;
-    } catch (_error) {
+    } catch (error) {
+      console.error("Error checking formatting change:", error.message);
       return false;
     }
   }
@@ -297,7 +300,8 @@ export class ConflictDetector {
       });
 
       return !hasStructuralChanges;
-    } catch (_error) {
+    } catch (error) {
+      console.error("Error checking minor change:", error.message);
       return false;
     }
   }
