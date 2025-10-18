@@ -22,6 +22,7 @@ Thumbs.db
 # Env files (if used)
 .env
 .env.*
+!.env.example
 
 # Obsidian local config / E2E cache
 .obsidian/
