@@ -15,7 +15,6 @@ import fs from "fs/promises";
 import path from "path";
 import { AssertThatApiClient } from "../api/AssertThatApiClient.mjs";
 import { FeatureUploader } from "../api/FeatureUploader.mjs";
-import { FeatureMetadataManager } from "../metadata/FeatureMetadataManager.mjs";
 import { SyncConfiguration } from "../config/SyncConfiguration.mjs";
 
 dotenv.config();
@@ -50,8 +49,7 @@ async function main() {
     });
 
     const uploader = new FeatureUploader(apiClient, config);
-    const _metadataManager = new FeatureMetadataManager();
-    
+
     console.log("✅ Components initialized\n");
 
     // Step 3: Upload all features to AssertThat

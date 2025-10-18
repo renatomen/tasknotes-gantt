@@ -186,9 +186,9 @@ async function cleanup() {
     const tempFile = "./test-download.zip";
     await fs.unlink(tempFile);
     log(`✅ Cleaned up temporary file: ${tempFile}`, COLORS.green);
-  } catch (_error) {
-    // Ignore cleanup errors
-    log(`⚠️  Cleanup skipped (file may not exist)`, COLORS.yellow);
+  } catch (error) {
+    // Ignore cleanup errors - file may not exist
+    log(`⚠️  Cleanup skipped (file may not exist) - ${error.message}`, COLORS.yellow);
   }
 }
 
