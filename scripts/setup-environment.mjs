@@ -4,7 +4,7 @@
  * Sets up the complete development environment for obsidian-gantt
  */
 
-import { spawnSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 
 const TEST_VAULT_PATH =
@@ -13,68 +13,16 @@ const TEST_VAULT_PATH =
 console.log("🚀 Obsidian Gantt - Automated Environment Setup\n");
 
 /**
- * Whitelist of allowed npm commands for security
- * This prevents command injection even if the function were modified
+ * Execute command with proper error handling and output
  */
-const ALLOWED_NPM_COMMANDS = new Set([
-  "ci",
-  "run prepare",
-  "run typecheck",
-  "run lint",
-  "run build",
-  "test",
-]);
-
-/**
- * Execute npm command with proper error handling and output
- *
- * Security measures implemented:
- * 1. Command whitelist validation - only predefined commands are allowed
- * 2. All commands are hardcoded constants - no user input is accepted
- * 3. Arguments are passed as array, not concatenated strings
- * 4. Even though shell: true is used for Windows compatibility, the whitelist
- *    ensures only safe, predefined commands can execute
- *
- * Note: shell: true is required on Windows for npm.cmd to work, but this is
- * safe because all commands are validated against a strict whitelist.
- *
- * @param {string[]} args - Array of npm arguments (e.g., ["run", "lint"])
- * @param {string} description - Human-readable description
- */
-function runNpmCommand(args, description) {
+function runCommand(command, description, options = {}) {
   console.log(`🔄 ${description}...`);
-
-  // Security: Validate command against whitelist
-  const commandKey = args.join(" ");
-  if (!ALLOWED_NPM_COMMANDS.has(commandKey)) {
-    console.log(`❌ ${description} failed: Command not in whitelist`);
-    return false;
-  }
-
   try {
-    // Build the npm command
-    // Security: All parts are from the validated whitelist
-    const npmCommand = `npm ${args.join(" ")}`;
-
-    // Execute with shell: true for Windows compatibility
-    // This is safe because:
-    // 1. The command is validated against ALLOWED_NPM_COMMANDS whitelist
-    // 2. All command parts are hardcoded - no user input
-    // 3. The whitelist contains only safe npm commands
-    const result = spawnSync(npmCommand, {
+    execSync(command, {
       encoding: "utf8",
       stdio: "inherit",
-      shell: true, // Required for Windows .cmd files, but safe due to whitelist
+      ...options,
     });
-
-    if (result.error) {
-      throw result.error;
-    }
-
-    if (result.status !== 0) {
-      throw new Error(`Command exited with code ${result.status}`);
-    }
-
     console.log(`✅ ${description} completed\n`);
     return true;
   } catch (error) {
@@ -112,11 +60,11 @@ async function setupEnvironment() {
     {
       name: "Install Dependencies",
       action: () =>
-        runNpmCommand(["ci"], "Installing dependencies from package-lock.json"),
+        runCommand("npm ci", "Installing dependencies from package-lock.json"),
     },
     {
       name: "Setup Git Hooks",
-      action: () => runNpmCommand(["run", "prepare"], "Setting up Husky git hooks"),
+      action: () => runCommand("npm run prepare", "Setting up Husky git hooks"),
     },
     {
       name: "Create Test Vault",
@@ -130,19 +78,19 @@ async function setupEnvironment() {
     {
       name: "TypeScript Check",
       action: () =>
-        runNpmCommand(["run", "typecheck"], "Running TypeScript type checking"),
+        runCommand("npm run typecheck", "Running TypeScript type checking"),
     },
     {
       name: "Linting Check",
-      action: () => runNpmCommand(["run", "lint"], "Running ESLint"),
+      action: () => runCommand("npm run lint", "Running ESLint"),
     },
     {
       name: "Build Plugin",
-      action: () => runNpmCommand(["run", "build"], "Building plugin"),
+      action: () => runCommand("npm run build", "Building plugin"),
     },
     {
       name: "Run Tests",
-      action: () => runNpmCommand(["test"], "Running unit tests"),
+      action: () => runCommand("npm test", "Running unit tests"),
     },
   ];
 
