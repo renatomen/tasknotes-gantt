@@ -45,7 +45,7 @@ describe("Bidirectional Sync Integration Tests", () => {
     // Verify credentials are available
     if (!config.projectId || !config.accessKey || !config.secretKey) {
       throw new Error(
-        "Missing AssertThat credentials. Please set ASSERTTHAT_PROJECT_ID, ASSERTTHAT_ACCESS_KEY, and ASSERTTHAT_SECRET_KEY in .env"
+        "Missing AssertThat credentials. Please set ASSERTTHAT_PROJECT_ID, ASSERTTHAT_ACCESS_KEY, and ASSERTTHAT_SECRET_KEY in .env or GitHub Secrets"
       );
     }
 

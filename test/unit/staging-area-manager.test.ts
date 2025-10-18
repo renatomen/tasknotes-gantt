@@ -280,7 +280,14 @@ describe("StagingAreaManager", () => {
 
   describe("downloadAssertThatFeatures", () => {
     it("should use demo mode when configuration is invalid", async () => {
-      const demoConfig = new SyncConfiguration(); // No env vars set
+      // Explicitly create config without credentials (ignore env vars)
+      const demoConfig = new SyncConfiguration({
+        assertThat: {
+          projectId: "",
+          accessKey: "",
+          secretKey: "",
+        },
+      });
       const demoManager = new StagingAreaManager(demoConfig, mockFs);
 
       mockFs.mkdir.mockResolvedValue(undefined);
@@ -293,9 +300,19 @@ describe("StagingAreaManager", () => {
     });
 
     it("should throw StagingAreaError when demo feature creation fails", async () => {
+      // Explicitly create config without credentials
+      const invalidConfig = new SyncConfiguration({
+        assertThat: {
+          projectId: "",
+          accessKey: "",
+          secretKey: "",
+        },
+      });
+      const invalidManager = new StagingAreaManager(invalidConfig, mockFs);
+
       mockFs.mkdir.mockRejectedValue(new Error("Disk full"));
 
-      await expect(stagingManager.downloadAssertThatFeatures()).rejects.toThrow(
+      await expect(invalidManager.downloadAssertThatFeatures()).rejects.toThrow(
         StagingAreaError
       );
     });
