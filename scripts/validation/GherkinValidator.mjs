@@ -160,7 +160,7 @@ export class GherkinValidator {
   validateScenarios(featureData, issues) {
     const scenarioNames = new Set();
 
-    featureData.scenarios.forEach((scenario, index) => {
+    featureData.scenarios.forEach((scenario, _index) => {
       // Check for duplicate scenario names
       if (scenarioNames.has(scenario.name)) {
         issues.push({

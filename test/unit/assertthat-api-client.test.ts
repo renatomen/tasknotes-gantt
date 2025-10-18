@@ -3,7 +3,7 @@
  * Test-driven development for AssertThat BDD Jira Cloud V2 REST API client
  */
 
-import { describe, it, expect, beforeEach, beforeAll, jest } from "@jest/globals";
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import type { Mock } from "jest-mock";
 import { AssertThatApiClient } from "../../scripts/api/AssertThatApiClient.mjs";
 import { AssertThatApiError } from "../../scripts/errors/SyncErrors.mjs";

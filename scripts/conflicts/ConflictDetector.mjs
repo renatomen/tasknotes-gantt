@@ -28,7 +28,6 @@ export class ConflictDetector {
     await this.initialize();
     try {
       // Check cache first
-      const cacheKey = `${githubFile}:${assertThatFile}`;
       const cached = cacheManager.gitCache.getDiff(githubFile, assertThatFile, {
         type: "conflict-analysis",
       });
@@ -173,6 +172,7 @@ export class ConflictDetector {
 
       return true;
     } catch (error) {
+      console.error("Error checking whitespace-only change:", error.message);
       return false;
     }
   }
@@ -214,6 +214,7 @@ export class ConflictDetector {
 
       return true;
     } catch (error) {
+      console.error("Error checking comment-only change:", error.message);
       return false;
     }
   }
@@ -258,6 +259,7 @@ export class ConflictDetector {
 
       return pairs.length > 0;
     } catch (error) {
+      console.error("Error checking formatting change:", error.message);
       return false;
     }
   }
@@ -299,6 +301,7 @@ export class ConflictDetector {
 
       return !hasStructuralChanges;
     } catch (error) {
+      console.error("Error checking minor change:", error.message);
       return false;
     }
   }

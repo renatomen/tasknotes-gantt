@@ -264,8 +264,6 @@ export class GitHubApiClient {
   async enableAutoMerge(prNumber, mergeMethod = 'squash') {
     this.logger.info(`🤖 Enabling auto-merge for PR #${prNumber} (${mergeMethod})`);
 
-    const path = `/repos/${this.owner}/${this.repo}/pulls/${prNumber}/merge`;
-
     try {
       // Note: GitHub's auto-merge API requires GraphQL
       // For now, we'll just log that auto-merge would be enabled

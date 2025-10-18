@@ -42,7 +42,7 @@ class StagingAreaManager {
         `${this.config.ui.icons.success} Staging area created at: ${this.stagingPath}`
       );
       return true;
-    } catch (error) {
+    } catch (_error) {
       throw new StagingAreaError(
         "Failed to create staging area",
         "create",
@@ -55,7 +55,7 @@ class StagingAreaManager {
     try {
       await this.fs.rm(this.stagingPath, { recursive: true, force: true });
       console.log(`${this.config.ui.icons.success} Staging area cleaned`);
-    } catch (error) {
+    } catch (_error) {
       throw new StagingAreaError(
         "Failed to clean staging area",
         "clean",
@@ -85,7 +85,7 @@ class StagingAreaManager {
       console.log(
         `${this.config.ui.icons.success} Features downloaded to staging area`
       );
-    } catch (error) {
+    } catch (_error) {
       throw new StagingAreaError(
         "Failed to download AssertThat features",
         "download",
@@ -322,7 +322,7 @@ describe("StagingAreaManager", () => {
 
       expect(features).toEqual([
         "test.feature",
-        expect.stringMatching(/subfolder[\/\\]nested\.feature/),
+        expect.stringMatching(/subfolder[/\\]nested\.feature/),
       ]);
     });
 

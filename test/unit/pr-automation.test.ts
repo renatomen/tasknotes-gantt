@@ -6,7 +6,6 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-undef */
 
 import { PRAutomation } from '../../scripts/automation/PRAutomation.mjs';
 import { SyncConfiguration } from '../../scripts/config/SyncConfiguration.mjs';

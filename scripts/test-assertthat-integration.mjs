@@ -8,7 +8,6 @@
 import dotenv from "dotenv";
 import { AssertThatApiClient } from "./api/AssertThatApiClient.mjs";
 import fs from "fs/promises";
-import path from "path";
 
 // Load environment variables
 dotenv.config();
@@ -188,8 +187,8 @@ async function cleanup() {
     await fs.unlink(tempFile);
     log(`✅ Cleaned up temporary file: ${tempFile}`, COLORS.green);
   } catch (error) {
-    // Ignore cleanup errors
-    log(`⚠️  Cleanup skipped (file may not exist)`, COLORS.yellow);
+    // Ignore cleanup errors - file may not exist
+    log(`⚠️  Cleanup skipped (file may not exist) - ${error.message}`, COLORS.yellow);
   }
 }
 

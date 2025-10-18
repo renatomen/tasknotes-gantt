@@ -224,7 +224,7 @@ export class ConflictResolver {
   async resolveCommentConflict(conflict) {
     // Merge comments from both versions
     const githubContent = await this.fs.readFile(conflict.githubFile, "utf8");
-    const assertThatContent = await this.fs.readFile(
+    await this.fs.readFile(
       conflict.assertThatFile,
       "utf8"
     );
@@ -277,7 +277,7 @@ export class ConflictResolver {
         content.includes(">>>>>>>") ||
         content.includes("=======")
       );
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }

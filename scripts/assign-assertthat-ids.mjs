@@ -18,7 +18,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { AssertThatApiClient } from './api/AssertThatApiClient.mjs';
-import { FeatureMetadataManager } from './metadata/FeatureMetadataManager.mjs';
 import { SyncConfiguration } from './config/SyncConfiguration.mjs';
 
 // Load environment variables
@@ -97,7 +96,7 @@ async function uploadFeatures(apiClient, features) {
 /**
  * Get scenarios from AssertThat API
  */
-async function getAssertThatScenarios(apiClient) {
+async function _getAssertThatScenarios(_apiClient) {
   console.log('\n📥 Fetching scenarios from AssertThat API...\n');
 
   // Note: AssertThat API doesn't have a direct "get scenarios" endpoint
