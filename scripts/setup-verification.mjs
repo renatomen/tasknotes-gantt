@@ -21,8 +21,8 @@ function checkCommand(command, description) {
     const result = execSync(command, { encoding: "utf8", stdio: "pipe" });
     console.log(`✅ ${description}: ${result.trim()}`);
     return true;
-  } catch (_error) {
-    console.log(`❌ ${description}: Not found or error`);
+  } catch (error) {
+    console.error(`❌ ${description}: Not found or error - ${error.message}`);
     return false;
   }
 }
@@ -46,8 +46,8 @@ function checkNodeVersion() {
       );
       return false;
     }
-  } catch (_error) {
-    console.log(`❌ Node.js: Not found`);
+  } catch (error) {
+    console.error(`❌ Node.js: Not found - ${error.message}`);
     return false;
   }
 }
@@ -65,8 +65,8 @@ function checkDirectory(dirPath, description) {
       console.log(`✅ ${description}: ${dirPath} (created)`);
       return true;
     }
-  } catch (_error) {
-    console.log(`❌ ${description}: ${dirPath} (cannot create)`);
+  } catch (error) {
+    console.error(`❌ ${description}: ${dirPath} (cannot create) - ${error.message}`);
     return false;
   }
 }
@@ -99,8 +99,8 @@ function checkDependencies() {
 
     console.log(`✅ Dependencies: All key dependencies installed`);
     return true;
-  } catch (_error) {
-    console.log(`❌ Dependencies: Error checking dependencies`);
+  } catch (error) {
+    console.error(`❌ Dependencies: Error checking dependencies - ${error.message}`);
     return false;
   }
 }
