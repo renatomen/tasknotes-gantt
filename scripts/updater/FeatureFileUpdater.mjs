@@ -126,7 +126,7 @@ export class FeatureFileUpdater {
     if (!headerMatch) return content;
     
     const header = headerMatch[1];
-    const oldName = headerMatch[2].trim();
+    const _oldName = headerMatch[2].trim();
     const newName = scenario.name;
     
     // Parse new steps

@@ -6,7 +6,6 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import path from "node:path";
 
 const TEST_VAULT_PATH =
   "C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault";
@@ -19,7 +18,7 @@ console.log("🚀 Obsidian Gantt - Automated Environment Setup\n");
 function runCommand(command, description, options = {}) {
   console.log(`🔄 ${description}...`);
   try {
-    const result = execSync(command, {
+    execSync(command, {
       encoding: "utf8",
       stdio: "inherit",
       ...options,

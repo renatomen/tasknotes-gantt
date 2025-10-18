@@ -206,7 +206,7 @@ export class FeatureFileComposer {
           mapping.set(featureName, file);
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Directory doesn't exist or can't be read, return empty mapping
     }
 

@@ -6,7 +6,6 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import path from "node:path";
 
 const REQUIRED_NODE_VERSION = 18;
 const TEST_VAULT_PATH =
@@ -22,7 +21,7 @@ function checkCommand(command, description) {
     const result = execSync(command, { encoding: "utf8", stdio: "pipe" });
     console.log(`✅ ${description}: ${result.trim()}`);
     return true;
-  } catch (error) {
+  } catch (_error) {
     console.log(`❌ ${description}: Not found or error`);
     return false;
   }
@@ -47,7 +46,7 @@ function checkNodeVersion() {
       );
       return false;
     }
-  } catch (error) {
+  } catch (_error) {
     console.log(`❌ Node.js: Not found`);
     return false;
   }
@@ -66,7 +65,7 @@ function checkDirectory(dirPath, description) {
       console.log(`✅ ${description}: ${dirPath} (created)`);
       return true;
     }
-  } catch (error) {
+  } catch (_error) {
     console.log(`❌ ${description}: ${dirPath} (cannot create)`);
     return false;
   }
@@ -100,7 +99,7 @@ function checkDependencies() {
 
     console.log(`✅ Dependencies: All key dependencies installed`);
     return true;
-  } catch (error) {
+  } catch (_error) {
     console.log(`❌ Dependencies: Error checking dependencies`);
     return false;
   }

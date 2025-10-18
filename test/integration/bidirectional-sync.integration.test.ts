@@ -66,7 +66,7 @@ describe("Bidirectional Sync Integration Tests", () => {
       await fs.rm(testDir, { recursive: true, force: true });
       await fs.rm("./test-backups", { recursive: true, force: true });
       await fs.unlink("./test-transaction-log.json").catch(() => {});
-    } catch (error) {
+    } catch (_error) {
       // Ignore cleanup errors
     }
   });

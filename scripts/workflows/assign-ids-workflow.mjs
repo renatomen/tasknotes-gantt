@@ -50,7 +50,7 @@ async function main() {
     });
 
     const uploader = new FeatureUploader(apiClient, config);
-    const metadataManager = new FeatureMetadataManager();
+    const _metadataManager = new FeatureMetadataManager();
     
     console.log("✅ Components initialized\n");
 

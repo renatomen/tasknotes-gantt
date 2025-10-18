@@ -342,7 +342,7 @@ export class CacheManager {
   /**
    * Warm up cache with commonly accessed data
    */
-  async warmUp(commonFiles = []) {
+  async warmUp(_commonFiles = []) {
     if (!this.enabled) return;
 
     // This would pre-load commonly accessed files

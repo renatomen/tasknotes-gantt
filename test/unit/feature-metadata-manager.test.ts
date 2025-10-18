@@ -3,9 +3,6 @@
  * Validates AssertThat ID tracking in feature files
  */
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-undef */
-
 import { FeatureMetadataManager } from '../../scripts/metadata/FeatureMetadataManager.mjs';
 
 describe('FeatureMetadataManager', () => {

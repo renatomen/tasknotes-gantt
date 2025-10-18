@@ -13,7 +13,6 @@ import { SyncConfiguration } from "./config/SyncConfiguration.mjs";
 import { IdBasedDiffManager } from "./diff/IdBasedDiffManager.mjs";
 import { PRAutomation } from "./automation/PRAutomation.mjs";
 import { FeatureDownloader } from "./api/FeatureDownloader.mjs";
-import fs from "fs/promises";
 import path from "path";
 
 // Load environment variables

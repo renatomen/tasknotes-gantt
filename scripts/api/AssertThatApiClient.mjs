@@ -273,7 +273,7 @@ export class AssertThatApiClient {
               try {
                 const json = JSON.parse(data.toString());
                 resolve(json);
-              } catch (error) {
+              } catch (_error) {
                 reject(
                   new AssertThatApiError(
                     "Invalid JSON response",
@@ -354,71 +354,6 @@ export class AssertThatApiClient {
         reject(error);
       }
     }, delay);
-  }
-
-  /**
-   * Get scenarios from AssertThat using V2 API
-   *
-   * @param {Object} options - Query options
-   * @param {number} options.page - Page number (default: 0)
-   * @param {number} options.size - Page size (default: 100)
-   * @returns {Promise<Object>} Scenarios data with IDs
-   */
-  async getScenarios(options = {}) {
-    const page = options.page !== undefined ? options.page : 0;
-    const size = options.size || 100;
-
-    // API v2 endpoint: GET /rest/api/2/project/{projectId}/report/scenarios
-    const path = `/rest/api/2/project/${this.projectId}/report/scenarios?page=${page}&size=${size}`;
-
-    return this.makeRequest({
-      method: 'GET',
-      path,
-      expectBinary: false,
-    });
-  }
-
-  /**
-   * Get all scenarios with pagination
-   *
-   * Automatically handles pagination to fetch all scenarios from AssertThat.
-   *
-   * @returns {Promise<Array>} All scenarios with IDs
-   */
-  async getAllScenarios() {
-    const allScenarios = [];
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const response = await this.getScenarios({ page, size: 100 });
-
-      // Handle different possible response formats
-      // The actual format will be determined by testing
-      const scenarios = response.content || response.scenarios || response.data || [];
-
-      if (scenarios.length > 0) {
-        allScenarios.push(...scenarios);
-      }
-
-      // Check if there are more pages
-      // Common pagination indicators: last, hasMore, totalPages
-      hasMore = !response.last && scenarios.length > 0;
-
-      if (response.totalPages && page >= response.totalPages - 1) {
-        hasMore = false;
-      }
-
-      page++;
-
-      // Safety limit to prevent infinite loops
-      if (page > 100) {
-        console.warn('⚠️  Reached pagination safety limit (100 pages)');
-        break;
-      }
-    }
-
-    return allScenarios;
   }
 
   /**

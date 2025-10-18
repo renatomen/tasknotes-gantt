@@ -201,7 +201,7 @@ export class SyncTransaction {
 
     try {
       // Read backup directory
-      const backupFiles = await this.fs.readdir(txBackupPath, {
+      await this.fs.readdir(txBackupPath, {
         withFileTypes: true,
       });
 
@@ -224,6 +224,10 @@ export class SyncTransaction {
         }
       }
     } catch (error) {
+      this.emitEvent("RESTORE_FAILED", {
+        error: error.message,
+        transactionId: this.transactionId,
+      });
       throw error;
     }
   }

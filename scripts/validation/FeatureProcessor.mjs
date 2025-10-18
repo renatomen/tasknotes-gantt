@@ -4,7 +4,6 @@
  */
 
 import { syncEvents, SYNC_EVENTS } from "../events/SyncEvents.mjs";
-import { cacheManager } from "../cache/CacheManager.mjs";
 import { FileSystemError } from "../errors/SyncErrors.mjs";
 import { GherkinValidator } from "./GherkinValidator.mjs";
 

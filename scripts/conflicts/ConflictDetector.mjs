@@ -28,7 +28,6 @@ export class ConflictDetector {
     await this.initialize();
     try {
       // Check cache first
-      const cacheKey = `${githubFile}:${assertThatFile}`;
       const cached = cacheManager.gitCache.getDiff(githubFile, assertThatFile, {
         type: "conflict-analysis",
       });
@@ -172,7 +171,7 @@ export class ConflictDetector {
       }
 
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -213,7 +212,7 @@ export class ConflictDetector {
       }
 
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -257,7 +256,7 @@ export class ConflictDetector {
       }
 
       return pairs.length > 0;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -298,7 +297,7 @@ export class ConflictDetector {
       });
 
       return !hasStructuralChanges;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }

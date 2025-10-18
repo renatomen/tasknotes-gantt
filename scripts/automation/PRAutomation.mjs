@@ -107,7 +107,7 @@ export class PRAutomation {
       // Stage staging directory if it exists
       try {
         this.execGit(`git add ${this.config.stagingDir}/`);
-      } catch (error) {
+      } catch (_error) {
         // Staging directory doesn't exist - that's okay for ID-based sync
         this.logger.info(`ℹ️  Staging directory not found (using direct sync)`);
       }

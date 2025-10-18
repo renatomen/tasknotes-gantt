@@ -154,7 +154,7 @@ function validateJiraUrl(url) {
       console.log('   ⚠️  Warning: URL doesn\'t look like a Jira instance');
     }
     return true;
-  } catch (error) {
+  } catch (_error) {
     console.log('   ❌ Invalid URL format');
     return false;
   }
