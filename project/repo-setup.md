@@ -297,7 +297,7 @@ This prevents the common issue where different platforms create massive diffs du
 ### TypeScript Issues
 
 - Run `npm run typecheck` to verify Svelte type checking
-- Ensure `obsidian-typings` package is properly installed
+- Bases API types are defined locally in `src/bases/register.ts` (official API 1.10.0+)
 
 ## 9. **Final Verification Checklist**
 
