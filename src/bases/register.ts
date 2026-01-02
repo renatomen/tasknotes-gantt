@@ -19,6 +19,7 @@ export interface BasesViewLike {
   onResize?: () => void | Promise<void>;
   getEphemeralState?: () => Record<string, unknown>;
   setEphemeralState?: (s: Record<string, unknown>) => void;
+  focus?: () => void;
 }
 
 const BASES_PLUGIN_ID = 'bases';
@@ -86,6 +87,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
           onResize() {},
           getEphemeralState() { return {}; },
           setEphemeralState() {},
+          focus() { /* Required by Bases for view restoration at startup */ },
           unload() {},
           destroy() {
             try {
