@@ -7,52 +7,12 @@
 
 import { execSync } from 'child_process';
 import { SyncConfiguration } from '../config/SyncConfiguration.mjs';
-import { GitHubApiClient } from '../api/GitHubApiClient.mjs';
 
 export class PRAutomation {
   constructor(dependencies = {}) {
     this.config = dependencies.config || new SyncConfiguration();
     this.logger = dependencies.logger || console;
     this.dryRun = dependencies.dryRun || false;
-
-    // Initialize GitHub API client if token is available
-    this.githubClient = dependencies.githubClient;
-    if (!this.githubClient && process.env.GITHUB_TOKEN) {
-      // Extract owner and repo from git remote
-      const repoInfo = this.getRepositoryInfo();
-      this.githubClient = new GitHubApiClient({
-        token: process.env.GITHUB_TOKEN,
-        owner: repoInfo.owner,
-        repo: repoInfo.repo,
-        logger: this.logger,
-      });
-    }
-  }
-
-  /**
-   * Get repository owner and name from git remote
-   */
-  getRepositoryInfo() {
-    try {
-      const remoteUrl = this.execGit('git remote get-url origin').toString().trim();
-
-      // Parse GitHub URL (supports both HTTPS and SSH)
-      // HTTPS: https://github.com/owner/repo.git
-      // SSH: git@github.com:owner/repo.git
-      const match = remoteUrl.match(/github\.com[:/]([^/]+)\/(.+?)(\.git)?$/);
-
-      if (match) {
-        return {
-          owner: match[1],
-          repo: match[2],
-        };
-      }
-
-      throw new Error('Could not parse GitHub repository URL');
-    } catch (error) {
-      this.logger.error(`Failed to get repository info: ${error.message}`);
-      throw error;
-    }
   }
 
   /**
@@ -79,21 +39,12 @@ export class PRAutomation {
     try {
       this.logger.info(`📌 Creating sync branch: ${branchName}`);
 
-      // Stash any local changes (from sync process)
-      const stashResult = this.execGit('git stash push -m "sync-temp-stash"');
-      const hasStash = !stashResult.includes('No local changes');
-
       // Switch to main and pull latest
       this.execGit('git checkout main');
       this.execGit('git pull origin main');
 
       // Create new branch
       this.execGit(`git checkout -b ${branchName}`);
-
-      // Apply stashed changes if any
-      if (hasStash) {
-        this.execGit('git stash pop');
-      }
 
       this.logger.info(`✅ Branch created: ${branchName}`);
       return branchName;
@@ -150,14 +101,10 @@ export class PRAutomation {
   }
 
   /**
-   * Create a pull request using GitHub API
+   * Create a pull request using GitHub CLI
    */
-  async createPullRequest(prData) {
+  createPullRequest(prData) {
     try {
-      if (!this.githubClient) {
-        throw new Error('GitHub API client not initialized. Set GITHUB_TOKEN environment variable.');
-      }
-
       this.logger.info(`🔀 Creating pull request: ${prData.title}`);
 
       // Build PR description
@@ -166,27 +113,24 @@ export class PRAutomation {
       // Determine labels
       const labels = this.determineLabels(prData);
 
-      // Get current branch name
-      const currentBranch = this.execGit('git branch --show-current').toString().trim();
+      // Create PR using GitHub CLI
+      const command = [
+        'gh pr create',
+        `--title "${prData.title}"`,
+        `--body "${description}"`,
+        `--label "${labels.join(',')}"`,
+        '--base main',
+      ].join(' ');
 
-      // Create PR using GitHub API
-      const pr = await this.githubClient.createPullRequest({
-        title: prData.title,
-        body: description,
-        head: currentBranch,
-        base: 'main',
-        draft: false,
-      });
+      const output = this.execGit(command);
 
-      // Add labels
-      if (labels.length > 0) {
-        await this.githubClient.addLabels(pr.number, labels);
-      }
+      // Extract PR number from output
+      const prNumber = this.extractPRNumber(output.toString());
 
-      this.logger.info(`✅ Pull request created: #${pr.number}`);
-      this.logger.info(`   URL: ${pr.url}`);
+      this.logger.info(`✅ Pull request created: #${prNumber}`);
+      this.logger.info(`   URL: ${output.toString().trim()}`);
 
-      return pr.number;
+      return prNumber;
     } catch (error) {
       this.logger.error(`❌ Failed to create PR: ${error.message}`);
 
@@ -269,17 +213,11 @@ export class PRAutomation {
   }
 
   /**
-   * Enable auto-merge for PR
+   * Enable auto-merge for PR using GitHub CLI
    */
-  async enableAutoMerge(prNumber) {
+  enableAutoMerge(prNumber) {
     try {
-      if (!this.githubClient) {
-        this.logger.info(`ℹ️  GitHub API client not available, skipping auto-merge`);
-        return;
-      }
-
-      await this.githubClient.enableAutoMerge(prNumber, 'squash');
-
+      this.execGit(`gh pr merge ${prNumber} --auto --squash`);
       this.logger.info(`✅ Auto-merge enabled`);
     } catch (error) {
       this.logger.error(`❌ Failed to enable auto-merge: ${error.message}`);
@@ -374,11 +312,11 @@ export class PRAutomation {
         },
       };
 
-      const prNumber = await this.createPullRequest(prData);
+      const prNumber = this.createPullRequest(prData);
 
       // Enable auto-merge if no conflicts
       if (this.shouldAutoMerge(hasConflicts)) {
-        await this.enableAutoMerge(prNumber);
+        this.enableAutoMerge(prNumber);
       }
 
       return {
