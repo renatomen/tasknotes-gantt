@@ -86,7 +86,6 @@ obsidian-gantt/
     "eslint": "^9.36.0",
     "husky": "^9.1.7",
     "jest": "^30.1.3",
-    "obsidian-typings": "^4.51.0",
     "prettier": "^3.6.2",
     "svelte": "^5.39.6",
     "svelte-check": "^4.3.2",
