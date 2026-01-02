@@ -181,7 +181,12 @@ export class FeatureFileUpdater {
       return content; // No changes
     }
 
-    return result.join('\n');
+    // Preserve trailing newline if original had one
+    let output = result.join('\n');
+    if (content.endsWith('\n') && !output.endsWith('\n')) {
+      output += '\n';
+    }
+    return output;
   }
 
   /**
