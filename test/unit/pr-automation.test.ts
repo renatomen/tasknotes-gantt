@@ -18,7 +18,6 @@ describe('PRAutomation', () => {
   let prAutomation: any;
   let mockConfig: SyncConfiguration;
   let mockExecSync: jest.MockedFunction<typeof execSync>;
-  let mockGitHubClient: any;
 
   beforeEach(() => {
     mockConfig = new SyncConfiguration({
@@ -33,20 +32,7 @@ describe('PRAutomation', () => {
     // Default mock implementation returns PR URL string
     mockExecSync.mockReturnValue('https://github.com/renatomen/obsidian-gantt/pull/123' as any);
 
-    // Mock GitHub client
-    mockGitHubClient = {
-      createPullRequest: jest.fn().mockResolvedValue({
-        number: 123,
-        url: 'https://github.com/renatomen/obsidian-gantt/pull/123',
-      }),
-      addLabels: jest.fn().mockResolvedValue(undefined),
-      enableAutoMerge: jest.fn().mockResolvedValue(undefined),
-    };
-
-    prAutomation = new PRAutomation({
-      config: mockConfig,
-      githubClient: mockGitHubClient,
-    });
+    prAutomation = new PRAutomation({ config: mockConfig });
   });
 
   describe('Branch Creation', () => {
@@ -92,7 +78,6 @@ describe('PRAutomation', () => {
         expect.stringContaining('git add'),
         expect.any(Object)
       );
-      // The actual implementation uses --no-verify flag
       expect(mockExecSync).toHaveBeenCalledWith(
         expect.stringContaining(`git commit --no-verify -m "chore/sync: ${message}"`),
         expect.any(Object)
@@ -125,25 +110,22 @@ describe('PRAutomation', () => {
   });
 
   describe('PR Creation', () => {
-    it('should create PR using GitHub API', async () => {
+    it('should create PR using GitHub CLI', () => {
       const prData = {
         title: 'Sync BDD scenarios with AssertThat',
         body: 'Automated sync from AssertThat',
         labels: ['sync', 'automated'],
       };
 
-      await prAutomation.createPullRequest(prData);
+      prAutomation.createPullRequest(prData);
 
-      expect(mockGitHubClient.createPullRequest).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: prData.title,
-          base: 'main',
-          draft: false,
-        })
+      expect(mockExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('gh pr create'),
+        expect.any(Object)
       );
     });
 
-    it('should include conflict information in PR description', async () => {
+    it('should include conflict information in PR description', () => {
       const prData = {
         title: 'Sync with conflicts',
         body: 'Automated sync',
@@ -152,30 +134,33 @@ describe('PRAutomation', () => {
         ],
       };
 
-      await prAutomation.createPullRequest(prData);
+      prAutomation.createPullRequest(prData);
 
       // Check that the PR body contains conflict information
-      const createPRCall = mockGitHubClient.createPullRequest.mock.calls[0][0];
-      expect(createPRCall.body).toContain('Conflicts Detected');
-      expect(createPRCall.body).toContain('test.feature');
+      const prCreateCall = mockExecSync.mock.calls.find(call =>
+        call[0].toString().includes('gh pr create')
+      );
+      expect(prCreateCall).toBeDefined();
+      expect(prCreateCall[0]).toContain('Conflicts Detected');
+      expect(prCreateCall[0]).toContain('test.feature');
     });
 
-    it('should add appropriate labels based on sync result', async () => {
+    it('should add appropriate labels based on sync result', () => {
       const cleanSync = { title: 'Clean sync', body: 'No conflicts', conflicts: [] };
       const conflictSync = { title: 'Sync with conflicts', body: 'Has conflicts', conflicts: [{ file: 'test.feature' }] };
 
-      await prAutomation.createPullRequest(cleanSync);
-      expect(mockGitHubClient.addLabels).toHaveBeenCalledWith(
-        123,
-        expect.arrayContaining(['sync', 'automated', 'clean'])
+      prAutomation.createPullRequest(cleanSync);
+      expect(mockExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('--label "sync,automated,clean"'),
+        expect.any(Object)
       );
 
-      mockGitHubClient.addLabels.mockClear();
+      mockExecSync.mockClear();
 
-      await prAutomation.createPullRequest(conflictSync);
-      expect(mockGitHubClient.addLabels).toHaveBeenCalledWith(
-        123,
-        expect.arrayContaining(['sync', 'automated', 'conflicts'])
+      prAutomation.createPullRequest(conflictSync);
+      expect(mockExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('--label "sync,automated,conflicts"'),
+        expect.any(Object)
       );
     });
   });
@@ -229,15 +214,23 @@ describe('PRAutomation', () => {
   });
 
   describe('Auto-merge Support', () => {
-    it('should enable auto-merge for clean syncs', async () => {
-      await prAutomation.enableAutoMerge(123);
+    it('should enable auto-merge for clean syncs', () => {
+      prAutomation.enableAutoMerge(123);
 
-      expect(mockGitHubClient.enableAutoMerge).toHaveBeenCalledWith(123, 'squash');
+      expect(mockExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('gh pr merge'),
+        expect.any(Object)
+      );
+      expect(mockExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('--auto'),
+        expect.any(Object)
+      );
     });
 
     it('should not enable auto-merge for syncs with conflicts', () => {
+      const prNumber = 123;
       const hasConflicts = true;
-
+      
       const result = prAutomation.shouldAutoMerge(hasConflicts);
 
       expect(result).toBe(false);
@@ -255,13 +248,17 @@ describe('PRAutomation', () => {
       }).toThrow('Git command failed');
     });
 
-    it('should rollback on PR creation failure', async () => {
-      // Mock GitHub client to throw error
-      mockGitHubClient.createPullRequest.mockRejectedValue(new Error('PR creation failed'));
+    it('should rollback on PR creation failure', () => {
+      mockExecSync.mockImplementation((cmd) => {
+        if (cmd.toString().includes('gh pr create')) {
+          throw new Error('PR creation failed');
+        }
+        return '' as any;
+      });
 
-      await expect(
-        prAutomation.createPullRequest({ title: 'Test', body: 'Test' })
-      ).rejects.toThrow('PR creation failed');
+      expect(() => {
+        prAutomation.createPullRequest({ title: 'Test', body: 'Test' });
+      }).toThrow();
 
       // Should attempt to delete the branch
       expect(mockExecSync).toHaveBeenCalledWith(
