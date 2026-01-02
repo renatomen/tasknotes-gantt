@@ -132,15 +132,8 @@ async function main() {
     console.log('\n🔀 Creating pull request...');
     const prAutomation = new PRAutomation({ config });
 
-    // Build sync result for PR creation (empty since we just downloaded all features)
-    const syncResult = {
-      additions: [],
-      modifications: [],
-      deletions: [],
-    };
-
-    // Execute PR workflow
-    const prResult = await prAutomation.executeWorkflow(syncResult);
+    // Execute PR workflow with actual changes detected
+    const prResult = await prAutomation.executeWorkflow(changes);
 
     console.log('\n✅ PR workflow completed:');
     console.log(`   - Branch: ${prResult.branchName}`);
