@@ -103,45 +103,85 @@ export class FeatureFileUpdater {
    * @returns {string} Updated content
    */
   updateScenario(content, scenario) {
-    // Pattern to match the FULL scenario block including:
-    // - Optional preceding tags line(s)
-    // - The ID comment
-    // - The Scenario line
-    // - All steps until next scenario/tag/ID/end
-    const fullScenarioPattern = new RegExp(
-      `((?:^|\\n)([ \\t]*))` +                                    // Capture leading whitespace/indent
-      `(?:@[^\\n]*\\n\\s*)*` +                                     // Match (but don't capture) any tag lines before ID
-      `# @assertthat-scenario-id: ${scenario.id}\\s*\\n` +         // ID comment
-      `\\s*Scenario:[^\\n]*\\n` +                                  // Scenario line
-      `([\\s\\S]*?)` +                                             // Steps (captured)
-      `(?=\\n\\s*(?:@|# @assertthat-scenario-id:|Scenario:)|$)`,   // Lookahead for next scenario
-      'm'
-    );
+    const lines = content.split('\n');
+    const result = [];
+    let i = 0;
+    let foundScenario = false;
 
-    const match = content.match(fullScenarioPattern);
-    if (!match) {
-      // Scenario not found in file, skip
-      return content;
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Check if this line contains the scenario ID we're looking for
+      if (line.includes(`# @assertthat-scenario-id: ${scenario.id}`)) {
+        foundScenario = true;
+
+        // Find the tags line(s) that precede this ID (look back)
+        // Remove any tags lines we already added to result
+        while (result.length > 0 && result[result.length - 1].trim().startsWith('@')) {
+          result.pop();
+        }
+        // Also remove empty lines before tags
+        while (result.length > 0 && result[result.length - 1].trim() === '') {
+          result.pop();
+        }
+
+        // Detect indentation from the ID line
+        const indentMatch = line.match(/^(\s*)/);
+        const indent = indentMatch ? indentMatch[1] : '    ';
+
+        // Add empty line before scenario (if not at start)
+        if (result.length > 0 && result[result.length - 1].trim() !== '') {
+          result.push('');
+        }
+
+        // Add tags
+        const tags = this.extractTags(scenario);
+        if (tags.length > 0) {
+          result.push(`${indent}${tags.join(' ')}`);
+        }
+
+        // Add ID comment
+        result.push(`${indent}# @assertthat-scenario-id: ${scenario.id}`);
+
+        // Skip the old ID line
+        i++;
+
+        // Skip the old Scenario line
+        if (i < lines.length && lines[i].includes('Scenario:')) {
+          i++;
+        }
+
+        // Add new Scenario line
+        result.push(`${indent}Scenario: ${scenario.name}`);
+
+        // Skip old steps until we hit next scenario, tag line, ID comment, or end
+        while (i < lines.length) {
+          const stepLine = lines[i].trim();
+          // Stop if we hit a new scenario block indicator
+          if (stepLine.startsWith('@') ||
+              stepLine.startsWith('# @assertthat-scenario-id:') ||
+              stepLine.startsWith('Scenario:')) {
+            break;
+          }
+          i++;
+        }
+
+        // Add new steps
+        const newSteps = this.parseSteps(scenario.steps);
+        for (const step of newSteps) {
+          result.push(`${indent}    ${step}`);
+        }
+      } else {
+        result.push(line);
+        i++;
+      }
     }
 
-    const indent = match[2] || '    ';
+    if (!foundScenario) {
+      return content; // No changes
+    }
 
-    // Build the new scenario block with proper tags
-    const tags = this.extractTags(scenario);
-    const tagsLine = tags.length > 0 ? `${indent}${tags.join(' ')}\n` : '';
-
-    // Parse new steps
-    const newSteps = this.parseSteps(scenario.steps);
-    const newStepsText = newSteps.map(step => `${indent}    ${step}`).join('\n');
-
-    // Build the complete new scenario block
-    const newScenarioBlock =
-      `\n${tagsLine}` +
-      `${indent}# @assertthat-scenario-id: ${scenario.id}\n` +
-      `${indent}Scenario: ${scenario.name}\n` +
-      `${newStepsText}`;
-
-    return content.replace(fullScenarioPattern, newScenarioBlock);
+    return result.join('\n');
   }
 
   /**
