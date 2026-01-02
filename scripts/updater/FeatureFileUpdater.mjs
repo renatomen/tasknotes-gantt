@@ -97,52 +97,51 @@ export class FeatureFileUpdater {
 
   /**
    * Update a single scenario in the file content
-   * 
+   *
    * @param {string} content - File content
    * @param {Object} scenario - Scenario from V2 API
    * @returns {string} Updated content
    */
   updateScenario(content, scenario) {
-    // Find the scenario by ID
-    const idPattern = new RegExp(
-      `(\\s*# @assertthat-scenario-id: ${scenario.id}\\s*\\n\\s*Scenario:[^\\n]+\\n)([\\s\\S]*?)(?=\\n\\s*(?:@|# @assertthat-scenario-id:|Scenario:|$))`,
+    // Pattern to match the FULL scenario block including:
+    // - Optional preceding tags line(s)
+    // - The ID comment
+    // - The Scenario line
+    // - All steps until next scenario/tag/ID/end
+    const fullScenarioPattern = new RegExp(
+      `((?:^|\\n)([ \\t]*))` +                                    // Capture leading whitespace/indent
+      `(?:@[^\\n]*\\n\\s*)*` +                                     // Match (but don't capture) any tag lines before ID
+      `# @assertthat-scenario-id: ${scenario.id}\\s*\\n` +         // ID comment
+      `\\s*Scenario:[^\\n]*\\n` +                                  // Scenario line
+      `([\\s\\S]*?)` +                                             // Steps (captured)
+      `(?=\\n\\s*(?:@|# @assertthat-scenario-id:|Scenario:)|$)`,   // Lookahead for next scenario
       'm'
     );
-    
-    const match = content.match(idPattern);
+
+    const match = content.match(fullScenarioPattern);
     if (!match) {
       // Scenario not found in file, skip
       return content;
     }
-    
-    // Extract the scenario header (tags + ID + Scenario line)
-    const headerMatch = content.match(
-      new RegExp(
-        `((?:^|\\n)\\s*(?:@[^\\n]+\\n)?\\s*# @assertthat-scenario-id: ${scenario.id}\\s*\\n\\s*Scenario:)\\s*([^\\n]+)`,
-        'm'
-      )
-    );
-    
-    if (!headerMatch) return content;
-    
-    const header = headerMatch[1];
-    const _oldName = headerMatch[2].trim();
-    const newName = scenario.name;
-    
+
+    const indent = match[2] || '    ';
+
+    // Build the new scenario block with proper tags
+    const tags = this.extractTags(scenario);
+    const tagsLine = tags.length > 0 ? `${indent}${tags.join(' ')}\n` : '';
+
     // Parse new steps
     const newSteps = this.parseSteps(scenario.steps);
-    const newStepsText = newSteps.map(step => `        ${step}`).join('\n');
-    
-    // Build the new scenario block
-    const newScenarioBlock = `${header} ${newName}\n${newStepsText}`;
-    
-    // Replace the old scenario block
-    const scenarioBlockPattern = new RegExp(
-      `(\\s*# @assertthat-scenario-id: ${scenario.id}\\s*\\n\\s*Scenario:[^\\n]+\\n)([\\s\\S]*?)(?=\\n\\s*(?:@|# @assertthat-scenario-id:|Scenario:|$))`,
-      'm'
-    );
-    
-    return content.replace(scenarioBlockPattern, newScenarioBlock + '\n');
+    const newStepsText = newSteps.map(step => `${indent}    ${step}`).join('\n');
+
+    // Build the complete new scenario block
+    const newScenarioBlock =
+      `\n${tagsLine}` +
+      `${indent}# @assertthat-scenario-id: ${scenario.id}\n` +
+      `${indent}Scenario: ${scenario.name}\n` +
+      `${newStepsText}`;
+
+    return content.replace(fullScenarioPattern, newScenarioBlock);
   }
 
   /**

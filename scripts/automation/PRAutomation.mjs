@@ -79,12 +79,21 @@ export class PRAutomation {
     try {
       this.logger.info(`📌 Creating sync branch: ${branchName}`);
 
+      // Stash any local changes (from sync process)
+      const stashResult = this.execGit('git stash push -m "sync-temp-stash"');
+      const hasStash = !stashResult.includes('No local changes');
+
       // Switch to main and pull latest
       this.execGit('git checkout main');
       this.execGit('git pull origin main');
 
       // Create new branch
       this.execGit(`git checkout -b ${branchName}`);
+
+      // Apply stashed changes if any
+      if (hasStash) {
+        this.execGit('git stash pop');
+      }
 
       this.logger.info(`✅ Branch created: ${branchName}`);
       return branchName;
