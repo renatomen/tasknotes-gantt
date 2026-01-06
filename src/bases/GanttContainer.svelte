@@ -1,6 +1,18 @@
 <script lang="ts">
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
+  import { setIcon } from 'obsidian';
+
+  // Svelte action to set Obsidian/Lucide icons (OG-81)
+  function lucideIcon(node: HTMLElement, iconName: string) {
+    setIcon(node, iconName);
+    return {
+      update(newIconName: string) {
+        node.empty();
+        setIcon(node, newIconName);
+      }
+    };
+  }
 
   // Type definitions for Gantt API (simplified to avoid strict typing issues)
   interface GanttTask {
@@ -142,10 +154,66 @@
     { id: 2, source: 11, target: 12, type: "e2s" },
   ];
 
-  const scales = [
-    { unit: "month", step: 1, format: "MMMM yyy" },
-    { unit: "day", step: 1, format: "d" },
-  ];
+  // Zoom configuration with defined levels for proper zoom-scale action (OG-81)
+  // Each level defines the scales to display at that zoom level
+  const zoomConfig = {
+    level: 3, // Start at month/day level
+    minCellWidth: 40,
+    maxCellWidth: 300,
+    levels: [
+      // Level 0: Year overview
+      {
+        minCellWidth: 100,
+        maxCellWidth: 300,
+        scales: [{ unit: "year", step: 1, format: "yyyy" }],
+      },
+      // Level 1: Year + Quarter
+      {
+        minCellWidth: 80,
+        maxCellWidth: 200,
+        scales: [
+          { unit: "year", step: 1, format: "yyyy" },
+          { unit: "quarter", step: 1, format: "QQQ" },
+        ],
+      },
+      // Level 2: Quarter + Month
+      {
+        minCellWidth: 60,
+        maxCellWidth: 150,
+        scales: [
+          { unit: "quarter", step: 1, format: "QQQ yyyy" },
+          { unit: "month", step: 1, format: "MMM" },
+        ],
+      },
+      // Level 3: Month + Week (default)
+      {
+        minCellWidth: 50,
+        maxCellWidth: 120,
+        scales: [
+          { unit: "month", step: 1, format: "MMMM yyyy" },
+          { unit: "week", step: 1, format: "'W'w" },
+        ],
+      },
+      // Level 4: Month + Day
+      {
+        minCellWidth: 30,
+        maxCellWidth: 80,
+        scales: [
+          { unit: "month", step: 1, format: "MMMM yyyy" },
+          { unit: "day", step: 1, format: "d" },
+        ],
+      },
+      // Level 5: Week + Day (detailed)
+      {
+        minCellWidth: 25,
+        maxCellWidth: 60,
+        scales: [
+          { unit: "week", step: 1, format: "'Week' w, MMM yyyy" },
+          { unit: "day", step: 1, format: "EEE d" },
+        ],
+      },
+    ],
+  };
 </script>
 
 <div class="og-bases-gantt">
@@ -156,8 +224,28 @@
         init={initGantt}
         {tasks}
         {links}
-        {scales}
+        zoom={zoomConfig}
       />
+
+      <!-- Floating Zoom Controls (OG-81) -->
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn zoom-in"
+          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <span class="zoom-icon" use:lucideIcon={'plus'}></span>
+        </button>
+        <button
+          class="zoom-btn zoom-out"
+          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <span class="zoom-icon" use:lucideIcon={'minus'}></span>
+        </button>
+      </div>
     </div>
 
     <!-- Custom Editor Modal -->
@@ -238,6 +326,85 @@
   .gtcell {
     height: calc(100% - 50px);
     border-top: var(--wx-gantt-border);
+    /* Position relative for floating zoom controls (OG-81) */
+    position: relative;
+  }
+
+  /* OG-79: Touch device scroll fix for drag-and-drop */
+  /* Chart container: allow normal scroll/pan on empty timeline space */
+  .og-bases-gantt :global(.wx-chart) {
+    touch-action: auto;
+  }
+
+  /* Bars: block browser gestures, let SVAR handle drag/resize */
+  .og-bases-gantt :global(.wx-bar) {
+    touch-action: none;
+  }
+
+  /* Floating Zoom Controls - Google Maps style (OG-81) */
+  .zoom-controls {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .zoom-btn {
+    /* Force consistent square shape across all devices */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background-color: #ffffff;
+    color: #5f6368;
+    cursor: pointer;
+    /* Remove all default styling that might cause circles */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+  }
+
+  /* Only style change on click/active - no hover effects for mobile consistency */
+  .zoom-btn:active {
+    background-color: #e0e0e0;
+  }
+
+  /* Container for Lucide icon (OG-81) */
+  .zoom-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+  }
+
+  /* Style the Lucide SVG injected by Obsidian's setIcon (OG-81) */
+  .zoom-icon :global(svg) {
+    width: 18px;
+    height: 18px;
+    stroke: #5f6368;
+    fill: none;
+    stroke-width: 2;
+  }
+
+  .zoom-in {
+    border-bottom: 1px solid #dadce0;
   }
 
   /* Custom Editor Styles */
