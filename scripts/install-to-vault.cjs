@@ -7,7 +7,7 @@ const path = require("path");
 // Platform-aware default vault path
 const DEFAULT_VAULT =
   process.platform === "win32"
-    ? "C:\\Users\\renat\\OneDrive\\@-Notes\\Vaults\\obsidian-gantt"
+    ? "C:\\Users\\renato\\OneDrive\\@-Notes\\Vaults\\obsidian-gantt"
     : path.join(
         process.env.HOME || "/home/renato",
         "obsidian-test-vaults/obsidian-gantt-test-vault"
