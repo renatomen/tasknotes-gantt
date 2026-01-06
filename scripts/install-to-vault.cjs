@@ -1,9 +1,14 @@
 'use strict';
+require('dotenv').config();
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const DEFAULT_VAULT = 'C:\\Users\\renato\\obsidian-test-vaults\\obsidian-gantt-test-vault';
+// Platform-aware default vault path
+const DEFAULT_VAULT = process.platform === 'win32'
+  ? 'C:\\Users\\renat\\OneDrive\\@-Notes\\Vaults\\obsidian-gantt'
+  : path.join(process.env.HOME || '/home/renato', 'obsidian-test-vaults/obsidian-gantt-test-vault');
+
 const vaultPath = process.env.OBSIDIAN_TEST_VAULT || DEFAULT_VAULT;
 const pluginId = 'obsidian-gantt';
 const pluginDir = path.join(vaultPath, '.obsidian', 'plugins', pluginId);
