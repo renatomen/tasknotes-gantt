@@ -2,7 +2,7 @@
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
 
-  // Type definitions for Gantt API (simplified to avoid strict typing issues)
+  // Type definitions for task editing
   interface GanttTask {
     id: string;
     text: string;
@@ -11,7 +11,8 @@
     progress: number;
   }
 
-  // Use any for SVAR API to avoid complex type definitions
+  // SVAR Gantt API - using unknown with type assertions for third-party API
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
 
   // Note: SVAR Gantt may generate console warnings:
@@ -238,6 +239,17 @@
   .gtcell {
     height: calc(100% - 50px);
     border-top: var(--wx-gantt-border);
+  }
+
+  /* OG-79: Touch device scroll fix for drag-and-drop */
+  /* Chart container: allow normal scroll/pan on empty timeline space */
+  .og-bases-gantt :global(.wx-chart) {
+    touch-action: auto;
+  }
+
+  /* Bars: block browser gestures, let SVAR handle drag/resize */
+  .og-bases-gantt :global(.wx-bar) {
+    touch-action: none;
   }
 
   /* Custom Editor Styles */
