@@ -1,9 +1,16 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
-// Repo-scoped local test vault path (user-provided)
+// Platform-aware default vault path
 const LOCAL_VAULT =
-  "C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault";
+  process.platform === "win32"
+    ? "C:/Users/renat/OneDrive/@-Notes/Vaults/obsidian-gantt"
+    : path.join(
+        process.env.HOME || "/home/renato",
+        "obsidian-test-vaults/obsidian-gantt-test-vault"
+      );
 
 // Respect existing env if set, otherwise apply local default for this process only
 process.env.OBSIDIAN_TEST_VAULT =
@@ -32,7 +39,6 @@ if (install.status !== 0) {
 }
 
 // Run WDIO directly via its bin script using local node_modules path
-import path from "node:path";
 const wdioBin = path.join(
   process.cwd(),
   "node_modules",
