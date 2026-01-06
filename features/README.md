@@ -1,10 +1,28 @@
 # BDD Scenarios for Obsidian Gantt Plugin
 
-This directory contains comprehensive Behavior-Driven Development (BDD) scenarios that serve as the **official requirements** for the Obsidian Gantt plugin. These scenarios follow the BDD best practices defined in `.augment/rules/BDD.md` and `project/BDD-Best-Practices.md`.
+This directory contains comprehensive Behavior-Driven Development (BDD) scenarios that serve as the
+**official requirements** for the Obsidian Gantt plugin. These scenarios follow the BDD best
+practices defined in `.augment/rules/BDD.md` and `project/BDD-Best-Practices.md`.
 
-## 📋 **Scenario Overview**
+## 🔄 **Automated Sync with AssertThat**
 
-### **Gantt Visualization** (`gantt-visualization/`)
+This directory is automatically synchronized with AssertThat BDD plugin in Jira:
+
+- **Scheduled Sync**: Daily at 2 AM UTC
+- **Manual Sync**: Via GitHub Actions workflow dispatch
+- **Bidirectional**: Changes flow both ways (GitHub ↔ AssertThat)
+- **PR-based**: All syncs create pull requests for review
+
+**Quick Start**: See [docs/QUICKSTART-SYNC.md](../docs/QUICKSTART-SYNC.md) for setup instructions.
+
+## 📁 **Directory Structure**
+
+All feature files are stored in a **flat structure** (no subdirectories) to maintain compatibility with AssertThat BDD plugin, which does not support folder organization.
+
+## 📋 **Feature Files**
+
+### **Gantt Visualization**
+
 - **task-rendering.feature** (10 scenarios)
   - Basic task display with dates
   - Missing date handling and inference
@@ -31,7 +49,8 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Svelte reactivity optimization
   - Mobile performance constraints
 
-### **Bases Integration** (`bases-integration/`)
+### **Bases Integration**
+
 - **data-mapping.feature** (12 scenarios)
   - Basic property mapping to Gantt data
   - Custom field mappings and file properties
@@ -45,7 +64,8 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Configuration reading and error handling
   - Debug support and cleanup
 
-### **Task Management** (`task-management/`)
+### **Task Management**
+
 - **virtual-task-handling.feature** (10 scenarios)
   - Multi-parent task virtual duplicates
   - Unique ID generation and data consistency
@@ -59,39 +79,76 @@ This directory contains comprehensive Behavior-Driven Development (BDD) scenario
   - Keyboard navigation and accessibility
   - Bulk editing and undo/redo
 
-### **Data Sources** (`data-sources/`)
+### **Data Sources**
+
 - **data-transformation.feature** (12 scenarios)
   - Field mapping and date conversion
   - Missing data inference and validation
   - Property preservation and type mapping
   - Error handling and performance optimization
 
-### **User Experience** (`user-experience/`)
+### **User Experience**
+
 - **error-handling.feature** (15 scenarios)
   - Configuration and data loading errors
   - Plugin dependency and compatibility issues
   - File system and permission handling
   - Graceful degradation and recovery
 
+### **BDD Framework**
+
+- **framework-validation.feature** (2 scenarios)
+  - BDD framework setup and validation
+  - Basic test execution
+
+- **bidirectional-sync.feature** (8 scenarios)
+  - GitHub ↔ AssertThat synchronization
+  - Upload, download, and round-trip sync
+  - Metadata tracking and conflict handling
+
 ## 🎯 **Total Coverage**
 
-- **9 Feature Files**
-- **125 BDD Scenarios**
+- **12 Feature Files**
+- **125+ BDD Scenarios**
 - **Complete functional coverage** of implemented and planned features
+
+## 🔑 **AssertThat ID Tracking**
+
+Each feature and scenario contains unique AssertThat IDs stored as comments:
+
+```gherkin
+# @assertthat-feature-id: BDD Framework Validation
+Feature: BDD Framework Validation
+
+  # @assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
+  Scenario: Basic task creation and rendering
+    Given a task with title "Sample Task"
+```
+
+These IDs enable:
+- ✅ Resilient sync even when names change
+- ✅ Proper conflict detection and resolution
+- ✅ Tracking of new/deleted scenarios
+- ✅ Stable identifier for bidirectional sync
+
+See [docs/assertthat-id-tracking.md](../docs/assertthat-id-tracking.md) for details.
 
 ## 📝 **BDD Principles Applied**
 
 ### **Domain Language**
+
 - Scenarios written from user perspective
 - Business-focused language avoiding technical implementation details
 - Clear Given-When-Then structure
 
 ### **Behavior Focus**
+
 - Each scenario tests one specific behavior
 - Concrete examples with realistic data
 - Edge cases and error conditions covered
 
 ### **Tag Organization**
+
 - `@critical` - Essential functionality
 - `@smoke` - Basic functionality verification
 - `@performance` - Performance-related scenarios
@@ -115,7 +172,9 @@ These BDD scenarios serve as:
 ## 🔧 **Implementation Notes**
 
 ### **Step Definitions Required**
+
 Based on these scenarios, you'll need step definitions for:
+
 - Vault and note setup
 - Gantt view operations
 - Task interactions
@@ -124,12 +183,14 @@ Based on these scenarios, you'll need step definitions for:
 - Performance measurement
 
 ### **Test Data Requirements**
+
 - Sample vaults with various note structures
 - Bases configuration examples
 - Large datasets for performance testing
 - Corrupted data for error testing
 
 ### **Integration Points**
+
 - Obsidian API integration
 - Bases plugin integration
 - SVAR Svelte Gantt component
@@ -144,4 +205,5 @@ Based on these scenarios, you'll need step definitions for:
 4. **Create Test Data**: Build vault fixtures and test datasets
 5. **Run BDD Tests**: Execute scenarios to drive development
 
-These scenarios provide a complete blueprint for implementing the Obsidian Gantt plugin with confidence that all requirements are captured and testable.
+These scenarios provide a complete blueprint for implementing the Obsidian Gantt plugin with
+confidence that all requirements are captured and testable.

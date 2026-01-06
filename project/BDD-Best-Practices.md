@@ -2,14 +2,17 @@
 
 ## Overview
 
-This document defines the best practices for implementing Behavior-Driven Development (BDD) in the Obsidian Gantt plugin project. BDD scenarios will serve as our **official requirements** and living documentation, ensuring alignment between business needs and technical implementation.
+This document defines the best practices for implementing Behavior-Driven Development (BDD) in the
+Obsidian Gantt plugin project. BDD scenarios will serve as our **official requirements** and living
+documentation, ensuring alignment between business needs and technical implementation.
 
 ## Philosophy
 
 - **BDD scenarios are the single source of truth** for requirements
 - **Feature files are living documentation** that stays current with implementation
 - **Executable specifications** validate that implementation meets business needs
-- **Stakeholder-readable format** enables collaboration across technical and non-technical team members
+- **Stakeholder-readable format** enables collaboration across technical and non-technical team
+  members
 
 ## Repository Structure
 
@@ -87,15 +90,15 @@ obsidian-gantt/
 
 ```typescript
 // test/wdio/wdio.cucumber.conf.mts
-import { config as baseConfig } from './wdio.conf.mts';
-import type { Options } from '@wdio/types';
+import { config as baseConfig } from "./wdio.conf.mts";
+import type { Options } from "@wdio/types";
 
 export const config: Options.Testrunner = {
   ...baseConfig,
-  framework: 'cucumber',
-  specs: ['../../features/**/*.feature'],
+  framework: "cucumber",
+  specs: ["../../features/**/*.feature"],
   cucumberOpts: {
-    require: ['./test/e2e/features/step-definitions/**/*.ts'],
+    require: ["./test/e2e/features/step-definitions/**/*.ts"],
     backtrace: false,
     requireModule: [],
     dryRun: false,
@@ -103,17 +106,20 @@ export const config: Options.Testrunner = {
     snippets: true,
     source: true,
     strict: false,
-    tagExpression: '',
+    tagExpression: "",
     timeout: 60000,
-    ignoreUndefinedDefinitions: false
+    ignoreUndefinedDefinitions: false,
   },
   reporters: [
-    'spec',
-    ['cucumber-json', {
-      outputDir: './test-results/cucumber/',
-      filename: 'cucumber-report.json'
-    }]
-  ]
+    "spec",
+    [
+      "cucumber-json",
+      {
+        outputDir: "./test-results/cucumber/",
+        filename: "cucumber-report.json",
+      },
+    ],
+  ],
 };
 ```
 
@@ -142,7 +148,7 @@ Feature: [Clear, business-focused title]
     Given [context with <parameter>]
     When [action with <parameter>]
     Then [outcome with <parameter>]
-    
+
     Examples:
       | parameter | expected_result |
       | value1    | result1        |
@@ -206,41 +212,41 @@ Feature: Task Editing in Gantt View
 
 ```typescript
 // test/e2e/features/step-definitions/task-steps.ts
-import { Given, When, Then } from '@cucumber/cucumber';
-import { browser, expect, $ } from '@wdio/globals';
+import { Given, When, Then } from "@cucumber/cucumber";
+import { browser, expect, $ } from "@wdio/globals";
 
-Given('I have a vault with task notes', async function() {
-  await browser.reloadObsidian({ 
-    vault: process.env.OBSIDIAN_TEST_VAULT || 'test/vaults/tasks'
+Given("I have a vault with task notes", async function () {
+  await browser.reloadObsidian({
+    vault: process.env.OBSIDIAN_TEST_VAULT || "test/vaults/tasks",
   });
 });
 
-Given('I can see a task {string} in the Gantt', async function(taskTitle: string) {
-  await browser.executeObsidianCommand('obsidian-gantt:open');
+Given("I can see a task {string} in the Gantt", async function (taskTitle: string) {
+  await browser.executeObsidianCommand("obsidian-gantt:open");
   await expect($(`.gantt_task_row*=${taskTitle}`)).toExist();
   this.currentTask = taskTitle;
 });
 
-When('I double-click on the task', async function() {
+When("I double-click on the task", async function () {
   await $(`.gantt_task_row*=${this.currentTask}`).doubleClick();
 });
 
-Then('a task editor should open', async function() {
-  await expect($('.modal-container .task-editor')).toExist();
+Then("a task editor should open", async function () {
+  await expect($(".modal-container .task-editor")).toExist();
 });
 
-When('I change the title to {string}', async function(newTitle: string) {
+When("I change the title to {string}", async function (newTitle: string) {
   const titleInput = $('.task-editor input[data-testid="task-title"]');
   await titleInput.clearValue();
   await titleInput.setValue(newTitle);
   this.newTaskTitle = newTitle;
 });
 
-When('I save the changes', async function() {
+When("I save the changes", async function () {
   await $('.task-editor button[data-testid="save-task"]').click();
 });
 
-Then('the task title should update in the Gantt', async function() {
+Then("the task title should update in the Gantt", async function () {
   await expect($(`.gantt_task_row*=${this.newTaskTitle}`)).toExist();
 });
 ```
@@ -278,8 +284,8 @@ Scenario: Render 1000+ tasks efficiently
 
 ```typescript
 // test/e2e/features/support/world.ts
-import { setWorldConstructor, World, IWorldOptions } from '@cucumber/cucumber';
-import { browser } from '@wdio/globals';
+import { setWorldConstructor, World, IWorldOptions } from "@cucumber/cucumber";
+import { browser } from "@wdio/globals";
 
 export interface CustomWorld extends World {
   currentTask?: string;
@@ -306,11 +312,11 @@ export class CustomWorldConstructor extends World implements CustomWorld {
   }
 
   async openGanttView() {
-    await browser.executeObsidianCommand('obsidian-gantt:open');
-    await browser.waitUntil(
-      async () => await $('.gantt_container').isExisting(),
-      { timeout: 10000, timeoutMsg: 'Gantt view did not open' }
-    );
+    await browser.executeObsidianCommand("obsidian-gantt:open");
+    await browser.waitUntil(async () => await $(".gantt_container").isExisting(), {
+      timeout: 10000,
+      timeoutMsg: "Gantt view did not open",
+    });
   }
 }
 
@@ -321,42 +327,42 @@ setWorldConstructor(CustomWorldConstructor);
 
 ```typescript
 // test/e2e/features/support/hooks.ts
-import { Before, After, BeforeAll, AfterAll } from '@cucumber/cucumber';
-import { browser } from '@wdio/globals';
+import { Before, After, BeforeAll, AfterAll } from "@cucumber/cucumber";
+import { browser } from "@wdio/globals";
 
-BeforeAll(async function() {
+BeforeAll(async function () {
   // Global setup
-  console.log('Starting BDD test suite');
+  console.log("Starting BDD test suite");
 });
 
-Before(async function(scenario) {
+Before(async function (scenario) {
   // Reset state before each scenario
   this.currentTask = undefined;
   this.newTaskTitle = undefined;
 
   // Tag-based setup
-  if (scenario.pickle.tags.some(tag => tag.name === '@bases-integration')) {
-    await this.setupTestVault('bases-tasks');
-  } else if (scenario.pickle.tags.some(tag => tag.name === '@task-management')) {
-    await this.setupTestVault('simple-tasks');
+  if (scenario.pickle.tags.some((tag) => tag.name === "@bases-integration")) {
+    await this.setupTestVault("bases-tasks");
+  } else if (scenario.pickle.tags.some((tag) => tag.name === "@task-management")) {
+    await this.setupTestVault("simple-tasks");
   }
 });
 
-After(async function(scenario) {
+After(async function (scenario) {
   // Cleanup after each scenario
-  if (scenario.result?.status === 'FAILED') {
+  if (scenario.result?.status === "FAILED") {
     // Take screenshot on failure
     const screenshot = await browser.takeScreenshot();
-    this.attach(screenshot, 'image/png');
+    this.attach(screenshot, "image/png");
   }
 
   // Reset Obsidian state
-  await browser.executeObsidianCommand('app:reload');
+  await browser.executeObsidianCommand("app:reload");
 });
 
-AfterAll(async function() {
+AfterAll(async function () {
   // Global cleanup
-  console.log('BDD test suite completed');
+  console.log("BDD test suite completed");
 });
 ```
 
@@ -423,7 +429,7 @@ export class VaultBuilder {
   addTask(task: any): VaultBuilder {
     this.notes.push({
       filename: `${task.title}.md`,
-      content: this.generateTaskContent(task)
+      content: this.generateTaskContent(task),
     });
     return this;
   }
@@ -431,8 +437,8 @@ export class VaultBuilder {
   private generateTaskContent(task: any): string {
     return `---
 title: ${task.title}
-dueDate: ${task.dueDate || ''}
-status: ${task.status || 'todo'}
+dueDate: ${task.dueDate || ""}
+status: ${task.status || "todo"}
 ---
 
 # ${task.title}
@@ -471,7 +477,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install dependencies
         run: npm ci
@@ -557,23 +563,28 @@ npm run bdd -- --cucumberOpts.dryRun=true
 ## Benefits of This Approach
 
 ### ✅ **Living Requirements**
+
 - Feature files serve as official, always-current requirements
 - Business stakeholders can read and validate requirements
 - Requirements and tests evolve together
 
 ### ✅ **Improved Collaboration**
+
 - Common language between business and technical teams
 - Clear traceability from requirements to implementation
 - Stakeholder involvement in requirement validation
 
 ### ✅ **Quality Assurance**
+
 - Executable specifications ensure implementation matches requirements
 - Comprehensive test coverage through scenario-driven development
 - Early detection of requirement gaps or misunderstandings
 
 ### ✅ **Documentation**
+
 - Self-documenting system through feature files
 - Examples of expected behavior for new team members
 - Historical record of requirement changes
 
-This BDD approach transforms requirements from static documents into living, executable specifications that drive development and ensure quality throughout the project lifecycle.
+This BDD approach transforms requirements from static documents into living, executable
+specifications that drive development and ensure quality throughout the project lifecycle.

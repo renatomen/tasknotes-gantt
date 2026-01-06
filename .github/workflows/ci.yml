@@ -17,10 +17,65 @@ jobs:
         run: npm run lint --if-present
       - name: Typecheck
         run: npm run typecheck --if-present
+      - name: Check BDD changes
+        id: bdd-changes
+        run: |
+          if npm run detect:bdd-changes; then
+            echo "bdd-changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "bdd-changed=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+      - name: Validate BDD files
+        if: steps.bdd-changes.outputs.bdd-changed == 'true'
+        run: npm run validate:bdd
       - name: Unit tests
         run: npm test --if-present
+        env:
+          ASSERTTHAT_PROJECT_ID: ${{ secrets.ASSERTTHAT_PROJECT_ID }}
+          ASSERTTHAT_ACCESS_KEY: ${{ secrets.ASSERTTHAT_ACCESS_KEY }}
+          ASSERTTHAT_SECRET_KEY: ${{ secrets.ASSERTTHAT_SECRET_KEY }}
       - name: Build
         run: npm run build
+
+  bdd-validation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch full history for change detection
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Check BDD changes
+        id: bdd-changes
+        run: |
+          if npm run detect:bdd-changes; then
+            echo "bdd-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ BDD changes detected, will run validation"
+          else
+            echo "bdd-changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No BDD changes detected, skipping validation"
+          fi
+        continue-on-error: true
+      - name: Validate BDD syntax
+        if: steps.bdd-changes.outputs.bdd-changed == 'true'
+        run: npm run validate:bdd
+      - name: Validate semantic tags
+        if: steps.bdd-changes.outputs.bdd-changed == 'true'
+        run: npm run tags validate $(find features -name "*.feature" -exec grep -l "@" {} \; | head -5 | xargs grep -ho "@[a-zA-Z0-9-]*" | sort -u | tr '\n' ',' | sed 's/,$//')
+        continue-on-error: true
+      - name: Upload BDD validation results
+        if: steps.bdd-changes.outputs.bdd-changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-validation-results
+          path: |
+            features/**/*.feature
+            .bdd/semantic-tags.yaml
+            scripts/*bdd*.mjs
 
   e2e:
     runs-on: windows-latest

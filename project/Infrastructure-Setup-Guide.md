@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document provides a complete blueprint for setting up the development infrastructure for the Obsidian Gantt plugin from scratch. It includes all CI/CD pipelines, build systems, testing frameworks, and development tooling.
+This document provides a complete blueprint for setting up the development infrastructure for the
+Obsidian Gantt plugin from scratch. It includes all CI/CD pipelines, build systems, testing
+frameworks, and development tooling.
 
 ## 1. Project Structure
 
@@ -41,6 +43,7 @@ obsidian-gantt/
 ## 2. Package Configuration
 
 ### package.json
+
 ```json
 {
   "name": "obsidian-gantt",
@@ -83,7 +86,6 @@ obsidian-gantt/
     "eslint": "^9.36.0",
     "husky": "^9.1.7",
     "jest": "^30.1.3",
-    "obsidian-typings": "^4.51.0",
     "prettier": "^3.6.2",
     "svelte": "^5.39.6",
     "svelte-check": "^4.3.2",
@@ -103,21 +105,22 @@ obsidian-gantt/
 ## 3. Build System Configuration
 
 ### vite.config.ts
-```typescript
-import path from 'path';
-import { defineConfig, type Plugin } from 'vite';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
-import builtins from 'builtin-modules';
-import fs from 'fs';
 
-const prod = (process.argv[2] === 'production');
+```typescript
+import path from "path";
+import { defineConfig, type Plugin } from "vite";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
+import builtins from "builtin-modules";
+import fs from "fs";
+
+const prod = process.argv[2] === "production";
 
 // Plugin to copy manifest.json to dist
 const copyManifest = (): Plugin => ({
-  name: 'copy-manifest',
+  name: "copy-manifest",
   writeBundle() {
-    fs.copyFileSync('manifest.json', 'dist/manifest.json');
-  }
+    fs.copyFileSync("manifest.json", "dist/manifest.json");
+  },
 });
 
 export default defineConfig(() => {
@@ -133,71 +136,72 @@ export default defineConfig(() => {
     ],
     watch: !prod,
     build: {
-      sourcemap: prod ? false : ('inline' as const),
+      sourcemap: prod ? false : ("inline" as const),
       minify: prod,
       // Use Vite lib mode https://vitejs.dev/guide/build.html#library-mode
       commonjsOptions: {
         ignoreTryCatch: false,
       },
       lib: {
-        entry: path.resolve(__dirname, './src/main.ts'),
-        formats: ['cjs' as const],
+        entry: path.resolve(__dirname, "./src/main.ts"),
+        formats: ["cjs" as const],
       },
       css: {},
       rollupOptions: {
         output: {
           // Overwrite default Vite output fileName
-          entryFileNames: 'main.js',
-          assetFileNames: 'styles.css',
+          entryFileNames: "main.js",
+          assetFileNames: "styles.css",
         },
         external: [
-          'obsidian',
-          'electron',
-          'codemirror',
-          '@codemirror/autocomplete',
-          '@codemirror/closebrackets',
-          '@codemirror/collab',
-          '@codemirror/commands',
-          '@codemirror/comment',
-          '@codemirror/fold',
-          '@codemirror/gutter',
-          '@codemirror/highlight',
-          '@codemirror/history',
-          '@codemirror/language',
-          '@codemirror/lint',
-          '@codemirror/matchbrackets',
-          '@codemirror/panel',
-          '@codemirror/rangeset',
-          '@codemirror/rectangular-selection',
-          '@codemirror/search',
-          '@codemirror/state',
-          '@codemirror/stream-parser',
-          '@codemirror/text',
-          '@codemirror/tooltip',
-          '@codemirror/view',
-          '@lezer/common',
-          '@lezer/lr',
-          '@lezer/highlight',
+          "obsidian",
+          "electron",
+          "codemirror",
+          "@codemirror/autocomplete",
+          "@codemirror/closebrackets",
+          "@codemirror/collab",
+          "@codemirror/commands",
+          "@codemirror/comment",
+          "@codemirror/fold",
+          "@codemirror/gutter",
+          "@codemirror/highlight",
+          "@codemirror/history",
+          "@codemirror/language",
+          "@codemirror/lint",
+          "@codemirror/matchbrackets",
+          "@codemirror/panel",
+          "@codemirror/rangeset",
+          "@codemirror/rectangular-selection",
+          "@codemirror/search",
+          "@codemirror/state",
+          "@codemirror/stream-parser",
+          "@codemirror/text",
+          "@codemirror/tooltip",
+          "@codemirror/view",
+          "@lezer/common",
+          "@lezer/lr",
+          "@lezer/highlight",
           ...builtins,
         ],
       },
       // Use dist as the output dir
       emptyOutDir: true,
-      outDir: 'dist',
+      outDir: "dist",
     },
   };
 });
 ```
 
 ### svelte.config.js
+
 ```javascript
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 export default {
   // Consult https://svelte.dev/docs#compile-time-svelte-preprocess
   // for more information about preprocessors
   preprocess: vitePreprocess(),
-  
+
   compilerOptions: {
     // Enable Svelte 5 runes mode
     runes: true,
@@ -208,6 +212,7 @@ export default {
 ## 4. TypeScript Configuration
 
 ### tsconfig.json
+
 ```json
 {
   "compilerOptions": {
@@ -230,9 +235,7 @@ export default {
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": [
-      "svelte"
-    ]
+    "types": ["svelte"]
   },
   "include": ["src", "**/*.svelte"],
   "exclude": ["node_modules", "dist"]
@@ -242,149 +245,167 @@ export default {
 ## 5. Linting and Code Quality
 
 ### eslint.config.mjs
+
 ```javascript
-import js from '@eslint/js';
-import tsParser from '@typescript-eslint/parser';
-import tsPlugin from '@typescript-eslint/eslint-plugin';
+import js from "@eslint/js";
+import tsParser from "@typescript-eslint/parser";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
 
 export default [
   // Files/folders to ignore
   {
     ignores: [
-      'dist/**',
-      'node_modules/**',
-      'coverage/**',
-      '.wdio-*',
-      'project/**',
-      'test-results/**',
-      'vendor/**'
-    ]
+      "dist/**",
+      "node_modules/**",
+      "coverage/**",
+      ".wdio-*",
+      "project/**",
+      "test-results/**",
+      "vendor/**",
+    ],
   },
   // Base JS recommended rules
   js.configs.recommended,
   // TypeScript files
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ["**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
         ecmaVersion: 2022,
-        sourceType: 'module',
-        ecmaFeatures: { jsx: true }
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
       },
       globals: {
-        console: 'readonly',
-        window: 'readonly',
-        document: 'readonly',
-        HTMLElement: 'readonly',
-        setTimeout: 'readonly'
-      }
+        console: "readonly",
+        window: "readonly",
+        document: "readonly",
+        HTMLElement: "readonly",
+        setTimeout: "readonly",
+      },
     },
     plugins: {
-      '@typescript-eslint': tsPlugin
+      "@typescript-eslint": tsPlugin,
     },
     rules: {
       // keep initial rule set minimal; we can tighten later per standards
-      'no-empty': ['error', { allowEmptyCatch: true }],
-      'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn'
-    }
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-explicit-any": "warn",
+    },
   },
   {
-    files: ['scripts/**/*.{js,mjs,cjs}'],
+    files: ["scripts/**/*.{js,mjs,cjs}"],
     languageOptions: {
       globals: {
-        console: 'readonly',
-        process: 'readonly',
-        __dirname: 'readonly',
-        module: 'readonly',
-        require: 'readonly'
-      }
-    }
+        console: "readonly",
+        process: "readonly",
+        __dirname: "readonly",
+        module: "readonly",
+        require: "readonly",
+      },
+    },
   },
   {
-    files: ['test/**/*.ts'],
+    files: ["test/**/*.ts"],
     languageOptions: {
       globals: {
-        describe: 'readonly',
-        it: 'readonly',
-        expect: 'readonly',
-        process: 'readonly',
-        console: 'readonly'
-      }
-    }
-  }
+        describe: "readonly",
+        it: "readonly",
+        expect: "readonly",
+        process: "readonly",
+        console: "readonly",
+      },
+    },
+  },
 ];
 ```
 
 ## 6. Testing Infrastructure
 
 ### jest.config.mjs
+
 ```javascript
 /** @type {import('jest').Config} */
 const config = {
-  testEnvironment: 'node',
+  testEnvironment: "node",
   transform: {
-    '^.+\\.(t|j)sx?$': ['@swc/jest', {
-      jsc: {
-        parser: { syntax: 'typescript', tsx: true },
-        target: 'es2020'
+    "^.+\\.(t|j)sx?$": [
+      "@swc/jest",
+      {
+        jsc: {
+          parser: { syntax: "typescript", tsx: true },
+          target: "es2020",
+        },
+        module: { type: "commonjs" },
       },
-      module: { type: 'commonjs' }
-    }]
+    ],
   },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'mjs'],
-  roots: ['<rootDir>/src', '<rootDir>/test'],
-  testMatch: ['**/*.test.ts']
+  moduleFileExtensions: ["ts", "tsx", "js", "mjs"],
+  roots: ["<rootDir>/src", "<rootDir>/test"],
+  testMatch: ["**/*.test.ts"],
 };
 
 export default config;
 ```
 
 ### E2E Testing Configuration (test/wdio/wdio.conf.mts)
+
 ```typescript
-import { type Options } from '@wdio/types';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
+import { type Options } from "@wdio/types";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const pluginRoot = process.env.PLUGIN_DIR || path.resolve(__dirname, '../../');
-const defaultVault = path.resolve(__dirname, '../../.wdio-vault');
+const pluginRoot = process.env.PLUGIN_DIR || path.resolve(__dirname, "../../");
+const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
 const vaultPath = process.env.OBSIDIAN_TEST_VAULT || defaultVault;
 
 // Ensure vault directory exists to avoid service failures in CI/local
-try { fs.mkdirSync(vaultPath, { recursive: true }); } catch { /* noop */ }
+try {
+  fs.mkdirSync(vaultPath, { recursive: true });
+} catch {
+  /* noop */
+}
 
 export const config: Options.Testrunner = {
-  runner: 'local',
-  framework: 'mocha',
-  specs: ['../specs/**/*.e2e.ts'],
+  runner: "local",
+  framework: "mocha",
+  specs: ["../specs/**/*.e2e.ts"],
   maxInstances: 1,
-  capabilities: [{
-    browserName: 'obsidian',
-    browserVersion: 'latest',
-    'wdio:obsidianOptions': {
-      plugins: [path.resolve(pluginRoot, 'dist')],
-      vault: vaultPath
-    }
-  }],
-  services: ['obsidian'],
-  reporters: ['obsidian', 'spec'],
-  mochaOpts: { ui: 'bdd', timeout: 180000 }
+  capabilities: [
+    {
+      browserName: "obsidian",
+      browserVersion: "latest",
+      "wdio:obsidianOptions": {
+        plugins: [path.resolve(pluginRoot, "dist")],
+        vault: vaultPath,
+      },
+    },
+  ],
+  services: ["obsidian"],
+  reporters: ["obsidian", "spec"],
+  mochaOpts: { ui: "bdd", timeout: 180000 },
 };
 ```
 
 ### Sample E2E Test (test/specs/smoke.e2e.ts)
-```typescript
-import { browser } from '@wdio/globals';
 
-describe('obsidian-gantt smoke', () => {
-  it('boots Obsidian (skeleton)', async () => {
+```typescript
+import { browser } from "@wdio/globals";
+
+describe("obsidian-gantt smoke", () => {
+  it("boots Obsidian (skeleton)", async () => {
     await browser.reloadObsidian?.({
-      vault: process.env.OBSIDIAN_TEST_VAULT || 'C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault'
+      vault:
+        process.env.OBSIDIAN_TEST_VAULT ||
+        "C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault",
     });
     // Placeholder until plugin view is implemented
     expect(true).toBe(true);
@@ -395,24 +416,25 @@ describe('obsidian-gantt smoke', () => {
 ## 7. Build Scripts
 
 ### scripts/install-to-vault.cjs
-```javascript
-'use strict';
-const fs = require('fs');
-const fsp = fs.promises;
-const path = require('path');
 
-const DEFAULT_VAULT = 'C:\\Users\\renato\\obsidian-test-vaults\\obsidian-gantt-test-vault';
+```javascript
+"use strict";
+const fs = require("fs");
+const fsp = fs.promises;
+const path = require("path");
+
+const DEFAULT_VAULT = "C:\\Users\\renato\\obsidian-test-vaults\\obsidian-gantt-test-vault";
 const vaultPath = process.env.OBSIDIAN_TEST_VAULT || DEFAULT_VAULT;
-const pluginId = 'obsidian-gantt';
-const pluginDir = path.join(vaultPath, '.obsidian', 'plugins', pluginId);
+const pluginId = "obsidian-gantt";
+const pluginDir = path.join(vaultPath, ".obsidian", "plugins", pluginId);
 
 (async () => {
   try {
     await fsp.mkdir(pluginDir, { recursive: true });
 
-    const files = ['manifest.json', 'main.js', 'styles.css'];
+    const files = ["manifest.json", "main.js", "styles.css"];
     for (const file of files) {
-      const src = path.join('dist', file);
+      const src = path.join("dist", file);
       const dest = path.join(pluginDir, file);
       if (fs.existsSync(src)) {
         await fsp.copyFile(src, dest);
@@ -423,29 +445,30 @@ const pluginDir = path.join(vaultPath, '.obsidian', 'plugins', pluginId);
     }
 
     // Ensure data.json exists; do not overwrite if present
-    const dataPath = path.join(pluginDir, 'data.json');
+    const dataPath = path.join(pluginDir, "data.json");
     if (!fs.existsSync(dataPath)) {
-      await fsp.writeFile(dataPath, '{}', 'utf8');
+      await fsp.writeFile(dataPath, "{}", "utf8");
       console.log(`[install] Created ${dataPath}`);
     } else {
-      console.log('[install] data.json already exists; not overwriting');
+      console.log("[install] data.json already exists; not overwriting");
     }
 
     console.log(`[install] Installed plugin to ${pluginDir}`);
   } catch (err) {
-    console.error('[install] Failed:', err);
+    console.error("[install] Failed:", err);
     process.exit(1);
   }
 })();
 ```
 
 ### scripts/e2e-local.mjs
+
 ```javascript
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from "node:child_process";
 
 // Repo-scoped local test vault path (user-provided)
-const LOCAL_VAULT = 'C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault';
+const LOCAL_VAULT = "C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault";
 
 // Respect existing env if set, otherwise apply local default for this process only
 process.env.OBSIDIAN_TEST_VAULT = process.env.OBSIDIAN_TEST_VAULT || LOCAL_VAULT;
@@ -453,68 +476,86 @@ process.env.OBSIDIAN_TEST_VAULT = process.env.OBSIDIAN_TEST_VAULT || LOCAL_VAULT
 console.log(`[local] Using OBSIDIAN_TEST_VAULT=${process.env.OBSIDIAN_TEST_VAULT}`);
 
 // Build and install locally
-const build = spawnSync(process.execPath, ['scripts/build.mjs'], { stdio: 'inherit', env: process.env, cwd: process.cwd() });
+const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
+  stdio: "inherit",
+  env: process.env,
+  cwd: process.cwd(),
+});
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
-const install = spawnSync(process.execPath, ['scripts/install-to-vault.cjs'], { stdio: 'inherit', env: process.env, cwd: process.cwd() });
+const install = spawnSync(process.execPath, ["scripts/install-to-vault.cjs"], {
+  stdio: "inherit",
+  env: process.env,
+  cwd: process.cwd(),
+});
 if (install.status !== 0) {
   process.exit(install.status ?? 1);
 }
 
 // Run WDIO directly via its bin script using local node_modules path
-import path from 'node:path';
-const wdioBin = path.join(process.cwd(), 'node_modules', '@wdio', 'cli', 'bin', 'wdio.js');
-const e2e = spawnSync(process.execPath, [wdioBin, 'run', './test/wdio/wdio.conf.mts'], { stdio: 'inherit', env: process.env, cwd: process.cwd() });
+import path from "node:path";
+const wdioBin = path.join(process.cwd(), "node_modules", "@wdio", "cli", "bin", "wdio.js");
+const e2e = spawnSync(process.execPath, [wdioBin, "run", "./test/wdio/wdio.conf.mts"], {
+  stdio: "inherit",
+  env: process.env,
+  cwd: process.cwd(),
+});
 process.exit(e2e.status ?? 1);
 ```
 
 ### scripts/build.mjs
+
 ```javascript
-import esbuild from 'esbuild';
-import fs from 'node:fs/promises';
+import esbuild from "esbuild";
+import fs from "node:fs/promises";
 
-const isWatch = process.argv.includes('--watch');
+const isWatch = process.argv.includes("--watch");
 
-await fs.mkdir('dist', { recursive: true });
+await fs.mkdir("dist", { recursive: true });
 
 const options = {
-  entryPoints: ['src/main.ts'],
-  outfile: 'dist/main.js',
+  entryPoints: ["src/main.ts"],
+  outfile: "dist/main.js",
   bundle: true,
-  format: 'cjs',
-  platform: 'browser',
+  format: "cjs",
+  platform: "browser",
   sourcemap: true,
-  target: ['es2018'],
-  jsx: 'automatic',
-  loader: { '.ts': 'ts', '.tsx': 'tsx', '.css': 'text' },
-  external: ['obsidian', 'electron', 'fs', 'path', 'os']
+  target: ["es2018"],
+  jsx: "automatic",
+  loader: { ".ts": "ts", ".tsx": "tsx", ".css": "text" },
+  external: ["obsidian", "electron", "fs", "path", "os"],
 };
 
 if (isWatch) {
   const ctx = await esbuild.context(options);
   await ctx.watch();
-  console.log('[build] Watching...');
+  console.log("[build] Watching...");
 } else {
   await esbuild.build(options);
-  console.log('[build] Done');
+  console.log("[build] Done");
 }
 
 // Copy static assets (do not fail build if missing)
-for (const file of ['manifest.json', 'styles.css']) {
-  try { await fs.copyFile(file, `dist/${file}`); }
-  catch { console.warn(`[build] Optional asset missing: ${file}`); }
+for (const file of ["manifest.json", "styles.css"]) {
+  try {
+    await fs.copyFile(file, `dist/${file}`);
+  } catch {
+    console.warn(`[build] Optional asset missing: ${file}`);
+  }
 }
 ```
 
 ## 8. Git Hooks and Pre-commit
 
 ### .husky/pre-commit
+
 ```bash
 npm run lint && npm run typecheck
 ```
 
 ### Setup Husky
+
 ```bash
 npm install husky --save-dev
 npx husky init
@@ -524,6 +565,7 @@ echo "npm run lint && npm run typecheck" > .husky/pre-commit
 ## 9. CI/CD Pipeline
 
 ### .github/workflows/ci.yml
+
 ```yaml
 name: CI
 
@@ -537,7 +579,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - name: Install dependencies
         run: npm ci
       - name: Lint
@@ -556,7 +598,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - name: Install dependencies
         run: npm ci
       - name: Prepare temp vault path
@@ -585,6 +627,7 @@ jobs:
 ## 10. Obsidian Plugin Configuration
 
 ### manifest.json
+
 ```json
 {
   "id": "obsidian-gantt",
@@ -601,6 +644,7 @@ jobs:
 ## 11. Git Configuration
 
 ### .gitignore
+
 ```gitignore
 # Node / package managers
 node_modules/
@@ -638,6 +682,7 @@ test/wdio/.obsidian-cache/
 ## 12. License Configuration
 
 ### LICENSE
+
 ```text
 GNU GENERAL PUBLIC LICENSE
 Version 3, 29 June 2007
@@ -656,17 +701,20 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
 
-**Note**: GPL v3 license is required for compatibility with SVAR Svelte Gantt library which is also GPL v3 licensed.
+**Note**: GPL v3 license is required for compatibility with SVAR Svelte Gantt library which is also
+GPL v3 licensed.
 
 ## 13. Setup Instructions
 
 ### Prerequisites
+
 - Node.js 18+
 - npm or yarn
 - Git
 - Obsidian (for E2E testing)
 
 ### Initial Setup Commands
+
 ```bash
 # 1. Initialize repository
 git init
@@ -693,10 +741,12 @@ npm run e2e:local
 ```
 
 ### Environment Variables
+
 - `OBSIDIAN_TEST_VAULT`: Path to test vault (defaults to user-specific path)
 - `PLUGIN_DIR`: Plugin directory for E2E tests (defaults to project root)
 
 ### Development Workflow
+
 1. **Development**: `npm run dev` (watch mode with auto-install)
 2. **Testing**: `npm run test` (unit tests)
 3. **Linting**: `npm run lint` (ESLint)
@@ -705,6 +755,7 @@ npm run e2e:local
 6. **Formatting**: `npm run format` (Prettier)
 
 ### CI/CD Features
+
 - ✅ **Automated Testing**: Unit tests, linting, type checking
 - ✅ **E2E Testing**: WebdriverIO with Obsidian service
 - ✅ **Build Verification**: Ensures plugin builds successfully
@@ -713,6 +764,7 @@ npm run e2e:local
 - ✅ **Cross-platform**: Windows-focused but adaptable
 
 ### Key Infrastructure Benefits
+
 1. **Complete Test Coverage**: Unit, integration, and E2E testing
 2. **Automated Quality Gates**: Pre-commit hooks and CI checks
 3. **Development Efficiency**: Hot reloading and auto-installation
@@ -725,26 +777,35 @@ npm run e2e:local
 ## 14. Customization Notes
 
 ### Vault Path Configuration
+
 Update the vault paths in:
+
 - `scripts/install-to-vault.cjs` (DEFAULT_VAULT)
 - `scripts/e2e-local.mjs` (LOCAL_VAULT)
 - `test/specs/smoke.e2e.ts` (fallback path)
 
 ### Plugin ID and Metadata
+
 Update in:
+
 - `manifest.json` (id, name, description, author)
 - `package.json` (name, description, author)
 - `scripts/install-to-vault.cjs` (pluginId)
 
 ### Build Targets
+
 Modify `vite.config.ts` and `tsconfig.json` for different:
+
 - Target environments (ES2019, ES2020, etc.)
 - Module systems (ESM, CJS)
 - Browser compatibility
 
 ### License Compliance
+
 - Ensure all dependencies are GPL v3 compatible
 - Include proper license headers in source files
 - Maintain GPL v3 license file in repository root
 
-This infrastructure provides a solid foundation for professional Obsidian plugin development with modern tooling, comprehensive testing capabilities, and proper GPL v3 license compliance for SVAR Svelte Gantt integration.
+This infrastructure provides a solid foundation for professional Obsidian plugin development with
+modern tooling, comprehensive testing capabilities, and proper GPL v3 license compliance for SVAR
+Svelte Gantt integration.

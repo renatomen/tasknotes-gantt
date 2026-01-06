@@ -19,9 +19,7 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": [
-      "svelte"
-    ]
+    "types": ["svelte", "node"]
   },
   "include": ["src", "**/*.svelte"],
   "exclude": ["node_modules", "dist"]
