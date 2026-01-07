@@ -30,7 +30,7 @@ const mockConfig = {
 };
 
 describe("SyncTransaction", () => {
-  let transaction: any;
+  let transaction: SyncTransaction;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -162,8 +162,8 @@ describe("SyncTransaction", () => {
     it("should skip backup for non-existent files", async () => {
       mockFs.mkdir.mockResolvedValue(undefined);
       mockFs.writeFile.mockResolvedValue(undefined);
-      const enoentError = new Error("File not found");
-      (enoentError as any).code = "ENOENT";
+      const enoentError: NodeJS.ErrnoException = new Error("File not found");
+      enoentError.code = "ENOENT";
       mockFs.stat.mockRejectedValue(enoentError);
 
       await transaction.begin();

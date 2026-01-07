@@ -6,7 +6,7 @@
 import { FeatureMetadataManager } from '../../scripts/metadata/FeatureMetadataManager.mjs';
 
 describe('FeatureMetadataManager', () => {
-  let manager: any;
+  let manager: FeatureMetadataManager;
 
   beforeEach(() => {
     manager = new FeatureMetadataManager();

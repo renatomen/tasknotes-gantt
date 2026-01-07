@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global HTMLElement */
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';

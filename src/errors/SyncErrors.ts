@@ -213,7 +213,7 @@ export class SyncErrorFactory {
     return new FeatureValidationError(message, filePath, errors);
   }
 
-  public static createGitError(command: string, error: any): GitOperationError {
+  public static createGitError(command: string, error: { status?: number; stderr?: string }): GitOperationError {
     const message = `Git command failed: ${command}`;
     return new GitOperationError(message, command, error.status, error.stderr);
   }

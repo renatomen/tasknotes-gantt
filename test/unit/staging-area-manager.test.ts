@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import type { Mock } from "jest-mock";
 import fs from "fs/promises";
 import path from "path";
 import { SyncConfiguration } from "../../scripts/config/SyncConfiguration.mjs";
@@ -7,15 +8,25 @@ import {
   FileSystemError,
 } from "../../scripts/errors/SyncErrors.mjs";
 
+/** Mock file system interface for testing */
+interface MockFileSystem {
+  mkdir: Mock<typeof fs.mkdir>;
+  rm: Mock<typeof fs.rm>;
+  readdir: Mock<typeof fs.readdir>;
+  readFile: Mock<typeof fs.readFile>;
+  writeFile: Mock<typeof fs.writeFile>;
+  stat: Mock<typeof fs.stat>;
+}
+
 // Mock dependencies
-const mockFs = {
-  mkdir: jest.fn(),
-  rm: jest.fn(),
-  readdir: jest.fn(),
-  readFile: jest.fn(),
-  writeFile: jest.fn(),
-  stat: jest.fn(),
-} as any;
+const mockFs: MockFileSystem = {
+  mkdir: jest.fn() as Mock<typeof fs.mkdir>,
+  rm: jest.fn() as Mock<typeof fs.rm>,
+  readdir: jest.fn() as Mock<typeof fs.readdir>,
+  readFile: jest.fn() as Mock<typeof fs.readFile>,
+  writeFile: jest.fn() as Mock<typeof fs.writeFile>,
+  stat: jest.fn() as Mock<typeof fs.stat>,
+};
 
 // StagingAreaManager implementation for testing
 class StagingAreaManager {

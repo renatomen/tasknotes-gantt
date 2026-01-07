@@ -15,7 +15,7 @@ import { execSync } from 'child_process';
 jest.mock('child_process');
 
 describe('PRAutomation', () => {
-  let prAutomation: any;
+  let prAutomation: PRAutomation;
   let mockConfig: SyncConfiguration;
   let mockExecSync: jest.MockedFunction<typeof execSync>;
 
@@ -29,8 +29,8 @@ describe('PRAutomation', () => {
 
     mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
     mockExecSync.mockClear();
-    // Default mock implementation returns PR URL string
-    mockExecSync.mockReturnValue('https://github.com/renatomen/obsidian-gantt/pull/123' as any);
+    // Default mock implementation returns PR URL string (Buffer type for execSync)
+    mockExecSync.mockReturnValue(Buffer.from('https://github.com/renatomen/obsidian-gantt/pull/123'));
 
     prAutomation = new PRAutomation({ config: mockConfig });
   });
@@ -253,7 +253,7 @@ describe('PRAutomation', () => {
         if (cmd.toString().includes('gh pr create')) {
           throw new Error('PR creation failed');
         }
-        return '' as any;
+        return Buffer.from('');
       });
 
       expect(() => {

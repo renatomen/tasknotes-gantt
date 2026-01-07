@@ -25,9 +25,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 describe("Bidirectional Sync Integration Tests", () => {
-  let apiClient: any;
-  let uploader: any;
-  let downloader: any;
+  let apiClient: AssertThatApiClient;
+  let uploader: FeatureUploader;
+  let downloader: FeatureDownloader;
   let eventBus: EventEmitter;
   let testDir: string;
 
@@ -66,7 +66,7 @@ describe("Bidirectional Sync Integration Tests", () => {
       await fs.rm(testDir, { recursive: true, force: true });
       await fs.rm("./test-backups", { recursive: true, force: true });
       await fs.unlink("./test-transaction-log.json").catch(() => {});
-    } catch (_error) {
+    } catch {
       // Ignore cleanup errors
     }
   });

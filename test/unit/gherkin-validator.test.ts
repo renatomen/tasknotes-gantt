@@ -12,6 +12,91 @@ const mockGherkin = {
 
 jest.mock("@cucumber/gherkin", () => mockGherkin);
 
+/** Gherkin tag structure */
+interface GherkinTag {
+  name: string;
+}
+
+/** Gherkin step structure */
+interface GherkinStep {
+  keyword: string;
+  text: string;
+}
+
+/** Gherkin scenario structure */
+interface GherkinScenario {
+  name: string;
+  tags?: GherkinTag[];
+  steps?: GherkinStep[];
+}
+
+/** Gherkin rule structure */
+interface GherkinRule {
+  name: string;
+  children?: GherkinChild[];
+}
+
+/** Gherkin child element (scenario or rule) */
+interface GherkinChild {
+  scenario?: GherkinScenario;
+  rule?: GherkinRule;
+}
+
+/** Gherkin feature structure */
+interface GherkinFeature {
+  name: string;
+  description?: string;
+  tags?: GherkinTag[];
+  children?: GherkinChild[];
+  language?: string;
+}
+
+/** Gherkin document structure */
+interface GherkinDocument {
+  feature?: GherkinFeature;
+}
+
+/** Gherkin message structure */
+interface GherkinMessage {
+  gherkinDocument?: GherkinDocument;
+}
+
+/** Scenario metadata */
+interface ScenarioMetadata {
+  name: string;
+  tags: string[];
+  steps: number;
+  type: string;
+  rule?: string;
+}
+
+/** Feature metadata */
+interface FeatureMetadata {
+  name: string;
+  description: string;
+  tags: string[];
+  scenarios: ScenarioMetadata[];
+  language: string;
+}
+
+/** Validation result */
+interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  metadata: FeatureMetadata | null;
+}
+
+/** Batch validation result */
+interface BatchValidationResult {
+  totalFiles: number;
+  validFiles: number;
+  invalidFiles: number;
+  totalErrors: number;
+  totalWarnings: number;
+  details: (ValidationResult & { filePath: string })[];
+}
+
 // GherkinValidator implementation for testing
 class GherkinValidator {
   private uuidFn: () => string;
@@ -20,7 +105,7 @@ class GherkinValidator {
     this.uuidFn = () => Math.random().toString(36).substring(2, 15);
   }
 
-  async validateFeatureFile(filePath: string): Promise<any> {
+  async validateFeatureFile(filePath: string): Promise<ValidationResult> {
     try {
       const fs = await import("fs/promises");
       const content = await fs.readFile(filePath, "utf8");
@@ -37,12 +122,12 @@ class GherkinValidator {
   async validateFeatureContent(
     content: string,
     sourcePath = "unknown"
-  ): Promise<any> {
-    const result = {
+  ): Promise<ValidationResult> {
+    const result: ValidationResult = {
       isValid: true,
-      errors: [] as string[],
-      warnings: [] as string[],
-      metadata: null as any,
+      errors: [],
+      warnings: [],
+      metadata: null,
     };
 
     try {
@@ -64,8 +149,8 @@ class GherkinValidator {
       );
 
       // Find the GherkinDocument message
-      const gherkinDocumentMessage = messages.find(
-        (message: any) => message.gherkinDocument
+      const gherkinDocumentMessage = (messages as GherkinMessage[]).find(
+        (message: GherkinMessage) => message.gherkinDocument
       );
       const gherkinDocument = gherkinDocumentMessage?.gherkinDocument;
 

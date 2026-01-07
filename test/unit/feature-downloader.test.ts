@@ -48,7 +48,7 @@ function createMockZipBuffer(files: { name: string; content: string }[] = []): B
 }
 
 describe("FeatureDownloader", () => {
-  let downloader: any;
+  let downloader: FeatureDownloader;
 
   beforeEach(() => {
     jest.clearAllMocks();

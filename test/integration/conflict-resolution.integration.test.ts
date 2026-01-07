@@ -3,6 +3,19 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 
+/** Interface for file changes during conflict resolution */
+interface FileChanges {
+  additions: string[];
+  deletions: string[];
+  modifications: string[];
+}
+
+/** Interface for failed resolution result */
+interface FailedResolution {
+  filename: string;
+  error: string;
+}
+
 // Mock implementations for integration testing
 class ConflictResolver {
   constructor(
@@ -11,14 +24,14 @@ class ConflictResolver {
   ) {}
 
   async resolveConflicts(
-    changes: any,
+    changes: FileChanges,
     stagingPath: string,
     featuresPath: string
   ) {
     const results = {
       autoResolved: [] as string[],
       requiresManual: [] as string[],
-      failed: [] as any[],
+      failed: [] as FailedResolution[],
     };
 
     for (const filename of changes.modifications) {
@@ -168,7 +181,7 @@ class GitDiffManager {
     }
   }
 
-  async classifyChanges(changes: any) {
+  async classifyChanges(changes: FileChanges) {
     const classified = {
       simple: [...changes.additions, ...changes.deletions] as string[],
       complex: [] as string[],
