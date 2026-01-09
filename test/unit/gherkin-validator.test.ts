@@ -88,7 +88,7 @@ interface ValidationResult {
 }
 
 /** Batch validation result */
-interface BatchValidationResult {
+interface _BatchValidationResult {
   totalFiles: number;
   validFiles: number;
   invalidFiles: number;
@@ -175,24 +175,24 @@ class GherkinValidator {
     return result;
   }
 
-  extractFeatureDataFromAST(feature: any): any {
-    const metadata = {
+  extractFeatureDataFromAST(feature: GherkinFeature): FeatureMetadata {
+    const metadata: FeatureMetadata = {
       name: feature.name || "",
       description: feature.description || "",
-      tags: feature.tags ? feature.tags.map((tag: any) => tag.name) : [],
-      scenarios: [] as any[],
+      tags: feature.tags ? feature.tags.map((tag) => tag.name) : [],
+      scenarios: [],
       language: feature.language || "en",
     };
 
     // Extract scenarios from AST
     if (feature.children) {
-      feature.children.forEach((child: any) => {
+      feature.children.forEach((child) => {
         if (child.scenario) {
           const scenario = child.scenario;
           metadata.scenarios.push({
             name: scenario.name || "",
             tags: scenario.tags
-              ? scenario.tags.map((tag: any) => tag.name)
+              ? scenario.tags.map((tag) => tag.name)
               : [],
             steps: scenario.steps ? scenario.steps.length : 0,
             type: "scenario",
@@ -201,13 +201,13 @@ class GherkinValidator {
           // Handle rules containing scenarios
           const rule = child.rule;
           if (rule.children) {
-            rule.children.forEach((ruleChild: any) => {
+            rule.children.forEach((ruleChild) => {
               if (ruleChild.scenario) {
                 const scenario = ruleChild.scenario;
                 metadata.scenarios.push({
                   name: scenario.name || "",
                   tags: scenario.tags
-                    ? scenario.tags.map((tag: any) => tag.name)
+                    ? scenario.tags.map((tag) => tag.name)
                     : [],
                   steps: scenario.steps ? scenario.steps.length : 0,
                   type: "scenario",
@@ -223,7 +223,7 @@ class GherkinValidator {
     return metadata;
   }
 
-  validateFeatureStructure(feature: any, result: any): void {
+  validateFeatureStructure(feature: GherkinFeature, result: ValidationResult): void {
     // Validate feature has a name
     if (!feature.name || feature.name.trim() === "") {
       result.warnings.push("Feature should have a descriptive name");
@@ -237,7 +237,7 @@ class GherkinValidator {
 
     // Validate scenarios have steps
     if (feature.children) {
-      feature.children.forEach((child: any, index: number) => {
+      feature.children.forEach((child, index: number) => {
         if (child.scenario) {
           const scenario = child.scenario;
           if (!scenario.steps || scenario.steps.length === 0) {
@@ -253,7 +253,7 @@ class GherkinValidator {
     }
   }
 
-  async processMultipleFiles(filePaths: string[]): Promise<any[]> {
+  async processMultipleFiles(filePaths: string[]): Promise<(ValidationResult & { filePath: string })[]> {
     const results = [];
 
     for (const filePath of filePaths) {
@@ -277,14 +277,14 @@ class GherkinValidator {
     return results;
   }
 
-  async validateFeatureFiles(filePaths: string[]): Promise<any> {
-    const results = {
+  async validateFeatureFiles(filePaths: string[]): Promise<_BatchValidationResult> {
+    const results: _BatchValidationResult = {
       totalFiles: filePaths.length,
       validFiles: 0,
       invalidFiles: 0,
       totalErrors: 0,
       totalWarnings: 0,
-      details: [] as any[],
+      details: [],
     };
 
     const validationResults = await this.processMultipleFiles(filePaths);

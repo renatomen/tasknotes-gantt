@@ -7,6 +7,10 @@ import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import type { Mock } from "jest-mock";
 import { SyncTransaction } from "../../scripts/api/SyncTransaction.mjs";
 
+interface FileSystemError extends Error {
+  code?: string;
+}
+
 // Mock dependencies
 const mockFs = {
   mkdir: jest.fn(),
@@ -162,7 +166,7 @@ describe("SyncTransaction", () => {
     it("should skip backup for non-existent files", async () => {
       mockFs.mkdir.mockResolvedValue(undefined);
       mockFs.writeFile.mockResolvedValue(undefined);
-      const enoentError: NodeJS.ErrnoException = new Error("File not found");
+      const enoentError: FileSystemError = new Error("File not found");
       enoentError.code = "ENOENT";
       mockFs.stat.mockRejectedValue(enoentError);
 
