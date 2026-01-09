@@ -31,17 +31,17 @@ async function migrateFeatureFile(filePath) {
 
   const updatedLines = lines.map((line) => {
     // Match and replace feature-level ID
-    // Using [^\n]+ instead of .+ to prevent ReDoS
-    if (line.match(/^#\s*@assertthat-feature-id:\s*([^\n]+)$/)) {
+    // Using String.includes() and startsWith() to avoid regex backtracking (ReDoS)
+    if (line.startsWith("# @assertthat-feature-id:") || line.startsWith("#@assertthat-feature-id:")) {
       modified = true;
-      return line.replace(/^#\s*@assertthat-feature-id:/, "# assertthat-feature-id:");
+      return line.replace("@assertthat-feature-id:", "assertthat-feature-id:");
     }
 
     // Match and replace scenario-level ID (with any indentation)
-    // Using [^\n]+ instead of .+ to prevent ReDoS
-    if (line.match(/^(\s*)#\s*@assertthat-scenario-id:\s*([^\n]+)$/)) {
+    // Using includes() to avoid regex backtracking (ReDoS)
+    if (line.includes("# @assertthat-scenario-id:")) {
       modified = true;
-      return line.replace(/^(\s*)#\s*@assertthat-scenario-id:/, "$1# assertthat-scenario-id:");
+      return line.replace("# @assertthat-scenario-id:", "# assertthat-scenario-id:");
     }
 
     return line;
