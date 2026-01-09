@@ -112,7 +112,7 @@ export class FeatureFileUpdater {
       const line = lines[i];
 
       // Check if this line contains the scenario ID we're looking for
-      if (line.includes(`# @assertthat-scenario-id: ${scenario.id}`)) {
+      if (line.includes(`# assertthat-scenario-id: ${scenario.id}`)) {
         foundScenario = true;
 
         // Find the tags line(s) that precede this ID (look back)
@@ -141,7 +141,7 @@ export class FeatureFileUpdater {
         }
 
         // Add ID comment
-        result.push(`${indent}# @assertthat-scenario-id: ${scenario.id}`);
+        result.push(`${indent}# assertthat-scenario-id: ${scenario.id}`);
 
         // Skip the old ID line
         i++;
@@ -159,7 +159,7 @@ export class FeatureFileUpdater {
           const stepLine = lines[i].trim();
           // Stop if we hit a new scenario block indicator
           if (stepLine.startsWith('@') ||
-              stepLine.startsWith('# @assertthat-scenario-id:') ||
+              stepLine.startsWith('# assertthat-scenario-id:') ||
               stepLine.startsWith('Scenario:')) {
             break;
           }
@@ -248,7 +248,7 @@ export class FeatureFileUpdater {
   createNewFeatureFile(featureName, scenarios) {
     const lines = [];
     
-    lines.push(`# @assertthat-feature-id: ${featureName}`);
+    lines.push(`# assertthat-feature-id: ${featureName}`);
     lines.push(`Feature: ${featureName}`);
     lines.push('');
     
@@ -260,7 +260,7 @@ export class FeatureFileUpdater {
       }
       
       // Add scenario ID and name
-      lines.push(`    # @assertthat-scenario-id: ${scenario.id}`);
+      lines.push(`    # assertthat-scenario-id: ${scenario.id}`);
       lines.push(`    Scenario: ${scenario.name}`);
       
       // Add steps

@@ -181,7 +181,7 @@ export class IdBasedDiffManager {
       // Stop at next scenario, tag, or ID comment
       if (line.startsWith('Scenario:') ||
           line.startsWith('@') ||
-          line.startsWith('# @assertthat-scenario-id:')) {
+          line.startsWith('# assertthat-scenario-id:')) {
         break;
       }
 

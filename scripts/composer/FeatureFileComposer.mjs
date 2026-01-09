@@ -25,10 +25,10 @@ export class FeatureFileComposer {
     }
 
     const lines = [];
-    
+
     // Add feature-level ID comment
-    lines.push(`# @assertthat-feature-id: ${featureName}`);
-    
+    lines.push(`# assertthat-feature-id: ${featureName}`);
+
     // Add feature header
     lines.push(`Feature: ${featureName}`);
     lines.push('');
@@ -56,9 +56,9 @@ export class FeatureFileComposer {
     if (tags.length > 0) {
       lines.push(`    ${tags.join(' ')}`);
     }
-    
+
     // Add scenario ID comment
-    lines.push(`    # @assertthat-scenario-id: ${scenario.id}`);
+    lines.push(`    # assertthat-scenario-id: ${scenario.id}`);
     
     // Add scenario name
     lines.push(`    Scenario: ${scenario.name}`);

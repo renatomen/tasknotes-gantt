@@ -109,12 +109,12 @@ async function main() {
       let updatedContent = content;
       
       // Add feature-level ID if not present
-      if (!updatedContent.includes("@assertthat-feature-id")) {
+      if (!updatedContent.includes("assertthat-feature-id")) {
         const featureLineMatch = updatedContent.match(/(Feature:.+)/);
         if (featureLineMatch) {
           updatedContent = updatedContent.replace(
             featureLineMatch[1],
-            `# @assertthat-feature-id: ${featureName}\n${featureLineMatch[1]}`
+            `# assertthat-feature-id: ${featureName}\n${featureLineMatch[1]}`
           );
         }
       }
@@ -127,10 +127,10 @@ async function main() {
         );
         
         if (scenarioPattern.test(updatedContent) && 
-            !updatedContent.includes(`@assertthat-scenario-id: ${scenario.id}`)) {
+            !updatedContent.includes(`assertthat-scenario-id: ${scenario.id}`)) {
           updatedContent = updatedContent.replace(
             scenarioPattern,
-            `  # @assertthat-scenario-id: ${scenario.id}\n  $1`
+            `  # assertthat-scenario-id: ${scenario.id}\n  $1`
           );
         }
       }

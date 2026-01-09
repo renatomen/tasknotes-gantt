@@ -1,8 +1,8 @@
-# @assertthat-feature-id: BDD Framework Validation - Test Feature
+# assertthat-feature-id: BDD Framework Validation - Test Feature
 Feature: BDD Framework Validation - Test Feature
 
     @AUTOMATED @bdd-test @imported-from-github
-    # @assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
+    # assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
     Scenario: Basic task creation and rendering - Test Scenario
         Given a task with title "Sample Task"
         When I add the task to the chart
@@ -12,7 +12,7 @@ Feature: BDD Framework Validation - Test Feature
         And the task should have title "Sample Task"
 
     @AUTOMATED @bdd-test @imported-from-github
-    # @assertthat-scenario-id: b4fec64791865708204844c196194258
+    # assertthat-scenario-id: b4fec64791865708204844c196194258
     Scenario: Multiple tasks rendering - Test Scenario
         Given a task with title "First Task"
         When I add the task to the chart

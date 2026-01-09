@@ -1,201 +1,185 @@
 # BDD Semantic Tag Registry
 # Curated list of semantic tags for BDD scenarios
-# Enables traceability without contaminating scenarios with ticket references
+# Tags represent high-level feature categories
 
-version: '1.0'
-last_updated: '2025-09-26'
+version: '2.1'
+last_updated: '2026-01-09'
 maintainer: 'obsidian-gantt-team'
 
-# Epic-level tags for major feature areas
-epics:
-  '@epic-gantt-visualization':
-    description: 'Core Gantt chart rendering and interaction'
-    owner: 'frontend-team'
-    status: 'active'
-  '@epic-bases-integration':
+# Feature domain tags - high-level functional areas
+feature_domains:
+  # Core Gantt functionality
+  '@gantt-visualization':
+    description: 'Gantt chart rendering and visualization'
+  '@column-management':
+    description: 'Column configuration and display'
+  '@task-rendering':
+    description: 'Task bar rendering and display'
+  '@task-editing':
+    description: 'Interactive task editing'
+  '@task-management':
+    description: 'Task lifecycle and management'
+  '@timeline':
+    description: 'Timeline and date visualization'
+
+  # Bases plugin integration
+  '@bases-integration':
     description: 'Integration with Obsidian Bases plugin'
-    owner: 'integration-team'
-    status: 'active'
-  '@epic-task-management':
-    description: 'Task creation, editing, and lifecycle management'
-    owner: 'backend-team'
-    status: 'active'
-  '@epic-data-sources':
-    description: 'Data transformation and source integration'
-    owner: 'data-team'
-    status: 'active'
-  '@epic-user-experience':
-    description: 'User interface and accessibility features'
-    owner: 'ux-team'
-    status: 'active'
-  '@epic-infrastructure':
-    description: 'Build, deployment, and testing infrastructure'
-    owner: 'devops-team'
-    status: 'active'
-  '@epic-performance':
-    description: 'Performance optimization and scalability'
-    owner: 'performance-team'
-    status: 'active'
+  '@view-lifecycle':
+    description: 'View mounting, updating, unmounting'
+  '@bases-unavailable':
+    description: 'Handling when Bases plugin is unavailable'
 
-# Feature-level tags for specific functionality
-features:
-  '@feature-task-rendering':
-    epic: '@epic-gantt-visualization'
-    description: 'Display tasks as visual bars with dates'
-    status: 'active'
-  '@feature-column-management':
-    epic: '@epic-gantt-visualization'
-    description: 'Manage Gantt chart columns and properties'
-    status: 'active'
-  '@feature-responsive-design':
-    epic: '@epic-gantt-visualization'
-    description: 'Mobile and responsive layout support'
-    status: 'active'
-  '@feature-data-mapping':
-    epic: '@epic-bases-integration'
-    description: 'Map Bases properties to Gantt columns'
-    status: 'active'
-  '@feature-view-registration':
-    epic: '@epic-bases-integration'
-    description: 'Register Gantt views with Bases plugin'
-    status: 'active'
-  '@feature-task-editing':
-    epic: '@epic-task-management'
-    description: 'Create and edit task properties'
-    status: 'active'
-  '@feature-virtual-tasks':
-    epic: '@epic-task-management'
-    description: 'Handle tasks with multiple parents'
-    status: 'active'
-  '@feature-data-transformation':
-    epic: '@epic-data-sources'
-    description: 'Transform data between formats'
-    status: 'active'
-  '@feature-error-handling':
-    epic: '@epic-user-experience'
-    description: 'Graceful error handling and user feedback'
-    status: 'active'
-  '@feature-bdd-framework':
-    epic: '@epic-infrastructure'
-    description: 'BDD testing framework and tooling'
-    status: 'active'
+  # Data handling
+  '@data-mapping':
+    description: 'Data model mapping and transformation'
+  '@data-transformation':
+    description: 'Data format conversion'
+  '@date-handling':
+    description: 'Date parsing and manipulation'
+  '@date-editing':
+    description: 'Interactive date editing'
+  '@date-validation':
+    description: 'Date validation'
+  '@data-loading':
+    description: 'Data loading and fetching'
+  '@data-updates':
+    description: 'Data update handling'
+  '@missing-data':
+    description: 'Handling missing or incomplete data'
 
-# Priority tags for test execution planning
-priorities:
-  '@priority-critical':
-    severity: 'blocks-release'
-    description: 'Must pass before any release'
-    execution_order: 1
-  '@priority-high':
-    severity: 'important'
-    description: 'Important functionality that should work'
-    execution_order: 2
-  '@priority-medium':
-    severity: 'normal'
-    description: 'Standard functionality'
-    execution_order: 3
-  '@priority-low':
-    severity: 'nice-to-have'
-    description: 'Enhancement or edge case'
-    execution_order: 4
+  # Responsive and mobile
+  '@responsive-design':
+    description: 'Responsive layout and mobile support'
+  '@mobile':
+    description: 'Mobile-specific features'
+  '@touch-interaction':
+    description: 'Touch-based interactions'
+  '@layout':
+    description: 'Layout and positioning'
 
-# Test type tags for categorizing test scenarios
+  # Error handling
+  '@error-handling':
+    description: 'Error detection and recovery'
+  '@validation':
+    description: 'Input and data validation'
+  '@recovery':
+    description: 'Recovery from failures'
+  '@graceful-degradation':
+    description: 'Fallback behavior'
+  '@configuration-errors':
+    description: 'Configuration validation errors'
+  '@cleanup':
+    description: 'Resource cleanup'
+
+  # Sync and integration
+  '@sync':
+    description: 'Data synchronization'
+  '@upload':
+    description: 'Upload operations'
+  '@download':
+    description: 'Download operations'
+  '@batch':
+    description: 'Batch operations'
+  '@round-trip':
+    description: 'Round-trip data consistency'
+  '@real-time-sync':
+    description: 'Real-time synchronization'
+
+  # Virtual tasks (multi-parent scenarios)
+  '@virtual-tasks':
+    description: 'Virtual task handling for multi-parent scenarios'
+  '@multi-parent':
+    description: 'Multi-parent task relationships'
+
+  # Plugin integration
+  '@plugin-loading':
+    description: 'Plugin loading and initialization'
+
+# Technical concern tags
+technical_concerns:
+  '@performance':
+    description: 'Performance optimization'
+  '@large-datasets':
+    description: 'Handling large data volumes'
+  '@accessibility':
+    description: 'Accessibility features'
+  '@configuration':
+    description: 'Configuration and settings'
+
+# Test type tags
 test_types:
   '@smoke':
-    description: 'Critical path validation'
-    execution_time: 'fast'
-    frequency: 'every-commit'
-  '@regression':
-    description: 'Prevent feature breakage'
-    execution_time: 'medium'
-    frequency: 'daily'
+    description: 'Critical path validation (fast)'
   '@integration':
     description: 'Cross-component testing'
-    execution_time: 'slow'
-    frequency: 'pre-release'
-  '@performance':
-    description: 'Speed and efficiency validation'
-    execution_time: 'slow'
-    frequency: 'weekly'
-  '@accessibility':
-    description: 'Accessibility compliance testing'
-    execution_time: 'medium'
-    frequency: 'pre-release'
-  '@security':
-    description: 'Security vulnerability testing'
-    execution_time: 'medium'
-    frequency: 'pre-release'
+  '@regression':
+    description: 'Regression prevention'
+  '@bdd-test':
+    description: 'BDD framework testing'
+  '@batch-test':
+    description: 'Batch operation testing'
+  '@round-trip-test':
+    description: 'Round-trip validation'
 
-# Platform tags for environment-specific testing
-platforms:
-  '@desktop':
-    description: 'Desktop Obsidian application'
-    environments: ['windows', 'macos', 'linux']
-  '@mobile':
-    description: 'Mobile Obsidian application'
-    environments: ['ios', 'android']
-  '@cross-platform':
-    description: 'Functionality that works across all platforms'
-    environments: ['all']
+# AssertThat BDD Platform Tags
+assertthat_platform:
+  '@AUTOMATED':
+    description: 'Automated scenario (AssertThat platform)'
+    platform: 'assertthat-bdd'
+  '@imported-from-github':
+    description: 'Synced from GitHub (AssertThat platform)'
+    platform: 'assertthat-bdd'
 
-# Component tags for specific technical areas
-components:
-  '@component-ui':
-    description: 'User interface components'
-    technology: 'svelte'
-  '@component-data':
-    description: 'Data layer and persistence'
-    technology: 'typescript'
-  '@component-api':
-    description: 'API integration and external services'
-    technology: 'rest'
-  '@component-plugin':
-    description: 'Obsidian plugin integration'
-    technology: 'obsidian-api'
-
-# Validation rules for tag usage
+# Validation rules
 validation:
-  required_tags:
-    - 'epic' # Every scenario must have an epic tag
-    - 'priority' # Every scenario must have a priority
+  required_tags: []  # No required tags
 
-  mutually_exclusive:
-    - ['@smoke', '@integration'] # Smoke tests should be fast, not integration
-    - ['@priority-critical', '@priority-low'] # Can't be both critical and low
-
-  recommended_combinations:
-    - ['@smoke', '@priority-critical'] # Smoke tests are usually critical
-    - ['@performance', '@priority-high'] # Performance tests are important
-    - ['@accessibility', '@component-ui'] # Accessibility relates to UI
+  recommended_patterns:
+    - 'Use feature domain tags for primary categorization'
+    - 'Add technical concern tags as needed'
+    - 'Include test type tags for execution planning'
 
 # Tag usage guidelines
 guidelines:
-  epic_tags:
-    - 'Use exactly one epic tag per scenario'
-    - 'Epic tags represent major feature areas'
-    - 'Choose the most relevant epic for the scenario'
+  feature_domains:
+    - 'Choose 1-3 domain tags that best describe the scenario'
+    - 'Use high-level categories, not micro-level details'
+    - 'Tags should help organize and filter related scenarios'
 
-  feature_tags:
-    - 'Use one or more feature tags as appropriate'
-    - 'Feature tags should align with the chosen epic'
-    - 'Be specific about the functionality being tested'
+  technical_concerns:
+    - 'Add for cross-cutting technical issues'
+    - 'Use sparingly for important non-functional concerns'
 
-  priority_tags:
-    - 'Use exactly one priority tag per scenario'
-    - 'Consider business impact and technical risk'
-    - 'Critical scenarios block releases'
-
-  test_type_tags:
-    - 'Use one or more test type tags'
-    - 'Consider execution time and frequency'
+  test_types:
+    - 'Include for test execution planning'
     - 'Smoke tests should be fast and reliable'
 
-# Change log for tag registry updates
+  metadata_comments:
+    - 'Use comments (not tags) for IDs: # assertthat-feature-id: xyz'
+    - 'Use comments (not tags) for metadata: # assertthat-scenario-id: abc'
+    - 'Comments do NOT use @ prefix'
+
+# Change log
 changelog:
+  - version: '2.1'
+    date: '2026-01-09'
+    changes:
+      - 'Updated metadata comment format - removed @ prefix from comments'
+      - 'Simplified to high-level feature categories only'
+      - 'Removed 100+ micro-level tags in favor of broader categorization'
+      - 'Added metadata_comments guidelines'
+  - version: '2.0'
+    date: '2026-01-09'
+    changes:
+      - 'Simplified registry structure - removed epic/feature/priority prefixes'
+      - 'Tags now directly represent feature domains'
+      - 'Removed priority validation requirements'
+  - version: '1.1'
+    date: '2026-01-09'
+    changes:
+      - 'Added AssertThat platform integration tags'
   - version: '1.0'
     date: '2025-09-26'
     changes:
       - 'Initial semantic tag registry creation'
-      - 'Defined epic, feature, priority, and test type tags'
-      - 'Added validation rules and usage guidelines'
-      - 'Established tag hierarchy and relationships'

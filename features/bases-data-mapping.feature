@@ -1,8 +1,8 @@
-# @assertthat-feature-id: Bases Data Mapping
+# assertthat-feature-id: Bases Data Mapping
 Feature: Bases Data Mapping
 
     @AUTOMATED @bases-integration @critical @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 3b753b610a698e0b3214a0d76622b8e2
+    # assertthat-scenario-id: 3b753b610a698e0b3214a0d76622b8e2
     Scenario: Map basic note properties to Gantt tasks
         Given I have notes with frontmatter properties:
         | filename  | title       | start      | due        |
@@ -15,7 +15,7 @@ Feature: Bases Data Mapping
         And task "Second Task" should span from "2025-01-03" to "2025-01-08"
 
     @AUTOMATED @field-mappings @bases-integration @critical @imported-from-github
-    # @assertthat-scenario-id: e267bcf0328d525effd28f3cba7de33f
+    # assertthat-scenario-id: e267bcf0328d525effd28f3cba7de33f
     Scenario: Use custom field mappings for task properties
         Given I have notes with custom property names:
         | filename   | task_name  | begin_date | end_date   |
@@ -30,7 +30,7 @@ Feature: Bases Data Mapping
         And the task should span from "2025-01-01" to "2025-01-10"
 
     @AUTOMATED @bases-integration @file-properties @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 8c4feab7ff397e882772f84f1bae16a6
+    # assertthat-scenario-id: 8c4feab7ff397e882772f84f1bae16a6
     Scenario: Map file-based properties to Gantt data
         Given I have notes with file properties:
         | filename    | created    | modified   |
@@ -45,7 +45,7 @@ Feature: Bases Data Mapping
         And the task should span from "2025-01-01" to "2025-01-05"
 
     @AUTOMATED @hierarchical-tasks @bases-integration @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 15e554714b7bb7207a53623c01602a37
+    # assertthat-scenario-id: 15e554714b7bb7207a53623c01602a37
     Scenario: Map parent-child relationships from note properties
         Given I have notes with parent relationships:
         | filename   | title   | parent  | start      | due        |
@@ -59,7 +59,7 @@ Feature: Bases Data Mapping
         And the hierarchy should be visually represented in the Gantt
 
     @AUTOMATED @bases-integration @multi-parent-tasks @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 3a2f2d894d1ae537ea83699c155eadbd
+    # assertthat-scenario-id: 3a2f2d894d1ae537ea83699c155eadbd
     Scenario: Handle tasks with multiple parents using virtual duplicates
         Given I have a note with multiple parents:
         | filename  | title       | parents                | start      | due        |
@@ -71,7 +71,7 @@ Feature: Bases Data Mapping
         And both instances should have the same dates and properties
 
     @AUTOMATED @bases-integration @property-flattening @data-mapping @imported-from-github
-    # @assertthat-scenario-id: e146dd91d9b8a8f35fc96491517a5752
+    # assertthat-scenario-id: e146dd91d9b8a8f35fc96491517a5752
     Scenario: Access nested properties through dot notation
         Given I have notes with nested properties accessible through Bases
         And the properties include file metadata like "file.backlinks"
@@ -80,7 +80,7 @@ Feature: Bases Data Mapping
         And the data should be properly formatted for display
 
     @AUTOMATED @date-handling @bases-integration @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 7bff8be9f27fb754ebfec2ad15a8c576
+    # assertthat-scenario-id: 7bff8be9f27fb754ebfec2ad15a8c576
     Scenario: Handle various date formats from note properties
         Given I have notes with different date formats:
         | filename | title  | start_date           | due_date   |
@@ -93,7 +93,7 @@ Feature: Bases Data Mapping
         And date formatting should be consistent across all tasks
 
     @AUTOMATED @bases-integration @missing-data-handling @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 7f5593b9e606c846cbe567603ae8ea63
+    # assertthat-scenario-id: 7f5593b9e606c846cbe567603ae8ea63
     Scenario: Handle notes with missing required properties
         Given I have notes with incomplete data:
         | filename    | title    | start      | due        |
@@ -107,7 +107,7 @@ Feature: Bases Data Mapping
         And "Minimal" should show placeholder dates for today
 
     @AUTOMATED @bases-integration @real-time-sync @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 9ca7f0c2e3abd7f8c840497a00641137
+    # assertthat-scenario-id: 9ca7f0c2e3abd7f8c840497a00641137
     Scenario: Reflect changes when note properties are updated
         Given I have a note "Dynamic Task" with initial properties:
         | property | value      |
@@ -120,7 +120,7 @@ Feature: Bases Data Mapping
         And "Dynamic Task" should now span to "2025-01-10"
 
     @AUTOMATED @configuration-validation @bases-integration @data-mapping @imported-from-github
-    # @assertthat-scenario-id: 11408f94cac33c4b322a88d30cb71a67
+    # assertthat-scenario-id: 11408f94cac33c4b322a88d30cb71a67
     Scenario: Validate Gantt configuration from Bases view settings
         Given I have a Bases view with invalid Gantt configuration:
         | setting            | value |
