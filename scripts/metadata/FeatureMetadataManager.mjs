@@ -30,16 +30,16 @@ export class FeatureMetadataManager {
       const line = lines[i];
 
       // Extract feature-level ID
-      // Format: # @assertthat-feature-id: abc123
-      const featureIdMatch = line.match(/^#\s*@assertthat-feature-id:\s*(.+)$/);
+      // Format: # assertthat-feature-id: abc123
+      const featureIdMatch = line.match(/^#\s*assertthat-feature-id:\s*(.+)$/);
       if (featureIdMatch) {
         metadata.featureId = featureIdMatch[1].trim();
         continue;
       }
 
       // Extract scenario-level ID (appears BEFORE Scenario line, may be indented)
-      // Format:   # @assertthat-scenario-id: xyz789
-      const scenarioIdMatch = line.match(/^\s*#\s*@assertthat-scenario-id:\s*(.+)$/);
+      // Format:   # assertthat-scenario-id: xyz789
+      const scenarioIdMatch = line.match(/^\s*#\s*assertthat-scenario-id:\s*(.+)$/);
       if (scenarioIdMatch) {
         pendingScenarioId = scenarioIdMatch[1].trim();
         continue;
@@ -75,14 +75,14 @@ export class FeatureMetadataManager {
       const line = lines[i];
 
       // Skip existing metadata comments (we'll re-add them)
-      if (line.match(/^\s*#\s*@assertthat-(feature|scenario)-id:/)) {
+      if (line.match(/^\s*#\s*assertthat-(feature|scenario)-id:/)) {
         continue;
       }
 
       // Add feature ID before Feature declaration
       if (!featureIdAdded && line.match(/^Feature:/)) {
         if (metadata.featureId) {
-          updatedLines.push(`# @assertthat-feature-id: ${metadata.featureId}`);
+          updatedLines.push(`# assertthat-feature-id: ${metadata.featureId}`);
         }
         featureIdAdded = true;
       }
@@ -95,7 +95,7 @@ export class FeatureMetadataManager {
         if (scenarioId) {
           // Preserve indentation
           const indent = line.match(/^(\s*)/)[1];
-          updatedLines.push(`${indent}# @assertthat-scenario-id: ${scenarioId}`);
+          updatedLines.push(`${indent}# assertthat-scenario-id: ${scenarioId}`);
         }
       }
 

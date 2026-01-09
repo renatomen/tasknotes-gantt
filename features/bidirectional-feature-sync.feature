@@ -92,6 +92,7 @@ Feature: Bidirectional Feature Sync
     # @assertthat-scenario-id: b75058aabfc7965a2e7336b365bbcdba
     Scenario: Track sync metadata
         Given a feature is downloaded from AssertThat
+        When I inspect the download metadata
         Then the download metadata should include the source system
         And the metadata should include a timestamp
         And the metadata should include the number of files extracted

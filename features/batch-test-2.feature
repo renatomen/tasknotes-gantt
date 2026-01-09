@@ -5,4 +5,5 @@ Feature: Batch Test 2
     # @assertthat-scenario-id: c0e3aa605126ab90aee9e5b278f0e723
     Scenario: Second batch test
         Given this is test 2
+        When I run the test
         Then it should also work after script

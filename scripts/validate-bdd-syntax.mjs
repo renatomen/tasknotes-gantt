@@ -29,20 +29,22 @@ function loadSemanticTagRegistry() {
 
 /**
  * Get all valid tags from registry
+ *
+ * NOTE: This function is currently unused as tag validation is disabled.
+ * Tags are managed in AssertThat BDD platform.
+ * Kept for potential future use.
  */
-function getValidTags(registry) {
+function _getValidTags(registry) {
   if (!registry) return new Set();
 
   const validTags = new Set();
 
   // Add all tag categories
   const categories = [
-    "epics",
-    "features",
-    "priorities",
+    "feature_domains",
+    "technical_concerns",
     "test_types",
-    "platforms",
-    "components",
+    "assertthat_platform",
   ];
   categories.forEach((category) => {
     if (registry[category]) {
@@ -55,34 +57,15 @@ function getValidTags(registry) {
 
 /**
  * Validate semantic tags in a feature file
+ *
+ * NOTE: Tag validation is disabled. Tags are managed in AssertThat BDD platform.
+ * This function is kept for future use if needed.
  */
-function validateSemanticTags(content, registry) {
+function validateSemanticTags(_content, _registry) {
   const errors = [];
   const warnings = [];
 
-  if (!registry) {
-    return { errors, warnings }; // Skip validation if no registry
-  }
-
-  const validTags = getValidTags(registry);
-  const lines = content.split("\n");
-
-  // Find all tags in the file
-  const foundTags = new Set();
-  lines.forEach((line, lineNum) => {
-    const tagMatches = line.match(/@[\w-]+/g);
-    if (tagMatches) {
-      tagMatches.forEach((tag) => {
-        foundTags.add(tag);
-
-        // Check if tag is registered
-        if (!validTags.has(tag)) {
-          errors.push(`Line ${lineNum + 1}: Unregistered tag '${tag}'`);
-        }
-      });
-    }
-  });
-
+  // Tag validation disabled - managed in AssertThat
   return { errors, warnings };
 }
 
