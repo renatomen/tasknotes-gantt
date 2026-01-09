@@ -24,13 +24,15 @@ async function migrateFeatureFile(filePath) {
 
   const updatedLines = lines.map((line) => {
     // Match and replace feature-level ID
-    if (line.match(/^#\s*@assertthat-feature-id:\s*(.+)$/)) {
+    // Using [^\n]+ instead of .+ to prevent ReDoS
+    if (line.match(/^#\s*@assertthat-feature-id:\s*([^\n]+)$/)) {
       modified = true;
       return line.replace(/^#\s*@assertthat-feature-id:/, "# assertthat-feature-id:");
     }
 
     // Match and replace scenario-level ID (with any indentation)
-    if (line.match(/^(\s*)#\s*@assertthat-scenario-id:\s*(.+)$/)) {
+    // Using [^\n]+ instead of .+ to prevent ReDoS
+    if (line.match(/^(\s*)#\s*@assertthat-scenario-id:\s*([^\n]+)$/)) {
       modified = true;
       return line.replace(/^(\s*)#\s*@assertthat-scenario-id:/, "$1# assertthat-scenario-id:");
     }
@@ -49,9 +51,17 @@ async function migrateFeatureFile(filePath) {
 async function findFeatureFiles(dir) {
   const files = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });
+  const normalizedDir = path.resolve(dir);
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
+    const resolvedPath = path.resolve(fullPath);
+
+    // Validate path stays within intended directory (prevent path traversal)
+    if (!resolvedPath.startsWith(normalizedDir)) {
+      console.warn(`⚠️  Skipping path outside directory: ${entry.name}`);
+      continue;
+    }
 
     if (entry.isDirectory()) {
       files.push(...(await findFeatureFiles(fullPath)));
