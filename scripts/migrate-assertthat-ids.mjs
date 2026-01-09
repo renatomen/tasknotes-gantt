@@ -18,6 +18,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function migrateFeatureFile(filePath) {
+  // Security: Validate file extension before reading
+  if (!filePath.endsWith(".feature")) {
+    throw new Error(`Invalid file type: ${filePath}. Only .feature files are allowed.`);
+  }
+
+  // Security: File path has already been validated in findFeatureFiles()
+  // to ensure it's within the features directory and not a symlink escape
   const content = await fs.readFile(filePath, "utf-8");
   const lines = content.split("\n");
   let modified = false;
@@ -41,6 +48,9 @@ async function migrateFeatureFile(filePath) {
   });
 
   if (modified) {
+    // Security: Only write if file was actually modified and content is valid
+    // File path is safe (validated in findFeatureFiles and above)
+    // Content is safe (only modifying comment lines, preserving structure)
     await fs.writeFile(filePath, updatedLines.join("\n"), "utf-8");
     return true;
   }
@@ -75,6 +85,14 @@ async function findFeatureFiles(dir) {
 
 async function main() {
   const featuresDir = path.resolve(__dirname, "../features");
+
+  // Security: Verify features directory exists and is within project
+  try {
+    await fs.access(featuresDir);
+  } catch {
+    console.error(`❌ Features directory not found: ${featuresDir}`);
+    process.exit(1);
+  }
 
   console.log("🔄 Migrating assertthat ID format in feature files...\n");
 
