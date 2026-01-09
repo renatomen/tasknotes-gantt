@@ -26,7 +26,7 @@ const mockConfig = {
 };
 
 describe("FeatureUploader", () => {
-  let uploader: any;
+  let uploader: FeatureUploader;
 
   beforeEach(() => {
     jest.clearAllMocks();

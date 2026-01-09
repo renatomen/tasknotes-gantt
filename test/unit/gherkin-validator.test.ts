@@ -12,6 +12,91 @@ const mockGherkin = {
 
 jest.mock("@cucumber/gherkin", () => mockGherkin);
 
+/** Gherkin tag structure */
+interface GherkinTag {
+  name: string;
+}
+
+/** Gherkin step structure */
+interface GherkinStep {
+  keyword: string;
+  text: string;
+}
+
+/** Gherkin scenario structure */
+interface GherkinScenario {
+  name: string;
+  tags?: GherkinTag[];
+  steps?: GherkinStep[];
+}
+
+/** Gherkin rule structure */
+interface GherkinRule {
+  name: string;
+  children?: GherkinChild[];
+}
+
+/** Gherkin child element (scenario or rule) */
+interface GherkinChild {
+  scenario?: GherkinScenario;
+  rule?: GherkinRule;
+}
+
+/** Gherkin feature structure */
+interface GherkinFeature {
+  name: string;
+  description?: string;
+  tags?: GherkinTag[];
+  children?: GherkinChild[];
+  language?: string;
+}
+
+/** Gherkin document structure */
+interface GherkinDocument {
+  feature?: GherkinFeature;
+}
+
+/** Gherkin message structure */
+interface GherkinMessage {
+  gherkinDocument?: GherkinDocument;
+}
+
+/** Scenario metadata */
+interface ScenarioMetadata {
+  name: string;
+  tags: string[];
+  steps: number;
+  type: string;
+  rule?: string;
+}
+
+/** Feature metadata */
+interface FeatureMetadata {
+  name: string;
+  description: string;
+  tags: string[];
+  scenarios: ScenarioMetadata[];
+  language: string;
+}
+
+/** Validation result */
+interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  metadata: FeatureMetadata | null;
+}
+
+/** Batch validation result */
+interface _BatchValidationResult {
+  totalFiles: number;
+  validFiles: number;
+  invalidFiles: number;
+  totalErrors: number;
+  totalWarnings: number;
+  details: (ValidationResult & { filePath: string })[];
+}
+
 // GherkinValidator implementation for testing
 class GherkinValidator {
   private uuidFn: () => string;
@@ -20,7 +105,7 @@ class GherkinValidator {
     this.uuidFn = () => Math.random().toString(36).substring(2, 15);
   }
 
-  async validateFeatureFile(filePath: string): Promise<any> {
+  async validateFeatureFile(filePath: string): Promise<ValidationResult> {
     try {
       const fs = await import("fs/promises");
       const content = await fs.readFile(filePath, "utf8");
@@ -37,12 +122,12 @@ class GherkinValidator {
   async validateFeatureContent(
     content: string,
     sourcePath = "unknown"
-  ): Promise<any> {
-    const result = {
+  ): Promise<ValidationResult> {
+    const result: ValidationResult = {
       isValid: true,
-      errors: [] as string[],
-      warnings: [] as string[],
-      metadata: null as any,
+      errors: [],
+      warnings: [],
+      metadata: null,
     };
 
     try {
@@ -64,8 +149,8 @@ class GherkinValidator {
       );
 
       // Find the GherkinDocument message
-      const gherkinDocumentMessage = messages.find(
-        (message: any) => message.gherkinDocument
+      const gherkinDocumentMessage = (messages as GherkinMessage[]).find(
+        (message: GherkinMessage) => message.gherkinDocument
       );
       const gherkinDocument = gherkinDocumentMessage?.gherkinDocument;
 
@@ -90,24 +175,24 @@ class GherkinValidator {
     return result;
   }
 
-  extractFeatureDataFromAST(feature: any): any {
-    const metadata = {
+  extractFeatureDataFromAST(feature: GherkinFeature): FeatureMetadata {
+    const metadata: FeatureMetadata = {
       name: feature.name || "",
       description: feature.description || "",
-      tags: feature.tags ? feature.tags.map((tag: any) => tag.name) : [],
-      scenarios: [] as any[],
+      tags: feature.tags ? feature.tags.map((tag) => tag.name) : [],
+      scenarios: [],
       language: feature.language || "en",
     };
 
     // Extract scenarios from AST
     if (feature.children) {
-      feature.children.forEach((child: any) => {
+      feature.children.forEach((child) => {
         if (child.scenario) {
           const scenario = child.scenario;
           metadata.scenarios.push({
             name: scenario.name || "",
             tags: scenario.tags
-              ? scenario.tags.map((tag: any) => tag.name)
+              ? scenario.tags.map((tag) => tag.name)
               : [],
             steps: scenario.steps ? scenario.steps.length : 0,
             type: "scenario",
@@ -116,13 +201,13 @@ class GherkinValidator {
           // Handle rules containing scenarios
           const rule = child.rule;
           if (rule.children) {
-            rule.children.forEach((ruleChild: any) => {
+            rule.children.forEach((ruleChild) => {
               if (ruleChild.scenario) {
                 const scenario = ruleChild.scenario;
                 metadata.scenarios.push({
                   name: scenario.name || "",
                   tags: scenario.tags
-                    ? scenario.tags.map((tag: any) => tag.name)
+                    ? scenario.tags.map((tag) => tag.name)
                     : [],
                   steps: scenario.steps ? scenario.steps.length : 0,
                   type: "scenario",
@@ -138,7 +223,7 @@ class GherkinValidator {
     return metadata;
   }
 
-  validateFeatureStructure(feature: any, result: any): void {
+  validateFeatureStructure(feature: GherkinFeature, result: ValidationResult): void {
     // Validate feature has a name
     if (!feature.name || feature.name.trim() === "") {
       result.warnings.push("Feature should have a descriptive name");
@@ -152,7 +237,7 @@ class GherkinValidator {
 
     // Validate scenarios have steps
     if (feature.children) {
-      feature.children.forEach((child: any, index: number) => {
+      feature.children.forEach((child, index: number) => {
         if (child.scenario) {
           const scenario = child.scenario;
           if (!scenario.steps || scenario.steps.length === 0) {
@@ -168,7 +253,7 @@ class GherkinValidator {
     }
   }
 
-  async processMultipleFiles(filePaths: string[]): Promise<any[]> {
+  async processMultipleFiles(filePaths: string[]): Promise<(ValidationResult & { filePath: string })[]> {
     const results = [];
 
     for (const filePath of filePaths) {
@@ -192,14 +277,14 @@ class GherkinValidator {
     return results;
   }
 
-  async validateFeatureFiles(filePaths: string[]): Promise<any> {
-    const results = {
+  async validateFeatureFiles(filePaths: string[]): Promise<_BatchValidationResult> {
+    const results: _BatchValidationResult = {
       totalFiles: filePaths.length,
       validFiles: 0,
       invalidFiles: 0,
       totalErrors: 0,
       totalWarnings: 0,
-      details: [] as any[],
+      details: [],
     };
 
     const validationResults = await this.processMultipleFiles(filePaths);

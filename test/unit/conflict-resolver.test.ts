@@ -12,6 +12,20 @@ import { ConflictDetector } from "../../scripts/conflicts/ConflictDetector.mjs";
 import { ConflictResolver } from "../../scripts/conflicts/ConflictResolver.mjs";
 import { cacheManager } from "../../scripts/cache/CacheManager.mjs";
 
+/** Interface for git command errors with exit status and output */
+interface GitCommandError extends Error {
+  status: number;
+  stdout: string;
+}
+
+/** Helper to create a typed git command error */
+function createGitError(message: string, status: number, stdout: string): GitCommandError {
+  const error = new Error(message) as GitCommandError;
+  error.status = status;
+  error.stdout = stdout;
+  return error;
+}
+
 // Mock dependencies
 const mockGitExecutor = jest.fn();
 const mockFileSystem = {
@@ -45,9 +59,7 @@ describe("ConflictDetector", () => {
 +  Scenario: Test
    Given something`;
 
-      const error: any = new Error("Files differ");
-      error.status = 1;
-      error.stdout = diffOutput;
+      const error = createGitError("Files differ", 1, diffOutput);
 
       mockGitExecutor.mockImplementationOnce(() => {
         throw error;
@@ -71,9 +83,7 @@ describe("ConflictDetector", () => {
 +# New comment
  Scenario: Test`;
 
-      const error: any = new Error("Files differ");
-      error.status = 1;
-      error.stdout = diffOutput;
+      const error = createGitError("Files differ", 1, diffOutput);
 
       mockGitExecutor.mockImplementationOnce(() => {
         throw error;
@@ -97,9 +107,7 @@ describe("ConflictDetector", () => {
 +Scenario: New scenario
   Given something`;
 
-      const error: any = new Error("Files differ");
-      error.status = 1;
-      error.stdout = diffOutput;
+      const error = createGitError("Files differ", 1, diffOutput);
 
       mockGitExecutor.mockImplementationOnce(() => {
         throw error;
@@ -185,9 +193,7 @@ describe("ConflictResolver", () => {
 +  Scenario: Test
    Given something`;
 
-      const error: any = new Error("Files differ");
-      error.status = 1;
-      error.stdout = diffOutput;
+      const error = createGitError("Files differ", 1, diffOutput);
       mockGitExecutor.mockImplementationOnce(() => {
         throw error;
       });
@@ -226,9 +232,7 @@ describe("ConflictResolver", () => {
    When action
    Then result`;
 
-      const error: any = new Error("Files differ");
-      error.status = 1;
-      error.stdout = diffOutput;
+      const error = createGitError("Files differ", 1, diffOutput);
       mockGitExecutor.mockImplementationOnce(() => {
         throw error;
       });

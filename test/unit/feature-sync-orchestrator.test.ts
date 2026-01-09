@@ -71,9 +71,21 @@ class MockLogger {
   debug = jest.fn();
 }
 
+/** Interface for orchestrator dependencies */
+interface OrchestratorDependencies {
+  config: SyncConfiguration;
+  stagingManager: MockStagingManager;
+  diffManager: MockDiffManager;
+  featureProcessor: MockFeatureProcessor;
+  conflictResolver: MockConflictResolver;
+  userInteraction: MockUserInteraction;
+  cacheManager: MockCacheManager;
+  logger: MockLogger;
+}
+
 describe("FeatureSyncOrchestrator", () => {
   let orchestrator: FeatureSyncOrchestrator;
-  let mockDependencies: any;
+  let mockDependencies: OrchestratorDependencies;
   let eventSpy: jest.SpyInstance;
 
   beforeEach(() => {

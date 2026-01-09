@@ -8,7 +8,7 @@ import { AssertThatApiClient } from "../../scripts/api/AssertThatApiClient.mjs";
 import { AssertThatApiError } from "../../scripts/errors/SyncErrors.mjs";
 
 describe("AssertThatApiClient", () => {
-  let client: any;
+  let client: AssertThatApiClient;
 
   beforeEach(() => {
     // Reset mocks
