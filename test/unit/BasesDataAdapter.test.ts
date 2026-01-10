@@ -1,0 +1,506 @@
+/**
+ * OG-87: BasesDataAdapter Unit Tests
+ *
+ * Tests for extracting and converting BasesEntry values to native JavaScript types
+ * Following TDD principles - tests written before implementation
+ */
+
+import { describe, it, expect, beforeEach } from "@jest/globals";
+import { BasesDataAdapter } from "../../src/bases/services/BasesDataAdapter";
+import type { BasesEntry, BasesValue } from "../../src/bases/register";
+
+describe("BasesDataAdapter", () => {
+  let adapter: BasesDataAdapter;
+
+  beforeEach(() => {
+    adapter = new BasesDataAdapter();
+  });
+
+  describe("extractValue", () => {
+    it("should extract string value from BasesValue", () => {
+      // Arrange - PrimitiveValue uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          data: "Task Name",
+        }),
+      };
+
+      // Act
+      const result = adapter.extractValue(mockEntry, "note:title");
+
+      // Assert
+      expect(result).toBe("Task Name");
+    });
+
+    it("should return null for empty BasesValue", () => {
+      // Arrange - NullValue
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractValue(mockEntry, "note:missing");
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should return null for undefined BasesValue", () => {
+      // Arrange - undefined value
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => undefined,
+      };
+
+      // Act
+      const result = adapter.extractValue(mockEntry, "note:undefined");
+
+      // Assert
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("convertToDate", () => {
+    it("should convert ISO date string to Date object", () => {
+      // Arrange
+      const isoString = "2024-01-15";
+
+      // Act
+      const result = adapter.convertToDate(isoString);
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getFullYear()).toBe(2024);
+      expect(result?.getMonth()).toBe(0); // January (0-indexed)
+      expect(result?.getDate()).toBe(15);
+    });
+
+    it("should convert timestamp to Date object", () => {
+      // Arrange
+      const timestamp = new Date("2024-06-20").getTime();
+
+      // Act
+      const result = adapter.convertToDate(timestamp);
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getFullYear()).toBe(2024);
+      expect(result?.getMonth()).toBe(5); // June (0-indexed)
+      expect(result?.getDate()).toBe(20);
+    });
+
+    it("should return null for invalid date string", () => {
+      // Arrange
+      const invalidDate = "not-a-date";
+
+      // Act
+      const result = adapter.convertToDate(invalidDate);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should return null for null input", () => {
+      // Act
+      const result = adapter.convertToDate(null);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should return null for undefined input", () => {
+      // Act
+      const result = adapter.convertToDate(undefined);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should handle Date objects passthrough", () => {
+      // Arrange
+      const dateObj = new Date("2024-03-10");
+
+      // Act
+      const result = adapter.convertToDate(dateObj);
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getTime()).toBe(dateObj.getTime());
+    });
+  });
+
+  describe("convertToNumber", () => {
+    it("should convert numeric string to number", () => {
+      // Arrange
+      const numString = "42";
+
+      // Act
+      const result = adapter.convertToNumber(numString);
+
+      // Assert
+      expect(result).toBe(42);
+    });
+
+    it("should convert float string to number", () => {
+      // Arrange
+      const floatString = "75.5";
+
+      // Act
+      const result = adapter.convertToNumber(floatString);
+
+      // Assert
+      expect(result).toBe(75.5);
+    });
+
+    it("should handle number input passthrough", () => {
+      // Arrange
+      const num = 100;
+
+      // Act
+      const result = adapter.convertToNumber(num);
+
+      // Assert
+      expect(result).toBe(100);
+    });
+
+    it("should return null for non-numeric string", () => {
+      // Arrange
+      const invalidNum = "not-a-number";
+
+      // Act
+      const result = adapter.convertToNumber(invalidNum);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should return null for null input", () => {
+      // Act
+      const result = adapter.convertToNumber(null);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should clamp progress value to 0-100 range", () => {
+      // Arrange - Test value above 100
+      const aboveMax = 150;
+
+      // Act
+      const result = adapter.convertToNumber(aboveMax, { min: 0, max: 100 });
+
+      // Assert
+      expect(result).toBe(100);
+    });
+
+    it("should clamp progress value to 0-100 range for negative", () => {
+      // Arrange - Test negative value
+      const belowMin = -10;
+
+      // Act
+      const result = adapter.convertToNumber(belowMin, { min: 0, max: 100 });
+
+      // Assert
+      expect(result).toBe(0);
+    });
+  });
+
+  describe("extractText", () => {
+    it("should extract text property value", () => {
+      // Arrange - PrimitiveValue uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          data: "My Task",
+        }),
+      };
+
+      // Act
+      const result = adapter.extractText(mockEntry, "note:title");
+
+      // Assert
+      expect(result).toBe("My Task");
+    });
+
+    it("should fallback to file.basename when property is empty", () => {
+      // Arrange - NullValue
+      const mockEntry: BasesEntry = {
+        file: { path: "folder/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractText(mockEntry, "");
+
+      // Assert
+      expect(result).toBe("task");
+    });
+
+    it("should use file.basename when textProperty is empty string", () => {
+      // Arrange - This shouldn't call getValue when textProperty is ""
+      const mockEntry: BasesEntry = {
+        file: { path: "notes/meeting.md", name: "meeting.md", basename: "meeting" },
+        getValue: (propertyId: string) => ({
+          data: "Should be ignored",
+        }),
+      };
+
+      // Act
+      const result = adapter.extractText(mockEntry, "");
+
+      // Assert
+      expect(result).toBe("meeting");
+    });
+  });
+
+  describe("extractDate", () => {
+    it("should extract and convert date property", () => {
+      // Arrange - DateValue uses .date property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          date: new Date("2024-05-15"),
+        }),
+      };
+
+      // Act
+      const result = adapter.extractDate(mockEntry, "note:start");
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getFullYear()).toBe(2024);
+      expect(result?.getMonth()).toBe(4); // May (0-indexed)
+    });
+
+    it("should return null for missing date property", () => {
+      // Arrange - NullValue
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractDate(mockEntry, "note:missing");
+
+      // Assert
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractProgress", () => {
+    it("should extract and convert progress value", () => {
+      // Arrange - PrimitiveValue (number) uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          data: 75,
+        }),
+      };
+
+      // Act
+      const result = adapter.extractProgress(mockEntry, "note:progress");
+
+      // Assert
+      expect(result).toBe(75);
+    });
+
+    it("should return null for missing progress property", () => {
+      // Arrange - NullValue
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractProgress(mockEntry, "note:missing");
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it("should clamp progress value above 100", () => {
+      // Arrange - PrimitiveValue (number) uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          data: 150,
+        }),
+      };
+
+      // Act
+      const result = adapter.extractProgress(mockEntry, "note:progress");
+
+      // Assert
+      expect(result).toBe(100);
+    });
+
+    it("should clamp negative progress value to 0", () => {
+      // Arrange - PrimitiveValue (number) uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propertyId: string) => ({
+          data: -10,
+        }),
+      };
+
+      // Act
+      const result = adapter.extractProgress(mockEntry, "note:progress");
+
+      // Assert
+      expect(result).toBe(0);
+    });
+  });
+
+  describe("extractParents", () => {
+    it("should extract single parent reference (string)", () => {
+      // Arrange - PrimitiveValue uses .data property
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/child.md", name: "child.md", basename: "child" },
+        getValue: (propertyId: string) => ({
+          data: "projects/parent.md",
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parent");
+
+      // Assert
+      expect(result).toEqual(["projects/parent.md"]);
+    });
+
+    it("should return empty array when parent property is empty", () => {
+      // Arrange - NullValue
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parent");
+
+      // Assert
+      expect(result).toEqual([]);
+    });
+
+    it("should return empty array when parent property is not configured", () => {
+      // Arrange
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => null,
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "");
+
+      // Assert
+      expect(result).toEqual([]);
+    });
+
+    it("should extract multiple parent references (array)", () => {
+      // Arrange - ListValue with .length() and .at() methods
+      const items = [
+        { data: "projects/parent-a.md" },
+        { data: "projects/parent-b.md" },
+      ];
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/multi-parent.md", name: "multi-parent.md", basename: "multi-parent" },
+        getValue: (propertyId: string) => ({
+          length: () => items.length,
+          at: (i: number) => items[i],
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parents");
+
+      // Assert
+      expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+
+    it("should handle single-item array", () => {
+      // Arrange - ListValue with one item
+      const items = [{ data: "projects/parent.md" }];
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => ({
+          length: () => items.length,
+          at: (i: number) => items[i],
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parent");
+
+      // Assert
+      expect(result).toEqual(["projects/parent.md"]);
+    });
+
+    it("should filter out null/undefined values from array", () => {
+      // Arrange - ListValue with mixed null/undefined values
+      const items = [
+        { data: "projects/parent-a.md" },
+        null,
+        { data: "projects/parent-b.md" },
+        undefined,
+        { data: "" },
+      ];
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => ({
+          length: () => items.length,
+          at: (i: number) => items[i],
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parents");
+
+      // Assert
+      expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+
+    it("should handle FileValue objects in array", () => {
+      // Arrange - ListValue with FileValue items
+      const items = [
+        { file: { path: "projects/parent-a.md" } },
+        { file: { path: "projects/parent-b.md" } },
+      ];
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => ({
+          length: () => items.length,
+          at: (i: number) => items[i],
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parents");
+
+      // Assert
+      expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+
+    it("should handle mixed array of strings and FileValue objects", () => {
+      // Arrange - ListValue with mixed PrimitiveValue and FileValue
+      const items = [
+        { data: "projects/parent-a.md" },
+        { file: { path: "projects/parent-b.md" } },
+      ];
+      const mockEntry: BasesEntry = {
+        file: { path: "tasks/task.md", name: "task.md", basename: "task" },
+        getValue: (propertyId: string) => ({
+          length: () => items.length,
+          at: (i: number) => items[i],
+        }),
+      };
+
+      // Act
+      const result = adapter.extractParents(mockEntry, "note:parents");
+
+      // Assert
+      expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+  });
+});

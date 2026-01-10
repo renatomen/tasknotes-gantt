@@ -23,6 +23,8 @@
 import { Component, type App, type Plugin } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import GanttContainer from './GanttContainer.svelte';
+import { GanttBasesView } from './GanttBasesView';
+import { GanttTaskListView } from './views/GanttTaskListView';
 
 // ============================================================================
 // Type Definitions for Official Obsidian Bases API (1.10.0+)
@@ -39,7 +41,11 @@ export type BasesPropertyId = string;
 export interface BasesEntry {
   /** The TFile for this entry */
   file: { path: string; name: string; basename: string };
-  /** Get the evaluated value of a property for this entry */
+  /** Direct access to frontmatter properties (preferred for basic properties) */
+  frontmatter?: Record<string, any>;
+  /** Alternative property access (used by some Bases versions) */
+  properties?: Record<string, any>;
+  /** Get the evaluated value of a property for this entry (use for computed properties only) */
   getValue(propertyId: BasesPropertyId): BasesValue;
 }
 
@@ -193,37 +199,6 @@ const VIEW_TYPE_ID = 'obsidianGantt';
 const VIEW_NAME = 'Gantt (OG)';
 const VIEW_ICON = 'calendar-range';
 
-/**
- * Abstract base class for Bases views.
- * Extends Component to inherit load/unload lifecycle from Obsidian.
- *
- * Per official API: BasesView extends Component
- * - Override onload() to mount your UI
- * - Override onunload() to cleanup your UI
- * - Override onDataUpdated() to react to data changes
- */
-export abstract class GanttBasesView extends Component {
-  /** View type identifier */
-  abstract readonly type: string;
-  /** Obsidian App instance */
-  readonly app: App;
-  /** View configuration */
-  config!: BasesViewConfig;
-  /** Query result data */
-  data!: BasesQueryResult;
-  /** All available properties */
-  allProperties: BasesPropertyId[] = [];
-
-  constructor(protected controller: QueryController) {
-    super();
-    // App is accessed via controller which is a Component
-    this.app = (controller as unknown as { app: App }).app;
-  }
-
-  /** Called when data changes - must be implemented by subclass */
-  abstract onDataUpdated(): void;
-}
-
 /** Ephemeral state for preserving view state across refreshes */
 interface GanttEphemeralState {
   scrollTop?: number;
@@ -247,7 +222,8 @@ class ObsidianGanttBasesView extends GanttBasesView {
   }
 
   override onload(): void {
-    this.mountGantt();
+    // Don't mount yet - wait for onDataUpdated() when config and data are ready
+    console.log('[Gantt] View loaded, waiting for data...');
   }
 
   override onunload(): void {
@@ -259,6 +235,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
    * Re-renders the Gantt chart with updated data.
    */
   public onDataUpdated(): void {
+    console.log('[Gantt] Data updated, remounting. Entries:', this.data?.data?.length || 0);
     // For now, remount the component (future: pass data as props)
     this.unmountGantt();
     this.mountGantt();
@@ -305,10 +282,30 @@ class ObsidianGanttBasesView extends GanttBasesView {
 
   private mountGantt(): void {
     try {
+      // Extract field mappings from view config (OG-87)
+      const fieldMappings = {
+        textProperty: (this.config.get('textProperty') as string) || '',
+        startProperty: (this.config.get('startDateProperty') as string) || 'note.start',
+        endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
+        progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
+        parentProperty: (this.config.get('parentProperty') as string) || '',
+      };
+
+      console.log('[Gantt] Mounting with:', {
+        hasData: !!this.data,
+        entriesCount: this.data?.data?.length || 0,
+        hasConfig: !!this.config,
+        fieldMappings: fieldMappings,
+        properties: this.data?.properties || [],
+      });
+
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
         props: {
-          // Future: pass this.data and this.config to GanttContainer
+          data: this.data,
+          fieldMappings: fieldMappings,
+          app: this.app,
+          config: this.config,
         },
       });
     } catch (error) {
@@ -358,35 +355,54 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     return () => {};
   }
 
-  // Register the Gantt view type
-  const registered = plugin.registerBasesView(VIEW_TYPE_ID, {
+  // Shared field mapping options for both views
+  const sharedOptions = [
+    {
+      type: 'property' as const,
+      displayName: 'Task Name Property',
+      key: 'textProperty',
+      default: '',
+      placeholder: 'Select task name property (defaults to file name)',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'Start Date Property',
+      key: 'startDateProperty',
+      default: 'note.start',
+      placeholder: 'Select start date property',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'End Date Property',
+      key: 'endDateProperty',
+      default: 'note.due',
+      placeholder: 'Select end date property',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'Progress Property',
+      key: 'progressProperty',
+      default: 'note.progress',
+      placeholder: 'Select progress property (0-100)',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'Parent Property',
+      key: 'parentProperty',
+      default: '',
+      placeholder: 'Select parent task property (optional)',
+    },
+  ];
+
+  // Register the Gantt chart view type
+  const registeredGantt = plugin.registerBasesView(VIEW_TYPE_ID, {
     name: VIEW_NAME,
     icon: VIEW_ICON,
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
     options: () => [
-      {
-        type: 'property',
-        displayName: 'Start Date Property',
-        key: 'startDateProperty',
-        default: 'note:start',
-        placeholder: 'Select start date property',
-      },
-      {
-        type: 'property',
-        displayName: 'End Date Property',
-        key: 'endDateProperty',
-        default: 'note:due',
-        placeholder: 'Select end date property',
-      },
-      {
-        type: 'property',
-        displayName: 'Progress Property',
-        key: 'progressProperty',
-        default: 'note:progress',
-        placeholder: 'Select progress property (0-100)',
-      },
+      ...sharedOptions,
       {
         type: 'dropdown',
         displayName: 'Default Scale',
@@ -402,10 +418,26 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     ],
   });
 
-  if (registered) {
+  if (registeredGantt) {
     console.info(`[Gantt] Registered Bases view: ${VIEW_NAME}`);
   } else {
     console.warn('[Gantt] Failed to register Bases view - Bases plugin may not be enabled');
+  }
+
+  // Register the TaskList view (text-based hierarchy view for testing)
+  const registeredTaskList = plugin.registerBasesView('obsidianGanttTaskList', {
+    name: 'Gantt TaskList (OG)',
+    icon: 'list-tree',
+    factory: (controller: QueryController, containerEl: HTMLElement) => {
+      return new GanttTaskListView(controller, containerEl);
+    },
+    options: () => sharedOptions,
+  });
+
+  if (registeredTaskList) {
+    console.info('[Gantt] Registered Bases view: Gantt TaskList (OG)');
+  } else {
+    console.warn('[Gantt] Failed to register TaskList view - Bases plugin may not be enabled');
   }
 
   // Obsidian handles cleanup automatically via plugin lifecycle

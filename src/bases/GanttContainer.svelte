@@ -1,8 +1,135 @@
 <script lang="ts">
-  /* global HTMLElement */
+  /* global HTMLElement, setTimeout, getComputedStyle */
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';
+  import type { BasesQueryResult } from './register';
+  import type { FieldMappings } from './types/field-mapping';
+  import { PropertyMappingService } from './services/PropertyMappingService';
+
+  // Component props
+  interface Props {
+    data?: BasesQueryResult;
+    fieldMappings?: FieldMappings;
+    app: import('obsidian').App;
+    config?: import('./register').BasesViewConfig;
+  }
+
+  let { data, fieldMappings, app, config }: Props = $props();
+
+  // Column configuration for SVAR Gantt grid
+  // Following SVAR format: https://docs.svar.dev/svelte/gantt/guides/configuration/configure_grid/
+  // Columns match Bases visible properties in order, using Bases display names
+  const columns = $derived.by(() => {
+    if (!fieldMappings || !data) {
+      return [];
+    }
+
+    const visibleProperties = data.properties || [];
+    console.log('[GanttContainer] Visible properties from Bases:', visibleProperties);
+    console.log('[GanttContainer] Field mappings:', fieldMappings);
+
+    // If no properties selected in Bases, show no columns
+    if (visibleProperties.length === 0) {
+      console.log('[GanttContainer] No properties selected - showing no columns');
+      return [];
+    }
+
+    const cols = [];
+
+    // Create a mapping from property IDs to SVAR column IDs
+    const propertyToSvarColumn = new Map<string, string>();
+
+    // Determine which property should be the text column
+    // If textProperty is empty string, use file.basename (following BasesDataAdapter pattern)
+    const textPropertyId = fieldMappings.textProperty || 'file.basename';
+
+    // Map configured properties to SVAR column IDs
+    propertyToSvarColumn.set(textPropertyId, 'text');
+    if (fieldMappings.startProperty) {
+      propertyToSvarColumn.set(fieldMappings.startProperty, 'start');
+    }
+    if (fieldMappings.endProperty) {
+      propertyToSvarColumn.set(fieldMappings.endProperty, 'end');
+    }
+    if (fieldMappings.progressProperty) {
+      propertyToSvarColumn.set(fieldMappings.progressProperty, 'progress');
+    }
+    // Parent property is not shown as a column
+
+    // IMPORTANT: SVAR Gantt requires the 'text' column to be FIRST for hierarchy visualization
+    // to work (indentation and expand/collapse chevrons). If the text property is in visible
+    // properties, we add it first, then add all other properties in their Bases order.
+
+    // Step 1: Check if text property is in visible properties and add it first
+    const hasTextProperty = visibleProperties.includes(textPropertyId);
+
+    if (hasTextProperty) {
+      const displayName = config?.getDisplayName?.(textPropertyId) || textPropertyId;
+      cols.push({
+        id: 'text',
+        header: displayName,
+        width: 300, // Fixed width without flexgrow - SVAR may have issues when both are set
+        align: 'left',
+      });
+      console.log('[GanttContainer] Added text column as first column for hierarchy support:', textPropertyId);
+    } else {
+      console.warn('[GanttContainer] Text property not in visible properties:', textPropertyId);
+    }
+
+    // Step 2: Process all other visible properties IN ORDER from Bases (excluding text)
+    for (const propertyId of visibleProperties) {
+      // Skip parent property - not shown as column
+      if (propertyId === fieldMappings.parentProperty) {
+        continue;
+      }
+
+      // Skip text property - already added as first column
+      if (propertyId === textPropertyId) {
+        continue;
+      }
+
+      // Get display name from Bases config
+      const displayName = config?.getDisplayName?.(propertyId) || propertyId;
+
+      // Determine SVAR column ID (use mapped ID if available, otherwise use property ID)
+      const svarColumnId = propertyToSvarColumn.get(propertyId) || propertyId;
+
+      // Determine column width and alignment
+      let width = 120;
+      let align: 'left' | 'center' | 'right' = 'left';
+      let flexgrow: number | undefined = undefined;
+
+      // Special handling for SVAR built-in columns
+      if (svarColumnId === 'start' || svarColumnId === 'end') {
+        align = 'center';
+      } else if (svarColumnId === 'progress') {
+        width = 100;
+        align = 'center';
+      }
+
+      const col: any = {
+        id: svarColumnId,
+        header: displayName
+      };
+
+      if (flexgrow !== undefined) {
+        col.flexgrow = flexgrow;
+      } else if (width !== undefined) {
+        col.width = width;
+      }
+
+      if (align) {
+        col.align = align;
+      }
+
+      cols.push(col);
+    }
+
+    console.log('[GanttContainer] Columns to display:', cols);
+
+    return cols;
+  });
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
   function lucideIcon(node: HTMLElement, iconName: string) {
@@ -36,6 +163,126 @@
   let api: GanttAPI = $state();
   let editingTask: GanttTask | null = $state(null);
   let showEditor = $state(false);
+
+  // Transform Bases data to SVAR tasks using PropertyMappingService
+  const transformedData = $derived.by(() => {
+    console.log('[GanttContainer] === TRANSFORM START ===');
+    console.log('[GanttContainer] data:', data);
+    console.log('[GanttContainer] fieldMappings:', fieldMappings);
+    console.log('[GanttContainer] hasData:', !!data);
+    console.log('[GanttContainer] hasFieldMappings:', !!fieldMappings);
+    console.log('[GanttContainer] entriesCount:', data?.data?.length || 0);
+
+    if (!data || !fieldMappings) {
+      console.log('[GanttContainer] ❌ No data or mappings, returning empty');
+      return { tasks: [], errors: [] };
+    }
+
+    const service = new PropertyMappingService(app);
+    const visibleProperties = data.properties || [];
+    const result = service.transformEntries(data.data, fieldMappings, visibleProperties);
+
+    console.log('[GanttContainer] ✅ Transformed result:');
+    console.log('[GanttContainer]   - taskCount:', result.tasks.length);
+    console.log('[GanttContainer]   - errorCount:', result.errors.length);
+    console.log('[GanttContainer]   - first task:', result.tasks[0]);
+    console.log('[GanttContainer]   - all tasks:', result.tasks);
+    console.log('[GanttContainer]   - errors:', result.errors);
+    console.log('[GanttContainer] === TRANSFORM END ===');
+
+    return result;
+  });
+
+  // Use transformed tasks or fallback to dummy data
+  const tasks = $derived.by(() => {
+    let realTasks = transformedData.tasks;
+    const useDummy = realTasks.length === 0;
+
+    console.log('[GanttContainer] === TASKS SELECTION ===');
+    console.log('[GanttContainer] realTasks.length:', realTasks.length);
+    console.log('[GanttContainer] useDummy:', useDummy);
+    console.log('[GanttContainer] returning:', useDummy ? 'DUMMY DATA' : 'REAL DATA');
+    if (!useDummy && realTasks.length > 0) {
+      const firstTask = realTasks[0]!;
+      console.log('[GanttContainer] first real task:', firstTask);
+      console.log('[GanttContainer] first task keys:', Object.keys(firstTask));
+      console.log('[GanttContainer] first task stringified:', JSON.stringify(firstTask, (key, value) => {
+        // Convert dates to ISO strings for logging
+        if (value instanceof Date) return value.toISOString();
+        return value;
+      }, 2));
+
+      // Log date range for debugging
+      const dates = realTasks.map(t => [t.start, t.end]).flat().filter(d => d instanceof Date);
+      if (dates.length > 0) {
+        const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+        const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+        console.log('[GanttContainer] Date range:', minDate.toISOString(), 'to', maxDate.toISOString());
+      }
+
+      // Check for tasks with/without parent
+      const rootTasks = realTasks.filter(t => !t.parent);
+      const childTasks = realTasks.filter(t => t.parent);
+      console.log('[GanttContainer] Root tasks (no parent):', rootTasks.length);
+      console.log('[GanttContainer] Child tasks (with parent):', childTasks.length);
+
+      // Validate parent references
+      const allTaskIds = new Set(realTasks.map(t => t.id));
+      const invalidParents = childTasks.filter(t => t.parent && !allTaskIds.has(String(t.parent)));
+      if (invalidParents.length > 0) {
+        console.warn('[GanttContainer] ⚠️ Tasks with invalid parent references:', invalidParents.length);
+        console.warn('[GanttContainer] First invalid parent:', invalidParents[0]);
+        console.warn('[GanttContainer] Parent ID:', invalidParents[0]?.parent);
+        console.warn('[GanttContainer] All task IDs sample (first 5):', Array.from(allTaskIds).slice(0, 5));
+      }
+
+      // Check if parent tasks exist for each child
+      const orphanedTasks = childTasks.filter(t => {
+        if (!t.parent) return false;
+        const parentExists = allTaskIds.has(String(t.parent));
+        if (!parentExists) {
+          console.warn('[GanttContainer] Orphaned task:', t.id, 'looking for parent:', t.parent);
+        }
+        return !parentExists;
+      });
+      if (orphanedTasks.length > 0) {
+        console.warn('[GanttContainer] ⚠️ Orphaned tasks (parent not found):', orphanedTasks.length);
+        console.warn('[GanttContainer] Removing invalid parent references from orphaned tasks...');
+      }
+
+      // Fix orphaned tasks by removing their invalid parent references
+      const orphanedTaskIds = new Set(orphanedTasks.map(t => t.id));
+      realTasks = realTasks.map(task => {
+        if (orphanedTaskIds.has(task.id)) {
+          // Remove invalid parent reference - make this a root task
+          // eslint-disable-next-line no-unused-vars
+          const { parent: _parent, ...taskWithoutParent } = task;
+          console.log('[GanttContainer] Removed parent from:', task.id);
+          return taskWithoutParent;
+        }
+        return task;
+      });
+
+      // Mark parent tasks with 'open: true' (SVAR requires this for hierarchical tasks)
+      // Re-calculate child tasks after fixing orphaned ones
+      const validChildTasks = realTasks.filter(t => t.parent && allTaskIds.has(String(t.parent)));
+      const parentTaskIds = new Set(validChildTasks.map(t => String(t.parent)).filter(p => p));
+      realTasks = realTasks.map(task => {
+        if (parentTaskIds.has(task.id)) {
+          // This task has children - mark as summary and open
+          return {
+            ...task,
+            type: 'summary',
+            open: true
+          };
+        }
+        return task;
+      });
+      console.log('[GanttContainer] Marked parent tasks as summary:', parentTaskIds.size);
+    }
+
+    return useDummy ? getDummyTasks() : realTasks;
+  });
 
   // Custom toolbar items using Obsidian-style actions
   const toolbarItems = [
@@ -76,6 +323,17 @@
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
 
+    // Log the state SVAR received
+    console.log('[GanttContainer] SVAR Gantt initialized');
+    if (api && api.getState) {
+      const state = api.getState();
+      console.log('[GanttContainer] SVAR state:', state);
+      console.log('[GanttContainer] SVAR tasks count:', state?.tasks?.length || 0);
+      if (state?.tasks && state.tasks.length > 0) {
+        console.log('[GanttContainer] First SVAR task:', state.tasks[0]);
+      }
+    }
+
     // Intercept the show-editor event to use our custom editor
     api.intercept("show-editor", ({ id }: { id: string }) => {
       if (id) {
@@ -84,6 +342,55 @@
       }
       return false; // Prevent default editor
     });
+
+    // Fix initial scroll position - ensure the grid starts with first column visible
+    // SVAR Gantt sometimes initializes with horizontal scroll that hides the first column
+    setTimeout(() => {
+      try {
+        console.log('[GanttContainer] Attempting to reset grid scroll position...');
+
+        // Try multiple possible selectors for the scrollable grid container
+        const selectors = [
+          '.og-bases-gantt .wx-grid',
+          '.og-bases-gantt .wx-grid-area',
+          '.og-bases-gantt .wx-grid-data',
+          '.og-bases-gantt .wx-layout-grid',
+          '.og-bases-gantt .wx-grid-body',
+          '.og-bases-gantt [data-id="grid"]',
+        ];
+
+        let foundScrollable = false;
+        for (const selector of selectors) {
+          const element = document.querySelector(selector) as HTMLElement;
+          if (element) {
+            console.log(`[GanttContainer] Found element with selector "${selector}"`, {
+              scrollLeft: element.scrollLeft,
+              scrollWidth: element.scrollWidth,
+              clientWidth: element.clientWidth,
+              overflowX: getComputedStyle(element).overflowX,
+            });
+
+            // Reset scroll if this element has scrollLeft > 0
+            if (element.scrollLeft > 0) {
+              console.log(`[GanttContainer] Resetting scrollLeft from ${element.scrollLeft} to 0`);
+              element.scrollLeft = 0;
+              foundScrollable = true;
+            }
+          }
+        }
+
+        if (!foundScrollable) {
+          console.warn('[GanttContainer] Could not find grid element with scroll to reset');
+          // Log all elements with wx- classes for debugging
+          const wxElements = document.querySelectorAll('[class*="wx-"]');
+          console.log('[GanttContainer] Found elements with wx- classes:', Array.from(wxElements).map(el => el.className));
+        } else {
+          console.log('[GanttContainer] Successfully reset grid scroll position');
+        }
+      } catch (error) {
+        console.error('[GanttContainer] Error resetting grid scroll:', error);
+      }
+    }, 200); // Increased delay to ensure DOM is fully ready
   }
 
   // Handle custom editor actions
@@ -112,7 +419,8 @@
 
   // Dummy data for OG-23 basic Gantt rendering - following SVAR BasicInit pattern
   // Expanded dataset to test scroll behavior with sufficient rows
-  const tasks = [
+  function getDummyTasks() {
+    return [
     {
       id: 1,
       start: new Date(2025, 0, 2),
@@ -317,6 +625,7 @@
       type: "task",
     },
   ];
+  }
 
   const links = [
     // Planning phase
@@ -413,6 +722,7 @@
         init={initGantt}
         {tasks}
         {links}
+        {columns}
         zoom={zoomConfig}
       />
 
@@ -840,6 +1150,83 @@
   .og-bases-gantt :global(.wx-button-expand-content::before),
   .og-bases-gantt :global(.wx-button-expand-content::after) {
     display: none !important;
+  }
+
+  /* OG-87: Unscheduled tasks styling (red bars) */
+  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"]) {
+    background-color: #e74c3c !important;
+    border-color: #c0392b !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-label) {
+    color: white !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-progress) {
+    background-color: #c0392b !important;
+  }
+
+  /* SVAR expand/collapse toggle icons - ensure visibility */
+  .og-bases-gantt :global(.wx-toggle-icon) {
+    display: inline-block !important;
+    width: 16px !important;
+    height: 16px !important;
+    color: var(--text-muted) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    font-size: 16px !important;
+    line-height: 16px !important;
+  }
+
+  .og-bases-gantt :global(.wx-toggle-icon:hover) {
+    color: var(--text-normal) !important;
+  }
+
+  /* Ensure SVAR icon fonts are loaded and visible */
+  .og-bases-gantt :global(.wx-toggle-icon::before) {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: inline-block !important;
+    font-size: 16px !important;
+    line-height: 16px !important;
+  }
+
+  /* Inject offline-friendly Lucide chevron icons using inline SVG */
+  .og-bases-gantt :global(.wxi-menu-down),
+  .og-bases-gantt :global(.wxi-menu-right) {
+    display: inline-block !important;
+    width: 16px !important;
+    height: 16px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  /* Lucide chevron-down icon as inline SVG data URI */
+  .og-bases-gantt :global(.wxi-menu-down::before) {
+    content: '' !important;
+    display: inline-block !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    opacity: 0.7 !important;
+    visibility: visible !important;
+  }
+
+  /* Lucide chevron-right icon as inline SVG data URI */
+  .og-bases-gantt :global(.wxi-menu-right::before) {
+    content: '' !important;
+    display: inline-block !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") !important;
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    opacity: 0.7 !important;
+    visibility: visible !important;
   }
 </style>
 
