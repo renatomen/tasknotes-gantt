@@ -14,7 +14,7 @@ describe('FeatureMetadataManager', () => {
 
   describe('extractMetadata', () => {
     it('should extract feature ID from comments', () => {
-      const content = `# @assertthat-feature-id: feature-123
+      const content = `# assertthat-feature-id: feature-123
 Feature: Test Feature
   Scenario: Test Scenario
     Given a precondition`;
@@ -26,11 +26,11 @@ Feature: Test Feature
 
     it('should extract scenario IDs from comments', () => {
       const content = `Feature: Test Feature
-  # @assertthat-scenario-id: scenario-abc
+  # assertthat-scenario-id: scenario-abc
   Scenario: First Scenario
     Given a precondition
   
-  # @assertthat-scenario-id: scenario-xyz
+  # assertthat-scenario-id: scenario-xyz
   Scenario: Second Scenario
     Given another precondition`;
 
@@ -42,7 +42,7 @@ Feature: Test Feature
 
     it('should handle scenarios with tags', () => {
       const content = `Feature: Test Feature
-  # @assertthat-scenario-id: scenario-123
+  # assertthat-scenario-id: scenario-123
   @smoke @automated
   Scenario: Tagged Scenario
     Given a precondition`;
@@ -77,7 +77,7 @@ Feature: Test Feature
 
       const updated = manager.updateMetadata(content, metadata);
       
-      expect(updated).toContain('# @assertthat-feature-id: feature-123');
+      expect(updated).toContain('# assertthat-feature-id: feature-123');
       expect(updated).toContain('Feature: Test Feature');
     });
 
@@ -99,9 +99,9 @@ Feature: Test Feature
 
       const updated = manager.updateMetadata(content, metadata);
       
-      expect(updated).toContain('# @assertthat-scenario-id: scenario-abc');
+      expect(updated).toContain('# assertthat-scenario-id: scenario-abc');
       expect(updated).toContain('Scenario: First Scenario');
-      expect(updated).toContain('# @assertthat-scenario-id: scenario-xyz');
+      expect(updated).toContain('# assertthat-scenario-id: scenario-xyz');
       expect(updated).toContain('Scenario: Second Scenario');
     });
 
@@ -117,14 +117,14 @@ Feature: Test Feature
 
       const updated = manager.updateMetadata(content, metadata);
       
-      expect(updated).toContain('  # @assertthat-scenario-id: scenario-123');
+      expect(updated).toContain('  # assertthat-scenario-id: scenario-123');
       expect(updated).toContain('  Scenario: Indented Scenario');
     });
 
     it('should update existing metadata', () => {
-      const content = `# @assertthat-feature-id: old-feature-id
+      const content = `# assertthat-feature-id: old-feature-id
 Feature: Test Feature
-  # @assertthat-scenario-id: old-scenario-id
+  # assertthat-scenario-id: old-scenario-id
   Scenario: Test Scenario
     Given a precondition`;
 
@@ -135,9 +135,9 @@ Feature: Test Feature
 
       const updated = manager.updateMetadata(content, metadata);
       
-      expect(updated).toContain('# @assertthat-feature-id: new-feature-id');
+      expect(updated).toContain('# assertthat-feature-id: new-feature-id');
       expect(updated).not.toContain('old-feature-id');
-      expect(updated).toContain('# @assertthat-scenario-id: new-scenario-id');
+      expect(updated).toContain('# assertthat-scenario-id: new-scenario-id');
       expect(updated).not.toContain('old-scenario-id');
     });
   });
@@ -201,9 +201,9 @@ Feature: Test Feature
       const githubFeatures = [
         {
           path: 'test.feature',
-          content: `# @assertthat-feature-id: BDD Framework Validation
+          content: `# assertthat-feature-id: BDD Framework Validation
 Feature: BDD Framework Validation
-  # @assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
+  # assertthat-scenario-id: 0e35e68f664b0a2aec4cd33289a19889
   Scenario: Basic task creation and rendering
     Given a task with title "Sample Task 9"`,
         },
@@ -255,7 +255,7 @@ Feature: BDD Framework Validation
         {
           path: 'test.feature',
           content: `Feature: Test Feature
-  # @assertthat-scenario-id: scenario-123
+  # assertthat-scenario-id: scenario-123
   Scenario: Old Scenario Name
     Given a precondition`,
         },
