@@ -30,3 +30,6 @@ test/wdio/.obsidian-cache/
 
 # AssertThat sync staging area
 featureSyncStage/
+
+# Compound Engineering machine-local config
+.compound-engineering/*.local.yaml
