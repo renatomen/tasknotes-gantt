@@ -10,9 +10,9 @@ restore your development environment from scratch:
 
 ### Node.js Version Requirements
 
-- **Required**: Node.js **18+** (specified in `package.json` engines)
-- **Recommended**: Node.js **20** (used in CI/CD pipeline)
-- **Package Manager**: npm (package-lock.json present)
+- **Required**: Node.js **20** (CI-pinned). `package.json` `engines` says `>=18`, but **Node 24 does NOT work** — the native `classic-level` dependency has no Node 24 prebuilt and fails to compile (`node-gyp` 404). Pin Node 20 with a version manager (fnm/nvm).
+- **Package Manager**: npm (Node 20 bundles npm 10 — watch for a stale global npm 8 shadowing it)
+- **Windows gotchas**: see [Windows build + E2E environment setup](../docs/solutions/developer-experience/windows-build-and-e2e-environment-setup.md) for the full chain — antivirus SSL scanning (cert errors + download stalls), the Node 20 requirement, the rollup optional-dependency bug, and the `.env` vault path.
 
 ### Dependencies Overview
 
@@ -114,6 +114,7 @@ JIRA_SERVER_URL="your-jira-url"
 ### Default Paths (hardcoded in scripts)
 
 - **Default test vault**: `C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault`
+  - ⚠️ This is the original author's machine path. On any other machine you **must** set `OBSIDIAN_TEST_VAULT` (via `.env`), or `npm run build`'s postbuild fails with `EPERM: mkdir 'C:\Users\renato'`.
 - **Plugin ID**: `obsidian-gantt`
 - **Build output**: `dist/`
 
@@ -237,7 +238,7 @@ git commit -m "test: verify setup"  # Should run pre-commit hooks
 - **.gitattributes**: Enforces LF line endings across all platforms
 - **.editorconfig**: Consistent editor settings for all team members
 - **.prettierrc.json**: Explicit formatting rules with LF line endings
-- **Environment**: No .env files (uses environment variables)
+- **Environment**: a local **`.env`** (gitignored) is supported and recommended — `scripts/install-to-vault.cjs` and the wdio config read `OBSIDIAN_TEST_VAULT` from it via dotenv. Copy `.env.example` to `.env` and set your vault path. (Shell environment variables also work and take precedence over `.env`.)
 
 ## 8. **Cross-Platform Development**
 

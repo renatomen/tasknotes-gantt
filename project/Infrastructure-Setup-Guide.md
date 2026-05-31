@@ -355,6 +355,8 @@ export default config;
 
 ### E2E Testing Configuration (test/wdio/wdio.conf.mts)
 
+> ⚠️ **Cross-platform note:** the `OBSIDIAN_TEST_VAULT` fallbacks shown below hardcode the original author's path (`C:/Users/renato/...`). On any other machine, set `OBSIDIAN_TEST_VAULT` via `.env` — otherwise build/E2E silently target a path that doesn't exist (`npm run build` postbuild fails `EPERM: mkdir 'C:\Users\renato'`). For the full Windows setup chain (antivirus SSL scanning, Node 20 requirement, rollup optional-dep bug, `.env` vault config), see [docs/solutions/developer-experience/windows-build-and-e2e-environment-setup.md](../docs/solutions/developer-experience/windows-build-and-e2e-environment-setup.md).
+
 ```typescript
 import { type Options } from "@wdio/types";
 import path from "node:path";
