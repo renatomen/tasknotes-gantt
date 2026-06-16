@@ -592,6 +592,7 @@ function instancesEqual(
       x.isVirtual !== y.isVirtual ||
       x.isCollapsed !== y.isCollapsed ||
       x.dateStatus !== y.dateStatus ||
+      x.status !== y.status ||
       !datesEqual(x.start, y.start) ||
       !datesEqual(x.end, y.end)
     ) {

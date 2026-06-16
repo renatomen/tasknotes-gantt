@@ -52,6 +52,21 @@ describe('expandInstances — root / single-parent cases', () => {
     expect(result.getInstanceIds('c.md')).toEqual(['c.md#parent-p.md']);
   });
 
+  it('carries the task status onto instances (shared across multi-parent duplicates)', () => {
+    const tasks = [
+      task({ path: 'A.md' }),
+      task({ path: 'B.md' }),
+      task({ path: 'c.md', parents: ['A.md', 'B.md'], status: '11🟥Active = Now' }),
+    ];
+    const result = expandInstances(tasks);
+
+    const dups = result.instances.filter((i) => i.sourcePath === 'c.md');
+    expect(dups).toHaveLength(2);
+    expect(dups.every((i) => i.status === '11🟥Active = Now')).toBe(true);
+    // A task with no status carries null.
+    expect(byId(result.instances, 'A.md').status).toBeNull();
+  });
+
   it('carries raw start/end/progress/text through to the instance', () => {
     const start = new Date('2026-04-02');
     const end = new Date('2026-04-20');

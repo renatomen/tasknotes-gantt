@@ -74,6 +74,8 @@ export interface RenderInstance {
    * bypassed the policy (e.g. the empty-source path).
    */
   dateStatus: DateStatus;
+  /** Raw task status string (drives status coloring); `null` when unset. */
+  status: string | null;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -387,6 +389,7 @@ function makeInstance(
     isVirtual,
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
+    status: task.status,
   };
 }
 
