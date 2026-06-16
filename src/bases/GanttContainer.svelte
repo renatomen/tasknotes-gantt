@@ -1,6 +1,6 @@
 <script lang="ts">
   /* global HTMLElement, setTimeout, getComputedStyle */
-  import { Gantt, Willow } from '@svar-ui/svelte-gantt';
+  import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';
   import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
@@ -17,6 +17,12 @@
     capabilities: { write: boolean };
     /** Per-view dependency-arrow mode (R27): 'primary' | 'all'. */
     arrowMode: LinkRewriteMode;
+    /**
+     * Per-view toggle for bar-level date-status indicators (R10/R11); default
+     * on. When on, non-`complete` instances (placeholder/inferred/swapped) get a
+     * distinct bar treatment; when off, no flagging is applied.
+     */
+    showDateIndicators?: boolean;
     app: import('obsidian').App;
     config?: import('./register').BasesViewConfig;
     /**
@@ -32,7 +38,21 @@
   // `app` and `config` remain part of the props contract (register.ts passes
   // them) but the controller now owns the transform, so the view does not read
   // them. Only the controller-derived data + capabilities drive rendering.
-  let { instances, links, capabilities, arrowMode, taskNotesPresent }: Props = $props();
+  let {
+    instances,
+    links,
+    capabilities,
+    arrowMode,
+    showDateIndicators = true,
+    taskNotesPresent,
+  }: Props = $props();
+
+  // Custom SVAR task type used to flag bars whose dates were inferred,
+  // swapped, or placeholdered (one indicator state for all non-`complete`
+  // values — origin R10 only distinguishes "not fully dated" from complete).
+  // Registered in `taskTypes` so SVAR emits its class on the bar element.
+  const DATE_STATUS_TYPE = 'datestatus-flagged';
+  const taskTypes = [...defaultTaskTypes, { id: DATE_STATUS_TYPE, label: 'Date status' }];
 
   // Read-only is the absence of write capability (R5). Used to gate every
   // surface SVAR's own `readonly` does not cover (toolbar, editor modal).
@@ -99,13 +119,17 @@
       const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
       const hasDeps = linkedSourcePaths.has(inst.sourcePath);
 
+      // A summary (parent) bar always stays a summary; only leaf bars can be
+      // flagged. Flag when indicators are on and the dates aren't `complete`.
+      const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
+
       const task: Record<string, unknown> = {
         id: inst.id,
         text: inst.text,
         start,
         end,
         progress: inst.progress ?? 0,
-        type: isParent ? 'summary' : 'task',
+        type: isParent ? 'summary' : flagged ? DATE_STATUS_TYPE : 'task',
         // Carry render-instance metadata so the grid cell can render indicators
         // (multi-parent duplicate icon, has-dependencies badge) without any
         // heavy per-row logic.
@@ -450,6 +474,7 @@
       <Gantt
         init={initGantt}
         {tasks}
+        {taskTypes}
         {links}
         {columns}
         zoom={zoomConfig}
@@ -887,17 +912,23 @@
     display: none !important;
   }
 
-  /* OG-87: Unscheduled tasks styling (red bars) */
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"]) {
-    background-color: #e74c3c !important;
+  /*
+   * Bar-level date-status indicator (U4). SVAR renders a custom task type as a
+   * bare class on the bar element (`wx-bar … datestatus-flagged`), so we target
+   * `.datestatus-flagged` directly. One treatment covers every non-`complete`
+   * state (placeholder / inferred / swapped): a distinct accent fill so an
+   * incompletely-dated bar reads differently from a fully-dated one.
+   */
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
+    background-color: #e67e22 !important;
     border-color: #c0392b !important;
   }
 
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-label) {
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-content) {
     color: white !important;
   }
 
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-progress) {
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
   }
 
