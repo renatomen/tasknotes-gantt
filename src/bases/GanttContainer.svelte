@@ -3,132 +3,132 @@
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';
-  import type { BasesQueryResult } from './register';
-  import type { FieldMappings } from './types/field-mapping';
-  import { PropertyMappingService } from './services/PropertyMappingService';
+  import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 
-  // Component props
+  // Component props (U7): the controller now owns the transform. The view
+  // receives expanded render instances + rewritten links + the active source's
+  // capabilities, and no longer does its own `data`/`fieldMappings` transform.
   interface Props {
-    data?: BasesQueryResult;
-    fieldMappings?: FieldMappings;
+    /** Expanded SVAR render instances from the controller (U5/U6). */
+    instances: RenderInstance[];
+    /** Dependency links rewritten to instance-id endpoints (U5/U6). */
+    links: RenderLink[];
+    /** Active source capabilities — the single source of read-only truth (R5). */
+    capabilities: { write: boolean };
+    /** Per-view dependency-arrow mode (R27): 'primary' | 'all'. */
+    arrowMode: LinkRewriteMode;
     app: import('obsidian').App;
     config?: import('./register').BasesViewConfig;
+    /**
+     * Optional flag distinguishing "no TaskNotes installed" from "TaskNotes
+     * present but write capability off" for the read-only banner copy. When
+     * absent we default to the install-TaskNotes copy (see banner below).
+     * TODO: thread this from the controller/source once it surfaces TaskNotes
+     * presence independently of write capability.
+     */
+    taskNotesPresent?: boolean;
   }
 
-  let { data, fieldMappings, app, config }: Props = $props();
+  // `app` and `config` remain part of the props contract (register.ts passes
+  // them) but the controller now owns the transform, so the view does not read
+  // them. Only the controller-derived data + capabilities drive rendering.
+  let { instances, links, capabilities, arrowMode, taskNotesPresent }: Props = $props();
 
-  // Column configuration for SVAR Gantt grid
-  // Following SVAR format: https://docs.svar.dev/svelte/gantt/guides/configuration/configure_grid/
-  // Columns match Bases visible properties in order, using Bases display names
-  const columns = $derived.by(() => {
-    if (!fieldMappings || !data) {
-      return [];
+  // Read-only is the absence of write capability (R5). Used to gate every
+  // surface SVAR's own `readonly` does not cover (toolbar, editor modal).
+  const readOnly = $derived(!capabilities.write);
+
+  // Read-only banner copy (U7 Design/UX spec). Distinguishes "install TaskNotes"
+  // from "TaskNotes write access unavailable" when we can tell them apart.
+  const readOnlyBannerText = $derived(
+    taskNotesPresent
+      ? 'Read-only — TaskNotes write access unavailable'
+      : 'Read-only — install TaskNotes to edit'
+  );
+
+  // Set of instance ids that are the *primary* instance for their source path.
+  // In 'primary' arrow mode, arrows are drawn only on the primary instance, so
+  // non-primary instances of a task that has dependencies get a lightweight
+  // "has dependencies" indicator instead (U7 Design/UX spec).
+  const linkedSourcePaths = $derived.by(() => {
+    const paths = new Set<string>();
+    // Map instance id → sourcePath for endpoint resolution.
+    const idToSource = new Map<string, string>();
+    for (const inst of instances) {
+      idToSource.set(inst.id, inst.sourcePath);
     }
-
-    const visibleProperties = data.properties || [];
-    console.log('[GanttContainer] Visible properties from Bases:', visibleProperties);
-    console.log('[GanttContainer] Field mappings:', fieldMappings);
-
-    // If no properties selected in Bases, show no columns
-    if (visibleProperties.length === 0) {
-      console.log('[GanttContainer] No properties selected - showing no columns');
-      return [];
+    for (const link of links) {
+      const s = idToSource.get(link.source);
+      const t = idToSource.get(link.target);
+      if (s) paths.add(s);
+      if (t) paths.add(t);
     }
+    return paths;
+  });
 
-    const cols = [];
-
-    // Create a mapping from property IDs to SVAR column IDs
-    const propertyToSvarColumn = new Map<string, string>();
-
-    // Determine which property should be the text column
-    // If textProperty is empty string, use file.basename (following BasesDataAdapter pattern)
-    const textPropertyId = fieldMappings.textProperty || 'file.basename';
-
-    // Map configured properties to SVAR column IDs
-    propertyToSvarColumn.set(textPropertyId, 'text');
-    if (fieldMappings.startProperty) {
-      propertyToSvarColumn.set(fieldMappings.startProperty, 'start');
-    }
-    if (fieldMappings.endProperty) {
-      propertyToSvarColumn.set(fieldMappings.endProperty, 'end');
-    }
-    if (fieldMappings.progressProperty) {
-      propertyToSvarColumn.set(fieldMappings.progressProperty, 'progress');
-    }
-    // Parent property is not shown as a column
-
-    // IMPORTANT: SVAR Gantt requires the 'text' column to be FIRST for hierarchy visualization
-    // to work (indentation and expand/collapse chevrons). If the text property is in visible
-    // properties, we add it first, then add all other properties in their Bases order.
-
-    // Step 1: Check if text property is in visible properties and add it first
-    const hasTextProperty = visibleProperties.includes(textPropertyId);
-
-    if (hasTextProperty) {
-      const displayName = config?.getDisplayName?.(textPropertyId) || textPropertyId;
-      cols.push({
-        id: 'text',
-        header: displayName,
-        width: 300, // Fixed width without flexgrow - SVAR may have issues when both are set
-        align: 'left',
-      });
-      console.log('[GanttContainer] Added text column as first column for hierarchy support:', textPropertyId);
-    } else {
-      console.warn('[GanttContainer] Text property not in visible properties:', textPropertyId);
-    }
-
-    // Step 2: Process all other visible properties IN ORDER from Bases (excluding text)
-    for (const propertyId of visibleProperties) {
-      // Skip parent property - not shown as column
-      if (propertyId === fieldMappings.parentProperty) {
-        continue;
+  // The primary (first-in-order) instance id for each source path. Mirrors the
+  // controller's "primary = first stable-sorted instance" rule.
+  const primaryInstanceIdBySource = $derived.by(() => {
+    const primary = new Map<string, string>();
+    for (const inst of instances) {
+      if (!primary.has(inst.sourcePath)) {
+        primary.set(inst.sourcePath, inst.id);
       }
+    }
+    return primary;
+  });
 
-      // Skip text property - already added as first column
-      if (propertyId === textPropertyId) {
-        continue;
+  // Map RenderInstance[] → SVAR tasks. Parents are marked summary/open for
+  // hierarchy, exactly as the previous transform did. Unscheduled tasks (null
+  // dates) fall back to today so SVAR can place a bar (OG-87 styling keys off
+  // the data-unscheduled attribute, preserved below).
+  const tasks = $derived.by(() => {
+    const today = new Date();
+
+    // Which instance ids are referenced as a parent → mark them summary/open.
+    const parentIds = new Set<string>();
+    for (const inst of instances) {
+      if (inst.parent) {
+        parentIds.add(inst.parent);
       }
+    }
 
-      // Get display name from Bases config
-      const displayName = config?.getDisplayName?.(propertyId) || propertyId;
+    return instances.map((inst) => {
+      const isParent = parentIds.has(inst.id);
+      const start = inst.start ?? today;
+      const end = inst.end ?? inst.start ?? today;
+      const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
+      const hasDeps = linkedSourcePaths.has(inst.sourcePath);
 
-      // Determine SVAR column ID (use mapped ID if available, otherwise use property ID)
-      const svarColumnId = propertyToSvarColumn.get(propertyId) || propertyId;
-
-      // Determine column width and alignment
-      let width = 120;
-      let align: 'left' | 'center' | 'right' = 'left';
-      let flexgrow: number | undefined = undefined;
-
-      // Special handling for SVAR built-in columns
-      if (svarColumnId === 'start' || svarColumnId === 'end') {
-        align = 'center';
-      } else if (svarColumnId === 'progress') {
-        width = 100;
-        align = 'center';
-      }
-
-      const col: any = {
-        id: svarColumnId,
-        header: displayName
+      const task: Record<string, unknown> = {
+        id: inst.id,
+        text: inst.text,
+        start,
+        end,
+        progress: inst.progress ?? 0,
+        type: isParent ? 'summary' : 'task',
+        // Carry render-instance metadata so the grid cell can render indicators
+        // (multi-parent duplicate icon, has-dependencies badge) without any
+        // heavy per-row logic.
+        custom: {
+          sourceTaskId: inst.sourcePath,
+          isVirtual: inst.isVirtual,
+          isCollapsed: inst.isCollapsed,
+          // In 'primary' mode, a non-primary instance of a task that owns a
+          // dependency shows the "has dependencies" indicator (no arrow drawn).
+          showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
+        },
       };
 
-      if (flexgrow !== undefined) {
-        col.flexgrow = flexgrow;
-      } else if (width !== undefined) {
-        col.width = width;
+      if (inst.parent) {
+        task.parent = inst.parent;
+      }
+      if (isParent) {
+        task.open = true;
       }
 
-      if (align) {
-        col.align = align;
-      }
-
-      cols.push(col);
-    }
-
-    console.log('[GanttContainer] Columns to display:', cols);
-
-    return cols;
+      return task;
+    });
   });
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -164,160 +164,90 @@
   let editingTask: GanttTask | null = $state(null);
   let showEditor = $state(false);
 
-  // Transform Bases data to SVAR tasks using PropertyMappingService
-  const transformedData = $derived.by(() => {
-    console.log('[GanttContainer] === TRANSFORM START ===');
-    console.log('[GanttContainer] data:', data);
-    console.log('[GanttContainer] fieldMappings:', fieldMappings);
-    console.log('[GanttContainer] hasData:', !!data);
-    console.log('[GanttContainer] hasFieldMappings:', !!fieldMappings);
-    console.log('[GanttContainer] entriesCount:', data?.data?.length || 0);
-
-    if (!data || !fieldMappings) {
-      console.log('[GanttContainer] ❌ No data or mappings, returning empty');
-      return { tasks: [], errors: [] };
+  /**
+   * Format a value into the `yyyy-MM-dd` string an `<input type="date">`
+   * requires. SVAR task dates arrive as `Date` objects; a raw `Date` (or a full
+   * ISO string) will not pre-populate the input. Returns '' when unparseable.
+   */
+  function toDateInputValue(value: unknown): string {
+    const d = value instanceof Date ? value : value ? new Date(value as string) : null;
+    if (!d || Number.isNaN(d.getTime())) {
+      return '';
     }
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
 
-    const service = new PropertyMappingService(app);
-    const visibleProperties = data.properties || [];
-    const result = service.transformEntries(data.data, fieldMappings, visibleProperties);
-
-    console.log('[GanttContainer] ✅ Transformed result:');
-    console.log('[GanttContainer]   - taskCount:', result.tasks.length);
-    console.log('[GanttContainer]   - errorCount:', result.errors.length);
-    console.log('[GanttContainer]   - first task:', result.tasks[0]);
-    console.log('[GanttContainer]   - all tasks:', result.tasks);
-    console.log('[GanttContainer]   - errors:', result.errors);
-    console.log('[GanttContainer] === TRANSFORM END ===');
-
-    return result;
-  });
-
-  // Use transformed tasks or fallback to dummy data
-  const tasks = $derived.by(() => {
-    let realTasks = transformedData.tasks;
-    const useDummy = realTasks.length === 0;
-
-    console.log('[GanttContainer] === TASKS SELECTION ===');
-    console.log('[GanttContainer] realTasks.length:', realTasks.length);
-    console.log('[GanttContainer] useDummy:', useDummy);
-    console.log('[GanttContainer] returning:', useDummy ? 'DUMMY DATA' : 'REAL DATA');
-    if (!useDummy && realTasks.length > 0) {
-      const firstTask = realTasks[0]!;
-      console.log('[GanttContainer] first real task:', firstTask);
-      console.log('[GanttContainer] first task keys:', Object.keys(firstTask));
-      console.log('[GanttContainer] first task stringified:', JSON.stringify(firstTask, (key, value) => {
-        // Convert dates to ISO strings for logging
-        if (value instanceof Date) return value.toISOString();
-        return value;
-      }, 2));
-
-      // Log date range for debugging
-      const dates = realTasks.map(t => [t.start, t.end]).flat().filter(d => d instanceof Date);
-      if (dates.length > 0) {
-        const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
-        const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
-        console.log('[GanttContainer] Date range:', minDate.toISOString(), 'to', maxDate.toISOString());
-      }
-
-      // Check for tasks with/without parent
-      const rootTasks = realTasks.filter(t => !t.parent);
-      const childTasks = realTasks.filter(t => t.parent);
-      console.log('[GanttContainer] Root tasks (no parent):', rootTasks.length);
-      console.log('[GanttContainer] Child tasks (with parent):', childTasks.length);
-
-      // Validate parent references
-      const allTaskIds = new Set(realTasks.map(t => t.id));
-      const invalidParents = childTasks.filter(t => t.parent && !allTaskIds.has(String(t.parent)));
-      if (invalidParents.length > 0) {
-        console.warn('[GanttContainer] ⚠️ Tasks with invalid parent references:', invalidParents.length);
-        console.warn('[GanttContainer] First invalid parent:', invalidParents[0]);
-        console.warn('[GanttContainer] Parent ID:', invalidParents[0]?.parent);
-        console.warn('[GanttContainer] All task IDs sample (first 5):', Array.from(allTaskIds).slice(0, 5));
-      }
-
-      // Check if parent tasks exist for each child
-      const orphanedTasks = childTasks.filter(t => {
-        if (!t.parent) return false;
-        const parentExists = allTaskIds.has(String(t.parent));
-        if (!parentExists) {
-          console.warn('[GanttContainer] Orphaned task:', t.id, 'looking for parent:', t.parent);
-        }
-        return !parentExists;
-      });
-      if (orphanedTasks.length > 0) {
-        console.warn('[GanttContainer] ⚠️ Orphaned tasks (parent not found):', orphanedTasks.length);
-        console.warn('[GanttContainer] Removing invalid parent references from orphaned tasks...');
-      }
-
-      // Fix orphaned tasks by removing their invalid parent references
-      const orphanedTaskIds = new Set(orphanedTasks.map(t => t.id));
-      realTasks = realTasks.map(task => {
-        if (orphanedTaskIds.has(task.id)) {
-          // Remove invalid parent reference - make this a root task
-          // eslint-disable-next-line no-unused-vars
-          const { parent: _parent, ...taskWithoutParent } = task;
-          console.log('[GanttContainer] Removed parent from:', task.id);
-          return taskWithoutParent;
-        }
-        return task;
-      });
-
-      // Mark parent tasks with 'open: true' (SVAR requires this for hierarchical tasks)
-      // Re-calculate child tasks after fixing orphaned ones
-      const validChildTasks = realTasks.filter(t => t.parent && allTaskIds.has(String(t.parent)));
-      const parentTaskIds = new Set(validChildTasks.map(t => String(t.parent)).filter(p => p));
-      realTasks = realTasks.map(task => {
-        if (parentTaskIds.has(task.id)) {
-          // This task has children - mark as summary and open
-          return {
-            ...task,
-            type: 'summary',
-            open: true
-          };
-        }
-        return task;
-      });
-      console.log('[GanttContainer] Marked parent tasks as summary:', parentTaskIds.size);
-    }
-
-    return useDummy ? getDummyTasks() : realTasks;
-  });
-
-  // Custom toolbar items using Obsidian-style actions
-  const toolbarItems = [
+  // Single text column for the grid. The controller owns the transform now, so
+  // the column set is no longer derived from Bases visible properties — we show
+  // the task-name column (required first for SVAR hierarchy: indentation +
+  // expand/collapse chevrons), rendered with SVAR's default cell so task names
+  // appear.
+  //
+  // NOTE (deferred follow-up): the multi-parent duplicate icon + has-dependencies
+  // indicator (R24/R27 visual cues) were attempted via a Svelte `snippet` passed
+  // as the column `cell`, but SVAR v2.3.0 does not render a snippet there (it
+  // expects a cell *component*), which left the grid name cells blank. Reverted
+  // to the default cell; the indicators need a dedicated SVAR cell component and
+  // are tracked as follow-up work. The underlying multi-parent BEHAVIOR (a task
+  // rendering as one row per visible parent) works — verified via E2E.
+  const columns = $derived([
     {
-      comp: "button",
-      text: "Add Task",
-      handler: () => {
-        if (api) {
-          api.exec("add-task", {
-            task: { text: "New task" },
-            target: null,
-            mode: "after"
-          });
-        }
-      }
+      id: 'text',
+      header: 'Task',
+      width: 300,
+      align: 'left' as const,
     },
-    {
-      comp: "button",
-      text: "Zoom In",
-      handler: () => {
-        if (api) {
-          api.exec("zoom-scale", { dir: "in" });
+  ]);
+
+  // Custom toolbar items using Obsidian-style actions.
+  // The "Add Task" item is gated on write capability (R11 — SVAR's own
+  // `readonly` prop does NOT cover the custom toolbar), so it is omitted
+  // entirely in read-only mode. Zoom controls are always available.
+  const toolbarItems = $derived.by(() => {
+    const items: Array<Record<string, unknown>> = [];
+
+    if (!readOnly) {
+      items.push({
+        comp: "button",
+        text: "Add Task",
+        handler: () => {
+          if (api) {
+            api.exec("add-task", {
+              task: { text: "New task" },
+              target: null,
+              mode: "after"
+            });
+          }
         }
-      }
-    },
-    {
-      comp: "button",
-      text: "Zoom Out",
-      handler: () => {
-        if (api) {
-          api.exec("zoom-scale", { dir: "out" });
-        }
-      }
+      });
     }
-  ];
+
+    items.push(
+      {
+        comp: "button",
+        text: "Zoom In",
+        handler: () => {
+          if (api) {
+            api.exec("zoom-scale", { dir: "in" });
+          }
+        }
+      },
+      {
+        comp: "button",
+        text: "Zoom Out",
+        handler: () => {
+          if (api) {
+            api.exec("zoom-scale", { dir: "out" });
+          }
+        }
+      }
+    );
+
+    return items;
+  });
 
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
@@ -334,11 +264,25 @@
       }
     }
 
-    // Intercept the show-editor event to use our custom editor
+    // Intercept the show-editor event to use our custom editor.
+    // Read-only gate (R11 — no bypass): SVAR's `readonly` prop does NOT suppress
+    // the custom editor modal, so we guard it here. In read-only mode the modal
+    // never opens (we still return false to swallow SVAR's default editor too).
     api.intercept("show-editor", ({ id }: { id: string }) => {
-      if (id) {
-        editingTask = api?.getState().tasks.byId(id);
-        showEditor = true;
+      if (!readOnly && id) {
+        const svarTask = api?.getState().tasks.byId(id);
+        // Build an editable copy with date *strings* — a `Date` does not render
+        // in a `type="date"` input (pre-existing pre-population bug, fixed here).
+        editingTask = svarTask
+          ? {
+              id: svarTask.id,
+              text: svarTask.text ?? '',
+              start: toDateInputValue(svarTask.start),
+              end: toDateInputValue(svarTask.end),
+              progress: svarTask.progress ?? 0,
+            }
+          : null;
+        showEditor = !!editingTask;
       }
       return false; // Prevent default editor
     });
@@ -417,241 +361,6 @@
     }
   }
 
-  // Dummy data for OG-23 basic Gantt rendering - following SVAR BasicInit pattern
-  // Expanded dataset to test scroll behavior with sufficient rows
-  function getDummyTasks() {
-    return [
-    {
-      id: 1,
-      start: new Date(2025, 0, 2),
-      end: new Date(2025, 0, 17),
-      text: "Project Planning",
-      progress: 30,
-      parent: 0,
-      type: "summary",
-      open: true,
-    },
-    {
-      id: 10,
-      start: new Date(2025, 0, 2),
-      end: new Date(2025, 0, 5),
-      text: "Requirements gathering",
-      progress: 100,
-      parent: 1,
-      type: "task",
-    },
-    {
-      id: 11,
-      start: new Date(2025, 0, 5),
-      end: new Date(2025, 0, 9),
-      text: "Architecture design",
-      progress: 80,
-      parent: 1,
-      type: "task",
-    },
-    {
-      id: 12,
-      start: new Date(2025, 0, 9),
-      end: new Date(2025, 0, 12),
-      text: "UI/UX mockups",
-      progress: 60,
-      parent: 1,
-      type: "task",
-    },
-    {
-      id: 13,
-      start: new Date(2025, 0, 12),
-      end: new Date(2025, 0, 17),
-      text: "Technical documentation",
-      progress: 40,
-      parent: 1,
-      type: "task",
-    },
-    {
-      id: 2,
-      start: new Date(2025, 0, 17),
-      end: new Date(2025, 1, 14),
-      text: "Backend Development",
-      progress: 50,
-      parent: 0,
-      type: "summary",
-      open: true,
-    },
-    {
-      id: 20,
-      start: new Date(2025, 0, 17),
-      end: new Date(2025, 0, 24),
-      text: "Database schema setup",
-      progress: 100,
-      parent: 2,
-      type: "task",
-    },
-    {
-      id: 21,
-      start: new Date(2025, 0, 24),
-      end: new Date(2025, 0, 31),
-      text: "API endpoints development",
-      progress: 75,
-      parent: 2,
-      type: "task",
-    },
-    {
-      id: 22,
-      start: new Date(2025, 0, 31),
-      end: new Date(2025, 1, 7),
-      text: "Authentication module",
-      progress: 50,
-      parent: 2,
-      type: "task",
-    },
-    {
-      id: 23,
-      start: new Date(2025, 1, 7),
-      end: new Date(2025, 1, 14),
-      text: "Data validation layer",
-      progress: 25,
-      parent: 2,
-      type: "task",
-    },
-    {
-      id: 3,
-      start: new Date(2025, 1, 14),
-      end: new Date(2025, 2, 7),
-      text: "Frontend Development",
-      progress: 35,
-      parent: 0,
-      type: "summary",
-      open: true,
-    },
-    {
-      id: 30,
-      start: new Date(2025, 1, 14),
-      end: new Date(2025, 1, 21),
-      text: "Component library setup",
-      progress: 90,
-      parent: 3,
-      type: "task",
-    },
-    {
-      id: 31,
-      start: new Date(2025, 1, 21),
-      end: new Date(2025, 1, 28),
-      text: "Dashboard implementation",
-      progress: 60,
-      parent: 3,
-      type: "task",
-    },
-    {
-      id: 32,
-      start: new Date(2025, 1, 28),
-      end: new Date(2025, 2, 7),
-      text: "User profile pages",
-      progress: 30,
-      parent: 3,
-      type: "task",
-    },
-    {
-      id: 4,
-      start: new Date(2025, 2, 7),
-      end: new Date(2025, 2, 28),
-      text: "Testing & QA",
-      progress: 20,
-      parent: 0,
-      type: "summary",
-      open: true,
-    },
-    {
-      id: 40,
-      start: new Date(2025, 2, 7),
-      end: new Date(2025, 2, 14),
-      text: "Unit testing",
-      progress: 40,
-      parent: 4,
-      type: "task",
-    },
-    {
-      id: 41,
-      start: new Date(2025, 2, 14),
-      end: new Date(2025, 2, 21),
-      text: "Integration testing",
-      progress: 15,
-      parent: 4,
-      type: "task",
-    },
-    {
-      id: 42,
-      start: new Date(2025, 2, 21),
-      end: new Date(2025, 2, 28),
-      text: "E2E testing",
-      progress: 10,
-      parent: 4,
-      type: "task",
-    },
-    {
-      id: 5,
-      start: new Date(2025, 2, 28),
-      end: new Date(2025, 3, 11),
-      text: "Deployment",
-      progress: 5,
-      parent: 0,
-      type: "summary",
-      open: true,
-    },
-    {
-      id: 50,
-      start: new Date(2025, 2, 28),
-      end: new Date(2025, 3, 4),
-      text: "Staging environment setup",
-      progress: 20,
-      parent: 5,
-      type: "task",
-    },
-    {
-      id: 51,
-      start: new Date(2025, 3, 4),
-      end: new Date(2025, 3, 8),
-      text: "Production deployment",
-      progress: 0,
-      parent: 5,
-      type: "task",
-    },
-    {
-      id: 52,
-      start: new Date(2025, 3, 8),
-      end: new Date(2025, 3, 11),
-      text: "Monitoring & rollback plan",
-      progress: 0,
-      parent: 5,
-      type: "task",
-    },
-  ];
-  }
-
-  const links = [
-    // Planning phase
-    { id: 1, source: 10, target: 11, type: "e2s" },
-    { id: 2, source: 11, target: 12, type: "e2s" },
-    { id: 3, source: 12, target: 13, type: "e2s" },
-    // Backend phase
-    { id: 4, source: 20, target: 21, type: "e2s" },
-    { id: 5, source: 21, target: 22, type: "e2s" },
-    { id: 6, source: 22, target: 23, type: "e2s" },
-    // Frontend phase
-    { id: 7, source: 30, target: 31, type: "e2s" },
-    { id: 8, source: 31, target: 32, type: "e2s" },
-    // Testing phase
-    { id: 9, source: 40, target: 41, type: "e2s" },
-    { id: 10, source: 41, target: 42, type: "e2s" },
-    // Deployment phase
-    { id: 11, source: 50, target: 51, type: "e2s" },
-    { id: 12, source: 51, target: 52, type: "e2s" },
-    // Cross-phase dependencies
-    { id: 13, source: 13, target: 20, type: "e2s" },
-    { id: 14, source: 23, target: 30, type: "e2s" },
-    { id: 15, source: 32, target: 40, type: "e2s" },
-    { id: 16, source: 42, target: 50, type: "e2s" },
-  ];
-
   // Zoom configuration with defined levels for proper zoom-scale action (OG-81)
   // Each level defines the scales to display at that zoom level
   const zoomConfig = {
@@ -714,9 +423,30 @@
   };
 </script>
 
+<!--
+  Multi-parent duplicate-icon + has-dependencies grid-cell indicators (R24/R27
+  visual cues) are DEFERRED: SVAR v2.3.0 does not render a Svelte snippet passed
+  as a column `cell` (it expects a cell component), which left the grid name
+  cells blank. Reverted to SVAR's default cell so task names render. The
+  indicators need a dedicated SVAR cell component — tracked as follow-up work.
+  The multi-parent BEHAVIOR (one row per visible parent) is unaffected and is
+  verified by the E2E render spec.
+-->
+
 <div class="og-bases-gantt">
   <Willow fonts={false}>
     <Toolbar items={toolbarItems} />
+
+    <!-- Read-only banner (R5/R11): shown whenever the active source has no
+         write capability, regardless of which source is active. Copy varies on
+         whether TaskNotes is present (see readOnlyBannerText). -->
+    {#if readOnly}
+      <div class="og-readonly-banner" role="status">
+        <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
+        <span class="og-readonly-text">{readOnlyBannerText}</span>
+      </div>
+    {/if}
+
     <div class="gtcell">
       <Gantt
         init={initGantt}
@@ -724,6 +454,7 @@
         {links}
         {columns}
         zoom={zoomConfig}
+        readonly={readOnly}
       />
 
       <!-- Floating Zoom Controls (OG-81) -->
@@ -767,13 +498,18 @@
             </div>
             <div class="form-group">
               <label for="task-progress">Progress:</label>
+              <!-- Progress is derived/read-only in milestone 1 (persistence
+                   deferred pending a TaskNotes field mapping — R17/KTD). The
+                   slider is disabled so it is not a dead affordance. -->
               <input
                 id="task-progress"
                 type="range"
                 min="0"
                 max="100"
-                bind:value={editingTask.progress}
+                value={editingTask.progress}
                 class="form-range"
+                disabled
+                title="Progress editing is not available yet"
               />
               <span>{editingTask.progress}%</span>
             </div>
@@ -1228,5 +964,36 @@
     opacity: 0.7 !important;
     visibility: visible !important;
   }
+
+  /* U7: Read-only banner (between toolbar and chart). One fixed line. */
+  .og-readonly-banner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .og-readonly-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+  }
+
+  .og-readonly-icon :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* NOTE: CSS for the multi-parent duplicate-icon / has-dependencies cell
+     indicators was removed alongside the deferred snippet-cell (see the markup
+     comment). It returns with the dedicated SVAR cell component (follow-up). */
 </style>
 

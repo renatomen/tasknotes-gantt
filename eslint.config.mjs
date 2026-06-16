@@ -108,6 +108,8 @@ export default [
         describe: "readonly",
         it: "readonly",
         expect: "readonly",
+        before: "readonly",
+        after: "readonly",
         beforeEach: "readonly",
         afterEach: "readonly",
         beforeAll: "readonly",
