@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "@jest/globals";
+import type { App } from "obsidian";
 import { PropertyMappingService } from "../../src/bases/services/PropertyMappingService";
 import type { FieldMappings, SVARTask } from "../../src/bases/types/field-mapping";
 import type { BasesEntry } from "../../src/bases/register";
@@ -15,7 +16,19 @@ describe("PropertyMappingService", () => {
   let fieldMappings: FieldMappings;
 
   beforeEach(() => {
-    service = new PropertyMappingService();
+    // PropertyMappingService requires an App for parent-link resolution
+    // (metadataCache / vault). Provide a minimal mock that echoes the link
+    // path back as the resolved file path, which is sufficient for these
+    // mapping tests.
+    const mockApp = {
+      metadataCache: {
+        getFirstLinkpathDest: (linkpath: string) => ({ path: linkpath }),
+      },
+      vault: {
+        getAbstractFileByPath: () => null,
+      },
+    } as unknown as App;
+    service = new PropertyMappingService(mockApp);
     fieldMappings = {
       textProperty: "note:title",
       startProperty: "note:start",
@@ -110,8 +123,8 @@ describe("PropertyMappingService", () => {
       expect(task.custom?.isUnscheduled).toBe(true);
     });
 
-    it("should create unscheduled task when only start date is missing", () => {
-      // Arrange
+    it("should create an inferred-start task (scheduled, not unscheduled) when only the start date is missing", () => {
+      // Arrange — only a due date; start is missing
       const mockEntry: BasesEntry = {
         file: { path: "tasks/task-b.md", name: "task-b.md", basename: "task-b" },
         getValue: (propertyId: string) => {
@@ -125,13 +138,15 @@ describe("PropertyMappingService", () => {
       // Act
       const result = service.transformEntries([mockEntry], fieldMappings);
 
-      // Assert
+      // Assert — a partial date is INFERRED into a single-day scheduled task,
+      // not treated as unscheduled (only a task with no dates is unscheduled).
       expect(result.tasks).toHaveLength(1);
-      expect(result.tasks[0].custom?.isUnscheduled).toBe(true);
+      expect(result.tasks[0].custom?.isUnscheduled).toBe(false);
+      expect(result.tasks[0].custom?.dateStatus).toBe("inferred-start");
     });
 
-    it("should create unscheduled task when only end date is missing", () => {
-      // Arrange
+    it("should create an inferred-end task (scheduled, not unscheduled) when only the end date is missing", () => {
+      // Arrange — only a start date; end is missing
       const mockEntry: BasesEntry = {
         file: { path: "tasks/task-c.md", name: "task-c.md", basename: "task-c" },
         getValue: (propertyId: string) => {
@@ -145,9 +160,10 @@ describe("PropertyMappingService", () => {
       // Act
       const result = service.transformEntries([mockEntry], fieldMappings);
 
-      // Assert
+      // Assert — partial date inferred into a single-day scheduled task.
       expect(result.tasks).toHaveLength(1);
-      expect(result.tasks[0].custom?.isUnscheduled).toBe(true);
+      expect(result.tasks[0].custom?.isUnscheduled).toBe(false);
+      expect(result.tasks[0].custom?.dateStatus).toBe("inferred-end");
     });
 
     it("should handle progress value of 0", () => {
@@ -220,7 +236,7 @@ describe("PropertyMappingService", () => {
       expect(result.tasks[1].id).toBe("task-2.md");
     });
 
-    it("should preserve originalEntry reference in custom metadata", () => {
+    it("should not include originalEntry in custom metadata (avoids SVAR circular reference)", () => {
       // Arrange
       const mockEntry: BasesEntry = {
         file: { path: "test.md", name: "test.md", basename: "test" },
@@ -232,9 +248,11 @@ describe("PropertyMappingService", () => {
       // Act
       const result = service.transformEntries([mockEntry], fieldMappings);
 
-      // Assert
+      // Assert — originalEntry is deliberately omitted to avoid a circular
+      // reference that crashes SVAR; obsidianPath carries the identity instead.
       expect(result.tasks).toHaveLength(1);
-      expect(result.tasks[0].custom?.originalEntry).toBe(mockEntry);
+      expect((result.tasks[0].custom as { originalEntry?: unknown })?.originalEntry).toBeUndefined();
+      expect(result.tasks[0].custom?.obsidianPath).toBe("test.md");
     });
 
     it("should set parent field when parentProperty is configured", () => {
