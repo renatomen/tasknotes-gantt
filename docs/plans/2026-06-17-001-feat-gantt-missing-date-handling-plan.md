@@ -1,7 +1,7 @@
 ---
 title: "feat: Configurable missing/partial-date handling for the Gantt view"
 type: feat
-status: active
+status: completed
 date: 2026-06-17
 origin: docs/brainstorms/2026-06-17-gantt-missing-date-handling-requirements.md
 ---
