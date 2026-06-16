@@ -435,10 +435,12 @@ export class BasesDataAdapter {
   extractDate(entry: BasesEntry, dateProperty: BasesPropertyId): Date | null {
     const value = this.extractValue(entry, dateProperty);
     const date = this.convertToDate(value);
-    // Diagnostic: in bases-scoped mode these mappings drive the bar dates, so a
-    // present-but-unparseable value silently collapses a bar to the default
-    // (1-day) duration. Surface it instead of failing silently.
-    if (date === null && value !== null && value !== undefined && value !== '') {
+    // Diagnostic: when a mapped date drives the bar (Bases-scoped views), a
+    // non-blank scalar string that fails to parse silently collapses the bar to
+    // the default duration — surface that. Restricted to non-blank strings:
+    // blank strings and list/object values are not date-parse candidates and
+    // would be false-positive noise on legitimate configs.
+    if (date === null && typeof value === 'string' && value.trim() !== '') {
       console.warn(
         `[BasesDataAdapter] Date property "${dateProperty}" on "${entry.file?.path ?? '?'}" ` +
           `had a value that did not parse to a date:`,
