@@ -58,6 +58,20 @@ export interface SourceDependency {
 }
 
 /**
+ * A status value paired with its configured display color, sourced from the
+ * backing system's status configuration (e.g. TaskNotes custom statuses). The
+ * view colors a bar by its task's status. `value` matches {@link SourceTask.status}.
+ */
+export interface StatusColor {
+  /** The status value (matches `SourceTask.status`). */
+  value: string;
+  /** The configured color (a CSS color string, typically hex). */
+  color: string;
+  /** Whether this status represents completion. */
+  isCompleted: boolean;
+}
+
+/**
  * A patch of mutable task fields for the write path. Date fields accept `Date`
  * or `null`; the write-capable source is responsible for converting to its
  * own canonical representation.
@@ -105,6 +119,13 @@ export interface DataSource {
 
   /** Read the `blockedBy` dependency edges for the given task path. */
   getDependencies(path: string): Promise<SourceDependency[]>;
+
+  /**
+   * The status→color palette the backing system has configured (e.g. TaskNotes
+   * custom statuses), or `[]`. Present only on sources that expose one; the
+   * controller and view treat its absence as "no status colors".
+   */
+  getStatusColors?(): Promise<StatusColor[]>;
 
   /**
    * Apply a field patch to the task at `path`. Present only on write-capable

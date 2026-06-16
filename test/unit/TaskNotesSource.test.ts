@@ -34,6 +34,8 @@ interface FakeApiOptions {
   dependencies?: Record<string, TaskNotesDependencyEdge[]>;
   hasWrite?: boolean;
   omitHasCapability?: boolean;
+  /** When provided, `api.config()` returns `{ statuses }`; omitted ⇒ no `config`. */
+  statuses?: Array<{ value?: string; label?: string; color?: string; isCompleted?: boolean }>;
 }
 
 /**
@@ -75,6 +77,10 @@ function makeApi(opts: FakeApiOptions = {}) {
       cap === 'tasks.write' ? opts.hasWrite === true : false;
   }
 
+  if (opts.statuses !== undefined) {
+    api.config = () => ({ statuses: opts.statuses });
+  }
+
   return { api, onSpy, offSpy, handlers };
 }
 
@@ -90,6 +96,54 @@ function makeApp(api?: TaskNotesApi): App {
     },
   } as unknown as App;
 }
+
+describe('TaskNotesSource — getStatusColors', () => {
+  async function makeSource(opts: FakeApiOptions): Promise<TaskNotesSource> {
+    const { api } = makeApi(opts);
+    const source = await TaskNotesSource.create(makeApp(api));
+    if (!source) throw new Error('expected a source');
+    return source;
+  }
+
+  it('maps api.config().statuses to StatusColor[], keeping value+color', async () => {
+    const source = await makeSource({
+      statuses: [
+        { value: '11🟥Active = Now', label: '🟥Active', color: '#f8312f', isCompleted: false },
+        { value: '41🟩Done = Recent', label: '🟩Done', color: '#00d26a', isCompleted: true },
+      ],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      { value: '11🟥Active = Now', color: '#f8312f', isCompleted: false },
+      { value: '41🟩Done = Recent', color: '#00d26a', isCompleted: true },
+    ]);
+  });
+
+  it('drops entries missing a value or a color', async () => {
+    const source = await makeSource({
+      statuses: [{ value: 'ok', color: '#fff' }, { value: 'no-color' }, { color: '#000' }],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      { value: 'ok', color: '#fff', isCompleted: false },
+    ]);
+  });
+
+  it('returns [] when the api exposes no config', async () => {
+    const source = await makeSource({}); // no statuses ⇒ no config method
+
+    expect(await source.getStatusColors()).toEqual([]);
+  });
+
+  it('returns [] when config throws', async () => {
+    const { api } = makeApi({});
+    api.config = () => {
+      throw new Error('boom');
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getStatusColors()).toEqual([]);
+  });
+});
 
 describe('TaskNotesSource', () => {
   describe('create() / readiness', () => {
