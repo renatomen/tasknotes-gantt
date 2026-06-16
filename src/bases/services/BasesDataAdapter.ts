@@ -426,6 +426,34 @@ export class BasesDataAdapter {
   }
 
   /**
+   * Extract a status string from entry (no basename fallback).
+   *
+   * Unlike extractText, an unmapped/empty/missing status yields null rather than
+   * the file basename — status is optional and drives bar coloring only when
+   * genuinely present.
+   *
+   * @param entry - The BasesEntry to extract from
+   * @param statusProperty - The property ID for status ("" / undefined = none)
+   * @returns The raw status string, or null when unmapped/empty/missing
+   */
+  extractStatus(
+    entry: BasesEntry,
+    statusProperty: BasesPropertyId | undefined,
+  ): string | null {
+    if (!statusProperty) {
+      return null;
+    }
+
+    const value = this.extractValue(entry, statusProperty);
+
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    return String(value);
+  }
+
+  /**
    * Extract date value from entry
    *
    * @param entry - The BasesEntry to extract from

@@ -82,9 +82,7 @@ export class BasesSource implements DataSource {
       start: this.adapter.extractDate(entry, this.mappings.startProperty),
       end: this.adapter.extractDate(entry, this.mappings.endProperty),
       progress: this.adapter.extractProgress(entry, this.mappings.progressProperty),
-      // FieldMappings has no status property in milestone 1; status is derived
-      // elsewhere. Keep the raw data-layer value null until a mapping exists.
-      status: null,
+      status: this.adapter.extractStatus(entry, this.mappings.statusProperty),
       parents: this.resolveParents(entry),
     };
   }

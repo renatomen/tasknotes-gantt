@@ -310,6 +310,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
       progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
       parentProperty: (this.config.get('parentProperty') as string) || '',
+      statusProperty: (this.config.get('statusProperty') as string) || '',
     };
   }
 
@@ -510,6 +511,13 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       key: 'parentProperty',
       default: '',
       placeholder: 'Select parent task property (optional)',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'Status Property',
+      key: 'statusProperty',
+      default: '',
+      placeholder: 'Select status property (colors bars by TaskNotes status)',
     },
   ];
 

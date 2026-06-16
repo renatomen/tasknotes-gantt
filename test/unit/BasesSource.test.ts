@@ -26,6 +26,7 @@ const MAPPINGS: FieldMappings = {
   endProperty: 'note:due',
   progressProperty: 'note:progress',
   parentProperty: 'note:parent',
+  statusProperty: 'note:status',
 };
 
 /**
@@ -120,6 +121,30 @@ describe('BasesSource', () => {
       expect(task.progress).toBe(50);
       expect(task.status).toBeNull();
       expect(task.parents).toEqual([]);
+    });
+
+    it('extracts status from the mapped status property', async () => {
+      // Arrange
+      const entry = makeEntry('tasks/s.md', 's', { 'note:status': '11🟥Active = Now' });
+      const source = new BasesSource(app, [entry], MAPPINGS);
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.status).toBe('11🟥Active = Now');
+    });
+
+    it('yields null status when statusProperty is unmapped', async () => {
+      // Arrange - statusProperty '' short-circuits even when a value is present
+      const entry = makeEntry('tasks/s.md', 's', { 'note:status': 'ignored' });
+      const source = new BasesSource(app, [entry], { ...MAPPINGS, statusProperty: '' });
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.status).toBeNull();
     });
 
     it('falls back to file.basename when the text value is absent', async () => {

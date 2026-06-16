@@ -20,6 +20,8 @@ export interface FieldMappings {
   progressProperty: string;
   /** Property ID for parent task reference (empty string = no parent) */
   parentProperty?: string;
+  /** Property ID for task status (empty string / unset = no status) */
+  statusProperty?: string;
 }
 
 /**
