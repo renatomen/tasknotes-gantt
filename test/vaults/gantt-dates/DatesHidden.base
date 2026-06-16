@@ -1,0 +1,17 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt Dates (hide undated, no indicators)"
+    startDateProperty: note.start
+    endDateProperty: note.due
+    progressProperty: note.progress
+    defaultDuration: 1
+    showUndatedTasks: false
+    showPartialDateTasks: true
+    showDateIndicators: false
+    order:
+      - file.name
+      - note.start
+      - note.due

@@ -1,6 +1,6 @@
 <script lang="ts">
   /* global HTMLElement, setTimeout, getComputedStyle */
-  import { Gantt, Willow } from '@svar-ui/svelte-gantt';
+  import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';
   import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
@@ -17,6 +17,12 @@
     capabilities: { write: boolean };
     /** Per-view dependency-arrow mode (R27): 'primary' | 'all'. */
     arrowMode: LinkRewriteMode;
+    /**
+     * Per-view toggle for bar-level date-status indicators (R10/R11); default
+     * on. When on, non-`complete` instances (placeholder/inferred/swapped) get a
+     * distinct bar treatment; when off, no flagging is applied.
+     */
+    showDateIndicators?: boolean;
     app: import('obsidian').App;
     config?: import('./register').BasesViewConfig;
     /**
@@ -32,7 +38,21 @@
   // `app` and `config` remain part of the props contract (register.ts passes
   // them) but the controller now owns the transform, so the view does not read
   // them. Only the controller-derived data + capabilities drive rendering.
-  let { instances, links, capabilities, arrowMode, taskNotesPresent }: Props = $props();
+  let {
+    instances,
+    links,
+    capabilities,
+    arrowMode,
+    showDateIndicators = true,
+    taskNotesPresent,
+  }: Props = $props();
+
+  // Custom SVAR task type used to flag bars whose dates were inferred,
+  // swapped, or placeholdered (one indicator state for all non-`complete`
+  // values — origin R10 only distinguishes "not fully dated" from complete).
+  // Registered in `taskTypes` so SVAR emits its class on the bar element.
+  const DATE_STATUS_TYPE = 'datestatus-flagged';
+  const taskTypes = [...defaultTaskTypes, { id: DATE_STATUS_TYPE, label: 'Date status' }];
 
   // Read-only is the absence of write capability (R5). Used to gate every
   // surface SVAR's own `readonly` does not cover (toolbar, editor modal).
@@ -79,12 +99,11 @@
   });
 
   // Map RenderInstance[] → SVAR tasks. Parents are marked summary/open for
-  // hierarchy, exactly as the previous transform did. Unscheduled tasks (null
-  // dates) fall back to today so SVAR can place a bar (OG-87 styling keys off
-  // the data-unscheduled attribute, preserved below).
+  // hierarchy, exactly as the previous transform did. The controller's
+  // date-policy transform (U1/U2) has already resolved every instance's
+  // start/end to concrete dates, so the view applies no missing-date fallback —
+  // it renders the resolved dates directly and styles the bar off `dateStatus`.
   const tasks = $derived.by(() => {
-    const today = new Date();
-
     // Which instance ids are referenced as a parent → mark them summary/open.
     const parentIds = new Set<string>();
     for (const inst of instances) {
@@ -95,18 +114,24 @@
 
     return instances.map((inst) => {
       const isParent = parentIds.has(inst.id);
-      const start = inst.start ?? today;
-      const end = inst.end ?? inst.start ?? today;
       const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
       const hasDeps = linkedSourcePaths.has(inst.sourcePath);
+
+      // A summary (parent) bar always stays a summary; only leaf bars can be
+      // flagged. Flag when indicators are on and the dates aren't `complete`.
+      const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
+
+      let type = 'task';
+      if (isParent) type = 'summary';
+      else if (flagged) type = DATE_STATUS_TYPE;
 
       const task: Record<string, unknown> = {
         id: inst.id,
         text: inst.text,
-        start,
-        end,
+        start: inst.start,
+        end: inst.end,
         progress: inst.progress ?? 0,
-        type: isParent ? 'summary' : 'task',
+        type,
         // Carry render-instance metadata so the grid cell can render indicators
         // (multi-parent duplicate icon, has-dependencies badge) without any
         // heavy per-row logic.
@@ -451,6 +476,7 @@
       <Gantt
         init={initGantt}
         {tasks}
+        {taskTypes}
         {links}
         {columns}
         zoom={zoomConfig}
@@ -888,17 +914,23 @@
     display: none !important;
   }
 
-  /* OG-87: Unscheduled tasks styling (red bars) */
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"]) {
-    background-color: #e74c3c !important;
+  /*
+   * Bar-level date-status indicator (U4). SVAR renders a custom task type as a
+   * bare class on the bar element (`wx-bar … datestatus-flagged`), so we target
+   * `.datestatus-flagged` directly. One treatment covers every non-`complete`
+   * state (placeholder / inferred / swapped): a distinct accent fill so an
+   * incompletely-dated bar reads differently from a fully-dated one.
+   */
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
+    background-color: #e67e22 !important;
     border-color: #c0392b !important;
   }
 
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-label) {
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-content) {
     color: white !important;
   }
 
-  .og-bases-gantt :global(.wx-bar[data-unscheduled="true"] .wx-bar-progress) {
+  .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
   }
 

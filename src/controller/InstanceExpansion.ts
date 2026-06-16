@@ -17,6 +17,15 @@
  */
 
 import type { SourceTask } from '../datasource/types';
+import type { DateStatus } from './datePolicy';
+
+/**
+ * A source task whose display dates have already been resolved by the date
+ * policy (start/end non-null, `dateStatus` set). The controller maps raw
+ * `SourceTask`s through {@link import('./datePolicy').applyDatePolicy} before
+ * expansion, so the expander only ever sees resolved tasks.
+ */
+export type ExpandableTask = SourceTask & { dateStatus?: DateStatus };
 
 /**
  * A single SVAR render row produced from a source task. One source task yields
@@ -58,6 +67,13 @@ export interface RenderInstance {
    * view shows an indicator so the user knows instances were collapsed.
    */
   isCollapsed: boolean;
+  /**
+   * How the resolved `start`/`end` were derived by the date policy. The view
+   * keys its bar-level indicator off this (placeholder/inferred/swapped get a
+   * distinct treatment from `complete`). Defaults to `complete` for tasks that
+   * bypassed the policy (e.g. the empty-source path).
+   */
+  dateStatus: DateStatus;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -214,7 +230,7 @@ export class ExpansionResult {
  *   collapse bookkeeping
  */
 export function expandInstances(
-  tasks: readonly SourceTask[],
+  tasks: readonly ExpandableTask[],
   options: ExpansionOptions = {},
 ): ExpansionResult {
   const fanOutCap = options.fanOutCap ?? DEFAULT_FANOUT_CAP;
@@ -222,7 +238,7 @@ export function expandInstances(
   // Stable, deterministic order so primaries and link ids are reproducible.
   const sorted = [...tasks].sort((a, b) => compareStr(a.path, b.path));
 
-  const byPath = new Map<string, SourceTask>();
+  const byPath = new Map<string, ExpandableTask>();
   for (const t of sorted) byPath.set(t.path, t);
 
   // visibleParents(task) = the subset of task.parents present in the visible set,
@@ -355,7 +371,7 @@ export function expandInstances(
 
 /** Build a render instance from a source task and resolved id/parent. */
 function makeInstance(
-  task: SourceTask,
+  task: ExpandableTask,
   id: string,
   parent: string | undefined,
   isVirtual: boolean,
@@ -370,6 +386,7 @@ function makeInstance(
     parent,
     isVirtual,
     isCollapsed: false,
+    dateStatus: task.dateStatus ?? 'complete',
   };
 }
 

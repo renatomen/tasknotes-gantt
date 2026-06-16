@@ -54,15 +54,45 @@ import {
   type DataSource,
   type DataSourceCapabilities,
   type SourceDependency,
+  type SourceTask,
 } from '../datasource';
 import {
   expandInstances,
   ExpansionResult,
+  type ExpandableTask,
   type LinkRewriteMode,
   type RenderInstance,
   type RenderLink,
   type SourceLink,
 } from './InstanceExpansion';
+import { applyDatePolicy, type DateStatus } from './datePolicy';
+
+/**
+ * Date-policy + visibility configuration the controller applies when building a
+ * snapshot. Supplied per-view by U3; defaults ({@link DEFAULT_DATE_POLICY_CONFIG})
+ * apply when absent so the controller behaves sensibly before the view wires it.
+ */
+export interface DatePolicyConfig {
+  /** Bar length (days) for partial/placeholder tasks; `1` → single-day bars. */
+  defaultDuration: number;
+  /** When `false`, undated (placeholder) tasks are filtered out entirely. */
+  showUndatedTasks: boolean;
+  /** When `false`, partial-date (inferred) tasks are filtered out entirely. */
+  showPartialDateTasks: boolean;
+}
+
+/** Default policy config: single-day partials, show everything (R6/R7). */
+export const DEFAULT_DATE_POLICY_CONFIG: DatePolicyConfig = {
+  defaultDuration: 1,
+  showUndatedTasks: true,
+  showPartialDateTasks: true,
+};
+
+/** `dateStatus` values produced by partial (one-date-only) tasks. */
+const PARTIAL_STATUSES: ReadonlySet<DateStatus> = new Set([
+  'inferred-start',
+  'inferred-end',
+]);
 
 /**
  * The Bases fallback inputs the controller needs to construct a
@@ -110,8 +140,19 @@ export interface GanttControllerOptions {
   app: App;
   /** Provider for the Bases fallback inputs (read at selection time). */
   basesInput: BasesInputProvider;
+  /**
+   * Date-policy + visibility config (per-view; supplied by U3). Read at each
+   * snapshot build, so a remount with new options takes effect. Defaults to
+   * {@link DEFAULT_DATE_POLICY_CONFIG} when omitted.
+   */
+  policyConfig?: DatePolicyConfig;
   /** Optional injected source factories (tests). */
   deps?: GanttControllerDeps;
+  /**
+   * Injected clock for the date policy's placeholder anchor, so tests are
+   * deterministic. Defaults to `() => new Date()`.
+   */
+  now?: () => Date;
 }
 
 /** A listener notified whenever the controller's snapshot changes. */
@@ -149,6 +190,8 @@ const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
 export class GanttController {
   private readonly app: App;
   private readonly basesInput: BasesInputProvider;
+  private readonly policyConfig: DatePolicyConfig;
+  private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
     app: App,
@@ -174,6 +217,8 @@ export class GanttController {
   constructor(options: GanttControllerOptions) {
     this.app = options.app;
     this.basesInput = options.basesInput;
+    this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
+    this.now = options.now ?? (() => new Date());
     this.createTaskNotesSource =
       options.deps?.createTaskNotesSource ??
       ((app) => TaskNotesSource.create(app));
@@ -377,7 +422,8 @@ export class GanttController {
 
   /** Build a fresh snapshot by querying the source for tasks and dependencies. */
   private async buildSnapshot(source: DataSource): Promise<Snapshot> {
-    const tasks = await source.getTasks();
+    const rawTasks = await source.getTasks();
+    const tasks = this.resolveAndFilter(rawTasks);
     const expansion = expandInstances(tasks);
 
     const sourceLinks: SourceLink[] = [];
@@ -395,6 +441,33 @@ export class GanttController {
     }
 
     return { expansion, sourceLinks };
+  }
+
+  /**
+   * Resolve each raw task's display dates via the date policy and drop tasks
+   * hidden by the visibility toggles — **before** expansion, so a hidden
+   * multi-parent task produces no instances at all. Returns resolved tasks
+   * (non-null dates + `dateStatus`) ready for {@link expandInstances}.
+   *
+   * Note: hiding an *interior* parent reparents its visible children to the
+   * root (expansion drops parent paths not in the visible set) — accepted
+   * behaviour, not a silent surprise (see plan U2).
+   */
+  private resolveAndFilter(rawTasks: readonly SourceTask[]): ExpandableTask[] {
+    const today = this.now();
+    const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfig;
+
+    const resolved: ExpandableTask[] = [];
+    for (const task of rawTasks) {
+      const { start, end, dateStatus } = applyDatePolicy(
+        { start: task.start, end: task.end },
+        { defaultDuration, today },
+      );
+      if (!showUndatedTasks && dateStatus === 'placeholder') continue;
+      if (!showPartialDateTasks && PARTIAL_STATUSES.has(dateStatus)) continue;
+      resolved.push({ ...task, start, end, dateStatus });
+    }
+    return resolved;
   }
 
   /** Notify all registered listeners of a snapshot change. */
@@ -451,6 +524,7 @@ function instancesEqual(
       x.parent !== y.parent ||
       x.isVirtual !== y.isVirtual ||
       x.isCollapsed !== y.isCollapsed ||
+      x.dateStatus !== y.dateStatus ||
       !datesEqual(x.start, y.start) ||
       !datesEqual(x.end, y.end)
     ) {
