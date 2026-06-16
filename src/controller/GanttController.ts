@@ -17,11 +17,20 @@
  * ## Reactive source selection
  * Selection is reactive, not a construction-time snapshot (KTD "Capability
  * gating ... reactive"). {@link GanttController.refreshSource} re-runs source
- * selection: it prefers `TaskNotesSource.create(app)` (which resolves, awaits
- * readiness, and version-checks, returning `null` when TaskNotes is
- * unavailable), and falls back to a freshly constructed `BasesSource`. When
- * TaskNotes availability flips (enable/disable, lifecycle readiness) the active
- * source and its capabilities change and listeners are notified.
+ * selection per the configured {@link SourceStrategy}:
+ * - `'bases-scoped'` (the view): the Base owns the task set — a `BasesSource`
+ *   built from the current entries/mappings, composed (via {@link
+ *   import('../datasource/CompositeSource').CompositeSource}) with a TaskNotes
+ *   enrichment source (or `null` when TaskNotes is unavailable). The Base's
+ *   filter + field mappings drive the tasks/dates/parents; TaskNotes adds
+ *   dependencies and (U8) writes.
+ * - `'tasknotes-first'` (default, non-Base callers): prefers
+ *   `TaskNotesSource.create(app)` (resolves, awaits readiness, version-checks,
+ *   returning `null` when unavailable), falling back to a fresh `BasesSource`.
+ *
+ * When TaskNotes availability flips (enable/disable, lifecycle readiness) the
+ * active source's capabilities change (and, in `'bases-scoped'`, its enrichment)
+ * and listeners are notified.
  *
  * Obsidian's plugin enable/disable signalling is environment-specific and not
  * in the public typings, so the controller does **not** hard-depend on
@@ -50,6 +59,7 @@ import type { BasesEntry } from '../bases/register';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import {
   BasesSource,
+  CompositeSource,
   TaskNotesSource,
   type DataSource,
   type DataSourceCapabilities,
@@ -124,7 +134,8 @@ export interface GanttControllerDeps {
    */
   createTaskNotesSource?: (app: App) => Promise<DataSource | null>;
   /**
-   * Construct the read-only Bases fallback source. Defaults to
+   * Construct the read-only Bases source (the task set in `'bases-scoped'`
+   * strategy; the fallback in `'tasknotes-first'`). Defaults to
    * `new BasesSource(app, entries, mappings)`.
    */
   createBasesSource?: (
@@ -132,14 +143,43 @@ export interface GanttControllerDeps {
     entries: BasesEntry[],
     mappings: FieldMappings,
   ) => DataSource;
+  /**
+   * Compose a Bases task set with optional TaskNotes enrichment (the
+   * `'bases-scoped'` strategy). Defaults to
+   * `new CompositeSource(base, enrichment)`.
+   */
+  createCompositeSource?: (
+    base: DataSource,
+    enrichment: DataSource | null,
+  ) => DataSource;
 }
+
+/**
+ * How the controller picks its active source:
+ *
+ * - `'bases-scoped'` — the **Base** owns the task set (its filter/query + field
+ *   mappings drive which tasks, their dates, and their parents); **TaskNotes**,
+ *   when present, is layered on as enrichment (dependencies + write). This is
+ *   what makes a Bases custom view honor its own filter and resolve
+ *   multi-parenting. Used by the view (U7).
+ * - `'tasknotes-first'` — TaskNotes (all tasks) when available, else the Bases
+ *   source. For non-Base contexts (e.g. future commands / JS API, M3) that want
+ *   every task regardless of any Base. The default, preserving prior behavior.
+ */
+export type SourceStrategy = 'bases-scoped' | 'tasknotes-first';
 
 /** Construction options for {@link GanttController}. */
 export interface GanttControllerOptions {
   /** The Obsidian app (passed to source factories). */
   app: App;
-  /** Provider for the Bases fallback inputs (read at selection time). */
+  /** Provider for the Bases inputs (read at selection time). */
   basesInput: BasesInputProvider;
+  /**
+   * Source-selection strategy ({@link SourceStrategy}). The view passes
+   * `'bases-scoped'`; defaults to `'tasknotes-first'` to preserve prior behavior
+   * for non-Base callers and existing tests.
+   */
+  sourceStrategy?: SourceStrategy;
   /**
    * Date-policy + visibility config (per-view; supplied by U3). Read at each
    * snapshot build, so a remount with new options takes effect. Defaults to
@@ -190,6 +230,7 @@ const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
 export class GanttController {
   private readonly app: App;
   private readonly basesInput: BasesInputProvider;
+  private readonly sourceStrategy: SourceStrategy;
   private readonly policyConfig: DatePolicyConfig;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
@@ -197,6 +238,10 @@ export class GanttController {
     app: App,
     entries: BasesEntry[],
     mappings: FieldMappings,
+  ) => DataSource;
+  private readonly createCompositeSource: (
+    base: DataSource,
+    enrichment: DataSource | null,
   ) => DataSource;
 
   /** The currently selected source. `null` until {@link init}. */
@@ -217,6 +262,7 @@ export class GanttController {
   constructor(options: GanttControllerOptions) {
     this.app = options.app;
     this.basesInput = options.basesInput;
+    this.sourceStrategy = options.sourceStrategy ?? 'tasknotes-first';
     this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
     this.now = options.now ?? (() => new Date());
     this.createTaskNotesSource =
@@ -225,6 +271,9 @@ export class GanttController {
     this.createBasesSource =
       options.deps?.createBasesSource ??
       ((app, entries, mappings) => new BasesSource(app, entries, mappings));
+    this.createCompositeSource =
+      options.deps?.createCompositeSource ??
+      ((base, enrichment) => new CompositeSource(base, enrichment));
   }
 
   /**
@@ -343,8 +392,26 @@ export class GanttController {
   // below already makes a stray self-event a no-op, so M1 needs no guards.
   // ---------------------------------------------------------------------------
 
-  /** Select TaskNotes if available/ready, else construct the Bases fallback. */
+  /**
+   * Select the active source per {@link SourceStrategy}.
+   *
+   * - `'bases-scoped'`: the Base owns the task set — build a {@link BasesSource}
+   *   from the current entries/mappings and compose it with a TaskNotes
+   *   enrichment source (or `null` when TaskNotes is unavailable). The Base's
+   *   filter and field mappings drive which tasks appear and their dates/parents;
+   *   TaskNotes adds dependencies + write. This is read reactively: the entries
+   *   are re-read here on every (re-)selection.
+   * - `'tasknotes-first'`: TaskNotes (all tasks) when available, else the Bases
+   *   source — for non-Base callers that want every task.
+   */
   private async selectSource(): Promise<DataSource> {
+    if (this.sourceStrategy === 'bases-scoped') {
+      const { entries, mappings } = this.basesInput();
+      const base = this.createBasesSource(this.app, entries, mappings);
+      const enrichment = await this.createTaskNotesSource(this.app);
+      return this.createCompositeSource(base, enrichment);
+    }
+
     const taskNotes = await this.createTaskNotesSource(this.app);
     if (taskNotes) {
       return taskNotes;

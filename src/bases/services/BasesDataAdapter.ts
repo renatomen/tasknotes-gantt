@@ -434,7 +434,18 @@ export class BasesDataAdapter {
    */
   extractDate(entry: BasesEntry, dateProperty: BasesPropertyId): Date | null {
     const value = this.extractValue(entry, dateProperty);
-    return this.convertToDate(value);
+    const date = this.convertToDate(value);
+    // Diagnostic: in bases-scoped mode these mappings drive the bar dates, so a
+    // present-but-unparseable value silently collapses a bar to the default
+    // (1-day) duration. Surface it instead of failing silently.
+    if (date === null && value !== null && value !== undefined && value !== '') {
+      console.warn(
+        `[BasesDataAdapter] Date property "${dateProperty}" on "${entry.file?.path ?? '?'}" ` +
+          `had a value that did not parse to a date:`,
+        value,
+      );
+    }
+    return date;
   }
 
   /**
