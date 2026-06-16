@@ -79,12 +79,11 @@
   });
 
   // Map RenderInstance[] → SVAR tasks. Parents are marked summary/open for
-  // hierarchy, exactly as the previous transform did. Unscheduled tasks (null
-  // dates) fall back to today so SVAR can place a bar (OG-87 styling keys off
-  // the data-unscheduled attribute, preserved below).
+  // hierarchy, exactly as the previous transform did. The controller's
+  // date-policy transform (U1/U2) has already resolved every instance's
+  // start/end to concrete dates, so the view applies no missing-date fallback —
+  // it renders the resolved dates directly and styles the bar off `dateStatus`.
   const tasks = $derived.by(() => {
-    const today = new Date();
-
     // Which instance ids are referenced as a parent → mark them summary/open.
     const parentIds = new Set<string>();
     for (const inst of instances) {
@@ -95,8 +94,8 @@
 
     return instances.map((inst) => {
       const isParent = parentIds.has(inst.id);
-      const start = inst.start ?? today;
-      const end = inst.end ?? inst.start ?? today;
+      const start = inst.start;
+      const end = inst.end;
       const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
       const hasDeps = linkedSourcePaths.has(inst.sourcePath);
 

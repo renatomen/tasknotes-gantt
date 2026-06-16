@@ -20,7 +20,10 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import type { App } from 'obsidian';
 import { GanttController } from '../../src/controller/GanttController';
-import type { GanttControllerDeps } from '../../src/controller/GanttController';
+import type {
+  GanttControllerDeps,
+  DatePolicyConfig,
+} from '../../src/controller/GanttController';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -366,6 +369,163 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
     await controller.onExternalSourceChange();
 
     expect(tn.unsubscribed).toBe(true);
+  });
+});
+
+describe('GanttController — date policy + visibility (U2)', () => {
+  // A fixed "today" so placeholder placement and assertions are deterministic.
+  const FIXED_TODAY = new Date(2026, 5, 17); // 2026-06-17
+  const AUG17 = new Date(2026, 7, 17, 12, 0, 0); // noon → exercises normalization
+
+  /** Build a controller with explicit policy config + injected clock. */
+  function makeControllerWith(
+    policyConfig: DatePolicyConfig,
+    tasks: SourceTask[],
+  ): GanttController {
+    const tn = new FakeSource({ tasks });
+    return new GanttController({
+      app: fakeApp,
+      basesInput: basesInputStub,
+      policyConfig,
+      now: () => FIXED_TODAY,
+      deps: {
+        createTaskNotesSource: async () => tn,
+        createBasesSource: () => new FakeSource({}),
+      },
+    });
+  }
+
+  const showAll: DatePolicyConfig = {
+    defaultDuration: 1,
+    showUndatedTasks: true,
+    showPartialDateTasks: true,
+  };
+
+  it('resolves a due-only task to its deadline, not today→due', async () => {
+    const controller = makeControllerWith(showAll, [task({ path: 'due.md', end: AUG17 })]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-start');
+    // D=1 → single-day bar at the due date (August), NOT spanning from today (June).
+    expect(inst?.start?.getMonth()).toBe(7);
+    expect(inst?.start?.getDate()).toBe(17);
+    expect(inst?.end?.getMonth()).toBe(7);
+  });
+
+  it('propagates dateStatus onto every RenderInstance', async () => {
+    const controller = makeControllerWith(showAll, [
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      task({ path: 'dateless.md' }),
+    ]);
+    await controller.init();
+    const byPath = new Map((await controller.getInstances()).map((i) => [i.sourcePath, i]));
+
+    expect(byPath.get('complete.md')?.dateStatus).toBe('complete');
+    expect(byPath.get('dateless.md')?.dateStatus).toBe('placeholder');
+  });
+
+  it('hide-undated removes dateless tasks; partial + complete remain (AE5)', async () => {
+    const controller = makeControllerWith(
+      { ...showAll, showUndatedTasks: false },
+      [
+        task({ path: 'dateless.md' }),
+        task({ path: 'due.md', end: AUG17 }),
+        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      ],
+    );
+    await controller.init();
+    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
+    expect(paths).toEqual(['complete.md', 'due.md']);
+  });
+
+  it('hide-partial removes one-date tasks; complete + undated remain', async () => {
+    const controller = makeControllerWith(
+      { ...showAll, showPartialDateTasks: false },
+      [
+        task({ path: 'dateless.md' }),
+        task({ path: 'due.md', end: AUG17 }),
+        task({ path: 'start.md', start: new Date(2026, 7, 1) }),
+        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      ],
+    );
+    await controller.init();
+    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
+    expect(paths).toEqual(['complete.md', 'dateless.md']);
+  });
+
+  it('default visibility shows every task regardless of date completeness (R7)', async () => {
+    const controller = makeControllerWith(showAll, [
+      task({ path: 'dateless.md' }),
+      task({ path: 'due.md', end: AUG17 }),
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+    ]);
+    await controller.init();
+    expect(await controller.getInstances()).toHaveLength(3);
+  });
+
+  it('a hidden multi-parent task contributes no instances at all', async () => {
+    // child is dateless and would normally render under both A and B.
+    const controller = makeControllerWith(
+      { ...showAll, showUndatedTasks: false },
+      [
+        task({ path: 'A.md', start: new Date(2026, 7, 1), end: AUG17 }),
+        task({ path: 'B.md', start: new Date(2026, 7, 1), end: AUG17 }),
+        task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+      ],
+    );
+    await controller.init();
+    const childInstances = (await controller.getInstances()).filter(
+      (i) => i.sourcePath === 'child.md',
+    );
+    expect(childInstances).toHaveLength(0);
+  });
+
+  it('reparents children of a hidden interior parent to root (documented shadow path)', async () => {
+    const controller = makeControllerWith(
+      { ...showAll, showUndatedTasks: false },
+      [
+        task({ path: 'parent.md' }), // undated → hidden
+        task({ path: 'child.md', parents: ['parent.md'], end: AUG17 }),
+      ],
+    );
+    await controller.init();
+    const instances = await controller.getInstances();
+    const child = instances.find((i) => i.sourcePath === 'child.md');
+
+    expect(instances.map((i) => i.sourcePath)).toEqual(['child.md']);
+    expect(child?.parent).toBeUndefined(); // reparented to root
+  });
+
+  it('refreshes on a status-only change (comparator includes dateStatus)', async () => {
+    // A task with only a due date resolves to [due, due] inferred-start (D=1).
+    // Adding an equal start date keeps the SAME resolved dates but flips the
+    // status to complete — the comparator must treat that as a change.
+    const tn = new FakeSource({ tasks: [task({ path: 't.md', end: AUG17 })] });
+    tn.enableSubscribe();
+    const controller = new GanttController({
+      app: fakeApp,
+      basesInput: basesInputStub,
+      policyConfig: showAll,
+      now: () => FIXED_TODAY,
+      deps: {
+        createTaskNotesSource: async () => tn,
+        createBasesSource: () => new FakeSource({}),
+      },
+    });
+    await controller.init();
+    expect((await controller.getInstances())[0]?.dateStatus).toBe('inferred-start');
+
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // start === end === AUG17 → resolved dates unchanged, dateStatus → complete.
+    tn.tasks = [task({ path: 't.md', start: AUG17, end: AUG17 })];
+    tn.fireChange();
+    await flushAsync();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances())[0]?.dateStatus).toBe('complete');
   });
 });
 
