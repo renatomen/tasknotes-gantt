@@ -1,0 +1,378 @@
+/**
+ * U6: GanttController Unit Tests
+ *
+ * Verifies the read-only (Milestone 1) action layer against fake sources
+ * injected through `deps` — no real Obsidian app or TaskNotes plugin:
+ * - Source selection: TaskNotes available → TaskNotesSource; absent → BasesSource.
+ * - Reactive re-selection: TaskNotes appearing/disappearing after init flips the
+ *   active source and capabilities, via onExternalSourceChange().
+ * - getInstances(): multi-parent SourceTasks expand to RenderInstances consistent
+ *   with InstanceExpansion.
+ * - getLinks(): a blockedBy dependency yields a rewritten RenderLink with the
+ *   correct SVAR type; a Bases source (no deps) yields no links.
+ * - capabilities reflect the active source (write=false in M1).
+ * - onChange: a source change event notifies listeners; an event recomputing to a
+ *   value-equal snapshot does NOT notify (the idempotent backstop).
+ *
+ * Following testing-standards.md: Jest, mocked deps via DI, AAA.
+ */
+
+import { describe, it, expect, jest } from '@jest/globals';
+import type { App } from 'obsidian';
+import { GanttController } from '../../src/controller/GanttController';
+import type { GanttControllerDeps } from '../../src/controller/GanttController';
+import type {
+  DataSource,
+  DataSourceCapabilities,
+  SourceDependency,
+  SourceTask,
+} from '../../src/datasource/types';
+
+/** Concise SourceTask factory. */
+function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
+  return {
+    text: partial.path,
+    start: null,
+    end: null,
+    progress: null,
+    status: null,
+    parents: [],
+    ...partial,
+  };
+}
+
+/**
+ * A controllable fake source. Holds a mutable task/dependency set and (when
+ * subscribable) captures the registered change handler so a test can fire it.
+ */
+class FakeSource implements DataSource {
+  public readonly capabilities: DataSourceCapabilities;
+  public tasks: SourceTask[];
+  public deps: Record<string, SourceDependency[]>;
+  /** The handler registered via subscribe(), if subscription is enabled. */
+  public changeHandler: (() => void) | null = null;
+  public unsubscribed = false;
+
+  private readonly subscribable: boolean;
+
+  constructor(opts: {
+    write?: boolean;
+    tasks?: SourceTask[];
+    deps?: Record<string, SourceDependency[]>;
+    subscribable?: boolean;
+  }) {
+    this.capabilities = { write: opts.write ?? false };
+    this.tasks = opts.tasks ?? [];
+    this.deps = opts.deps ?? {};
+    this.subscribable = opts.subscribable ?? false;
+  }
+
+  async getTasks(): Promise<SourceTask[]> {
+    return this.tasks;
+  }
+
+  async getDependencies(path: string): Promise<SourceDependency[]> {
+    return this.deps[path] ?? [];
+  }
+
+  // Present only when subscribable so it mirrors TaskNotesSource (Bases has no
+  // subscribe method). The controller feature-detects this.
+  subscribe?(handler: () => void): () => void;
+
+  /** Enable subscription support (mirrors TaskNotesSource.subscribe). */
+  enableSubscribe(): void {
+    this.subscribe = (handler: () => void) => {
+      this.changeHandler = handler;
+      return () => {
+        this.unsubscribed = true;
+        this.changeHandler = null;
+      };
+    };
+  }
+
+  /** Fire the registered change handler, simulating a source event. */
+  fireChange(): void {
+    this.changeHandler?.();
+  }
+}
+
+/** A no-op App stand-in (the fake deps never touch it). */
+const fakeApp = {} as App;
+
+/** Bases input provider stub (only consulted when TaskNotes is absent). */
+function basesInputStub() {
+  return { entries: [], mappings: {} as never };
+}
+
+/** Build a controller wired to explicit fake sources. */
+function makeController(
+  deps: GanttControllerDeps,
+  basesInput = basesInputStub,
+): GanttController {
+  return new GanttController({ app: fakeApp, basesInput, deps });
+}
+
+describe('GanttController — source selection', () => {
+  it('selects the TaskNotes source when it resolves', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const bases = new FakeSource({ tasks: [] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => bases,
+    });
+
+    await controller.init();
+
+    const instances = await controller.getInstances();
+    expect(instances.map((i) => i.sourcePath)).toEqual(['a.md']);
+  });
+
+  it('falls back to the Bases source when TaskNotes is absent (create → null)', async () => {
+    const bases = new FakeSource({ tasks: [task({ path: 'b.md' })] });
+    const createBases = jest.fn(() => bases as DataSource);
+    const controller = makeController({
+      createTaskNotesSource: async () => null,
+      createBasesSource: createBases,
+    });
+
+    await controller.init();
+
+    expect(createBases).toHaveBeenCalledTimes(1);
+    const instances = await controller.getInstances();
+    expect(instances.map((i) => i.sourcePath)).toEqual(['b.md']);
+  });
+});
+
+describe('GanttController — reactive re-selection', () => {
+  it('upgrades Bases → TaskNotes when TaskNotes becomes available after init', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'tn.md' })] });
+    const bases = new FakeSource({ write: false, tasks: [task({ path: 'bs.md' })] });
+
+    // TaskNotes absent on init, present on the second selection.
+    let taskNotesReady = false;
+    const controller = makeController({
+      createTaskNotesSource: async () => (taskNotesReady ? tn : null),
+      createBasesSource: () => bases,
+    });
+
+    await controller.init();
+    expect(controller.capabilities.write).toBe(false);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['bs.md']);
+
+    // TaskNotes comes online; the view/test triggers re-selection.
+    taskNotesReady = true;
+    await controller.onExternalSourceChange();
+
+    expect(controller.capabilities.write).toBe(true);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['tn.md']);
+  });
+
+  it('falls back to Bases when TaskNotes goes away mid-session', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'tn.md' })] });
+    const bases = new FakeSource({ write: false, tasks: [task({ path: 'bs.md' })] });
+
+    let taskNotesReady = true;
+    const controller = makeController({
+      createTaskNotesSource: async () => (taskNotesReady ? tn : null),
+      createBasesSource: () => bases,
+    });
+
+    await controller.init();
+    expect(controller.capabilities.write).toBe(true);
+
+    taskNotesReady = false;
+    await controller.onExternalSourceChange();
+
+    expect(controller.capabilities.write).toBe(false);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['bs.md']);
+  });
+});
+
+describe('GanttController — getInstances expansion', () => {
+  it('expands multi-parent source tasks consistently with InstanceExpansion', async () => {
+    // child has parents [A, B], both visible → two instances (under A, under B).
+    const tasks = [
+      task({ path: 'A.md' }),
+      task({ path: 'B.md' }),
+      task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+    ];
+    const tn = new FakeSource({ tasks });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const instances = await controller.getInstances();
+
+    // A, B (roots) + two duplicated child instances = 4.
+    expect(instances).toHaveLength(4);
+    const childInstances = instances.filter((i) => i.sourcePath === 'child.md');
+    expect(childInstances).toHaveLength(2);
+    expect(childInstances.every((i) => i.isVirtual)).toBe(true);
+    // One under A's row, one under B's row.
+    expect(childInstances.map((i) => i.parent).sort()).toEqual(['A.md', 'B.md']);
+  });
+
+  it('yields no instances for an empty source (no dummy data)', async () => {
+    const controller = makeController({
+      createTaskNotesSource: async () => new FakeSource({ tasks: [] }),
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    expect(await controller.getInstances()).toEqual([]);
+  });
+});
+
+describe('GanttController — getLinks', () => {
+  it('rewrites a blockedBy dependency into a RenderLink with the correct SVAR type', async () => {
+    // pred.md blocks dep.md via FINISHTOSTART → SVAR 'e2s'.
+    const tasks = [task({ path: 'pred.md' }), task({ path: 'dep.md' })];
+    const tn = new FakeSource({
+      tasks,
+      deps: {
+        'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }],
+      },
+    });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const links = await controller.getLinks('primary');
+
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      source: 'pred.md',
+      target: 'dep.md',
+      type: 'e2s',
+    });
+  });
+
+  it('maps every reltype to its SVAR link type', async () => {
+    const tasks = [task({ path: 'p.md' }), task({ path: 'q.md' })];
+    const cases: Array<[SourceDependency['reltype'], string]> = [
+      ['FINISHTOSTART', 'e2s'],
+      ['STARTTOSTART', 's2s'],
+      ['FINISHTOFINISH', 'e2e'],
+      ['STARTTOFINISH', 's2e'],
+    ];
+
+    for (const [reltype, expected] of cases) {
+      const tn = new FakeSource({
+        tasks,
+        deps: { 'q.md': [{ predecessorPath: 'p.md', reltype, gap: null }] },
+      });
+      const controller = makeController({
+        createTaskNotesSource: async () => tn,
+        createBasesSource: () => new FakeSource({}),
+      });
+      await controller.init();
+      const links = await controller.getLinks('primary');
+      expect(links[0]?.type).toBe(expected);
+    }
+  });
+
+  it('produces no links for a Bases source (no dependency model)', async () => {
+    const bases = new FakeSource({ tasks: [task({ path: 'b.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => null,
+      createBasesSource: () => bases,
+    });
+
+    await controller.init();
+    expect(await controller.getLinks('primary')).toEqual([]);
+  });
+});
+
+describe('GanttController — capabilities', () => {
+  it('reflects the active source (write=false in M1)', async () => {
+    const tn = new FakeSource({ write: false, tasks: [] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    expect(controller.capabilities).toEqual({ write: false });
+  });
+
+  it('reports read-only before init', () => {
+    const controller = makeController({
+      createTaskNotesSource: async () => new FakeSource({ write: true }),
+      createBasesSource: () => new FakeSource({}),
+    });
+    expect(controller.capabilities.write).toBe(false);
+  });
+});
+
+describe('GanttController — onChange refresh + idempotent backstop', () => {
+  it('notifies listeners when a source change event alters the snapshot', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Mutate the source's data, then fire a change event.
+    tn.tasks = [task({ path: 'a.md' }), task({ path: 'b.md' })];
+    tn.fireChange();
+    // Allow the async recompute to settle.
+    await flushAsync();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
+  });
+
+  it('does NOT notify when a change event recomputes a value-equal snapshot (backstop)', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Fire a change event WITHOUT altering the data → recompute is value-equal.
+    tn.fireChange();
+    await flushAsync();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes the previous source on re-selection', async () => {
+    const tn = new FakeSource({ tasks: [] });
+    tn.enableSubscribe();
+    let ready = true;
+    const controller = makeController({
+      createTaskNotesSource: async () => (ready ? tn : null),
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    expect(tn.changeHandler).not.toBeNull();
+
+    ready = false;
+    await controller.onExternalSourceChange();
+
+    expect(tn.unsubscribed).toBe(true);
+  });
+});
+
+/** Flush pending microtasks so a fire-and-forget recompute can settle. */
+async function flushAsync(): Promise<void> {
+  // A macrotask boundary drains all pending microtasks first, so this settles
+  // the controller's fire-and-forget recompute regardless of how many awaits
+  // (getTasks + getDependencies per task) it chains internally.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
