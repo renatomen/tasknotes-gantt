@@ -25,6 +25,9 @@ import { mount, unmount } from 'svelte';
 import GanttContainer from './GanttContainer.svelte';
 import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
+import type { FieldMappings } from './types/field-mapping';
+import { GanttController } from '../controller/GanttController';
+import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 
 // ============================================================================
 // Type Definitions for Official Obsidian Bases API (1.10.0+)
@@ -214,6 +217,17 @@ class ObsidianGanttBasesView extends GanttBasesView {
   private svelteComponent: ReturnType<typeof mount> | null = null;
   private ephemeralState: GanttEphemeralState = {};
 
+  /** The action layer / source of truth (U6). Recreated per mount. */
+  private ganttController: GanttController | null = null;
+
+  /**
+   * Monotonic mount token. `mountGantt()` is async (the controller's `init()`
+   * resolves a source and may await TaskNotes readiness); a newer mount or an
+   * unmount that races an in-flight one bumps this so the stale async mount
+   * bails instead of clobbering the live component.
+   */
+  private mountToken = 0;
+
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-bases-gantt-root' });
@@ -233,12 +247,17 @@ class ObsidianGanttBasesView extends GanttBasesView {
   /**
    * Called by Obsidian when data changes.
    * Re-renders the Gantt chart with updated data.
+   *
+   * The current refresh pattern is unmount + remount. Because the controller is
+   * the source of truth and re-reads the live Bases entries via the
+   * `basesInput` provider at selection time, a remount re-queries instances and
+   * links from scratch. (A future targeted prop-update is noted in the plan's
+   * follow-up work.)
    */
   public onDataUpdated(): void {
     console.log('[Gantt] Data updated, remounting. Entries:', this.data?.data?.length || 0);
-    // For now, remount the component (future: pass data as props)
     this.unmountGantt();
-    this.mountGantt();
+    void this.mountGantt();
   }
 
   /**
@@ -280,45 +299,116 @@ class ObsidianGanttBasesView extends GanttBasesView {
     // Future: notify Svelte component of resize if needed
   }
 
-  private mountGantt(): void {
+  /** Build the FieldMappings from the current view config (OG-87). */
+  private buildFieldMappings(): FieldMappings {
+    return {
+      textProperty: (this.config.get('textProperty') as string) || '',
+      startProperty: (this.config.get('startDateProperty') as string) || 'note.start',
+      endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
+      progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
+      parentProperty: (this.config.get('parentProperty') as string) || '',
+    };
+  }
+
+  /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
+  private getArrowMode(): LinkRewriteMode {
+    return this.config.get('dependencyArrowMode') === 'all' ? 'all' : 'primary';
+  }
+
+  /**
+   * Mount the Svelte view from controller-derived data (U7).
+   *
+   * The controller now owns the transform: this builds a {@link GanttController}
+   * whose `basesInput` reads the *current* Bases entries + mappings at selection
+   * time, awaits `init()` (source selection, which may await TaskNotes
+   * readiness), then mounts {@link GanttContainer} with the expanded instances,
+   * rewritten links, and the active source capabilities. `data`/`fieldMappings`
+   * are no longer passed to the component.
+   *
+   * Async-safe: a `mountToken` captured before `await` is re-checked after, so a
+   * remount/unmount that races this in-flight mount discards the stale result.
+   */
+  private async mountGantt(): Promise<void> {
+    const token = ++this.mountToken;
     try {
-      // Extract field mappings from view config (OG-87)
-      const fieldMappings = {
-        textProperty: (this.config.get('textProperty') as string) || '',
-        startProperty: (this.config.get('startDateProperty') as string) || 'note.start',
-        endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
-        progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
-        parentProperty: (this.config.get('parentProperty') as string) || '',
-      };
+      // The controller reads the live Bases query at (re-)selection time, so the
+      // provider closes over `this` rather than a captured snapshot.
+      const controller = new GanttController({
+        app: this.app,
+        basesInput: () => ({
+          entries: this.data?.data ?? [],
+          mappings: this.buildFieldMappings(),
+        }),
+      });
+
+      await controller.init();
+
+      // A newer mount or an unmount happened while we awaited init() — discard.
+      if (token !== this.mountToken) {
+        controller.dispose();
+        return;
+      }
+
+      this.ganttController = controller;
+      const arrowMode = this.getArrowMode();
+
+      const [instances, links] = await Promise.all([
+        controller.getInstances(),
+        controller.getLinks(arrowMode),
+      ]);
+
+      // Re-check after the second await window.
+      if (token !== this.mountToken) {
+        controller.dispose();
+        return;
+      }
 
       console.log('[Gantt] Mounting with:', {
-        hasData: !!this.data,
-        entriesCount: this.data?.data?.length || 0,
-        hasConfig: !!this.config,
-        fieldMappings: fieldMappings,
-        properties: this.data?.properties || [],
+        instanceCount: instances.length,
+        linkCount: links.length,
+        write: controller.capabilities.write,
+        arrowMode,
       });
 
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
         props: {
-          data: this.data,
-          fieldMappings: fieldMappings,
+          instances,
+          links,
+          capabilities: controller.capabilities,
+          arrowMode,
           app: this.app,
           config: this.config,
         },
       });
+
+      // Reactive capability/source refresh: re-check TaskNotes availability when
+      // the data refreshes. A flip in availability re-selects the source and
+      // changes capabilities; the resulting change triggers a remount via the
+      // listener below. (Full plugin enable/disable reactivity — subscribing to
+      // Obsidian's plugin lifecycle events — is wired in a later unit; here we
+      // re-check on the data-update path, which is the cleanly available hook.)
+      controller.onChange(() => {
+        if (token === this.mountToken) {
+          this.onDataUpdated();
+        }
+      });
     } catch (error) {
       console.error('[Gantt] Failed to mount GanttContainer:', error);
-      this.containerEl.empty();
-      this.containerEl.createDiv({
-        cls: 'og-bases-gantt-error',
-        text: 'Gantt (OG): Failed to render chart. See console for details.',
-      });
+      if (token === this.mountToken) {
+        this.containerEl.empty();
+        this.containerEl.createDiv({
+          cls: 'og-bases-gantt-error',
+          text: 'Gantt (OG): Failed to render chart. See console for details.',
+        });
+      }
     }
   }
 
   private unmountGantt(): void {
+    // Invalidate any in-flight async mount so it does not resurrect the view.
+    this.mountToken++;
+
     if (this.svelteComponent) {
       try {
         unmount(this.svelteComponent);
@@ -327,6 +417,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
       }
       this.svelteComponent = null;
     }
+
+    if (this.ganttController) {
+      try {
+        this.ganttController.dispose();
+      } catch (error) {
+        console.warn('[Gantt] Error disposing controller:', error);
+      }
+      this.ganttController = null;
+    }
+
     this.containerEl.empty();
   }
 }
@@ -413,6 +513,18 @@ export function registerBasesGantt(plugin: Plugin): () => void {
           { value: 'day', display: 'Days' },
           { value: 'week', display: 'Weeks' },
           { value: 'month', display: 'Months' },
+        ],
+      },
+      // R27: how dependency arrows render across duplicated multi-parent
+      // instances. Persisted per-view via config.set/get; read in mountGantt.
+      {
+        type: 'dropdown',
+        displayName: 'Dependency Arrows',
+        key: 'dependencyArrowMode',
+        default: 'primary',
+        options: [
+          { value: 'primary', display: 'Primary instance only' },
+          { value: 'all', display: 'All instances' },
         ],
       },
     ],
