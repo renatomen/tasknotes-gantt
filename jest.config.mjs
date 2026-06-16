@@ -28,10 +28,9 @@ const config = {
   moduleFileExtensions: ["ts", "tsx", "js", "mjs"],
   roots: ["<rootDir>/src", "<rootDir>/test", "<rootDir>/scripts"],
   testMatch: ["**/*.test.ts"],
-  moduleNameMapping: {
+  moduleNameMapper: {
     "^(\\.{1,2}/.*)\\.mjs$": "$1",
   },
-  transformIgnorePatterns: ["node_modules/(?!(@cucumber/gherkin)/)"],
 };
 
 export default config;
