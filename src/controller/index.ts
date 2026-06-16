@@ -1,7 +1,7 @@
 /**
  * Barrel for the controller layer (action layer / source of truth).
  *
- * Populated by later units: U6 (GanttController). U5 adds InstanceExpansion.
+ * U5 adds InstanceExpansion; U6 adds the GanttController action layer.
  *
  * @module controller
  */
@@ -18,3 +18,11 @@ export type {
   LinkRewriteMode,
   ExpansionOptions,
 } from './InstanceExpansion';
+
+export { GanttController } from './GanttController';
+export type {
+  GanttControllerOptions,
+  GanttControllerDeps,
+  BasesInputProvider,
+  ChangeListener,
+} from './GanttController';

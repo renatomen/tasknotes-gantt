@@ -1,0 +1,491 @@
+/**
+ * GanttController — the action layer / single source of truth for the view (U6).
+ *
+ * Milestone 1 scope: **read-only**. The controller selects the active
+ * {@link DataSource} (TaskNotes when installed and ready, else Bases), exposes
+ * query operations that expand source tasks into SVAR render instances and
+ * rewrite dependency links to instance ids (via {@link ExpansionResult}),
+ * exposes the active source's {@link DataSourceCapabilities} so surfaces can
+ * gate themselves, and refreshes a coherent source-graph snapshot on source
+ * change events.
+ *
+ * It owns the snapshot: no surface mutates chart state directly (R8). Writes
+ * (`mutate`/`deleteTask`) and the full correlationId/eventSource echo-loop
+ * machinery are **U8** and are intentionally absent here — see the U8 seams
+ * marked below.
+ *
+ * ## Reactive source selection
+ * Selection is reactive, not a construction-time snapshot (KTD "Capability
+ * gating ... reactive"). {@link GanttController.refreshSource} re-runs source
+ * selection: it prefers `TaskNotesSource.create(app)` (which resolves, awaits
+ * readiness, and version-checks, returning `null` when TaskNotes is
+ * unavailable), and falls back to a freshly constructed `BasesSource`. When
+ * TaskNotes availability flips (enable/disable, lifecycle readiness) the active
+ * source and its capabilities change and listeners are notified.
+ *
+ * Obsidian's plugin enable/disable signalling is environment-specific and not
+ * in the public typings, so the controller does **not** hard-depend on
+ * undocumented internals. Instead it exposes
+ * {@link GanttController.onExternalSourceChange}, an explicit trigger the
+ * view/tests call when TaskNotes availability may have changed. **U7 wires the
+ * real Obsidian lifecycle trigger** (plugin enable/disable + `lifecycle`
+ * readiness) to this method.
+ *
+ * ## Refresh + idempotent backstop
+ * {@link GanttController.onChange} subscribes a listener to snapshot changes.
+ * While the active source is TaskNotes, the controller subscribes via
+ * `source.subscribe(...)`; each change event recomputes the snapshot and
+ * notifies listeners. Recomputation is guarded by an **idempotent backstop**:
+ * if the freshly computed instance/link set is value-equal to the current
+ * snapshot, no notification fires (a no-op). This is the cheap guard that makes
+ * a future stray self-event harmless — full correlationId/eventSource echo
+ * control lands in U8 (KTD "Two echo loops, two guards"); this backstop is the
+ * "makes the guards non-correctness-critical" layer.
+ *
+ * @module controller/GanttController
+ */
+
+import type { App } from 'obsidian';
+import type { BasesEntry } from '../bases/register';
+import type { FieldMappings } from '../bases/types/field-mapping';
+import {
+  BasesSource,
+  TaskNotesSource,
+  type DataSource,
+  type DataSourceCapabilities,
+  type SourceDependency,
+} from '../datasource';
+import {
+  expandInstances,
+  ExpansionResult,
+  type LinkRewriteMode,
+  type RenderInstance,
+  type RenderLink,
+  type SourceLink,
+} from './InstanceExpansion';
+
+/**
+ * The Bases fallback inputs the controller needs to construct a
+ * {@link BasesSource} when TaskNotes is unavailable.
+ *
+ * Supplied as a callback so the controller always reads the *current* Bases
+ * query result and mappings at (re-)selection time — the view's Bases entries
+ * change as the user edits filters, and re-selection may happen long after
+ * construction. U7 supplies the real provider from the `mountGantt` seam; tests
+ * pass a fake.
+ */
+export type BasesInputProvider = () => {
+  entries: BasesEntry[];
+  mappings: FieldMappings;
+};
+
+/**
+ * Injection seam for the source-selection strategy, so unit tests can supply
+ * fake sources without a real Obsidian app or TaskNotes plugin.
+ *
+ * Both hooks are optional; the production defaults call
+ * `TaskNotesSource.create(app)` and `new BasesSource(app, entries, mappings)`
+ * respectively.
+ */
+export interface GanttControllerDeps {
+  /**
+   * Resolve a write/read TaskNotes source, or `null` when TaskNotes is
+   * unavailable/incompatible. Defaults to {@link TaskNotesSource.create}.
+   */
+  createTaskNotesSource?: (app: App) => Promise<DataSource | null>;
+  /**
+   * Construct the read-only Bases fallback source. Defaults to
+   * `new BasesSource(app, entries, mappings)`.
+   */
+  createBasesSource?: (
+    app: App,
+    entries: BasesEntry[],
+    mappings: FieldMappings,
+  ) => DataSource;
+}
+
+/** Construction options for {@link GanttController}. */
+export interface GanttControllerOptions {
+  /** The Obsidian app (passed to source factories). */
+  app: App;
+  /** Provider for the Bases fallback inputs (read at selection time). */
+  basesInput: BasesInputProvider;
+  /** Optional injected source factories (tests). */
+  deps?: GanttControllerDeps;
+}
+
+/** A listener notified whenever the controller's snapshot changes. */
+export type ChangeListener = () => void;
+
+/**
+ * An immutable snapshot of the controller's coherent source graph: the expanded
+ * render instances plus the rewritten dependency links for each rewrite mode,
+ * with the raw source-level links retained so a mode switch is a cheap re-derive
+ * and value-equality comparisons don't need to re-query the source.
+ */
+interface Snapshot {
+  /** Expansion result (instances + identity maps). */
+  expansion: ExpansionResult;
+  /** Source-level dependency links gathered across all tasks. */
+  sourceLinks: SourceLink[];
+}
+
+/** Maps a TaskNotes reltype to the SVAR link type. */
+const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
+  FINISHTOSTART: 'e2s',
+  STARTTOSTART: 's2s',
+  FINISHTOFINISH: 'e2e',
+  STARTTOFINISH: 's2e',
+};
+
+/**
+ * Action layer / single source of truth for the Gantt view (read-only, M1).
+ *
+ * Construct, then `await init()` once. Surfaces call {@link getInstances} /
+ * {@link getLinks} to render, read {@link capabilities} to gate affordances,
+ * and {@link onChange} to react to refreshes. The view (U7) drives reactivity
+ * by calling {@link onExternalSourceChange} when TaskNotes availability changes.
+ */
+export class GanttController {
+  private readonly app: App;
+  private readonly basesInput: BasesInputProvider;
+  private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
+  private readonly createBasesSource: (
+    app: App,
+    entries: BasesEntry[],
+    mappings: FieldMappings,
+  ) => DataSource;
+
+  /** The currently selected source. `null` until {@link init}. */
+  private activeSource: DataSource | null = null;
+
+  /** Disposer for the active TaskNotes event subscription, if any. */
+  private sourceUnsubscribe: (() => void) | null = null;
+
+  /** The current coherent source-graph snapshot. `null` until first compute. */
+  private snapshot: Snapshot | null = null;
+
+  /** Registered snapshot-change listeners. */
+  private readonly listeners = new Set<ChangeListener>();
+
+  /** Guards against overlapping recompute/select runs clobbering each other. */
+  private disposed = false;
+
+  constructor(options: GanttControllerOptions) {
+    this.app = options.app;
+    this.basesInput = options.basesInput;
+    this.createTaskNotesSource =
+      options.deps?.createTaskNotesSource ??
+      ((app) => TaskNotesSource.create(app));
+    this.createBasesSource =
+      options.deps?.createBasesSource ??
+      ((app, entries, mappings) => new BasesSource(app, entries, mappings));
+  }
+
+  /**
+   * Select the active source, compute the initial snapshot, and wire change
+   * subscriptions. Call once after construction. Idempotent-safe to call again
+   * (delegates to {@link refreshSource}).
+   */
+  public async init(): Promise<void> {
+    await this.refreshSource();
+  }
+
+  /**
+   * Re-run source selection: prefer a ready TaskNotes source, else the Bases
+   * fallback. If the selected source *kind* or instance changes, the old
+   * subscription is torn down, the new source is subscribed (when it is
+   * TaskNotes), the snapshot is recomputed, and listeners are notified.
+   *
+   * This is the reactive selection entry point: call it whenever TaskNotes
+   * availability may have flipped.
+   */
+  public async refreshSource(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+
+    const next = await this.selectSource();
+
+    // Tear down the previous source's subscription before swapping.
+    this.teardownSubscription();
+    this.activeSource = next;
+
+    // Subscribe to change events when the active source supports it (TaskNotes).
+    this.subscribeToSource(next);
+
+    // Recompute the snapshot from the new source and notify (selection changed
+    // the capability surface and possibly the data, so always notify here).
+    await this.recompute({ forceNotify: true });
+  }
+
+  /**
+   * Explicit reactive trigger: the view/tests call this when TaskNotes
+   * availability may have changed (plugin enable/disable, lifecycle readiness).
+   *
+   * The controller does not hard-depend on undocumented Obsidian plugin
+   * lifecycle events; **U7 wires the real Obsidian signal to this method.**
+   */
+  public async onExternalSourceChange(): Promise<void> {
+    await this.refreshSource();
+  }
+
+  /**
+   * The active source's capabilities (notably `write`). Surfaces read this to
+   * gate mutation affordances (R5). Reports read-only (`write: false`) before
+   * {@link init} or if no source is selected.
+   */
+  public get capabilities(): DataSourceCapabilities {
+    return this.activeSource?.capabilities ?? { write: false };
+  }
+
+  /**
+   * The expanded render instances for the current snapshot. Recomputes lazily if
+   * no snapshot exists yet (e.g. called before an explicit refresh).
+   */
+  public async getInstances(): Promise<RenderInstance[]> {
+    const snap = await this.ensureSnapshot();
+    return [...snap.expansion.instances];
+  }
+
+  /**
+   * The dependency links for the current snapshot, rewritten to instance-id
+   * endpoints for the requested mode (R27: `'primary'` | `'all'`).
+   *
+   * Bases sources expose no dependencies, so this yields `[]` for them.
+   *
+   * @param mode - Endpoint cardinality for link rewriting.
+   */
+  public async getLinks(mode: LinkRewriteMode): Promise<RenderLink[]> {
+    const snap = await this.ensureSnapshot();
+    return snap.expansion.rewriteLinks(snap.sourceLinks, mode);
+  }
+
+  /**
+   * Subscribe to snapshot changes. The listener fires whenever a recompute
+   * produces a snapshot that differs (value-inequality) from the previous one —
+   * source change events and reactive re-selection both flow through here.
+   *
+   * @param listener - Invoked (with no arguments) on each effective change.
+   * @returns A disposer that removes the listener.
+   */
+  public onChange(listener: ChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Tear down all subscriptions and listeners. After disposal, refresh calls are
+   * no-ops. (U8 also aborts in-flight writes here.)
+   */
+  public dispose(): void {
+    this.disposed = true;
+    this.teardownSubscription();
+    this.listeners.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // U8 SEAM — write path (intentionally not implemented in M1).
+  //
+  // U8 adds `mutate(instanceId, patch)` and `deleteTask(instanceId)` here. They
+  // resolve instanceId → source path via `snapshot.expansion.getSourcePath(...)`
+  // and call `activeSource.mutate/deleteTask(path, patch, context)` with a self
+  // MutationContext (correlationId). The two echo guards (in-flight
+  // correlationId set with TTL for TaskNotes events; `eventSource` self-tag for
+  // SVAR reflection) live here too. The idempotent backstop in `recompute`
+  // below already makes a stray self-event a no-op, so M1 needs no guards.
+  // ---------------------------------------------------------------------------
+
+  /** Select TaskNotes if available/ready, else construct the Bases fallback. */
+  private async selectSource(): Promise<DataSource> {
+    const taskNotes = await this.createTaskNotesSource(this.app);
+    if (taskNotes) {
+      return taskNotes;
+    }
+    const { entries, mappings } = this.basesInput();
+    return this.createBasesSource(this.app, entries, mappings);
+  }
+
+  /**
+   * Subscribe to a source's change events when it supports subscription (only
+   * the TaskNotes source does). On each event, recompute and notify (subject to
+   * the idempotent backstop).
+   */
+  private subscribeToSource(source: DataSource): void {
+    const subscribe = (source as { subscribe?: unknown }).subscribe;
+    if (typeof subscribe !== 'function') {
+      return;
+    }
+    // The TaskNotesSource.subscribe signature: (handler) => disposer.
+    this.sourceUnsubscribe = (
+      subscribe as (handler: () => void) => () => void
+    ).call(source, () => {
+      // Fire-and-forget: a source event triggers a snapshot recompute. The
+      // idempotent backstop suppresses notification when nothing changed (M1's
+      // cheap echo guard; full correlationId suppression is U8).
+      void this.recompute({ forceNotify: false });
+    });
+  }
+
+  /** Dispose the active source subscription, if any. */
+  private teardownSubscription(): void {
+    if (this.sourceUnsubscribe) {
+      try {
+        this.sourceUnsubscribe();
+      } catch {
+        // Best-effort teardown.
+      }
+      this.sourceUnsubscribe = null;
+    }
+  }
+
+  /** Compute a snapshot on demand if one does not exist yet. */
+  private async ensureSnapshot(): Promise<Snapshot> {
+    if (!this.snapshot) {
+      await this.recompute({ forceNotify: false });
+    }
+    // recompute always assigns this.snapshot (even for an empty source).
+    return this.snapshot as Snapshot;
+  }
+
+  /**
+   * Recompute the coherent source-graph snapshot from the active source:
+   * `getTasks()` → `expandInstances(...)`, plus `getDependencies(path)` per task
+   * → `SourceLink[]`. Notifies listeners when the new snapshot differs from the
+   * previous (the idempotent backstop), or when `forceNotify` is set (selection
+   * changed the capability surface even if data is value-equal).
+   */
+  private async recompute(opts: { forceNotify: boolean }): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+
+    const source = this.activeSource;
+    const next: Snapshot = source
+      ? await this.buildSnapshot(source)
+      : emptySnapshot();
+
+    const changed = !this.snapshot || !snapshotsEqual(this.snapshot, next);
+    this.snapshot = next;
+
+    if (opts.forceNotify || changed) {
+      this.notify();
+    }
+  }
+
+  /** Build a fresh snapshot by querying the source for tasks and dependencies. */
+  private async buildSnapshot(source: DataSource): Promise<Snapshot> {
+    const tasks = await source.getTasks();
+    const expansion = expandInstances(tasks);
+
+    const sourceLinks: SourceLink[] = [];
+    for (const t of tasks) {
+      const deps = await source.getDependencies(t.path);
+      for (const dep of deps) {
+        sourceLinks.push({
+          // The dependency edge belongs to `t` (an entry in t's blockedBy):
+          // predecessor → this task.
+          sourcePath: dep.predecessorPath,
+          targetPath: t.path,
+          type: RELTYPE_TO_SVAR[dep.reltype],
+        });
+      }
+    }
+
+    return { expansion, sourceLinks };
+  }
+
+  /** Notify all registered listeners of a snapshot change. */
+  private notify(): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch {
+        // A throwing listener must not break the notification fan-out.
+      }
+    }
+  }
+}
+
+/** An empty snapshot (no active source / empty source). */
+function emptySnapshot(): Snapshot {
+  return { expansion: expandInstances([]), sourceLinks: [] };
+}
+
+/**
+ * Value-equality between two snapshots — the idempotent backstop's comparator.
+ *
+ * Two snapshots are equal when their render instances (id, sourcePath, text,
+ * dates, parent, virtual/collapsed flags, progress) and their source-level
+ * links are element-wise equal in order. Expansion is deterministic (stable
+ * sort), so order is a reliable basis for comparison.
+ */
+function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
+  return (
+    instancesEqual(a.expansion.instances, b.expansion.instances) &&
+    sourceLinksEqual(a.sourceLinks, b.sourceLinks)
+  );
+}
+
+/** Element-wise value equality over render instances. */
+function instancesEqual(
+  a: readonly RenderInstance[],
+  b: readonly RenderInstance[],
+): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (!x || !y) {
+      return false;
+    }
+    if (
+      x.id !== y.id ||
+      x.sourcePath !== y.sourcePath ||
+      x.text !== y.text ||
+      x.progress !== y.progress ||
+      x.parent !== y.parent ||
+      x.isVirtual !== y.isVirtual ||
+      x.isCollapsed !== y.isCollapsed ||
+      !datesEqual(x.start, y.start) ||
+      !datesEqual(x.end, y.end)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Element-wise value equality over source-level links. */
+function sourceLinksEqual(a: readonly SourceLink[], b: readonly SourceLink[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (!x || !y) {
+      return false;
+    }
+    if (
+      x.sourcePath !== y.sourcePath ||
+      x.targetPath !== y.targetPath ||
+      x.type !== y.type
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Null-safe `Date` value equality (compares epoch millis). */
+function datesEqual(a: Date | null, b: Date | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return a.getTime() === b.getTime();
+}
