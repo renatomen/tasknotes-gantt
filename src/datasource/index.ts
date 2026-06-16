@@ -13,3 +13,5 @@ export type {
   TaskPatch,
   MutationContext,
 } from './types';
+
+export { BasesSource } from './BasesSource';
