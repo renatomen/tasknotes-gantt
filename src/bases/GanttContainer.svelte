@@ -114,8 +114,6 @@
 
     return instances.map((inst) => {
       const isParent = parentIds.has(inst.id);
-      const start = inst.start;
-      const end = inst.end;
       const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
       const hasDeps = linkedSourcePaths.has(inst.sourcePath);
 
@@ -123,13 +121,17 @@
       // flagged. Flag when indicators are on and the dates aren't `complete`.
       const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
 
+      let type = 'task';
+      if (isParent) type = 'summary';
+      else if (flagged) type = DATE_STATUS_TYPE;
+
       const task: Record<string, unknown> = {
         id: inst.id,
         text: inst.text,
-        start,
-        end,
+        start: inst.start,
+        end: inst.end,
         progress: inst.progress ?? 0,
-        type: isParent ? 'summary' : flagged ? DATE_STATUS_TYPE : 'task',
+        type,
         // Carry render-instance metadata so the grid cell can render indicators
         // (multi-parent duplicate icon, has-dependencies badge) without any
         // heavy per-row logic.
