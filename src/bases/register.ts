@@ -26,8 +26,11 @@ import GanttContainer from './GanttContainer.svelte';
 import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
-import { GanttController } from '../controller/GanttController';
+import { GanttController, type DatePolicyConfig } from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
+import { readDatePolicyConfig } from './datePolicyConfig';
+
+export { readDatePolicyConfig } from './datePolicyConfig';
 
 // ============================================================================
 // Type Definitions for Official Obsidian Bases API (1.10.0+)
@@ -315,6 +318,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
     return this.config.get('dependencyArrowMode') === 'all' ? 'all' : 'primary';
   }
 
+  /** Build the date-policy + visibility config from the per-view options (U3). */
+  private buildDatePolicyConfig(): DatePolicyConfig {
+    return readDatePolicyConfig((key) => this.config.get(key));
+  }
+
+  /** Read the per-view "show date-status indicators" toggle (R11); default on. */
+  private getShowDateIndicators(): boolean {
+    return this.config.get('showDateIndicators') !== false;
+  }
+
   /**
    * Mount the Svelte view from controller-derived data (U7).
    *
@@ -339,6 +352,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
           entries: this.data?.data ?? [],
           mappings: this.buildFieldMappings(),
         }),
+        policyConfig: this.buildDatePolicyConfig(),
       });
 
       await controller.init();
@@ -377,6 +391,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
           links,
           capabilities: controller.capabilities,
           arrowMode,
+          showDateIndicators: this.getShowDateIndicators(),
           app: this.app,
           config: this.config,
         },
@@ -526,6 +541,34 @@ export function registerBasesGantt(plugin: Plugin): () => void {
           { value: 'primary', display: 'Primary instance only' },
           { value: 'all', display: 'All instances' },
         ],
+      },
+      // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
+      // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
+      // controller's date policy + the view's bar-level indicators.
+      {
+        type: 'number',
+        displayName: 'Default task duration (days)',
+        key: 'defaultDuration',
+        default: 1,
+        min: 1,
+      },
+      {
+        type: 'boolean',
+        displayName: 'Show tasks with no dates',
+        key: 'showUndatedTasks',
+        default: true,
+      },
+      {
+        type: 'boolean',
+        displayName: 'Show tasks with only one date',
+        key: 'showPartialDateTasks',
+        default: true,
+      },
+      {
+        type: 'boolean',
+        displayName: 'Show date-status indicators on bars',
+        key: 'showDateIndicators',
+        default: true,
       },
     ],
   });
