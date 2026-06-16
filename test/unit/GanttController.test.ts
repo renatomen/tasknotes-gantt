@@ -30,6 +30,7 @@ import type {
   SourceDependency,
   SourceTask,
 } from '../../src/datasource/types';
+import type { BasesEntry } from '../../src/bases/register';
 
 /** Concise SourceTask factory. */
 function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
@@ -526,6 +527,174 @@ describe('GanttController — date policy + visibility (U2)', () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect((await controller.getInstances())[0]?.dateStatus).toBe('complete');
+  });
+});
+
+describe('GanttController — bases-scoped strategy (composite)', () => {
+  /** A minimal BasesEntry stand-in (only `file.path` is read by fakes here). */
+  const entry = (path: string): BasesEntry =>
+    ({ file: { path } }) as unknown as BasesEntry;
+
+  /**
+   * Build a bases-scoped controller: the task set comes from `createBasesSource`
+   * (the Base), and TaskNotes (`createTaskNotesSource`) is enrichment (deps +
+   * capabilities), or absent. The real CompositeSource composes them.
+   */
+  function makeBasesScoped(opts: {
+    baseTasks: SourceTask[];
+    taskNotesPresent?: boolean;
+    deps?: Record<string, SourceDependency[]>;
+    write?: boolean;
+  }): GanttController {
+    const base = new FakeSource({ tasks: opts.baseTasks });
+    const enrichment =
+      opts.taskNotesPresent === false
+        ? null
+        : new FakeSource({ deps: opts.deps, write: opts.write });
+    return new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+  }
+
+  it('draws the task set from the Base and dependencies from TaskNotes', async () => {
+    const controller = makeBasesScoped({
+      baseTasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })],
+      deps: { 'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }] },
+    });
+    await controller.init();
+
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual([
+      'dep.md',
+      'pred.md',
+    ]);
+    const links = await controller.getLinks('primary');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ source: 'pred.md', target: 'dep.md', type: 'e2s' });
+  });
+
+  it('resolves multi-parenting from the Base task set even with no TaskNotes', async () => {
+    // The crux: parents come from the Base (TaskNotesSource exposes none), so
+    // multi-parent duplication works in a Bases view independent of TaskNotes.
+    const controller = makeBasesScoped({
+      taskNotesPresent: false,
+      baseTasks: [
+        task({ path: 'A.md' }),
+        task({ path: 'B.md' }),
+        task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+      ],
+    });
+    await controller.init();
+
+    const child = (await controller.getInstances()).filter((i) => i.sourcePath === 'child.md');
+    expect(child).toHaveLength(2);
+    expect(child.every((i) => i.isVirtual)).toBe(true);
+    expect(child.map((i) => i.parent).sort()).toEqual(['A.md', 'B.md']);
+  });
+
+  it('is read-only with no dependency links when TaskNotes is absent', async () => {
+    const controller = makeBasesScoped({
+      taskNotesPresent: false,
+      baseTasks: [task({ path: 'a.md' })],
+    });
+    await controller.init();
+
+    expect(controller.capabilities).toEqual({ write: false });
+    expect(await controller.getLinks('primary')).toEqual([]);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md']);
+  });
+
+  it('surfaces write capability from the TaskNotes enrichment (U8 forward-looking)', async () => {
+    const controller = makeBasesScoped({ baseTasks: [task({ path: 'a.md' })], write: true });
+    await controller.init();
+    expect(controller.capabilities.write).toBe(true);
+  });
+
+  it('keeps the Base task set stable while TaskNotes availability flips capabilities', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'bs.md' })] });
+    let tnReady = false;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => (tnReady ? new FakeSource({ write: true }) : null),
+      },
+    });
+
+    await controller.init();
+    expect(controller.capabilities.write).toBe(false);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['bs.md']);
+
+    tnReady = true;
+    await controller.onExternalSourceChange();
+    expect(controller.capabilities.write).toBe(true);
+    // The Base owns the set, so it is unchanged by the enrichment flip.
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['bs.md']);
+  });
+
+  it('re-reads the live Base entries on re-selection (Base filter changes take effect)', async () => {
+    // The original bug: filtering the Base did not change the Gantt. Here the
+    // Base drives the set, so a re-selection reflects the new entries.
+    let entries: BasesEntry[] = [entry('a.md'), entry('b.md')];
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: () => ({ entries, mappings: {} as never }),
+      deps: {
+        createBasesSource: (_app, ents) =>
+          new FakeSource({ tasks: ents.map((e) => task({ path: e.file.path })) }),
+        createTaskNotesSource: async () => null,
+      },
+    });
+
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual([
+      'a.md',
+      'b.md',
+    ]);
+
+    // User filters the Base down to a single entry.
+    entries = [entry('a.md')];
+    await controller.onExternalSourceChange();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md']);
+  });
+
+  it('refreshes dependency links when a TaskNotes change event fires', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })] });
+    const enrichment = new FakeSource({ deps: {} });
+    enrichment.enableSubscribe();
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+
+    await controller.init();
+    expect(await controller.getLinks('primary')).toEqual([]);
+
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // A TaskNotes dependency appears; the subscribed event triggers a recompute.
+    enrichment.deps = {
+      'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }],
+    };
+    enrichment.fireChange();
+    await flushAsync();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(await controller.getLinks('primary')).toHaveLength(1);
   });
 });
 

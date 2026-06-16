@@ -5,7 +5,7 @@
  * Following TDD principles - tests written before implementation
  */
 
-import { describe, it, expect, beforeEach } from "@jest/globals";
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { BasesDataAdapter } from "../../src/bases/services/BasesDataAdapter";
 import type { BasesEntry, BasesValue } from "../../src/bases/register";
 
@@ -286,6 +286,26 @@ describe("BasesDataAdapter", () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+
+    it("warns when a mapped date value is present but unparseable (returns null)", () => {
+      // Arrange - a present value that does not parse to a date.
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (_propertyId: string) => "not-a-date",
+      };
+
+      // Act
+      const result = adapter.extractDate(mockEntry, "note:start");
+
+      // Assert
+      expect(result).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("did not parse to a date"),
+        "not-a-date",
+      );
+      warn.mockRestore();
     });
   });
 

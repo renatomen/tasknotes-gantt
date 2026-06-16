@@ -348,6 +348,10 @@ class ObsidianGanttBasesView extends GanttBasesView {
       // provider closes over `this` rather than a captured snapshot.
       const controller = new GanttController({
         app: this.app,
+        // The Gantt is a Bases view: the Base owns the task set (its filter +
+        // field mappings), TaskNotes enriches it (dependencies, and writes in
+        // U8). See GanttController SourceStrategy.
+        sourceStrategy: 'bases-scoped',
         basesInput: () => ({
           entries: this.data?.data ?? [],
           mappings: this.buildFieldMappings(),

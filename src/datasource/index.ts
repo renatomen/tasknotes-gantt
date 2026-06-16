@@ -15,6 +15,7 @@ export type {
 } from './types';
 
 export { BasesSource } from './BasesSource';
+export { CompositeSource } from './CompositeSource';
 export {
   TaskNotesSource,
   MIN_TASKNOTES_API_VERSION,
