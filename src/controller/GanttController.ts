@@ -65,6 +65,7 @@ import {
   type DataSourceCapabilities,
   type SourceDependency,
   type SourceTask,
+  type StatusColor,
 } from '../datasource';
 import {
   expandInstances,
@@ -353,6 +354,16 @@ export class GanttController {
   public async getLinks(mode: LinkRewriteMode): Promise<RenderLink[]> {
     const snap = await this.ensureSnapshot();
     return snap.expansion.rewriteLinks(snap.sourceLinks, mode);
+  }
+
+  /**
+   * The active source's status→color palette (TaskNotes), or `[]` when the
+   * source exposes none or before {@link init}. The view reads this to color
+   * bars by status. Source-agnostic: surfaces from a `tasknotes-first`
+   * TaskNotesSource or, in `bases-scoped`, the composite's TaskNotes enrichment.
+   */
+  public async getStatusColors(): Promise<StatusColor[]> {
+    return (await this.activeSource?.getStatusColors?.()) ?? [];
   }
 
   /**
