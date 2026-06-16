@@ -1,0 +1,86 @@
+/**
+ * Pure helpers for status-driven bar coloring (U5).
+ *
+ * Dependency-free (no Obsidian, no Svelte) so the slug + stylesheet logic is
+ * unit-testable in isolation; `GanttContainer.svelte` imports it. Mirrors the
+ * pure-module style of `datePolicyConfig.ts`.
+ *
+ * The bar class is derived from the status *value*; the color is looked up by
+ * the raw value (an exact match to the TaskNotes config), so emoji/symbol-laden
+ * status strings still produce a valid, unique class.
+ *
+ * @module bases/statusColor
+ */
+
+import type { StatusColor } from '../datasource/types';
+
+/** Prefix for the per-status bar class, namespaced to this plugin. */
+export const STATUS_CLASS_PREFIX = 'og-status-';
+
+/**
+ * Safe CSS color guard: hex (`#rgb`…`#rrggbbaa`), an `rgb()/hsl()` functional
+ * form, or a bare keyword. Status colors come from the user's TaskNotes config
+ * (trusted-but-external); this prevents a malformed value from breaking out of
+ * the generated rule. Anything else is skipped (bar simply stays uncolored).
+ */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s/]+\))$/i;
+
+/** Stable 32-bit string hash (djb2), base36 — for slug uniqueness. */
+function hash36(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/**
+ * A CSS-safe, stable, collision-resistant class token for a status value.
+ *
+ * The value can contain emoji/symbols/spaces (e.g. `11🟥Active = Now`), so the
+ * readable part is sanitized to `[a-z0-9-]` and a short hash of the RAW value is
+ * appended — two distinct values never collide even if their readable parts do.
+ */
+export function statusSlug(value: string): string {
+  const readable = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const suffix = hash36(value);
+  return readable
+    ? `${STATUS_CLASS_PREFIX}${readable}-${suffix}`
+    : `${STATUS_CLASS_PREFIX}${suffix}`;
+}
+
+/**
+ * Build a deduped CSS stylesheet coloring each present status' bar by its
+ * TaskNotes color. A rule is emitted only for a status that (a) appears on a
+ * render instance and (b) has a safe configured color. Rules are scoped under
+ * `.og-bases-gantt` so they never leak outside the Gantt view. Output order
+ * follows the `colors` (config) order for determinism.
+ *
+ * @param instances - render instances (only `.status` is read)
+ * @param colors - the status→color palette from the source layer
+ * @returns CSS text (possibly empty), ready to inject into a `<style>` element
+ */
+export function buildStatusStyleRules(
+  instances: ReadonlyArray<{ status: string | null }>,
+  colors: ReadonlyArray<StatusColor>,
+): string {
+  const present = new Set<string>();
+  for (const inst of instances) {
+    if (inst.status) present.add(inst.status);
+  }
+
+  const emitted = new Set<string>();
+  const rules: string[] = [];
+  for (const { value, color } of colors) {
+    if (!present.has(value) || emitted.has(value)) continue;
+    if (!color || !SAFE_COLOR.test(color)) continue;
+    emitted.add(value);
+    rules.push(
+      `.og-bases-gantt .wx-bar.${statusSlug(value)} { background-color: ${color}; }`,
+    );
+  }
+  return rules.join('\n');
+}

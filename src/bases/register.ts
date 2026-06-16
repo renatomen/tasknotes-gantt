@@ -371,9 +371,10 @@ class ObsidianGanttBasesView extends GanttBasesView {
       this.ganttController = controller;
       const arrowMode = this.getArrowMode();
 
-      const [instances, links] = await Promise.all([
+      const [instances, links, statusColors] = await Promise.all([
         controller.getInstances(),
         controller.getLinks(arrowMode),
+        controller.getStatusColors(),
       ]);
 
       // Re-check after the second await window.
@@ -397,6 +398,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
           capabilities: controller.capabilities,
           arrowMode,
           showDateIndicators: this.getShowDateIndicators(),
+          statusColors,
           app: this.app,
           config: this.config,
         },
