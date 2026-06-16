@@ -1,6 +1,7 @@
 ---
 title: Building and running obsidian-gantt (build + E2E) on a fresh Windows machine
 date: 2026-05-31
+last_updated: 2026-06-16
 category: developer-experience
 module: dev environment / build + E2E test harness
 problem_type: developer_experience
@@ -15,7 +16,7 @@ applies_when:
   - "Antivirus (Norton, Kaspersky, ESET, etc.) does local SSL/TLS scanning"
   - "npm install fails with cert errors or ERR_SOCKET_TIMEOUT"
   - "A native dependency fails to build via node-gyp, or system Node is newer than the project target"
-  - "The vite build fails with Cannot find module @rollup/rollup-win32-x64-msvc"
+  - "The vite build fails with Cannot find module @rollup/rollup-win32-x64-msvc, OR jest fails with 'Failed to load native binding' for @swc/core"
 tags:
   - windows
   - environment-setup
@@ -83,13 +84,25 @@ $c = Get-ChildItem Cert:\LocalMachine\Root, Cert:\CurrentUser\Root |
 
 The project (and CI) pins **Node 20**. On **Node 24** the native `classic-level` dependency (pulled in by the wdio stack) has no prebuilt for the Node 24 ABI, so npm falls back to a source compile that fails (`node-gyp` 404 on `win-x86/node.lib`). The system also had a stale global **npm 8** shadowing Node 24's bundled npm. Fix: install Node 20 with a version manager (`fnm install 20`; `nvm` works too), which also gives a matching npm 10. Node 20 uses `classic-level`'s prebuilt — no compilation.
 
-### 3. npm optional-dependencies bug: missing rollup native binary
+### 3. npm optional-dependencies bug: missing platform native binaries (rollup AND swc)
 
-A clean install can omit the platform-specific optional package `@rollup/rollup-win32-x64-msvc`, so the vite build fails with `Cannot find module '@rollup/rollup-win32-x64-msvc'` ([npm/cli#4828](https://github.com/npm/cli/issues/4828), commonly triggered when `package-lock.json` was generated on Linux CI). Fix:
+A clean install can omit a platform-specific optional package, so the tool that needs it fails at load time ([npm/cli#4828](https://github.com/npm/cli/issues/4828), commonly triggered when `package-lock.json` was generated on Linux CI and the Windows-only optional entries never got recorded). **This repo hits it for two different binaries on two different tools:**
+
+- **`@rollup/rollup-win32-x64-msvc` → the vite build** fails with `Cannot find module '@rollup/rollup-win32-x64-msvc'`.
+- **`@swc/core-win32-x64-msvc` → the jest test runner** fails with `Error: Failed to load native binding` (from `node_modules/@swc/core/binding.js`). The tell is jest reporting `Test Suites: 0 of N total` / `Tests: 0 total` and then the native-binding error — i.e. suites are discovered but the `@swc/jest` transform can't load, so **nothing actually runs** (and `--passWithNoTests` masks it as a non-failure). Check `node_modules/@swc/` — if only `core-linux-*` bindings are present and `core-win32-x64-msvc` is missing, this is it.
+
+Fix (same pattern, pin the version to the installed core):
 
 ```bash
+# rollup (build)
 npm install --no-save @rollup/rollup-win32-x64-msvc@$(node -p "require('./node_modules/rollup/package.json').version")
+# swc (jest)
+npm install --no-save @swc/core-win32-x64-msvc@$(node -p "require('./node_modules/@swc/core/package.json').version")
 ```
+
+**Build passing does NOT mean tests can run.** vite/esbuild and jest/@swc use *different* native toolchains, so `npm run build` can succeed while `npm test` is silently unable to execute a single test. Verify them independently.
+
+A durable fix beyond the `--no-save` workaround: run a full `npm install` on the Windows machine and commit the resulting `package-lock.json` — it records the Windows optional binding (`os`/`cpu`-constrained, so it's skipped on other platforms) so future `npm ci` on Windows installs it automatically. CI here is `windows-latest`, so this is safe and beneficial. (Observed 2026-06-16: pruning unused deps + reinstalling picked up the previously-missing `@swc/core-win32-x64-msvc` lockfile entry.)
 
 ### 4. The vault path is `.env`-driven, not hardcoded
 
@@ -132,6 +145,7 @@ Documenting the chain turns a multi-hour rediscovery into a 10-minute checklist.
 | `npm ERR! code ERR_SOCKET_TIMEOUT` mid-install | AV scanning stalls large tarballs | pause AV web scan; `--dns-result-order=ipv4first`; low `--maxsockets`; high `--fetch-retries` |
 | `gyp ERR! 404 .../win-x86/node.lib` building `classic-level` | system Node 24 has no prebuilt for that ABI | `fnm use 20` |
 | build: `Cannot find module '@rollup/rollup-win32-x64-msvc'` | npm optional-dep bug | `npm i --no-save @rollup/rollup-win32-x64-msvc@<rollup version>` |
+| jest: `Failed to load native binding` (@swc/core); `0 of N` suites run | npm optional-dep bug drops `@swc/core-win32-x64-msvc` | `npm i --no-save @swc/core-win32-x64-msvc@<@swc/core version>` |
 | `postbuild` EPERM `mkdir 'C:\Users\renato'` | no `.env`; fell back to other machine's default vault | create `.env` with `OBSIDIAN_TEST_VAULT` |
 
 Verified-working E2E output:
