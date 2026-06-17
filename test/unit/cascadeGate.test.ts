@@ -62,7 +62,7 @@ describe('classifyUpdateEvent', () => {
   });
 
   it('keeps the action tag set in sync with the documented five-tag set', () => {
-    expect([...CASCADE_EVENT_SOURCES].sort()).toEqual(
+    expect([...CASCADE_EVENT_SOURCES].sort((a, b) => a.localeCompare(b))).toEqual(
       ['add-task', 'copy-task', 'delete-task', 'move-task', 'update-task'],
     );
   });
