@@ -679,7 +679,7 @@ describe('TaskNotesSource', () => {
       expect(updateSpy).toHaveBeenCalledWith('t.md', { due: '2026-07-04' }, undefined);
     });
 
-    it('applies a userField dateWrite to updates.userFields keyed by id', async () => {
+    it('applies a userField dateWrite as a top-level key by frontmatter key (not userFields/id)', async () => {
       const { api, updateSpy } = makeApi({ hasWrite: true });
       const source = await TaskNotesSource.create(makeApp(api));
 
@@ -689,13 +689,10 @@ describe('TaskNotesSource', () => {
         ],
       });
 
-      // TaskNotes keys the userFields update object by the field id (confirmed
-      // against 4.11.0 main.js: in-memory userFields are `[id]`-keyed).
-      expect(updateSpy).toHaveBeenCalledWith(
-        't.md',
-        { userFields: { uf_start: '2026-06-01' } },
-        undefined,
-      );
+      // TaskNotes' mapToFrontmatter reads custom-field values from the TOP LEVEL
+      // of updates by the field's frontmatter `key` (confirmed vs 4.11.0:
+      // `d=e; d[u.key]`). NOT a userFields object, NOT by id.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { start: '2026-06-01' }, undefined);
     });
 
     it('merges multiple dateWrites into one atomic update', async () => {
@@ -712,7 +709,7 @@ describe('TaskNotesSource', () => {
       expect(updateSpy).toHaveBeenCalledTimes(1);
       expect(updateSpy).toHaveBeenCalledWith(
         't.md',
-        { due: '2026-07-04', userFields: { uf_start: '2026-06-01' } },
+        { due: '2026-07-04', start: '2026-06-01' },
         undefined,
       );
     });
@@ -728,11 +725,7 @@ describe('TaskNotesSource', () => {
         ],
       });
 
-      expect(updateSpy).toHaveBeenCalledWith(
-        't.md',
-        { scheduled: null, userFields: { uf_start: null } },
-        undefined,
-      );
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: null, start: null }, undefined);
     });
 
     it('mutate() throws when the api exposes no update method', async () => {

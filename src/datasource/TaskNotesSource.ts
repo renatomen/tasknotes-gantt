@@ -490,10 +490,12 @@ export class TaskNotesSource implements DataSource {
         } else if (write.target.kind === 'due') {
           updates.due = value;
         } else {
-          const userFields =
-            (updates.userFields as Record<string, unknown> | undefined) ?? {};
-          userFields[write.target.id] = value;
-          updates.userFields = userFields;
+          // Custom user fields: TaskNotes' frontmatter writer
+          // (mapToFrontmatter) reads each user field's value from the TOP LEVEL
+          // of the updates object, keyed by the field's frontmatter `key` —
+          // NOT from a `userFields` object and NOT by field id (confirmed vs
+          // 4.11.0 main.js). Write it under the key accordingly.
+          updates[write.target.key] = value;
         }
       }
     }
