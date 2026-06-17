@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
   import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { Notice, setIcon } from 'obsidian';
@@ -53,6 +53,20 @@
      * field (U4/R-C). Absent when both mappings are valid.
      */
     dateMappingNotice?: string;
+    /**
+     * Native edit interaction: invoked on a left/double-click of a bar with the
+     * resolved note path, the click kind, and whether ctrl/meta was held. The
+     * binder (register.ts) routes this to the TaskNotes interaction service
+     * (open note / open native edit modal per TaskNotes settings).
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onBarActivate?: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => void;
+    /**
+     * Native context menu: invoked on right-click of a bar with the resolved
+     * note path and the mouse event, routed to TaskNotes' own task menu.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onBarContextMenu?: (path: string, event: MouseEvent) => void;
   }
 
   // `app` and `config` remain part of the props contract (register.ts passes
@@ -68,6 +82,8 @@
     statusColors = [],
     onMutate,
     dateMappingNotice,
+    onBarActivate,
+    onBarContextMenu,
   }: Props = $props();
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
@@ -107,8 +123,37 @@
     styleEl.textContent = css;
   });
 
-  // Read-only is the absence of write capability (R5). Used to gate every
-  // surface SVAR's own `readonly` does not cover (toolbar, editor modal).
+  // Native interaction listeners on the chart root (U2): capture the last
+  // pointer's ctrl/meta (show-editor carries none), and route a right-click on a
+  // bar to the native TaskNotes task menu. Bars carry `data-id` (the instance
+  // id); we map it to the source path and invoke onBarContextMenu.
+  $effect(() => {
+    const el = rootEl;
+    if (!el) return;
+    const onPointerDown = (e: MouseEvent) => {
+      lastCtrlMeta = e.ctrlKey || e.metaKey;
+    };
+    const onContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const bar = target?.closest?.('.wx-bar[data-id]') as HTMLElement | null;
+      const id = bar?.getAttribute('data-id');
+      if (!id) return;
+      const path = idToSourcePath.get(id);
+      if (path && onBarContextMenu) {
+        e.preventDefault();
+        onBarContextMenu(path, e);
+      }
+    };
+    el.addEventListener('mousedown', onPointerDown, true);
+    el.addEventListener('contextmenu', onContextMenu, true);
+    return () => {
+      el.removeEventListener('mousedown', onPointerDown, true);
+      el.removeEventListener('contextmenu', onContextMenu, true);
+    };
+  });
+
+  // Read-only is the absence of write capability (R5). Used to gate the
+  // remaining surface SVAR's own `readonly` does not cover (drag/resize persist).
   const readOnly = $derived(!capabilities.write);
 
   // Read-only banner copy (U7 Design/UX spec). Distinguishes "install TaskNotes"
@@ -246,15 +291,6 @@
     };
   }
 
-  // Type definitions for task editing
-  interface GanttTask {
-    id: string;
-    text: string;
-    start: string;
-    end: string;
-    progress: number;
-  }
-
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
   // path reads. `inProgress` marks mid-gesture frames; `eventSource` carries our
   // own echo tag on programmatic writes.
@@ -275,23 +311,26 @@
   // CSP violations for external fonts are prevented by fonts={false} and custom icon implementation
 
   let api: GanttAPI = $state();
-  let editingTask: GanttTask | null = $state(null);
-  let showEditor = $state(false);
 
-  /**
-   * Format a value into the `yyyy-MM-dd` string an `<input type="date">`
-   * requires. SVAR task dates arrive as `Date` objects; a raw `Date` (or a full
-   * ISO string) will not pre-populate the input. Returns '' when unparseable.
-   */
-  function toDateInputValue(value: unknown): string {
-    const d = value instanceof Date ? value : value ? new Date(value as string) : null;
-    if (!d || Number.isNaN(d.getTime())) {
-      return '';
-    }
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+  // Native interaction state (U2). Map render-instance id → source note path so
+  // a bar click resolves to the task the native TaskNotes action targets.
+  const idToSourcePath = $derived.by(() => {
+    const m = new Map<string, string>();
+    for (const inst of instances) m.set(inst.id, inst.sourcePath);
+    return m;
+  });
+  // Single/double-click disambiguation: the single-click action is deferred so a
+  // following double-click can cancel it (SVAR fires select-task on the clicks
+  // that make up a double-click too).
+  let pendingSingleClick: ReturnType<typeof setTimeout> | null = null;
+  // show-editor (double-click) carries no modifier keys, so we read the most
+  // recent pointer event's ctrl/meta state, captured on the chart root.
+  let lastCtrlMeta = false;
+
+  /** Resolve a bar id → source path and invoke the native-activate callback. */
+  function activateBar(id: string, kind: 'single' | 'double', ctrlOrMeta: boolean): void {
+    const path = idToSourcePath.get(id);
+    if (path) onBarActivate?.(path, { kind, ctrlOrMeta });
   }
 
   // Single text column for the grid. The controller owns the transform now, so
@@ -369,27 +408,41 @@
       }
     }
 
-    // Intercept the show-editor event to use our custom editor.
-    // Read-only gate (R11 — no bypass): SVAR's `readonly` prop does NOT suppress
-    // the custom editor modal, so we guard it here. In read-only mode the modal
-    // never opens (we still return false to swallow SVAR's default editor too).
+    // Native edit interaction (U2): a bar's left/double-click routes to the
+    // TaskNotes interaction service (via onBarActivate) instead of a custom
+    // modal — TaskNotes performs the configured action (open note / open its own
+    // edit modal). Single vs double is disambiguated with a short debounce.
+    //
+    // Double-click → SVAR fires `show-editor` (no modifier info; we use the
+    // last pointer's ctrl/meta). We always return false so SVAR's own editor
+    // never opens — editing is fully delegated to TaskNotes.
     api.intercept("show-editor", ({ id }: { id: string }) => {
-      if (!readOnly && id) {
-        const svarTask = api?.getState().tasks.byId(id);
-        // Build an editable copy with date *strings* — a `Date` does not render
-        // in a `type="date"` input (pre-existing pre-population bug, fixed here).
-        editingTask = svarTask
-          ? {
-              id: svarTask.id,
-              text: svarTask.text ?? '',
-              start: toDateInputValue(svarTask.start),
-              end: toDateInputValue(svarTask.end),
-              progress: svarTask.progress ?? 0,
-            }
-          : null;
-        showEditor = !!editingTask;
+      if (pendingSingleClick) {
+        clearTimeout(pendingSingleClick);
+        pendingSingleClick = null;
       }
-      return false; // Prevent default editor
+      if (id) {
+        activateBar(String(id), 'double', lastCtrlMeta);
+      }
+      return false;
+    });
+
+    // Single-click → SVAR fires `select-task` (carries `toggle` = ctrl/meta).
+    // Defer the action so a following double-click can cancel it. Allow SVAR's
+    // own selection to proceed (return true) — we only add the native action.
+    api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
+      const id = ev?.id != null ? String(ev.id) : null;
+      if (id) {
+        const ctrlOrMeta = ev.toggle === true;
+        if (pendingSingleClick) {
+          clearTimeout(pendingSingleClick);
+        }
+        pendingSingleClick = setTimeout(() => {
+          pendingSingleClick = null;
+          activateBar(id, 'single', ctrlOrMeta);
+        }, 250);
+      }
+      return true;
     });
 
     // Persist drag-to-reschedule and resize via the controller (U8). SVAR fires
@@ -464,36 +517,6 @@
         console.error('[GanttContainer] Error resetting grid scroll:', error);
       }
     }, 200); // Increased delay to ensure DOM is fully ready
-  }
-
-  // Handle custom editor actions
-  function handleEditorAction(action: string, data: GanttTask | null) {
-    switch (action) {
-      case "close-editor":
-        showEditor = false;
-        editingTask = null;
-        break;
-      case "update-task":
-        if (api && editingTask) {
-          // Tagged as our own write so the drag/resize intercept ignores it —
-          // modal Save persistence (title/status/dates) is wired in the
-          // follow-up modal pass; today this only mutates SVAR's store.
-          api.exec("update-task", { id: editingTask.id, task: data, eventSource: OG_ECHO_SOURCE });
-          showEditor = false;
-          editingTask = null;
-        }
-        break;
-      case "delete-task":
-        if (api && editingTask) {
-          // Tagged as our own write so the update-task intercept ignores any
-          // resulting event. Modal Save/Delete persistence is wired in the
-          // follow-up modal pass; today this still only mutates SVAR's store.
-          api.exec("delete-task", { id: editingTask.id, eventSource: OG_ECHO_SOURCE });
-          showEditor = false;
-          editingTask = null;
-        }
-        break;
-    }
   }
 
   /**
@@ -699,74 +722,9 @@
       </div>
     </div>
 
-    <!-- Custom Editor Modal -->
-    {#if showEditor && editingTask}
-      <div class="editor-overlay">
-        <div class="editor-modal">
-          <div class="editor-header">
-            <h3>Edit Task</h3>
-            <button class="close-btn" onclick={() => handleEditorAction("close-editor", null)}>×</button>
-          </div>
-          <div class="editor-content">
-            <div class="form-group">
-              <label for="task-name">Task Name:</label>
-              <input
-                id="task-name"
-                type="text"
-                bind:value={editingTask.text}
-                class="form-input"
-              />
-            </div>
-            <div class="form-group">
-              <label for="task-progress">Progress:</label>
-              <!-- Progress is derived/read-only in milestone 1 (persistence
-                   deferred pending a TaskNotes field mapping — R17/KTD). The
-                   slider is disabled so it is not a dead affordance. -->
-              <input
-                id="task-progress"
-                type="range"
-                min="0"
-                max="100"
-                value={editingTask.progress}
-                class="form-range"
-                disabled
-                title="Progress editing is not available yet"
-              />
-              <span>{editingTask.progress}%</span>
-            </div>
-            <div class="form-group">
-              <label for="task-start">Start Date:</label>
-              <input
-                id="task-start"
-                type="date"
-                bind:value={editingTask.start}
-                class="form-input"
-              />
-            </div>
-            <div class="form-group">
-              <label for="task-end">End Date:</label>
-              <input
-                id="task-end"
-                type="date"
-                bind:value={editingTask.end}
-                class="form-input"
-              />
-            </div>
-          </div>
-          <div class="editor-actions">
-            <button class="btn btn-primary" onclick={() => handleEditorAction("update-task", editingTask)}>
-              Save
-            </button>
-            <button class="btn btn-danger" onclick={() => handleEditorAction("delete-task", null)}>
-              Delete
-            </button>
-            <button class="btn btn-secondary" onclick={() => handleEditorAction("close-editor", null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
+    <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
+         Left/double-click and right-click on bars route through onBarActivate /
+         onBarContextMenu to the TaskNotes interaction service. -->
   </Willow>
 </div>
 
@@ -872,145 +830,6 @@
   /* Bars: block browser gestures, let SVAR handle drag/resize */
   .og-bases-gantt :global(.wx-bar) {
     touch-action: none;
-  }
-
-  /* Custom Editor Styles */
-  .editor-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .editor-modal {
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    width: 400px;
-    max-width: 90vw;
-    max-height: 80vh;
-    overflow: auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-
-  .editor-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--background-modifier-border);
-  }
-
-  .editor-header h3 {
-    margin: 0;
-    color: var(--text-normal);
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 0;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .close-btn:hover {
-    color: var(--text-normal);
-  }
-
-  .editor-content {
-    padding: 20px;
-  }
-
-  .form-group {
-    margin-bottom: 16px;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 6px;
-    color: var(--text-normal);
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .form-input {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 14px;
-  }
-
-  .form-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-  }
-
-  .form-range {
-    width: calc(100% - 50px);
-    margin-right: 10px;
-  }
-
-  .editor-actions {
-    padding: 16px 20px;
-    border-top: 1px solid var(--background-modifier-border);
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  .btn {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .btn-primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-  }
-
-  .btn-primary:hover {
-    background: var(--interactive-accent-hover);
-  }
-
-  .btn-danger {
-    background: #e74c3c;
-    color: white;
-  }
-
-  .btn-danger:hover {
-    background: #c0392b;
-  }
-
-  .btn-secondary {
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    border: 1px solid var(--background-modifier-border);
-  }
-
-  .btn-secondary:hover {
-    background: var(--background-secondary-alt);
   }
 
   /* Replace SVAR icons with Lucide-style SVG icons */
