@@ -78,7 +78,7 @@ function makeApi(opts: FakeApiOptions = {}) {
   }
 
   if (opts.statuses !== undefined) {
-    api.config = () => ({ statuses: opts.statuses });
+    api.catalog = { statuses: () => opts.statuses };
   }
 
   return { api, onSpy, offSpy, handlers };
@@ -105,7 +105,7 @@ describe('TaskNotesSource — getStatusColors', () => {
     return source;
   }
 
-  it('maps api.config().statuses to StatusColor[], keeping value+color', async () => {
+  it('maps catalog.statuses() to StatusColor[], keeping value+color', async () => {
     const source = await makeSource({
       statuses: [
         { value: '11🟥Active = Now', label: '🟥Active', color: '#f8312f', isCompleted: false },
@@ -129,16 +129,29 @@ describe('TaskNotesSource — getStatusColors', () => {
     ]);
   });
 
-  it('returns [] when the api exposes no config', async () => {
-    const source = await makeSource({}); // no statuses ⇒ no config method
+  it('falls back to model.config().statuses when catalog is absent', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => ({ statuses: [{ value: 'X', color: '#abc', isCompleted: false }] }),
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getStatusColors()).toEqual([
+      { value: 'X', color: '#abc', isCompleted: false },
+    ]);
+  });
+
+  it('returns [] when no status source is exposed', async () => {
+    const source = await makeSource({}); // no statuses ⇒ neither catalog nor model
 
     expect(await source.getStatusColors()).toEqual([]);
   });
 
-  it('returns [] when config throws', async () => {
+  it('returns [] when the status accessor throws', async () => {
     const { api } = makeApi({});
-    api.config = () => {
-      throw new Error('boom');
+    api.catalog = {
+      statuses: () => {
+        throw new Error('boom');
+      },
     };
     const source = await TaskNotesSource.create(makeApp(api));
     expect(await source!.getStatusColors()).toEqual([]);

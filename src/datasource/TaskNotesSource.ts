@@ -136,10 +136,13 @@ export interface TaskNotesApi {
   };
   hasCapability?(capability: string): boolean;
   /**
-   * Returns the resolved model config; `statuses` carries the custom-status
-   * palette (value/label/color/isCompleted). Synchronous in TaskNotes today.
+   * Configured status palette. TaskNotes exposes it via `catalog.statuses()`
+   * (preferred) or `model.config().statuses`; each entry carries
+   * value/label/color/isCompleted. Both guarded/optional (shape varies by
+   * TaskNotes version).
    */
-  config?(): { statuses?: TaskNotesStatusConfig[] } | null | undefined;
+  catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
+  model?: { config?(): { statuses?: TaskNotesStatusConfig[] } | null | undefined };
 }
 
 /** Minimal shape of `app.plugins` needed to resolve the TaskNotes plugin. */
@@ -299,22 +302,20 @@ export class TaskNotesSource implements DataSource {
   /**
    * Read TaskNotes' configured custom-status palette as {@link StatusColor}s.
    *
-   * Sources `api.config().statuses` (each `{ value, label, color, isCompleted }`),
-   * keeping only entries with a usable value + color. Guarded: a missing/throwing
-   * `config` or an unexpected shape yields `[]`, so the view renders no status
-   * colors rather than failing.
+   * Sources `api.catalog.statuses()` (preferred) or `api.model.config().statuses`
+   * — each `{ value, label, color, isCompleted }` — keeping only entries with a
+   * usable value + color. Guarded: a missing/throwing accessor or an unexpected
+   * shape yields `[]`, so the view renders no status colors rather than failing.
    */
   public async getStatusColors(): Promise<StatusColor[]> {
     try {
-      if (typeof this.api.config !== 'function') {
-        return [];
-      }
-      const statuses = this.api.config()?.statuses;
-      if (!Array.isArray(statuses)) {
+      const raw =
+        this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
+      if (!Array.isArray(raw)) {
         return [];
       }
       const colors: StatusColor[] = [];
-      for (const s of statuses) {
+      for (const s of raw) {
         if (s && typeof s.value === 'string' && typeof s.color === 'string') {
           colors.push({
             value: s.value,
