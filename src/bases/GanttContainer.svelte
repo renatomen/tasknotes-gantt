@@ -135,14 +135,21 @@
     };
     const onContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      const bar = target?.closest?.('.wx-bar[data-id]') as HTMLElement | null;
-      const id = bar?.getAttribute('data-id');
+      // Both chart bars and grid rows carry the task id as `data-id` (SVAR's
+      // locateID convention), so match the nearest element with one — this
+      // covers right-click on the grid rows, not just the bars.
+      const el = target?.closest?.('[data-id]') as HTMLElement | null;
+      const id = el?.getAttribute('data-id');
       if (!id) return;
       const path = idToSourcePath.get(id);
-      if (path && onBarContextMenu) {
-        e.preventDefault();
-        onBarContextMenu(path, e);
-      }
+      // Only act on a known task row; unknown ids / empty space / header fall
+      // through to the default menu.
+      if (!path || !onBarContextMenu) return;
+      // Suppress Obsidian's default editor context menu (the grid renders inside
+      // editor content) and show the native TaskNotes task menu instead.
+      e.preventDefault();
+      e.stopPropagation();
+      onBarContextMenu(path, e);
     };
     el.addEventListener('mousedown', onPointerDown, true);
     el.addEventListener('contextmenu', onContextMenu, true);
