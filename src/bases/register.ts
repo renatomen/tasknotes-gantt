@@ -401,6 +401,10 @@ class ObsidianGanttBasesView extends GanttBasesView {
           statusColors,
           app: this.app,
           config: this.config,
+          // Drag/resize persistence (U8): the view calls this on a commit; the
+          // controller resolves instance→source and writes through TaskNotes.
+          // Bound to the controller captured in this mount.
+          onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),
         },
       });
 
