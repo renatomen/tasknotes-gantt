@@ -3,43 +3,29 @@
   import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { Notice, setIcon } from 'obsidian';
-  import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
-  import type { StatusColor, TaskPatch } from '../datasource/types';
-  import { statusSlug, buildStatusStyleRules } from './statusColor';
+  import { get } from 'svelte/store';
+  import type { TaskPatch } from '../datasource/types';
+  import type { GanttData } from './types/gantt-view-data';
+  import type { RenderLink } from '../controller/InstanceExpansion';
+  import { buildStatusStyleRules } from './statusColor';
+  import {
+    buildSvarTasks,
+    buildStatusTaskTypes,
+    planTaskSync,
+    planLinkSync,
+    type SvarTask,
+    type SvarTaskInputs,
+  } from './ganttSync';
 
-  // Component props (U7): the controller now owns the transform. The view
-  // receives expanded render instances + rewritten links + the active source's
-  // capabilities, and no longer does its own `data`/`fieldMappings` transform.
+  // Component props. The dynamic render inputs arrive via a reactive `data`
+  // store (refreshed in place by register.ts) so the SVAR instance persists
+  // across data changes and keeps its view state (zoom, scroll). Static inputs
+  // (app, config, interaction callbacks) stay ordinary props.
   interface Props {
-    /** Expanded SVAR render instances from the controller (U5/U6). */
-    instances: RenderInstance[];
-    /** Dependency links rewritten to instance-id endpoints (U5/U6). */
-    links: RenderLink[];
-    /** Active source capabilities — the single source of read-only truth (R5). */
-    capabilities: { write: boolean };
-    /** Per-view dependency-arrow mode (R27): 'primary' | 'all'. */
-    arrowMode: LinkRewriteMode;
-    /**
-     * Per-view toggle for bar-level date-status indicators (R10/R11); default
-     * on. When on, non-`complete` instances (placeholder/inferred/swapped) get a
-     * distinct bar treatment; when off, no flagging is applied.
-     */
-    showDateIndicators?: boolean;
+    /** Reactive bundle of the dynamic render inputs (see GanttData). */
+    data: import('svelte/store').Readable<GanttData>;
     app: import('obsidian').App;
     config?: import('./register').BasesViewConfig;
-    /**
-     * Optional flag distinguishing "no TaskNotes installed" from "TaskNotes
-     * present but write capability off" for the read-only banner copy. When
-     * absent we default to the install-TaskNotes copy (see banner below).
-     * TODO: thread this from the controller/source once it surfaces TaskNotes
-     * presence independently of write capability.
-     */
-    taskNotesPresent?: boolean;
-    /**
-     * Status→color palette from the source layer (TaskNotes). Bars are colored
-     * by their task's status using these. Empty ⇒ no status coloring.
-     */
-    statusColors?: StatusColor[];
     /**
      * Persist a field patch for a render instance through the controller (U8).
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
@@ -47,12 +33,6 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
-    /**
-     * One-line notice shown when a start/end date mapping fell back to the
-     * default because the configured property isn't a writable TaskNotes date
-     * field (U4/R-C). Absent when both mappings are valid.
-     */
-    dateMappingNotice?: string;
     /**
      * Native edit interaction: invoked on a left/double-click of a bar with the
      * resolved note path, the click kind, and whether ctrl/meta was held. The
@@ -70,21 +50,26 @@
   }
 
   // `app` and `config` remain part of the props contract (register.ts passes
-  // them) but the controller now owns the transform, so the view does not read
-  // them. Only the controller-derived data + capabilities drive rendering.
+  // them) but the controller owns the transform, so the view does not read them.
   let {
-    instances,
-    links,
-    capabilities,
-    arrowMode,
-    showDateIndicators = true,
-    taskNotesPresent,
-    statusColors = [],
+    data,
     onMutate,
-    dateMappingNotice,
     onBarActivate,
     onBarContextMenu,
   }: Props = $props();
+
+  // Dynamic render inputs derived from the reactive store. Keeping the original
+  // local names means the rest of the component is unchanged — only the source
+  // of these values moved from individual props to the store (refresh-in-place).
+  // `instances` + `statusColors` feed the reactive status-color stylesheet and
+  // the bar→path click maps; `capabilities` gates the read-only banner. The SVAR
+  // task/link/type shaping reads the raw `$data` directly in the diff-sync below
+  // (so links / arrowMode / showDateIndicators need no standalone derived).
+  const instances = $derived($data.instances);
+  const capabilities = $derived($data.capabilities);
+  const statusColors = $derived($data.statusColors ?? []);
+  const dateMappingNotice = $derived($data.dateMappingNotice);
+  const taskNotesPresent = $derived($data.taskNotesPresent);
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -93,15 +78,6 @@
   // A drag/resize write that never settles (TaskNotes hang/disabled mid-write)
   // still reverts the optimistic move within this window.
   const MUTATION_TIMEOUT_MS = 10000;
-
-  // Custom SVAR task type used to flag bars whose dates were inferred,
-  // swapped, or placeholdered (one indicator state for all non-`complete`
-  // values — origin R10 only distinguishes "not fully dated" from complete).
-  // Registered in `taskTypes` so SVAR emits its class on the bar element.
-  const DATE_STATUS_TYPE = 'datestatus-flagged';
-
-  // Status values that have a configured color are eligible for a status class.
-  const coloredStatuses = $derived(new Set(statusColors.map((c) => c.value)));
 
   // Generated stylesheet coloring each present status' bar by its configured
   // TaskNotes color (scoped under .og-bases-gantt). Injected via a managed
@@ -171,121 +147,121 @@
       : 'Read-only — install TaskNotes to edit'
   );
 
-  // Set of instance ids that are the *primary* instance for their source path.
-  // In 'primary' arrow mode, arrows are drawn only on the primary instance, so
-  // non-primary instances of a task that has dependencies get a lightweight
-  // "has dependencies" indicator instead (U7 Design/UX spec).
-  const linkedSourcePaths = $derived.by(() => {
-    const paths = new Set<string>();
-    // Map instance id → sourcePath for endpoint resolution.
-    const idToSource = new Map<string, string>();
-    for (const inst of instances) {
-      idToSource.set(inst.id, inst.sourcePath);
+  // ── SVAR store seeding + targeted diff-sync (Bug B) ─────────────────────────
+  // SVAR re-initialises its ENTIRE store (resetting zoom level, scroll, and
+  // selection) whenever the `tasks` / `links` / `taskTypes` / `zoom` props change
+  // reference — its internal `$effect(reinitStore)`. So we seed those props ONCE
+  // from the initial store value and thereafter apply every data change as
+  // targeted `api.exec` actions (the SVAR-sanctioned path; see ganttSync). The
+  // arrays and `svarReadonly` handed to `<Gantt>` below must NEVER be reassigned.
+
+  /** Project the dynamic render data into the pure SVAR-task builder inputs. */
+  function toInputs(d: GanttData): SvarTaskInputs {
+    return {
+      instances: d.instances,
+      links: d.links,
+      statusColors: d.statusColors ?? [],
+      showDateIndicators: d.showDateIndicators ?? true,
+      arrowMode: d.arrowMode,
+    };
+  }
+
+  const initialData = get(data);
+  // Frozen seed handed to `<Gantt>` (never reassigned — see note above).
+  const initialTasks: SvarTask[] = buildSvarTasks(toInputs(initialData));
+  const initialLinks: RenderLink[] = initialData.links;
+  // SVAR's own `readonly` is fixed at mount: capability is resolved once when the
+  // controller selects its source and does not change for the view's lifetime.
+  // The reactive `readOnly` above still drives the banner and the persist gate.
+  const svarReadonly = !initialData.capabilities.write;
+
+  // Registered custom task-type superset (date-status flag + status-color
+  // classes), derived from the status palette rather than the present tasks.
+  // FIXED at mount and never reassigned: changing any prop SVAR reads re-inits
+  // its store (reverting our incremental updates to the seed), so this stays a
+  // const. A status value added to TaskNotes config while the view is open won't
+  // color until the view is reopened — rare, and acceptable.
+  const svarTaskTypes = [
+    ...defaultTaskTypes,
+    ...buildStatusTaskTypes(initialData.statusColors ?? []),
+  ];
+
+  // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
+  // the initial render so the first diff after mount is a no-op.
+  const appliedTasks = new Map<string, SvarTask>();
+  for (const t of initialTasks) appliedTasks.set(t.id, t);
+  const appliedLinks = new Map<string, RenderLink>();
+  for (const l of initialLinks) appliedLinks.set(l.id, l);
+
+  // True only while we push our own programmatic actions into SVAR, so the
+  // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
+  // tag covers our own writes; this also covers SVAR-internal echoes such as
+  // summary-date recomputation fired during an add/move).
+  let syncing = false;
+
+  /** Whether a task id currently exists in SVAR's store (guards cascade deletes). */
+  function taskExists(id: string): boolean {
+    try {
+      return !!api?.getTask?.(id);
+    } catch {
+      return false;
     }
-    for (const link of links) {
-      const s = idToSource.get(link.source);
-      const t = idToSource.get(link.target);
-      if (s) paths.add(s);
-      if (t) paths.add(t);
-    }
-    return paths;
+  }
+
+  // Apply each store update as the minimal set of SVAR actions instead of
+  // replacing the tasks array — so zoom and scroll survive writes, drags,
+  // external TaskNotes edits, and Bases filter changes. Re-runs on every
+  // `store.set` (register.ts) and once `api` is ready.
+  $effect(() => {
+    const d = $data; // reactive dependency: re-run on every store update
+    if (!api) return;
+    syncToGantt(d);
   });
 
-  // The primary (first-in-order) instance id for each source path. Mirrors the
-  // controller's "primary = first stable-sorted instance" rule.
-  const primaryInstanceIdBySource = $derived.by(() => {
-    const primary = new Map<string, string>();
-    for (const inst of instances) {
-      if (!primary.has(inst.sourcePath)) {
-        primary.set(inst.sourcePath, inst.id);
+  function syncToGantt(d: GanttData): void {
+    const taskPlan = planTaskSync(appliedTasks, buildSvarTasks(toInputs(d)));
+    const linkPlan = planLinkSync(appliedLinks, d.links);
+
+    const noop =
+      !taskPlan.moves.length &&
+      !taskPlan.updates.length &&
+      !taskPlan.deletes.length &&
+      !taskPlan.adds.length &&
+      !linkPlan.deletes.length &&
+      !linkPlan.adds.length;
+    if (noop) return;
+
+    syncing = true;
+    try {
+      // Order: reparent → field updates → remove links → remove tasks (leaf-first)
+      // → add tasks (parent-first) → add links (endpoints now exist).
+      for (const m of taskPlan.moves) {
+        api.exec('move-task', { id: m.id, target: m.parent, mode: 'child', eventSource: OG_ECHO_SOURCE });
       }
+      for (const u of taskPlan.updates) {
+        api.exec('update-task', { id: u.id, task: u.task, eventSource: OG_ECHO_SOURCE });
+        appliedTasks.set(u.id, u.task);
+      }
+      for (const id of linkPlan.deletes) {
+        api.exec('delete-link', { id, eventSource: OG_ECHO_SOURCE });
+        appliedLinks.delete(id);
+      }
+      for (const id of taskPlan.deletes) {
+        if (taskExists(id)) api.exec('delete-task', { id, eventSource: OG_ECHO_SOURCE });
+        appliedTasks.delete(id);
+      }
+      for (const t of taskPlan.adds) {
+        api.exec('add-task', { task: t, eventSource: OG_ECHO_SOURCE });
+        appliedTasks.set(t.id, t);
+      }
+      for (const l of linkPlan.adds) {
+        api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
+        appliedLinks.set(l.id, l);
+      }
+    } finally {
+      syncing = false;
     }
-    return primary;
-  });
-
-  // Map RenderInstance[] → SVAR tasks. Parents are marked summary/open for
-  // hierarchy, exactly as the previous transform did. The controller's
-  // date-policy transform (U1/U2) has already resolved every instance's
-  // start/end to concrete dates, so the view applies no missing-date fallback —
-  // it renders the resolved dates directly and styles the bar off `dateStatus`.
-  const tasks = $derived.by(() => {
-    // Which instance ids are referenced as a parent → mark them summary/open.
-    const parentIds = new Set<string>();
-    for (const inst of instances) {
-      if (inst.parent) {
-        parentIds.add(inst.parent);
-      }
-    }
-
-    return instances.map((inst) => {
-      const isParent = parentIds.has(inst.id);
-      const isPrimary = primaryInstanceIdBySource.get(inst.sourcePath) === inst.id;
-      const hasDeps = linkedSourcePaths.has(inst.sourcePath);
-
-      // A summary (parent) bar always stays a summary; only leaf bars can be
-      // flagged. Flag when indicators are on and the dates aren't `complete`.
-      const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
-
-      // Compose the bar's SVAR `type` from the state classes it needs: the
-      // date-status flag (when flagged) plus the status color class (when the
-      // status has a configured color). Parents stay `summary`. SVAR's
-      // taskTypeCss emits each space-joined, registered type id as bare classes.
-      let type = 'task';
-      if (isParent) {
-        type = 'summary';
-      } else {
-        const classes: string[] = [];
-        if (flagged) classes.push(DATE_STATUS_TYPE);
-        if (inst.status && coloredStatuses.has(inst.status)) {
-          classes.push(statusSlug(inst.status));
-        }
-        if (classes.length > 0) type = classes.join(' ');
-      }
-
-      const task: Record<string, unknown> = {
-        id: inst.id,
-        text: inst.text,
-        start: inst.start,
-        end: inst.end,
-        progress: inst.progress ?? 0,
-        type,
-        // Carry render-instance metadata so the grid cell can render indicators
-        // (multi-parent duplicate icon, has-dependencies badge) without any
-        // heavy per-row logic.
-        custom: {
-          sourceTaskId: inst.sourcePath,
-          isVirtual: inst.isVirtual,
-          isCollapsed: inst.isCollapsed,
-          // In 'primary' mode, a non-primary instance of a task that owns a
-          // dependency shows the "has dependencies" indicator (no arrow drawn).
-          showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
-        },
-      };
-
-      if (inst.parent) {
-        task.parent = inst.parent;
-      }
-      if (isParent) {
-        task.open = true;
-      }
-
-      return task;
-    });
-  });
-
-  // Register every composed custom type id the bars actually use (date-status
-  // flag and/or status color classes) so SVAR's taskTypeCss emits them as bar
-  // classes; built-in task/summary/milestone need no registration.
-  const taskTypes = $derived.by(() => {
-    const custom = new Set<string>();
-    for (const t of tasks) {
-      const id = t.type as string;
-      if (id && id !== 'task' && id !== 'summary' && id !== 'milestone') {
-        custom.add(id);
-      }
-    }
-    return [...defaultTaskTypes, ...[...custom].map((id) => ({ id, label: id }))];
-  });
+  }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
   function lucideIcon(node: HTMLElement, iconName: string) {
@@ -381,8 +357,10 @@
         comp: "button",
         text: "Zoom In",
         handler: () => {
+          // SVAR's zoom-scale expects a numeric dir (+1/-1) and a date anchor —
+          // the string "in"/"out" was a no-op (matches the working +/- controls).
           if (api) {
-            api.exec("zoom-scale", { dir: "in" });
+            api.exec("zoom-scale", { dir: 1, date: new Date() });
           }
         }
       },
@@ -391,7 +369,7 @@
         text: "Zoom Out",
         handler: () => {
           if (api) {
-            api.exec("zoom-scale", { dir: "out" });
+            api.exec("zoom-scale", { dir: -1, date: new Date() });
           }
         }
       }
@@ -461,6 +439,7 @@
     // we read the applied dates and persist on the next tick.
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (
+        !syncing &&
         !readOnly &&
         !!onMutate &&
         ev &&
@@ -602,10 +581,17 @@
     });
   }
 
-  // Zoom configuration with defined levels for proper zoom-scale action (OG-81)
-  // Each level defines the scales to display at that zoom level
+  // Zoom configuration with defined levels for proper zoom-scale action (OG-81).
+  // Each level defines the scales to display at that zoom level. The cell-width
+  // ranges OVERLAP by design (SVAR's own demos do the same): `level` is an
+  // explicit index that only the user-driven `zoom-scale` action changes. The
+  // earlier non-overlapping "band-tiling" was a misdiagnosis — it assumed data
+  // refreshes re-fit the zoom, but the real cause was the full store re-init on
+  // array replacement. With the refresh now applied as targeted `api.exec`
+  // updates (no re-init; see the diff-sync $effect below), data changes never
+  // touch zoom/scroll, so the original overlapping ladder is correct.
   const zoomConfig = {
-    level: 3, // Start at month/day level
+    level: 3, // Start at month/week level
     minCellWidth: 40,
     maxCellWidth: 300,
     levels: [
@@ -698,14 +684,17 @@
     {/if}
 
     <div class="gtcell">
+      <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
+           targeted api.exec actions (diff-sync $effect above) so SVAR never
+           re-inits its store and the user's zoom/scroll/selection survive. -->
       <Gantt
         init={initGantt}
-        {tasks}
-        {taskTypes}
-        {links}
+        tasks={initialTasks}
+        taskTypes={svarTaskTypes}
+        links={initialLinks}
         {columns}
         zoom={zoomConfig}
-        readonly={readOnly}
+        readonly={svarReadonly}
       />
 
       <!-- Floating Zoom Controls (OG-81) -->

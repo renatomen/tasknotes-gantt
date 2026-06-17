@@ -23,7 +23,9 @@
 /* global MouseEvent */
 import { Component, type App, type Plugin } from 'obsidian';
 import { mount, unmount } from 'svelte';
+import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
+import type { GanttData } from './types/gantt-view-data';
 import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
@@ -246,6 +248,14 @@ class ObsidianGanttBasesView extends GanttBasesView {
   private ganttController: GanttController | null = null;
 
   /**
+   * Reactive store of the dynamic render data. Mounted once into the view; each
+   * controller change re-`set`s it, so the SVAR instance persists and keeps its
+   * view state (zoom, scroll, selection) across data changes instead of being
+   * destroyed by a remount. `null` until the first mount.
+   */
+  private dataStore: Writable<GanttData> | null = null;
+
+  /**
    * Monotonic mount token. `mountGantt()` is async (the controller's `init()`
    * resolves a source and may await TaskNotes readiness); a newer mount or an
    * unmount that races an in-flight one bumps this so the stale async mount
@@ -273,16 +283,24 @@ class ObsidianGanttBasesView extends GanttBasesView {
    * Called by Obsidian when data changes.
    * Re-renders the Gantt chart with updated data.
    *
-   * The current refresh pattern is unmount + remount. Because the controller is
-   * the source of truth and re-reads the live Bases entries via the
-   * `basesInput` provider at selection time, a remount re-queries instances and
-   * links from scratch. (A future targeted prop-update is noted in the plan's
-   * follow-up work.)
+   * Refreshes **in place**, not by remounting: the first data event mounts the
+   * view once; subsequent ones re-select the controller's source (rebuilding the
+   * Bases source from the now-current live entries), which fires the controller's
+   * change listener → a store update the persistent component renders. Avoiding
+   * the remount preserves the SVAR view state (zoom, scroll, selection) across
+   * writes and filter changes.
    */
   public onDataUpdated(): void {
-    console.log('[Gantt] Data updated, remounting. Entries:', this.data?.data?.length || 0);
-    this.unmountGantt();
-    void this.mountGantt();
+    if (!this.svelteComponent || !this.ganttController) {
+      console.log('[Gantt] First data event — mounting. Entries:', this.data?.data?.length || 0);
+      void this.mountGantt();
+      return;
+    }
+    console.log('[Gantt] Data updated, refreshing in place. Entries:', this.data?.data?.length || 0);
+    // Re-read the live Bases entries (and re-resolve TaskNotes availability) by
+    // re-selecting the source; the controller's change listener then refreshes
+    // the store. No remount.
+    void this.ganttController.refreshSource();
   }
 
   /**
@@ -394,17 +412,11 @@ class ObsidianGanttBasesView extends GanttBasesView {
       }
 
       this.ganttController = controller;
-      const arrowMode = this.getArrowMode();
-      const dateMappingNotice = buildDateMappingNotice(controller.getDateMappingInfo());
       // Native edit interaction (plan 004): resolves bar clicks to TaskNotes
       // actions (open note / native edit modal / task menu). Holds only `app`.
       const interactions = new TaskNotesInteractions(this.app);
 
-      const [instances, links, statusColors] = await Promise.all([
-        controller.getInstances(),
-        controller.getLinks(arrowMode),
-        controller.getStatusColors(),
-      ]);
+      const data = await this.buildGanttData(controller);
 
       // Re-check after the second await window.
       if (token !== this.mountToken) {
@@ -412,31 +424,24 @@ class ObsidianGanttBasesView extends GanttBasesView {
         return;
       }
 
-      console.log('[Gantt] Mounting with:', {
-        instanceCount: instances.length,
-        linkCount: links.length,
-        write: controller.capabilities.write,
-        arrowMode,
+      console.log('[Gantt] Mounting (refresh-in-place):', {
+        instanceCount: data.instances.length,
+        linkCount: data.links.length,
+        write: data.capabilities.write,
+        arrowMode: data.arrowMode,
       });
 
+      // One reactive store, mounted once; controller changes re-set it in place.
+      this.dataStore = writable(data);
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
         props: {
-          instances,
-          links,
-          capabilities: controller.capabilities,
-          arrowMode,
-          showDateIndicators: this.getShowDateIndicators(),
-          statusColors,
+          data: this.dataStore,
           app: this.app,
           config: this.config,
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
-          // Bound to the controller captured in this mount.
           onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),
-          // One-line notice when a start/end date mapping fell back to the
-          // default because it isn't a writable TaskNotes date field (U4/R-C).
-          dateMappingNotice,
           // Native edit interaction (plan 004): a bar's left/double-click and
           // right-click delegate to TaskNotes (open note / native edit modal /
           // task menu) via the interaction service — no custom modal.
@@ -447,15 +452,12 @@ class ObsidianGanttBasesView extends GanttBasesView {
         },
       });
 
-      // Reactive capability/source refresh: re-check TaskNotes availability when
-      // the data refreshes. A flip in availability re-selects the source and
-      // changes capabilities; the resulting change triggers a remount via the
-      // listener below. (Full plugin enable/disable reactivity — subscribing to
-      // Obsidian's plugin lifecycle events — is wired in a later unit; here we
-      // re-check on the data-update path, which is the cleanly available hook.)
+      // Controller snapshot changes (TaskNotes events, source re-selection on a
+      // data update / capability flip) refresh the store in place — no remount,
+      // so the SVAR view state (zoom, scroll, selection) is preserved.
       controller.onChange(() => {
         if (token === this.mountToken) {
-          this.onDataUpdated();
+          void this.refreshData();
         }
       });
     } catch (error) {
@@ -467,6 +469,43 @@ class ObsidianGanttBasesView extends GanttBasesView {
           text: 'Gantt (OG): Failed to render chart. See console for details.',
         });
       }
+    }
+  }
+
+  /** Compute the current dynamic render data from the controller + view config. */
+  private async buildGanttData(controller: GanttController): Promise<GanttData> {
+    const arrowMode = this.getArrowMode();
+    const [instances, links, statusColors] = await Promise.all([
+      controller.getInstances(),
+      controller.getLinks(arrowMode),
+      controller.getStatusColors(),
+    ]);
+    return {
+      instances,
+      links,
+      capabilities: controller.capabilities,
+      arrowMode,
+      showDateIndicators: this.getShowDateIndicators(),
+      statusColors,
+      dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
+    };
+  }
+
+  /**
+   * Recompute the render data and push it into the store (refresh in place).
+   * No-op when the view isn't mounted. Errors are swallowed so a transient
+   * refresh failure doesn't tear down the live chart.
+   */
+  private async refreshData(): Promise<void> {
+    const controller = this.ganttController;
+    const store = this.dataStore;
+    if (!controller || !store) {
+      return;
+    }
+    try {
+      store.set(await this.buildGanttData(controller));
+    } catch (error) {
+      console.error('[Gantt] Failed to refresh data:', error);
     }
   }
 
@@ -492,6 +531,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       this.ganttController = null;
     }
 
+    this.dataStore = null;
     this.containerEl.empty();
   }
 }
