@@ -101,23 +101,29 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     const isPrimary = primaryBySource.get(inst.sourcePath) === inst.id;
     const hasDeps = linkedSourcePaths.has(inst.sourcePath);
 
-    // A summary (parent) bar always stays a summary; only leaf bars can be
-    // flagged. Flag when indicators are on and the dates aren't `complete`.
-    const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
-
-    // Compose the bar's SVAR `type` from the state classes it needs. SVAR's
-    // taskTypeCss emits each space-joined, registered type id as bare classes.
+    // Parents render as ordinary task bars at their OWN dates — NOT SVAR
+    // summaries. A summary's length is derived from its children (so it can't
+    // show the parent's own note dates) and, critically, SVAR rejects an
+    // asymmetric date change on a summary — so an *extend* (one edge only)
+    // wouldn't render. As ordinary tasks, parents show their note dates, a child
+    // outside the window overflows, the bar is fully draggable (move + resize),
+    // and date writes (extends, subtree shifts) apply cleanly. The parent-drag-
+    // moves-children behavior is implemented in `GanttContainer` (shift the
+    // subtree on drop), since a non-summary row doesn't auto-move its children.
+    // Hierarchy (indent, expand/collapse) is driven by `parent`/`open`, not by
+    // `type`.
+    //
+    // Compose the bar's `type` from its state classes (date-status flag + the
+    // status-color class when configured). SVAR's taskTypeCss emits each
+    // space-joined, registered type id as bare classes.
+    const flagged = showDateIndicators && inst.dateStatus !== 'complete';
     let type = 'task';
-    if (isParent) {
-      type = 'summary';
-    } else {
-      const classes: string[] = [];
-      if (flagged) classes.push(DATE_STATUS_TYPE);
-      if (inst.status && coloredStatuses.has(inst.status)) {
-        classes.push(statusSlug(inst.status));
-      }
-      if (classes.length > 0) type = classes.join(' ');
+    const classes: string[] = [];
+    if (flagged) classes.push(DATE_STATUS_TYPE);
+    if (inst.status && coloredStatuses.has(inst.status)) {
+      classes.push(statusSlug(inst.status));
     }
+    if (classes.length > 0) type = classes.join(' ');
 
     const task: SvarTask = {
       id: inst.id,

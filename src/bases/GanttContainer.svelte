@@ -1,7 +1,6 @@
 <script lang="ts">
   /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
   import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
-  import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { Notice, setIcon } from 'obsidian';
   import { get } from 'svelte/store';
   import type { TaskPatch } from '../datasource/types';
@@ -16,6 +15,15 @@
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
+  import {
+    classifyUpdateEvent,
+    computeMoveExtensions,
+    computeShrinkFit,
+    normalizeCascadeMode,
+    type DateRange,
+    type ExtensionNode,
+  } from './cascadeGate';
+  import { CascadeConfirmModal } from './CascadeConfirmModal';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -49,10 +57,12 @@
     onBarContextMenu?: (path: string, event: MouseEvent) => void;
   }
 
-  // `app` and `config` remain part of the props contract (register.ts passes
-  // them) but the controller owns the transform, so the view does not read them.
+  // `config` remains part of the props contract (register.ts passes it) but the
+  // controller owns the transform, so the view does not read it. `app` is used
+  // to host the parent-date-cascade confirmation modal (U3/U4).
   let {
     data,
+    app,
     onMutate,
     onBarActivate,
     onBarContextMenu,
@@ -338,45 +348,12 @@
     },
   ]);
 
-  // Custom toolbar items using Obsidian-style actions.
-  // The "Add Task" item is gated on write capability (R11 — SVAR's own
-  // `readonly` prop does NOT cover the custom toolbar), so it is omitted
-  // entirely in read-only mode. Zoom controls are always available.
-  const toolbarItems = $derived.by(() => {
-    const items: Array<Record<string, unknown>> = [];
-
-    // NOTE: "Add Task" is intentionally NOT shown, even in write mode. Task
-    // creation is not yet wired through the controller/TaskNotes — the old
-    // handler only called SVAR's `api.exec('add-task')`, producing an in-memory
-    // row with no source path that has no persistence and vanishes on the next
-    // refresh. Creation returns once it routes through a controller create op
-    // (a future unit), gated on `capabilities.write` like the other surfaces.
-
-    items.push(
-      {
-        comp: "button",
-        text: "Zoom In",
-        handler: () => {
-          // SVAR's zoom-scale expects a numeric dir (+1/-1) and a date anchor —
-          // the string "in"/"out" was a no-op (matches the working +/- controls).
-          if (api) {
-            api.exec("zoom-scale", { dir: 1, date: new Date() });
-          }
-        }
-      },
-      {
-        comp: "button",
-        text: "Zoom Out",
-        handler: () => {
-          if (api) {
-            api.exec("zoom-scale", { dir: -1, date: new Date() });
-          }
-        }
-      }
-    );
-
-    return items;
-  });
+  // NOTE: there is intentionally no toolbar. The only items it ever held were
+  // Zoom In/Out, which are redundant with the floating +/- controls at the
+  // bottom-right of the chart, so the toolbar was removed. ("Add Task" is also
+  // not shown: task creation isn't yet routed through the controller/TaskNotes —
+  // it returns, gated on `capabilities.write`, when a controller create op
+  // exists.)
 
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
@@ -430,27 +407,32 @@
       return true;
     });
 
-    // Persist drag-to-reschedule and resize via the controller (U8). SVAR fires
-    // `update-task` per-frame during a gesture (inProgress truthy) and once on
-    // drop with the committed dates (inProgress falsy). We persist only on the
-    // committing call, and never on our own echo writes (OG_ECHO_SOURCE) or in
-    // read-only mode (R11 — SVAR's `readonly` already blocks drag; this is the
-    // no-bypass backstop). Returning true lets SVAR apply the optimistic move;
-    // we read the applied dates and persist on the next tick.
+    // Unified drag wiring (plan U4). Parents are ordinary (non-summary) tasks,
+    // so dragging one moves only that bar — SVAR fires a single committing
+    // `update-task` (no eventSource) for the dragged task D and no cascade. We:
+    //   - persist D's own move (existing persistReschedule), and
+    //   - on a deferred tick, if D is a parent and the gesture was a *move*,
+    //     shift its descendants by the same delta (and persist them), then offer
+    //     the gated ancestor extend if the moved subtree now exceeds an ancestor.
+    // `inProgress` frames and our own echoes / refreshes are ignored. No
+    // moveSummaryKids/resetSummaryDates fire for non-summary rows, so `action`
+    // events are not expected and are left as a no-op.
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
-      if (
-        !syncing &&
-        !readOnly &&
-        !!onMutate &&
-        ev &&
-        !ev.inProgress &&
-        ev.eventSource !== OG_ECHO_SOURCE &&
-        ev.id != null
-      ) {
+      if (!ev || ev.inProgress) return true;
+      const cls = classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing });
+      if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
-        // Defer so SVAR's store has applied the move; read the authoritative
-        // committed dates from the store rather than the heterogeneous event.
+        const before = instances.find((i) => i.id === id);
+        // Capture pre-drag dates synchronously (instances is still the pre-drag
+        // snapshot now) for the subtree-shift delta.
+        activeDrag = {
+          id,
+          name: before?.text ?? 'this task',
+          beforeStart: before?.start ?? null,
+          beforeEnd: before?.end ?? null,
+        };
         setTimeout(() => void persistReschedule(id), 0);
+        scheduleSubtreeAndExtend();
       }
       return true;
     });
@@ -581,6 +563,179 @@
     });
   }
 
+  // ── Subtree-move drag + gated ancestor extend (plan U4) ─────────────────────
+  // The drag in flight: the dragged task's id, name, and its pre-drag dates
+  // (captured synchronously so the subtree-shift delta is exact).
+  let activeDrag: { id: string; name: string; beforeStart: Date | null; beforeEnd: Date | null } | null = null;
+  let dragScheduled = false;
+
+  /** Schedule the deferred subtree-shift + extend pass once per drag. */
+  function scheduleSubtreeAndExtend(): void {
+    if (dragScheduled) return;
+    dragScheduled = true;
+    setTimeout(() => void processSubtreeAndExtend(), 0);
+  }
+
+  /**
+   * After a drag settles: if the dragged task is a parent and the gesture was a
+   * pure *move* (both edges shifted by the same delta), shift every descendant
+   * by that delta and persist it — children follow the parent, intervals
+   * preserved. Then, if the moved subtree now exceeds an ancestor's window,
+   * offer the gated extend (Ask/Auto/Never). A leaf/resize has no descendant
+   * shift. All writes go through `onMutate` (→ TaskNotes) plus an optimistic
+   * `api.exec` echo for the bar; the follow-up refresh runs under `syncing`.
+   */
+  async function processSubtreeAndExtend(): Promise<void> {
+    dragScheduled = false;
+    const drag = activeDrag;
+    activeDrag = null;
+    if (!api || !onMutate || readOnly || !drag) return;
+
+    const moved = api.getState().tasks.byId(drag.id);
+    if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
+
+    // Pure move iff both edges shifted by the same non-zero delta (resize moves
+    // one edge only → no subtree shift).
+    let delta = 0;
+    if (drag.beforeStart && drag.beforeEnd) {
+      const ds = moved.start.getTime() - drag.beforeStart.getTime();
+      const de = moved.end.getTime() - drag.beforeEnd.getTime();
+      if (ds === de && ds !== 0) delta = ds;
+    }
+
+    // The new date window of every moved task, keyed by source note. Seeded with
+    // the dragged task; for a pure move, each descendant is shifted by the same
+    // delta (and persisted). A move that shifts a multi-parent task records that
+    // task's source once — every placement of it (incl. alternate parents) then
+    // counts toward its ancestors' extend check.
+    const movedRanges = new Map<string, DateRange>();
+    const addRange = (src: string, start: Date, end: Date) => {
+      const prev = movedRanges.get(src);
+      if (!prev) movedRanges.set(src, { start, end });
+      else {
+        if (start < prev.start) prev.start = start;
+        if (end > prev.end) prev.end = end;
+      }
+    };
+    const dSource = instances.find((i) => i.id === drag.id)?.sourcePath;
+    if (dSource) addRange(dSource, moved.start, moved.end);
+
+    if (delta !== 0) {
+      const descendants = collectSubtreeIds(drag.id).filter((id) => id !== drag.id);
+      for (const did of descendants) {
+        const dinst = instances.find((i) => i.id === did);
+        if (!dinst?.start || !dinst?.end) continue;
+        const ns = new Date(dinst.start.getTime() + delta);
+        const ne = new Date(dinst.end.getTime() + delta);
+        addRange(dinst.sourcePath, ns, ne);
+        // Optimistically move the bar, then persist.
+        api.exec('update-task', { id: did, task: { start: ns, end: ne }, eventSource: OG_ECHO_SOURCE });
+        try {
+          await onMutate(did, { start: ns, end: ne });
+        } catch (err) {
+          console.error('[GanttContainer] subtree-move persist failed:', err);
+          new Notice("Couldn't move a child task — check TaskNotes is running.");
+        }
+      }
+    } else if (drag.beforeStart && drag.beforeEnd) {
+      // Parent-shrink guard: a *resize* (no subtree shift) that newly leaves D
+      // smaller than its direct children. Offer to adjust D to wrap them, or
+      // undo the resize — per the per-view mode. A pure move (delta !== 0) can't
+      // orphan children (they moved with D), so this only runs for resizes.
+      const childRanges: DateRange[] = instances
+        .filter((i) => i.parent === drag.id && i.start && i.end)
+        .map((i) => ({ start: i.start as Date, end: i.end as Date }));
+      const fit = computeShrinkFit(
+        { start: drag.beforeStart, end: drag.beforeEnd },
+        { start: moved.start, end: moved.end },
+        childRanges,
+      );
+      if (fit) {
+        const mode = normalizeCascadeMode(get(data).cascadeMode);
+        if (mode === 'never') return; // allow the overflow
+        let adjust = true;
+        if (mode === 'ask') {
+          adjust = await new CascadeConfirmModal(app, {
+            title: 'Parent is smaller than its children',
+            body: `Resizing "${drag.name}" leaves it smaller than the tasks inside it. Adjust it to wrap its children, or undo the resize.`,
+            confirmText: 'Adjust to fit',
+            cancelText: 'Undo resize',
+            rows: [{ name: drag.name, oldStart: moved.start, oldEnd: moved.end, newStart: fit.start, newEnd: fit.end }],
+          }).openAndGetChoice();
+        }
+        const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
+        api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
+        try {
+          await onMutate(drag.id, { start: target.start, end: target.end });
+        } catch (err) {
+          console.error('[GanttContainer] shrink-fit persist failed:', err);
+          new Notice("Couldn't adjust the parent date — check TaskNotes is running.");
+        }
+        return; // shrink handled; don't also run the extend gate
+      }
+    }
+
+    // Gated ancestor extend: every non-moved ancestor (across the whole tree,
+    // including a moved task's alternate parents) that the moved tasks exceed.
+    const mode = normalizeCascadeMode(get(data).cascadeMode);
+    if (mode === 'never') return;
+
+    const nodes: ExtensionNode[] = instances.map((i) => ({
+      id: i.id,
+      sourcePath: i.sourcePath,
+      name: i.text,
+      parent: i.parent,
+      start: i.start,
+      end: i.end,
+    }));
+    const extensions = computeMoveExtensions(movedRanges, nodes);
+    if (extensions.length === 0) return;
+
+    if (mode === 'ask') {
+      const approved = await new CascadeConfirmModal(app, {
+        title: 'Extend parent dates?',
+        body:
+          `Moving "${drag.name}" carries it outside the planned window of the task(s) below. ` +
+          `Its new dates are already saved — this only extends them to include it, and can't be undone.`,
+        confirmText: 'Extend all',
+        rows: extensions,
+      }).openAndGetChoice();
+      if (!approved) return; // move already persisted; leave the overflow
+    }
+
+    for (const ext of extensions) {
+      try {
+        await onMutate(ext.instanceId, { start: ext.newStart, end: ext.newEnd });
+      } catch (err) {
+        console.error('[GanttContainer] ancestor extend persist failed:', err);
+        new Notice("Couldn't update a parent date — check TaskNotes is running.");
+      }
+    }
+  }
+
+  /** The dragged task plus all its descendants (instance ids), cycle-safe. */
+  function collectSubtreeIds(rootId: string): string[] {
+    const childrenByParent = new Map<string, string[]>();
+    for (const inst of instances) {
+      if (inst.parent) {
+        const arr = childrenByParent.get(inst.parent) ?? [];
+        arr.push(inst.id);
+        childrenByParent.set(inst.parent, arr);
+      }
+    }
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const stack = [rootId];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      for (const c of childrenByParent.get(id) ?? []) stack.push(c);
+    }
+    return out;
+  }
+
   // Zoom configuration with defined levels for proper zoom-scale action (OG-81).
   // Each level defines the scales to display at that zoom level. The cell-width
   // ranges OVERLAP by design (SVAR's own demos do the same): `level` is an
@@ -662,8 +817,6 @@
 
 <div class="og-bases-gantt" bind:this={rootEl}>
   <Willow fonts={false}>
-    <Toolbar items={toolbarItems} />
-
     <!-- Read-only banner (R5/R11): shown whenever the active source has no
          write capability, regardless of which source is active. Copy varies on
          whether TaskNotes is present (see readOnlyBannerText). -->
@@ -734,8 +887,9 @@
   }
 
   .gtcell {
-    height: calc(100% - 50px);
-    border-top: var(--wx-gantt-border);
+    /* No toolbar to reserve space for — the chart fills the view. (Any banner
+       sits above and pushes the chart down naturally.) */
+    height: 100%;
     /* Position relative for floating zoom controls (OG-81) */
     position: relative;
   }
