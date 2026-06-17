@@ -310,6 +310,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
       progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
       parentProperty: (this.config.get('parentProperty') as string) || '',
+      statusProperty: (this.config.get('statusProperty') as string) || '',
     };
   }
 
@@ -370,9 +371,10 @@ class ObsidianGanttBasesView extends GanttBasesView {
       this.ganttController = controller;
       const arrowMode = this.getArrowMode();
 
-      const [instances, links] = await Promise.all([
+      const [instances, links, statusColors] = await Promise.all([
         controller.getInstances(),
         controller.getLinks(arrowMode),
+        controller.getStatusColors(),
       ]);
 
       // Re-check after the second await window.
@@ -396,6 +398,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
           capabilities: controller.capabilities,
           arrowMode,
           showDateIndicators: this.getShowDateIndicators(),
+          statusColors,
           app: this.app,
           config: this.config,
         },
@@ -510,6 +513,13 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       key: 'parentProperty',
       default: '',
       placeholder: 'Select parent task property (optional)',
+    },
+    {
+      type: 'property' as const,
+      displayName: 'Status Property',
+      key: 'statusProperty',
+      default: '',
+      placeholder: 'Select status property (colors bars by TaskNotes status)',
     },
   ];
 

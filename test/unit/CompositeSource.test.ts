@@ -139,3 +139,29 @@ describe('CompositeSource — subscribe', () => {
     expect(() => composite.subscribe(jest.fn())()).not.toThrow();
   });
 });
+
+describe('CompositeSource — status colors', () => {
+  const colors = [{ value: '11🟥Active = Now', color: '#f8312f', isCompleted: false }];
+
+  it('delegates getStatusColors to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getStatusColors: async () => colors,
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getStatusColors()).toEqual(colors);
+  });
+
+  it('returns [] when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getStatusColors()).toEqual([]);
+  });
+
+  it('returns [] when the enrichment exposes no getStatusColors', async () => {
+    const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
+    expect(await composite.getStatusColors()).toEqual([]);
+  });
+});

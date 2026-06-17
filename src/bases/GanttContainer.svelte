@@ -1,9 +1,11 @@
 <script lang="ts">
-  /* global HTMLElement, setTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, setTimeout, getComputedStyle */
   import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
   import { setIcon } from 'obsidian';
   import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
+  import type { StatusColor } from '../datasource/types';
+  import { statusSlug, buildStatusStyleRules } from './statusColor';
 
   // Component props (U7): the controller now owns the transform. The view
   // receives expanded render instances + rewritten links + the active source's
@@ -33,6 +35,11 @@
      * presence independently of write capability.
      */
     taskNotesPresent?: boolean;
+    /**
+     * Status→color palette from the source layer (TaskNotes). Bars are colored
+     * by their task's status using these. Empty ⇒ no status coloring.
+     */
+    statusColors?: StatusColor[];
   }
 
   // `app` and `config` remain part of the props contract (register.ts passes
@@ -45,6 +52,7 @@
     arrowMode,
     showDateIndicators = true,
     taskNotesPresent,
+    statusColors = [],
   }: Props = $props();
 
   // Custom SVAR task type used to flag bars whose dates were inferred,
@@ -52,7 +60,29 @@
   // values — origin R10 only distinguishes "not fully dated" from complete).
   // Registered in `taskTypes` so SVAR emits its class on the bar element.
   const DATE_STATUS_TYPE = 'datestatus-flagged';
-  const taskTypes = [...defaultTaskTypes, { id: DATE_STATUS_TYPE, label: 'Date status' }];
+
+  // Status values that have a configured color are eligible for a status class.
+  const coloredStatuses = $derived(new Set(statusColors.map((c) => c.value)));
+
+  // Generated stylesheet coloring each present status' bar by its configured
+  // TaskNotes color (scoped under .og-bases-gantt). Injected via a managed
+  // style element (see the $effect below) — a literal style tag in markup would
+  // be compiled away as component CSS and cannot carry this dynamic content.
+  const statusStyleCss = $derived(buildStatusStyleRules(instances, statusColors));
+
+  // The view root, used to host the generated status-color stylesheet.
+  let rootEl: HTMLElement | undefined = $state();
+  $effect(() => {
+    const css = statusStyleCss;
+    if (!rootEl) return;
+    let styleEl = rootEl.querySelector('style[data-og-status]') as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.setAttribute('data-og-status', '');
+      rootEl.appendChild(styleEl);
+    }
+    styleEl.textContent = css;
+  });
 
   // Read-only is the absence of write capability (R5). Used to gate every
   // surface SVAR's own `readonly` does not cover (toolbar, editor modal).
@@ -121,9 +151,21 @@
       // flagged. Flag when indicators are on and the dates aren't `complete`.
       const flagged = showDateIndicators && !isParent && inst.dateStatus !== 'complete';
 
+      // Compose the bar's SVAR `type` from the state classes it needs: the
+      // date-status flag (when flagged) plus the status color class (when the
+      // status has a configured color). Parents stay `summary`. SVAR's
+      // taskTypeCss emits each space-joined, registered type id as bare classes.
       let type = 'task';
-      if (isParent) type = 'summary';
-      else if (flagged) type = DATE_STATUS_TYPE;
+      if (isParent) {
+        type = 'summary';
+      } else {
+        const classes: string[] = [];
+        if (flagged) classes.push(DATE_STATUS_TYPE);
+        if (inst.status && coloredStatuses.has(inst.status)) {
+          classes.push(statusSlug(inst.status));
+        }
+        if (classes.length > 0) type = classes.join(' ');
+      }
 
       const task: Record<string, unknown> = {
         id: inst.id,
@@ -154,6 +196,20 @@
 
       return task;
     });
+  });
+
+  // Register every composed custom type id the bars actually use (date-status
+  // flag and/or status color classes) so SVAR's taskTypeCss emits them as bar
+  // classes; built-in task/summary/milestone need no registration.
+  const taskTypes = $derived.by(() => {
+    const custom = new Set<string>();
+    for (const t of tasks) {
+      const id = t.type as string;
+      if (id && id !== 'task' && id !== 'summary' && id !== 'milestone') {
+        custom.add(id);
+      }
+    }
+    return [...defaultTaskTypes, ...[...custom].map((id) => ({ id, label: id }))];
   });
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -458,7 +514,7 @@
   verified by the E2E render spec.
 -->
 
-<div class="og-bases-gantt">
+<div class="og-bases-gantt" bind:this={rootEl}>
   <Willow fonts={false}>
     <Toolbar items={toolbarItems} />
 

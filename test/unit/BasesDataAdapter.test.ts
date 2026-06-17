@@ -255,6 +255,44 @@ describe("BasesDataAdapter", () => {
     });
   });
 
+  describe("extractStatus", () => {
+    it("should extract the raw status string", () => {
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (_propertyId: string) => ({ data: "11🟥Active = Now" }),
+      };
+
+      expect(adapter.extractStatus(mockEntry, "note:status")).toBe("11🟥Active = Now");
+    });
+
+    it("should return null when statusProperty is undefined", () => {
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (_propertyId: string) => ({ data: "ignored" }),
+      };
+
+      expect(adapter.extractStatus(mockEntry, undefined)).toBeNull();
+    });
+
+    it("should return null when statusProperty is empty", () => {
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (_propertyId: string) => ({ data: "ignored" }),
+      };
+
+      expect(adapter.extractStatus(mockEntry, "")).toBeNull();
+    });
+
+    it("should return null when the status value is missing (no basename fallback)", () => {
+      const mockEntry: BasesEntry = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (_propertyId: string) => null,
+      };
+
+      expect(adapter.extractStatus(mockEntry, "note:missing")).toBeNull();
+    });
+  });
+
   describe("extractDate", () => {
     it("should extract and convert date property", () => {
       // Arrange - DateValue uses .date property

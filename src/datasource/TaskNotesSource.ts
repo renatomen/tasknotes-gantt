@@ -36,6 +36,7 @@ import type {
   DependencyRelType,
   SourceDependency,
   SourceTask,
+  StatusColor,
 } from './types';
 
 /**
@@ -85,6 +86,18 @@ export interface TaskNotesTaskInfo {
   due?: Date | string | null;
 }
 
+/** A TaskNotes custom-status definition (the slice consumed for bar coloring). */
+export interface TaskNotesStatusConfig {
+  /** The status value (matches a task's `status`). */
+  value?: string | null;
+  /** Display label. */
+  label?: string | null;
+  /** Configured color (CSS color string, typically hex). */
+  color?: string | null;
+  /** Whether this status represents completion. */
+  isCompleted?: boolean | null;
+}
+
 /** A resolved `blockedBy` dependency edge for a task. */
 export interface TaskNotesDependencyEdge {
   /** Predecessor (blocking task) path. May arrive as `path` or `uid`. */
@@ -122,6 +135,14 @@ export interface TaskNotesApi {
     off(ref: TaskNotesEventRef): void;
   };
   hasCapability?(capability: string): boolean;
+  /**
+   * Configured status palette. TaskNotes exposes it via `catalog.statuses()`
+   * (preferred) or `model.config().statuses`; each entry carries
+   * value/label/color/isCompleted. Both guarded/optional (shape varies by
+   * TaskNotes version).
+   */
+  catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
+  model?: { config?(): { statuses?: TaskNotesStatusConfig[] } | null | undefined };
 }
 
 /** Minimal shape of `app.plugins` needed to resolve the TaskNotes plugin. */
@@ -273,6 +294,37 @@ export class TaskNotesSource implements DataSource {
         }
       }
       return deps;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read TaskNotes' configured custom-status palette as {@link StatusColor}s.
+   *
+   * Sources `api.catalog.statuses()` (preferred) or `api.model.config().statuses`
+   * — each `{ value, label, color, isCompleted }` — keeping only entries with a
+   * usable value + color. Guarded: a missing/throwing accessor or an unexpected
+   * shape yields `[]`, so the view renders no status colors rather than failing.
+   */
+  public async getStatusColors(): Promise<StatusColor[]> {
+    try {
+      const raw =
+        this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      const colors: StatusColor[] = [];
+      for (const s of raw) {
+        if (s && typeof s.value === 'string' && typeof s.color === 'string') {
+          colors.push({
+            value: s.value,
+            color: s.color,
+            isCompleted: s.isCompleted === true,
+          });
+        }
+      }
+      return colors;
     } catch {
       return [];
     }

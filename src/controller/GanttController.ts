@@ -65,6 +65,7 @@ import {
   type DataSourceCapabilities,
   type SourceDependency,
   type SourceTask,
+  type StatusColor,
 } from '../datasource';
 import {
   expandInstances,
@@ -356,6 +357,16 @@ export class GanttController {
   }
 
   /**
+   * The active source's status→color palette (TaskNotes), or `[]` when the
+   * source exposes none or before {@link init}. The view reads this to color
+   * bars by status. Source-agnostic: surfaces from a `tasknotes-first`
+   * TaskNotesSource or, in `bases-scoped`, the composite's TaskNotes enrichment.
+   */
+  public async getStatusColors(): Promise<StatusColor[]> {
+    return (await this.activeSource?.getStatusColors?.()) ?? [];
+  }
+
+  /**
    * Subscribe to snapshot changes. The listener fires whenever a recompute
    * produces a snapshot that differs (value-inequality) from the previous one —
    * source change events and reactive re-selection both flow through here.
@@ -592,6 +603,7 @@ function instancesEqual(
       x.isVirtual !== y.isVirtual ||
       x.isCollapsed !== y.isCollapsed ||
       x.dateStatus !== y.dateStatus ||
+      x.status !== y.status ||
       !datesEqual(x.start, y.start) ||
       !datesEqual(x.end, y.end)
     ) {

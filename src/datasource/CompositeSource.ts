@@ -34,6 +34,7 @@ import type {
   DataSourceCapabilities,
   SourceDependency,
   SourceTask,
+  StatusColor,
 } from './types';
 
 /** Structural slice for the optional event-subscription hook (TaskNotes has it). */
@@ -80,6 +81,15 @@ export class CompositeSource implements DataSource {
     return this.enrichment
       ? this.enrichment.getDependencies(path)
       : Promise.resolve([]);
+  }
+
+  /**
+   * Status→color palette comes from the enrichment (TaskNotes). With no
+   * enrichment, or an enrichment that exposes no palette, this yields `[]` —
+   * the view then applies no status colors.
+   */
+  public getStatusColors(): Promise<StatusColor[]> {
+    return this.enrichment?.getStatusColors?.() ?? Promise.resolve([]);
   }
 
   /**

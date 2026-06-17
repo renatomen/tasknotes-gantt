@@ -10,6 +10,7 @@ export type {
   SourceTask,
   SourceDependency,
   DependencyRelType,
+  StatusColor,
   TaskPatch,
   MutationContext,
 } from './types';
