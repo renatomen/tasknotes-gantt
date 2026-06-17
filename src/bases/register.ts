@@ -20,6 +20,7 @@
  * @module bases/register
  */
 
+/* global MouseEvent */
 import { Component, type App, type Plugin } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import GanttContainer from './GanttContainer.svelte';
@@ -32,6 +33,7 @@ import {
   type DateMappingInfo,
 } from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
+import { TaskNotesInteractions } from './taskNotesInteractions';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -394,6 +396,9 @@ class ObsidianGanttBasesView extends GanttBasesView {
       this.ganttController = controller;
       const arrowMode = this.getArrowMode();
       const dateMappingNotice = buildDateMappingNotice(controller.getDateMappingInfo());
+      // Native edit interaction (plan 004): resolves bar clicks to TaskNotes
+      // actions (open note / native edit modal / task menu). Holds only `app`.
+      const interactions = new TaskNotesInteractions(this.app);
 
       const [instances, links, statusColors] = await Promise.all([
         controller.getInstances(),
@@ -432,6 +437,13 @@ class ObsidianGanttBasesView extends GanttBasesView {
           // One-line notice when a start/end date mapping fell back to the
           // default because it isn't a writable TaskNotes date field (U4/R-C).
           dateMappingNotice,
+          // Native edit interaction (plan 004): a bar's left/double-click and
+          // right-click delegate to TaskNotes (open note / native edit modal /
+          // task menu) via the interaction service — no custom modal.
+          onBarActivate: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) =>
+            interactions.handleActivate(path, opts),
+          onBarContextMenu: (path: string, event: MouseEvent) =>
+            interactions.showContextMenu(path, event),
         },
       });
 
