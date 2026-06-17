@@ -52,6 +52,13 @@ function makeApi(opts: FakeApiOptions = {}) {
   const offSpy = jest.fn((ref: unknown) => {
     handlers.delete(ref as symbol);
   });
+  // Write-surface spies (TaskNotes 4.11.0: tasks.update(path, updates, ctx),
+  // tasks.delete(path, ctx)). Resolve by default; tests override to reject.
+  const updateSpy = jest.fn(
+    (_path: string, _updates: Record<string, unknown>, _ctx?: unknown) =>
+      Promise.resolve(),
+  );
+  const deleteSpy = jest.fn((_path: string, _ctx?: unknown) => Promise.resolve());
 
   const api: TaskNotesApi = {
     apiVersion: opts.apiVersion ?? 1,
@@ -62,6 +69,8 @@ function makeApi(opts: FakeApiOptions = {}) {
       list: () => opts.tasks ?? [],
       get: (path: string) =>
         (opts.tasks ?? []).find((t) => t.path === path) ?? null,
+      update: updateSpy,
+      delete: deleteSpy,
     },
     relationships: {
       dependencies: (path: string) => opts.dependencies?.[path] ?? [],
@@ -81,7 +90,7 @@ function makeApi(opts: FakeApiOptions = {}) {
     api.catalog = { statuses: () => opts.statuses };
   }
 
-  return { api, onSpy, offSpy, handlers };
+  return { api, onSpy, offSpy, updateSpy, deleteSpy, handlers };
 }
 
 /**
@@ -455,19 +464,112 @@ describe('TaskNotesSource', () => {
       expect(source!.supportsWrite()).toBe(false);
     });
 
-    it('keeps capabilities.write false and exposes no mutate/deleteTask in this unit', async () => {
-      // Arrange — even when TaskNotes grants write, U4 does not wire writes.
-      const { api } = makeApi({ hasWrite: true });
+    it('capabilities.write reflects supportsWrite() (U8): true when TaskNotes grants tasks.write', async () => {
+      // Arrange
+      const writable = await TaskNotesSource.create(makeApp(makeApi({ hasWrite: true }).api));
+      const readonly = await TaskNotesSource.create(makeApp(makeApi({ hasWrite: false }).api));
+
+      // Assert — the composite/controller derive read-only truth from this flag.
+      expect(writable!.capabilities.write).toBe(true);
+      expect(readonly!.capabilities.write).toBe(false);
+    });
+  });
+
+  describe('write path — mutate() / deleteTask() (U8)', () => {
+    it('mutate() maps a dates-only patch to a single tasks.update with yyyy-MM-dd scheduled/due', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
       const source = await TaskNotesSource.create(makeApp(api));
 
+      // Act — a drag commit carries day-snapped local-midnight Dates.
+      await source!.mutate(
+        'tasks/a.md',
+        { start: new Date(2026, 3, 2), end: new Date(2026, 3, 20) },
+        { source: 'obsidian-gantt', correlationId: 'c1' },
+      );
+
+      // Assert — exactly one atomic update, dates formatted, context forwarded.
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(
+        'tasks/a.md',
+        { scheduled: '2026-04-02', due: '2026-04-20' },
+        { source: 'obsidian-gantt', correlationId: 'c1' },
+      );
+    });
+
+    it('mutate() writes only the fields present in the patch (no clobbering)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act — a modal Save touching title + status only.
+      await source!.mutate('t.md', { text: 'Renamed', status: 'done' });
+
+      // Assert — scheduled/due absent (not nulled), title/status mapped.
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { title: 'Renamed', status: 'done' },
+        undefined,
+      );
+    });
+
+    it('mutate() forwards an explicit null date to clear the field', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { start: null });
+
       // Assert
-      expect(source!.capabilities.write).toBe(false);
-      expect(
-        (source as unknown as Partial<{ mutate: unknown }>).mutate
-      ).toBeUndefined();
-      expect(
-        (source as unknown as Partial<{ deleteTask: unknown }>).deleteTask
-      ).toBeUndefined();
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: null }, undefined);
+    });
+
+    it('mutate() does NOT persist progress in milestone 1 (deferred)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { progress: 50, status: 'doing' });
+
+      // Assert — progress is dropped; only status is written.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() propagates a write failure (so the controller can revert + Notice)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      updateSpy.mockRejectedValueOnce(new Error('disk full'));
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert — writes must NOT swallow errors like the read paths do.
+      await expect(source!.mutate('t.md', { status: 'x' })).rejects.toThrow('disk full');
+    });
+
+    it('deleteTask() calls tasks.delete with the path and context', async () => {
+      // Arrange
+      const { api, deleteSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.deleteTask('tasks/a.md', { source: 'obsidian-gantt', correlationId: 'd1' });
+
+      // Assert
+      expect(deleteSpy).toHaveBeenCalledWith('tasks/a.md', {
+        source: 'obsidian-gantt',
+        correlationId: 'd1',
+      });
+    });
+
+    it('mutate() throws when the api exposes no update method', async () => {
+      // Arrange
+      const { api } = makeApi({ hasWrite: true });
+      delete api.tasks!.update;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(source!.mutate('t.md', { status: 'x' })).rejects.toThrow();
     });
   });
 

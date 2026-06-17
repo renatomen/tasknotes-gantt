@@ -140,6 +140,53 @@ describe('CompositeSource — subscribe', () => {
   });
 });
 
+describe('CompositeSource — write path (mutate/deleteTask)', () => {
+  /** A writable enrichment fake capturing mutate/delete calls. */
+  function writableEnrichment() {
+    const mutate = jest.fn(async (_p: string, _patch: unknown, _ctx?: unknown) => {});
+    const deleteTask = jest.fn(async (_p: string, _ctx?: unknown) => {});
+    const source = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      mutate,
+      deleteTask,
+    } as unknown as DataSource;
+    return { source, mutate, deleteTask };
+  }
+
+  it('delegates mutate() to the enrichment by path, forwarding patch + context', async () => {
+    const { source, mutate } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source);
+    const patch = { start: new Date(2026, 3, 2) };
+    const ctx = { source: 'obsidian-gantt', correlationId: 'c1' };
+
+    await composite.mutate('a.md', patch, ctx);
+
+    expect(mutate).toHaveBeenCalledWith('a.md', patch, ctx);
+  });
+
+  it('delegates deleteTask() to the enrichment', async () => {
+    const { source, deleteTask } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source);
+    const ctx = { source: 'obsidian-gantt', correlationId: 'd1' };
+
+    await composite.deleteTask('a.md', ctx);
+
+    expect(deleteTask).toHaveBeenCalledWith('a.md', ctx);
+  });
+
+  it('throws on mutate() when there is no (writable) enrichment — read-only composite', async () => {
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), null);
+    await expect(composite.mutate('a.md', { status: 'x' })).rejects.toThrow();
+  });
+
+  it('throws on deleteTask() when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), null);
+    await expect(composite.deleteTask('a.md')).rejects.toThrow();
+  });
+});
+
 describe('CompositeSource — status colors', () => {
   const colors = [{ value: '11🟥Active = Now', color: '#f8312f', isCompleted: false }];
 

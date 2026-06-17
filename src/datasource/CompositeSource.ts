@@ -32,9 +32,11 @@
 import type {
   DataSource,
   DataSourceCapabilities,
+  MutationContext,
   SourceDependency,
   SourceTask,
   StatusColor,
+  TaskPatch,
 } from './types';
 
 /** Structural slice for the optional event-subscription hook (TaskNotes has it). */
@@ -106,12 +108,43 @@ export class CompositeSource implements DataSource {
     return () => {};
   }
 
-  // ---------------------------------------------------------------------------
-  // U8 SEAM — write path (intentionally not implemented in M1).
-  //
-  // U8 adds `mutate(path, patch, ctx)` and `deleteTask(path, ctx)` here, each
-  // delegating to `this.enrichment?.mutate/deleteTask` (TaskNotes, addressed by
-  // the note path that Bases and TaskNotes share). `capabilities.write` already
-  // tracks the enrichment, so the contract invariant holds once those land.
-  // ---------------------------------------------------------------------------
+  /**
+   * Persist a field patch by delegating to the enrichment (TaskNotes), addressed
+   * by the note `path` that Bases and TaskNotes share. `capabilities.write`
+   * tracks the enrichment, so a caller that respects the capability gate only
+   * reaches this when the enrichment is writable. Throws if there is no writable
+   * enrichment (read-only composite) — a defensive backstop for the contract.
+   *
+   * @param path - The shared note path (Bases entry === TaskNotes task).
+   * @param patch - The fields to change.
+   * @param context - Echo-suppression context (forwarded to TaskNotes).
+   */
+  public mutate(
+    path: string,
+    patch: TaskPatch,
+    context?: MutationContext,
+  ): Promise<void> {
+    if (!this.enrichment?.mutate) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable enrichment source'),
+      );
+    }
+    return this.enrichment.mutate(path, patch, context);
+  }
+
+  /**
+   * Delete a task (and its note) by delegating to the enrichment (TaskNotes).
+   * Throws if there is no enrichment that supports deletion.
+   *
+   * @param path - The shared note path to delete.
+   * @param context - Echo-suppression context (forwarded to TaskNotes).
+   */
+  public deleteTask(path: string, context?: MutationContext): Promise<void> {
+    if (!this.enrichment?.deleteTask) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable enrichment source'),
+      );
+    }
+    return this.enrichment.deleteTask(path, context);
+  }
 }
