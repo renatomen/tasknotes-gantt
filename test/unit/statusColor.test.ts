@@ -52,8 +52,9 @@ describe('buildStatusStyleRules', () => {
       colors,
     );
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}`);
-    expect(css).toContain('background-color: #f8312f;');
-    expect(css).toContain('background-color: #00d26a;');
+    // !important so the status color wins over the date-status flag's background.
+    expect(css).toContain('background-color: #f8312f !important;');
+    expect(css).toContain('background-color: #00d26a !important;');
   });
 
   it('omits statuses that are not present on any instance', () => {
@@ -67,7 +68,7 @@ describe('buildStatusStyleRules', () => {
       [{ status: '11🟥Active = Now' }, { status: '11🟥Active = Now' }],
       colors,
     );
-    expect(css.match(/background-color: #f8312f;/g)).toHaveLength(1);
+    expect(css.match(/background-color: #f8312f !important;/g)).toHaveLength(1);
   });
 
   it('skips a status with no configured color', () => {

@@ -89,10 +89,7 @@ export class CompositeSource implements DataSource {
    * the view then applies no status colors.
    */
   public getStatusColors(): Promise<StatusColor[]> {
-    const enr = this.enrichment as Partial<
-      Pick<DataSource, 'getStatusColors'>
-    > | null;
-    return enr?.getStatusColors ? enr.getStatusColors() : Promise.resolve([]);
+    return this.enrichment?.getStatusColors?.() ?? Promise.resolve([]);
   }
 
   /**

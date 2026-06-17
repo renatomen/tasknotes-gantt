@@ -59,6 +59,12 @@ export function statusSlug(value: string): string {
  * `.og-bases-gantt` so they never leak outside the Gantt view. Output order
  * follows the `colors` (config) order for determinism.
  *
+ * The `background-color` is `!important` so it wins over the date-status
+ * indicator's own `!important` background — a bar that is BOTH date-flagged and
+ * status-colored shows its status color as the fill, while the date-status
+ * flag's border / text / progress treatments still signal the incomplete dates
+ * (R4 coexistence).
+ *
  * @param instances - render instances (only `.status` is read)
  * @param colors - the status→color palette from the source layer
  * @returns CSS text (possibly empty), ready to inject into a `<style>` element
@@ -79,7 +85,7 @@ export function buildStatusStyleRules(
     if (!color || !SAFE_COLOR.test(color)) continue;
     emitted.add(value);
     rules.push(
-      `.og-bases-gantt .wx-bar.${statusSlug(value)} { background-color: ${color}; }`,
+      `.og-bases-gantt .wx-bar.${statusSlug(value)} { background-color: ${color} !important; }`,
     );
   }
   return rules.join('\n');
