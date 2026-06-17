@@ -400,7 +400,9 @@ export class TaskNotesSource implements DataSource {
       for (const f of config.userFields ?? []) {
         if (
           f &&
-          f.enabled === true &&
+          // Persisted TaskNotes userFields carry no `enabled` flag — their
+          // presence means active. Only exclude an explicit `enabled: false`.
+          f.enabled !== false &&
           f.type === 'date' &&
           typeof f.key === 'string' &&
           f.key.length > 0

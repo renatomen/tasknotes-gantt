@@ -184,21 +184,36 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
     return source.getFieldConfig();
   }
 
-  it('returns the configured scheduled/due property names and enabled date custom fields', async () => {
+  it('returns the configured scheduled/due property names and date custom fields', async () => {
+    // Persisted TaskNotes userFields carry NO `enabled` flag (matches data.json):
+    // their presence means active. Only an explicit `enabled: false` is excluded.
     const cfg = await fieldConfigFrom({
       fieldMapping: { scheduled: 'scheduled', due: 'due' },
       userFields: [
-        { enabled: true, type: 'date', key: 'start', id: 'uf_start', displayName: 'Start' },
-        { enabled: true, type: 'text', key: 'notes', id: 'uf_notes', displayName: 'Notes' },
-        { enabled: false, type: 'date', key: 'old', id: 'uf_old', displayName: 'Old' },
+        { type: 'date', key: 'start', id: 'fld_start', displayName: 'Start' },
+        { type: 'text', key: 'notes', id: 'fld_notes', displayName: 'Notes' },
+        { enabled: false, type: 'date', key: 'old', id: 'fld_old', displayName: 'Old' },
       ],
     });
 
     expect(cfg).toEqual({
       scheduledProp: 'scheduled',
       dueProp: 'due',
-      dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+      dateFields: [{ key: 'start', id: 'fld_start', displayName: 'Start' }],
     });
+  });
+
+  it('includes a date field that has no `enabled` key (real TaskNotes settings shape)', async () => {
+    // Regression for the bug where requiring `enabled === true` dropped every
+    // field, since persisted userFields omit `enabled` entirely.
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due' },
+      userFields: [{ type: 'date', key: 'start', id: 'fld_1756287909511', displayName: 'Start' }],
+    });
+
+    expect(cfg?.dateFields).toEqual([
+      { key: 'start', id: 'fld_1756287909511', displayName: 'Start' },
+    ]);
   });
 
   it('honors TaskNotes-remapped scheduled/due property names', async () => {
