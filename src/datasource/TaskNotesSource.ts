@@ -34,9 +34,11 @@
 
 import type { App } from 'obsidian';
 import type {
+  CustomDateField,
   DataSource,
   DataSourceCapabilities,
   DependencyRelType,
+  FieldConfig,
   MutationContext,
   SourceDependency,
   SourceTask,
@@ -160,7 +162,35 @@ export interface TaskNotesApi {
    * TaskNotes version).
    */
   catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
-  model?: { config?(): { statuses?: TaskNotesStatusConfig[] } | null | undefined };
+  /**
+   * `model.config()` (getModelConfig) carries the configured field surface:
+   * `fieldMapping` (logical field → frontmatter property name, incl.
+   * `scheduled`/`due`), `userFields` (custom fields), and `statuses`.
+   */
+  model?: {
+    config?(): TaskNotesModelConfig | null | undefined;
+  };
+}
+
+/** The slice of TaskNotes' `model.config()` this source reads. */
+export interface TaskNotesModelConfig {
+  statuses?: TaskNotesStatusConfig[];
+  /** Logical field → frontmatter property name (incl. `scheduled`, `due`). */
+  fieldMapping?: Record<string, string> | null;
+  /** Custom user fields. */
+  userFields?: TaskNotesUserField[] | null;
+}
+
+/** A TaskNotes custom user-field definition (the slice consumed here). */
+export interface TaskNotesUserField {
+  enabled?: boolean | null;
+  displayName?: string | null;
+  /** Frontmatter property key. */
+  key?: string | null;
+  /** Internal field id. */
+  id?: string | null;
+  /** Field type (e.g. `date`, `text`, `number`). */
+  type?: string | null;
 }
 
 /** Minimal shape of `app.plugins` needed to resolve the TaskNotes plugin. */
@@ -352,6 +382,51 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
+   * the frontmatter property names for canonical `scheduled`/`due` (from
+   * `model.config().fieldMapping`) and the enabled custom fields of type `date`
+   * (from `model.config().userFields`). Custom fields without a `key` are
+   * dropped (the key is how the property is addressed). Guarded: a missing or
+   * throwing `model.config()` yields `null` so callers degrade to read-only.
+   */
+  public async getFieldConfig(): Promise<FieldConfig | null> {
+    try {
+      const config = this.api.model?.config?.();
+      if (!config) {
+        return null;
+      }
+      const fieldMapping = config.fieldMapping ?? {};
+      const dateFields: CustomDateField[] = [];
+      for (const f of config.userFields ?? []) {
+        if (
+          f &&
+          f.enabled === true &&
+          f.type === 'date' &&
+          typeof f.key === 'string' &&
+          f.key.length > 0
+        ) {
+          dateFields.push({
+            key: f.key,
+            id: typeof f.id === 'string' ? f.id : f.key,
+            displayName:
+              typeof f.displayName === 'string' && f.displayName.length > 0
+                ? f.displayName
+                : f.key,
+          });
+        }
+      }
+      return {
+        scheduledProp:
+          typeof fieldMapping.scheduled === 'string' ? fieldMapping.scheduled : null,
+        dueProp: typeof fieldMapping.due === 'string' ? fieldMapping.due : null,
+        dateFields,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Whether TaskNotes currently grants write access.
    *
    * Delegates to TaskNotes' own `hasCapability('tasks.write')` rather than
@@ -403,6 +478,25 @@ export class TaskNotesSource implements DataSource {
     }
 
     const updates: Record<string, unknown> = {};
+    // Resolved date targets (the bases-scoped path, U8b): each routes to its
+    // canonical field or to userFields keyed by the field id.
+    if (patch.dateWrites) {
+      for (const write of patch.dateWrites) {
+        const value = write.value === null ? null : toYmd(write.value);
+        if (write.target.kind === 'scheduled') {
+          updates.scheduled = value;
+        } else if (write.target.kind === 'due') {
+          updates.due = value;
+        } else {
+          const userFields =
+            (updates.userFields as Record<string, unknown> | undefined) ?? {};
+          userFields[write.target.id] = value;
+          updates.userFields = userFields;
+        }
+      }
+    }
+    // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
+    // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
     if (patch.start !== undefined) {
       updates.scheduled = patch.start === null ? null : toYmd(patch.start);
     }

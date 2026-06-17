@@ -32,6 +32,7 @@
 import type {
   DataSource,
   DataSourceCapabilities,
+  FieldConfig,
   MutationContext,
   SourceDependency,
   SourceTask,
@@ -92,6 +93,16 @@ export class CompositeSource implements DataSource {
    */
   public getStatusColors(): Promise<StatusColor[]> {
     return this.enrichment?.getStatusColors?.() ?? Promise.resolve([]);
+  }
+
+  /**
+   * The TaskNotes field-config (scheduled/due property names + custom date
+   * fields) comes from the enrichment. Yields `null` when there is no
+   * enrichment or it exposes none — the view then has no field mapping to
+   * resolve and stays on Bases defaults / read-only.
+   */
+  public getFieldConfig(): Promise<FieldConfig | null> {
+    return this.enrichment?.getFieldConfig?.() ?? Promise.resolve(null);
   }
 
   /**

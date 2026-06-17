@@ -62,8 +62,14 @@ import {
   BasesSource,
   CompositeSource,
   TaskNotesSource,
+  resolveDateMapping,
+  bareProperty,
+  toNoteProperty,
   type DataSource,
   type DataSourceCapabilities,
+  type DateWrite,
+  type DateWriteTarget,
+  type FieldConfig,
   type MutationContext,
   type SourceDependency,
   type SourceTask,
@@ -226,6 +232,19 @@ export interface GanttControllerOptions {
 export type ChangeListener = () => void;
 
 /**
+ * The resolved date-field mapping state for the active source (bases-scoped).
+ * Surfaces whether each role's configured property was a valid TaskNotes date
+ * target (so the view can show an "invalid mapping" notice) and the effective
+ * read property used. All-`false`/`null` when there is no field config.
+ */
+export interface DateMappingInfo {
+  startInvalid: boolean;
+  endInvalid: boolean;
+  startReadProp: string | null;
+  endReadProp: string | null;
+}
+
+/**
  * An immutable snapshot of the controller's coherent source graph: the expanded
  * render instances plus the rewritten dependency links for each rewrite mode,
  * with the raw source-level links retained so a mode switch is a cheap re-derive
@@ -298,6 +317,16 @@ export class GanttController {
   >();
   private readonly correlationTtlMs: number;
   private readonly newCorrelationId: () => string;
+
+  /**
+   * Resolved date write targets for the active source (bases-scoped + TaskNotes
+   * field config). `null` when there is no field config — writes then pass
+   * `start`/`end` through to the source's canonical scheduled/due mapping.
+   */
+  private startWriteTarget: DateWriteTarget | null = null;
+  private endWriteTarget: DateWriteTarget | null = null;
+  /** Validity/read-prop info for the resolved date mapping (for surfaces). */
+  private dateMappingInfo: DateMappingInfo | null = null;
 
   constructor(options: GanttControllerOptions) {
     this.app = options.app;
@@ -454,11 +483,38 @@ export class GanttController {
     const { source, path } = await this.resolveWritable(instanceId);
     const context = this.beginWrite('mutate');
     try {
-      await source.mutate!(path, patch, context);
+      await source.mutate!(path, this.toTargetedPatch(patch), context);
     } catch (err) {
       this.clearInFlight(context.correlationId);
       throw err;
     }
+  }
+
+  /**
+   * Translate a `{start,end}` patch into resolved `dateWrites` using the active
+   * source's write targets (R-D), so a start drag persists to the mapped field
+   * (canonical scheduled/due or a custom userField) rather than always
+   * scheduled/due. With no resolved targets (no field config / tasknotes-first),
+   * the patch passes through and the source applies its canonical mapping.
+   */
+  private toTargetedPatch(patch: TaskPatch): TaskPatch {
+    if (!this.startWriteTarget && !this.endWriteTarget) {
+      return patch;
+    }
+    const dateWrites: DateWrite[] = patch.dateWrites ? [...patch.dateWrites] : [];
+    const rest: TaskPatch = { ...patch };
+    if (patch.start !== undefined && this.startWriteTarget) {
+      dateWrites.push({ target: this.startWriteTarget, value: patch.start ?? null });
+      delete rest.start;
+    }
+    if (patch.end !== undefined && this.endWriteTarget) {
+      dateWrites.push({ target: this.endWriteTarget, value: patch.end ?? null });
+      delete rest.end;
+    }
+    if (dateWrites.length > 0) {
+      rest.dateWrites = dateWrites;
+    }
+    return rest;
   }
 
   /**
@@ -539,10 +595,21 @@ export class GanttController {
    *   source — for non-Base callers that want every task.
    */
   private async selectSource(): Promise<DataSource> {
+    // Reset resolved date targets; the bases-scoped branch repopulates them.
+    this.startWriteTarget = null;
+    this.endWriteTarget = null;
+    this.dateMappingInfo = null;
+
     if (this.sourceStrategy === 'bases-scoped') {
       const { entries, mappings } = this.basesInput();
-      const base = this.createBasesSource(this.app, entries, mappings);
+      // Create the enrichment first so its field config can resolve the
+      // effective read properties + write targets before the base is built.
       const enrichment = await this.createTaskNotesSource(this.app);
+      const fieldConfig = enrichment
+        ? (await enrichment.getFieldConfig?.()) ?? null
+        : null;
+      const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      const base = this.createBasesSource(this.app, entries, effectiveMappings);
       return this.createCompositeSource(base, enrichment);
     }
 
@@ -552,6 +619,70 @@ export class GanttController {
     }
     const { entries, mappings } = this.basesInput();
     return this.createBasesSource(this.app, entries, mappings);
+  }
+
+  /**
+   * Resolve the Base's start/end property mappings against TaskNotes' field
+   * config: store the write targets, record validity/read-prop info, and return
+   * field mappings whose start/end **read** properties match the resolved
+   * targets (round-trip symmetry — R-D). With no field config, mappings pass
+   * through unchanged and no targets are set (writes pass start/end through).
+   */
+  private applyDateFieldMapping(
+    mappings: FieldMappings,
+    fieldConfig: FieldConfig | null,
+  ): FieldMappings {
+    if (!fieldConfig) {
+      this.dateMappingInfo = {
+        startInvalid: false,
+        endInvalid: false,
+        startReadProp: null,
+        endReadProp: null,
+      };
+      return mappings;
+    }
+
+    const startRes = resolveDateMapping(
+      bareProperty(mappings.startProperty),
+      'start',
+      fieldConfig,
+    );
+    const endRes = resolveDateMapping(
+      bareProperty(mappings.endProperty),
+      'end',
+      fieldConfig,
+    );
+
+    this.startWriteTarget = startRes.writeTarget;
+    this.endWriteTarget = endRes.writeTarget;
+    this.dateMappingInfo = {
+      startInvalid: startRes.invalid,
+      endInvalid: endRes.invalid,
+      startReadProp: startRes.readProp,
+      endReadProp: endRes.readProp,
+    };
+
+    return {
+      ...mappings,
+      startProperty: toNoteProperty(startRes.readProp),
+      endProperty: toNoteProperty(endRes.readProp),
+    };
+  }
+
+  /**
+   * The resolved date-mapping validity/read-prop info for the active source.
+   * Surfaces (register/view) read this to render an invalid-mapping notice.
+   * All-`false`/`null` before {@link init} or when there is no field config.
+   */
+  public getDateMappingInfo(): DateMappingInfo {
+    return (
+      this.dateMappingInfo ?? {
+        startInvalid: false,
+        endInvalid: false,
+        startReadProp: null,
+        endReadProp: null,
+      }
+    );
   }
 
   /**

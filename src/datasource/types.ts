@@ -72,9 +72,54 @@ export interface StatusColor {
 }
 
 /**
- * A patch of mutable task fields for the write path. Date fields accept `Date`
- * or `null`; the write-capable source is responsible for converting to its
- * own canonical representation.
+ * A custom (user-defined) date field exposed by the backing system, addressable
+ * by its frontmatter `key`. `id` is the system's internal field id (some write
+ * APIs key by `id` rather than `key`); `displayName` labels it in config UIs.
+ */
+export interface CustomDateField {
+  /** Frontmatter property key (how the field is read/written by name). */
+  key: string;
+  /** Backing system's internal field id (alternative write key). */
+  id: string;
+  /** Human-readable label for config surfaces. */
+  displayName: string;
+}
+
+/**
+ * The backing system's (TaskNotes') configured date-field surface, used to map
+ * the Gantt's start/end roles to concrete write targets and to populate/validate
+ * the Bases config. `scheduledProp`/`dueProp` are the frontmatter property names
+ * TaskNotes is configured to use for its canonical scheduled/due fields (or
+ * `null` when unconfigured); `dateFields` are the enabled custom fields of type
+ * `date`.
+ */
+export interface FieldConfig {
+  scheduledProp: string | null;
+  dueProp: string | null;
+  dateFields: CustomDateField[];
+}
+
+/**
+ * Where a date value should be persisted. Canonical targets route through the
+ * backing system's own scheduled/due mapping; a `userField` target writes a
+ * custom field addressed by `key` (with `id` carried for APIs that key by id).
+ */
+export type DateWriteTarget =
+  | { kind: 'scheduled' }
+  | { kind: 'due' }
+  | { kind: 'userField'; key: string; id: string };
+
+/** A single resolved date write: a target paired with its value (or `null` to clear). */
+export interface DateWrite {
+  target: DateWriteTarget;
+  value: Date | null;
+}
+
+/**
+ * A patch of mutable task fields for the write path. `dateWrites` carry resolved
+ * date targets (the controller resolves start/end → targets via {@link FieldConfig});
+ * `text`/`status` are written verbatim. `start`/`end`/`progress` remain for
+ * non-resolved callers but the bases-scoped view uses `dateWrites`.
  */
 export interface TaskPatch {
   start?: Date | null;
@@ -82,6 +127,8 @@ export interface TaskPatch {
   progress?: number | null;
   text?: string;
   status?: string;
+  /** Resolved date targets (preferred over start/end for field-mapped writes). */
+  dateWrites?: DateWrite[];
 }
 
 /**
@@ -126,6 +173,14 @@ export interface DataSource {
    * controller and view treat its absence as "no status colors".
    */
   getStatusColors?(): Promise<StatusColor[]>;
+
+  /**
+   * The backing system's configured date-field surface ({@link FieldConfig}) —
+   * the scheduled/due property names plus enabled custom date fields — or `null`
+   * when unavailable (e.g. TaskNotes absent). Used to resolve start/end roles to
+   * write targets and to populate/validate the Bases config.
+   */
+  getFieldConfig?(): Promise<FieldConfig | null>;
 
   /**
    * Apply a field patch to the task at `path`. Present only on write-capable

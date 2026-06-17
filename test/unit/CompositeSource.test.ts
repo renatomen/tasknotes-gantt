@@ -187,6 +187,36 @@ describe('CompositeSource — write path (mutate/deleteTask)', () => {
   });
 });
 
+describe('CompositeSource — field config (U1)', () => {
+  const fieldConfig = {
+    scheduledProp: 'scheduled',
+    dueProp: 'due',
+    dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+  };
+
+  it('delegates getFieldConfig to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getFieldConfig: async () => fieldConfig,
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getFieldConfig()).toEqual(fieldConfig);
+  });
+
+  it('returns null when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getFieldConfig()).toBeNull();
+  });
+
+  it('returns null when the enrichment exposes no getFieldConfig', async () => {
+    const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
+    expect(await composite.getFieldConfig()).toBeNull();
+  });
+});
+
 describe('CompositeSource — status colors', () => {
   const colors = [{ value: '11🟥Active = Now', color: '#f8312f', isCompleted: false }];
 

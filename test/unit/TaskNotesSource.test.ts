@@ -167,6 +167,86 @@ describe('TaskNotesSource — getStatusColors', () => {
   });
 });
 
+describe('TaskNotesSource — getFieldConfig (U1)', () => {
+  /** Build an api whose model.config() returns the given fieldMapping + userFields. */
+  function makeConfigApi(config: {
+    fieldMapping?: Record<string, string>;
+    userFields?: Array<{ enabled?: boolean; displayName?: string; key?: string; id?: string; type?: string }>;
+  } | null) {
+    const { api } = makeApi({});
+    api.model = { config: () => (config as { statuses?: never } | null) ?? null };
+    return api;
+  }
+
+  async function fieldConfigFrom(config: Parameters<typeof makeConfigApi>[0]) {
+    const source = await TaskNotesSource.create(makeApp(makeConfigApi(config)));
+    if (!source) throw new Error('expected a source');
+    return source.getFieldConfig();
+  }
+
+  it('returns the configured scheduled/due property names and enabled date custom fields', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due' },
+      userFields: [
+        { enabled: true, type: 'date', key: 'start', id: 'uf_start', displayName: 'Start' },
+        { enabled: true, type: 'text', key: 'notes', id: 'uf_notes', displayName: 'Notes' },
+        { enabled: false, type: 'date', key: 'old', id: 'uf_old', displayName: 'Old' },
+      ],
+    });
+
+    expect(cfg).toEqual({
+      scheduledProp: 'scheduled',
+      dueProp: 'due',
+      dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+    });
+  });
+
+  it('honors TaskNotes-remapped scheduled/due property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'tn_scheduled', due: 'tn_deadline' },
+      userFields: [],
+    });
+
+    expect(cfg?.scheduledProp).toBe('tn_scheduled');
+    expect(cfg?.dueProp).toBe('tn_deadline');
+    expect(cfg?.dateFields).toEqual([]);
+  });
+
+  it('yields null props and empty dateFields when fieldMapping/userFields are absent', async () => {
+    const cfg = await fieldConfigFrom({});
+
+    expect(cfg).toEqual({ scheduledProp: null, dueProp: null, dateFields: [] });
+  });
+
+  it('drops date fields missing a key (cannot address the frontmatter property)', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 's', due: 'd' },
+      userFields: [
+        { enabled: true, type: 'date', id: 'uf_x', displayName: 'No Key' },
+        { enabled: true, type: 'date', key: 'good', id: 'uf_good', displayName: 'Good' },
+      ],
+    });
+
+    expect(cfg?.dateFields).toEqual([{ key: 'good', id: 'uf_good', displayName: 'Good' }]);
+  });
+
+  it('returns null when model.config() throws (graceful)', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => {
+        throw new Error('boom');
+      },
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getFieldConfig()).toBeNull();
+  });
+
+  it('returns null when the api exposes no model.config', async () => {
+    const source = await TaskNotesSource.create(makeApp(makeApi({}).api));
+    expect(await source!.getFieldConfig()).toBeNull();
+  });
+});
+
 describe('TaskNotesSource', () => {
   describe('create() / readiness', () => {
     it('resolves a source when TaskNotes is present, ready, and compatible', async () => {
@@ -560,6 +640,84 @@ describe('TaskNotesSource', () => {
         source: 'obsidian-gantt',
         correlationId: 'd1',
       });
+    });
+
+    it('applies a scheduled dateWrite to updates.scheduled (yyyy-MM-dd)', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [{ target: { kind: 'scheduled' }, value: new Date(2026, 5, 17) }],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: '2026-06-17' }, undefined);
+    });
+
+    it('applies a due dateWrite to updates.due', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [{ target: { kind: 'due' }, value: new Date(2026, 6, 4) }],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { due: '2026-07-04' }, undefined);
+    });
+
+    it('applies a userField dateWrite to updates.userFields keyed by id', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+        ],
+      });
+
+      // TaskNotes keys the userFields update object by the field id (confirmed
+      // against 4.11.0 main.js: in-memory userFields are `[id]`-keyed).
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { userFields: { uf_start: '2026-06-01' } },
+        undefined,
+      );
+    });
+
+    it('merges multiple dateWrites into one atomic update', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+          { target: { kind: 'due' }, value: new Date(2026, 6, 4) },
+        ],
+      });
+
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { due: '2026-07-04', userFields: { uf_start: '2026-06-01' } },
+        undefined,
+      );
+    });
+
+    it('forwards a null dateWrite value to clear the target', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'scheduled' }, value: null },
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: null },
+        ],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { scheduled: null, userFields: { uf_start: null } },
+        undefined,
+      );
     });
 
     it('mutate() throws when the api exposes no update method', async () => {

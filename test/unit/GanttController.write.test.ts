@@ -24,11 +24,14 @@ import type { GanttControllerDeps } from '../../src/controller/GanttController';
 import type {
   DataSource,
   DataSourceCapabilities,
+  FieldConfig,
   MutationContext,
   SourceDependency,
   SourceTask,
   TaskPatch,
 } from '../../src/datasource/types';
+import { CompositeSource } from '../../src/datasource/CompositeSource';
+import type { FieldMappings } from '../../src/bases/types/field-mapping';
 
 function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
   return {
@@ -98,6 +101,12 @@ class WritableFakeSource implements DataSource {
   /** Simulate a TaskNotes change event with an optional payload. */
   fire(payload?: unknown): void {
     this.handler?.('task.updated', payload);
+  }
+
+  /** Field config exposed to the controller (bases-scoped resolution). */
+  fieldConfig: FieldConfig | null = null;
+  async getFieldConfig(): Promise<FieldConfig | null> {
+    return this.fieldConfig;
   }
 }
 
@@ -203,6 +212,101 @@ describe('GanttController.mutate — resolution + context', () => {
     expect(src.deleteCalls).toHaveLength(1);
     expect(src.deleteCalls[0]!.path).toBe('a.md');
     expect(src.deleteCalls[0]!.context?.correlationId).toBeTruthy();
+  });
+});
+
+describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', () => {
+  const fieldConfig: FieldConfig = {
+    scheduledProp: 'scheduled',
+    dueProp: 'due',
+    dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+  };
+
+  function makeBasesScoped(opts: {
+    startProperty?: string;
+    endProperty?: string;
+    fieldConfig?: FieldConfig | null;
+  }) {
+    const base = new WritableFakeSource({ write: false, tasks: [task({ path: 'child.md' })] });
+    const enrichment = new WritableFakeSource({ write: true });
+    enrichment.fieldConfig = opts.fieldConfig ?? fieldConfig;
+    let baseMappings: FieldMappings | undefined;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: () => ({
+        entries: [],
+        mappings: {
+          startProperty: opts.startProperty,
+          endProperty: opts.endProperty,
+        } as FieldMappings,
+      }),
+      deps: {
+        createTaskNotesSource: async () => enrichment,
+        createBasesSource: (_app, _entries, mappings) => {
+          baseMappings = mappings;
+          return base;
+        },
+        createCompositeSource: (b, e) => new CompositeSource(b, e),
+      },
+    });
+    return { controller, enrichment, getBaseMappings: () => baseMappings };
+  }
+
+  it('writes a start drag to the mapped custom date field, not scheduled (covers #70)', async () => {
+    const { controller, enrichment } = makeBasesScoped({
+      startProperty: 'note.start', // a custom date field key
+      endProperty: 'note.due', // canonical due
+    });
+    await controller.init();
+
+    await controller.mutate('child.md', { start: new Date(2026, 5, 1), end: new Date(2026, 6, 4) });
+
+    expect(enrichment.mutateCalls).toHaveLength(1);
+    expect(enrichment.mutateCalls[0]!.patch.dateWrites).toEqual([
+      { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+      { target: { kind: 'due' }, value: new Date(2026, 6, 4) },
+    ]);
+    // No raw start/end leak into the patch the source receives.
+    expect(enrichment.mutateCalls[0]!.patch.start).toBeUndefined();
+    expect(enrichment.mutateCalls[0]!.patch.end).toBeUndefined();
+  });
+
+  it('defaults an unmapped start/end to scheduled/due targets', async () => {
+    const { controller, enrichment } = makeBasesScoped({}); // no overrides
+    await controller.init();
+
+    await controller.mutate('child.md', { start: new Date(2026, 5, 1) });
+
+    expect(enrichment.mutateCalls[0]!.patch.dateWrites).toEqual([
+      { target: { kind: 'scheduled' }, value: new Date(2026, 5, 1) },
+    ]);
+  });
+
+  it('flags an invalid override and falls back to the default target symmetrically', async () => {
+    const { controller, enrichment, getBaseMappings } = makeBasesScoped({
+      startProperty: 'note.notes', // not scheduled/due nor a custom date field
+    });
+    await controller.init();
+
+    // Invalid flag exposed for the view's notice.
+    expect(controller.getDateMappingInfo().startInvalid).toBe(true);
+    // Read mapping fell back to the default scheduled property (symmetry).
+    expect(getBaseMappings()?.startProperty).toBe('note.scheduled');
+
+    // And the write targets the default (scheduled), matching the read.
+    await controller.mutate('child.md', { start: new Date(2026, 5, 1) });
+    expect(enrichment.mutateCalls[0]!.patch.dateWrites).toEqual([
+      { target: { kind: 'scheduled' }, value: new Date(2026, 5, 1) },
+    ]);
+  });
+
+  it('feeds the resolved read property to the Bases source (valid custom field)', async () => {
+    const { controller, getBaseMappings } = makeBasesScoped({ startProperty: 'note.start' });
+    await controller.init();
+
+    expect(getBaseMappings()?.startProperty).toBe('note.start');
+    expect(controller.getDateMappingInfo().startInvalid).toBe(false);
   });
 });
 
