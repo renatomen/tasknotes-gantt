@@ -625,15 +625,21 @@
       for (const did of descendants) {
         const dinst = instances.find((i) => i.id === did);
         if (!dinst?.start || !dinst?.end) continue;
-        const ns = new Date(dinst.start.getTime() + delta);
-        const ne = new Date(dinst.end.getTime() + delta);
-        addRange(dinst.sourcePath, ns, ne);
-        // Optimistically move the bar, then persist.
+        const oldStart = dinst.start;
+        const oldEnd = dinst.end;
+        const ns = new Date(oldStart.getTime() + delta);
+        const ne = new Date(oldEnd.getTime() + delta);
+        // Optimistically move the bar, then persist (time-bounded so a hung
+        // write still settles). Only a successful shift counts toward the
+        // ancestor-extend calc; on failure revert the bar and skip it — mirrors
+        // persistReschedule so a failed move never lingers unsaved on the chart.
         api.exec('update-task', { id: did, task: { start: ns, end: ne }, eventSource: OG_ECHO_SOURCE });
         try {
-          await onMutate(did, { start: ns, end: ne });
+          await withTimeout(onMutate(did, { start: ns, end: ne }), MUTATION_TIMEOUT_MS);
+          addRange(dinst.sourcePath, ns, ne);
         } catch (err) {
           console.error('[GanttContainer] subtree-move persist failed:', err);
+          api.exec('update-task', { id: did, task: { start: oldStart, end: oldEnd }, eventSource: OG_ECHO_SOURCE });
           new Notice("Couldn't move a child task — check TaskNotes is running.");
         }
       }
@@ -666,9 +672,11 @@
         const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
         try {
-          await onMutate(drag.id, { start: target.start, end: target.end });
+          await withTimeout(onMutate(drag.id, { start: target.start, end: target.end }), MUTATION_TIMEOUT_MS);
         } catch (err) {
           console.error('[GanttContainer] shrink-fit persist failed:', err);
+          // Revert the bar to the resize persistReschedule already saved.
+          api.exec('update-task', { id: drag.id, task: { start: moved.start, end: moved.end }, eventSource: OG_ECHO_SOURCE });
           new Notice("Couldn't adjust the parent date — check TaskNotes is running.");
         }
         return; // shrink handled; don't also run the extend gate
@@ -705,7 +713,7 @@
 
     for (const ext of extensions) {
       try {
-        await onMutate(ext.instanceId, { start: ext.newStart, end: ext.newEnd });
+        await withTimeout(onMutate(ext.instanceId, { start: ext.newStart, end: ext.newEnd }), MUTATION_TIMEOUT_MS);
       } catch (err) {
         console.error('[GanttContainer] ancestor extend persist failed:', err);
         new Notice("Couldn't update a parent date — check TaskNotes is running.");
