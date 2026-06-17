@@ -47,6 +47,12 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
+    /**
+     * One-line notice shown when a start/end date mapping fell back to the
+     * default because the configured property isn't a writable TaskNotes date
+     * field (U4/R-C). Absent when both mappings are valid.
+     */
+    dateMappingNotice?: string;
   }
 
   // `app` and `config` remain part of the props contract (register.ts passes
@@ -61,6 +67,7 @@
     taskNotesPresent,
     statusColors = [],
     onMutate,
+    dateMappingNotice,
   }: Props = $props();
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
@@ -657,6 +664,15 @@
       <div class="og-readonly-banner" role="status">
         <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
         <span class="og-readonly-text">{readOnlyBannerText}</span>
+      </div>
+    {/if}
+
+    <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
+         isn't a writable TaskNotes date field, so it fell back to the default. -->
+    {#if dateMappingNotice}
+      <div class="og-readonly-banner" role="status">
+        <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
+        <span class="og-readonly-text">{dateMappingNotice}</span>
       </div>
     {/if}
 

@@ -229,7 +229,7 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
   }) {
     const base = new WritableFakeSource({ write: false, tasks: [task({ path: 'child.md' })] });
     const enrichment = new WritableFakeSource({ write: true });
-    enrichment.fieldConfig = opts.fieldConfig ?? fieldConfig;
+    enrichment.fieldConfig = 'fieldConfig' in opts ? (opts.fieldConfig ?? null) : fieldConfig;
     let baseMappings: FieldMappings | undefined;
     const controller = new GanttController({
       app: fakeApp,
@@ -307,6 +307,27 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
 
     expect(getBaseMappings()?.startProperty).toBe('note.start');
     expect(controller.getDateMappingInfo().startInvalid).toBe(false);
+  });
+
+  it('falls back to legacy note.start/note.due read defaults when there is no field config (R-F)', async () => {
+    const { controller, enrichment, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
+    await controller.init();
+
+    // Read mapping uses the legacy defaults; no invalid flags.
+    expect(getBaseMappings()?.startProperty).toBe('note.start');
+    expect(getBaseMappings()?.endProperty).toBe('note.due');
+    expect(controller.getDateMappingInfo()).toEqual({
+      startInvalid: false,
+      endInvalid: false,
+      startReadProp: null,
+      endReadProp: null,
+    });
+
+    // With no resolved targets, the write passes start/end through (the source
+    // applies its canonical scheduled/due mapping).
+    await controller.mutate('child.md', { start: new Date(2026, 5, 1) });
+    expect(enrichment.mutateCalls[0]!.patch.start).toEqual(new Date(2026, 5, 1));
+    expect(enrichment.mutateCalls[0]!.patch.dateWrites).toBeUndefined();
   });
 });
 

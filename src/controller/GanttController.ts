@@ -618,7 +618,8 @@ export class GanttController {
       return taskNotes;
     }
     const { entries, mappings } = this.basesInput();
-    return this.createBasesSource(this.app, entries, mappings);
+    // Apply the same legacy read defaults the bases-scoped no-config path uses.
+    return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
   }
 
   /**
@@ -639,7 +640,14 @@ export class GanttController {
         startReadProp: null,
         endReadProp: null,
       };
-      return mappings;
+      // No TaskNotes field config (TaskNotes absent): no write targets, and the
+      // read falls back to the legacy note.start/note.due when unset, preserving
+      // the pre-TaskNotes Bases behavior.
+      return {
+        ...mappings,
+        startProperty: mappings.startProperty || 'note.start',
+        endProperty: mappings.endProperty || 'note.due',
+      };
     }
 
     const startRes = resolveDateMapping(
