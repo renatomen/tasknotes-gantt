@@ -1,0 +1,5 @@
+# Local-only product-feedback recordings + extracted media (Riffrec skill rule:
+# keep raw recordings/frames local; never commit). Drop your screen captures
+# here (e.g. drag-test.mp4) and point /ce-riffrec-feedback-analysis at them.
+*
+!.gitignore
