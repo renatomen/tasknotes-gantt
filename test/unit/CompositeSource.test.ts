@@ -185,6 +185,33 @@ describe('CompositeSource — write path (mutate/deleteTask)', () => {
     const composite = new CompositeSource(new FakeSource([task('a.md')]), null);
     await expect(composite.deleteTask('a.md')).rejects.toThrow();
   });
+
+  it('forces read-only when options.writable is false, even with a writable enrichment', async () => {
+    const { source, mutate, deleteTask } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source, {
+      writable: false,
+    });
+
+    // Capability is gated off so surfaces hide write affordances...
+    expect(composite.capabilities.write).toBe(false);
+    // ...and the write methods reject without touching the enrichment.
+    await expect(composite.mutate('a.md', { status: 'x' })).rejects.toThrow();
+    await expect(composite.deleteTask('a.md')).rejects.toThrow();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
+  it('still reads dependencies from the enrichment when forced read-only', async () => {
+    const enrichment = new FakeSource([], {
+      'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }],
+    });
+    const composite = new CompositeSource(new FakeSource([task('dep.md')]), enrichment, {
+      writable: false,
+    });
+
+    expect(composite.capabilities.write).toBe(false);
+    expect(await composite.getDependencies('dep.md')).toHaveLength(1);
+  });
 });
 
 describe('CompositeSource — field config (U1)', () => {

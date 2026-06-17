@@ -323,21 +323,12 @@
   const toolbarItems = $derived.by(() => {
     const items: Array<Record<string, unknown>> = [];
 
-    if (!readOnly) {
-      items.push({
-        comp: "button",
-        text: "Add Task",
-        handler: () => {
-          if (api) {
-            api.exec("add-task", {
-              task: { text: "New task" },
-              target: null,
-              mode: "after"
-            });
-          }
-        }
-      });
-    }
+    // NOTE: "Add Task" is intentionally NOT shown, even in write mode. Task
+    // creation is not yet wired through the controller/TaskNotes — the old
+    // handler only called SVAR's `api.exec('add-task')`, producing an in-memory
+    // row with no source path that has no persistence and vanishes on the next
+    // refresh. Creation returns once it routes through a controller create op
+    // (a future unit), gated on `capabilities.write` like the other surfaces.
 
     items.push(
       {

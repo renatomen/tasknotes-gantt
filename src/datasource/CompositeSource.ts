@@ -57,17 +57,31 @@ export class CompositeSource implements DataSource {
    * @param enrichment - Optional path-keyed enrichment (TaskNotes): dependencies,
    *   write capability, and change events. `null` when TaskNotes is unavailable.
    */
+  /**
+   * @param base - Authoritative source for the task set, dates, text, and
+   *   parents (the Bases query result + field mappings). Always present.
+   * @param enrichment - Optional path-keyed enrichment (TaskNotes): dependencies,
+   *   write capability, and change events. `null` when TaskNotes is unavailable.
+   * @param options.writable - When `false`, the composite is forced read-only
+   *   even if the enrichment is write-capable. The controller sets this when it
+   *   cannot resolve safe date write targets (TaskNotes field config
+   *   unavailable), so a write can't land in a different field than the one read
+   *   (R-F / #70). Enrichment is still used for dependencies. Defaults to `true`.
+   */
   constructor(
     private readonly base: DataSource,
     private readonly enrichment: DataSource | null,
+    private readonly options: { writable?: boolean } = {},
   ) {}
 
   /**
-   * Capabilities come from the enrichment source (TaskNotes owns writes). With no
-   * enrichment the composite is read-only — mirroring a bare Bases source.
+   * Capabilities come from the enrichment source (TaskNotes owns writes), gated
+   * by `options.writable`. With no enrichment, or when writes are force-disabled,
+   * the composite is read-only — mirroring a bare Bases source.
    */
   public get capabilities(): DataSourceCapabilities {
-    return this.enrichment?.capabilities ?? { write: false };
+    const enrichmentWritable = this.enrichment?.capabilities.write ?? false;
+    return { write: this.options.writable !== false && enrichmentWritable };
   }
 
   /** The task set is always the Base's (filtered, mapped) result. */
@@ -135,9 +149,9 @@ export class CompositeSource implements DataSource {
     patch: TaskPatch,
     context?: MutationContext,
   ): Promise<void> {
-    if (!this.enrichment?.mutate) {
+    if (!this.capabilities.write || !this.enrichment?.mutate) {
       return Promise.reject(
-        new Error('CompositeSource is read-only: no writable enrichment source'),
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
       );
     }
     return this.enrichment.mutate(path, patch, context);
@@ -151,9 +165,9 @@ export class CompositeSource implements DataSource {
    * @param context - Echo-suppression context (forwarded to TaskNotes).
    */
   public deleteTask(path: string, context?: MutationContext): Promise<void> {
-    if (!this.enrichment?.deleteTask) {
+    if (!this.capabilities.write || !this.enrichment?.deleteTask) {
       return Promise.reject(
-        new Error('CompositeSource is read-only: no writable enrichment source'),
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
       );
     }
     return this.enrichment.deleteTask(path, context);

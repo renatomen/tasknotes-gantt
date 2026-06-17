@@ -167,12 +167,14 @@ export interface GanttControllerDeps {
   ) => DataSource;
   /**
    * Compose a Bases task set with optional TaskNotes enrichment (the
-   * `'bases-scoped'` strategy). Defaults to
-   * `new CompositeSource(base, enrichment)`.
+   * `'bases-scoped'` strategy). `options.writable` lets the controller force the
+   * composite read-only when it can't resolve safe date write targets. Defaults
+   * to `new CompositeSource(base, enrichment, options)`.
    */
   createCompositeSource?: (
     base: DataSource,
     enrichment: DataSource | null,
+    options?: { writable?: boolean },
   ) => DataSource;
 }
 
@@ -288,6 +290,7 @@ export class GanttController {
   private readonly createCompositeSource: (
     base: DataSource,
     enrichment: DataSource | null,
+    options?: { writable?: boolean },
   ) => DataSource;
 
   /** The currently selected source. `null` until {@link init}. */
@@ -344,7 +347,7 @@ export class GanttController {
       ((app, entries, mappings) => new BasesSource(app, entries, mappings));
     this.createCompositeSource =
       options.deps?.createCompositeSource ??
-      ((base, enrichment) => new CompositeSource(base, enrichment));
+      ((base, enrichment, opts) => new CompositeSource(base, enrichment, opts));
   }
 
   /**
@@ -610,7 +613,13 @@ export class GanttController {
         : null;
       const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
-      return this.createCompositeSource(base, enrichment);
+      // Force read-only when we have no resolvable field config: without write
+      // targets, a date edit would fall through to canonical scheduled/due and
+      // could land in a different field than the Base reads (R-F / #70). Deps
+      // from the enrichment still flow; only writes are gated off.
+      return this.createCompositeSource(base, enrichment, {
+        writable: fieldConfig != null,
+      });
     }
 
     const taskNotes = await this.createTaskNotesSource(this.app);

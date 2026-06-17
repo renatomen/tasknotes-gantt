@@ -247,7 +247,7 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
           baseMappings = mappings;
           return base;
         },
-        createCompositeSource: (b, e) => new CompositeSource(b, e),
+        createCompositeSource: (b, e, opts) => new CompositeSource(b, e, opts),
       },
     });
     return { controller, enrichment, getBaseMappings: () => baseMappings };
@@ -309,25 +309,19 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.getDateMappingInfo().startInvalid).toBe(false);
   });
 
-  it('falls back to legacy note.start/note.due read defaults when there is no field config (R-F)', async () => {
+  it('forces read-only (no writes) when there is no field config, keeping legacy read defaults (R-F)', async () => {
     const { controller, enrichment, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
     await controller.init();
 
-    // Read mapping uses the legacy defaults; no invalid flags.
+    // Read mapping still uses the legacy defaults so the chart renders.
     expect(getBaseMappings()?.startProperty).toBe('note.start');
     expect(getBaseMappings()?.endProperty).toBe('note.due');
-    expect(controller.getDateMappingInfo()).toEqual({
-      startInvalid: false,
-      endInvalid: false,
-      startReadProp: null,
-      endReadProp: null,
-    });
 
-    // With no resolved targets, the write passes start/end through (the source
-    // applies its canonical scheduled/due mapping).
-    await controller.mutate('child.md', { start: new Date(2026, 5, 1) });
-    expect(enrichment.mutateCalls[0]!.patch.start).toEqual(new Date(2026, 5, 1));
-    expect(enrichment.mutateCalls[0]!.patch.dateWrites).toBeUndefined();
+    // But without resolvable write targets the composite is read-only — a write
+    // could otherwise land in a different field than the Base reads (R-F / #70).
+    expect(controller.capabilities.write).toBe(false);
+    await expect(controller.mutate('child.md', { start: new Date(2026, 5, 1) })).rejects.toThrow();
+    expect(enrichment.mutateCalls).toHaveLength(0);
   });
 });
 
