@@ -17,6 +17,7 @@ import type {
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
 import type { StatusColor } from '../../datasource/types';
+import type { CascadeMode } from '../cascadeGate';
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -35,4 +36,10 @@ export interface GanttData {
   dateMappingNotice?: string;
   /** Whether TaskNotes is present (distinguishes read-only banner copy). */
   taskNotesPresent?: boolean;
+  /**
+   * Per-view behavior for the parent/ancestor date cascade on a child
+   * drag/resize: `ask` (confirm before writing ancestors), `auto` (write
+   * silently), `never`. Defaults to `ask`.
+   */
+  cascadeMode: CascadeMode;
 }

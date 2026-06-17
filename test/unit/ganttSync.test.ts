@@ -58,16 +58,31 @@ function mapOf(tasks: SvarTask[]): Map<string, SvarTask> {
 }
 
 describe('buildSvarTasks', () => {
-  it('marks a referenced instance as a summary and opens it', () => {
+  it('renders a parent as an ordinary task at its own dates (not a summary) but keeps it open', () => {
+    const start = new Date(2026, 0, 1);
+    const end = new Date(2026, 0, 5);
     const tasks = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'p' }), inst({ id: 'c', parent: 'p' })] }),
+      inputs({ instances: [inst({ id: 'p', start, end }), inst({ id: 'c', parent: 'p' })] }),
     );
     const parent = tasks.find((t) => t.id === 'p')!;
     const child = tasks.find((t) => t.id === 'c')!;
-    expect(parent.type).toBe('summary');
+    // Not a summary — shows its own dates, fully draggable, clean date-writes.
+    expect(parent.type).not.toBe('summary');
+    expect(parent.start).toEqual(start);
+    expect(parent.end).toEqual(end);
     expect(parent.open).toBe(true);
-    expect(child.type).toBe('task');
     expect(child.parent).toBe('p');
+  });
+
+  it('applies the status-color class to a parent (parents are ordinary bars)', () => {
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'p', status: 'wip' }), inst({ id: 'c', parent: 'p' })],
+        statusColors: colors,
+      }),
+    );
+    expect(tasks.find((t) => t.id === 'p')!.type).toContain(statusSlug('wip'));
   });
 
   it('flags a non-complete leaf with the date-status type only', () => {

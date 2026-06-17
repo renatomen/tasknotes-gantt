@@ -36,6 +36,7 @@ import {
 } from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
+import { normalizeCascadeMode } from './cascadeGate';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -175,7 +176,12 @@ interface BooleanViewOption extends BaseViewOption {
 interface DropdownViewOption extends BaseViewOption {
   type: 'dropdown';
   default?: string;
-  options: Array<{ value: string; display: string }>;
+  /**
+   * Value → display-label map. Bases feeds this straight to Obsidian's
+   * `DropdownComponent.addOptions(Record<string, string>)`; an array of
+   * `{ value, display }` objects renders every choice as `[object Object]`.
+   */
+  options: Record<string, string>;
 }
 
 interface PropertyViewOption extends BaseViewOption {
@@ -373,6 +379,15 @@ class ObsidianGanttBasesView extends GanttBasesView {
   }
 
   /**
+   * Read the per-view parent/ancestor date-cascade mode; defaults to `ask`.
+   * Governs whether a child drag/resize that would change ancestor spans
+   * prompts before writing the ancestor notes (see cascadeGate / GanttContainer).
+   */
+  private getCascadeMode(): import('./cascadeGate').CascadeMode {
+    return normalizeCascadeMode(this.config.get('parentDateCascade'));
+  }
+
+  /**
    * Mount the Svelte view from controller-derived data (U7).
    *
    * The controller now owns the transform: this builds a {@link GanttController}
@@ -488,6 +503,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       showDateIndicators: this.getShowDateIndicators(),
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
+      cascadeMode: this.getCascadeMode(),
     };
   }
 
@@ -613,19 +629,19 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: () => [
+    options: (): ViewOption[] => [
       ...sharedOptions,
       {
         type: 'dropdown',
         displayName: 'Default Scale',
         key: 'defaultScale',
         default: 'day',
-        options: [
-          { value: 'hour', display: 'Hours' },
-          { value: 'day', display: 'Days' },
-          { value: 'week', display: 'Weeks' },
-          { value: 'month', display: 'Months' },
-        ],
+        options: {
+          hour: 'Hours',
+          day: 'Days',
+          week: 'Weeks',
+          month: 'Months',
+        },
       },
       // R27: how dependency arrows render across duplicated multi-parent
       // instances. Persisted per-view via config.set/get; read in mountGantt.
@@ -634,10 +650,24 @@ export function registerBasesGantt(plugin: Plugin): () => void {
         displayName: 'Dependency Arrows',
         key: 'dependencyArrowMode',
         default: 'primary',
-        options: [
-          { value: 'primary', display: 'Primary instance only' },
-          { value: 'all', display: 'All instances' },
-        ],
+        options: {
+          primary: 'Primary instance only',
+          all: 'All instances',
+        },
+      },
+      // Parent/ancestor date-cascade behavior when a child drag/resize would
+      // change ancestor spans. Read per-view in getCascadeMode(); consumed by
+      // the GanttContainer drag-persistence gate.
+      {
+        type: 'dropdown',
+        displayName: 'Parent date updates',
+        key: 'parentDateCascade',
+        default: 'ask',
+        options: {
+          ask: 'Ask before updating parent dates',
+          auto: 'Update parent dates automatically',
+          never: 'Never update parent dates',
+        },
       },
       // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
       // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
