@@ -1,7 +1,7 @@
 ---
 title: "feat: Color Gantt bars by TaskNotes status colors"
 type: feat
-status: active
+status: completed
 date: 2026-06-17
 depth: standard
 branch_base: main (9b64563)
