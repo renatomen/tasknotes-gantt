@@ -140,6 +140,110 @@ describe('CompositeSource — subscribe', () => {
   });
 });
 
+describe('CompositeSource — write path (mutate/deleteTask)', () => {
+  /** A writable enrichment fake capturing mutate/delete calls. */
+  function writableEnrichment() {
+    const mutate = jest.fn(async (_p: string, _patch: unknown, _ctx?: unknown) => {});
+    const deleteTask = jest.fn(async (_p: string, _ctx?: unknown) => {});
+    const source = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      mutate,
+      deleteTask,
+    } as unknown as DataSource;
+    return { source, mutate, deleteTask };
+  }
+
+  it('delegates mutate() to the enrichment by path, forwarding patch + context', async () => {
+    const { source, mutate } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source);
+    const patch = { start: new Date(2026, 3, 2) };
+    const ctx = { source: 'obsidian-gantt', correlationId: 'c1' };
+
+    await composite.mutate('a.md', patch, ctx);
+
+    expect(mutate).toHaveBeenCalledWith('a.md', patch, ctx);
+  });
+
+  it('delegates deleteTask() to the enrichment', async () => {
+    const { source, deleteTask } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source);
+    const ctx = { source: 'obsidian-gantt', correlationId: 'd1' };
+
+    await composite.deleteTask('a.md', ctx);
+
+    expect(deleteTask).toHaveBeenCalledWith('a.md', ctx);
+  });
+
+  it('throws on mutate() when there is no (writable) enrichment — read-only composite', async () => {
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), null);
+    await expect(composite.mutate('a.md', { status: 'x' })).rejects.toThrow();
+  });
+
+  it('throws on deleteTask() when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), null);
+    await expect(composite.deleteTask('a.md')).rejects.toThrow();
+  });
+
+  it('forces read-only when options.writable is false, even with a writable enrichment', async () => {
+    const { source, mutate, deleteTask } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('a.md')]), source, {
+      writable: false,
+    });
+
+    // Capability is gated off so surfaces hide write affordances...
+    expect(composite.capabilities.write).toBe(false);
+    // ...and the write methods reject without touching the enrichment.
+    await expect(composite.mutate('a.md', { status: 'x' })).rejects.toThrow();
+    await expect(composite.deleteTask('a.md')).rejects.toThrow();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
+  it('still reads dependencies from the enrichment when forced read-only', async () => {
+    const enrichment = new FakeSource([], {
+      'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }],
+    });
+    const composite = new CompositeSource(new FakeSource([task('dep.md')]), enrichment, {
+      writable: false,
+    });
+
+    expect(composite.capabilities.write).toBe(false);
+    expect(await composite.getDependencies('dep.md')).toHaveLength(1);
+  });
+});
+
+describe('CompositeSource — field config (U1)', () => {
+  const fieldConfig = {
+    scheduledProp: 'scheduled',
+    dueProp: 'due',
+    dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+  };
+
+  it('delegates getFieldConfig to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getFieldConfig: async () => fieldConfig,
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getFieldConfig()).toEqual(fieldConfig);
+  });
+
+  it('returns null when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getFieldConfig()).toBeNull();
+  });
+
+  it('returns null when the enrichment exposes no getFieldConfig', async () => {
+    const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
+    expect(await composite.getFieldConfig()).toBeNull();
+  });
+});
+
 describe('CompositeSource — status colors', () => {
   const colors = [{ value: '11🟥Active = Now', color: '#f8312f', isCompleted: false }];
 

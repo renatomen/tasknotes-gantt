@@ -13,7 +13,18 @@ export type {
   StatusColor,
   TaskPatch,
   MutationContext,
+  FieldConfig,
+  CustomDateField,
+  DateWriteTarget,
+  DateWrite,
 } from './types';
+
+export {
+  resolveDateMapping,
+  bareProperty,
+  toNoteProperty,
+  type ResolvedDateMapping,
+} from './dateFieldMapping';
 
 export { BasesSource } from './BasesSource';
 export { CompositeSource } from './CompositeSource';

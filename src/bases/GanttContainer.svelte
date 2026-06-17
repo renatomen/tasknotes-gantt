@@ -1,10 +1,10 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, setTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, setTimeout, clearTimeout, getComputedStyle */
   import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import { Toolbar } from '@svar-ui/svelte-toolbar';
-  import { setIcon } from 'obsidian';
+  import { Notice, setIcon } from 'obsidian';
   import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
-  import type { StatusColor } from '../datasource/types';
+  import type { StatusColor, TaskPatch } from '../datasource/types';
   import { statusSlug, buildStatusStyleRules } from './statusColor';
 
   // Component props (U7): the controller now owns the transform. The view
@@ -40,6 +40,19 @@
      * by their task's status using these. Empty ⇒ no status coloring.
      */
     statusColors?: StatusColor[];
+    /**
+     * Persist a field patch for a render instance through the controller (U8).
+     * The view calls this on a drag/resize commit (dates-only patch). Absent in
+     * read-only contexts / older callers — drag persistence is then inert.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
+    /**
+     * One-line notice shown when a start/end date mapping fell back to the
+     * default because the configured property isn't a writable TaskNotes date
+     * field (U4/R-C). Absent when both mappings are valid.
+     */
+    dateMappingNotice?: string;
   }
 
   // `app` and `config` remain part of the props contract (register.ts passes
@@ -53,7 +66,17 @@
     showDateIndicators = true,
     taskNotesPresent,
     statusColors = [],
+    onMutate,
+    dateMappingNotice,
   }: Props = $props();
+
+  // Tags our own programmatic store writes (sibling mirror, revert) so the
+  // update-task intercept ignores them and we never re-persist an echo (the
+  // SVAR-store echo guard — KTD "two echo loops").
+  const OG_ECHO_SOURCE = 'og-self';
+  // A drag/resize write that never settles (TaskNotes hang/disabled mid-write)
+  // still reverts the optimistic move within this window.
+  const MUTATION_TIMEOUT_MS = 10000;
 
   // Custom SVAR task type used to flag bars whose dates were inferred,
   // swapped, or placeholdered (one indicator state for all non-`complete`
@@ -232,6 +255,16 @@
     progress: number;
   }
 
+  // The slice of SVAR's `update-task` event payload the drag/resize persistence
+  // path reads. `inProgress` marks mid-gesture frames; `eventSource` carries our
+  // own echo tag on programmatic writes.
+  interface UpdateTaskEvent {
+    id?: string | number;
+    inProgress?: boolean;
+    eventSource?: string;
+    task?: Record<string, unknown>;
+  }
+
   // SVAR Gantt API - using unknown with type assertions for third-party API
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
@@ -290,21 +323,12 @@
   const toolbarItems = $derived.by(() => {
     const items: Array<Record<string, unknown>> = [];
 
-    if (!readOnly) {
-      items.push({
-        comp: "button",
-        text: "Add Task",
-        handler: () => {
-          if (api) {
-            api.exec("add-task", {
-              task: { text: "New task" },
-              target: null,
-              mode: "after"
-            });
-          }
-        }
-      });
-    }
+    // NOTE: "Add Task" is intentionally NOT shown, even in write mode. Task
+    // creation is not yet wired through the controller/TaskNotes — the old
+    // handler only called SVAR's `api.exec('add-task')`, producing an in-memory
+    // row with no source path that has no persistence and vanishes on the next
+    // refresh. Creation returns once it routes through a controller create op
+    // (a future unit), gated on `capabilities.write` like the other surfaces.
 
     items.push(
       {
@@ -368,6 +392,30 @@
       return false; // Prevent default editor
     });
 
+    // Persist drag-to-reschedule and resize via the controller (U8). SVAR fires
+    // `update-task` per-frame during a gesture (inProgress truthy) and once on
+    // drop with the committed dates (inProgress falsy). We persist only on the
+    // committing call, and never on our own echo writes (OG_ECHO_SOURCE) or in
+    // read-only mode (R11 — SVAR's `readonly` already blocks drag; this is the
+    // no-bypass backstop). Returning true lets SVAR apply the optimistic move;
+    // we read the applied dates and persist on the next tick.
+    api.intercept("update-task", (ev: UpdateTaskEvent) => {
+      if (
+        !readOnly &&
+        !!onMutate &&
+        ev &&
+        !ev.inProgress &&
+        ev.eventSource !== OG_ECHO_SOURCE &&
+        ev.id != null
+      ) {
+        const id = String(ev.id);
+        // Defer so SVAR's store has applied the move; read the authoritative
+        // committed dates from the store rather than the heterogeneous event.
+        setTimeout(() => void persistReschedule(id), 0);
+      }
+      return true;
+    });
+
     // Fix initial scroll position - ensure the grid starts with first column visible
     // SVAR Gantt sometimes initializes with horizontal scroll that hides the first column
     setTimeout(() => {
@@ -427,19 +475,101 @@
         break;
       case "update-task":
         if (api && editingTask) {
-          api.exec("update-task", { id: editingTask.id, task: data });
+          // Tagged as our own write so the drag/resize intercept ignores it —
+          // modal Save persistence (title/status/dates) is wired in the
+          // follow-up modal pass; today this only mutates SVAR's store.
+          api.exec("update-task", { id: editingTask.id, task: data, eventSource: OG_ECHO_SOURCE });
           showEditor = false;
           editingTask = null;
         }
         break;
       case "delete-task":
         if (api && editingTask) {
-          api.exec("delete-task", { id: editingTask.id });
+          // Tagged as our own write so the update-task intercept ignores any
+          // resulting event. Modal Save/Delete persistence is wired in the
+          // follow-up modal pass; today this still only mutates SVAR's store.
+          api.exec("delete-task", { id: editingTask.id, eventSource: OG_ECHO_SOURCE });
           showEditor = false;
           editingTask = null;
         }
         break;
     }
+  }
+
+  /**
+   * Persist a committed drag/resize for `instanceId` (U8). Reads the
+   * authoritative new dates from the SVAR store (the event payload is
+   * heterogeneous — diff-only on some gestures), resolves the source identity,
+   * optimistically mirrors the dates onto sibling instances of the same source
+   * so multi-parent rows never diverge (AE7), then persists via the controller.
+   * On failure (or timeout) every mirrored row — and the dragged row — reverts
+   * to its pre-drag dates and a Notice is shown.
+   */
+  async function persistReschedule(instanceId: string): Promise<void> {
+    if (!onMutate || !api) return;
+
+    const moved = api.getState().tasks.byId(instanceId);
+    if (!moved || !(moved.start instanceof Date) || !(moved.end instanceof Date)) {
+      return;
+    }
+    const newStart: Date = moved.start;
+    const newEnd: Date = moved.end;
+
+    // Resolve source identity → sibling instances (same source, other rows).
+    const sourcePath =
+      (moved.custom?.sourceTaskId as string | undefined) ??
+      instances.find((i) => i.id === instanceId)?.sourcePath;
+
+    // Capture pre-drag dates for the dragged row + every sibling, for revert.
+    const originals = new Map<string, { start: Date; end: Date }>();
+    for (const inst of instances) {
+      if (inst.sourcePath === sourcePath && inst.start && inst.end) {
+        originals.set(inst.id, { start: inst.start, end: inst.end });
+      }
+    }
+
+    // Optimistic mirror: move sibling rows immediately (tagged as our own write).
+    for (const inst of instances) {
+      if (inst.sourcePath === sourcePath && inst.id !== instanceId) {
+        api.exec("update-task", {
+          id: inst.id,
+          task: { start: newStart, end: newEnd },
+          eventSource: OG_ECHO_SOURCE,
+        });
+      }
+    }
+
+    try {
+      await withTimeout(onMutate(instanceId, { start: newStart, end: newEnd }), MUTATION_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[GanttContainer] reschedule persist failed:', err);
+      // Revert the dragged row and all mirrored siblings to pre-drag dates.
+      for (const [id, original] of originals) {
+        api.exec("update-task", {
+          id,
+          task: { start: original.start, end: original.end },
+          eventSource: OG_ECHO_SOURCE,
+        });
+      }
+      new Notice("Couldn't save date change — check TaskNotes is running.");
+    }
+  }
+
+  /** Reject after `ms` if `p` has not settled (so a hung write still reverts). */
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('write timed out')), ms);
+      p.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   // Zoom configuration with defined levels for proper zoom-scale action (OG-81)
@@ -525,6 +655,15 @@
       <div class="og-readonly-banner" role="status">
         <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
         <span class="og-readonly-text">{readOnlyBannerText}</span>
+      </div>
+    {/if}
+
+    <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
+         isn't a writable TaskNotes date field, so it fell back to the default. -->
+    {#if dateMappingNotice}
+      <div class="og-readonly-banner" role="status">
+        <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
+        <span class="og-readonly-text">{dateMappingNotice}</span>
       </div>
     {/if}
 

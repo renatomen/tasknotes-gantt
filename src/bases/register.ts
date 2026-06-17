@@ -26,8 +26,28 @@ import GanttContainer from './GanttContainer.svelte';
 import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
-import { GanttController, type DatePolicyConfig } from '../controller/GanttController';
+import {
+  GanttController,
+  type DatePolicyConfig,
+  type DateMappingInfo,
+} from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
+
+/**
+ * Build a one-line notice when a start/end date mapping fell back to the default
+ * because the configured property isn't a writable TaskNotes date field (R-C).
+ * Returns `undefined` when both mappings are valid.
+ */
+function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
+  const parts: string[] = [];
+  if (info.startInvalid) {
+    parts.push(`Start date mapping isn't a TaskNotes date field — using "${info.startReadProp}".`);
+  }
+  if (info.endInvalid) {
+    parts.push(`End date mapping isn't a TaskNotes date field — using "${info.endReadProp}".`);
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
 import { readDatePolicyConfig } from './datePolicyConfig';
 
 export { readDatePolicyConfig } from './datePolicyConfig';
@@ -306,8 +326,11 @@ class ObsidianGanttBasesView extends GanttBasesView {
   private buildFieldMappings(): FieldMappings {
     return {
       textProperty: (this.config.get('textProperty') as string) || '',
-      startProperty: (this.config.get('startDateProperty') as string) || 'note.start',
-      endProperty: (this.config.get('endDateProperty') as string) || 'note.due',
+      // Empty = "unset": the controller defaults start/end to TaskNotes'
+      // configured scheduled/due when TaskNotes is present, else to the legacy
+      // note.start/note.due (see GanttController.applyDateFieldMapping).
+      startProperty: (this.config.get('startDateProperty') as string) || '',
+      endProperty: (this.config.get('endDateProperty') as string) || '',
       progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
       parentProperty: (this.config.get('parentProperty') as string) || '',
       statusProperty: (this.config.get('statusProperty') as string) || '',
@@ -370,6 +393,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
 
       this.ganttController = controller;
       const arrowMode = this.getArrowMode();
+      const dateMappingNotice = buildDateMappingNotice(controller.getDateMappingInfo());
 
       const [instances, links, statusColors] = await Promise.all([
         controller.getInstances(),
@@ -401,6 +425,13 @@ class ObsidianGanttBasesView extends GanttBasesView {
           statusColors,
           app: this.app,
           config: this.config,
+          // Drag/resize persistence (U8): the view calls this on a commit; the
+          // controller resolves instance→source and writes through TaskNotes.
+          // Bound to the controller captured in this mount.
+          onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),
+          // One-line notice when a start/end date mapping fell back to the
+          // default because it isn't a writable TaskNotes date field (U4/R-C).
+          dateMappingNotice,
         },
       });
 
@@ -490,15 +521,15 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       type: 'property' as const,
       displayName: 'Start Date Property',
       key: 'startDateProperty',
-      default: 'note.start',
-      placeholder: 'Select start date property',
+      default: '',
+      placeholder: 'Defaults to TaskNotes Scheduled; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,
       displayName: 'End Date Property',
       key: 'endDateProperty',
-      default: 'note.due',
-      placeholder: 'Select end date property',
+      default: '',
+      placeholder: 'Defaults to TaskNotes Due; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,

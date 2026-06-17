@@ -52,6 +52,13 @@ function makeApi(opts: FakeApiOptions = {}) {
   const offSpy = jest.fn((ref: unknown) => {
     handlers.delete(ref as symbol);
   });
+  // Write-surface spies (TaskNotes 4.11.0: tasks.update(path, updates, ctx),
+  // tasks.delete(path, ctx)). Resolve by default; tests override to reject.
+  const updateSpy = jest.fn(
+    (_path: string, _updates: Record<string, unknown>, _ctx?: unknown) =>
+      Promise.resolve(),
+  );
+  const deleteSpy = jest.fn((_path: string, _ctx?: unknown) => Promise.resolve());
 
   const api: TaskNotesApi = {
     apiVersion: opts.apiVersion ?? 1,
@@ -62,6 +69,8 @@ function makeApi(opts: FakeApiOptions = {}) {
       list: () => opts.tasks ?? [],
       get: (path: string) =>
         (opts.tasks ?? []).find((t) => t.path === path) ?? null,
+      update: updateSpy,
+      delete: deleteSpy,
     },
     relationships: {
       dependencies: (path: string) => opts.dependencies?.[path] ?? [],
@@ -81,7 +90,7 @@ function makeApi(opts: FakeApiOptions = {}) {
     api.catalog = { statuses: () => opts.statuses };
   }
 
-  return { api, onSpy, offSpy, handlers };
+  return { api, onSpy, offSpy, updateSpy, deleteSpy, handlers };
 }
 
 /**
@@ -155,6 +164,101 @@ describe('TaskNotesSource — getStatusColors', () => {
     };
     const source = await TaskNotesSource.create(makeApp(api));
     expect(await source!.getStatusColors()).toEqual([]);
+  });
+});
+
+describe('TaskNotesSource — getFieldConfig (U1)', () => {
+  /** Build an api whose model.config() returns the given fieldMapping + userFields. */
+  function makeConfigApi(config: {
+    fieldMapping?: Record<string, string>;
+    userFields?: Array<{ enabled?: boolean; displayName?: string; key?: string; id?: string; type?: string }>;
+  } | null) {
+    const { api } = makeApi({});
+    api.model = { config: () => (config as { statuses?: never } | null) ?? null };
+    return api;
+  }
+
+  async function fieldConfigFrom(config: Parameters<typeof makeConfigApi>[0]) {
+    const source = await TaskNotesSource.create(makeApp(makeConfigApi(config)));
+    if (!source) throw new Error('expected a source');
+    return source.getFieldConfig();
+  }
+
+  it('returns the configured scheduled/due property names and date custom fields', async () => {
+    // Persisted TaskNotes userFields carry NO `enabled` flag (matches data.json):
+    // their presence means active. Only an explicit `enabled: false` is excluded.
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due' },
+      userFields: [
+        { type: 'date', key: 'start', id: 'fld_start', displayName: 'Start' },
+        { type: 'text', key: 'notes', id: 'fld_notes', displayName: 'Notes' },
+        { enabled: false, type: 'date', key: 'old', id: 'fld_old', displayName: 'Old' },
+      ],
+    });
+
+    expect(cfg).toEqual({
+      scheduledProp: 'scheduled',
+      dueProp: 'due',
+      dateFields: [{ key: 'start', id: 'fld_start', displayName: 'Start' }],
+    });
+  });
+
+  it('includes a date field that has no `enabled` key (real TaskNotes settings shape)', async () => {
+    // Regression for the bug where requiring `enabled === true` dropped every
+    // field, since persisted userFields omit `enabled` entirely.
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due' },
+      userFields: [{ type: 'date', key: 'start', id: 'fld_1756287909511', displayName: 'Start' }],
+    });
+
+    expect(cfg?.dateFields).toEqual([
+      { key: 'start', id: 'fld_1756287909511', displayName: 'Start' },
+    ]);
+  });
+
+  it('honors TaskNotes-remapped scheduled/due property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'tn_scheduled', due: 'tn_deadline' },
+      userFields: [],
+    });
+
+    expect(cfg?.scheduledProp).toBe('tn_scheduled');
+    expect(cfg?.dueProp).toBe('tn_deadline');
+    expect(cfg?.dateFields).toEqual([]);
+  });
+
+  it('yields null props and empty dateFields when fieldMapping/userFields are absent', async () => {
+    const cfg = await fieldConfigFrom({});
+
+    expect(cfg).toEqual({ scheduledProp: null, dueProp: null, dateFields: [] });
+  });
+
+  it('drops date fields missing a key (cannot address the frontmatter property)', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 's', due: 'd' },
+      userFields: [
+        { enabled: true, type: 'date', id: 'uf_x', displayName: 'No Key' },
+        { enabled: true, type: 'date', key: 'good', id: 'uf_good', displayName: 'Good' },
+      ],
+    });
+
+    expect(cfg?.dateFields).toEqual([{ key: 'good', id: 'uf_good', displayName: 'Good' }]);
+  });
+
+  it('returns null when model.config() throws (graceful)', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => {
+        throw new Error('boom');
+      },
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getFieldConfig()).toBeNull();
+  });
+
+  it('returns null when the api exposes no model.config', async () => {
+    const source = await TaskNotesSource.create(makeApp(makeApi({}).api));
+    expect(await source!.getFieldConfig()).toBeNull();
   });
 });
 
@@ -455,19 +559,183 @@ describe('TaskNotesSource', () => {
       expect(source!.supportsWrite()).toBe(false);
     });
 
-    it('keeps capabilities.write false and exposes no mutate/deleteTask in this unit', async () => {
-      // Arrange — even when TaskNotes grants write, U4 does not wire writes.
-      const { api } = makeApi({ hasWrite: true });
+    it('capabilities.write reflects supportsWrite() (U8): true when TaskNotes grants tasks.write', async () => {
+      // Arrange
+      const writable = await TaskNotesSource.create(makeApp(makeApi({ hasWrite: true }).api));
+      const readonly = await TaskNotesSource.create(makeApp(makeApi({ hasWrite: false }).api));
+
+      // Assert — the composite/controller derive read-only truth from this flag.
+      expect(writable!.capabilities.write).toBe(true);
+      expect(readonly!.capabilities.write).toBe(false);
+    });
+  });
+
+  describe('write path — mutate() / deleteTask() (U8)', () => {
+    it('mutate() maps a dates-only patch to a single tasks.update with yyyy-MM-dd scheduled/due', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
       const source = await TaskNotesSource.create(makeApp(api));
 
+      // Act — a drag commit carries day-snapped local-midnight Dates.
+      await source!.mutate(
+        'tasks/a.md',
+        { start: new Date(2026, 3, 2), end: new Date(2026, 3, 20) },
+        { source: 'obsidian-gantt', correlationId: 'c1' },
+      );
+
+      // Assert — exactly one atomic update, dates formatted, context forwarded.
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(
+        'tasks/a.md',
+        { scheduled: '2026-04-02', due: '2026-04-20' },
+        { source: 'obsidian-gantt', correlationId: 'c1' },
+      );
+    });
+
+    it('mutate() writes only the fields present in the patch (no clobbering)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act — a modal Save touching title + status only.
+      await source!.mutate('t.md', { text: 'Renamed', status: 'done' });
+
+      // Assert — scheduled/due absent (not nulled), title/status mapped.
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { title: 'Renamed', status: 'done' },
+        undefined,
+      );
+    });
+
+    it('mutate() forwards an explicit null date to clear the field', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { start: null });
+
       // Assert
-      expect(source!.capabilities.write).toBe(false);
-      expect(
-        (source as unknown as Partial<{ mutate: unknown }>).mutate
-      ).toBeUndefined();
-      expect(
-        (source as unknown as Partial<{ deleteTask: unknown }>).deleteTask
-      ).toBeUndefined();
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: null }, undefined);
+    });
+
+    it('mutate() does NOT persist progress in milestone 1 (deferred)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { progress: 50, status: 'doing' });
+
+      // Assert — progress is dropped; only status is written.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() propagates a write failure (so the controller can revert + Notice)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      updateSpy.mockRejectedValueOnce(new Error('disk full'));
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert — writes must NOT swallow errors like the read paths do.
+      await expect(source!.mutate('t.md', { status: 'x' })).rejects.toThrow('disk full');
+    });
+
+    it('deleteTask() calls tasks.delete with the path and context', async () => {
+      // Arrange
+      const { api, deleteSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.deleteTask('tasks/a.md', { source: 'obsidian-gantt', correlationId: 'd1' });
+
+      // Assert
+      expect(deleteSpy).toHaveBeenCalledWith('tasks/a.md', {
+        source: 'obsidian-gantt',
+        correlationId: 'd1',
+      });
+    });
+
+    it('applies a scheduled dateWrite to updates.scheduled (yyyy-MM-dd)', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [{ target: { kind: 'scheduled' }, value: new Date(2026, 5, 17) }],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: '2026-06-17' }, undefined);
+    });
+
+    it('applies a due dateWrite to updates.due', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [{ target: { kind: 'due' }, value: new Date(2026, 6, 4) }],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { due: '2026-07-04' }, undefined);
+    });
+
+    it('applies a userField dateWrite as a top-level key by frontmatter key (not userFields/id)', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+        ],
+      });
+
+      // TaskNotes' mapToFrontmatter reads custom-field values from the TOP LEVEL
+      // of updates by the field's frontmatter `key` (confirmed vs 4.11.0:
+      // `d=e; d[u.key]`). NOT a userFields object, NOT by id.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { start: '2026-06-01' }, undefined);
+    });
+
+    it('merges multiple dateWrites into one atomic update', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+          { target: { kind: 'due' }, value: new Date(2026, 6, 4) },
+        ],
+      });
+
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { due: '2026-07-04', start: '2026-06-01' },
+        undefined,
+      );
+    });
+
+    it('forwards a null dateWrite value to clear the target', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', {
+        dateWrites: [
+          { target: { kind: 'scheduled' }, value: null },
+          { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: null },
+        ],
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: null, start: null }, undefined);
+    });
+
+    it('mutate() throws when the api exposes no update method', async () => {
+      // Arrange
+      const { api } = makeApi({ hasWrite: true });
+      delete api.tasks!.update;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(source!.mutate('t.md', { status: 'x' })).rejects.toThrow();
     });
   });
 

@@ -59,16 +59,27 @@ class FakeSource implements DataSource {
 
   private readonly subscribable: boolean;
 
+  private readonly fieldConfig: import('../../src/datasource/types').FieldConfig | null;
+
   constructor(opts: {
     write?: boolean;
     tasks?: SourceTask[];
     deps?: Record<string, SourceDependency[]>;
     subscribable?: boolean;
+    fieldConfig?: import('../../src/datasource/types').FieldConfig | null;
   }) {
     this.capabilities = { write: opts.write ?? false };
     this.tasks = opts.tasks ?? [];
     this.deps = opts.deps ?? {};
     this.subscribable = opts.subscribable ?? false;
+    // A writable enrichment must expose a resolvable field config, else the
+    // bases-scoped composite is forced read-only (R-F). Default a minimal one
+    // for write:true fakes so they reflect a realistic writable TaskNotes.
+    this.fieldConfig =
+      opts.fieldConfig ??
+      (opts.write
+        ? { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [] }
+        : null);
   }
 
   async getTasks(): Promise<SourceTask[]> {
@@ -77,6 +88,10 @@ class FakeSource implements DataSource {
 
   async getDependencies(path: string): Promise<SourceDependency[]> {
     return this.deps[path] ?? [];
+  }
+
+  async getFieldConfig(): Promise<import('../../src/datasource/types').FieldConfig | null> {
+    return this.fieldConfig;
   }
 
   // Present only when subscribable so it mirrors TaskNotesSource (Bases has no

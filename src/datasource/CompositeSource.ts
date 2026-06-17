@@ -32,9 +32,12 @@
 import type {
   DataSource,
   DataSourceCapabilities,
+  FieldConfig,
+  MutationContext,
   SourceDependency,
   SourceTask,
   StatusColor,
+  TaskPatch,
 } from './types';
 
 /** Structural slice for the optional event-subscription hook (TaskNotes has it). */
@@ -54,17 +57,31 @@ export class CompositeSource implements DataSource {
    * @param enrichment - Optional path-keyed enrichment (TaskNotes): dependencies,
    *   write capability, and change events. `null` when TaskNotes is unavailable.
    */
+  /**
+   * @param base - Authoritative source for the task set, dates, text, and
+   *   parents (the Bases query result + field mappings). Always present.
+   * @param enrichment - Optional path-keyed enrichment (TaskNotes): dependencies,
+   *   write capability, and change events. `null` when TaskNotes is unavailable.
+   * @param options.writable - When `false`, the composite is forced read-only
+   *   even if the enrichment is write-capable. The controller sets this when it
+   *   cannot resolve safe date write targets (TaskNotes field config
+   *   unavailable), so a write can't land in a different field than the one read
+   *   (R-F / #70). Enrichment is still used for dependencies. Defaults to `true`.
+   */
   constructor(
     private readonly base: DataSource,
     private readonly enrichment: DataSource | null,
+    private readonly options: { writable?: boolean } = {},
   ) {}
 
   /**
-   * Capabilities come from the enrichment source (TaskNotes owns writes). With no
-   * enrichment the composite is read-only — mirroring a bare Bases source.
+   * Capabilities come from the enrichment source (TaskNotes owns writes), gated
+   * by `options.writable`. With no enrichment, or when writes are force-disabled,
+   * the composite is read-only — mirroring a bare Bases source.
    */
   public get capabilities(): DataSourceCapabilities {
-    return this.enrichment?.capabilities ?? { write: false };
+    const enrichmentWritable = this.enrichment?.capabilities.write ?? false;
+    return { write: this.options.writable !== false && enrichmentWritable };
   }
 
   /** The task set is always the Base's (filtered, mapped) result. */
@@ -93,6 +110,16 @@ export class CompositeSource implements DataSource {
   }
 
   /**
+   * The TaskNotes field-config (scheduled/due property names + custom date
+   * fields) comes from the enrichment. Yields `null` when there is no
+   * enrichment or it exposes none — the view then has no field mapping to
+   * resolve and stays on Bases defaults / read-only.
+   */
+  public getFieldConfig(): Promise<FieldConfig | null> {
+    return this.enrichment?.getFieldConfig?.() ?? Promise.resolve(null);
+  }
+
+  /**
    * Subscribe to enrichment change events (TaskNotes), so external task edits
    * refresh the chart. Base (filter/query) changes are delivered separately by
    * the view's data-update → remount path, not here. Returns a no-op disposer
@@ -106,12 +133,43 @@ export class CompositeSource implements DataSource {
     return () => {};
   }
 
-  // ---------------------------------------------------------------------------
-  // U8 SEAM — write path (intentionally not implemented in M1).
-  //
-  // U8 adds `mutate(path, patch, ctx)` and `deleteTask(path, ctx)` here, each
-  // delegating to `this.enrichment?.mutate/deleteTask` (TaskNotes, addressed by
-  // the note path that Bases and TaskNotes share). `capabilities.write` already
-  // tracks the enrichment, so the contract invariant holds once those land.
-  // ---------------------------------------------------------------------------
+  /**
+   * Persist a field patch by delegating to the enrichment (TaskNotes), addressed
+   * by the note `path` that Bases and TaskNotes share. `capabilities.write`
+   * tracks the enrichment, so a caller that respects the capability gate only
+   * reaches this when the enrichment is writable. Throws if there is no writable
+   * enrichment (read-only composite) — a defensive backstop for the contract.
+   *
+   * @param path - The shared note path (Bases entry === TaskNotes task).
+   * @param patch - The fields to change.
+   * @param context - Echo-suppression context (forwarded to TaskNotes).
+   */
+  public mutate(
+    path: string,
+    patch: TaskPatch,
+    context?: MutationContext,
+  ): Promise<void> {
+    if (!this.capabilities.write || !this.enrichment?.mutate) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
+      );
+    }
+    return this.enrichment.mutate(path, patch, context);
+  }
+
+  /**
+   * Delete a task (and its note) by delegating to the enrichment (TaskNotes).
+   * Throws if there is no enrichment that supports deletion.
+   *
+   * @param path - The shared note path to delete.
+   * @param context - Echo-suppression context (forwarded to TaskNotes).
+   */
+  public deleteTask(path: string, context?: MutationContext): Promise<void> {
+    if (!this.capabilities.write || !this.enrichment?.deleteTask) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
+      );
+    }
+    return this.enrichment.deleteTask(path, context);
+  }
 }

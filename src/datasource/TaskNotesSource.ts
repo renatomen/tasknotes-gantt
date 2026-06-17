@@ -18,25 +18,32 @@
  * verifies the api version — returning `null` (not throwing) when TaskNotes is
  * unavailable or incompatible so the caller can fall back to {@link BasesSource}.
  *
- * Write support is intentionally *not* implemented in this unit. `capabilities
- * .write` is hardcoded to `false` and `mutate`/`deleteTask` are absent; the
- * separate {@link TaskNotesSource.supportsWrite} method surfaces TaskNotes' own
- * `hasCapability('tasks.write')` so U8 can flip `capabilities.write` from it and
- * add the mutation methods. Keeping these in lockstep preserves the DataSource
- * contract invariant that `capabilities.write === true` implies `mutate` is
- * present.
+ * Write support (U8): `capabilities.write` is set at construction from
+ * {@link TaskNotesSource.supportsWrite} (TaskNotes' own
+ * `hasCapability('tasks.write')`), and {@link TaskNotesSource.mutate} /
+ * {@link TaskNotesSource.deleteTask} delegate to `api.tasks.update` /
+ * `api.tasks.delete` — never direct frontmatter writes (R6). Capability is read
+ * at construction; the controller re-creates the source when TaskNotes
+ * availability flips, so a disable/enable re-derives `write`. Unlike the read
+ * paths (which swallow errors to degrade gracefully), the write methods
+ * **propagate failures** so the controller can revert the optimistic move and
+ * surface a Notice.
  *
  * @module datasource/TaskNotesSource
  */
 
 import type { App } from 'obsidian';
 import type {
+  CustomDateField,
   DataSource,
   DataSourceCapabilities,
   DependencyRelType,
+  FieldConfig,
+  MutationContext,
   SourceDependency,
   SourceTask,
   StatusColor,
+  TaskPatch,
 } from './types';
 
 /**
@@ -124,6 +131,19 @@ export interface TaskNotesApi {
   tasks?: {
     list(query?: unknown): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
     get(path: string): Promise<TaskNotesTaskInfo | null> | TaskNotesTaskInfo | null;
+    /**
+     * Atomically apply a field patch to a task (TaskNotes 4.11.0:
+     * `update(path, updates, options)` → `withMutationContext`). The third
+     * `options` arg carries the {@link MutationContext}; TaskNotes tags the
+     * emitted change event with `context.correlationId` for echo suppression.
+     */
+    update?(
+      path: string,
+      updates: Record<string, unknown>,
+      options?: unknown,
+    ): Promise<unknown> | unknown;
+    /** Delete a task and its note (`delete(path, options)`). */
+    delete?(path: string, options?: unknown): Promise<unknown> | unknown;
   };
   relationships?: {
     dependencies(
@@ -142,7 +162,35 @@ export interface TaskNotesApi {
    * TaskNotes version).
    */
   catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
-  model?: { config?(): { statuses?: TaskNotesStatusConfig[] } | null | undefined };
+  /**
+   * `model.config()` (getModelConfig) carries the configured field surface:
+   * `fieldMapping` (logical field → frontmatter property name, incl.
+   * `scheduled`/`due`), `userFields` (custom fields), and `statuses`.
+   */
+  model?: {
+    config?(): TaskNotesModelConfig | null | undefined;
+  };
+}
+
+/** The slice of TaskNotes' `model.config()` this source reads. */
+export interface TaskNotesModelConfig {
+  statuses?: TaskNotesStatusConfig[];
+  /** Logical field → frontmatter property name (incl. `scheduled`, `due`). */
+  fieldMapping?: Record<string, string> | null;
+  /** Custom user fields. */
+  userFields?: TaskNotesUserField[] | null;
+}
+
+/** A TaskNotes custom user-field definition (the slice consumed here). */
+export interface TaskNotesUserField {
+  enabled?: boolean | null;
+  displayName?: string | null;
+  /** Frontmatter property key. */
+  key?: string | null;
+  /** Internal field id. */
+  id?: string | null;
+  /** Field type (e.g. `date`, `text`, `number`). */
+  type?: string | null;
 }
 
 /** Minimal shape of `app.plugins` needed to resolve the TaskNotes plugin. */
@@ -169,12 +217,14 @@ const TASKNOTES_PLUGIN_ID = 'tasknotes';
  */
 export class TaskNotesSource implements DataSource {
   /**
-   * Read-only in this unit. U8 sets `capabilities.write` from
-   * {@link TaskNotesSource.supportsWrite} and adds `mutate`/`deleteTask`.
-   * Keeping this `false` until then preserves the contract invariant that
-   * `write === true` implies the mutation methods are present.
+   * Write capability, derived at construction from TaskNotes'
+   * `hasCapability('tasks.write')` (via {@link TaskNotesSource.supportsWrite}).
+   * `mutate`/`deleteTask` are always present on this class; the contract
+   * invariant (`write === true` ⇒ mutation methods present) holds because the
+   * methods exist whenever `write` is true. Re-derived whenever the controller
+   * re-creates the source (reactive availability — KTD).
    */
-  public readonly capabilities: DataSourceCapabilities = { write: false };
+  public readonly capabilities: DataSourceCapabilities;
 
   private readonly app: App;
   private readonly api: TaskNotesApi;
@@ -182,6 +232,7 @@ export class TaskNotesSource implements DataSource {
   private constructor(app: App, api: TaskNotesApi) {
     this.app = app;
     this.api = api;
+    this.capabilities = { write: this.supportsWrite() };
   }
 
   /**
@@ -331,6 +382,53 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
+   * the frontmatter property names for canonical `scheduled`/`due` (from
+   * `model.config().fieldMapping`) and the enabled custom fields of type `date`
+   * (from `model.config().userFields`). Custom fields without a `key` are
+   * dropped (the key is how the property is addressed). Guarded: a missing or
+   * throwing `model.config()` yields `null` so callers degrade to read-only.
+   */
+  public async getFieldConfig(): Promise<FieldConfig | null> {
+    try {
+      const config = this.api.model?.config?.();
+      if (!config) {
+        return null;
+      }
+      const fieldMapping = config.fieldMapping ?? {};
+      const dateFields: CustomDateField[] = [];
+      for (const f of config.userFields ?? []) {
+        if (
+          f &&
+          // Persisted TaskNotes userFields carry no `enabled` flag — their
+          // presence means active. Only exclude an explicit `enabled: false`.
+          f.enabled !== false &&
+          f.type === 'date' &&
+          typeof f.key === 'string' &&
+          f.key.length > 0
+        ) {
+          dateFields.push({
+            key: f.key,
+            id: typeof f.id === 'string' ? f.id : f.key,
+            displayName:
+              typeof f.displayName === 'string' && f.displayName.length > 0
+                ? f.displayName
+                : f.key,
+          });
+        }
+      }
+      return {
+        scheduledProp:
+          typeof fieldMapping.scheduled === 'string' ? fieldMapping.scheduled : null,
+        dueProp: typeof fieldMapping.due === 'string' ? fieldMapping.due : null,
+        dateFields,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Whether TaskNotes currently grants write access.
    *
    * Delegates to TaskNotes' own `hasCapability('tasks.write')` rather than
@@ -347,6 +445,93 @@ export class TaskNotesSource implements DataSource {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Persist a field patch to the task at `path` via `api.tasks.update` (R6 — no
+   * direct frontmatter writes; R17 — schedule edits only, progress deferred).
+   *
+   * Maps {@link TaskPatch} → TaskNotes update fields: `start`→`scheduled`,
+   * `end`→`due` (formatted `yyyy-MM-dd`, or `null` to clear), `text`→`title`,
+   * `status`→`status`. `progress` is intentionally dropped (milestone 1: derived
+   * from status, not persisted). Only fields **present** in the patch are
+   * written, so a drag commit (dates only) never clobbers `text`/`status`.
+   *
+   * The write is **atomic** — one `tasks.update` rather than separate
+   * `setScheduled`/`setDue` — so a reschedule cannot leave a half-updated note.
+   * `context` is forwarded as the third arg; TaskNotes tags the emitted change
+   * event with `context.correlationId` so the controller suppresses the echo.
+   *
+   * Unlike the read paths, this does **not** swallow errors: a rejected write
+   * propagates so the controller can revert the optimistic move and notify.
+   *
+   * @param path - The note path (source identity) to update.
+   * @param patch - The fields to change.
+   * @param context - Echo-suppression context riding the change event.
+   */
+  public async mutate(
+    path: string,
+    patch: TaskPatch,
+    context?: MutationContext,
+  ): Promise<void> {
+    const tasks = this.api.tasks;
+    if (!tasks || typeof tasks.update !== 'function') {
+      throw new Error('TaskNotes API does not support task updates');
+    }
+
+    const updates: Record<string, unknown> = {};
+    // Resolved date targets (the bases-scoped path, U8b): each routes to its
+    // canonical field or to userFields keyed by the field id.
+    if (patch.dateWrites) {
+      for (const write of patch.dateWrites) {
+        const value = write.value === null ? null : toYmd(write.value);
+        if (write.target.kind === 'scheduled') {
+          updates.scheduled = value;
+        } else if (write.target.kind === 'due') {
+          updates.due = value;
+        } else {
+          // Custom user fields: TaskNotes' frontmatter writer
+          // (mapToFrontmatter) reads each user field's value from the TOP LEVEL
+          // of the updates object, keyed by the field's frontmatter `key` —
+          // NOT from a `userFields` object and NOT by field id (confirmed vs
+          // 4.11.0 main.js). Write it under the key accordingly.
+          updates[write.target.key] = value;
+        }
+      }
+    }
+    // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
+    // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
+    if (patch.start !== undefined) {
+      updates.scheduled = patch.start === null ? null : toYmd(patch.start);
+    }
+    if (patch.end !== undefined) {
+      updates.due = patch.end === null ? null : toYmd(patch.end);
+    }
+    if (patch.text !== undefined) {
+      updates.title = patch.text;
+    }
+    if (patch.status !== undefined) {
+      updates.status = patch.status;
+    }
+    // `patch.progress` is intentionally not written (milestone 1, R17).
+
+    await tasks.update(path, updates, context);
+  }
+
+  /**
+   * Delete the task (and its note) at `path` via `api.tasks.delete`. Removes the
+   * single source — every render instance of it disappears. Propagates failures
+   * (see {@link TaskNotesSource.mutate}).
+   *
+   * @param path - The note path to delete.
+   * @param context - Echo-suppression context riding the change event.
+   */
+  public async deleteTask(path: string, context?: MutationContext): Promise<void> {
+    const tasks = this.api.tasks;
+    if (!tasks || typeof tasks.delete !== 'function') {
+      throw new Error('TaskNotes API does not support task deletion');
+    }
+    await tasks.delete(path, context);
   }
 
   /**
@@ -454,4 +639,20 @@ export class TaskNotesSource implements DataSource {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
+}
+
+/**
+ * Format a `Date` as a `yyyy-MM-dd` calendar string using its **local**
+ * components.
+ *
+ * The write path receives day-snapped, local-midnight `Date`s (from a SVAR drag
+ * commit or a `yyyy-MM-dd` date input parsed locally). Using UTC here would
+ * shift the day by one for users west of UTC, so local Y/M/D is the correct
+ * basis — TaskNotes stores `scheduled`/`due` as calendar dates.
+ */
+function toYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

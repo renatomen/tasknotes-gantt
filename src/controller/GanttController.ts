@@ -54,6 +54,7 @@
  * @module controller/GanttController
  */
 
+/* global clearTimeout */
 import type { App } from 'obsidian';
 import type { BasesEntry } from '../bases/register';
 import type { FieldMappings } from '../bases/types/field-mapping';
@@ -61,11 +62,19 @@ import {
   BasesSource,
   CompositeSource,
   TaskNotesSource,
+  resolveDateMapping,
+  bareProperty,
+  toNoteProperty,
   type DataSource,
   type DataSourceCapabilities,
+  type DateWrite,
+  type DateWriteTarget,
+  type FieldConfig,
+  type MutationContext,
   type SourceDependency,
   type SourceTask,
   type StatusColor,
+  type TaskPatch,
 } from '../datasource';
 import {
   expandInstances,
@@ -98,6 +107,18 @@ export const DEFAULT_DATE_POLICY_CONFIG: DatePolicyConfig = {
   showUndatedTasks: true,
   showPartialDateTasks: true,
 };
+
+/**
+ * Default TTL (ms) for an in-flight write's `correlationId` in the
+ * self-suppression set. The matching echo event normally removes it sooner
+ * (removal-on-first-match); this is the backstop if the event is dropped or
+ * never arrives, after which the idempotent recompute backstop covers any late
+ * self-event (KTD "two echo loops, two guards").
+ */
+export const DEFAULT_CORRELATION_TTL_MS = 5000;
+
+/** `source` tag attached to every write's {@link MutationContext}. */
+const GANTT_MUTATION_SOURCE = 'obsidian-gantt';
 
 /** `dateStatus` values produced by partial (one-date-only) tasks. */
 const PARTIAL_STATUSES: ReadonlySet<DateStatus> = new Set([
@@ -146,12 +167,14 @@ export interface GanttControllerDeps {
   ) => DataSource;
   /**
    * Compose a Bases task set with optional TaskNotes enrichment (the
-   * `'bases-scoped'` strategy). Defaults to
-   * `new CompositeSource(base, enrichment)`.
+   * `'bases-scoped'` strategy). `options.writable` lets the controller force the
+   * composite read-only when it can't resolve safe date write targets. Defaults
+   * to `new CompositeSource(base, enrichment, options)`.
    */
   createCompositeSource?: (
     base: DataSource,
     enrichment: DataSource | null,
+    options?: { writable?: boolean },
   ) => DataSource;
 }
 
@@ -194,10 +217,34 @@ export interface GanttControllerOptions {
    * deterministic. Defaults to `() => new Date()`.
    */
   now?: () => Date;
+  /**
+   * How long (ms) an in-flight write's `correlationId` stays in the
+   * self-suppression set as a backstop, in case the echo event is dropped or
+   * never arrives. Defaults to {@link DEFAULT_CORRELATION_TTL_MS}.
+   */
+  correlationTtlMs?: number;
+  /**
+   * Factory for a unique per-write `correlationId`. Injected so tests are
+   * deterministic. Defaults to `crypto.randomUUID()` with a counter fallback.
+   */
+  newCorrelationId?: () => string;
 }
 
 /** A listener notified whenever the controller's snapshot changes. */
 export type ChangeListener = () => void;
+
+/**
+ * The resolved date-field mapping state for the active source (bases-scoped).
+ * Surfaces whether each role's configured property was a valid TaskNotes date
+ * target (so the view can show an "invalid mapping" notice) and the effective
+ * read property used. All-`false`/`null` when there is no field config.
+ */
+export interface DateMappingInfo {
+  startInvalid: boolean;
+  endInvalid: boolean;
+  startReadProp: string | null;
+  endReadProp: string | null;
+}
 
 /**
  * An immutable snapshot of the controller's coherent source graph: the expanded
@@ -243,6 +290,7 @@ export class GanttController {
   private readonly createCompositeSource: (
     base: DataSource,
     enrichment: DataSource | null,
+    options?: { writable?: boolean },
   ) => DataSource;
 
   /** The currently selected source. `null` until {@link init}. */
@@ -260,12 +308,37 @@ export class GanttController {
   /** Guards against overlapping recompute/select runs clobbering each other. */
   private disposed = false;
 
+  /**
+   * `correlationId`s of writes this controller has in flight, each with a TTL
+   * timer. A source change event whose correlationId is in this set is the echo
+   * of our own write and is suppressed (removed on first match). See KTD "two
+   * echo loops, two guards".
+   */
+  private readonly inFlightCorrelations = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly correlationTtlMs: number;
+  private readonly newCorrelationId: () => string;
+
+  /**
+   * Resolved date write targets for the active source (bases-scoped + TaskNotes
+   * field config). `null` when there is no field config — writes then pass
+   * `start`/`end` through to the source's canonical scheduled/due mapping.
+   */
+  private startWriteTarget: DateWriteTarget | null = null;
+  private endWriteTarget: DateWriteTarget | null = null;
+  /** Validity/read-prop info for the resolved date mapping (for surfaces). */
+  private dateMappingInfo: DateMappingInfo | null = null;
+
   constructor(options: GanttControllerOptions) {
     this.app = options.app;
     this.basesInput = options.basesInput;
     this.sourceStrategy = options.sourceStrategy ?? 'tasknotes-first';
     this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
     this.now = options.now ?? (() => new Date());
+    this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
+    this.newCorrelationId = options.newCorrelationId ?? defaultCorrelationId;
     this.createTaskNotesSource =
       options.deps?.createTaskNotesSource ??
       ((app) => TaskNotesSource.create(app));
@@ -274,7 +347,7 @@ export class GanttController {
       ((app, entries, mappings) => new BasesSource(app, entries, mappings));
     this.createCompositeSource =
       options.deps?.createCompositeSource ??
-      ((base, enrichment) => new CompositeSource(base, enrichment));
+      ((base, enrichment, opts) => new CompositeSource(base, enrichment, opts));
   }
 
   /**
@@ -382,26 +455,135 @@ export class GanttController {
   }
 
   /**
-   * Tear down all subscriptions and listeners. After disposal, refresh calls are
-   * no-ops. (U8 also aborts in-flight writes here.)
+   * Tear down all subscriptions and listeners and abort in-flight write
+   * tracking. After disposal, refresh and mutate calls are no-ops/rejections.
    */
   public dispose(): void {
     this.disposed = true;
     this.teardownSubscription();
+    for (const timer of this.inFlightCorrelations.values()) {
+      clearTimeout(timer);
+    }
+    this.inFlightCorrelations.clear();
     this.listeners.clear();
   }
 
-  // ---------------------------------------------------------------------------
-  // U8 SEAM — write path (intentionally not implemented in M1).
-  //
-  // U8 adds `mutate(instanceId, patch)` and `deleteTask(instanceId)` here. They
-  // resolve instanceId → source path via `snapshot.expansion.getSourcePath(...)`
-  // and call `activeSource.mutate/deleteTask(path, patch, context)` with a self
-  // MutationContext (correlationId). The two echo guards (in-flight
-  // correlationId set with TTL for TaskNotes events; `eventSource` self-tag for
-  // SVAR reflection) live here too. The idempotent backstop in `recompute`
-  // below already makes a stray self-event a no-op, so M1 needs no guards.
-  // ---------------------------------------------------------------------------
+  /**
+   * Persist a field patch to the source task behind a render instance (U8).
+   *
+   * Resolves `instanceId` → source path via the expansion map (so a drag on any
+   * one instance of a multi-parent task writes to the single shared source —
+   * R25/R26), tags the write with a self {@link MutationContext} whose
+   * `correlationId` is tracked for echo suppression, and delegates to the active
+   * source's `mutate`. Rejects (without writing) when the active source is
+   * read-only or the instance is unknown. On write failure the correlationId is
+   * released and the error propagates so the caller can revert + notify.
+   *
+   * @param instanceId - The render-row id being edited.
+   * @param patch - The fields to change (drag → dates only; modal → explicit).
+   */
+  public async mutate(instanceId: string, patch: TaskPatch): Promise<void> {
+    const { source, path } = await this.resolveWritable(instanceId);
+    const context = this.beginWrite('mutate');
+    try {
+      await source.mutate!(path, this.toTargetedPatch(patch), context);
+    } catch (err) {
+      this.clearInFlight(context.correlationId);
+      throw err;
+    }
+  }
+
+  /**
+   * Translate a `{start,end}` patch into resolved `dateWrites` using the active
+   * source's write targets (R-D), so a start drag persists to the mapped field
+   * (canonical scheduled/due or a custom userField) rather than always
+   * scheduled/due. With no resolved targets (no field config / tasknotes-first),
+   * the patch passes through and the source applies its canonical mapping.
+   */
+  private toTargetedPatch(patch: TaskPatch): TaskPatch {
+    if (!this.startWriteTarget && !this.endWriteTarget) {
+      return patch;
+    }
+    const dateWrites: DateWrite[] = patch.dateWrites ? [...patch.dateWrites] : [];
+    const rest: TaskPatch = { ...patch };
+    if (patch.start !== undefined && this.startWriteTarget) {
+      dateWrites.push({ target: this.startWriteTarget, value: patch.start ?? null });
+      delete rest.start;
+    }
+    if (patch.end !== undefined && this.endWriteTarget) {
+      dateWrites.push({ target: this.endWriteTarget, value: patch.end ?? null });
+      delete rest.end;
+    }
+    if (dateWrites.length > 0) {
+      rest.dateWrites = dateWrites;
+    }
+    return rest;
+  }
+
+  /**
+   * Delete the source task (and its note) behind a render instance (U8) — all of
+   * its render instances disappear. Resolution, context, and failure handling
+   * mirror {@link GanttController.mutate}.
+   *
+   * @param instanceId - A render-row id of the task to delete.
+   */
+  public async deleteTask(instanceId: string): Promise<void> {
+    const { source, path } = await this.resolveWritable(instanceId);
+    if (typeof source.deleteTask !== 'function') {
+      throw new Error('Active source does not support deletion');
+    }
+    const context = this.beginWrite('delete');
+    try {
+      await source.deleteTask(path, context);
+    } catch (err) {
+      this.clearInFlight(context.correlationId);
+      throw err;
+    }
+  }
+
+  /**
+   * Resolve an instance id to its `{ source, path }` for a write, enforcing the
+   * capability gate (R11 — no bypass). Throws when disposed, read-only, the
+   * source lacks `mutate`, or the instance id is unknown.
+   */
+  private async resolveWritable(
+    instanceId: string,
+  ): Promise<{ source: DataSource; path: string }> {
+    if (this.disposed) {
+      throw new Error('GanttController is disposed');
+    }
+    const source = this.activeSource;
+    if (!source || !source.capabilities.write || typeof source.mutate !== 'function') {
+      throw new Error('Active source is read-only');
+    }
+    const snap = await this.ensureSnapshot();
+    const path = snap.expansion.getSourcePath(instanceId);
+    if (!path) {
+      throw new Error(`Unknown render instance: ${instanceId}`);
+    }
+    return { source, path };
+  }
+
+  /** Mint a self mutation context and start tracking its correlationId (TTL). */
+  private beginWrite(reason: string): MutationContext {
+    const correlationId = this.newCorrelationId();
+    const timer = setTimeout(() => {
+      this.inFlightCorrelations.delete(correlationId);
+    }, this.correlationTtlMs);
+    // Don't keep the event loop alive on this backstop timer (node/tests).
+    (timer as { unref?: () => void }).unref?.();
+    this.inFlightCorrelations.set(correlationId, timer);
+    return { source: GANTT_MUTATION_SOURCE, correlationId, reason };
+  }
+
+  /** Remove a correlationId from the in-flight set and cancel its TTL timer. */
+  private clearInFlight(correlationId: string): void {
+    const timer = this.inFlightCorrelations.get(correlationId);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    this.inFlightCorrelations.delete(correlationId);
+  }
 
   /**
    * Select the active source per {@link SourceStrategy}.
@@ -416,11 +598,28 @@ export class GanttController {
    *   source — for non-Base callers that want every task.
    */
   private async selectSource(): Promise<DataSource> {
+    // Reset resolved date targets; the bases-scoped branch repopulates them.
+    this.startWriteTarget = null;
+    this.endWriteTarget = null;
+    this.dateMappingInfo = null;
+
     if (this.sourceStrategy === 'bases-scoped') {
       const { entries, mappings } = this.basesInput();
-      const base = this.createBasesSource(this.app, entries, mappings);
+      // Create the enrichment first so its field config can resolve the
+      // effective read properties + write targets before the base is built.
       const enrichment = await this.createTaskNotesSource(this.app);
-      return this.createCompositeSource(base, enrichment);
+      const fieldConfig = enrichment
+        ? (await enrichment.getFieldConfig?.()) ?? null
+        : null;
+      const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      const base = this.createBasesSource(this.app, entries, effectiveMappings);
+      // Force read-only when we have no resolvable field config: without write
+      // targets, a date edit would fall through to canonical scheduled/due and
+      // could land in a different field than the Base reads (R-F / #70). Deps
+      // from the enrichment still flow; only writes are gated off.
+      return this.createCompositeSource(base, enrichment, {
+        writable: fieldConfig != null,
+      });
     }
 
     const taskNotes = await this.createTaskNotesSource(this.app);
@@ -428,7 +627,79 @@ export class GanttController {
       return taskNotes;
     }
     const { entries, mappings } = this.basesInput();
-    return this.createBasesSource(this.app, entries, mappings);
+    // Apply the same legacy read defaults the bases-scoped no-config path uses.
+    return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
+  }
+
+  /**
+   * Resolve the Base's start/end property mappings against TaskNotes' field
+   * config: store the write targets, record validity/read-prop info, and return
+   * field mappings whose start/end **read** properties match the resolved
+   * targets (round-trip symmetry — R-D). With no field config, mappings pass
+   * through unchanged and no targets are set (writes pass start/end through).
+   */
+  private applyDateFieldMapping(
+    mappings: FieldMappings,
+    fieldConfig: FieldConfig | null,
+  ): FieldMappings {
+    if (!fieldConfig) {
+      this.dateMappingInfo = {
+        startInvalid: false,
+        endInvalid: false,
+        startReadProp: null,
+        endReadProp: null,
+      };
+      // No TaskNotes field config (TaskNotes absent): no write targets, and the
+      // read falls back to the legacy note.start/note.due when unset, preserving
+      // the pre-TaskNotes Bases behavior.
+      return {
+        ...mappings,
+        startProperty: mappings.startProperty || 'note.start',
+        endProperty: mappings.endProperty || 'note.due',
+      };
+    }
+
+    const startRes = resolveDateMapping(
+      bareProperty(mappings.startProperty),
+      'start',
+      fieldConfig,
+    );
+    const endRes = resolveDateMapping(
+      bareProperty(mappings.endProperty),
+      'end',
+      fieldConfig,
+    );
+
+    this.startWriteTarget = startRes.writeTarget;
+    this.endWriteTarget = endRes.writeTarget;
+    this.dateMappingInfo = {
+      startInvalid: startRes.invalid,
+      endInvalid: endRes.invalid,
+      startReadProp: startRes.readProp,
+      endReadProp: endRes.readProp,
+    };
+
+    return {
+      ...mappings,
+      startProperty: toNoteProperty(startRes.readProp),
+      endProperty: toNoteProperty(endRes.readProp),
+    };
+  }
+
+  /**
+   * The resolved date-mapping validity/read-prop info for the active source.
+   * Surfaces (register/view) read this to render an invalid-mapping notice.
+   * All-`false`/`null` before {@link init} or when there is no field config.
+   */
+  public getDateMappingInfo(): DateMappingInfo {
+    return (
+      this.dateMappingInfo ?? {
+        startInvalid: false,
+        endInvalid: false,
+        startReadProp: null,
+        endReadProp: null,
+      }
+    );
   }
 
   /**
@@ -441,13 +712,25 @@ export class GanttController {
     if (typeof subscribe !== 'function') {
       return;
     }
-    // The TaskNotesSource.subscribe signature: (handler) => disposer.
+    // TaskNotesSource/CompositeSource invoke the handler as (eventName, payload);
+    // the structural signature is typed as `() => void`, so the extra args still
+    // flow at runtime and we read the payload's correlationId for echo control.
     this.sourceUnsubscribe = (
-      subscribe as (handler: () => void) => () => void
-    ).call(source, () => {
-      // Fire-and-forget: a source event triggers a snapshot recompute. The
-      // idempotent backstop suppresses notification when nothing changed (M1's
-      // cheap echo guard; full correlationId suppression is U8).
+      subscribe as (handler: (eventName?: string, payload?: unknown) => void) => () => void
+    ).call(source, (_eventName?: string, payload?: unknown) => {
+      const correlationId = extractCorrelationId(payload);
+      if (correlationId && this.inFlightCorrelations.has(correlationId)) {
+        // Self-write echo: drop the correlationId (removal-on-first-match) and
+        // suppress the recompute entirely (U8 guard 1). A genuinely external
+        // edit arriving during our in-flight window carries a different/no
+        // correlationId and falls through to recompute — suppression keys on
+        // correlationId, never on `source === self`.
+        this.clearInFlight(correlationId);
+        return;
+      }
+      // Fire-and-forget recompute; the idempotent backstop suppresses
+      // notification when nothing actually changed (covers a late self-event
+      // whose correlationId TTL already expired).
       void this.recompute({ forceNotify: false });
     });
   }
@@ -563,6 +846,45 @@ export class GanttController {
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
   return { expansion: expandInstances([]), sourceLinks: [] };
+}
+
+/**
+ * Extract the `correlationId` a TaskNotes change-event payload carries for a
+ * write the controller originated. TaskNotes (4.11.0) surfaces it on the
+ * normalized event; defensively we also accept a nested `context.correlationId`.
+ * Returns `undefined` for external edits (no recognizable correlationId).
+ */
+function extractCorrelationId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+  const p = payload as {
+    correlationId?: unknown;
+    context?: { correlationId?: unknown } | null;
+  };
+  if (typeof p.correlationId === 'string') {
+    return p.correlationId;
+  }
+  if (p.context && typeof p.context.correlationId === 'string') {
+    return p.context.correlationId;
+  }
+  return undefined;
+}
+
+/** Monotonic fallback counter for {@link defaultCorrelationId}. */
+let correlationCounter = 0;
+
+/**
+ * Default `correlationId` factory: `crypto.randomUUID()` when available
+ * (Electron/modern runtimes), else a timestamp+counter fallback. Injected in
+ * tests for determinism.
+ */
+function defaultCorrelationId(): string {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+    return cryptoObj.randomUUID();
+  }
+  return `og-${Date.now()}-${(correlationCounter += 1)}`;
 }
 
 /**
