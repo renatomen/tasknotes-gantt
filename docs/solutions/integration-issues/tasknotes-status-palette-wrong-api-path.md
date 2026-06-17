@@ -67,3 +67,4 @@ Fixed pre-merge in commit `428d70e`; shipped to `main` in PR #69 (`ef17a41`).
 - PR #69 (status coloring), commit `428d70e` (the fix)
 - TaskNotes public-API surface notes recorded in `docs/brainstorms/2026-06-16-tasknotes-companion-gantt-requirements.md`
 - See also `src/datasource/CompositeSource.ts` (`getStatusColors()` delegates to the enrichment source)
+- Matched-pair sibling: [[tasknotes-custom-field-write-top-level-key]] — the **write-path** `wrong_api` at this same TaskNotes boundary (custom date fields write top-level by `key`, not `userFields`/`id`). Same root cause + verification method, opposite direction.
