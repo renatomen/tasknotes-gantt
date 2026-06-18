@@ -105,9 +105,17 @@ export interface TaskNotesStatusConfig {
   isCompleted?: boolean | null;
 }
 
-/** A resolved `blockedBy` dependency edge for a task. */
+/**
+ * A resolved `blockedBy` dependency edge for a task, as returned by TaskNotes'
+ * `relationships.dependencies(path)`.
+ *
+ * The live API (verified against TaskNotes 4.11.0 via the dependency e2e) nests
+ * the relationship under `dependency` and puts the resolved predecessor at the
+ * top-level `path`: `{ dependency: { uid, reltype, gap }, path, task }`. Older/
+ * flat shapes (`{ path|uid, reltype, gap }`) are still accepted as a fallback.
+ */
 export interface TaskNotesDependencyEdge {
-  /** Predecessor (blocking task) path. May arrive as `path` or `uid`. */
+  /** Resolved predecessor (blocking task) note path. */
   path?: string | null;
   /** Alternative predecessor identifier some payloads use. */
   uid?: string | null;
@@ -115,6 +123,12 @@ export interface TaskNotesDependencyEdge {
   reltype?: string | null;
   /** Optional ISO-8601 duration gap (e.g. `"P1D"`). */
   gap?: string | null;
+  /** Nested relationship payload used by the live TaskNotes API. */
+  dependency?: {
+    uid?: string | null;
+    reltype?: string | null;
+    gap?: string | null;
+  } | null;
 }
 
 /** Opaque reference returned by `events.on`, passed back to `events.off`. */
@@ -606,12 +620,16 @@ export class TaskNotesSource implements DataSource {
   private toSourceDependency(
     edge: TaskNotesDependencyEdge
   ): SourceDependency | null {
-    const predecessorPath = edge.path ?? edge.uid ?? null;
+    // The live API nests reltype/gap/uid under `dependency`; fall back to the
+    // flat shape for older payloads.
+    const rel = edge.dependency ?? edge;
+    const predecessorPath = edge.path ?? rel.uid ?? edge.uid ?? null;
     if (!predecessorPath) {
       return null;
     }
 
-    const reltype = edge.reltype ? RELTYPE_MAP[edge.reltype] : undefined;
+    const rawReltype = rel.reltype ?? edge.reltype;
+    const reltype = rawReltype ? RELTYPE_MAP[rawReltype] : undefined;
     if (!reltype) {
       return null;
     }
@@ -619,7 +637,7 @@ export class TaskNotesSource implements DataSource {
     return {
       predecessorPath,
       reltype,
-      gap: edge.gap ?? null,
+      gap: rel.gap ?? edge.gap ?? null,
     };
   }
 

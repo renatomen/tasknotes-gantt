@@ -482,6 +482,29 @@ describe('TaskNotesSource', () => {
       expect(deps.every((d) => d.gap === null)).toBe(true);
     });
 
+    it('reads the live nested shape ({ dependency: { reltype, gap, uid }, path }) (4.11.0)', async () => {
+      // The real TaskNotes API nests reltype/gap under `dependency` and puts the
+      // resolved predecessor at top-level `path`. Verified against 4.11.0 via the
+      // dependency e2e; the flat shape above is a fallback for older payloads.
+      const { api } = makeApi({
+        dependencies: {
+          'x.md': [
+            {
+              dependency: { uid: 'Spec', reltype: 'STARTTOSTART', gap: 'P2D' },
+              path: 'Spec.md',
+            } as TaskNotesDependencyEdge,
+          ],
+        },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      const deps = await source!.getDependencies('x.md');
+
+      expect(deps).toEqual([
+        { predecessorPath: 'Spec.md', reltype: 'STARTTOSTART', gap: 'P2D' },
+      ]);
+    });
+
     it('resolves the predecessor from uid when path is absent', async () => {
       // Arrange
       const { api } = makeApi({
