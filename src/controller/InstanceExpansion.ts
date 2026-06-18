@@ -16,7 +16,7 @@
  * @module controller/InstanceExpansion
  */
 
-import type { SourceTask } from '../datasource/types';
+import type { SourceTask, DependencyRelType } from '../datasource/types';
 import type { DateStatus } from './datePolicy';
 
 /**
@@ -86,6 +86,10 @@ export interface SourceLink {
   targetPath: string;
   /** SVAR link type (e.g. `e2s`, `s2s`, `e2e`, `s2e`). */
   type: string;
+  /** Relationship type (RFC 9253), for display alongside the SVAR `type`. */
+  reltype: DependencyRelType;
+  /** ISO-8601 duration gap (e.g. `"P1D"`), or `null` when none. */
+  gap: string | null;
 }
 
 /** A rewritten link whose endpoints are concrete render-instance ids. */
@@ -98,6 +102,10 @@ export interface RenderLink {
   target: string;
   /** SVAR link type, carried through unchanged. */
   type: string;
+  /** Relationship type (RFC 9253), carried through for display. */
+  reltype: DependencyRelType;
+  /** ISO-8601 duration gap, carried through for display, or `null`. */
+  gap: string | null;
 }
 
 /** Endpoint cardinality for {@link InstanceExpansion.rewriteLinks}. */
@@ -210,10 +218,12 @@ export class ExpansionResult {
       for (const src of sources) {
         for (const tgt of targets) {
           result.push({
-            id: makeLinkId(src, tgt, link.type),
+            id: makeLinkId(src, tgt, link.type, link.gap),
             source: src,
             target: tgt,
             type: link.type,
+            reltype: link.reltype,
+            gap: link.gap,
           });
         }
       }
@@ -393,9 +403,19 @@ function makeInstance(
   };
 }
 
-/** A deterministic, collision-resistant link id. */
-function makeLinkId(source: string, target: string, type: string): string {
-  return `${source}->${target}:${type}`;
+/**
+ * A deterministic, collision-resistant link id. Includes `gap` so a gap-only
+ * change (same endpoints + type) yields a new id — `planLinkSync` is delete/add
+ * on id with no in-place update, so without this a gap edit would never
+ * re-issue the SVAR link (its `lag`). See plan 004 KTD6.
+ */
+function makeLinkId(
+  source: string,
+  target: string,
+  type: string,
+  gap: string | null,
+): string {
+  return `${source}->${target}:${type}:${gap ?? ''}`;
 }
 
 /** `[value]` when defined, else `[]` — for uniform cartesian iteration. */

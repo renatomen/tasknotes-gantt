@@ -294,6 +294,21 @@ describe('GanttController — getLinks', () => {
     }
   });
 
+  it('carries reltype + gap from the dependency edge to the RenderLink', async () => {
+    const tasks = [task({ path: 'pred.md' }), task({ path: 'dep.md' })];
+    const tn = new FakeSource({
+      tasks,
+      deps: { 'dep.md': [{ predecessorPath: 'pred.md', reltype: 'STARTTOSTART', gap: 'P1D' }] },
+    });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+    await controller.init();
+    const [link] = await controller.getLinks('primary');
+    expect(link).toMatchObject({ type: 's2s', reltype: 'STARTTOSTART', gap: 'P1D' });
+  });
+
   it('produces no links for a Bases source (no dependency model)', async () => {
     const bases = new FakeSource({ tasks: [task({ path: 'b.md' })] });
     const controller = makeController({

@@ -124,7 +124,7 @@ describe('buildSvarTasks', () => {
       inst({ id: 'c#2', sourcePath: 'c.md' }),
       inst({ id: 'd', sourcePath: 'd.md' }),
     ];
-    const links: RenderLink[] = [{ id: 'L1', source: 'c#1', target: 'd', type: 'e2s' }];
+    const links: RenderLink[] = [{ id: 'L1', source: 'c#1', target: 'd', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
     const tasks = buildSvarTasks(inputs({ instances, links, arrowMode: 'primary' }));
     expect(tasks.find((t) => t.id === 'c#1')!.custom.showHasDeps).toBe(false); // primary
     expect(tasks.find((t) => t.id === 'c#2')!.custom.showHasDeps).toBe(true); // non-primary, has deps
@@ -132,7 +132,7 @@ describe('buildSvarTasks', () => {
 
   it('never sets showHasDeps in "all" arrow mode', () => {
     const instances = [inst({ id: 'c#1', sourcePath: 'c.md' }), inst({ id: 'c#2', sourcePath: 'c.md' })];
-    const links: RenderLink[] = [{ id: 'L1', source: 'c#1', target: 'c#2', type: 'e2s' }];
+    const links: RenderLink[] = [{ id: 'L1', source: 'c#1', target: 'c#2', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
     const tasks = buildSvarTasks(inputs({ instances, links, arrowMode: 'all' }));
     expect(tasks.every((t) => t.custom.showHasDeps === false)).toBe(true);
   });
@@ -278,7 +278,7 @@ describe('taskStateKey', () => {
 });
 
 describe('planLinkSync', () => {
-  const link = (id: string, source = 's', target = 't'): RenderLink => ({ id, source, target, type: 'e2s' });
+  const link = (id: string, source = 's', target = 't'): RenderLink => ({ id, source, target, type: 'e2s', reltype: 'FINISHTOSTART', gap: null });
 
   it('adds new links and deletes removed ones by id', () => {
     const prev = new Map([['L1', link('L1')]]);
