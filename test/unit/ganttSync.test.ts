@@ -25,6 +25,7 @@ import {
 import { statusSlug } from '../../src/bases/statusColor';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { StatusColor } from '../../src/datasource/types';
+import type { TypedValue } from '../../src/bases/propertyValues';
 
 /** Minimal RenderInstance factory with sane defaults. */
 function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
@@ -50,6 +51,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     statusColors: over.statusColors ?? [],
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
+    propertyValues: over.propertyValues,
   };
 }
 
@@ -231,7 +233,37 @@ describe('planTaskSync', () => {
   });
 });
 
+describe('buildSvarTasks — grid property values (U4)', () => {
+  const propsFor = (entries: Array<[string, Record<string, TypedValue>]>) =>
+    new Map<string, Record<string, TypedValue>>(entries);
+
+  it('attaches custom.properties by source path', () => {
+    const pv = propsFor([['a.md', { 'note.status': { kind: 'text', value: 'wip' } }]]);
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', sourcePath: 'a.md' })], propertyValues: pv }));
+    expect(t.custom.properties).toEqual({ 'note.status': { kind: 'text', value: 'wip' } });
+  });
+
+  it('defaults custom.properties to {} when the task has no resolved values', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', sourcePath: 'a.md' })] }));
+    expect(t.custom.properties).toEqual({});
+  });
+});
+
 describe('taskStateKey', () => {
+  it('changes when a displayed property value changes, is stable for a date, and ignores unmapped props', () => {
+    const pv = (status: string) =>
+      new Map<string, Record<string, TypedValue>>([
+        ['a.md', { 'note.status': { kind: 'text', value: status }, 'note.start': { kind: 'date', value: new Date(2026, 0, 1) } }],
+      ]);
+    const build = (status: string) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', sourcePath: 'a.md' })], propertyValues: pv(status) }))[0];
+
+    // A displayed value change → different key.
+    expect(taskStateKey(build('wip'))).not.toBe(taskStateKey(build('done')));
+    // Same content (incl. a date-kind value) → identical key across rebuilds (no churn).
+    expect(taskStateKey(build('wip'))).toBe(taskStateKey(build('wip')));
+  });
+
   it('changes when a date moves', () => {
     const [a] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', start: new Date(2026, 0, 1) })] }));
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', start: new Date(2026, 0, 5) })] }));

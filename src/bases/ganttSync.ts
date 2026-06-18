@@ -21,6 +21,8 @@
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { StatusColor } from '../datasource/types';
 import { statusSlug } from './statusColor';
+import type { TypedValue } from './propertyValues';
+import { formatPropertyValue } from './propertyFormat';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -37,6 +39,13 @@ export interface SvarTaskInputs {
   statusColors: StatusColor[];
   showDateIndicators: boolean;
   arrowMode: LinkRewriteMode;
+  /**
+   * Per-task type-tagged values for the grid's visible property columns, keyed
+   * by source path (U1/U4). Looked up per instance and attached to the SVAR
+   * task's `custom.properties` so {@link import('./PropertyCell.svelte')} can
+   * render them. Omitted in pure-task contexts (e.g. some tests).
+   */
+  propertyValues?: Map<string, Record<string, TypedValue>>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -56,6 +65,12 @@ export interface SvarTask {
     isVirtual: boolean;
     isCollapsed: boolean;
     showHasDeps: boolean;
+    /**
+     * Type-tagged values for the grid's visible property columns, keyed by
+     * Bases property id. Read by the grid's PropertyCell. `{}` when no columns
+     * are configured or the task's values weren't resolved.
+     */
+    properties?: Record<string, TypedValue>;
   };
 }
 
@@ -66,7 +81,7 @@ export interface SvarTask {
  * `$derived` in the component verbatim, so rendering is unchanged.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
-  const { instances, links, statusColors, showDateIndicators, arrowMode } = input;
+  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues } = input;
 
   // Which instance ids are referenced as a parent → mark them summary/open.
   const parentIds = new Set<string>();
@@ -141,6 +156,9 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
+        // Grid property-column values for this task (by source path); the grid
+        // cell reads these. `{}` when no columns are configured.
+        properties: propertyValues?.get(inst.sourcePath) ?? {},
       },
     };
     if (inst.parent) task.parent = inst.parent;
@@ -183,7 +201,22 @@ export function taskStateKey(t: SvarTask): string {
     t.custom.showHasDeps,
     t.custom.isVirtual,
     t.custom.isCollapsed,
+    // Displayed property values (visible columns only — `properties` is already
+    // scoped to them). Fold the *formatted* strings, not the raw values: a raw
+    // Date/ISO-string/wrapper serializes non-deterministically and would make
+    // every refresh look like a change (re-render storm). The formatted output
+    // is stable, so a cell refreshes on an external edit without churn.
+    propertiesKey(t.custom.properties),
   ]);
+}
+
+/** Deterministic fingerprint of a task's displayed property values. */
+function propertiesKey(properties: Record<string, TypedValue> | undefined): string {
+  if (!properties) return '';
+  return Object.keys(properties)
+    .sort((a, b) => a.localeCompare(b))
+    .map((k) => `${k}=${formatPropertyValue(properties[k])}`)
+    .join('|');
 }
 
 /** Normalise a parent ref for comparison (root/undefined collapse together). */

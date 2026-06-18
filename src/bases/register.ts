@@ -37,6 +37,9 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
+import { buildEntryProperties } from './propertyValues';
+import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
+import { BasesDataAdapter } from './services/BasesDataAdapter';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -348,6 +351,49 @@ class ObsidianGanttBasesView extends GanttBasesView {
     // Future: notify Svelte component of resize if needed
   }
 
+  /** Stateless extractor for grid property-column values (U1). */
+  private readonly gridAdapter = new BasesDataAdapter();
+
+  /**
+   * The Base's visible property ids, in display order (U2). Prefer the view
+   * config's `getOrder()` (the user's live column selection); fall back to the
+   * query result's `properties` when it's unavailable/empty.
+   */
+  private getVisiblePropertyIds(): BasesPropertyId[] {
+    try {
+      const order = this.config.getOrder?.();
+      if (Array.isArray(order) && order.length > 0) return order;
+    } catch {
+      // getOrder unavailable on this Bases version — fall through.
+    }
+    return this.data?.properties ?? [];
+  }
+
+  /** The Base's display name for a property id, falling back to the id (U2). */
+  private getDisplayName(propertyId: BasesPropertyId): string {
+    try {
+      const name = this.config.getDisplayName?.(propertyId);
+      if (typeof name === 'string' && name.trim() !== '') return name;
+    } catch {
+      // getDisplayName unavailable — fall through to the id.
+    }
+    return propertyId;
+  }
+
+  /**
+   * The standard per-property width map (`columnSize`), or undefined when
+   * unset/malformed. Same field the native table view uses (U2/U7).
+   */
+  private getColumnSize(): Record<string, number> | undefined {
+    const raw = this.config.get('columnSize');
+    if (!raw || typeof raw !== 'object') return undefined;
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === 'number' && value > 0) out[key] = value;
+    }
+    return out;
+  }
+
   /** Build the FieldMappings from the current view config (OG-87). */
   private buildFieldMappings(): FieldMappings {
     return {
@@ -464,6 +510,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
             interactions.handleActivate(path, opts),
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
+          // Column resize persistence (U8/R8): write the new width back to the
+          // standard `columnSize` map so it survives reload. Merges into the
+          // current map (never clobbers a width the native table view stored).
+          onColumnResize: (propId: string, width: number) => {
+            try {
+              this.config.set('columnSize', mergeColumnSize(this.getColumnSize(), propId, width));
+            } catch (error) {
+              console.warn('[Gantt] Failed to persist column width:', error);
+            }
+          },
         },
       });
 
@@ -495,6 +551,21 @@ class ObsidianGanttBasesView extends GanttBasesView {
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
     ]);
+    // Resolve the visible property columns once; share between the per-task
+    // value map (U1) and the column descriptors (U2).
+    const visiblePropIds = this.getVisiblePropertyIds();
+    const propertyValues = buildEntryProperties(
+      this.data?.data ?? [],
+      visiblePropIds,
+      this.gridAdapter,
+    );
+    const gridColumns = buildGridColumns(
+      visiblePropIds,
+      (id) => this.getDisplayName(id),
+      this.getColumnSize(),
+      // The task-name property: the configured textProperty, else file.name.
+      (this.config.get('textProperty') as string) || 'file.name',
+    );
     return {
       instances,
       links,
@@ -504,6 +575,9 @@ class ObsidianGanttBasesView extends GanttBasesView {
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
+      propertyValues,
+      gridColumns,
+      gridColumnsKey: gridColumnsKey(gridColumns),
     };
   }
 
