@@ -4,7 +4,7 @@ plan_id: 004
 type: feat
 title: "feat: Gantt dependency read fidelity — render four reltypes + surface gap"
 origin: docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md
-status: active
+status: completed
 milestone: "M1 Read fidelity"
 tracking_issues: [81, 82]
 ---
