@@ -98,7 +98,7 @@ describe('buildEntryProperties', () => {
     ];
     const map = buildEntryProperties(entries, ['note.status', 'note.start'], extractor);
     const rec = map.get('a.md')!;
-    expect(Object.keys(rec).sort()).toEqual(['note.start', 'note.status']);
+    expect(Object.keys(rec).sort((a, b) => a.localeCompare(b))).toEqual(['note.start', 'note.status']);
     expect(rec['note.status']).toEqual({ kind: 'text', value: 'wip' });
     expect(rec['note.start'].kind).toBe('date');
   });

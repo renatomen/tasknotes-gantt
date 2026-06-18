@@ -214,7 +214,7 @@ export function taskStateKey(t: SvarTask): string {
 function propertiesKey(properties: Record<string, TypedValue> | undefined): string {
   if (!properties) return '';
   return Object.keys(properties)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((k) => `${k}=${formatPropertyValue(properties[k])}`)
     .join('|');
 }
