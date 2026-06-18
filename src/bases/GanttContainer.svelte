@@ -215,13 +215,19 @@
   // controller selects its source and does not change for the view's lifetime.
   // The reactive `readOnly` above still drives the banner and the persist gate.
   const svarReadonly = !initialData.capabilities.write;
-  // Persisted divider width (plan 002 U3). Seeds SVAR's `gridWidth` reactive
-  // state once at mount so a reload restores the user's chosen grid-pane width;
-  // `undefined` → SVAR's own default (it sizes the grid itself). In-session
-  // resizing is SVAR's Resizer; we only seed the initial value + persist changes
-  // via the `resize-grid` listener (see initGantt). A primitive seeded once — we
-  // never reassign it, so it doesn't trigger a store re-init.
+  // Persisted divider width (plan 002 U3). The `gridWidth` prop alone is NOT
+  // enough to restore it: SVAR's gantt-store has a recompute action
+  // (in:["displayMode","columns"]) that, when every column has a fixed width,
+  // forces gridWidth = sum(column widths) — clobbering the seeded prop right
+  // after mount. So we seed the prop AND re-assert via api.exec("resize-grid")
+  // once the column recompute has settled (see applyPersistedGridWidth). That
+  // recompute only fires on column changes (mount + a column-config reseed),
+  // never on a plain task refresh, so a re-assert sticks. In-session dragging is
+  // SVAR's own Resizer; we capture it to persist (see wireGridWidthPersistence).
   const initialGridWidth: number | undefined = initialData.gridWidth;
+  // The last width we know about (mount-persisted, then updated on each drag) —
+  // what we re-assert after a column recompute.
+  let lastGridWidth: number | undefined = initialGridWidth;
 
   // Registered custom task-type superset (date-status flag + status-color
   // classes), derived from the status palette rather than the present tasks.
@@ -341,6 +347,11 @@
     for (const t of tasks) appliedTasks.set(t.id, t);
     appliedLinks.clear();
     for (const l of d.links) appliedLinks.set(l.id, l);
+
+    // The re-init triggers the column recompute (gridWidth → column-sum); re-
+    // assert the user's persisted divider width afterward so a column-config
+    // change doesn't silently reset it.
+    applyPersistedGridWidth();
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -487,12 +498,17 @@
    * is the `gridWidth` prop seeded at mount; this only saves changes.
    */
   function wireGridWidthPersistence(ganttApi: GanttAPI): void {
-    if (!onGridWidthChange || typeof ganttApi?.on !== 'function') return;
+    if (typeof ganttApi?.on !== 'function') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let pending: number | null = null;
     try {
       ganttApi.on('resize-grid', (ev: { width?: number }) => {
         if (!ev || typeof ev.width !== 'number') return;
+        // Track the user's chosen width (also covers our own re-assert exec —
+        // harmless, same value). The column recompute uses setState, not this
+        // event, so its column-sum value never pollutes lastGridWidth.
+        lastGridWidth = ev.width;
+        if (!onGridWidthChange) return;
         pending = ev.width;
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
@@ -505,11 +521,31 @@
     }
   }
 
+  /**
+   * Re-assert the persisted grid width after the column recompute (which forces
+   * gridWidth = column-sum at mount/reseed). Deferred so it runs after that
+   * recompute settles; `resize-grid` doesn't re-trigger the recompute (it keys
+   * on columns/displayMode), so the value sticks until the next column change.
+   */
+  function applyPersistedGridWidth(): void {
+    if (lastGridWidth == null || !api?.exec) return;
+    const width = lastGridWidth;
+    setTimeout(() => {
+      try {
+        api?.exec?.('resize-grid', { width });
+      } catch {
+        /* exec unavailable — restore inert; in-session drag still works */
+      }
+    }, 0);
+  }
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
     wireColumnResizePersistence(ganttApi);
     wireGridWidthPersistence(ganttApi);
+    // Restore the persisted divider width after the initial column recompute.
+    applyPersistedGridWidth();
 
     // Log the state SVAR received
     console.log('[GanttContainer] SVAR Gantt initialized');
