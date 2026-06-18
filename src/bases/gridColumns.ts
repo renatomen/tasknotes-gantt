@@ -116,13 +116,19 @@ export function buildGridColumns(
 }
 
 /**
- * A stable fingerprint of the column configuration (ids, headers, widths, and
- * order). The view rebuilds the SVAR columns array only when this changes, so a
- * plain data refresh — which leaves the config untouched — never re-inits the
- * SVAR store (preserving zoom/scroll).
+ * A stable fingerprint of the column *structure* (ids, headers, and order) — the
+ * config that genuinely requires a SVAR store re-init to change. The view
+ * rebuilds the columns array (re-initing the store) only when this changes.
+ *
+ * Width is deliberately EXCLUDED: SVAR applies a resize in place, and the new
+ * width is persisted to `columnSize` for the next mount — so a width change
+ * must NOT force a reseed. Including it would mean a resize → `columnSize`
+ * write → next refresh re-reads the wider column → key change → reseed →
+ * zoom/scroll reset (the PR #73 regression). Initial widths are still read from
+ * `columnSize` when the columns are (re)built.
  */
 export function gridColumnsKey(columns: readonly GridColumn[]): string {
-  return columns.map((c) => `${c.id}:${c.header}:${c.width}`).join('|');
+  return columns.map((c) => `${c.id}:${c.header}`).join('|');
 }
 
 /**

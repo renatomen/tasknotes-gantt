@@ -60,7 +60,9 @@ function basename(path: string): string {
 /**
  * Display text for a link-shaped string, or `null` when the string isn't a
  * link. Handles `[[target|alias]]` (→ alias), `[[path/target]]` (→ basename),
- * and a bare note path `folder/Note.md` (→ basename).
+ * and a bare note path like `folder/Note.md` or root-level `Note.md`
+ * (→ basename). A `.md` string here is a resolved FileValue path
+ * (`convertValueToNative`) or a frontmatter path; wikilinks are handled above.
  */
 function linkDisplay(s: string): string | null {
   const wiki = WIKILINK_RE.exec(s);
@@ -70,7 +72,7 @@ function linkDisplay(s: string): string | null {
     if (aliasIdx !== -1) return inner.slice(aliasIdx + 1).trim();
     return basename(inner.trim());
   }
-  if (s.endsWith('.md') && s.includes('/')) return basename(s);
+  if (s.endsWith('.md')) return basename(s);
   return null;
 }
 

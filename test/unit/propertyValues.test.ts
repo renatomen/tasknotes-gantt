@@ -51,6 +51,8 @@ describe('classifyTypedValue', () => {
     expect(classifyTypedValue('[[people/Bob|Bobby]]')).toEqual<TypedValue>({ kind: 'link', value: 'Bobby' });
     expect(classifyTypedValue('[[people/Carol]]')).toEqual<TypedValue>({ kind: 'link', value: 'Carol' });
     expect(classifyTypedValue('projects/Plan.md')).toEqual<TypedValue>({ kind: 'link', value: 'Plan' });
+    // Root-level note path (no folder) — still a link, extension stripped.
+    expect(classifyTypedValue('Note.md')).toEqual<TypedValue>({ kind: 'link', value: 'Note' });
   });
 
   it('resolves FileValue-shaped objects and link list items to basenames', () => {

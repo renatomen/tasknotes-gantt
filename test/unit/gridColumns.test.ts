@@ -79,16 +79,21 @@ describe('buildGridColumns', () => {
 });
 
 describe('gridColumnsKey', () => {
-  it('is stable for identical configs and changes on order/header/width', () => {
+  it('is stable for identical configs and changes on order/header', () => {
     const a = buildGridColumns(['file.name', 'note.status'], displayName, undefined, 'file.name');
     const b = buildGridColumns(['file.name', 'note.status'], displayName, undefined, 'file.name');
     expect(gridColumnsKey(a)).toBe(gridColumnsKey(b));
 
     const reordered = buildGridColumns(['file.name', 'note.start', 'note.status'], displayName, undefined, 'file.name');
     expect(gridColumnsKey(a)).not.toBe(gridColumnsKey(reordered));
+  });
 
+  it('does NOT change on a width-only change (resize must not force a reseed)', () => {
+    // A width change persists to columnSize but must not re-init SVAR (zoom
+    // preservation, PR #73). Same structure + different widths → same key.
+    const a = buildGridColumns(['file.name', 'note.status'], displayName, undefined, 'file.name');
     const resized = buildGridColumns(['file.name', 'note.status'], displayName, { 'note.status': 200 }, 'file.name');
-    expect(gridColumnsKey(a)).not.toBe(gridColumnsKey(resized));
+    expect(gridColumnsKey(a)).toBe(gridColumnsKey(resized));
   });
 });
 
