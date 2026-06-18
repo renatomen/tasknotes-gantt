@@ -38,6 +38,7 @@ import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
+import { buildGridColumns, gridColumnsKey } from './gridColumns';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 
 /**
@@ -368,6 +369,31 @@ class ObsidianGanttBasesView extends GanttBasesView {
     return this.data?.properties ?? [];
   }
 
+  /** The Base's display name for a property id, falling back to the id (U2). */
+  private getDisplayName(propertyId: BasesPropertyId): string {
+    try {
+      const name = this.config.getDisplayName?.(propertyId);
+      if (typeof name === 'string' && name.trim() !== '') return name;
+    } catch {
+      // getDisplayName unavailable — fall through to the id.
+    }
+    return propertyId;
+  }
+
+  /**
+   * The standard per-property width map (`columnSize`), or undefined when
+   * unset/malformed. Same field the native table view uses (U2/U7).
+   */
+  private getColumnSize(): Record<string, number> | undefined {
+    const raw = this.config.get('columnSize');
+    if (!raw || typeof raw !== 'object') return undefined;
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === 'number' && value > 0) out[key] = value;
+    }
+    return out;
+  }
+
   /** Build the FieldMappings from the current view config (OG-87). */
   private buildFieldMappings(): FieldMappings {
     return {
@@ -523,6 +549,13 @@ class ObsidianGanttBasesView extends GanttBasesView {
       visiblePropIds,
       this.gridAdapter,
     );
+    const gridColumns = buildGridColumns(
+      visiblePropIds,
+      (id) => this.getDisplayName(id),
+      this.getColumnSize(),
+      // The task-name property: the configured textProperty, else file.name.
+      (this.config.get('textProperty') as string) || 'file.name',
+    );
     return {
       instances,
       links,
@@ -533,6 +566,8 @@ class ObsidianGanttBasesView extends GanttBasesView {
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       propertyValues,
+      gridColumns,
+      gridColumnsKey: gridColumnsKey(gridColumns),
     };
   }
 

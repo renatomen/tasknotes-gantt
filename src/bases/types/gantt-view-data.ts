@@ -19,6 +19,7 @@ import type {
 import type { StatusColor } from '../../datasource/types';
 import type { CascadeMode } from '../cascadeGate';
 import type { TypedValue } from '../propertyValues';
+import type { GridColumn } from '../gridColumns';
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -49,4 +50,16 @@ export interface GanttData {
    * entries; the grid cell looks values up by each instance's `sourcePath`.
    */
   propertyValues: Map<string, Record<string, TypedValue>>;
+  /**
+   * Grid column descriptors derived from the Base config (U2): name column
+   * first, then the visible properties in order. The view turns these into SVAR
+   * columns.
+   */
+  gridColumns: GridColumn[];
+  /**
+   * Stable fingerprint of {@link gridColumns}. The view rebuilds the SVAR
+   * columns array (which re-inits the store, resetting zoom/scroll) only when
+   * this changes — never on a plain data refresh.
+   */
+  gridColumnsKey: string;
 }
