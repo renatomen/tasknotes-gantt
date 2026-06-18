@@ -135,8 +135,11 @@
       // locateID convention), so match the nearest element with one — this
       // covers right-click on the grid rows, not just the bars.
       const el = target?.closest?.('[data-id]') as HTMLElement | null;
-      const id = el?.getAttribute('data-id');
-      if (!id) return;
+      const rawId = el?.getAttribute('data-id');
+      if (!rawId) return;
+      // SVAR 2.6+ encodes string ids in the DOM with a leading ":" (setID);
+      // strip it to recover our raw instance id. No-op for un-prefixed ids.
+      const id = rawId.startsWith(':') ? rawId.slice(1) : rawId;
       const path = idToSourcePath.get(id);
       // Only act on a known task row; unknown ids / empty space / header fall
       // through to the default menu.
@@ -863,20 +866,25 @@
     level: 3, // Start at month/week level
     minCellWidth: 40,
     maxCellWidth: 300,
+    // Scale formats use SVAR's locale (strftime-style %tokens), NOT date-fns.
+    // SVAR 2.4.0 changed the scale format string from date-fns to SVAR locale
+    // (whatsnew.md). Token map: %Y year, %Q quarter (1-4), %F full month,
+    // %M short month, %W week-of-year, %j day-of-month, %D short weekday.
+    // Literal letters (Q, W, "Week") pass through; only %X is substituted.
     levels: [
       // Level 0: Year overview
       {
         minCellWidth: 100,
         maxCellWidth: 300,
-        scales: [{ unit: "year", step: 1, format: "yyyy" }],
+        scales: [{ unit: "year", step: 1, format: "%Y" }],
       },
       // Level 1: Year + Quarter
       {
         minCellWidth: 80,
         maxCellWidth: 200,
         scales: [
-          { unit: "year", step: 1, format: "yyyy" },
-          { unit: "quarter", step: 1, format: "QQQ" },
+          { unit: "year", step: 1, format: "%Y" },
+          { unit: "quarter", step: 1, format: "Q%Q" },
         ],
       },
       // Level 2: Quarter + Month
@@ -884,8 +892,8 @@
         minCellWidth: 60,
         maxCellWidth: 150,
         scales: [
-          { unit: "quarter", step: 1, format: "QQQ yyyy" },
-          { unit: "month", step: 1, format: "MMM" },
+          { unit: "quarter", step: 1, format: "Q%Q %Y" },
+          { unit: "month", step: 1, format: "%M" },
         ],
       },
       // Level 3: Month + Week (default)
@@ -893,8 +901,8 @@
         minCellWidth: 50,
         maxCellWidth: 120,
         scales: [
-          { unit: "month", step: 1, format: "MMMM yyyy" },
-          { unit: "week", step: 1, format: "'W'w" },
+          { unit: "month", step: 1, format: "%F %Y" },
+          { unit: "week", step: 1, format: "W%W" },
         ],
       },
       // Level 4: Month + Day
@@ -902,8 +910,8 @@
         minCellWidth: 30,
         maxCellWidth: 80,
         scales: [
-          { unit: "month", step: 1, format: "MMMM yyyy" },
-          { unit: "day", step: 1, format: "d" },
+          { unit: "month", step: 1, format: "%F %Y" },
+          { unit: "day", step: 1, format: "%j" },
         ],
       },
       // Level 5: Week + Day (detailed)
@@ -911,8 +919,8 @@
         minCellWidth: 25,
         maxCellWidth: 60,
         scales: [
-          { unit: "week", step: 1, format: "'Week' w, MMM yyyy" },
-          { unit: "day", step: 1, format: "EEE d" },
+          { unit: "week", step: 1, format: "Week %W, %M %Y" },
+          { unit: "day", step: 1, format: "%D %j" },
         ],
       },
     ],
