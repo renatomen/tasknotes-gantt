@@ -1,6 +1,6 @@
 ---
 title: "feat: Gantt grid mirrors the Base's configured columns"
-status: active
+status: completed
 date: 2026-06-18
 deepened: 2026-06-18
 depth: deep
