@@ -1,6 +1,6 @@
 ---
 title: "chore: Upgrade SVAR Gantt 2.3.0 → 2.7.0 + revalidate"
-status: active
+status: completed
 date: 2026-06-18
 depth: standard
 ---
