@@ -26,7 +26,17 @@ export const config: Options.Testrunner = {
       browserName: "obsidian",
       browserVersion: "latest",
       "wdio:obsidianOptions": {
-        plugins: [path.resolve(pluginRoot, "dist")],
+        // obsidian-gantt is installed from the local build (always the code
+        // under test). TaskNotes is installed from a pinned GitHub release so
+        // any developer/CI can run the dependency specs with no access to a
+        // personal vault and no committed third-party binary. obsidian-launcher
+        // downloads and caches it; individual specs choose whether to ENABLE it
+        // via the `plugins` list passed to reloadObsidian. Offline/proxy-blocked
+        // environments can swap the entry for { path: "<local tasknotes build>" }.
+        plugins: [
+          path.resolve(pluginRoot, "dist"),
+          { repo: "callumalpass/tasknotes", version: "4.11.0" },
+        ],
         vault: vaultPath,
       },
     },
