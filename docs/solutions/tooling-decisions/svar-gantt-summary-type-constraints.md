@@ -71,6 +71,7 @@ This had silently affected the pre-existing `Default Scale` and `Dependency Arro
 
 ## Related
 
+- `docs/solutions/integration-issues/svar-gantt-gridwidth-divider-persistence.md` — another `@svar-ui/gantt-store` behavior (the gridWidth column-recompute) overriding our value; same "drive state via `api.exec` instead of trusting props/defaults" pattern.
 - `docs/solutions/integration-issues/tasknotes-custom-field-write-top-level-key.md` — same read/write-asymmetry family at the TaskNotes boundary.
 - `docs/solutions/integration-issues/tasknotes-status-palette-wrong-api-path.md` — verify against the shipped third-party artifact; guarded early-returns mask silent failures.
 - `docs/solutions/developer-experience/headless-e2e-verification-for-ui-work.md` — assert drag/resize behavior (e.g. parent-drag-moves-children) with the headless E2E harness, not manual checks.
