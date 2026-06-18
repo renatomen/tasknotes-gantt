@@ -18,6 +18,7 @@ import type {
 } from '../../controller/InstanceExpansion';
 import type { StatusColor } from '../../datasource/types';
 import type { CascadeMode } from '../cascadeGate';
+import type { TypedValue } from '../propertyValues';
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -42,4 +43,10 @@ export interface GanttData {
    * silently), `never`. Defaults to `ask`.
    */
   cascadeMode: CascadeMode;
+  /**
+   * Per-task type-tagged values for the grid's visible property columns,
+   * keyed by source path (U1). Resolved at assembly time from the Bases
+   * entries; the grid cell looks values up by each instance's `sourcePath`.
+   */
+  propertyValues: Map<string, Record<string, TypedValue>>;
 }

@@ -37,6 +37,8 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
+import { buildEntryProperties } from './propertyValues';
+import { BasesDataAdapter } from './services/BasesDataAdapter';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -348,6 +350,24 @@ class ObsidianGanttBasesView extends GanttBasesView {
     // Future: notify Svelte component of resize if needed
   }
 
+  /** Stateless extractor for grid property-column values (U1). */
+  private readonly gridAdapter = new BasesDataAdapter();
+
+  /**
+   * The Base's visible property ids, in display order (U2). Prefer the view
+   * config's `getOrder()` (the user's live column selection); fall back to the
+   * query result's `properties` when it's unavailable/empty.
+   */
+  private getVisiblePropertyIds(): BasesPropertyId[] {
+    try {
+      const order = this.config.getOrder?.();
+      if (Array.isArray(order) && order.length > 0) return order;
+    } catch {
+      // getOrder unavailable on this Bases version — fall through.
+    }
+    return this.data?.properties ?? [];
+  }
+
   /** Build the FieldMappings from the current view config (OG-87). */
   private buildFieldMappings(): FieldMappings {
     return {
@@ -495,6 +515,14 @@ class ObsidianGanttBasesView extends GanttBasesView {
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
     ]);
+    // Resolve the visible property columns once; share between the per-task
+    // value map (U1) and the column descriptors (U2).
+    const visiblePropIds = this.getVisiblePropertyIds();
+    const propertyValues = buildEntryProperties(
+      this.data?.data ?? [],
+      visiblePropIds,
+      this.gridAdapter,
+    );
     return {
       instances,
       links,
@@ -504,6 +532,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
+      propertyValues,
     };
   }
 
