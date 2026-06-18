@@ -1,0 +1,14 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt (OG)"
+    startDateProperty: note.scheduled
+    endDateProperty: note.due
+    parentProperty: note.parent
+    dependencyArrowMode: primary
+    order:
+      - file.name
+      - note.scheduled
+      - note.due

@@ -12,6 +12,7 @@ export default [
       "node_modules/**",
       "coverage/**",
       ".wdio-*",
+      "**/.obsidian-cache/**",
       "project/**",
       "test-results/**",
       "vendor/**",

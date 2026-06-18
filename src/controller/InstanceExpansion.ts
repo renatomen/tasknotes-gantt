@@ -16,8 +16,9 @@
  * @module controller/InstanceExpansion
  */
 
-import type { SourceTask } from '../datasource/types';
+import type { SourceTask, DependencyRelType } from '../datasource/types';
 import type { DateStatus } from './datePolicy';
+import { isoDurationToDays } from './dateGap';
 
 /**
  * A source task whose display dates have already been resolved by the date
@@ -86,6 +87,10 @@ export interface SourceLink {
   targetPath: string;
   /** SVAR link type (e.g. `e2s`, `s2s`, `e2e`, `s2e`). */
   type: string;
+  /** Relationship type (RFC 9253), for display alongside the SVAR `type`. */
+  reltype: DependencyRelType;
+  /** ISO-8601 duration gap (e.g. `"P1D"`), or `null` when none. */
+  gap: string | null;
 }
 
 /** A rewritten link whose endpoints are concrete render-instance ids. */
@@ -98,6 +103,16 @@ export interface RenderLink {
   target: string;
   /** SVAR link type, carried through unchanged. */
   type: string;
+  /** Relationship type (RFC 9253), carried through for display. */
+  reltype: DependencyRelType;
+  /** ISO-8601 duration gap, carried through for display, or `null`. */
+  gap: string | null;
+  /**
+   * SVAR's native numeric link `lag` (days), derived from {@link gap}. Omitted
+   * when there is no gap or it isn't convertible to an exact day count.
+   * Best-effort visual offset; the authoritative gap surface is the tooltip.
+   */
+  lag?: number;
 }
 
 /** Endpoint cardinality for {@link InstanceExpansion.rewriteLinks}. */
@@ -207,14 +222,19 @@ export class ExpansionResult {
       // Drop links whose endpoint path has no instances.
       if (sources.length === 0 || targets.length === 0) continue;
 
+      const lag = isoDurationToDays(link.gap);
       for (const src of sources) {
         for (const tgt of targets) {
-          result.push({
-            id: makeLinkId(src, tgt, link.type),
+          const rendered: RenderLink = {
+            id: makeLinkId(src, tgt, link.type, link.gap),
             source: src,
             target: tgt,
             type: link.type,
-          });
+            reltype: link.reltype,
+            gap: link.gap,
+          };
+          if (lag !== null) rendered.lag = lag;
+          result.push(rendered);
         }
       }
     }
@@ -393,9 +413,19 @@ function makeInstance(
   };
 }
 
-/** A deterministic, collision-resistant link id. */
-function makeLinkId(source: string, target: string, type: string): string {
-  return `${source}->${target}:${type}`;
+/**
+ * A deterministic, collision-resistant link id. Includes `gap` so a gap-only
+ * change (same endpoints + type) yields a new id — `planLinkSync` is delete/add
+ * on id with no in-place update, so without this a gap edit would never
+ * re-issue the SVAR link (its `lag`). See plan 004 KTD6.
+ */
+function makeLinkId(
+  source: string,
+  target: string,
+  type: string,
+  gap: string | null,
+): string {
+  return `${source}->${target}:${type}:${gap ?? ''}`;
 }
 
 /** `[value]` when defined, else `[]` — for uniform cartesian iteration. */

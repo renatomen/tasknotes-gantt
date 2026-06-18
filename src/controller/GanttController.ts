@@ -797,6 +797,8 @@ export class GanttController {
           sourcePath: dep.predecessorPath,
           targetPath: t.path,
           type: RELTYPE_TO_SVAR[dep.reltype],
+          reltype: dep.reltype,
+          gap: dep.gap,
         });
       }
     }
@@ -949,7 +951,9 @@ function sourceLinksEqual(a: readonly SourceLink[], b: readonly SourceLink[]): b
     if (
       x.sourcePath !== y.sourcePath ||
       x.targetPath !== y.targetPath ||
-      x.type !== y.type
+      x.type !== y.type ||
+      x.reltype !== y.reltype ||
+      x.gap !== y.gap
     ) {
       return false;
     }

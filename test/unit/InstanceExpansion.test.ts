@@ -305,7 +305,7 @@ describe('ExpansionResult.rewriteLinks', () => {
 
   it("'primary' yields one link to the target's primary instance", () => {
     const result = setup();
-    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s' }];
+    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
 
     const rewritten = result.rewriteLinks(links, 'primary');
     expect(rewritten).toHaveLength(1);
@@ -318,7 +318,7 @@ describe('ExpansionResult.rewriteLinks', () => {
 
   it("'all' yields the cartesian product over both endpoints' instances", () => {
     const result = setup();
-    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s' }];
+    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
 
     const rewritten = result.rewriteLinks(links, 'all');
     // A has 1 instance, B has 2 → 2 links.
@@ -333,8 +333,8 @@ describe('ExpansionResult.rewriteLinks', () => {
   it('drops links whose endpoint path has no instances', () => {
     const result = setup();
     const links: SourceLink[] = [
-      { sourcePath: 'A.md', targetPath: 'ghost.md', type: 'e2s' },
-      { sourcePath: 'ghost.md', targetPath: 'B.md', type: 'e2s' },
+      { sourcePath: 'A.md', targetPath: 'ghost.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null },
+      { sourcePath: 'ghost.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null },
     ];
     expect(result.rewriteLinks(links, 'primary')).toEqual([]);
     expect(result.rewriteLinks(links, 'all')).toEqual([]);
@@ -342,7 +342,7 @@ describe('ExpansionResult.rewriteLinks', () => {
 
   it('assigns stable, deterministic link ids (same input → same ids)', () => {
     const result = setup();
-    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s' }];
+    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
     const a = result.rewriteLinks(links, 'all').map((l) => l.id);
     const b = result.rewriteLinks(links, 'all').map((l) => l.id);
     expect(a).toEqual(b);
@@ -352,12 +352,48 @@ describe('ExpansionResult.rewriteLinks', () => {
 
   it('never produces an endpoint that is not a real instance id', () => {
     const result = setup();
-    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s' }];
+    const links: SourceLink[] = [{ sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null }];
     const idSet = new Set(result.instances.map((i) => i.id));
     for (const l of result.rewriteLinks(links, 'all')) {
       expect(idSet.has(l.source)).toBe(true);
       expect(idSet.has(l.target)).toBe(true);
     }
+  });
+
+  it('carries reltype + gap through to the rewritten link (primary and all)', () => {
+    const result = setup();
+    const links: SourceLink[] = [
+      { sourcePath: 'A.md', targetPath: 'B.md', type: 's2s', reltype: 'STARTTOSTART', gap: 'P1D' },
+    ];
+    for (const mode of ['primary', 'all'] as const) {
+      for (const rw of result.rewriteLinks(links, mode)) {
+        expect(rw.reltype).toBe('STARTTOSTART');
+        expect(rw.gap).toBe('P1D');
+        expect(rw.type).toBe('s2s');
+      }
+    }
+  });
+
+  it('a gap-only change yields a different link id (so diff-sync re-issues the link)', () => {
+    const result = setup();
+    const base: SourceLink = {
+      sourcePath: 'A.md',
+      targetPath: 'B.md',
+      type: 'e2s',
+      reltype: 'FINISHTOSTART',
+      gap: null,
+    };
+    const [a] = result.rewriteLinks([base], 'primary');
+    const [b] = result.rewriteLinks([{ ...base, gap: 'P1D' }], 'primary');
+    expect(a!.id).not.toBe(b!.id);
+  });
+
+  it('preserves a null gap unchanged', () => {
+    const result = setup();
+    const links: SourceLink[] = [
+      { sourcePath: 'A.md', targetPath: 'B.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: null },
+    ];
+    expect(result.rewriteLinks(links, 'primary')[0]!.gap).toBeNull();
   });
 });
 
