@@ -24,6 +24,8 @@
     type ExtensionNode,
   } from './cascadeGate';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
+  import PropertyCell from './PropertyCell.svelte';
+  import type { GridColumn } from './gridColumns';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -173,13 +175,22 @@
       statusColors: d.statusColors ?? [],
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
+      propertyValues: d.propertyValues,
     };
   }
 
   const initialData = get(data);
-  // Frozen seed handed to `<Gantt>` (never reassigned — see note above).
-  const initialTasks: SvarTask[] = buildSvarTasks(toInputs(initialData));
-  const initialLinks: RenderLink[] = initialData.links;
+  // Plain seed values, used both to seed the `$state` props below and the
+  // applied-state maps further down (referencing the consts, not the $state,
+  // avoids a spurious "state referenced locally" warning).
+  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData));
+  const seedLinks0: RenderLink[] = initialData.links;
+  // Seed props handed to `<Gantt>`. Reassigned ONLY on a column-config change
+  // (which intentionally re-inits the SVAR store, resetting zoom/scroll); a
+  // plain data refresh leaves them untouched and flows through the targeted
+  // diff-sync below. `$state` so the reassignment reaches `<Gantt>`.
+  let initialTasks: SvarTask[] = $state(seedTasks0);
+  let initialLinks: RenderLink[] = $state(seedLinks0);
   // SVAR's own `readonly` is fixed at mount: capability is resolved once when the
   // controller selects its source and does not change for the view's lifetime.
   // The reactive `readOnly` above still drives the banner and the persist gate.
@@ -199,9 +210,9 @@
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
   // the initial render so the first diff after mount is a no-op.
   const appliedTasks = new Map<string, SvarTask>();
-  for (const t of initialTasks) appliedTasks.set(t.id, t);
+  for (const t of seedTasks0) appliedTasks.set(t.id, t);
   const appliedLinks = new Map<string, RenderLink>();
-  for (const l of initialLinks) appliedLinks.set(l.id, l);
+  for (const l of seedLinks0) appliedLinks.set(l.id, l);
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -229,6 +240,18 @@
   });
 
   function syncToGantt(d: GanttData): void {
+    // A column-config change can't be applied incrementally — SVAR has no
+    // per-column update action, and a new `columns` reference re-inits the whole
+    // store from the seed props. So when the fingerprint changes, reseed columns
+    // AND tasks/links to the current data together (a lone columns reseed would
+    // re-init from the stale frozen task seed, dropping incremental updates),
+    // resync the applied maps, and let the single re-init render it. Zoom/scroll
+    // reset here — accepted, since this only fires on an actual column change.
+    if (d.gridColumnsKey !== appliedColumnsKey) {
+      reseedForColumnChange(d);
+      return;
+    }
+
     const taskPlan = planTaskSync(appliedTasks, buildSvarTasks(toInputs(d)));
     const linkPlan = planLinkSync(appliedLinks, d.links);
 
@@ -271,6 +294,26 @@
     } finally {
       syncing = false;
     }
+  }
+
+  /**
+   * Reseed the SVAR `columns`/`tasks`/`links` props from the current data on a
+   * column-config change, and resync the applied maps so the next incremental
+   * diff is a no-op. Reassigning these `$state` seeds re-inits SVAR's store once
+   * (the only correct way to change the column set).
+   */
+  function reseedForColumnChange(d: GanttData): void {
+    appliedColumnsKey = d.gridColumnsKey;
+    columns = buildSvarColumns(d.gridColumns);
+
+    const tasks = buildSvarTasks(toInputs(d));
+    initialTasks = tasks;
+    initialLinks = d.links;
+
+    appliedTasks.clear();
+    for (const t of tasks) appliedTasks.set(t.id, t);
+    appliedLinks.clear();
+    for (const l of d.links) appliedLinks.set(l.id, l);
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -326,27 +369,49 @@
     if (path) onBarActivate?.(path, { kind, ctrlOrMeta });
   }
 
-  // Single text column for the grid. The controller owns the transform now, so
-  // the column set is no longer derived from Bases visible properties — we show
-  // the task-name column (required first for SVAR hierarchy: indentation +
-  // expand/collapse chevrons), rendered with SVAR's default cell so task names
-  // appear.
+  // Grid columns mirror the Base's configured columns (plan 2026-06-18-001).
+  // The name/hierarchy column (id 'text') leads — SVAR pins the tree (indent +
+  // expand/collapse) to the first column, rendered with its default cell so
+  // task names appear — then one column per visible property, each rendered by
+  // a generic type-aware PropertyCell.
   //
-  // NOTE (deferred follow-up): the multi-parent duplicate icon + has-dependencies
-  // indicator (R24/R27 visual cues) were attempted via a Svelte `snippet` passed
-  // as the column `cell`, but SVAR v2.3.0 does not render a snippet there (it
-  // expects a cell *component*), which left the grid name cells blank. Reverted
-  // to the default cell; the indicators need a dedicated SVAR cell component and
-  // are tracked as follow-up work. The underlying multi-parent BEHAVIOR (a task
-  // rendering as one row per visible parent) works — verified via E2E.
-  const columns = $derived([
-    {
-      id: 'text',
-      header: 'Task',
-      width: 300,
-      align: 'left' as const,
-    },
-  ]);
+  // Seed-once: a NEW `columns` reference re-inits SVAR's whole store (resetting
+  // zoom/scroll), so this is built once and reassigned ONLY when the column
+  // config fingerprint changes (see the reseed in the diff-sync $effect). Each
+  // rebuild constructs fresh objects — SVAR mutates column objects in place on
+  // resize/fit, so reusing a prior element would carry stale width state.
+
+  /** A SVAR grid column (the shape `<Gantt columns>` wants). */
+  interface SvarGridColumn {
+    id: string;
+    header: string;
+    width: number;
+    align: 'left' | 'center' | 'right';
+    resize: boolean;
+    // SVAR cell component for property columns; the name column omits it (uses
+    // the default cell, which renders the tree + row.text).
+    cell?: typeof PropertyCell;
+  }
+
+  /** Turn config-derived descriptors into SVAR columns (fresh objects). */
+  function buildSvarColumns(descriptors: GridColumn[]): SvarGridColumn[] {
+    return descriptors.map((c) => {
+      const col: SvarGridColumn = {
+        id: c.id,
+        header: c.header,
+        width: c.width,
+        align: c.align,
+        resize: true,
+      };
+      if (!c.isName) col.cell = PropertyCell;
+      return col;
+    });
+  }
+
+  let columns: SvarGridColumn[] = $state(buildSvarColumns(initialData.gridColumns));
+  // Last-applied column-config fingerprint; a change triggers a reseed (see the
+  // diff-sync $effect). Plain `let` — read/written only inside the effect.
+  let appliedColumnsKey = initialData.gridColumnsKey;
 
   // NOTE: there is intentionally no toolbar. The only items it ever held were
   // Zoom In/Out, which are redundant with the floating +/- controls at the
