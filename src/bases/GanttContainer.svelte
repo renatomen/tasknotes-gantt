@@ -135,8 +135,11 @@
       // locateID convention), so match the nearest element with one — this
       // covers right-click on the grid rows, not just the bars.
       const el = target?.closest?.('[data-id]') as HTMLElement | null;
-      const id = el?.getAttribute('data-id');
-      if (!id) return;
+      const rawId = el?.getAttribute('data-id');
+      if (!rawId) return;
+      // SVAR 2.6+ encodes string ids in the DOM with a leading ":" (setID);
+      // strip it to recover our raw instance id. No-op for un-prefixed ids.
+      const id = rawId.startsWith(':') ? rawId.slice(1) : rawId;
       const path = idToSourcePath.get(id);
       // Only act on a known task row; unknown ids / empty space / header fall
       // through to the default menu.

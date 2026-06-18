@@ -20,11 +20,13 @@ import { fileURLToPath } from "node:url";
  *      indicators off, no bar is flagged (R11).
  *
  * SELECTOR NOTE: bars are SVAR `.wx-bar` elements carrying `data-id` = the note
- * path (our instance id for these single-parent roots), so `[data-id="X.md"]`
- * targets a specific task's bar. The custom date-status type renders as the
- * bare `.datestatus-flagged` class on the bar (SVAR only `wx-`-prefixes the
- * built-in task/summary/milestone types). Verified against
- * @svar-ui/svelte-gantt v2.3.0.
+ * path (our instance id for these single-parent roots). SVAR 2.6+ encodes a
+ * string id in the DOM with a leading ":" (its `setID`), so the rendered
+ * attribute is `:X.md`; we use the ends-with form `[data-id$="X.md"]` to target
+ * a task's bar robustly across that encoding. The custom date-status type
+ * renders as the bare `.datestatus-flagged` class on the bar (SVAR only
+ * `wx-`-prefixes the built-in task/summary/milestone types). Verified against
+ * @svar-ui/svelte-gantt v2.7.0.
  *
  * PLACEMENT NOTE: the fixture's dated tasks sit in April 2026, before any
  * realistic test-run date, so a placeholder anchored at "today" is always to
@@ -87,24 +89,24 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // 4 source notes, all roots → 4 bars: Complete, Due Only, Dateless One/Two.
       const bars = await $$(".og-bases-gantt .wx-bar");
       expect(bars.length).toBe(4);
-      await expect($(`.og-bases-gantt .wx-bar[data-id="Dateless One.md"]`)).toBeExisting();
-      await expect($(`.og-bases-gantt .wx-bar[data-id="Dateless Two.md"]`)).toBeExisting();
+      await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`)).toBeExisting();
+      await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless Two.md"]`)).toBeExisting();
     });
 
     it("places the due-only task at its deadline, not spanning from today (AE1)", async () => {
       // The due-only bar (April) must sit LEFT of a dateless placeholder
       // (anchored at today, which is well after April 2026).
-      const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id="Due Only.md"]`);
-      const dateless = await $(`.og-bases-gantt .wx-bar[data-id="Dateless One.md"]`);
+      const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+      const dateless = await $(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
       const dueX = (await dueOnly.getLocation()).x;
       const datelessX = (await dateless.getLocation()).x;
       expect(dueX).toBeLessThan(datelessX);
     });
 
     it("flags non-complete bars and leaves the complete bar unflagged (R10)", async () => {
-      const complete = await $(`.og-bases-gantt .wx-bar[data-id="Complete.md"]`);
-      const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id="Due Only.md"]`);
-      const dateless = await $(`.og-bases-gantt .wx-bar[data-id="Dateless One.md"]`);
+      const complete = await $(`.og-bases-gantt .wx-bar[data-id$="Complete.md"]`);
+      const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+      const dateless = await $(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
 
       expect((await complete.getAttribute("class")).includes("datestatus-flagged")).toBe(false);
       expect((await dueOnly.getAttribute("class")).includes("datestatus-flagged")).toBe(true);
@@ -125,8 +127,8 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // Dateless One/Two hidden → 2 bars: Complete + Due Only.
       const bars = await $$(".og-bases-gantt .wx-bar");
       expect(bars.length).toBe(2);
-      await expect($(`.og-bases-gantt .wx-bar[data-id="Dateless One.md"]`)).not.toBeExisting();
-      await expect($(`.og-bases-gantt .wx-bar[data-id="Due Only.md"]`)).toBeExisting();
+      await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`)).not.toBeExisting();
+      await expect($(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`)).toBeExisting();
     });
 
     it("applies no indicator treatment when showDateIndicators is off (R11)", async () => {
