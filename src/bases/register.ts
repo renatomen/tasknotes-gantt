@@ -394,6 +394,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
     return out;
   }
 
+  /**
+   * The persisted grid/timeline divider width (`tableWidth`), or undefined when
+   * unset/invalid (→ SVAR's default grid width). Standard `obsidianGantt`
+   * namespaced key (plan 002 U3).
+   */
+  private getTableWidth(): number | undefined {
+    const raw = this.config.get('tableWidth');
+    return typeof raw === 'number' && raw > 0 ? raw : undefined;
+  }
+
   /** Build the FieldMappings from the current view config (OG-87). */
   private buildFieldMappings(): FieldMappings {
     return {
@@ -520,6 +530,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
               console.warn('[Gantt] Failed to persist column width:', error);
             }
           },
+          // Divider width persistence (plan 002 U3): write the dragged grid-pane
+          // width to the standard `tableWidth` so it survives reload. In-session
+          // dragging is SVAR's Resizer; this only persists the chosen value.
+          onGridWidthChange: (width: number) => {
+            try {
+              this.config.set('tableWidth', Math.round(width));
+            } catch (error) {
+              console.warn('[Gantt] Failed to persist grid width:', error);
+            }
+          },
         },
       });
 
@@ -578,6 +598,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       propertyValues,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
+      gridWidth: this.getTableWidth(),
     };
   }
 

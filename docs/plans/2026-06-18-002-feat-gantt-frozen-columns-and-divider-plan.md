@@ -1,12 +1,14 @@
 ---
 title: "feat: Gantt frozen columns + grid/timeline divider"
-status: active
+status: completed
 date: 2026-06-18
 depth: standard
 origin: docs/brainstorms/2026-06-18-gantt-grid-fixed-columns-and-divider-requirements.md
 ---
 
 # feat: Gantt frozen columns + grid/timeline divider
+
+> **Outcome (2026-06-18):** Shipped the **divider width persistence** (U3). **Frozen columns (U1/U2) were dropped** after the U1 spike confirmed there's no viable mechanism: SVAR exposes no freeze API in any version, the grid `split` is init-only, and a runtime `tableApi.setState({split})` poke is clobbered by the gantt-store's column recompute on every data change — reliable freezing would need a SVAR wrapper fork. In-vault verification confirmed the freeze poke didn't hold; per the spike's defer-if-unreliable gate, freezing is dropped (revisit if SVAR adds a sanctioned freeze API).
 
 ## Summary
 
