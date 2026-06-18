@@ -18,6 +18,7 @@
 
 import type { SourceTask, DependencyRelType } from '../datasource/types';
 import type { DateStatus } from './datePolicy';
+import { isoDurationToDays } from './dateGap';
 
 /**
  * A source task whose display dates have already been resolved by the date
@@ -106,6 +107,12 @@ export interface RenderLink {
   reltype: DependencyRelType;
   /** ISO-8601 duration gap, carried through for display, or `null`. */
   gap: string | null;
+  /**
+   * SVAR's native numeric link `lag` (days), derived from {@link gap}. Omitted
+   * when there is no gap or it isn't convertible to an exact day count.
+   * Best-effort visual offset; the authoritative gap surface is the tooltip.
+   */
+  lag?: number;
 }
 
 /** Endpoint cardinality for {@link InstanceExpansion.rewriteLinks}. */
@@ -215,16 +222,19 @@ export class ExpansionResult {
       // Drop links whose endpoint path has no instances.
       if (sources.length === 0 || targets.length === 0) continue;
 
+      const lag = isoDurationToDays(link.gap);
       for (const src of sources) {
         for (const tgt of targets) {
-          result.push({
+          const rendered: RenderLink = {
             id: makeLinkId(src, tgt, link.type, link.gap),
             source: src,
             target: tgt,
             type: link.type,
             reltype: link.reltype,
             gap: link.gap,
-          });
+          };
+          if (lag !== null) rendered.lag = lag;
+          result.push(rendered);
         }
       }
     }
