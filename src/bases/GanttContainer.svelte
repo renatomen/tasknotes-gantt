@@ -64,6 +64,14 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onColumnResize?: (propId: string, width: number) => void;
+    /**
+     * Persist the grid/timeline divider width (plan 002 U3). Invoked on a
+     * `resize-grid` commit with the new grid-pane width; the binder writes it to
+     * the standard `obsidianGantt.tableWidth`. In-session dragging is SVAR's own
+     * Resizer — this only persists the chosen width across reloads.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onGridWidthChange?: (width: number) => void;
   }
 
   // `config` remains part of the props contract (register.ts passes it) but the
@@ -76,6 +84,7 @@
     onBarActivate,
     onBarContextMenu,
     onColumnResize,
+    onGridWidthChange,
   }: Props = $props();
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
@@ -206,6 +215,13 @@
   // controller selects its source and does not change for the view's lifetime.
   // The reactive `readOnly` above still drives the banner and the persist gate.
   const svarReadonly = !initialData.capabilities.write;
+  // Persisted divider width (plan 002 U3). Seeds SVAR's `gridWidth` reactive
+  // state once at mount so a reload restores the user's chosen grid-pane width;
+  // `undefined` → SVAR's own default (it sizes the grid itself). In-session
+  // resizing is SVAR's Resizer; we only seed the initial value + persist changes
+  // via the `resize-grid` listener (see initGantt). A primitive seeded once — we
+  // never reassign it, so it doesn't trigger a store re-init.
+  const initialGridWidth: number | undefined = initialData.gridWidth;
 
   // Registered custom task-type superset (date-status flag + status-color
   // classes), derived from the status palette rather than the present tasks.
@@ -463,10 +479,37 @@
     }
   }
 
+  /**
+   * Persist the grid/timeline divider width (plan 002 U3). SVAR 2.7.0's Resizer
+   * execs `resize-grid` on the Gantt api when the user drags the divider, so we
+   * listen there (no getTable hop needed — unlike resize-column). Debounced so a
+   * drag's continuous frames collapse to one write of the final width. Restore
+   * is the `gridWidth` prop seeded at mount; this only saves changes.
+   */
+  function wireGridWidthPersistence(ganttApi: GanttAPI): void {
+    if (!onGridWidthChange || typeof ganttApi?.on !== 'function') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pending: number | null = null;
+    try {
+      ganttApi.on('resize-grid', (ev: { width?: number }) => {
+        if (!ev || typeof ev.width !== 'number') return;
+        pending = ev.width;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (pending != null) onGridWidthChange?.(pending);
+        }, 300);
+      });
+    } catch {
+      /* resize-grid unsupported — divider persistence inert */
+    }
+  }
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
     wireColumnResizePersistence(ganttApi);
+    wireGridWidthPersistence(ganttApi);
 
     // Log the state SVAR received
     console.log('[GanttContainer] SVAR Gantt initialized');
@@ -968,6 +1011,7 @@
         taskTypes={svarTaskTypes}
         links={initialLinks}
         {columns}
+        gridWidth={initialGridWidth}
         zoom={zoomConfig}
         readonly={svarReadonly}
       />

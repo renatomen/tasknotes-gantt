@@ -62,4 +62,11 @@ export interface GanttData {
    * this changes — never on a plain data refresh.
    */
   gridColumnsKey: string;
+  /**
+   * Persisted grid/timeline divider width (px) from the standard
+   * `obsidianGantt.tableWidth`, or `undefined` when unset (→ SVAR's default).
+   * Seeds the `gridWidth` prop once at mount so a reload restores the user's
+   * chosen pane width (plan 002 U3).
+   */
+  gridWidth?: number;
 }
