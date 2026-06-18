@@ -38,7 +38,7 @@ import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
-import { buildGridColumns, gridColumnsKey } from './gridColumns';
+import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 
 /**
@@ -510,6 +510,16 @@ class ObsidianGanttBasesView extends GanttBasesView {
             interactions.handleActivate(path, opts),
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
+          // Column resize persistence (U8/R8): write the new width back to the
+          // standard `columnSize` map so it survives reload. Merges into the
+          // current map (never clobbers a width the native table view stored).
+          onColumnResize: (propId: string, width: number) => {
+            try {
+              this.config.set('columnSize', mergeColumnSize(this.getColumnSize(), propId, width));
+            } catch (error) {
+              console.warn('[Gantt] Failed to persist column width:', error);
+            }
+          },
         },
       });
 

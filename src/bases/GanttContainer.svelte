@@ -57,6 +57,13 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onBarContextMenu?: (path: string, event: MouseEvent) => void;
+    /**
+     * Persist a column's new width (U5/R8). Invoked on a resize commit with the
+     * Bases property id the column maps to (the name column reports its name
+     * key, not `text`). The binder writes it to the standard `columnSize` map.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onColumnResize?: (propId: string, width: number) => void;
   }
 
   // `config` remains part of the props contract (register.ts passes it) but the
@@ -68,6 +75,7 @@
     onMutate,
     onBarActivate,
     onBarContextMenu,
+    onColumnResize,
   }: Props = $props();
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
@@ -420,9 +428,42 @@
   // it returns, gated on `capabilities.write`, when a controller create op
   // exists.)
 
+  /**
+   * Persist a column's new width (U5/R8). The grid's `resize-column` action
+   * lives on the inner TABLE store, not the Gantt store, so we reach it via
+   * `api.getTable(true)` (a Gantt-store `api.on('resize-column')` never fires).
+   * The committing frame (`inProgress` falsy) carries the final width; map the
+   * SVAR column id back to its Bases property id (the name column reports its
+   * name key, not `text`) and hand it to the binder.
+   */
+  function wireColumnResizePersistence(ganttApi: GanttAPI): void {
+    if (!onColumnResize || typeof ganttApi?.getTable !== 'function') return;
+    try {
+      const result = ganttApi.getTable(true);
+      void Promise.resolve(result)
+        .then((tableApi: GanttAPI) => {
+          tableApi?.on?.(
+            'resize-column',
+            (ev: { id?: string | number; width?: number; inProgress?: boolean }) => {
+              if (!ev || ev.inProgress || ev.id == null || typeof ev.width !== 'number') return;
+              const id = String(ev.id);
+              const descriptor = get(data).gridColumns.find((c) => c.id === id);
+              onColumnResize?.(descriptor?.propId ?? id, ev.width);
+            },
+          );
+        })
+        .catch(() => {
+          /* table API not ready / unsupported — width persistence inert */
+        });
+    } catch {
+      /* getTable threw — width persistence inert */
+    }
+  }
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
+    wireColumnResizePersistence(ganttApi);
 
     // Log the state SVAR received
     console.log('[GanttContainer] SVAR Gantt initialized');

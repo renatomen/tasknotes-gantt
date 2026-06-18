@@ -11,6 +11,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildGridColumns,
   gridColumnsKey,
+  mergeColumnSize,
   DEFAULT_NAME_WIDTH,
   DEFAULT_COLUMN_WIDTH,
 } from '../../src/bases/gridColumns';
@@ -88,5 +89,16 @@ describe('gridColumnsKey', () => {
 
     const resized = buildGridColumns(['file.name', 'note.status'], displayName, { 'note.status': 200 }, 'file.name');
     expect(gridColumnsKey(a)).not.toBe(gridColumnsKey(resized));
+  });
+});
+
+describe('mergeColumnSize', () => {
+  it('adds a new entry, rounding the width', () => {
+    expect(mergeColumnSize(undefined, 'note.status', 263.6)).toEqual({ 'note.status': 264 });
+  });
+
+  it('overwrites an existing entry and preserves the others (no clobber)', () => {
+    const merged = mergeColumnSize({ 'file.name': 320, 'note.status': 140 }, 'note.status', 200);
+    expect(merged).toEqual({ 'file.name': 320, 'note.status': 200 });
   });
 });

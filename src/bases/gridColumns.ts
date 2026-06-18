@@ -124,3 +124,16 @@ export function buildGridColumns(
 export function gridColumnsKey(columns: readonly GridColumn[]): string {
   return columns.map((c) => `${c.id}:${c.header}:${c.width}`).join('|');
 }
+
+/**
+ * Merge a resized column's width into the standard `columnSize` map (U5),
+ * returning a new map. The width is rounded to an integer pixel; other entries
+ * are preserved so a resize never clobbers another column's stored width.
+ */
+export function mergeColumnSize(
+  existing: Record<string, number> | undefined,
+  propId: string,
+  width: number,
+): Record<string, number> {
+  return { ...(existing ?? {}), [propId]: Math.round(width) };
+}
