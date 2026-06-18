@@ -34,6 +34,14 @@ describe('classifyTypedValue', () => {
     expect(tv.kind).toBe('date');
   });
 
+  it('parses a date-only string as LOCAL midnight (no UTC day-shift west of UTC)', () => {
+    // new Date("2026-06-17") would be UTC midnight; with local getters that
+    // renders 2026-06-16 for negative-offset zones. Local construction keeps
+    // the calendar date stable in any timezone.
+    const d = classifyTypedValue('2026-06-17').value as Date;
+    expect([d.getFullYear(), d.getMonth() + 1, d.getDate()]).toEqual([2026, 6, 17]);
+  });
+
   it('tags numbers and booleans by primitive type', () => {
     expect(classifyTypedValue(42)).toEqual<TypedValue>({ kind: 'number', value: 42 });
     expect(classifyTypedValue(true)).toEqual<TypedValue>({ kind: 'boolean', value: true });

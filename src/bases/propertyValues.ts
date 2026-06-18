@@ -48,6 +48,25 @@ export interface PropertyExtractor {
 /** A full-string match for an ISO / `YYYY-MM-DD` date (optionally with time). */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ][\d:.+Z-]*)?$/;
 
+/** A date-*only* string (no time component). */
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parse a date-like string to a `Date`, or `null` if invalid.
+ *
+ * A date-*only* string (`YYYY-MM-DD`) is built as **local** midnight — `new
+ * Date("2026-06-17")` parses as UTC midnight, and the cell formatter reads
+ * local getters, so a UTC parse renders the previous day for users west of UTC.
+ * A date-*time* string keeps its instant (`new Date(s)`).
+ */
+function parseDateString(s: string): Date | null {
+  const dateOnly = DATE_ONLY_RE.exec(s);
+  const d = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** A bare wikilink `[[target]]` or `[[target|alias]]`. */
 const WIKILINK_RE = /^\[\[([^\]]+)\]\]$/;
 
@@ -115,8 +134,8 @@ export function classifyTypedValue(raw: unknown): TypedValue {
     const link = linkDisplay(raw);
     if (link !== null) return { kind: 'link', value: link };
     if (ISO_DATE_RE.test(raw)) {
-      const d = new Date(raw);
-      if (!Number.isNaN(d.getTime())) return { kind: 'date', value: d };
+      const d = parseDateString(raw);
+      if (d) return { kind: 'date', value: d };
     }
     return { kind: 'text', value: raw };
   }
