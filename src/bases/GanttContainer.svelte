@@ -1,6 +1,7 @@
 <script lang="ts">
   /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
-  import { Gantt, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  import { Gantt, Tooltip, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  import DependencyTooltip from './DependencyTooltip.svelte';
   import { Notice, setIcon } from 'obsidian';
   import { get } from 'svelte/store';
   import type { TaskPatch } from '../datasource/types';
@@ -1041,16 +1042,22 @@
       <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
            targeted api.exec actions (diff-sync $effect above) so SVAR never
            re-inits its store and the user's zoom/scroll/selection survive. -->
-      <Gantt
-        init={initGantt}
-        tasks={initialTasks}
-        taskTypes={svarTaskTypes}
-        links={initialLinks}
-        {columns}
-        gridWidth={initialGridWidth}
-        zoom={zoomConfig}
-        readonly={svarReadonly}
-      />
+      <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
+           from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
+           dependent task's tooltip is the surface. Falls back to the task name
+           for tasks with no dependencies. -->
+      <Tooltip {api} content={DependencyTooltip}>
+        <Gantt
+          init={initGantt}
+          tasks={initialTasks}
+          taskTypes={svarTaskTypes}
+          links={initialLinks}
+          {columns}
+          gridWidth={initialGridWidth}
+          zoom={zoomConfig}
+          readonly={svarReadonly}
+        />
+      </Tooltip>
 
       <!-- Floating Zoom Controls (OG-81) -->
       <div class="zoom-controls">

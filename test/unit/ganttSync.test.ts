@@ -136,6 +136,42 @@ describe('buildSvarTasks', () => {
     const tasks = buildSvarTasks(inputs({ instances, links, arrowMode: 'all' }));
     expect(tasks.every((t) => t.custom.showHasDeps === false)).toBe(true);
   });
+
+  it('attaches incoming dependency edges to the target task with the predecessor name resolved (U3)', () => {
+    const instances = [
+      inst({ id: 'pred', sourcePath: 'pred.md', text: 'Draft docs' }),
+      inst({ id: 'dep', sourcePath: 'dep.md', text: 'Review docs' }),
+    ];
+    const links: RenderLink[] = [
+      { id: 'L1', source: 'pred', target: 'dep', type: 's2s', reltype: 'STARTTOSTART', gap: 'P1D' },
+    ];
+    const tasks = buildSvarTasks(inputs({ instances, links }));
+    expect(tasks.find((t) => t.id === 'dep')!.custom.incomingDeps).toEqual([
+      { reltype: 'STARTTOSTART', gap: 'P1D', predecessorName: 'Draft docs' },
+    ]);
+    // The predecessor (source) task has no incoming edges.
+    expect(tasks.find((t) => t.id === 'pred')!.custom.incomingDeps).toEqual([]);
+  });
+
+  it('taskStateKey changes when only an incoming dependency gap changes (re-sync guard)', () => {
+    const instances = [
+      inst({ id: 'pred', text: 'P' }),
+      inst({ id: 'dep' }),
+    ];
+    const linkOf = (gap: string | null): RenderLink => ({
+      id: `pred->dep:e2s:${gap ?? ''}`,
+      source: 'pred',
+      target: 'dep',
+      type: 'e2s',
+      reltype: 'FINISHTOSTART',
+      gap,
+    });
+    const keyOf = (gap: string | null): string => {
+      const dep = buildSvarTasks(inputs({ instances, links: [linkOf(gap)] })).find((t) => t.id === 'dep')!;
+      return taskStateKey(dep);
+    };
+    expect(keyOf(null)).not.toBe(keyOf('P1D'));
+  });
 });
 
 describe('buildStatusTaskTypes', () => {

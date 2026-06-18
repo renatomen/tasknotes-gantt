@@ -23,6 +23,7 @@ import type { StatusColor } from '../datasource/types';
 import { statusSlug } from './statusColor';
 import type { TypedValue } from './propertyValues';
 import { formatPropertyValue } from './propertyFormat';
+import type { IncomingDep } from './dependencyTooltip';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -71,6 +72,13 @@ export interface SvarTask {
      * are configured or the task's values weren't resolved.
      */
     properties?: Record<string, TypedValue>;
+    /**
+     * The task's incoming dependency edges (it is blocked by these), resolved
+     * for display. Read by the tooltip (U3). `[]` when the task has none.
+     * SVAR's tooltip receives the task, not the link, so the per-task summary
+     * must be precomputed here rather than read off the links at hover time.
+     */
+    incomingDeps: IncomingDep[];
   };
 }
 
@@ -97,15 +105,28 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     }
   }
 
-  // Source paths that participate in any dependency link (either endpoint).
+  // Source paths that participate in any dependency link (either endpoint),
+  // plus each target instance's incoming edges resolved for its tooltip (U3).
   const idToSource = new Map<string, string>();
-  for (const inst of instances) idToSource.set(inst.id, inst.sourcePath);
+  const idToText = new Map<string, string>();
+  for (const inst of instances) {
+    idToSource.set(inst.id, inst.sourcePath);
+    idToText.set(inst.id, inst.text);
+  }
   const linkedSourcePaths = new Set<string>();
+  const incomingByTargetId = new Map<string, IncomingDep[]>();
   for (const link of links) {
     const s = idToSource.get(link.source);
     const t = idToSource.get(link.target);
     if (s) linkedSourcePaths.add(s);
     if (t) linkedSourcePaths.add(t);
+    const list = incomingByTargetId.get(link.target) ?? [];
+    list.push({
+      reltype: link.reltype,
+      gap: link.gap,
+      predecessorName: idToText.get(link.source) ?? link.source,
+    });
+    incomingByTargetId.set(link.target, list);
   }
 
   // Status values that have a configured color are eligible for a status class.
@@ -159,6 +180,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         // Grid property-column values for this task (by source path); the grid
         // cell reads these. `{}` when no columns are configured.
         properties: propertyValues?.get(inst.sourcePath) ?? {},
+        // Incoming dependency edges for the tooltip (U3). `[]` when none.
+        incomingDeps: incomingByTargetId.get(inst.id) ?? [],
       },
     };
     if (inst.parent) task.parent = inst.parent;
@@ -207,7 +230,16 @@ export function taskStateKey(t: SvarTask): string {
     // every refresh look like a change (re-render storm). The formatted output
     // is stable, so a cell refreshes on an external edit without churn.
     propertiesKey(t.custom.properties),
+    // Incoming dependency edges feed the tooltip; fold them so an external
+    // reltype/gap edit re-issues the task (the tooltip would otherwise go
+    // stale — the task-side analogue of the gap-in-link-id fix, KTD6).
+    incomingDepsKey(t.custom.incomingDeps),
   ]);
+}
+
+/** Deterministic fingerprint of a task's incoming dependency edges. */
+function incomingDepsKey(deps: IncomingDep[]): string {
+  return deps.map((d) => `${d.predecessorName}:${d.reltype}:${d.gap ?? ''}`).join('|');
 }
 
 /** Deterministic fingerprint of a task's displayed property values. */
