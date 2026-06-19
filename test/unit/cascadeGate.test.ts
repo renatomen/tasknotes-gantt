@@ -15,11 +15,36 @@ import {
   computeMoveDelta,
   computeSubtreeMove,
   computeShrinkFit,
+  classifyLinkCreate,
   CASCADE_EVENT_SOURCES,
   type DateRange,
   type ExtensionNode,
   type SubtreeMoveNode,
 } from '../../src/bases/cascadeGate';
+
+describe('classifyLinkCreate', () => {
+  it('accepts an e2s drag → predecessor=source, dependent=target', () => {
+    expect(classifyLinkCreate({ source: 'A.md', target: 'B.md', type: 'e2s' })).toEqual({
+      predecessor: 'A.md',
+      dependent: 'B.md',
+    });
+  });
+
+  it('rejects non-FS handle geometries (deferred to M3)', () => {
+    for (const type of ['s2s', 'e2e', 's2e']) {
+      expect(classifyLinkCreate({ source: 'A.md', target: 'B.md', type })).toBeNull();
+    }
+  });
+
+  it('rejects a self-link', () => {
+    expect(classifyLinkCreate({ source: 'A.md', target: 'A.md', type: 'e2s' })).toBeNull();
+  });
+
+  it('rejects an empty endpoint', () => {
+    expect(classifyLinkCreate({ source: '', target: 'B.md', type: 'e2s' })).toBeNull();
+    expect(classifyLinkCreate({ source: 'A.md', target: '', type: 'e2s' })).toBeNull();
+  });
+});
 
 describe('computeSubtreeMove', () => {
   const DAY = 86400000;

@@ -513,6 +513,13 @@ class ObsidianGanttBasesView extends GanttBasesView {
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),
+          // FS dependency authoring (M2): drag-to-create / delete a link route to
+          // the controller, which resolves both endpoints → source and writes
+          // blockedBy through TaskNotes.
+          onAddDependency: (predecessorInstanceId: string, dependentInstanceId: string) =>
+            controller.addDependency(predecessorInstanceId, dependentInstanceId),
+          onRemoveDependency: (predecessorInstanceId: string, dependentInstanceId: string) =>
+            controller.removeDependency(predecessorInstanceId, dependentInstanceId),
           // Native edit interaction (plan 004): a bar's left/double-click and
           // right-click delegate to TaskNotes (open note / native edit modal /
           // task menu) via the interaction service — no custom modal.

@@ -18,6 +18,7 @@
   } from './ganttSync';
   import {
     classifyUpdateEvent,
+    classifyLinkCreate,
     computeMoveDelta,
     computeMoveExtensions,
     computeSubtreeMove,
@@ -47,6 +48,19 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
+    /**
+     * Create a Finish-to-Start dependency from a drawn link (M2/U4): the task
+     * behind `predecessorInstanceId` blocks the one behind `dependentInstanceId`.
+     * Routed to the controller's `addDependency`. Absent in read-only contexts.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onAddDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
+    /**
+     * Remove a dependency from a deleted link (M2/U3). Routed to the controller's
+     * `removeDependency`. Absent in read-only contexts.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onRemoveDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
     /**
      * Native edit interaction: invoked on a left/double-click of a bar with the
      * resolved note path, the click kind, and whether ctrl/meta was held. The
@@ -85,6 +99,8 @@
     data,
     app,
     onMutate,
+    onAddDependency,
+    onRemoveDependency,
     onBarActivate,
     onBarContextMenu,
     onColumnResize,
@@ -379,6 +395,17 @@
     task?: Record<string, unknown>;
   }
 
+  // The slice of SVAR's `add-link`/`delete-link` event payloads the dependency
+  // authoring path reads. `delete-link` carries `{ id }`; `add-link` carries
+  // `{ link: { source, target, type } }` (a user-drawn link has no id until SVAR
+  // assigns one after the intercept). `eventSource` is our echo tag.
+  interface LinkEvent {
+    id?: string | number;
+    inProgress?: boolean;
+    eventSource?: string;
+    link?: { source?: string | number; target?: string | number; type?: string };
+  }
+
   // SVAR Gantt API - using unknown with type assertions for third-party API
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
@@ -627,6 +654,57 @@
         scheduleSubtreeAndExtend();
       }
       return true;
+    });
+
+    // Drag-to-create an FS dependency (M2/U4). SVAR fires `add-link` on drop; a
+    // user-drawn link has no id yet (SVAR assigns a temp id in the router AFTER
+    // this intercept), so we return `false` and let the controller write drive
+    // the arrow via the diff-sync (KTD4) — no optimistic add, no temp-id revert.
+    // Only `e2s` (finish→start) is accepted; other geometries / self-links are
+    // rejected. Our own echo / programmatic refresh (cls !== 'user-gesture')
+    // passes through so the diff-sync's add-link applies.
+    api.intercept("add-link", (ev: LinkEvent) => {
+      if (!ev || ev.inProgress) return true;
+      if (classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing }) !== 'user-gesture') {
+        return true;
+      }
+      if (readOnly || !onAddDependency || !ev.link) return false;
+      const roles = classifyLinkCreate({
+        source: String(ev.link.source ?? ''),
+        target: String(ev.link.target ?? ''),
+        type: String(ev.link.type ?? ''),
+      });
+      if (!roles) {
+        new Notice('Only Finish-to-Start links can be created for now.');
+        return false;
+      }
+      void onAddDependency(roles.predecessor, roles.dependent).catch((err) => {
+        console.error('[GanttContainer] add-dependency failed:', err);
+        new Notice("Couldn't create the dependency — check TaskNotes is running.");
+      });
+      return false;
+    });
+
+    // Delete a dependency (M2/U3). SVAR fires `delete-link { id }` from its
+    // native select-and-delete. Resolve the link's endpoints from the applied-
+    // links map (its id may carry SVAR's leading `:`), remove the edge via the
+    // controller, and return `false` so the diff-sync removal — not SVAR's
+    // optimistic one — drives the arrow's disappearance. No confirm; no revert
+    // needed (nothing removed locally).
+    api.intercept("delete-link", (ev: LinkEvent) => {
+      if (!ev) return true;
+      if (classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing }) !== 'user-gesture') {
+        return true;
+      }
+      if (readOnly || !onRemoveDependency || ev.id == null) return false;
+      const rawId = String(ev.id);
+      const link = appliedLinks.get(rawId.startsWith(':') ? rawId.slice(1) : rawId);
+      if (!link) return false;
+      void onRemoveDependency(link.source, link.target).catch((err) => {
+        console.error('[GanttContainer] remove-dependency failed:', err);
+        new Notice("Couldn't remove the dependency — check TaskNotes is running.");
+      });
+      return false;
     });
 
     // Fix initial scroll position - ensure the grid starts with first column visible
