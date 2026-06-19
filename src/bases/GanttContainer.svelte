@@ -1321,6 +1321,24 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7V5a2 2 0 0 1 2-2h2'/%3E%3Cpath d='M17 3h2a2 2 0 0 1 2 2v2'/%3E%3Cpath d='M21 17v2a2 2 0 0 1-2 2h-2'/%3E%3Cpath d='M7 21H5a2 2 0 0 1-2-2v-2'/%3E%3C/svg%3E");
   }
 
+  /*
+   * Link-delete button glyph. SVAR renders the dependency-delete control as
+   * `<i class="wxi-close wx-delete-button-icon">` inside a danger Button
+   * ([Bars.svelte] chart component). With `<Willow fonts={false}>` the wxi
+   * webfont is disabled, and `wxi-close` is not among the `.wx-icon.wxi-*`
+   * re-implementations above (the delete `<i>` carries no `.wx-icon` class), so
+   * without this rule the button shows as a blank red square — the "no visible
+   * X" delete bug. White stroke to read against the danger-red button fill.
+   */
+  .og-bases-gantt :global(.wx-delete-button-icon) {
+    width: 14px;
+    height: 14px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+
   /* OG-82: Grid collapse/expand arrow icons for SVAR Resizer */
   /* These icons are used by SVAR's built-in Resizer component for panel toggle */
   .og-bases-gantt :global(.wxi-menu-left) {
