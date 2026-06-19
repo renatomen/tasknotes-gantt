@@ -59,6 +59,8 @@ class WritableFakeSource implements DataSource {
   public deps: Record<string, SourceDependency[]>;
   public mutateCalls: MutateCall[] = [];
   public deleteCalls: Array<{ path: string; context?: MutationContext }> = [];
+  public addDepCalls: Array<{ dependent: string; predecessor: string; reltype: string; context?: MutationContext }> = [];
+  public removeDepCalls: Array<{ dependent: string; predecessor: string; context?: MutationContext }> = [];
   /** When set, mutate rejects with this error once. */
   public failNext: Error | null = null;
   /** The controller's change handler (receives eventName, payload). */
@@ -89,6 +91,24 @@ class WritableFakeSource implements DataSource {
 
   async deleteTask(path: string, context?: MutationContext): Promise<void> {
     this.deleteCalls.push({ path, context });
+  }
+
+  async addDependency(
+    dependent: string,
+    predecessor: string,
+    reltype: string,
+    context?: MutationContext,
+  ): Promise<void> {
+    if (this.failNext) {
+      const err = this.failNext;
+      this.failNext = null;
+      throw err;
+    }
+    this.addDepCalls.push({ dependent, predecessor, reltype, context });
+  }
+
+  async removeDependency(dependent: string, predecessor: string, context?: MutationContext): Promise<void> {
+    this.removeDepCalls.push({ dependent, predecessor, context });
   }
 
   subscribe(handler: (eventName?: string, payload?: unknown) => void): () => void {
@@ -418,5 +438,82 @@ describe('GanttController.mutate — echo control', () => {
     await flush();
 
     expect(onChange).toHaveBeenCalled();
+  });
+});
+
+describe('GanttController — dependency writes (M2)', () => {
+  it('addDependency resolves both endpoints → source paths and writes FS with a self context', async () => {
+    const src = new WritableFakeSource({ tasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })] });
+    let n = 0;
+    const controller = makeController(src, undefined, { newCorrelationId: () => `cid-${++n}` });
+    await controller.init();
+
+    await controller.addDependency('pred.md', 'dep.md');
+
+    expect(src.addDepCalls).toHaveLength(1);
+    const call = src.addDepCalls[0]!;
+    expect(call.dependent).toBe('dep.md');
+    expect(call.predecessor).toBe('pred.md');
+    expect(call.reltype).toBe('FINISHTOSTART');
+    expect(call.context?.correlationId).toBe('cid-1');
+    expect(call.context?.source).toBeTruthy();
+  });
+
+  it('removeDependency resolves both endpoints and delegates with context', async () => {
+    const src = new WritableFakeSource({ tasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })] });
+    const controller = makeController(src);
+    await controller.init();
+
+    await controller.removeDependency('pred.md', 'dep.md');
+
+    expect(src.removeDepCalls).toHaveLength(1);
+    expect(src.removeDepCalls[0]!.dependent).toBe('dep.md');
+    expect(src.removeDepCalls[0]!.predecessor).toBe('pred.md');
+  });
+
+  it('resolves a multi-parent endpoint to its single shared source path (AE3/AE4 / R7)', async () => {
+    const src = new WritableFakeSource({
+      tasks: [
+        task({ path: 'A.md' }),
+        task({ path: 'B.md' }),
+        task({ path: 'pred.md' }),
+        task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+      ],
+    });
+    const controller = makeController(src);
+    await controller.init();
+    const instances = await controller.getInstances();
+    const childInstance = instances.find((i) => i.sourcePath === 'child.md')!;
+
+    await controller.addDependency('pred.md', childInstance.id);
+
+    expect(src.addDepCalls[0]!.dependent).toBe('child.md');
+  });
+
+  it('rejects on a read-only source — no dependency write attempted', async () => {
+    const src = new WritableFakeSource({ write: false, tasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })] });
+    const controller = makeController(src);
+    await controller.init();
+
+    await expect(controller.addDependency('pred.md', 'dep.md')).rejects.toThrow();
+    expect(src.addDepCalls).toHaveLength(0);
+  });
+
+  it('rejects on an unknown render instance', async () => {
+    const src = new WritableFakeSource({ tasks: [task({ path: 'dep.md' })] });
+    const controller = makeController(src);
+    await controller.init();
+
+    await expect(controller.addDependency('ghost.md', 'dep.md')).rejects.toThrow();
+    expect(src.addDepCalls).toHaveLength(0);
+  });
+
+  it('clears the in-flight correlationId and propagates a failed write', async () => {
+    const src = new WritableFakeSource({ tasks: [task({ path: 'pred.md' }), task({ path: 'dep.md' })] });
+    src.failNext = new Error('write boom');
+    const controller = makeController(src);
+    await controller.init();
+
+    await expect(controller.addDependency('pred.md', 'dep.md')).rejects.toThrow('write boom');
   });
 });

@@ -79,6 +79,16 @@ export type TaskNotesEventHandler = (eventName: string, payload?: unknown) => vo
 // surface explicitly keeps the code free of `any` (per typescript.md).
 // ---------------------------------------------------------------------------
 
+/**
+ * A `blockedBy` entry as TaskNotes stores it: a bare wikilink string, or an
+ * object carrying the link `uid` plus `reltype`/`gap`. Read verbatim and written
+ * back unchanged for edges we don't touch, so a dependency edit never clobbers
+ * sibling edges (incl. ones whose reltype the read path doesn't recognize).
+ */
+export type TaskNotesBlockedByEntry =
+  | string
+  | { uid?: string | null; reltype?: string | null; gap?: string | null };
+
 /** A TaskNotes task record (only the fields this source reads). */
 export interface TaskNotesTaskInfo {
   /** Stable identity: the note path. */
@@ -91,6 +101,8 @@ export interface TaskNotesTaskInfo {
   scheduled?: Date | string | null;
   /** Due date (end), as a `Date` or ISO/`yyyy-MM-dd` string. */
   due?: Date | string | null;
+  /** Raw dependency edges (predecessors), verbatim. */
+  blockedBy?: ReadonlyArray<TaskNotesBlockedByEntry> | null;
 }
 
 /** A TaskNotes custom-status definition (the slice consumed for bar coloring). */
@@ -222,6 +234,12 @@ const RELTYPE_MAP: Readonly<Record<string, DependencyRelType>> = {
 
 /** TaskNotes plugin id used for resolution via `app.plugins.getPlugin`. */
 const TASKNOTES_PLUGIN_ID = 'tasknotes';
+
+/** The uid string of a raw `blockedBy` entry (bare string or `{ uid }` object). */
+function extractEdgeUid(entry: TaskNotesBlockedByEntry): string {
+  if (typeof entry === 'string') return entry;
+  return typeof entry.uid === 'string' ? entry.uid : '';
+}
 
 /**
  * Read-capable data source backed by the TaskNotes JS API.
@@ -546,6 +564,92 @@ export class TaskNotesSource implements DataSource {
       throw new Error('TaskNotes API does not support task deletion');
     }
     await tasks.delete(path, context);
+  }
+
+  /**
+   * Add a Finish-to-Start (or given reltype) dependency: `dependentPath` becomes
+   * blocked by `predecessorPath`. Read-modify-write of the dependent's raw
+   * `blockedBy` (via `tasks.get`, preserving every existing edge verbatim — incl.
+   * ones with reltypes the read path doesn't recognize), appending one new edge,
+   * then `tasks.update({ blockedBy })`. A no-op when an equivalent edge already
+   * exists (its uid resolves to `predecessorPath`). Propagates write failures.
+   */
+  public async addDependency(
+    dependentPath: string,
+    predecessorPath: string,
+    reltype: DependencyRelType,
+    context?: MutationContext,
+  ): Promise<void> {
+    const tasks = this.api.tasks;
+    if (!tasks || typeof tasks.update !== 'function' || typeof tasks.get !== 'function') {
+      throw new Error('TaskNotes API does not support dependency writes');
+    }
+    const current = await this.readBlockedBy(dependentPath);
+    // Dedup: skip when an existing edge already points at the predecessor.
+    if (current.some((e) => this.resolveEdgePath(extractEdgeUid(e), dependentPath) === predecessorPath)) {
+      return;
+    }
+    const next: TaskNotesBlockedByEntry[] = [
+      ...current,
+      { uid: this.toWikilink(predecessorPath), reltype },
+    ];
+    await tasks.update(dependentPath, { blockedBy: next }, context);
+  }
+
+  /**
+   * Remove the dependency edge where `dependentPath` is blocked by
+   * `predecessorPath`, preserving every other edge verbatim. Writes `undefined`
+   * when no edges remain (TaskNotes' clear convention). Propagates failures.
+   */
+  public async removeDependency(
+    dependentPath: string,
+    predecessorPath: string,
+    context?: MutationContext,
+  ): Promise<void> {
+    const tasks = this.api.tasks;
+    if (!tasks || typeof tasks.update !== 'function' || typeof tasks.get !== 'function') {
+      throw new Error('TaskNotes API does not support dependency writes');
+    }
+    const current = await this.readBlockedBy(dependentPath);
+    const next = current.filter(
+      (e) => this.resolveEdgePath(extractEdgeUid(e), dependentPath) !== predecessorPath,
+    );
+    if (next.length === current.length) return; // nothing matched — no-op
+    await tasks.update(
+      dependentPath,
+      { blockedBy: next.length > 0 ? next : undefined },
+      context,
+    );
+  }
+
+  /** Read the dependent task's raw `blockedBy` array (or `[]`). */
+  private async readBlockedBy(path: string): Promise<TaskNotesBlockedByEntry[]> {
+    const task = await this.api.tasks?.get?.(path);
+    const raw = (task as TaskNotesTaskInfo | null | undefined)?.blockedBy;
+    return Array.isArray(raw) ? [...raw] : [];
+  }
+
+  /**
+   * Resolve a `blockedBy` entry's `uid` (a wikilink/path string) to a vault note
+   * path, relative to the dependent note. Returns `null` when unresolvable.
+   * Mirrors TaskNotes' own `resolveDependencyEntry` link resolution.
+   */
+  private resolveEdgePath(uid: string, fromPath: string): string | null {
+    if (!uid) return null;
+    // Strip wikilink brackets, then take the link target before any #subpath or
+    // |alias (avoids a runtime `obsidian` value import — `parseLinktext` is not
+    // available in unit tests; the path-before-`#|` is all we need).
+    const inner = uid.replace(/^\[\[/, '').replace(/\]\]$/, '');
+    const target = inner.split(/[#|]/)[0]?.trim();
+    if (!target) return null;
+    const dest = this.app.metadataCache.getFirstLinkpathDest(target, fromPath);
+    return dest ? dest.path : null;
+  }
+
+  /** A note path → `[[Basename]]` wikilink, matching TaskNotes' stored uid form. */
+  private toWikilink(path: string): string {
+    const base = path.split('/').pop()?.replace(/\.md$/i, '') ?? path;
+    return `[[${base}]]`;
   }
 
   /**

@@ -564,6 +564,90 @@ export class GanttController {
     return { source, path };
   }
 
+  /**
+   * Create a Finish-to-Start dependency from a drawn link: the task behind
+   * `dependentInstanceId` becomes blocked by the task behind
+   * `predecessorInstanceId`. Resolves both render instances to their source
+   * notes, enforces the write-capability gate, and delegates to the source's
+   * `addDependency` (read-modify-write of `blockedBy`). M2 is FS-only. Failure
+   * releases the correlationId and propagates so the view can notify.
+   *
+   * @param predecessorInstanceId - The blocking task's render-row id.
+   * @param dependentInstanceId - The blocked task's render-row id.
+   */
+  public async addDependency(
+    predecessorInstanceId: string,
+    dependentInstanceId: string,
+  ): Promise<void> {
+    const { source, paths } = await this.resolveWritablePair(
+      dependentInstanceId,
+      predecessorInstanceId,
+    );
+    if (typeof source.addDependency !== 'function') {
+      throw new Error('Active source does not support dependency writes');
+    }
+    const context = this.beginWrite('add-dependency');
+    try {
+      await source.addDependency(paths.dependent, paths.predecessor, 'FINISHTOSTART', context);
+    } catch (err) {
+      this.clearInFlight(context.correlationId);
+      throw err;
+    }
+  }
+
+  /**
+   * Remove the dependency where the task behind `dependentInstanceId` is blocked
+   * by the task behind `predecessorInstanceId`. Resolution, gating, context, and
+   * failure handling mirror {@link GanttController.addDependency}.
+   */
+  public async removeDependency(
+    predecessorInstanceId: string,
+    dependentInstanceId: string,
+  ): Promise<void> {
+    const { source, paths } = await this.resolveWritablePair(
+      dependentInstanceId,
+      predecessorInstanceId,
+    );
+    if (typeof source.removeDependency !== 'function') {
+      throw new Error('Active source does not support dependency writes');
+    }
+    const context = this.beginWrite('remove-dependency');
+    try {
+      await source.removeDependency(paths.dependent, paths.predecessor, context);
+    } catch (err) {
+      this.clearInFlight(context.correlationId);
+      throw err;
+    }
+  }
+
+  /**
+   * Resolve a dependent + predecessor instance id to their `{ source, paths }`
+   * for a dependency write, enforcing the capability gate (no bypass). Throws
+   * when disposed, read-only, or either instance id is unknown.
+   */
+  private async resolveWritablePair(
+    dependentInstanceId: string,
+    predecessorInstanceId: string,
+  ): Promise<{ source: DataSource; paths: { dependent: string; predecessor: string } }> {
+    if (this.disposed) {
+      throw new Error('GanttController is disposed');
+    }
+    const source = this.activeSource;
+    if (!source || !source.capabilities.write) {
+      throw new Error('Active source is read-only');
+    }
+    const snap = await this.ensureSnapshot();
+    const dependent = snap.expansion.getSourcePath(dependentInstanceId);
+    const predecessor = snap.expansion.getSourcePath(predecessorInstanceId);
+    if (!dependent) {
+      throw new Error(`Unknown render instance: ${dependentInstanceId}`);
+    }
+    if (!predecessor) {
+      throw new Error(`Unknown render instance: ${predecessorInstanceId}`);
+    }
+    return { source, paths: { dependent, predecessor } };
+  }
+
   /** Mint a self mutation context and start tracking its correlationId (TTL). */
   private beginWrite(reason: string): MutationContext {
     const correlationId = this.newCorrelationId();

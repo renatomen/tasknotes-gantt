@@ -103,8 +103,98 @@ function makeApp(api?: TaskNotesApi): App {
       getPlugin: (id: string) =>
         id === 'tasknotes' && api ? { api } : undefined,
     },
+    metadataCache: {
+      // Resolve a link target (basename) → a TFile-like { path } by appending
+      // `.md` when absent. Enough for dependency-edge resolution in tests.
+      getFirstLinkpathDest: (linktext: string) => ({
+        path: /\.md$/i.test(linktext) ? linktext : `${linktext}.md`,
+      }),
+    },
   } as unknown as App;
 }
+
+describe('TaskNotesSource — dependency writes (M2)', () => {
+  async function makeWritableSource(opts: FakeApiOptions = {}) {
+    const built = makeApi({ hasWrite: true, ...opts });
+    const source = await TaskNotesSource.create(makeApp(built.api));
+    if (!source) throw new Error('expected a source');
+    return { source, updateSpy: built.updateSpy };
+  }
+
+  describe('addDependency', () => {
+    it('appends an FS edge to an empty blockedBy and writes via tasks.update', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md' }],
+      });
+      await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      const [path, updates] = updateSpy.mock.calls[0]!;
+      expect(path).toBe('dep.md');
+      expect(updates).toEqual({
+        blockedBy: [{ uid: '[[pred]]', reltype: 'FINISHTOSTART' }],
+      });
+    });
+
+    it('preserves existing edges verbatim when appending', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[other]]', reltype: 'STARTTOSTART', gap: 'P1D' }] }],
+      });
+      await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
+      const [, updates] = updateSpy.mock.calls[0]!;
+      expect((updates as { blockedBy: unknown[] }).blockedBy).toEqual([
+        { uid: '[[other]]', reltype: 'STARTTOSTART', gap: 'P1D' },
+        { uid: '[[pred]]', reltype: 'FINISHTOSTART' },
+      ]);
+    });
+
+    it('is a no-op when an equivalent edge already exists (dedup by resolved path)', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[pred]]', reltype: 'FINISHTOSTART' }] }],
+      });
+      await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('forwards the MutationContext to tasks.update', async () => {
+      const { source, updateSpy } = await makeWritableSource({ tasks: [{ path: 'dep.md' }] });
+      const ctx = { correlationId: 'abc' };
+      await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART', ctx);
+      expect(updateSpy.mock.calls[0]![2]).toBe(ctx);
+    });
+  });
+
+  describe('removeDependency', () => {
+    it('filters the matching edge and preserves the rest', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md', blockedBy: [
+          { uid: '[[pred]]', reltype: 'FINISHTOSTART' },
+          { uid: '[[keep]]', reltype: 'STARTTOSTART' },
+        ] }],
+      });
+      await source.removeDependency('dep.md', 'pred.md');
+      const [, updates] = updateSpy.mock.calls[0]!;
+      expect((updates as { blockedBy: unknown[] }).blockedBy).toEqual([
+        { uid: '[[keep]]', reltype: 'STARTTOSTART' },
+      ]);
+    });
+
+    it('writes undefined when removing the last edge', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[pred]]', reltype: 'FINISHTOSTART' }] }],
+      });
+      await source.removeDependency('dep.md', 'pred.md');
+      expect((updateSpy.mock.calls[0]![1] as { blockedBy: unknown }).blockedBy).toBeUndefined();
+    });
+
+    it('is a no-op when no edge matches the predecessor', async () => {
+      const { source, updateSpy } = await makeWritableSource({
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[other]]', reltype: 'FINISHTOSTART' }] }],
+      });
+      await source.removeDependency('dep.md', 'pred.md');
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+});
 
 describe('TaskNotesSource — getStatusColors', () => {
   async function makeSource(opts: FakeApiOptions): Promise<TaskNotesSource> {

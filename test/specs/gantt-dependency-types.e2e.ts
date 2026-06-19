@@ -1,3 +1,4 @@
+/* global MouseEvent -- used inside an in-browser execute() callback */
 import { browser, expect, $$ } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -184,6 +185,47 @@ describe("Gantt (OG) dependency read fidelity", () => {
     expect(joined).toContain(":s2s:");
     expect(joined).toContain(":e2e:");
     expect(joined).toContain(":s2e:");
+  });
+
+  it("shows a visible delete glyph when a link is selected (guards the wxi-close icon)", async () => {
+    // Regression guard for the "no visible X" delete bug. `<Willow
+    // fonts={false}>` disables SVAR's wxi webfont, so the link-delete button's
+    // `wxi-close` glyph is supplied entirely by our own CSS rule
+    // (`.wx-delete-button-icon` background-image in GanttContainer.svelte).
+    // Without that rule the danger button renders as a blank red square and the
+    // user cannot tell a selected link is deletable. Selecting a link (UI state,
+    // not an intercepted action) must surface a delete button whose icon has a
+    // non-empty background-image. We assert the glyph only — actually firing
+    // delete would mutate the fixture's blockedBy, out of scope for this
+    // read-fidelity spec.
+    const clicked = await browser.execute(() => {
+      const arrow = document.querySelector(
+        '.og-bases-gantt svg.wx-links g.wx-line[data-link-id*=":e2s:"]'
+      );
+      if (!arrow) return false;
+      // SVAR's onSelectLink is bound to the <g>'s onclick (gated on !readonly);
+      // a bubbling synthetic click drives the same selection path as a user tap.
+      arrow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return true;
+    });
+    expect(clicked).toBe(true);
+
+    await browser.waitUntil(
+      async () =>
+        browser.execute(() => {
+          const icon = document.querySelector(
+            ".og-bases-gantt .wx-delete-button-icon"
+          );
+          if (!icon) return false;
+          const bg = window.getComputedStyle(icon).backgroundImage;
+          return typeof bg === "string" && bg !== "none" && bg.length > 0;
+        }),
+      {
+        timeout: 10000,
+        timeoutMsg:
+          "Selected-link delete button icon rendered no background-image (wxi-close glyph missing)",
+      }
+    );
   });
 
   // NOTE: the U3 dependency tooltip is intentionally NOT asserted here. SVAR's

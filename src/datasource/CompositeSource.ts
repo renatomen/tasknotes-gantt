@@ -32,6 +32,7 @@
 import type {
   DataSource,
   DataSourceCapabilities,
+  DependencyRelType,
   FieldConfig,
   MutationContext,
   SourceDependency,
@@ -171,5 +172,40 @@ export class CompositeSource implements DataSource {
       );
     }
     return this.enrichment.deleteTask(path, context);
+  }
+
+  /**
+   * Add a dependency edge by delegating to the enrichment (TaskNotes), addressed
+   * by the shared note path. Throws if there is no writable enrichment.
+   */
+  public addDependency(
+    dependentPath: string,
+    predecessorPath: string,
+    reltype: DependencyRelType,
+    context?: MutationContext,
+  ): Promise<void> {
+    if (!this.capabilities.write || !this.enrichment?.addDependency) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
+      );
+    }
+    return this.enrichment.addDependency(dependentPath, predecessorPath, reltype, context);
+  }
+
+  /**
+   * Remove a dependency edge by delegating to the enrichment (TaskNotes). Throws
+   * if there is no writable enrichment.
+   */
+  public removeDependency(
+    dependentPath: string,
+    predecessorPath: string,
+    context?: MutationContext,
+  ): Promise<void> {
+    if (!this.capabilities.write || !this.enrichment?.removeDependency) {
+      return Promise.reject(
+        new Error('CompositeSource is read-only: no writable/resolvable enrichment source'),
+      );
+    }
+    return this.enrichment.removeDependency(dependentPath, predecessorPath, context);
   }
 }

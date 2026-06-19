@@ -125,6 +125,36 @@ export function computeShrinkFit(
   };
 }
 
+/** A user-drawn SVAR link, as the `add-link` event carries it. */
+export interface DrawnLink {
+  /** Instance id the drag started from. */
+  source: string;
+  /** Instance id the drag ended on. */
+  target: string;
+  /** SVAR link type from handle geometry (`e2s`/`s2s`/`e2e`/`s2e`). */
+  type: string;
+}
+
+/**
+ * Classify a user-drawn link for M2 (Finish-to-Start authoring only). Returns
+ * the predecessor/dependent instance ids when the drag is a valid FS link —
+ * SVAR `type === "e2s"` (finish handle → start handle), so `source` is the
+ * predecessor and `target` the dependent — or `null` to reject: any other
+ * handle geometry (`s2s`/`e2e`/`s2e`, deferred to M3) or a self-link. Direction
+ * comes from the handle geometry, not drag order, so a reversed drag can't
+ * invert the edge. Duplicates are NOT rejected here — the source layer's
+ * `addDependency` is idempotent.
+ *
+ * Pure; no Obsidian/SVAR.
+ */
+export function classifyLinkCreate(
+  link: DrawnLink,
+): { predecessor: string; dependent: string } | null {
+  if (link.type !== 'e2s') return null;
+  if (!link.source || !link.target || link.source === link.target) return null;
+  return { predecessor: link.source, dependent: link.target };
+}
+
 /** Local-midnight epoch of a date (drops the time-of-day component). */
 function startOfDayMs(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

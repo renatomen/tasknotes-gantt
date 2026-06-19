@@ -194,4 +194,29 @@ export interface DataSource {
    * sources (`capabilities.write === true`).
    */
   deleteTask?(path: string, context?: MutationContext): Promise<void>;
+
+  /**
+   * Add a dependency edge — `dependentPath` becomes blocked by
+   * `predecessorPath` with `reltype` — by read-modify-write of the dependent's
+   * `blockedBy`. A no-op if an equivalent edge already exists. Present only on
+   * write-capable sources (`capabilities.write === true`). The `context` rides
+   * the emitted change event for echo-loop suppression.
+   */
+  addDependency?(
+    dependentPath: string,
+    predecessorPath: string,
+    reltype: DependencyRelType,
+    context?: MutationContext,
+  ): Promise<void>;
+
+  /**
+   * Remove the dependency edge where `dependentPath` is blocked by
+   * `predecessorPath`, preserving every other `blockedBy` edge. Present only on
+   * write-capable sources (`capabilities.write === true`).
+   */
+  removeDependency?(
+    dependentPath: string,
+    predecessorPath: string,
+    context?: MutationContext,
+  ): Promise<void>;
 }

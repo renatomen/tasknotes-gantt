@@ -145,14 +145,20 @@ describe('CompositeSource — write path (mutate/deleteTask)', () => {
   function writableEnrichment() {
     const mutate = jest.fn(async (_p: string, _patch: unknown, _ctx?: unknown) => {});
     const deleteTask = jest.fn(async (_p: string, _ctx?: unknown) => {});
+    const addDependency = jest.fn(
+      async (_d: string, _p: string, _r: unknown, _ctx?: unknown) => {},
+    );
+    const removeDependency = jest.fn(async (_d: string, _p: string, _ctx?: unknown) => {});
     const source = {
       capabilities: { write: true },
       getTasks: async () => [],
       getDependencies: async () => [],
       mutate,
       deleteTask,
+      addDependency,
+      removeDependency,
     } as unknown as DataSource;
-    return { source, mutate, deleteTask };
+    return { source, mutate, deleteTask, addDependency, removeDependency };
   }
 
   it('delegates mutate() to the enrichment by path, forwarding patch + context', async () => {
@@ -174,6 +180,32 @@ describe('CompositeSource — write path (mutate/deleteTask)', () => {
     await composite.deleteTask('a.md', ctx);
 
     expect(deleteTask).toHaveBeenCalledWith('a.md', ctx);
+  });
+
+  it('delegates addDependency() to the enrichment, forwarding endpoints + reltype + context', async () => {
+    const { source, addDependency } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('dep.md')]), source);
+    const ctx = { source: 'obsidian-gantt', correlationId: 'a1' };
+
+    await composite.addDependency('dep.md', 'pred.md', 'FINISHTOSTART', ctx);
+
+    expect(addDependency).toHaveBeenCalledWith('dep.md', 'pred.md', 'FINISHTOSTART', ctx);
+  });
+
+  it('delegates removeDependency() to the enrichment', async () => {
+    const { source, removeDependency } = writableEnrichment();
+    const composite = new CompositeSource(new FakeSource([task('dep.md')]), source);
+    const ctx = { source: 'obsidian-gantt', correlationId: 'r1' };
+
+    await composite.removeDependency('dep.md', 'pred.md', ctx);
+
+    expect(removeDependency).toHaveBeenCalledWith('dep.md', 'pred.md', ctx);
+  });
+
+  it('throws on addDependency()/removeDependency() when there is no writable enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([task('dep.md')]), null);
+    await expect(composite.addDependency('dep.md', 'pred.md', 'FINISHTOSTART')).rejects.toThrow();
+    await expect(composite.removeDependency('dep.md', 'pred.md')).rejects.toThrow();
   });
 
   it('throws on mutate() when there is no (writable) enrichment — read-only composite', async () => {
