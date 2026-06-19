@@ -53,7 +53,7 @@ describe('computeSubtreeMove', () => {
       node('C#B', 'C.md', 'B', d(5, 10), d(5, 10)),
     ];
     const shifts = computeSubtreeMove('A', DAY, nodes);
-    expect(shifts.map((s) => s.id).sort()).toEqual(['C#A', 'C#B']);
+    expect(shifts.map((s) => s.id).sort((a, b) => a.localeCompare(b))).toEqual(['C#A', 'C#B']);
     for (const s of shifts) {
       expect(s.start).toEqual(d(5, 11));
       expect(s.end).toEqual(d(5, 11));
@@ -74,7 +74,7 @@ describe('computeSubtreeMove', () => {
       node('C', 'C.md', 'A', d(5, 5), d(5, 8)),
       node('G', 'G.md', 'C', d(5, 6), d(5, 7)),
     ];
-    expect(computeSubtreeMove('A', DAY, nodes).map((s) => s.id).sort()).toEqual(['C', 'G']);
+    expect(computeSubtreeMove('A', DAY, nodes).map((s) => s.id).sort((a, b) => a.localeCompare(b))).toEqual(['C', 'G']);
   });
 
   it('skips instances with null dates and returns [] for a leaf root', () => {
