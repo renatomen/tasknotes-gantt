@@ -57,6 +57,7 @@ export default [
       "scripts/**/*.{js,mjs,cjs}",
       "vite.config.ts",
       "*.config.{js,mjs,ts}",
+      "version-bump.mjs",
     ],
     languageOptions: {
       globals: {
