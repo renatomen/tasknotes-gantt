@@ -9,6 +9,7 @@ views:
     progressProperty: note.progress
     parentProperty: note.parent
     dependencyArrowMode: primary
+    defaultScale: month
     order:
       - file.name
       - note.start

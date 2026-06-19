@@ -108,4 +108,12 @@ describe("Gantt (OG) read-only render", () => {
     const toolbarText = await $(".og-bases-gantt").getText();
     expect(toolbarText).not.toContain("Add Task");
   });
+
+  it("honors the configured default scale on initial load", async () => {
+    // The fixture selects Months. Its initial zoom level renders a
+    // quarter/month pair, so the first scale row contains quarter labels.
+    // The previous hard-coded week level rendered month labels here instead.
+    const firstScaleRow = await $(".og-bases-gantt .wx-scale .wx-row");
+    await expect(firstScaleRow).toHaveText(expect.stringContaining("Q"));
+  });
 });

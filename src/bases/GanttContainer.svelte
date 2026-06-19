@@ -30,6 +30,7 @@
   import { CascadeConfirmModal } from './CascadeConfirmModal';
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
+  import { buildZoomConfig } from './zoomConfig';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -925,78 +926,10 @@
     }
   }
 
-  // Zoom configuration with defined levels for proper zoom-scale action (OG-81).
-  // Each level defines the scales to display at that zoom level. The cell-width
-  // ranges OVERLAP by design (SVAR's own demos do the same): `level` is an
-  // explicit index that only the user-driven `zoom-scale` action changes. The
-  // earlier non-overlapping "band-tiling" was a misdiagnosis — it assumed data
-  // refreshes re-fit the zoom, but the real cause was the full store re-init on
-  // array replacement. With the refresh now applied as targeted `api.exec`
-  // updates (no re-init; see the diff-sync $effect below), data changes never
-  // touch zoom/scroll, so the original overlapping ladder is correct.
-  const zoomConfig = {
-    level: 3, // Start at month/week level
-    minCellWidth: 40,
-    maxCellWidth: 300,
-    // Scale formats use SVAR's locale (strftime-style %tokens), NOT date-fns.
-    // SVAR 2.4.0 changed the scale format string from date-fns to SVAR locale
-    // (whatsnew.md). Token map: %Y year, %Q quarter (1-4), %F full month,
-    // %M short month, %W week-of-year, %j day-of-month, %D short weekday.
-    // Literal letters (Q, W, "Week") pass through; only %X is substituted.
-    levels: [
-      // Level 0: Year overview
-      {
-        minCellWidth: 100,
-        maxCellWidth: 300,
-        scales: [{ unit: "year", step: 1, format: "%Y" }],
-      },
-      // Level 1: Year + Quarter
-      {
-        minCellWidth: 80,
-        maxCellWidth: 200,
-        scales: [
-          { unit: "year", step: 1, format: "%Y" },
-          { unit: "quarter", step: 1, format: "Q%Q" },
-        ],
-      },
-      // Level 2: Quarter + Month
-      {
-        minCellWidth: 60,
-        maxCellWidth: 150,
-        scales: [
-          { unit: "quarter", step: 1, format: "Q%Q %Y" },
-          { unit: "month", step: 1, format: "%M" },
-        ],
-      },
-      // Level 3: Month + Week (default)
-      {
-        minCellWidth: 50,
-        maxCellWidth: 120,
-        scales: [
-          { unit: "month", step: 1, format: "%F %Y" },
-          { unit: "week", step: 1, format: "W%W" },
-        ],
-      },
-      // Level 4: Month + Day
-      {
-        minCellWidth: 30,
-        maxCellWidth: 80,
-        scales: [
-          { unit: "month", step: 1, format: "%F %Y" },
-          { unit: "day", step: 1, format: "%j" },
-        ],
-      },
-      // Level 5: Week + Day (detailed)
-      {
-        minCellWidth: 25,
-        maxCellWidth: 60,
-        scales: [
-          { unit: "week", step: 1, format: "Week %W, %M %Y" },
-          { unit: "day", step: 1, format: "%D %j" },
-        ],
-      },
-    ],
-  };
+  // Seed the view option once. Changing the `zoom` prop reference re-inits
+  // SVAR, so ordinary data refreshes must never rebuild this configuration or
+  // overwrite a zoom level the user selected with the floating controls.
+  const zoomConfig = buildZoomConfig(initialData.defaultScale);
 </script>
 
 <!--
@@ -1393,4 +1326,3 @@
      indicators was removed alongside the deferred snippet-cell (see the markup
      comment). It returns with the dedicated SVAR cell component (follow-up). */
 </style>
-
