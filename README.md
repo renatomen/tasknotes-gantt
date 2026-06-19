@@ -14,8 +14,9 @@ When TaskNotes is installed, TaskNotes Gantt is a full read/write view of your t
 - **Dependencies** — renders all four RFC 9253 relationship types (Finish-to-Start, Finish-to-Finish, Start-to-Start, Start-to-Finish) plus gap/lag, read from TaskNotes' `blockedBy`. **Create and delete** Finish-to-Start dependencies by dragging between bars. *(Authoring the other three types and editing reltype/gap is in progress.)*
 - **Parent / child roll-up** — subtasks nest under their parent; drag a parent and its whole subtree moves with it.
 - **Status colors** — bars are colored by your configured TaskNotes statuses.
+- **Native task editing** — bars behave like TaskNotes task cards. Click a bar to open the note or TaskNotes' **edit modal** (honoring your TaskNotes single-/double-click settings; ⌘/Ctrl-click opens the note in a new tab), and **right-click for TaskNotes' own task context menu** — change status, priority, contexts, tags, dates, and more, using the exact same UI as everywhere else in TaskNotes.
 
-TaskNotes is the system of record: every write goes through its API, so the Gantt and the rest of TaskNotes stay in sync.
+TaskNotes is the system of record: every write goes through its API (or its own modal/menu), so the Gantt and the rest of TaskNotes stay in sync.
 
 ## Without TaskNotes (optional, read-only)
 
