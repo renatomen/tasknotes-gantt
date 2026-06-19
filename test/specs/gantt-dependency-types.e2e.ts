@@ -59,8 +59,7 @@ describe("Gantt (OG) dependency read fidelity", () => {
       }
     });
 
-    // Wait for TaskNotes' API so its dependency index is populated before the
-    // Gantt builds its snapshot.
+    // Step 1: wait for the TaskNotes API to come up.
     await browser.waitUntil(
       async () =>
         browser.executeObsidian(async ({ app }) => {
@@ -76,6 +75,42 @@ describe("Gantt (OG) dependency read fidelity", () => {
           }
         }),
       { timeout: 60000, timeoutMsg: "TaskNotes API did not become ready" }
+    );
+
+    // Step 2 — the de-flake gate. `lifecycle.ready()` resolving does NOT mean the
+    // blockedBy edges are queryable yet: each edge's predecessor is a wikilink
+    // (`uid: "[[Spec]]"`) that TaskNotes resolves to a note path via Obsidian's
+    // metadata cache, which finishes building ASYNCHRONOUSLY after the API reports
+    // ready. If the base opens before that, the Gantt's one-shot open-time
+    // snapshot reads zero dependencies and must race late
+    // `task.dependencies.changed` events to backfill arrows — the historical
+    // flake (timed out at 90s under CI load, see #98). Gate on the real signal:
+    // every dependent's blockedBy edge has RESOLVED to a predecessor path. Once
+    // this holds, the open-time snapshot is deterministic and arrows render on
+    // first paint.
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(async ({ app }) => {
+          const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.("tasknotes") as
+            | { api?: { relationships?: { dependencies?: (path: string) => Promise<Array<{ path?: string | null }>> | Array<{ path?: string | null }> } } }
+            | undefined;
+          const dependencies = tn?.api?.relationships?.dependencies;
+          if (!dependencies) return false;
+          // The four dependents each carry exactly one blockedBy edge on Spec.
+          const dependents = ["Build FS.md", "Build SS.md", "Build FF.md", "Build SF.md"];
+          try {
+            for (const path of dependents) {
+              const edges = await dependencies(path);
+              if (!Array.isArray(edges) || !edges.some((e) => !!e?.path)) {
+                return false;
+              }
+            }
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+      { timeout: 60000, timeoutMsg: "TaskNotes blockedBy edges did not resolve to predecessor paths" }
     );
 
     // Open the base; Obsidian renders it with the registered Gantt view.
@@ -103,8 +138,9 @@ describe("Gantt (OG) dependency read fidelity", () => {
           const arrows = root.querySelectorAll("svg.wx-links g.wx-line").length;
           return haveBars && arrows >= 4;
         }),
-      // 90s headroom: under CI load, TaskNotes' fresh blockedBy indexing +
-      // composite-source render can exceed 60s (borderline flake observed).
+      // The Step-2 gate above already guarantees the dependencies resolve before
+      // open, so this should settle quickly; the generous budget is a backstop
+      // for slow render/paint under CI load, not the dependency race itself.
       { timeout: 90000, timeoutMsg: "Gantt did not reach all five task bars + four arrows" }
     );
   });
