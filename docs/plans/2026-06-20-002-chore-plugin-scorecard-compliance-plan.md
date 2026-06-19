@@ -4,7 +4,7 @@ plan_id: 002
 type: chore
 title: "chore: Obsidian plugin scorecard compliance — submission-ready + max health/security"
 origin: docs/brainstorms/2026-06-20-plugin-scorecard-compliance-requirements.md
-status: active
+status: completed
 reviewed: 2026-06-20
 ---
 
