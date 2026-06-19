@@ -2,9 +2,9 @@
   "name": "obsidian-gantt",
   "version": "0.0.1",
   "private": true,
-  "description": "Svelte-based Gantt charts (SVAR Svelte Gantt) for Obsidian with Bases/Dataview integration.",
-  "author": "Open Source Community",
-  "license": "GPL-3.0",
+  "description": "Render SVAR Svelte Gantt charts from note properties and YAML frontmatter, with Bases and TaskNotes integration.",
+  "author": "renatomen",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=18"
@@ -55,7 +55,6 @@
   },
   "dependencies": {
     "@svar-ui/svelte-gantt": "^2.7.0",
-    "@svar-ui/svelte-toolbar": "^2.6.0",
-    "dotenv": "^17.2.3"
+    "@svar-ui/svelte-toolbar": "^2.6.0"
   }
 }

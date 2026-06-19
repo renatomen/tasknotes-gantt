@@ -1,10 +1,10 @@
 {
   "id": "obsidian-gantt",
-  "name": "Obsidian Gantt",
+  "name": "TaskNotes Gantt",
   "version": "0.0.1",
-  "minAppVersion": "1.5.0",
-  "description": "Generate SVAR Svelte Gantt charts from Obsidian note properties and YAML frontmatter metadata.",
-  "author": "Open Source Community",
-  "authorUrl": "",
+  "minAppVersion": "1.10.0",
+  "description": "Render SVAR Svelte Gantt charts from note properties and YAML frontmatter, with Bases and TaskNotes integration.",
+  "author": "renatomen",
+  "authorUrl": "https://github.com/renatomen",
   "isDesktopOnly": false
 }
