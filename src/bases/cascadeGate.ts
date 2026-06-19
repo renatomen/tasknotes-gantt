@@ -125,6 +125,128 @@ export function computeShrinkFit(
   };
 }
 
+/** Local-midnight epoch of a date (drops the time-of-day component). */
+function startOfDayMs(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Whole-day delta (rounded) between two dates, ignoring time-of-day. */
+function dayDelta(before: Date, after: Date): number {
+  return Math.round((startOfDayMs(after) - startOfDayMs(before)) / 86_400_000);
+}
+
+/**
+ * The shift delta (ms) for a *pure move* — a drag that shifted BOTH edges by the
+ * same whole number of days — or `0` for a resize/no-op.
+ *
+ * Compared at DAY granularity: {@link import('../controller/datePolicy')} normalizes
+ * ends to `23:59:59.999` while SVAR reports a dragged end snapped to a day
+ * boundary (`00:00`), so a raw `afterEnd − beforeEnd` lands ~1 day short of the
+ * start delta and a real move is misread as a resize (children then never follow
+ * the parent — the parent-drag-subtree-move bug). Truncating both edges to local
+ * midnight before differencing neutralizes that representation mismatch.
+ *
+ * Returns the START edge's raw delta (both starts are midnight-aligned, so it is
+ * exact) so descendants shift by precisely the dragged amount; the next
+ * date-policy refresh re-normalizes any DST hour-skew.
+ */
+export function computeMoveDelta(
+  beforeStart: Date | null,
+  beforeEnd: Date | null,
+  afterStart: Date,
+  afterEnd: Date,
+): number {
+  if (!beforeStart || !beforeEnd) return 0;
+  const startDays = dayDelta(beforeStart, afterStart);
+  const endDays = dayDelta(beforeEnd, afterEnd);
+  if (startDays === 0 || startDays !== endDays) return 0;
+  return afterStart.getTime() - beforeStart.getTime();
+}
+
+/** One instance in the tree, for the subtree-move expansion. */
+export interface SubtreeMoveNode {
+  id: string;
+  sourcePath: string;
+  parent?: string;
+  start: Date | null;
+  end: Date | null;
+}
+
+/** An instance to shift, with its new window. */
+export interface SubtreeShift {
+  id: string;
+  sourcePath: string;
+  start: Date;
+  end: Date;
+}
+
+/**
+ * Every instance that must shift when the parent `rootId` is dragged by `delta`
+ * (ms): the root's descendants AND the **multi-parent siblings** of those
+ * descendants — i.e. other instances of the same source task placed under a
+ * *different* parent, which are NOT in the dragged subtree but must move so the
+ * duplicates never diverge (AE7). The root's own instance is excluded (the drag
+ * already moved it; its siblings are mirrored by the reschedule path).
+ *
+ * Without the sibling expansion, dragging a parent shifts only the in-subtree
+ * copy of a multi-parent child; the other copy goes stale (the self-write echo
+ * is suppressed, so no live refresh fires) and repeated drags compound the gap
+ * until a manual refresh re-derives every instance from the persisted source.
+ *
+ * Cycle-safe (a back-edge is visited once). Instances with a null start/end are
+ * skipped. Pure; no Obsidian/SVAR.
+ */
+export function computeSubtreeMove(
+  rootId: string,
+  delta: number,
+  nodes: ReadonlyArray<SubtreeMoveNode>,
+): SubtreeShift[] {
+  // Descendants of root (exclusive), via a cycle-guarded walk down parent edges.
+  const childrenByParent = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.parent) {
+      const arr = childrenByParent.get(n.parent) ?? [];
+      arr.push(n.id);
+      childrenByParent.set(n.parent, arr);
+    }
+  }
+  const byId = new Map<string, SubtreeMoveNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const subtree = new Set<string>();
+  const seen = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      subtree.add(child);
+      stack.push(child);
+    }
+  }
+
+  // The source notes those descendants belong to. Every instance of one of
+  // those sources moves (incl. siblings under other parents), except the root.
+  const sources = new Set<string>();
+  for (const id of subtree) {
+    const node = byId.get(id);
+    if (node) sources.add(node.sourcePath);
+  }
+
+  const shifts: SubtreeShift[] = [];
+  for (const n of nodes) {
+    if (n.id === rootId || !sources.has(n.sourcePath) || !n.start || !n.end) continue;
+    shifts.push({
+      id: n.id,
+      sourcePath: n.sourcePath,
+      start: new Date(n.start.getTime() + delta),
+      end: new Date(n.end.getTime() + delta),
+    });
+  }
+  return shifts;
+}
+
 /**
  * Classify an `update-task` event. `syncing` wins (a programmatic refresh must
  * never look like a user action); then our echo; then the user's own gesture

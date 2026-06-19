@@ -18,11 +18,14 @@
   } from './ganttSync';
   import {
     classifyUpdateEvent,
+    computeMoveDelta,
     computeMoveExtensions,
+    computeSubtreeMove,
     computeShrinkFit,
     normalizeCascadeMode,
     type DateRange,
     type ExtensionNode,
+    type SubtreeShift,
   } from './cascadeGate';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
   import PropertyCell from './PropertyCell.svelte';
@@ -783,14 +786,11 @@
     const moved = api.getState().tasks.byId(drag.id);
     if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
 
-    // Pure move iff both edges shifted by the same non-zero delta (resize moves
-    // one edge only → no subtree shift).
-    let delta = 0;
-    if (drag.beforeStart && drag.beforeEnd) {
-      const ds = moved.start.getTime() - drag.beforeStart.getTime();
-      const de = moved.end.getTime() - drag.beforeEnd.getTime();
-      if (ds === de && ds !== 0) delta = ds;
-    }
+    // Pure move iff both edges shifted by the same whole-day delta (resize moves
+    // one edge only → no subtree shift). Compared at day granularity so the
+    // date-policy end-of-day (23:59:59.999) vs SVAR day-boundary snapping (00:00)
+    // mismatch doesn't misread a move as a resize.
+    const delta = computeMoveDelta(drag.beforeStart, drag.beforeEnd, moved.start, moved.end);
 
     // The new date window of every moved task, keyed by source note. Seeded with
     // the dragged task; for a pure move, each descendant is shifted by the same
@@ -810,25 +810,40 @@
     if (dSource) addRange(dSource, moved.start, moved.end);
 
     if (delta !== 0) {
-      const descendants = collectSubtreeIds(drag.id).filter((id) => id !== drag.id);
-      for (const did of descendants) {
-        const dinst = instances.find((i) => i.id === did);
-        if (!dinst?.start || !dinst?.end) continue;
-        const oldStart = dinst.start;
-        const oldEnd = dinst.end;
-        const ns = new Date(oldStart.getTime() + delta);
-        const ne = new Date(oldEnd.getTime() + delta);
-        // Optimistically move the bar, then persist (time-bounded so a hung
-        // write still settles). Only a successful shift counts toward the
-        // ancestor-extend calc; on failure revert the bar and skip it — mirrors
-        // persistReschedule so a failed move never lingers unsaved on the chart.
-        api.exec('update-task', { id: did, task: { start: ns, end: ne }, eventSource: OG_ECHO_SOURCE });
+      // Every instance to shift: the dragged subtree's descendants AND their
+      // multi-parent siblings under other parents (so duplicates stay in sync —
+      // the self-write echo is suppressed, so an un-mirrored sibling would go
+      // stale until a manual refresh and repeated drags would compound the gap).
+      const shifts = computeSubtreeMove(drag.id, delta, instances);
+
+      // Optimistically move every instance now (tagged as our own write).
+      for (const s of shifts) {
+        api.exec('update-task', { id: s.id, task: { start: s.start, end: s.end }, eventSource: OG_ECHO_SOURCE });
+      }
+
+      // Persist once per source note (its instances share one date); time-bounded
+      // so a hung write still settles. Only a successful shift counts toward the
+      // ancestor-extend calc; on failure revert every instance of that source.
+      const bySource = new Map<string, SubtreeShift[]>();
+      for (const s of shifts) {
+        const arr = bySource.get(s.sourcePath) ?? [];
+        arr.push(s);
+        bySource.set(s.sourcePath, arr);
+      }
+      for (const [src, group] of bySource) {
+        const rep = group[0];
+        if (!rep) continue;
         try {
-          await withTimeout(onMutate(did, { start: ns, end: ne }), MUTATION_TIMEOUT_MS);
-          addRange(dinst.sourcePath, ns, ne);
+          await withTimeout(onMutate(rep.id, { start: rep.start, end: rep.end }), MUTATION_TIMEOUT_MS);
+          addRange(src, rep.start, rep.end);
         } catch (err) {
           console.error('[GanttContainer] subtree-move persist failed:', err);
-          api.exec('update-task', { id: did, task: { start: oldStart, end: oldEnd }, eventSource: OG_ECHO_SOURCE });
+          for (const s of group) {
+            const orig = instances.find((i) => i.id === s.id);
+            if (orig?.start && orig?.end) {
+              api.exec('update-task', { id: s.id, task: { start: orig.start, end: orig.end }, eventSource: OG_ECHO_SOURCE });
+            }
+          }
           new Notice("Couldn't move a child task — check TaskNotes is running.");
         }
       }
@@ -908,29 +923,6 @@
         new Notice("Couldn't update a parent date — check TaskNotes is running.");
       }
     }
-  }
-
-  /** The dragged task plus all its descendants (instance ids), cycle-safe. */
-  function collectSubtreeIds(rootId: string): string[] {
-    const childrenByParent = new Map<string, string[]>();
-    for (const inst of instances) {
-      if (inst.parent) {
-        const arr = childrenByParent.get(inst.parent) ?? [];
-        arr.push(inst.id);
-        childrenByParent.set(inst.parent, arr);
-      }
-    }
-    const out: string[] = [];
-    const seen = new Set<string>();
-    const stack = [rootId];
-    while (stack.length) {
-      const id = stack.pop()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-      for (const c of childrenByParent.get(id) ?? []) stack.push(c);
-    }
-    return out;
   }
 
   // Zoom configuration with defined levels for proper zoom-scale action (OG-81).
