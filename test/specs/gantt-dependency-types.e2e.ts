@@ -103,7 +103,9 @@ describe("Gantt (OG) dependency read fidelity", () => {
           const arrows = root.querySelectorAll("svg.wx-links g.wx-line").length;
           return haveBars && arrows >= 4;
         }),
-      { timeout: 60000, timeoutMsg: "Gantt did not reach all five task bars + four arrows" }
+      // 90s headroom: under CI load, TaskNotes' fresh blockedBy indexing +
+      // composite-source render can exceed 60s (borderline flake observed).
+      { timeout: 90000, timeoutMsg: "Gantt did not reach all five task bars + four arrows" }
     );
   });
 

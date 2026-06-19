@@ -12,11 +12,124 @@ import {
   normalizeCascadeMode,
   classifyUpdateEvent,
   computeMoveExtensions,
+  computeMoveDelta,
+  computeSubtreeMove,
   computeShrinkFit,
   CASCADE_EVENT_SOURCES,
   type DateRange,
   type ExtensionNode,
+  type SubtreeMoveNode,
 } from '../../src/bases/cascadeGate';
+
+describe('computeSubtreeMove', () => {
+  const DAY = 86400000;
+  const d = (mo: number, da: number) => new Date(2026, mo, da);
+  const node = (
+    id: string,
+    sourcePath: string,
+    parent: string | undefined,
+    start: Date | null,
+    end: Date | null,
+  ): SubtreeMoveNode => ({ id, sourcePath, parent, start, end });
+
+  it('shifts a single-parent child by the delta', () => {
+    const nodes = [
+      node('A', 'A.md', undefined, d(5, 1), d(5, 20)),
+      node('C', 'C.md', 'A', d(5, 10), d(5, 12)),
+    ];
+    expect(computeSubtreeMove('A', DAY, nodes)).toEqual([
+      { id: 'C', sourcePath: 'C.md', start: d(5, 11), end: d(5, 13) },
+    ]);
+  });
+
+  it('includes a multi-parent sibling instance OUTSIDE the dragged subtree (regression: duplicate must stay in sync)', () => {
+    // C has two parents: A (dragged) and B (not dragged). Both instances of C
+    // must shift so the duplicates never diverge (AE7), even though C#B is not a
+    // descendant of A.
+    const nodes = [
+      node('A', 'A.md', undefined, d(5, 1), d(5, 20)),
+      node('B', 'B.md', undefined, d(5, 1), d(5, 20)),
+      node('C#A', 'C.md', 'A', d(5, 10), d(5, 10)),
+      node('C#B', 'C.md', 'B', d(5, 10), d(5, 10)),
+    ];
+    const shifts = computeSubtreeMove('A', DAY, nodes);
+    expect(shifts.map((s) => s.id).sort((a, b) => a.localeCompare(b))).toEqual(['C#A', 'C#B']);
+    for (const s of shifts) {
+      expect(s.start).toEqual(d(5, 11));
+      expect(s.end).toEqual(d(5, 11));
+    }
+  });
+
+  it('excludes the dragged root itself', () => {
+    const nodes = [
+      node('A', 'A.md', undefined, d(5, 1), d(5, 20)),
+      node('C', 'C.md', 'A', d(5, 10), d(5, 12)),
+    ];
+    expect(computeSubtreeMove('A', DAY, nodes).some((s) => s.id === 'A')).toBe(false);
+  });
+
+  it('walks multiple levels (grandchildren)', () => {
+    const nodes = [
+      node('A', 'A.md', undefined, d(5, 1), d(5, 20)),
+      node('C', 'C.md', 'A', d(5, 5), d(5, 8)),
+      node('G', 'G.md', 'C', d(5, 6), d(5, 7)),
+    ];
+    expect(computeSubtreeMove('A', DAY, nodes).map((s) => s.id).sort((a, b) => a.localeCompare(b))).toEqual(['C', 'G']);
+  });
+
+  it('skips instances with null dates and returns [] for a leaf root', () => {
+    const nodes = [
+      node('A', 'A.md', undefined, d(5, 1), d(5, 20)),
+      node('C', 'C.md', 'A', null, null),
+    ];
+    expect(computeSubtreeMove('A', DAY, nodes)).toEqual([]);
+  });
+});
+
+describe('computeMoveDelta', () => {
+  const DAY = 86400000;
+  const d = (y: number, mo: number, da: number, h = 0, mi = 0, s = 0, ms = 0) =>
+    new Date(y, mo, da, h, mi, s, ms);
+
+  it('detects a pure move despite end-of-day vs midnight mismatch (regression: parent drag moves children)', () => {
+    // Controller normalizes end to 23:59:59.999; SVAR reports the dragged end
+    // snapped to a day boundary (00:00). Both edges moved +6 days. Naive
+    // ds === de on raw timestamps fails (end delta lands ~1 day short); the
+    // day-granular comparison must still see a 6-day pure move.
+    const delta = computeMoveDelta(
+      d(2026, 5, 2), // beforeStart Jun 2 00:00
+      d(2026, 5, 23, 23, 59, 59, 999), // beforeEnd Jun 23 23:59:59.999
+      d(2026, 5, 8), // afterStart Jun 8 00:00
+      d(2026, 5, 29), // afterEnd Jun 29 00:00 (SVAR-snapped)
+    );
+    expect(delta).toBe(6 * DAY);
+  });
+
+  it('returns 0 for a resize (only the end edge moves)', () => {
+    expect(
+      computeMoveDelta(d(2026, 5, 2), d(2026, 5, 23, 23, 59, 59, 999), d(2026, 5, 2), d(2026, 5, 26)),
+    ).toBe(0);
+  });
+
+  it('returns 0 for a no-op (no edge moved a whole day)', () => {
+    expect(
+      computeMoveDelta(
+        d(2026, 5, 2),
+        d(2026, 5, 23, 23, 59, 59, 999),
+        d(2026, 5, 2),
+        d(2026, 5, 23, 23, 59, 59, 999),
+      ),
+    ).toBe(0);
+  });
+
+  it('returns the start delta for a clean both-midnight move', () => {
+    expect(computeMoveDelta(d(2026, 5, 2), d(2026, 5, 10), d(2026, 5, 5), d(2026, 5, 13))).toBe(3 * DAY);
+  });
+
+  it('returns 0 when before dates are null', () => {
+    expect(computeMoveDelta(null, null, d(2026, 5, 8), d(2026, 5, 29))).toBe(0);
+  });
+});
 
 const ECHO = 'og-self';
 const d = (y: number, m: number, day: number) => new Date(y, m, day);

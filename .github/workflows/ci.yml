@@ -43,6 +43,13 @@ jobs:
       - name: Install plugin into temp vault
         run: node scripts/install-to-vault.cjs
       - name: Run E2E tests (WDIO)
+        # GITHUB_TOKEN authenticates obsidian-launcher's GitHub API calls when it
+        # downloads the TaskNotes release (the dependency spec installs it via
+        # { repo, version }). Without it the unauthenticated 60/hr shared-runner
+        # rate limit intermittently blocks the download → TaskNotes never loads →
+        # the dependency spec fails. Authenticated lifts the limit to 5000/hr.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run e2e
       - name: Upload E2E artifacts
         if: always()
