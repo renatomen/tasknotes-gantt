@@ -20,6 +20,7 @@ import type { StatusColor } from '../../datasource/types';
 import type { CascadeMode } from '../cascadeGate';
 import type { TypedValue } from '../propertyValues';
 import type { GridColumn } from '../gridColumns';
+import type { DefaultScale } from '../zoomConfig';
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -44,6 +45,8 @@ export interface GanttData {
    * silently), `never`. Defaults to `ask`.
    */
   cascadeMode: CascadeMode;
+  /** Per-view scale used only to seed SVAR's initial zoom level. */
+  defaultScale: DefaultScale;
   /**
    * Per-task type-tagged values for the grid's visible property columns,
    * keyed by source path (U1). Resolved at assembly time from the Bases

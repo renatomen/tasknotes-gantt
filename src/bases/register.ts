@@ -40,6 +40,7 @@ import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
+import { normalizeDefaultScale } from './zoomConfig';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -595,6 +596,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
+      defaultScale: normalizeDefaultScale(this.config.get('defaultScale')),
       propertyValues,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
@@ -822,4 +824,3 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     // No manual cleanup needed - Obsidian manages registered views
   };
 }
-
