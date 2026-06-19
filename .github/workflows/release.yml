@@ -4,10 +4,15 @@ name: Release
 # (no leading "v"), matching the `manifest.json` version. Builds from source in
 # CI so the release is "verified against source", attaches the dist/ outputs,
 # and produces a GitHub build-provenance attestation for main.js + styles.css.
+#
+# The trigger matches ONLY bare semver (leading digit), so a v-prefixed tag
+# (e.g. an accidental `v0.0.2` from npm's default tag-version-prefix) does NOT
+# publish a non-submittable release. `.npmrc` also empties that prefix so the
+# `npm version` flow produces bare tags in the first place.
 on:
   push:
     tags:
-      - "*.*.*"
+      - "[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: write # create the release + upload assets
