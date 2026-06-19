@@ -1,0 +1,53 @@
+name: Release
+
+# Tag-triggered release. Obsidian community releases use a bare semver tag
+# (no leading "v"), matching the `manifest.json` version. Builds from source in
+# CI so the release is "verified against source", attaches the dist/ outputs,
+# and produces a GitHub build-provenance attestation for main.js + styles.css.
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write # create the release + upload assets
+  id-token: write # OIDC token for provenance signing
+  attestations: write # write the attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs (not floating tags) so a moved tag
+      # cannot poison the attested build. Comments record the human-readable tag.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm ci
+      - name: Build from source
+        run: npm run build
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            dist/main.js
+            dist/styles.css
+      - name: Assert attestation was produced
+        run: |
+          if [ -z "${{ steps.attest.outputs.attestation-id }}" ]; then
+            echo "::error::No attestation id was produced; aborting release."
+            exit 1
+          fi
+          echo "Attestation id: ${{ steps.attest.outputs.attestation-id }}"
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            dist/main.js dist/styles.css manifest.json \
+            --title "$TAG" \
+            --generate-notes
