@@ -10,15 +10,15 @@ updates:
       github-actions:
         patterns: ['*']
 
-  # Keep npm dependencies current. Minor/patch bumps are grouped into one PR to
-  # limit noise; majors come as individual PRs for deliberate review.
+  # npm: security updates only. This plugin bundles its dependencies into
+  # main.js at build time (users never `npm install` them), and CI already
+  # fails on high-severity vulnerabilities (`npm audit --audit-level=high`), so
+  # routine version-bump PRs are noise with no user-facing benefit — and major
+  # bumps (eslint/vite/typescript) are breaking changes handled deliberately,
+  # not on a schedule. `open-pull-requests-limit: 0` disables version-update
+  # PRs; Dependabot still opens PRs for known security vulnerabilities.
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      npm-minor-patch:
-        update-types:
-          - minor
-          - patch
+    open-pull-requests-limit: 0
