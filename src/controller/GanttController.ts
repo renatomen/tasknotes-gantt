@@ -970,7 +970,8 @@ function defaultCorrelationId(): string {
   if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
     return cryptoObj.randomUUID();
   }
-  return `og-${Date.now()}-${(correlationCounter += 1)}`;
+  correlationCounter += 1;
+  return `og-${Date.now()}-${correlationCounter}`;
 }
 
 /**

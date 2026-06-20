@@ -141,5 +141,5 @@ export function mergeColumnSize(
   propId: string,
   width: number,
 ): Record<string, number> {
-  return { ...(existing ?? {}), [propId]: Math.round(width) };
+  return { ...existing, [propId]: Math.round(width) };
 }

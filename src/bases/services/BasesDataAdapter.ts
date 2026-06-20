@@ -337,7 +337,7 @@ export class BasesDataAdapter {
     }
 
     // PrimitiveValue (string, number, boolean)
-    if (typeof value.data !== "undefined") {
+    if (value.data !== undefined) {
       return value.data;
     }
 
@@ -547,7 +547,7 @@ export class BasesDataAdapter {
 
     // Handle arrays - join with commas
     if (Array.isArray(value)) {
-      return value.map(v => String(v)).join(', ');
+      return value.map(String).join(', ');
     }
 
     // Handle numbers
