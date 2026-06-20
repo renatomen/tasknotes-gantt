@@ -1,7 +1,9 @@
 /** @type {import('jest').Config} */
 const config = {
   testEnvironment: "node",
-  preset: "ts-jest/presets/default-esm",
+  // ESM is configured directly below (extensionsToTreatAsEsm + the @swc/jest
+  // transform + the .mjs moduleNameMapper), so no ts-jest preset is needed —
+  // @swc/jest does all transformation.
   extensionsToTreatAsEsm: [".ts"],
   transform: {
     "^.+\\.(t|j)sx?$": [
