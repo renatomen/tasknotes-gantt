@@ -1,6 +1,6 @@
 import { browser } from "@wdio/globals";
 
-describe("obsidian-gantt smoke", () => {
+describe("tasknotes-gantt smoke", () => {
   it("boots Obsidian (skeleton)", async () => {
     await browser.reloadObsidian?.({
       vault:

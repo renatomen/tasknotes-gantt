@@ -32,7 +32,7 @@ You can also use it as a **read-only timeline** over any Obsidian Base, with no 
 
 Until the plugin is in the community store, install manually or via BRAT:
 
-- **Manual:** download `main.js`, `manifest.json`, and `styles.css` from a [release](../../releases) into `<vault>/.obsidian/plugins/obsidian-gantt/`, then enable it in *Settings → Community plugins*.
+- **Manual:** download `main.js`, `manifest.json`, and `styles.css` from a [release](../../releases) into `<vault>/.obsidian/plugins/tasknotes-gantt/`, then enable it in *Settings → Community plugins*.
 - **BRAT:** add this repository in the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin.
 
 ## Usage
@@ -55,7 +55,7 @@ TaskNotes Gantt runs entirely **on your device**. It makes **no network requests
 Release assets are built in GitHub Actions and carry a [build-provenance attestation](https://docs.github.com/actions/security-guides/using-artifact-attestations). You can verify a downloaded `main.js` was built from this repo's source:
 
 ```bash
-gh attestation verify main.js --repo renatomen/obsidian-gantt
+gh attestation verify main.js --repo renatomen/tasknotes-gantt
 ```
 
 ## Relationship to TaskNotes

@@ -6,7 +6,7 @@ export default class ObsidianGanttPlugin extends Plugin {
   private unregisterBases: (() => void) | null = null;
 
   async onload() {
-    console.log('Loading Obsidian Gantt plugin');
+    console.log('Loading TaskNotes Gantt plugin');
 
     // MVP: Register Obsidian Bases custom view "Gantt (OG)" (no chart yet)
     try {
@@ -17,7 +17,7 @@ export default class ObsidianGanttPlugin extends Plugin {
   }
 
   onunload() {
-    console.log('Unloading Obsidian Gantt plugin');
+    console.log('Unloading TaskNotes Gantt plugin');
     try { this.unregisterBases?.(); } catch {}
   }
 }

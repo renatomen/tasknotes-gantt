@@ -76,7 +76,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
 
-    await browser.reloadObsidian({ vault: tmpVault, plugins: ["obsidian-gantt"] });
+    await browser.reloadObsidian({ vault: tmpVault, plugins: ["tasknotes-gantt"] });
     await enableBases();
   });
 

@@ -20,10 +20,10 @@ Before opening the PR to [`obsidianmd/obsidian-releases`](https://github.com/obs
 - [ ] A GitHub **release** exists whose **tag string equals `manifest.json` `version`** exactly, with **no leading `v`** (the release workflow triggers on `*.*.*` tags — push e.g. `0.0.1`, not `v0.0.1`).
 - [ ] The release contains **`main.js`**, **`manifest.json`**, and **`styles.css`** as assets (the release workflow attaches all three).
 - [ ] `main.js`/`styles.css` carry a **build-provenance attestation** (the workflow asserts one was produced; verify with `gh attestation verify`).
-- [ ] `manifest.json` fields are non-empty and accurate: `id` (`obsidian-gantt`), `name` ("TaskNotes Gantt", no "Obsidian"), `version`, `minAppVersion` (`1.10.0` — **confirm this is the released Obsidian version that ships the Bases API** before listing), `description`, `author`, `authorUrl`, `isDesktopOnly: false` (mobile-validated).
+- [ ] `manifest.json` fields are non-empty and accurate: `id` (`tasknotes-gantt`), `name` ("TaskNotes Gantt", no "Obsidian"), `version`, `minAppVersion` (`1.10.0` — **confirm this is the released Obsidian version that ships the Bases API** before listing), `description`, `author`, `authorUrl`, `isDesktopOnly: false` (mobile-validated).
 - [ ] `README.md` includes a **screenshot/GIF** of the Gantt view (add before submitting — not yet present).
 - [ ] Root files present: `README.md`, `LICENSE` (MIT), `versions.json`.
-- [ ] The `obsidian-releases` PR adds the entry to `community-plugins.json` with id `obsidian-gantt`.
+- [ ] The `obsidian-releases` PR adds the entry to `community-plugins.json` with id `tasknotes-gantt`.
 
 ## Open confirmations carried from the plan
 

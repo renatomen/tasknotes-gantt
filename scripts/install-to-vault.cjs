@@ -14,7 +14,7 @@ const DEFAULT_VAULT =
       );
 
 const vaultPath = process.env.OBSIDIAN_TEST_VAULT || DEFAULT_VAULT;
-const pluginId = "obsidian-gantt";
+const pluginId = "tasknotes-gantt";
 const pluginDir = path.join(vaultPath, ".obsidian", "plugins", pluginId);
 
 (async () => {

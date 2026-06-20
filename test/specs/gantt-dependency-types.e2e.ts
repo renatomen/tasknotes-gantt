@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * Dependency read-fidelity spec (plan 004, M1; closes the e2e gap from #93).
  *
  * Boots Obsidian against the `test/vaults/gantt-dependencies` fixture with BOTH
- * obsidian-gantt and TaskNotes enabled, opens the base, and asserts that the
+ * tasknotes-gantt and TaskNotes enabled, opens the base, and asserts that the
  * Gantt renders real dependency arrows sourced from TaskNotes' `blockedBy`
  * relationships — one per RFC 9253 reltype, with the correct SVAR link type.
  *
@@ -125,10 +125,10 @@ describe("Gantt (OG) dependency read fidelity", () => {
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
 
-    // Enable obsidian-gantt AND TaskNotes (the dependency-edge source).
+    // Enable tasknotes-gantt AND TaskNotes (the dependency-edge source).
     await browser.reloadObsidian({
       vault: tmpVault,
-      plugins: ["obsidian-gantt", "tasknotes"],
+      plugins: ["tasknotes-gantt", "tasknotes"],
     });
 
     // Bases core plugin must be ON to open the .base file.
