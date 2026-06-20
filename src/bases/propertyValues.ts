@@ -109,6 +109,36 @@ function listItemDisplay(item: unknown): string {
   return String(item);
 }
 
+/** A non-empty array → `list` of display items; an all-empty array → `empty`. */
+function classifyArray(raw: readonly unknown[]): TypedValue {
+  const items = raw.map(listItemDisplay).filter((s) => s !== '');
+  return items.length > 0 ? { kind: 'list', value: items } : { kind: 'empty', value: null };
+}
+
+/**
+ * Classify a string by its shape: a wikilink/note path → `link`, an
+ * ISO/`YYYY-MM-DD` string that parses → `date`, otherwise plain `text`.
+ */
+function classifyString(raw: string): TypedValue {
+  const link = linkDisplay(raw);
+  if (link !== null) return { kind: 'link', value: link };
+  if (ISO_DATE_RE.test(raw)) {
+    const d = parseDateString(raw);
+    if (d) return { kind: 'date', value: d };
+  }
+  return { kind: 'text', value: raw };
+}
+
+/**
+ * Classify a non-array object: a FileValue-shaped `{ file: { path } }` → `link`
+ * (basename), any other shape → coerced `text`.
+ */
+function classifyObject(raw: object): TypedValue {
+  const path = (raw as { file?: { path?: unknown } }).file?.path;
+  if (typeof path === 'string') return { kind: 'link', value: basename(path) };
+  return { kind: 'text', value: String(raw) };
+}
+
 /**
  * Classify a raw extracted value into a {@link TypedValue} by its runtime
  * shape. Pure and total — every input yields a tag (unknown shapes → `text`).
@@ -127,21 +157,13 @@ export function classifyTypedValue(raw: unknown): TypedValue {
     return Number.isNaN(raw.getTime()) ? { kind: 'empty', value: null } : { kind: 'date', value: raw };
   }
   if (Array.isArray(raw)) {
-    const items = raw.map(listItemDisplay).filter((s) => s !== '');
-    return items.length > 0 ? { kind: 'list', value: items } : { kind: 'empty', value: null };
+    return classifyArray(raw);
   }
   if (typeof raw === 'string') {
-    const link = linkDisplay(raw);
-    if (link !== null) return { kind: 'link', value: link };
-    if (ISO_DATE_RE.test(raw)) {
-      const d = parseDateString(raw);
-      if (d) return { kind: 'date', value: d };
-    }
-    return { kind: 'text', value: raw };
+    return classifyString(raw);
   }
   if (typeof raw === 'object') {
-    const path = (raw as { file?: { path?: unknown } }).file?.path;
-    if (typeof path === 'string') return { kind: 'link', value: basename(path) };
+    return classifyObject(raw);
   }
   return { kind: 'text', value: String(raw) };
 }

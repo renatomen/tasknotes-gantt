@@ -80,6 +80,24 @@ describe('classifyTypedValue', () => {
     });
   });
 
+  it('falls back to text when an ISO-shaped string is not a parseable date', () => {
+    // Matches ISO_DATE_RE (digit shape) but `new Date(...)` is Invalid, so the
+    // date branch declines and the value is tagged as plain text (characterization).
+    expect(classifyTypedValue('2026-13-45T99:99')).toEqual<TypedValue>({
+      kind: 'text',
+      value: '2026-13-45T99:99',
+    });
+  });
+
+  it('tags a plain object without a string file.path as text via String()', () => {
+    // No `file.path` string → not a link object → final String(raw) fallback
+    // (characterization of the unknown-shape branch).
+    expect(classifyTypedValue({ foo: 1 })).toEqual<TypedValue>({
+      kind: 'text',
+      value: String({ foo: 1 }),
+    });
+  });
+
   it('tags null/undefined/empty-string/empty-array/NaN as empty', () => {
     expect(classifyTypedValue(null).kind).toBe('empty');
     expect(classifyTypedValue(undefined).kind).toBe('empty');
