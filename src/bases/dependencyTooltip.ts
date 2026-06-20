@@ -64,7 +64,8 @@ export function formatGap(gap: string | null): string {
 export function formatIncomingDep(dep: IncomingDep): string {
   const rel = RELTYPE_LABEL[dep.reltype];
   const gap = formatGap(dep.gap);
-  return `Blocked by ${dep.predecessorName} — ${rel}${gap ? ` ${gap}` : ''}`;
+  const gapSuffix = gap ? ` ${gap}` : '';
+  return `Blocked by ${dep.predecessorName} — ${rel}${gapSuffix}`;
 }
 
 /**

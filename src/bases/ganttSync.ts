@@ -314,7 +314,7 @@ export function planTaskSync(prev: ReadonlyMap<string, SvarTask>, next: Readonly
     }
     return depth;
   };
-  const deletes = goneIds.sort((a, b) => depthOf(b) - depthOf(a));
+  const deletes = [...goneIds].sort((a, b) => depthOf(b) - depthOf(a));
 
   return { moves, updates, deletes, adds: orderAddsParentFirst(adds) };
 }

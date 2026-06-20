@@ -8,7 +8,7 @@
  * @module bases/views/GanttTaskListView
  */
 
-import { type App, setIcon } from 'obsidian';
+import { setIcon } from 'obsidian';
 import { GanttBasesView } from '../GanttBasesView';
 import type { QueryController } from '../register';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';

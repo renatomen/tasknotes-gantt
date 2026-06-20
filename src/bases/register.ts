@@ -21,7 +21,7 @@
  */
 
 /* global MouseEvent */
-import { Component, type App, type Plugin } from 'obsidian';
+import { Component, type Plugin } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';

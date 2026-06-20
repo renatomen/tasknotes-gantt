@@ -371,10 +371,10 @@ function accumulateAncestorUnions(
     while (cur != null && !seen.has(cur)) {
       seen.add(cur);
       const prev = unionByAncestorId.get(cur);
-      if (!prev) {
-        unionByAncestorId.set(cur, { start: range.start, end: range.end });
-      } else {
+      if (prev) {
         expandRange(prev, range);
+      } else {
+        unionByAncestorId.set(cur, { start: range.start, end: range.end });
       }
       cur = byId.get(cur)?.parent;
     }
