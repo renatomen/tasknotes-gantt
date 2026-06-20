@@ -13,6 +13,7 @@ import type { App } from "obsidian";
 import type { BasesEntry } from "../register";
 import type { FieldMappings, SVARTask, MappingValidationError } from "../types/field-mapping";
 import { BasesDataAdapter } from "./BasesDataAdapter";
+import { resolveParentLink } from "../parentLink";
 
 /**
  * Result of transforming entries
@@ -28,8 +29,8 @@ export interface TransformResult {
  * Service for mapping BasesEntry data to SVAR Gantt tasks
  */
 export class PropertyMappingService {
-  private adapter: BasesDataAdapter;
-  private app: App;
+  private readonly adapter: BasesDataAdapter;
+  private readonly app: App;
 
   constructor(app: App) {
     this.adapter = new BasesDataAdapter();
@@ -77,54 +78,6 @@ export class PropertyMappingService {
   }
 
   /**
-   * Resolve a parent link reference to an actual file path.
-   * Handles wikilinks [[Page]], markdown links [text](path), and direct paths.
-   * Following TaskNotes pattern from ProjectSubtasksService.
-   *
-   * @param parentRef - The parent reference string (e.g., "[[Sample Project B]]", "folder/file.md")
-   * @param sourcePath - The path of the file containing the reference (for relative path resolution)
-   * @returns The resolved file path, or null if not resolvable
-   */
-  private resolveParentLink(parentRef: string, sourcePath: string | undefined): string | null {
-    if (!sourcePath) return null;
-    if (!parentRef) return null;
-
-    const trimmed = parentRef.trim();
-
-    // Extract link path from wikilink format [[path]] or [[path|alias]]
-    let linkPath = trimmed;
-    if (trimmed.startsWith('[[') && trimmed.endsWith(']]')) {
-      const inner = trimmed.slice(2, -2).trim();
-      // Strip alias if present
-      const pipeIndex = inner.indexOf('|');
-      linkPath = pipeIndex !== -1 ? inner.substring(0, pipeIndex) : inner;
-    }
-    // Extract from markdown link format [text](path)
-    else if (trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/)) {
-      const match = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (match && match[2]) {
-        linkPath = match[2].trim();
-      }
-    }
-
-    // Resolve the link using Obsidian's metadata cache (following TaskNotes pattern)
-    // This handles relative paths, aliases, and finds the actual file
-    const resolvedFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath);
-
-    if (resolvedFile) {
-      return resolvedFile.path;
-    }
-
-    // If not resolved via metadata cache, try using it as a direct path
-    // (handles cases where the value is already a full path)
-    if (linkPath === trimmed && this.app.vault.getAbstractFileByPath(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
-  }
-
-  /**
    * Transform a single BasesEntry to SVARTask
    *
    * @param entry - The BasesEntry to transform
@@ -151,7 +104,7 @@ export class PropertyMappingService {
     // Resolve parent links to actual file paths (Phase 1: use first parent only)
     let parent: string | undefined = undefined;
     if (parentRefs.length > 0 && parentRefs[0]) {
-      const resolvedPath = this.resolveParentLink(parentRefs[0], entry.file.path);
+      const resolvedPath = resolveParentLink(this.app, parentRefs[0], entry.file.path);
       parent = resolvedPath ?? undefined;
     }
 

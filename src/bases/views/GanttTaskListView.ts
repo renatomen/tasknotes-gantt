@@ -13,6 +13,7 @@ import { GanttBasesView } from '../GanttBasesView';
 import type { QueryController } from '../register';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
 import { readFieldMappings } from '../fieldMappingConfig';
+import { resolveParentLink } from '../parentLink';
 import type { FieldMappings } from '../types/field-mapping';
 
 /**
@@ -34,18 +35,21 @@ interface GanttTask {
  */
 export class GanttTaskListView extends GanttBasesView {
   readonly type = 'obsidianGanttTaskList';
-  private containerEl: HTMLElement;
-  private adapter: BasesDataAdapter;
+  private readonly containerEl: HTMLElement;
+  private readonly adapter: BasesDataAdapter;
   private itemsContainer: HTMLElement | null = null;
 
   // Phase 2: Expand/collapse state tracking
-  private collapsedTasks = new Set<string>();
+  private readonly collapsedTasks = new Set<string>();
   private readonly VIRTUAL_SCROLL_THRESHOLD = 100;
 
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-task-list-root' });
-    this.adapter = new BasesDataAdapter();
+    // Pass the view to the adapter at construction (it reads this.data lazily
+    // at extract time), so the adapter's basesView is set once and stays
+    // readonly — no post-construction `as any` reassignment needed.
+    this.adapter = new BasesDataAdapter(this);
   }
 
   override onload(): void {
@@ -102,9 +106,6 @@ export class GanttTaskListView extends GanttBasesView {
     }
 
     try {
-      // Pass the basesView (this) to the adapter
-      (this.adapter as any).basesView = this;
-
       // Get field mappings from config
       const fieldMappings = this.getFieldMappings();
 
@@ -301,7 +302,7 @@ export class GanttTaskListView extends GanttBasesView {
         let hasValidParent = false;
         for (const parentRef of task.parents) {
           // Resolve parent reference to actual file path (following TaskNotes pattern)
-          const resolvedPath = this.resolveParentLink(parentRef, task.path);
+          const resolvedPath = resolveParentLink(this.app, parentRef, task.path);
 
           if (resolvedPath && taskMap.has(resolvedPath)) {
             hasValidParent = true;
@@ -348,7 +349,7 @@ export class GanttTaskListView extends GanttBasesView {
     return allTasks.filter(task => {
       // Hide if any parent is collapsed
       return !task.parents.some(parentRef => {
-        const resolvedPath = this.resolveParentLink(parentRef, task.path);
+        const resolvedPath = resolveParentLink(this.app, parentRef, task.path);
         return resolvedPath && this.collapsedTasks.has(resolvedPath);
       });
     });
@@ -365,53 +366,6 @@ export class GanttTaskListView extends GanttBasesView {
     }
     // Re-render to update visibility
     this.render();
-  }
-
-  /**
-   * Resolve a parent link reference to an actual file path.
-   * Handles wikilinks [[Page]], markdown links [text](path), and direct paths.
-   * Following TaskNotes pattern from ProjectSubtasksService.
-   *
-   * @param parentRef - The parent reference string (e.g., "[[Sample Project B]]", "folder/file.md")
-   * @param sourcePath - The path of the file containing the reference (for relative path resolution)
-   * @returns The resolved file path, or null if not resolvable
-   */
-  private resolveParentLink(parentRef: string, sourcePath: string): string | null {
-    if (!parentRef) return null;
-
-    const trimmed = parentRef.trim();
-
-    // Extract link path from wikilink format [[path]] or [[path|alias]]
-    let linkPath = trimmed;
-    if (trimmed.startsWith('[[') && trimmed.endsWith(']]')) {
-      const inner = trimmed.slice(2, -2).trim();
-      // Strip alias if present
-      const pipeIndex = inner.indexOf('|');
-      linkPath = pipeIndex !== -1 ? inner.substring(0, pipeIndex) : inner;
-    }
-    // Extract from markdown link format [text](path)
-    else if (trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/)) {
-      const match = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (match && match[2]) {
-        linkPath = match[2].trim();
-      }
-    }
-
-    // Resolve the link using Obsidian's metadata cache (following TaskNotes pattern)
-    // This handles relative paths, aliases, and finds the actual file
-    const resolvedFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath);
-
-    if (resolvedFile) {
-      return resolvedFile.path;
-    }
-
-    // If not resolved via metadata cache, try using it as a direct path
-    // (handles cases where the value is already a full path)
-    if (linkPath === trimmed && this.app.vault.getAbstractFileByPath(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
   }
 
   /**

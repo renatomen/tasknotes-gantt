@@ -530,7 +530,7 @@ export class GanttController {
   public async deleteTask(instanceId: string): Promise<void> {
     const { source, path } = await this.resolveWritable(instanceId);
     if (typeof source.deleteTask !== 'function') {
-      throw new Error('Active source does not support deletion');
+      throw new TypeError('Active source does not support deletion');
     }
     const context = this.beginWrite('delete');
     try {
@@ -584,7 +584,7 @@ export class GanttController {
       predecessorInstanceId,
     );
     if (typeof source.addDependency !== 'function') {
-      throw new Error('Active source does not support dependency writes');
+      throw new TypeError('Active source does not support dependency writes');
     }
     const context = this.beginWrite('add-dependency');
     try {
@@ -609,7 +609,7 @@ export class GanttController {
       predecessorInstanceId,
     );
     if (typeof source.removeDependency !== 'function') {
-      throw new Error('Active source does not support dependency writes');
+      throw new TypeError('Active source does not support dependency writes');
     }
     const context = this.beginWrite('remove-dependency');
     try {
@@ -633,7 +633,7 @@ export class GanttController {
       throw new Error('GanttController is disposed');
     }
     const source = this.activeSource;
-    if (!source || !source.capabilities.write) {
+    if (!source?.capabilities.write) {
       throw new Error('Active source is read-only');
     }
     const snap = await this.ensureSnapshot();

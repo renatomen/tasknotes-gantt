@@ -37,7 +37,7 @@ export function formatPropertyValue(tv: TypedValue | null | undefined): string {
     case 'boolean':
       return tv.value === true ? BOOLEAN_TRUE_TOKEN : '';
     case 'list':
-      return Array.isArray(tv.value) ? tv.value.map((v) => String(v)).join(', ') : '';
+      return Array.isArray(tv.value) ? tv.value.map(String).join(', ') : '';
     case 'link':
       return typeof tv.value === 'string' ? tv.value : '';
     case 'text':
