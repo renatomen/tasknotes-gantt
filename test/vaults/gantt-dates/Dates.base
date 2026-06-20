@@ -4,13 +4,13 @@ filters:
 views:
   - type: obsidianGantt
     name: "Gantt Dates (show all)"
-    startDateProperty: note.start
-    endDateProperty: note.due
-    progressProperty: note.progress
-    defaultDuration: 1
-    showUndatedTasks: true
-    showPartialDateTasks: true
-    showDateIndicators: true
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_progressProperty: note.progress
+    tngantt_defaultDuration: 1
+    tngantt_showUndatedTasks: true
+    tngantt_showPartialDateTasks: true
+    tngantt_showDateIndicators: true
     order:
       - file.name
       - note.start

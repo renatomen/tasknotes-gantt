@@ -4,10 +4,10 @@ filters:
 views:
   - type: obsidianGantt
     name: "Gantt (OG)"
-    startDateProperty: note.scheduled
-    endDateProperty: note.due
-    parentProperty: note.parent
-    dependencyArrowMode: primary
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_parentProperty: note.parent
+    tngantt_dependencyArrowMode: primary
     order:
       - file.name
       - note.scheduled

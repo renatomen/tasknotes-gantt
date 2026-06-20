@@ -401,28 +401,28 @@ class ObsidianGanttBasesView extends GanttBasesView {
    * namespaced key (plan 002 U3).
    */
   private getTableWidth(): number | undefined {
-    const raw = this.config.get('tableWidth');
+    const raw = this.config.get('tngantt_tableWidth');
     return typeof raw === 'number' && raw > 0 ? raw : undefined;
   }
 
   /** Build the FieldMappings from the current view config (OG-87). */
   private buildFieldMappings(): FieldMappings {
     return {
-      textProperty: (this.config.get('textProperty') as string) || '',
+      textProperty: (this.config.get('tngantt_textProperty') as string) || '',
       // Empty = "unset": the controller defaults start/end to TaskNotes'
       // configured scheduled/due when TaskNotes is present, else to the legacy
       // note.start/note.due (see GanttController.applyDateFieldMapping).
-      startProperty: (this.config.get('startDateProperty') as string) || '',
-      endProperty: (this.config.get('endDateProperty') as string) || '',
-      progressProperty: (this.config.get('progressProperty') as string) || 'note.progress',
-      parentProperty: (this.config.get('parentProperty') as string) || '',
-      statusProperty: (this.config.get('statusProperty') as string) || '',
+      startProperty: (this.config.get('tngantt_startDateProperty') as string) || '',
+      endProperty: (this.config.get('tngantt_endDateProperty') as string) || '',
+      progressProperty: (this.config.get('tngantt_progressProperty') as string) || 'note.progress',
+      parentProperty: (this.config.get('tngantt_parentProperty') as string) || '',
+      statusProperty: (this.config.get('tngantt_statusProperty') as string) || '',
     };
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
   private getArrowMode(): LinkRewriteMode {
-    return this.config.get('dependencyArrowMode') === 'all' ? 'all' : 'primary';
+    return this.config.get('tngantt_dependencyArrowMode') === 'all' ? 'all' : 'primary';
   }
 
   /** Build the date-policy + visibility config from the per-view options (U3). */
@@ -432,7 +432,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
 
   /** Read the per-view "show date-status indicators" toggle (R11); default on. */
   private getShowDateIndicators(): boolean {
-    return this.config.get('showDateIndicators') !== false;
+    return this.config.get('tngantt_showDateIndicators') !== false;
   }
 
   /**
@@ -441,7 +441,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
    * prompts before writing the ancestor notes (see cascadeGate / GanttContainer).
    */
   private getCascadeMode(): import('./cascadeGate').CascadeMode {
-    return normalizeCascadeMode(this.config.get('parentDateCascade'));
+    return normalizeCascadeMode(this.config.get('tngantt_parentDateCascade'));
   }
 
   /**
@@ -543,7 +543,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
           // dragging is SVAR's Resizer; this only persists the chosen value.
           onGridWidthChange: (width: number) => {
             try {
-              this.config.set('tableWidth', Math.round(width));
+              this.config.set('tngantt_tableWidth', Math.round(width));
             } catch (error) {
               console.warn('[Gantt] Failed to persist grid width:', error);
             }
@@ -592,7 +592,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       (id) => this.getDisplayName(id),
       this.getColumnSize(),
       // The task-name property: the configured textProperty, else file.name.
-      (this.config.get('textProperty') as string) || 'file.name',
+      (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
     return {
       instances,
@@ -603,7 +603,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
-      defaultScale: normalizeDefaultScale(this.config.get('defaultScale')),
+      defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
@@ -685,42 +685,42 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     {
       type: 'property' as const,
       displayName: 'Task Name Property',
-      key: 'textProperty',
+      key: 'tngantt_textProperty',
       default: '',
       placeholder: 'Select task name property (defaults to file name)',
     },
     {
       type: 'property' as const,
       displayName: 'Start Date Property',
-      key: 'startDateProperty',
+      key: 'tngantt_startDateProperty',
       default: '',
       placeholder: 'Defaults to TaskNotes Scheduled; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,
       displayName: 'End Date Property',
-      key: 'endDateProperty',
+      key: 'tngantt_endDateProperty',
       default: '',
       placeholder: 'Defaults to TaskNotes Due; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,
       displayName: 'Progress Property',
-      key: 'progressProperty',
+      key: 'tngantt_progressProperty',
       default: 'note.progress',
       placeholder: 'Select progress property (0-100)',
     },
     {
       type: 'property' as const,
       displayName: 'Parent Property',
-      key: 'parentProperty',
+      key: 'tngantt_parentProperty',
       default: '',
       placeholder: 'Select parent task property (optional)',
     },
     {
       type: 'property' as const,
       displayName: 'Status Property',
-      key: 'statusProperty',
+      key: 'tngantt_statusProperty',
       default: '',
       placeholder: 'Select status property (colors bars by TaskNotes status)',
     },
@@ -738,7 +738,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       {
         type: 'dropdown',
         displayName: 'Default Scale',
-        key: 'defaultScale',
+        key: 'tngantt_defaultScale',
         default: 'day',
         options: {
           hour: 'Hours',
@@ -752,7 +752,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       {
         type: 'dropdown',
         displayName: 'Dependency Arrows',
-        key: 'dependencyArrowMode',
+        key: 'tngantt_dependencyArrowMode',
         default: 'primary',
         options: {
           primary: 'Primary instance only',
@@ -765,7 +765,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       {
         type: 'dropdown',
         displayName: 'Parent date updates',
-        key: 'parentDateCascade',
+        key: 'tngantt_parentDateCascade',
         default: 'ask',
         options: {
           ask: 'Ask before updating parent dates',
@@ -779,26 +779,26 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       {
         type: 'number',
         displayName: 'Default task duration (days)',
-        key: 'defaultDuration',
+        key: 'tngantt_defaultDuration',
         default: 1,
         min: 1,
       },
       {
         type: 'boolean',
         displayName: 'Show tasks with no dates',
-        key: 'showUndatedTasks',
+        key: 'tngantt_showUndatedTasks',
         default: true,
       },
       {
         type: 'boolean',
         displayName: 'Show tasks with only one date',
-        key: 'showPartialDateTasks',
+        key: 'tngantt_showPartialDateTasks',
         default: true,
       },
       {
         type: 'boolean',
         displayName: 'Show date-status indicators on bars',
-        key: 'showDateIndicators',
+        key: 'tngantt_showDateIndicators',
         default: true,
       },
     ],

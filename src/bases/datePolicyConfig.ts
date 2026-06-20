@@ -18,11 +18,11 @@ import type { DatePolicyConfig } from '../controller/GanttController';
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
 export function readDatePolicyConfig(get: (key: string) => unknown): DatePolicyConfig {
-  const raw = Number(get('defaultDuration'));
+  const raw = Number(get('tngantt_defaultDuration'));
   const defaultDuration = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
   return {
     defaultDuration,
-    showUndatedTasks: get('showUndatedTasks') !== false,
-    showPartialDateTasks: get('showPartialDateTasks') !== false,
+    showUndatedTasks: get('tngantt_showUndatedTasks') !== false,
+    showPartialDateTasks: get('tngantt_showPartialDateTasks') !== false,
   };
 }
