@@ -210,37 +210,56 @@ export class ExpansionResult {
     const result: RenderLink[] = [];
 
     for (const link of sourceLinks) {
-      const sources =
-        mode === 'primary'
-          ? singletonOrEmpty(this.getPrimaryInstanceId(link.sourcePath))
-          : this.getInstanceIds(link.sourcePath);
-      const targets =
-        mode === 'primary'
-          ? singletonOrEmpty(this.getPrimaryInstanceId(link.targetPath))
-          : this.getInstanceIds(link.targetPath);
+      const sources = this.resolveEndpointInstances(link.sourcePath, mode);
+      const targets = this.resolveEndpointInstances(link.targetPath, mode);
 
       // Drop links whose endpoint path has no instances.
       if (sources.length === 0 || targets.length === 0) continue;
 
-      const lag = isoDurationToDays(link.gap);
-      for (const src of sources) {
-        for (const tgt of targets) {
-          const rendered: RenderLink = {
-            id: makeLinkId(src, tgt, link.type, link.gap),
-            source: src,
-            target: tgt,
-            type: link.type,
-            reltype: link.reltype,
-            gap: link.gap,
-          };
-          if (lag !== null) rendered.lag = lag;
-          result.push(rendered);
-        }
-      }
+      result.push(...renderLinkProduct(link, sources, targets));
     }
 
     return result;
   }
+
+  /**
+   * Resolve one endpoint path to the instance ids the link should attach to:
+   * just the primary in `'primary'` mode, or every instance in `'all'` mode.
+   */
+  private resolveEndpointInstances(path: string, mode: LinkRewriteMode): string[] {
+    return mode === 'primary'
+      ? singletonOrEmpty(this.getPrimaryInstanceId(path))
+      : this.getInstanceIds(path);
+  }
+}
+
+/**
+ * Build the cartesian product of `sources × targets` for one source link,
+ * carrying type/reltype/gap through and deriving SVAR's numeric `lag` from the
+ * gap (omitted when not convertible to an exact day count).
+ */
+function renderLinkProduct(
+  link: SourceLink,
+  sources: readonly string[],
+  targets: readonly string[],
+): RenderLink[] {
+  const lag = isoDurationToDays(link.gap);
+  const rendered: RenderLink[] = [];
+  for (const src of sources) {
+    for (const tgt of targets) {
+      const renderLink: RenderLink = {
+        id: makeLinkId(src, tgt, link.type, link.gap),
+        source: src,
+        target: tgt,
+        type: link.type,
+        reltype: link.reltype,
+        gap: link.gap,
+      };
+      if (lag !== null) renderLink.lag = lag;
+      rendered.push(renderLink);
+    }
+  }
+  return rendered;
 }
 
 /**

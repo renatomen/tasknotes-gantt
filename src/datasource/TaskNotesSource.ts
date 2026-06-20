@@ -37,6 +37,7 @@ import type {
   CustomDateField,
   DataSource,
   DataSourceCapabilities,
+  DateWrite,
   DependencyRelType,
   FieldConfig,
   MutationContext,
@@ -511,41 +512,7 @@ export class TaskNotesSource implements DataSource {
       throw new Error('TaskNotes API does not support task updates');
     }
 
-    const updates: Record<string, unknown> = {};
-    // Resolved date targets (the bases-scoped path, U8b): each routes to its
-    // canonical field or to userFields keyed by the field id.
-    if (patch.dateWrites) {
-      for (const write of patch.dateWrites) {
-        const value = write.value === null ? null : toYmd(write.value);
-        if (write.target.kind === 'scheduled') {
-          updates.scheduled = value;
-        } else if (write.target.kind === 'due') {
-          updates.due = value;
-        } else {
-          // Custom user fields: TaskNotes' frontmatter writer
-          // (mapToFrontmatter) reads each user field's value from the TOP LEVEL
-          // of the updates object, keyed by the field's frontmatter `key` —
-          // NOT from a `userFields` object and NOT by field id (confirmed vs
-          // 4.11.0 main.js). Write it under the key accordingly.
-          updates[write.target.key] = value;
-        }
-      }
-    }
-    // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
-    // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
-    if (patch.start !== undefined) {
-      updates.scheduled = patch.start === null ? null : toYmd(patch.start);
-    }
-    if (patch.end !== undefined) {
-      updates.due = patch.end === null ? null : toYmd(patch.end);
-    }
-    if (patch.text !== undefined) {
-      updates.title = patch.text;
-    }
-    if (patch.status !== undefined) {
-      updates.status = patch.status;
-    }
-    // `patch.progress` is intentionally not written (milestone 1, R17).
+    const updates = buildTaskUpdates(patch);
 
     await tasks.update(path, updates, context);
   }
@@ -760,6 +727,66 @@ export class TaskNotesSource implements DataSource {
     }
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+}
+
+/**
+ * Build the TaskNotes `tasks.update` field map from a {@link TaskPatch}.
+ *
+ * Only fields **present** in the patch are written, so a partial patch (e.g. a
+ * drag commit carrying dates only) never clobbers `text`/`status`. `progress`
+ * is intentionally dropped (milestone 1, R17). Resolved `dateWrites` and the
+ * direct `start`/`end` shorthands both target the canonical `scheduled`/`due`;
+ * when both are present the direct fields win (applied last), matching the
+ * original ordering.
+ */
+function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
+  const updates: Record<string, unknown> = {};
+
+  // Resolved date targets (the bases-scoped path, U8b): each routes to its
+  // canonical field or to userFields keyed by the field key.
+  if (patch.dateWrites) {
+    for (const write of patch.dateWrites) {
+      applyDateWrite(updates, write);
+    }
+  }
+
+  // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
+  // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
+  if (patch.start !== undefined) {
+    updates.scheduled = patch.start === null ? null : toYmd(patch.start);
+  }
+  if (patch.end !== undefined) {
+    updates.due = patch.end === null ? null : toYmd(patch.end);
+  }
+  if (patch.text !== undefined) {
+    updates.title = patch.text;
+  }
+  if (patch.status !== undefined) {
+    updates.status = patch.status;
+  }
+  // `patch.progress` is intentionally not written (milestone 1, R17).
+
+  return updates;
+}
+
+/**
+ * Route a single resolved {@link DateWrite} into the `updates` map: canonical
+ * `scheduled`/`due`, or a custom user field.
+ *
+ * Custom user fields: TaskNotes' frontmatter writer (mapToFrontmatter) reads
+ * each user field's value from the TOP LEVEL of the updates object, keyed by the
+ * field's frontmatter `key` — NOT from a `userFields` object and NOT by field id
+ * (confirmed vs 4.11.0 main.js). Write it under the key accordingly.
+ */
+function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): void {
+  const value = write.value === null ? null : toYmd(write.value);
+  if (write.target.kind === 'scheduled') {
+    updates.scheduled = value;
+  } else if (write.target.kind === 'due') {
+    updates.due = value;
+  } else {
+    updates[write.target.key] = value;
   }
 }
 
