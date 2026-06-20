@@ -23,30 +23,30 @@ describe('readDatePolicyConfig', () => {
   });
 
   it('passes a configured defaultDuration through to the policy', () => {
-    expect(readDatePolicyConfig(getter({ defaultDuration: 3 })).defaultDuration).toBe(3);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: 3 })).defaultDuration).toBe(3);
   });
 
   it('coerces a numeric-string duration and floors fractional values', () => {
-    expect(readDatePolicyConfig(getter({ defaultDuration: '5' })).defaultDuration).toBe(5);
-    expect(readDatePolicyConfig(getter({ defaultDuration: 2.9 })).defaultDuration).toBe(2);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: '5' })).defaultDuration).toBe(5);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: 2.9 })).defaultDuration).toBe(2);
   });
 
   it('falls back to 1 for invalid or sub-1 durations', () => {
-    expect(readDatePolicyConfig(getter({ defaultDuration: 0 })).defaultDuration).toBe(1);
-    expect(readDatePolicyConfig(getter({ defaultDuration: -4 })).defaultDuration).toBe(1);
-    expect(readDatePolicyConfig(getter({ defaultDuration: 'abc' })).defaultDuration).toBe(1);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: 0 })).defaultDuration).toBe(1);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: -4 })).defaultDuration).toBe(1);
+    expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: 'abc' })).defaultDuration).toBe(1);
   });
 
   it('hides a category only on an explicit false', () => {
     const cfg = readDatePolicyConfig(
-      getter({ showUndatedTasks: false, showPartialDateTasks: false }),
+      getter({ tngantt_showUndatedTasks: false, tngantt_showPartialDateTasks: false }),
     );
     expect(cfg.showUndatedTasks).toBe(false);
     expect(cfg.showPartialDateTasks).toBe(false);
   });
 
   it('treats a missing toggle as shown (not hidden)', () => {
-    const cfg = readDatePolicyConfig(getter({ showUndatedTasks: undefined }));
+    const cfg = readDatePolicyConfig(getter({ tngantt_showUndatedTasks: undefined }));
     expect(cfg.showUndatedTasks).toBe(true);
   });
 });

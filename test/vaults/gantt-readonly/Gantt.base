@@ -4,12 +4,12 @@ filters:
 views:
   - type: obsidianGantt
     name: "Gantt (OG)"
-    startDateProperty: note.start
-    endDateProperty: note.due
-    progressProperty: note.progress
-    parentProperty: note.parent
-    dependencyArrowMode: primary
-    defaultScale: month
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_progressProperty: note.progress
+    tngantt_parentProperty: note.parent
+    tngantt_dependencyArrowMode: primary
+    tngantt_defaultScale: month
     order:
       - file.name
       - note.start
