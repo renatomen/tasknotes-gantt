@@ -261,6 +261,9 @@ export class BasesDataAdapter {
       const value = basesEntry.getValue(propertyId);
       return this.convertValueToNative(value);
     } catch (e) {
+      // A computed property (e.g. backlinks) can throw on a malformed entry;
+      // degrade gracefully to null rather than failing the whole render.
+      console.debug('[BasesDataAdapter] computed property failed:', propertyId, e);
       return null;
     }
   }
