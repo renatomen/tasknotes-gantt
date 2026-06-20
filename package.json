@@ -50,7 +50,7 @@
     "ts-jest": "^29.4.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "vite": "^7.1.7",
+    "vite": "^8.0.16",
     "wdio-obsidian-reporter": "^2.1.2",
     "wdio-obsidian-service": "^2.1.2",
     "webdriverio": "^9.19.2"
