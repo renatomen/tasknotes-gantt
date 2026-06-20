@@ -25,7 +25,7 @@ interface NumberConversionOptions {
 export interface BasesDataItem {
   key?: string;
   data?: any;
-  file?: { path?: string } | any;
+  file?: any;
   path?: string;
   properties?: Record<string, any>;
   frontmatter?: Record<string, any>;
@@ -38,7 +38,7 @@ export interface BasesDataItem {
  * Now supports both individual field extraction AND full data extraction like TaskNotes
  */
 export class BasesDataAdapter {
-  constructor(private basesView?: any) {}
+  constructor(private readonly basesView?: any) {}
 
   /**
    * Extract all data items from Bases query result (TaskNotes pattern).
@@ -188,7 +188,7 @@ export class BasesDataAdapter {
     // Extract all properties from the entry's frontmatter
     // We don't filter by visible properties here - that happens during rendering
     // This ensures all properties are available for TaskInfo creation
-    const frontmatter = (entry as any).frontmatter || (entry as any).properties || {};
+    const frontmatter = entry.frontmatter || entry.properties || {};
 
     // Start with frontmatter properties
     const result = { ...frontmatter };
@@ -351,13 +351,13 @@ export class BasesDataAdapter {
 
     // Handle Date objects
     if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value;
+      return Number.isNaN(value.getTime()) ? null : value;
     }
 
     // Handle ISO strings and timestamps
     if (typeof value === "string" || typeof value === "number") {
       const date = new Date(value);
-      return isNaN(date.getTime()) ? null : date;
+      return Number.isNaN(date.getTime()) ? null : date;
     }
 
     return null;
@@ -380,13 +380,13 @@ export class BasesDataAdapter {
     if (typeof value === "number") {
       num = value;
     } else if (typeof value === "string") {
-      num = parseFloat(value);
+      num = Number.parseFloat(value);
     } else {
       return null;
     }
 
     // Check if conversion resulted in NaN
-    if (isNaN(num)) {
+    if (Number.isNaN(num)) {
       return null;
     }
 

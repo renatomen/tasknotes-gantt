@@ -28,8 +28,8 @@ export interface TransformResult {
  * Service for mapping BasesEntry data to SVAR Gantt tasks
  */
 export class PropertyMappingService {
-  private adapter: BasesDataAdapter;
-  private app: App;
+  private readonly adapter: BasesDataAdapter;
+  private readonly app: App;
 
   constructor(app: App) {
     this.adapter = new BasesDataAdapter();
@@ -100,9 +100,9 @@ export class PropertyMappingService {
       linkPath = pipeIndex !== -1 ? inner.substring(0, pipeIndex) : inner;
     }
     // Extract from markdown link format [text](path)
-    else if (trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/)) {
-      const match = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (match && match[2]) {
+    else {
+      const match = /^\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+      if (match?.[2]) {
         linkPath = match[2].trim();
       }
     }

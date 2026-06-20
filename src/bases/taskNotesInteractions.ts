@@ -62,7 +62,7 @@ export function resolveClickIntent(opts: {
 interface TaskNotesPlugin {
   api?: {
     settings?: { snapshot?(): Record<string, unknown> | null | undefined };
-    tasks?: { get(path: string): Promise<unknown> | unknown };
+    tasks?: { get(path: string): unknown };
     ui?: { taskMenu?: { show?(opts: { taskPath: string; event: MouseEvent }): void } };
   };
   /** Internal: opens the native edit modal for a TaskInfo. No public API. */
@@ -96,7 +96,7 @@ export class TaskNotesInteractions {
     const settings = this.safeSnapshot(api);
     const actionKey = opts.kind === 'double' ? 'doubleClickAction' : 'singleClickAction';
     const action = typeof settings?.[actionKey] === 'string'
-      ? (settings[actionKey] as string)
+      ? settings[actionKey]
       : undefined;
 
     const intent = resolveClickIntent({ action, ctrlOrMeta: opts.ctrlOrMeta });

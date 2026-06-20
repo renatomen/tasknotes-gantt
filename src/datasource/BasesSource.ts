@@ -144,8 +144,8 @@ export class BasesSource implements DataSource {
     }
     // Extract from markdown link format [text](path)
     else {
-      const mdMatch = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (mdMatch && mdMatch[2]) {
+      const mdMatch = /^\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+      if (mdMatch?.[2]) {
         linkPath = mdMatch[2].trim();
       }
     }

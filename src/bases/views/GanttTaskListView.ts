@@ -34,18 +34,21 @@ interface GanttTask {
  */
 export class GanttTaskListView extends GanttBasesView {
   readonly type = 'obsidianGanttTaskList';
-  private containerEl: HTMLElement;
-  private adapter: BasesDataAdapter;
+  private readonly containerEl: HTMLElement;
+  private readonly adapter: BasesDataAdapter;
   private itemsContainer: HTMLElement | null = null;
 
   // Phase 2: Expand/collapse state tracking
-  private collapsedTasks = new Set<string>();
+  private readonly collapsedTasks = new Set<string>();
   private readonly VIRTUAL_SCROLL_THRESHOLD = 100;
 
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-task-list-root' });
-    this.adapter = new BasesDataAdapter();
+    // Pass the view to the adapter at construction (it reads this.data lazily
+    // at extract time), so the adapter's basesView is set once and stays
+    // readonly — no post-construction `as any` reassignment needed.
+    this.adapter = new BasesDataAdapter(this);
   }
 
   override onload(): void {
@@ -102,9 +105,6 @@ export class GanttTaskListView extends GanttBasesView {
     }
 
     try {
-      // Pass the basesView (this) to the adapter
-      (this.adapter as any).basesView = this;
-
       // Get field mappings from config
       const fieldMappings = this.getFieldMappings();
 
@@ -390,9 +390,9 @@ export class GanttTaskListView extends GanttBasesView {
       linkPath = pipeIndex !== -1 ? inner.substring(0, pipeIndex) : inner;
     }
     // Extract from markdown link format [text](path)
-    else if (trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/)) {
-      const match = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (match && match[2]) {
+    else {
+      const match = /^\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+      if (match?.[2]) {
         linkPath = match[2].trim();
       }
     }

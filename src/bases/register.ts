@@ -251,7 +251,7 @@ interface GanttEphemeralState {
  */
 class ObsidianGanttBasesView extends GanttBasesView {
   readonly type = VIEW_TYPE_ID;
-  private containerEl: HTMLElement;
+  private readonly containerEl: HTMLElement;
   private svelteComponent: ReturnType<typeof mount> | null = null;
   private ephemeralState: GanttEphemeralState = {};
 

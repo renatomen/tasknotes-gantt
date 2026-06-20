@@ -167,9 +167,9 @@ export interface TaskNotesApi {
       path: string,
       updates: Record<string, unknown>,
       options?: unknown,
-    ): Promise<unknown> | unknown;
+    ): unknown;
     /** Delete a task and its note (`delete(path, options)`). */
-    delete?(path: string, options?: unknown): Promise<unknown> | unknown;
+    delete?(path: string, options?: unknown): unknown;
   };
   relationships?: {
     dependencies(
@@ -625,7 +625,7 @@ export class TaskNotesSource implements DataSource {
   /** Read the dependent task's raw `blockedBy` array (or `[]`). */
   private async readBlockedBy(path: string): Promise<TaskNotesBlockedByEntry[]> {
     const task = await this.api.tasks?.get?.(path);
-    const raw = (task as TaskNotesTaskInfo | null | undefined)?.blockedBy;
+    const raw = task?.blockedBy;
     return Array.isArray(raw) ? [...raw] : [];
   }
 
