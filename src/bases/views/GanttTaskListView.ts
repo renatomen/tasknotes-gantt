@@ -40,9 +40,8 @@ export class GanttTaskListView extends GanttBasesView {
   private readonly adapter: BasesDataAdapter;
   private itemsContainer: HTMLElement | null = null;
 
-  // Phase 2: Expand/collapse state tracking
+  // Expand/collapse state tracking
   private readonly collapsedTasks = new Set<string>();
-  private readonly VIRTUAL_SCROLL_THRESHOLD = 100;
 
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
@@ -294,20 +293,6 @@ export class GanttTaskListView extends GanttBasesView {
   }
 
   /**
-   * Filter tasks to show only visible ones (hide children of collapsed tasks)
-   * Phase 2: Used for virtual scrolling optimization
-   */
-  private filterVisibleTasks(allTasks: GanttTask[]): GanttTask[] {
-    return allTasks.filter(task => {
-      // Hide if any parent is collapsed
-      return !task.parents.some(parentRef => {
-        const resolvedPath = resolveParentLink(this.app, parentRef, task.path);
-        return resolvedPath && this.collapsedTasks.has(resolvedPath);
-      });
-    });
-  }
-
-  /**
    * Toggle collapse state for a task
    */
   private toggleCollapse(taskPath: string): void {
@@ -318,28 +303,6 @@ export class GanttTaskListView extends GanttBasesView {
     }
     // Re-render to update visibility
     this.render();
-  }
-
-  /**
-   * Count visible tasks (respecting collapse state)
-   * Phase 2: Used for virtual scrolling threshold check
-   */
-  private countVisibleTasks(rootTasks: GanttTask[], childrenMap: Map<string, GanttTask[]>): number {
-    let count = 0;
-    const countRecursive = (tasks: GanttTask[]) => {
-      for (const task of tasks) {
-        count++;
-        // Only count children if task is not collapsed
-        if (!this.collapsedTasks.has(task.path)) {
-          const children = childrenMap.get(task.path) || [];
-          if (children.length > 0) {
-            countRecursive(children);
-          }
-        }
-      }
-    };
-    countRecursive(rootTasks);
-    return count;
   }
 
   /**
@@ -385,14 +348,6 @@ export class GanttTaskListView extends GanttBasesView {
 
     // Get field mappings for property filtering
     const fieldMappings = this.getFieldMappings();
-
-    // Phase 2: Check if virtual scrolling threshold exceeded
-    const visibleTaskCount = this.countVisibleTasks(rootTasks, childrenMap);
-    if (visibleTaskCount >= this.VIRTUAL_SCROLL_THRESHOLD) {
-      console.log(`[GanttTaskListView] Virtual scrolling threshold exceeded (${visibleTaskCount}/${this.VIRTUAL_SCROLL_THRESHOLD}). Future optimization opportunity.`);
-      // TODO: Implement virtual scrolling when needed
-      // For now, render all tasks directly (collapse already optimizes rendering)
-    }
 
     // Sort root tasks by start date (if available)
     const sortedRoots = [...rootTasks].sort(compareByStartDate);

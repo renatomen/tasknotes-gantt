@@ -679,10 +679,10 @@ export class TaskNotesSource implements DataSource {
       // derived/read-only in milestone 1).
       progress: null,
       status: task.status ?? null,
-      // TODO(U5/multi-parent): TaskNotes' confirmed surface (2026-06-16) exposes
-      // no parent/project relationship resolvable to note paths, so parents are
-      // empty for now. Wire this once a TaskNotes parent/project edge is
-      // confirmed; do not invent an API.
+      // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
+      // exposes no parent/project relationship resolvable to note paths, so
+      // parents stay empty in milestone 1. Revisit when a TaskNotes
+      // parent/project edge is confirmed — do not invent an API.
       parents: [],
     };
   }
