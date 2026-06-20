@@ -64,9 +64,11 @@ The view is registered with `options: () => sharedOptions`, and `sharedOptions` 
 
 ## Prevention
 
+> ✓ Implemented: the grep guard (#110) and the single-source-of-truth refactor (#111) are both in place — see below.
+
 - **Grep every call site on a key rename.** Before considering a config-key rename complete, search all `config.get(`/`config.set(` sites across `src/`, not just the known readers — e.g. `config[?]?\.(get|set)\(\s*['"]<key>`. This bug existed precisely because the rename touched the schema and one reader but missed a second.
-- **Add a guard.** A grep guard or unit test that fails when any unprefixed plugin-key read remains (e.g. matches `config\??\.get\(\s*['"](text|startDate|endDate|progress|parent)Property`) would catch future drift mechanically instead of a user noticing a flat hierarchy.
-- **Remove the duplication.** Consolidate the two field-mapping readers into one shared function (parameterized by the differing defaults), or define the key names as shared named constants (e.g. `TNGANTT_KEYS.startDate`) so a rename is a single edit that cannot diverge between views.
+- **Add a guard.** ✓ #110 — [test/unit/noBarePluginConfigKeys.test.ts](../../../test/unit/noBarePluginConfigKeys.test.ts) walks `src/` and fails on any unprefixed plugin-key `get`/`set` (both `config.get('key')` and the standalone `get('key')` callback style), with a positive-control assertion so the guard itself can't silently rot.
+- **Remove the duplication.** ✓ #111 — [src/bases/fieldMappingConfig.ts](../../../src/bases/fieldMappingConfig.ts) holds `FIELD_MAPPING_KEYS` (canonical `tngantt_` key names) and `readFieldMappings(get, defaults?)`. Both readers and the `sharedOptions` schema reference it, so the keys the options UI writes and the keys a view reads share one definition and cannot diverge. The guard catches the *unprefixed* mistake; the shared constants catch the *wrong-prefix / divergence* mistake.
 
 ## Related Issues
 
