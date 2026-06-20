@@ -30,7 +30,9 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm ci
+        # --ignore-scripts: supply-chain hardening for the attested release build;
+        # native deps (rollup/esbuild/@swc) are optionalDependencies, not scripts.
+        run: npm ci --ignore-scripts
       - name: Build from source
         run: npm run build
       - name: Attest build provenance
