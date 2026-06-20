@@ -36,7 +36,7 @@ describe("Gantt (OG) status coloring — graceful path (no TaskNotes)", () => {
 
     await browser.reloadObsidian({
       vault: tmpVault,
-      plugins: ["obsidian-gantt"],
+      plugins: ["tasknotes-gantt"],
     });
 
     await browser.executeObsidian(async ({ app }) => {

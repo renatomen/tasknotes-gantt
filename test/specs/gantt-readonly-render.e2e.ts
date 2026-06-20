@@ -43,7 +43,7 @@ describe("Gantt (OG) read-only render", () => {
 
     await browser.reloadObsidian({
       vault: tmpVault,
-      plugins: ["obsidian-gantt"],
+      plugins: ["tasknotes-gantt"],
     });
 
     // Rendering a `.base` requires the Bases core plugin enabled. Our Gantt

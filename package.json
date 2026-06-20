@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-gantt",
+  "name": "tasknotes-gantt",
   "version": "0.0.1",
   "private": true,
   "description": "Render SVAR Svelte Gantt charts from note properties and YAML frontmatter, with Bases and TaskNotes integration.",
