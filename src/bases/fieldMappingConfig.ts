@@ -1,0 +1,71 @@
+/**
+ * Single source of truth for the plugin's field-mapping view-config keys and
+ * how they are read from a Bases view config.
+ *
+ * Both the Bases options schema (`sharedOptions` in `register.ts`) and every
+ * reader (the gantt view's `buildFieldMappings`, the task-list view's
+ * `getFieldMappings`) reference these constants, so the `tngantt_`-prefixed key
+ * names cannot drift between what the options UI writes and what a view reads.
+ * That drift is exactly what caused the bug in PR #108 — see
+ * docs/solutions/integration-issues/tasklist-view-tngantt-config-keys.md.
+ *
+ * @module bases/fieldMappingConfig
+ */
+import type { FieldMappings } from './types/field-mapping';
+
+/** Canonical `tngantt_`-prefixed config keys for the field mappings. */
+export const FIELD_MAPPING_KEYS = {
+  text: 'tngantt_textProperty',
+  start: 'tngantt_startDateProperty',
+  end: 'tngantt_endDateProperty',
+  progress: 'tngantt_progressProperty',
+  parent: 'tngantt_parentProperty',
+  status: 'tngantt_statusProperty',
+} as const;
+
+/** Per-view fallback values used when a mapping key is unset. */
+export interface FieldMappingDefaults {
+  textProperty: string;
+  startProperty: string;
+  endProperty: string;
+  progressProperty: string;
+  parentProperty: string;
+  statusProperty: string;
+}
+
+/**
+ * Default fallbacks. `startProperty`/`endProperty` default to "unset" (empty):
+ * the gantt controller then resolves them to TaskNotes' scheduled/due (or the
+ * legacy note.start/note.due). Views that render dates directly (the task-list
+ * view) override start/end with concrete properties.
+ */
+const BASE_DEFAULTS: FieldMappingDefaults = {
+  textProperty: '',
+  startProperty: '',
+  endProperty: '',
+  progressProperty: 'note.progress',
+  parentProperty: '',
+  statusProperty: '',
+};
+
+/**
+ * Read the field mappings from a view config via the canonical `tngantt_` keys.
+ *
+ * @param get      a `config.get`-style reader (e.g. `(k) => this.config.get(k)`)
+ * @param defaults per-view fallback overrides (e.g. the task-list view defaults
+ *                 start/end to `note.start`/`note.due` rather than "unset")
+ */
+export function readFieldMappings(
+  get: (key: string) => unknown,
+  defaults: Partial<FieldMappingDefaults> = {},
+): FieldMappings {
+  const d = { ...BASE_DEFAULTS, ...defaults };
+  return {
+    textProperty: (get(FIELD_MAPPING_KEYS.text) as string) || d.textProperty,
+    startProperty: (get(FIELD_MAPPING_KEYS.start) as string) || d.startProperty,
+    endProperty: (get(FIELD_MAPPING_KEYS.end) as string) || d.endProperty,
+    progressProperty: (get(FIELD_MAPPING_KEYS.progress) as string) || d.progressProperty,
+    parentProperty: (get(FIELD_MAPPING_KEYS.parent) as string) || d.parentProperty,
+    statusProperty: (get(FIELD_MAPPING_KEYS.status) as string) || d.statusProperty,
+  };
+}

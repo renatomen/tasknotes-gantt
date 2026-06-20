@@ -29,6 +29,7 @@ import type { GanttData } from './types/gantt-view-data';
 import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
+import { FIELD_MAPPING_KEYS, readFieldMappings } from './fieldMappingConfig';
 import {
   GanttController,
   type DatePolicyConfig,
@@ -405,19 +406,15 @@ class ObsidianGanttBasesView extends GanttBasesView {
     return typeof raw === 'number' && raw > 0 ? raw : undefined;
   }
 
-  /** Build the FieldMappings from the current view config (OG-87). */
+  /**
+   * Build the FieldMappings from the current view config (OG-87).
+   *
+   * start/end default to "unset" (empty): the controller then resolves them to
+   * TaskNotes' configured scheduled/due when TaskNotes is present, else to the
+   * legacy note.start/note.due (see GanttController.applyDateFieldMapping).
+   */
   private buildFieldMappings(): FieldMappings {
-    return {
-      textProperty: (this.config.get('tngantt_textProperty') as string) || '',
-      // Empty = "unset": the controller defaults start/end to TaskNotes'
-      // configured scheduled/due when TaskNotes is present, else to the legacy
-      // note.start/note.due (see GanttController.applyDateFieldMapping).
-      startProperty: (this.config.get('tngantt_startDateProperty') as string) || '',
-      endProperty: (this.config.get('tngantt_endDateProperty') as string) || '',
-      progressProperty: (this.config.get('tngantt_progressProperty') as string) || 'note.progress',
-      parentProperty: (this.config.get('tngantt_parentProperty') as string) || '',
-      statusProperty: (this.config.get('tngantt_statusProperty') as string) || '',
-    };
+    return readFieldMappings((key) => this.config.get(key));
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
@@ -685,42 +682,42 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     {
       type: 'property' as const,
       displayName: 'Task Name Property',
-      key: 'tngantt_textProperty',
+      key: FIELD_MAPPING_KEYS.text,
       default: '',
       placeholder: 'Select task name property (defaults to file name)',
     },
     {
       type: 'property' as const,
       displayName: 'Start Date Property',
-      key: 'tngantt_startDateProperty',
+      key: FIELD_MAPPING_KEYS.start,
       default: '',
       placeholder: 'Defaults to TaskNotes Scheduled; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,
       displayName: 'End Date Property',
-      key: 'tngantt_endDateProperty',
+      key: FIELD_MAPPING_KEYS.end,
       default: '',
       placeholder: 'Defaults to TaskNotes Due; or pick a TaskNotes date field',
     },
     {
       type: 'property' as const,
       displayName: 'Progress Property',
-      key: 'tngantt_progressProperty',
+      key: FIELD_MAPPING_KEYS.progress,
       default: 'note.progress',
       placeholder: 'Select progress property (0-100)',
     },
     {
       type: 'property' as const,
       displayName: 'Parent Property',
-      key: 'tngantt_parentProperty',
+      key: FIELD_MAPPING_KEYS.parent,
       default: '',
       placeholder: 'Select parent task property (optional)',
     },
     {
       type: 'property' as const,
       displayName: 'Status Property',
-      key: 'tngantt_statusProperty',
+      key: FIELD_MAPPING_KEYS.status,
       default: '',
       placeholder: 'Select status property (colors bars by TaskNotes status)',
     },

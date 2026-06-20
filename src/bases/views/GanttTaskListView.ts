@@ -12,6 +12,8 @@ import { type App, setIcon } from 'obsidian';
 import { GanttBasesView } from '../GanttBasesView';
 import type { QueryController } from '../register';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
+import { readFieldMappings } from '../fieldMappingConfig';
+import type { FieldMappings } from '../types/field-mapping';
 
 /**
  * Represents a task extracted from Bases data
@@ -133,16 +135,17 @@ export class GanttTaskListView extends GanttBasesView {
   }
 
   /**
-   * Get field mappings from view config
+   * Get field mappings from view config.
+   *
+   * Uses the shared reader (single source of truth for the `tngantt_` keys),
+   * overriding start/end to concrete properties since this view renders dates
+   * directly rather than going through the gantt controller's fallback.
    */
-  private getFieldMappings() {
-    return {
-      textProperty: (this.config?.get('tngantt_textProperty') as string) || '',
-      startProperty: (this.config?.get('tngantt_startDateProperty') as string) || 'note.start',
-      endProperty: (this.config?.get('tngantt_endDateProperty') as string) || 'note.due',
-      progressProperty: (this.config?.get('tngantt_progressProperty') as string) || 'note.progress',
-      parentProperty: (this.config?.get('tngantt_parentProperty') as string) || '',
-    };
+  private getFieldMappings(): FieldMappings {
+    return readFieldMappings((key) => this.config?.get(key), {
+      startProperty: 'note.start',
+      endProperty: 'note.due',
+    });
   }
 
   /**
@@ -263,7 +266,7 @@ export class GanttTaskListView extends GanttBasesView {
         start: this.adapter.extractDate(entry, fieldMappings.startProperty),
         end: this.adapter.extractDate(entry, fieldMappings.endProperty),
         progress: this.adapter.extractProgress(entry, fieldMappings.progressProperty),
-        parents: this.adapter.extractParents(entry, fieldMappings.parentProperty),
+        parents: this.adapter.extractParents(entry, fieldMappings.parentProperty ?? ''),
         level: 0, // Will be calculated in buildHierarchy
         entry: entry, // Store entry for extracting additional properties
       };
