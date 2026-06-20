@@ -15,7 +15,16 @@ This project uses the **compound-engineering** flow: brainstorm → plan → wor
 - Requirements live in `docs/brainstorms/`, plans in `docs/plans/`, durable learnings in `docs/solutions/`.
 - Check `docs/solutions/` for prior learnings before starting work in a documented area.
 
-**Agent skills** — Pinned in `skills-lock.json` (committed) and installed into `.agents/skills/` and `.claude/skills/` (both gitignored — treat like `node_modules`). Restore them with the skills installer that manages `skills-lock.json`; the SVAR Svelte component skill is sourced from the `svar-widgets/skills` GitHub repo.
+**Agent skills** — Pinned in `skills-lock.json` (committed); the fetched content lives in `.agents/skills/` and `.claude/skills/` (gitignored, like `node_modules`). Managed by the [`skills`](https://github.com/vercel-labs/skills) CLI. After a fresh clone, restore with:
+
+```bash
+# Restore everything pinned in skills-lock.json (npm-ci style).
+# Note: lockfile restore is experimental in the current skills CLI.
+npx skills experimental_install
+
+# Explicit fallback (always works) — re-add the pinned skill directly:
+npx skills add svar-widgets/skills --skill svar-svelte
+```
 
 ## Always-apply standards
 
