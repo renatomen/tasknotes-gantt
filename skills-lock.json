@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "svar-svelte": {
+      "source": "svar-widgets/skills",
+      "sourceType": "github",
+      "skillPath": "svar-svelte/SKILL.md",
+      "computedHash": "f111376ddd8d8343d7e5d78f256b851fdba960521adab8ac99e3aa40c28fc68f"
+    }
+  }
+}

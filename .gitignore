@@ -33,3 +33,10 @@ featureSyncStage/
 
 # Compound Engineering machine-local config
 .compound-engineering/*.local.yaml
+
+# Claude Code personal settings (machine-local)
+.claude/settings.local.json
+
+# Installed/fetched agent skills (reproduced from skills-lock.json)
+.agents/skills/
+.claude/skills/

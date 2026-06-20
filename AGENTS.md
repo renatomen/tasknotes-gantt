@@ -15,6 +15,8 @@ This project uses the **compound-engineering** flow: brainstorm → plan → wor
 - Requirements live in `docs/brainstorms/`, plans in `docs/plans/`, durable learnings in `docs/solutions/`.
 - Check `docs/solutions/` for prior learnings before starting work in a documented area.
 
+**Agent skills** — Pinned in `skills-lock.json` (committed) and installed into `.agents/skills/` and `.claude/skills/` (both gitignored — treat like `node_modules`). Restore them with the skills installer that manages `skills-lock.json`; the SVAR Svelte component skill is sourced from the `svar-widgets/skills` GitHub repo.
+
 ## Always-apply standards
 
 **Testing** — Test-first (red→green→refactor). Jest unit tests (`*.test.ts`), WebdriverIO e2e against real Obsidian. Mock Obsidian APIs via dependency injection. One behavior per test, descriptive names, AAA. → [testing.md](docs/conventions/testing.md)
