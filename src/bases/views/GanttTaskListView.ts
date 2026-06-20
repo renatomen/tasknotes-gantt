@@ -14,6 +14,7 @@ import type { QueryController } from '../register';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
 import { readFieldMappings } from '../fieldMappingConfig';
 import { resolveParentLink } from '../parentLink';
+import { buildHierarchy, compareByStartDate } from '../taskHierarchy';
 import type { FieldMappings } from '../types/field-mapping';
 
 /**
@@ -281,64 +282,15 @@ export class GanttTaskListView extends GanttBasesView {
   /**
    * Build task hierarchy based on parent references
    * Returns { rootTasks, childrenMap } for rendering
+   *
+   * Delegates to the pure `buildHierarchy` (src/bases/taskHierarchy.ts),
+   * injecting Obsidian's link resolution so that module stays DOM/app-free and
+   * unit-testable.
    */
   private buildHierarchy(tasks: GanttTask[]): { rootTasks: GanttTask[]; childrenMap: Map<string, GanttTask[]> } {
-    // Create a map for quick lookup
-    const taskMap = new Map<string, GanttTask>();
-    for (const task of tasks) {
-      taskMap.set(task.path, task);
-    }
-
-    // Build parent-child relationships
-    const rootTasks: GanttTask[] = [];
-    const childrenMap = new Map<string, GanttTask[]>();
-
-    for (const task of tasks) {
-      if (task.parents.length === 0) {
-        // No parents - this is a root task
-        rootTasks.push(task);
-      } else {
-        // Has parents - add to children map for each parent
-        let hasValidParent = false;
-        for (const parentRef of task.parents) {
-          // Resolve parent reference to actual file path (following TaskNotes pattern)
-          const resolvedPath = resolveParentLink(this.app, parentRef, task.path);
-
-          if (resolvedPath && taskMap.has(resolvedPath)) {
-            hasValidParent = true;
-            if (!childrenMap.has(resolvedPath)) {
-              childrenMap.set(resolvedPath, []);
-            }
-            childrenMap.get(resolvedPath)!.push(task);
-          }
-        }
-        // If no valid parents exist in the dataset, treat as root
-        if (!hasValidParent) {
-          rootTasks.push(task);
-        }
-      }
-    }
-
-    // Assign levels recursively
-    const assignLevel = (task: GanttTask, level: number, visited: Set<string>) => {
-      if (visited.has(task.path)) {
-        // Circular reference - skip
-        return;
-      }
-      visited.add(task.path);
-      task.level = level;
-
-      const children = childrenMap.get(task.path) || [];
-      for (const child of children) {
-        assignLevel(child, level + 1, visited);
-      }
-    };
-
-    for (const rootTask of rootTasks) {
-      assignLevel(rootTask, 0, new Set());
-    }
-
-    return { rootTasks, childrenMap };
+    return buildHierarchy(tasks, (parentRef, sourcePath) =>
+      resolveParentLink(this.app, parentRef, sourcePath),
+    );
   }
 
   /**
@@ -391,6 +343,35 @@ export class GanttTaskListView extends GanttBasesView {
   }
 
   /**
+   * Assemble the single-line text for a task: indent + tree prefix + text,
+   * followed by the visible-property metadata, an optional date range, and an
+   * optional progress suffix. Pure string assembly extracted from renderTasks
+   * to keep the DOM render method's complexity down; behavior is identical.
+   */
+  private buildTaskLineText(task: GanttTask, fieldMappings: ReturnType<typeof this.getFieldMappings>): string {
+    const indent = '  '.repeat(task.level);
+    const prefix = task.level > 0 ? '└─ ' : '';
+    let text = `${indent}${prefix}${task.text}`;
+
+    // Add visible properties metadata (following user's format)
+    text += this.buildPropertyMetadata(task, fieldMappings);
+
+    // Add date info if available
+    if (task.start || task.end) {
+      const startStr = task.start ? this.formatDate(task.start) : '---';
+      const endStr = task.end ? this.formatDate(task.end) : '---';
+      text += ` [${startStr} → ${endStr}]`;
+    }
+
+    // Add progress if available
+    if (task.progress !== null) {
+      text += ` (${task.progress}%)`;
+    }
+
+    return text;
+  }
+
+  /**
    * Render tasks recursively with indentation to show hierarchy
    * Following TaskNotes pattern: render all tasks using childrenMap for hierarchy
    * Phase 2: Supports expand/collapse and virtual scrolling
@@ -414,12 +395,7 @@ export class GanttTaskListView extends GanttBasesView {
     }
 
     // Sort root tasks by start date (if available)
-    const sortedRoots = [...rootTasks].sort((a, b) => {
-      if (!a.start && !b.start) return 0;
-      if (!a.start) return 1;
-      if (!b.start) return -1;
-      return a.start.getTime() - b.start.getTime();
-    });
+    const sortedRoots = [...rootTasks].sort(compareByStartDate);
 
     // Recursive render function
     const renderTask = (task: GanttTask) => {
@@ -469,28 +445,7 @@ export class GanttTaskListView extends GanttBasesView {
       // Build task text
       const textSpan = doc.createElement('span');
       textSpan.style.cssText = 'flex: 1;';
-
-      const indent = '  '.repeat(task.level);
-      const prefix = task.level > 0 ? '└─ ' : '';
-      let text = `${indent}${prefix}${task.text}`;
-
-      // Add visible properties metadata (following user's format)
-      const propertyMetadata = this.buildPropertyMetadata(task, fieldMappings);
-      text += propertyMetadata;
-
-      // Add date info if available
-      if (task.start || task.end) {
-        const startStr = task.start ? this.formatDate(task.start) : '---';
-        const endStr = task.end ? this.formatDate(task.end) : '---';
-        text += ` [${startStr} → ${endStr}]`;
-      }
-
-      // Add progress if available
-      if (task.progress !== null) {
-        text += ` (${task.progress}%)`;
-      }
-
-      textSpan.textContent = text;
+      textSpan.textContent = this.buildTaskLineText(task, fieldMappings);
       taskEl.appendChild(textSpan);
 
       // Add hover effect
@@ -511,12 +466,7 @@ export class GanttTaskListView extends GanttBasesView {
       // Render children recursively if not collapsed
       if (!isCollapsed) {
         // Sort children by start date
-        const sortedChildren = [...children].sort((a, b) => {
-          if (!a.start && !b.start) return 0;
-          if (!a.start) return 1;
-          if (!b.start) return -1;
-          return a.start.getTime() - b.start.getTime();
-        });
+        const sortedChildren = [...children].sort(compareByStartDate);
         for (const child of sortedChildren) {
           renderTask(child);
         }
