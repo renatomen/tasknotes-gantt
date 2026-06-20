@@ -44,7 +44,7 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/setup-node@<sha> # vN
         with: { node-version: '20' }
-      - run: npm ci
+      - run: npm ci --ignore-scripts   # see §7 — skip dependency lifecycle scripts
       - run: npm run test:coverage
       - uses: actions/upload-artifact@<sha> # vN
         with:
@@ -104,11 +104,13 @@ gh api -X PUT repos/<owner>/<repo>/automated-security-fixes
 
 **6. Reading results back (AI / scripted access):** SonarCloud Web API with a **user token in a gitignored `.env`**, `curl -u "$TOKEN:"` (add `--cacert <corp-ca>.pem` on a TLS-inspection-proxy machine). Useful endpoints: `api/measures/component`, `api/issues/search` (facets incl. `impactSoftwareQualities` for the Clean-Code taxonomy), `api/qualitygates/project_status`, and for triage `api/issues/do_transition` (`accept` / `falsepositive`) + `api/issues/add_comment`.
 
+**7. Harden every `npm ci` with `--ignore-scripts`** — the install-side complement to the token isolation in §2. A compromised transitive dependency runs arbitrary code via `postinstall`/`install`/`preinstall` lifecycle scripts during `npm ci`; `--ignore-scripts` skips them. This is **safe for a modern TS toolchain** because the native binaries that *do* matter (rollup, esbuild, `@swc/core`) ship as **`optionalDependencies`**, not install scripts — so build/test/e2e are unaffected. Apply it to *all* `npm ci` (CI, Sonar, and especially an attested **release** build), and let CI verify on a clean runner before trusting it. Two caveats worth knowing: (a) the project's own `prepare` script (e.g. husky) is also skipped — harmless in CI, where git hooks aren't needed; (b) `--ignore-scripts` is orthogonal to npm's optional-dependency bug ([npm/cli#4828](https://github.com/npm/cli/issues/4828)), which can strand a native binary on *repeated local reinstalls* — don't mistake that local-only failure for the flag breaking the build.
+
 ## Why This Matters
 
 - **Token isolation is the core security move.** A job-level `SONAR_TOKEN` is in the environment of `npm ci` (which runs arbitrary dependency `postinstall` scripts) and the test run (project-controlled code). One compromised transitive dependency or malicious test could exfiltrate it. Producing the LCOV in a *secret-free* `test` job and consuming only that artifact + source in a `sonar` job that runs no project code confines the secret to the one step that needs it — GitHub Security Lab's "isolate privileged steps from untrusted code" (pwn-request) pattern, applied to a scanner.
 - **Fork / Dependabot PRs receive no Actions secrets.** Gating the `sonar` job on **event context** (not the secret value) makes it skip cleanly on those PRs instead of hard-failing on a missing token; the `test` job still runs everywhere and remains the gate.
-- **Supply-chain hardening:** SHA-pinning the third-party scan action defeats mutable-tag tampering; `contents: read` is least privilege; `persist-credentials: false` keeps the checkout token out of `.git/config`; weekly `github-actions` Dependabot keeps the pins current.
+- **Supply-chain hardening:** `npm ci --ignore-scripts` (§7) blocks the dependency-lifecycle-script execution vector at install time; SHA-pinning the third-party scan action defeats mutable-tag tampering; `contents: read` is least privilege; `persist-credentials: false` keeps the checkout token out of `.git/config`; weekly `github-actions` Dependabot keeps the pins current.
 - **The Automatic-Analysis gotcha:** it cannot import coverage, ignores `sonar-project.properties`, and actively *rejects* a CI scan if left enabled. Disabling it is mandatory, not optional — and is the single fix for "coverage never shows up."
 
 ## When to Apply
@@ -126,7 +128,7 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # ← visible to npm ci + tests
     steps:
-      - run: npm ci                 # arbitrary postinstall runs WITH the token in env
+      - run: npm ci                 # arbitrary postinstall runs WITH the token in env (and unhardened — see §7)
       - run: npm run test:coverage
       - uses: SonarSource/sonarqube-scan-action@<sha>
 ```
@@ -145,4 +147,4 @@ Contrast with the `github-actions` ecosystem in the same file, which keeps its d
 
 - `docs/plans/2026-06-20-004-chore-maximize-sonarqube-scores-plan.md` — the downstream sibling work (maximizing the *scores* once this pipeline existed: honest coverage scoping, cognitive-complexity and smell burndown).
 - `docs/solutions/developer-experience/windows-build-and-e2e-environment-setup.md` — the local (non-CI) build/E2E environment counterpart.
-- Source PRs: #113 (CI-based analysis + coverage), #114 (separate-job token isolation), #115 (SHA-pin + Dependabot + permissions), #122 (npm security-only).
+- Source PRs: #113 (CI-based analysis + coverage), #114 (separate-job token isolation), #115 (SHA-pin + Dependabot + permissions), #122 (npm security-only), #137 (`--ignore-scripts` install hardening, §7).
