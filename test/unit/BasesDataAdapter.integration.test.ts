@@ -348,6 +348,49 @@ describe("BasesDataAdapter - Integration Tests", () => {
       // Assert
       expect(result).toBe("Unknown");
     });
+
+    // --- Characterization tests (added before S3776 refactor) ---
+    it("should return 'None' when extracted .data is null", () => {
+      expect(adapter.convertGroupKeyToString({ data: null, hasKey: () => true })).toBe("None");
+    });
+
+    it("should return 'None' for an empty-string .data value", () => {
+      expect(adapter.convertGroupKeyToString({ data: "", hasKey: () => true })).toBe("None");
+    });
+
+    it("should stringify a numeric .data value", () => {
+      expect(adapter.convertGroupKeyToString({ data: 42, hasKey: () => true })).toBe("42");
+    });
+
+    it("should render boolean .data values as True/False", () => {
+      expect(adapter.convertGroupKeyToString({ data: true, hasKey: () => true })).toBe("True");
+      expect(adapter.convertGroupKeyToString({ data: false, hasKey: () => true })).toBe("False");
+    });
+
+    it("should join non-empty array .data values with commas", () => {
+      expect(adapter.convertGroupKeyToString({ data: ["a", "b"], hasKey: () => true })).toBe("a, b");
+    });
+
+    it("should return 'None' for an empty array .data value", () => {
+      expect(adapter.convertGroupKeyToString({ data: [], hasKey: () => true })).toBe("None");
+    });
+
+    it("should format a top-level Date key as YYYY-MM-DD via .data branch", () => {
+      // A Date arriving through .data (not .date) still gets date-formatted.
+      const d = new Date("2024-03-10");
+      expect(adapter.convertGroupKeyToString({ data: d, hasKey: () => true })).toBe("2024-03-10");
+    });
+
+    it("should fall back to String() when no recognized shape is present", () => {
+      // No .file/.date/.data — uses the key object directly, then String().
+      const key = { hasKey: () => true, toString: () => "raw-key" };
+      expect(adapter.convertGroupKeyToString(key)).toBe("raw-key");
+    });
+
+    it("should treat a bare string key (no hasKey) as its own value", () => {
+      // key has no hasKey and no .data/.date/.file -> falls through to actualValue = key
+      expect(adapter.convertGroupKeyToString("plain")).toBe("plain");
+    });
   });
 
   describe("getComputedProperty", () => {
