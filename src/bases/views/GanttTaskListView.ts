@@ -137,11 +137,11 @@ export class GanttTaskListView extends GanttBasesView {
    */
   private getFieldMappings() {
     return {
-      textProperty: (this.config?.get('textProperty') as string) || '',
-      startProperty: (this.config?.get('startDateProperty') as string) || 'note.start',
-      endProperty: (this.config?.get('endDateProperty') as string) || 'note.due',
-      progressProperty: (this.config?.get('progressProperty') as string) || 'note.progress',
-      parentProperty: (this.config?.get('parentProperty') as string) || '',
+      textProperty: (this.config?.get('tngantt_textProperty') as string) || '',
+      startProperty: (this.config?.get('tngantt_startDateProperty') as string) || 'note.start',
+      endProperty: (this.config?.get('tngantt_endDateProperty') as string) || 'note.due',
+      progressProperty: (this.config?.get('tngantt_progressProperty') as string) || 'note.progress',
+      parentProperty: (this.config?.get('tngantt_parentProperty') as string) || '',
     };
   }
 
