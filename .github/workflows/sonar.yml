@@ -1,23 +1,35 @@
 name: SonarQube Cloud
 
-# CI-based analysis (replaces SonarCloud Automatic Analysis, which cannot
-# import test coverage). Runs on PRs for decoration and on main pushes to
-# establish the new-code baseline. Requires the SONAR_TOKEN repo secret and
-# Automatic Analysis disabled in the SonarCloud project settings.
+# CI-based analysis (replaces SonarCloud Automatic Analysis, which can't import
+# coverage). Split into two jobs so the SONAR_TOKEN-bearing scan never executes
+# project-controlled code (npm ci lifecycle scripts / the test run): the `test`
+# job produces the LCOV artifact WITHOUT the secret; the `sonar` job consumes
+# only that artifact plus the source tree. This is the GitHub Security Lab
+# "isolate privileged steps from untrusted code" pattern.
+#
+# Fork PRs and Dependabot PRs receive no Actions secrets, so the `sonar` job is
+# skipped on them (gated on non-secret event context, never on the secret
+# value); the `test` job still runs there and stays the required gate.
+#
+# Requires: SONAR_TOKEN repo secret + Automatic Analysis disabled in SonarCloud.
 on:
   push:
     branches: [main]
   pull_request:
 
+# Least privilege: the scan needs only to read the repo. SonarCloud PR
+# decoration uses its own GitHub App, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
-  sonar:
-    name: Analyze
+  test:
+    name: Test + coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so SonarQube can attribute new code via SCM blame.
-          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -25,8 +37,40 @@ jobs:
         run: npm ci
       - name: Tests with coverage
         run: npm run test:coverage
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: error
+
+  sonar:
+    name: Analyze
+    needs: test
+    runs-on: ubuntu-latest
+    # Run only where SONAR_TOKEN exists and the code is trusted: main pushes and
+    # same-repo, non-Dependabot PRs. Fork/Dependabot PRs skip (no secrets there).
+    # Gating on event context — not the secret value — keeps the token scoped to
+    # the scan step's env below.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so SonarQube can attribute new code via SCM blame.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage
       - name: SonarQube Cloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5
+        # Third-party action that receives the token — pinned to a full commit
+        # SHA (mutable tags are not immutable releases).
+        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
         env:
           # SonarQube Cloud needs no SONAR_HOST_URL (only self-hosted Server does).
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
