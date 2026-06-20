@@ -417,5 +417,134 @@ describe("PropertyMappingService", () => {
       expect(task.custom?.isUnscheduled).toBe(true);
       expect(task.custom?.obsidianPath).toBe(filePath);
     });
+
+    it("includes progress and parent when provided", () => {
+      const task = service.createUnscheduledTask(
+        "u.md",
+        "U",
+        {} as BasesEntry,
+        42,
+        "projects/p.md"
+      );
+      expect(task.progress).toBe(42);
+      expect(task.parent).toBe("projects/p.md");
+      expect(task.custom?.isUnscheduled).toBe(true);
+    });
+
+    it("adds unmapped visible properties and skips built-in column ids", () => {
+      const entry: BasesEntry = {
+        file: { path: "u.md", name: "u.md", basename: "u" },
+        getValue: (propertyId: string) => {
+          const values: Record<string, any> = {
+            "note:priority": { data: "high" },
+            "file.basename": { data: "u" },
+          };
+          return values[propertyId] ?? null;
+        },
+      };
+      const task = service.createUnscheduledTask("u.md", "U", entry, null, undefined, [
+        "note:priority",
+        "file.basename",
+      ]);
+      expect((task as any)["note:priority"]).toBe("high");
+      // file.basename is a skipped built-in (used for text), not added as a column
+      expect((task as any)["file.basename"]).toBeUndefined();
+    });
+  });
+
+  describe("resolveParentLink — parent reference formats", () => {
+    const baseMappings: FieldMappings = {
+      textProperty: "note:title",
+      startProperty: "note:start",
+      endProperty: "note:due",
+      progressProperty: "note:progress",
+      parentProperty: "note:parent",
+    };
+
+    function entryWithParent(parentRaw: unknown): BasesEntry {
+      return {
+        file: { path: "tasks/child.md", name: "child.md", basename: "child" },
+        getValue: (propertyId: string) => {
+          const values: Record<string, any> = {
+            "note:title": { data: "Child" },
+            "note:start": { date: new Date("2024-08-01") },
+            "note:due": { date: new Date("2024-08-05") },
+            "note:parent": parentRaw,
+          };
+          return values[propertyId] ?? null;
+        },
+      };
+    }
+
+    it("resolves a [[Page]] wikilink reference", () => {
+      const result = service.transformEntries([entryWithParent({ data: "[[Parent Page]]" })], baseMappings);
+      expect(result.tasks[0].parent).toBe("Parent Page");
+    });
+
+    it("strips the alias from a [[Page|Alias]] wikilink", () => {
+      const result = service.transformEntries([entryWithParent({ data: "[[Parent Page|Shown]]" })], baseMappings);
+      expect(result.tasks[0].parent).toBe("Parent Page");
+    });
+
+    it("extracts the path from a [text](path) markdown link", () => {
+      const result = service.transformEntries([entryWithParent({ data: "[Parent](projects/p.md)" })], baseMappings);
+      expect(result.tasks[0].parent).toBe("projects/p.md");
+    });
+
+    it("falls back to a direct vault path when the metadata cache misses", () => {
+      const app = {
+        metadataCache: { getFirstLinkpathDest: () => null },
+        vault: { getAbstractFileByPath: (p: string) => ({ path: p }) },
+      } as unknown as App;
+      const svc = new PropertyMappingService(app);
+      const result = svc.transformEntries([entryWithParent({ data: "projects/direct.md" })], baseMappings);
+      expect(result.tasks[0].parent).toBe("projects/direct.md");
+    });
+
+    it("yields no parent when the reference cannot be resolved", () => {
+      const app = {
+        metadataCache: { getFirstLinkpathDest: () => null },
+        vault: { getAbstractFileByPath: () => null },
+      } as unknown as App;
+      const svc = new PropertyMappingService(app);
+      const result = svc.transformEntries([entryWithParent({ data: "[[Missing]]" })], baseMappings);
+      expect(result.tasks[0].parent).toBeUndefined();
+    });
+  });
+
+  describe("visible properties on scheduled tasks", () => {
+    const mappings: FieldMappings = {
+      textProperty: "note:title",
+      startProperty: "note:start",
+      endProperty: "note:due",
+      progressProperty: "note:progress",
+    };
+
+    function scheduledEntry(): BasesEntry {
+      return {
+        file: { path: "tasks/t.md", name: "t.md", basename: "t" },
+        getValue: (propertyId: string) => {
+          const values: Record<string, any> = {
+            "note:title": { data: "T" },
+            "note:start": { date: new Date("2024-08-01") },
+            "note:due": { date: new Date("2024-08-05") },
+            "note:priority": { data: "high" },
+          };
+          return values[propertyId] ?? null;
+        },
+      };
+    }
+
+    it("adds an unmapped visible property to the task", () => {
+      const result = service.transformEntries([scheduledEntry()], mappings, ["note:priority"]);
+      expect((result.tasks[0] as any)["note:priority"]).toBe("high");
+    });
+
+    it("does not re-add a visible property already mapped to a gantt field", () => {
+      const result = service.transformEntries([scheduledEntry()], mappings, ["note:start"]);
+      // note:start is the startProperty → consumed as the bar date, not added as a column key
+      expect((result.tasks[0] as any)["note:start"]).toBeUndefined();
+      expect(result.tasks[0].start).toBeInstanceOf(Date);
+    });
   });
 });
