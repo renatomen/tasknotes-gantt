@@ -13,7 +13,7 @@ Project guidelines for both AI agents and human collaborators. This is the alway
 
 This project uses the **compound-engineering** flow: brainstorm → plan → work → review.
 - Requirements live in `docs/brainstorms/`, plans in `docs/plans/`, durable learnings in `docs/solutions/`.
-- Check `docs/solutions/` for prior learnings before starting work in a documented area.
+- Check `docs/solutions/` for prior learnings before starting work in a documented area — organized by category (e.g. `integration-issues/`, `logic-errors/`) with YAML frontmatter (`module`, `tags`, `problem_type`) for searching.
 
 **Agent skills** — Pinned in `skills-lock.json` (committed); the fetched content lives in `.agents/skills/` and `.claude/skills/` (gitignored, like `node_modules`). Managed by the [`skills`](https://github.com/vercel-labs/skills) CLI. After a fresh clone, restore with:
 
