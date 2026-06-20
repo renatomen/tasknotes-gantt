@@ -1,0 +1,32 @@
+name: SonarQube Cloud
+
+# CI-based analysis (replaces SonarCloud Automatic Analysis, which cannot
+# import test coverage). Runs on PRs for decoration and on main pushes to
+# establish the new-code baseline. Requires the SONAR_TOKEN repo secret and
+# Automatic Analysis disabled in the SonarCloud project settings.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sonar:
+    name: Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so SonarQube can attribute new code via SCM blame.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Tests with coverage
+        run: npm run test:coverage
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          # SonarQube Cloud needs no SONAR_HOST_URL (only self-hosted Server does).
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

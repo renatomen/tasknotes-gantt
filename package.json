@@ -14,6 +14,7 @@
     "postbuild": "node scripts/install-to-vault.cjs",
     "dev": "vite build --watch",
     "test": "jest --passWithNoTests",
+    "test:coverage": "jest --coverage --passWithNoTests",
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",
