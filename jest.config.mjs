@@ -38,7 +38,21 @@ const config = {
   coverageProvider: "v8",
   coverageDirectory: "coverage",
   coverageReporters: ["lcov", "text-summary"],
-  collectCoverageFrom: ["src/**/*.ts", "!src/**/*.d.ts"],
+  collectCoverageFrom: [
+    "src/**/*.ts",
+    "!src/**/*.d.ts",
+    // Non-executable / non-unit-testable, kept in sync with
+    // sonar.coverage.exclusions (jest globs .ts only, so the *.svelte entry
+    // there has no jest equivalent). Type-only declarations, barrel
+    // re-exports, and thin Obsidian wiring exercised by e2e. Logic-dense
+    // files (register.ts, views) are NOT excluded — their logic is being
+    // extracted into tested modules (plan U2/U5), not hidden.
+    "!src/**/types/**",
+    "!src/**/types.ts",
+    "!src/**/index.ts",
+    "!src/main.ts",
+    "!src/bases/GanttBasesView.ts",
+  ],
 };
 
 export default config;
