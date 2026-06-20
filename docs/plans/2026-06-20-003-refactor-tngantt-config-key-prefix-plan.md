@@ -4,7 +4,7 @@ plan_id: 003
 type: refactor
 title: "refactor: prefix plugin Base-view config keys with tngantt_"
 origin: docs/brainstorms/2026-06-20-base-config-schema-cleanup-requirements.md
-status: active
+status: completed
 ---
 
 # refactor: prefix plugin Base-view config keys with `tngantt_`
