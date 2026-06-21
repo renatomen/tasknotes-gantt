@@ -33,6 +33,7 @@ import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
+import { persistGridWidth } from './gridWidthPersist';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
@@ -397,22 +398,14 @@ class ObsidianGanttBasesView extends BasesView {
           // Divider width persistence (plan 002 U3): write the dragged grid-pane
           // width to the standard `tableWidth` so it survives reload. In-session
           // dragging is SVAR's Resizer; this only persists the chosen value.
-          onGridWidthChange: (width: number) => {
-            const next = Math.round(width);
-            // No-op guard (critical): persisting the view config makes Obsidian
-            // re-run onDataUpdated, which refreshes the chart, which re-asserts
-            // the grid width — a self-feeding loop when the value is unchanged.
-            // It ignites on the command-palette light/dark toggle: that flips the
-            // effective theme → remounts the chart → applyPersistedGridWidth
-            // re-execs resize-grid with the already-persisted width. Only write
-            // when the width actually changed (a real divider drag).
-            if (next === this.getTableWidth()) return;
-            try {
-              this.config.set('tngantt_tableWidth', next);
-            } catch (error) {
-              console.warn('[Gantt] Failed to persist grid width:', error);
-            }
-          },
+          // persistGridWidth skips unchanged writes — the loop guard. Persisting
+          // an unchanged width feeds a refresh loop (config.set → Obsidian
+          // re-runs onDataUpdated → chart refreshes → re-asserts width → …),
+          // which ignites on the command-palette light/dark toggle (flips the
+          // effective theme → remounts → re-execs resize-grid with the
+          // already-persisted width).
+          onGridWidthChange: (width: number) =>
+            persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
         },
       });
 
