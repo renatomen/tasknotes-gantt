@@ -8,9 +8,7 @@
  * @module bases/views/GanttTaskListView
  */
 
-import { setIcon } from 'obsidian';
-import { GanttBasesView } from '../GanttBasesView';
-import type { QueryController } from '../register';
+import { setIcon, BasesView, type QueryController } from 'obsidian';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
 import { readFieldMappings } from '../fieldMappingConfig';
 import { resolveParentLink } from '../parentLink';
@@ -34,7 +32,7 @@ interface GanttTask {
 /**
  * Simple text-based task list view showing hierarchy
  */
-export class GanttTaskListView extends GanttBasesView {
+export class GanttTaskListView extends BasesView {
   readonly type = 'obsidianGanttTaskList';
   private readonly containerEl: HTMLElement;
   private readonly adapter: BasesDataAdapter;

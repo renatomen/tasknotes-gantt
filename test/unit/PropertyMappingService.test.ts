@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from "@jest/globals";
 import type { App } from "obsidian";
 import { PropertyMappingService } from "../../src/bases/services/PropertyMappingService";
 import type { FieldMappings, SVARTask } from "../../src/bases/types/field-mapping";
-import type { BasesEntry } from "../../src/bases/register";
+import type { BasesEntryLike } from "../../src/bases/types/bases-entry";
 
 describe("PropertyMappingService", () => {
   let service: PropertyMappingService;
@@ -40,7 +40,7 @@ describe("PropertyMappingService", () => {
   describe("transformEntries", () => {
     it("should transform BasesEntry with all fields to SVARTask", () => {
       // Arrange - Using correct Bases Value object structure
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/project-a.md", name: "project-a.md", basename: "project-a" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -79,7 +79,7 @@ describe("PropertyMappingService", () => {
         progressProperty: "note:progress",
       };
 
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "notes/meeting.md", name: "meeting.md", basename: "meeting" },
         getValue: (propertyId: string) => ({
           date: new Date("2024-02-01"),
@@ -96,7 +96,7 @@ describe("PropertyMappingService", () => {
 
     it("should create unscheduled task (red bar at today) when dates are missing", () => {
       // Arrange
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "backlog/feature-x.md", name: "feature-x.md", basename: "feature-x" },
         getValue: (propertyId: string) => null,
       };
@@ -125,7 +125,7 @@ describe("PropertyMappingService", () => {
 
     it("should create an inferred-start task (scheduled, not unscheduled) when only the start date is missing", () => {
       // Arrange — only a due date; start is missing
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-b.md", name: "task-b.md", basename: "task-b" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -147,7 +147,7 @@ describe("PropertyMappingService", () => {
 
     it("should create an inferred-end task (scheduled, not unscheduled) when only the end date is missing", () => {
       // Arrange — only a start date; end is missing
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-c.md", name: "task-c.md", basename: "task-c" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -168,7 +168,7 @@ describe("PropertyMappingService", () => {
 
     it("should handle progress value of 0", () => {
       // Arrange
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/new-task.md", name: "new-task.md", basename: "new-task" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -190,7 +190,7 @@ describe("PropertyMappingService", () => {
 
     it("should handle missing progress property gracefully", () => {
       // Arrange
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-d.md", name: "task-d.md", basename: "task-d" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -211,7 +211,7 @@ describe("PropertyMappingService", () => {
 
     it("should transform multiple entries correctly", () => {
       // Arrange
-      const entries: BasesEntry[] = [
+      const entries: BasesEntryLike[] = [
         {
           file: { path: "task-1.md", name: "task-1.md", basename: "task-1" },
           getValue: () => ({
@@ -238,7 +238,7 @@ describe("PropertyMappingService", () => {
 
     it("should not include originalEntry in custom metadata (avoids SVAR circular reference)", () => {
       // Arrange
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: () => ({
           date: new Date("2024-07-01"),
@@ -265,7 +265,7 @@ describe("PropertyMappingService", () => {
         parentProperty: "note:parent",
       };
 
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/child.md", name: "child.md", basename: "child" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -296,7 +296,7 @@ describe("PropertyMappingService", () => {
         // parentProperty not set
       };
 
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -326,7 +326,7 @@ describe("PropertyMappingService", () => {
         parentProperty: "note:parent",
       };
 
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -369,7 +369,7 @@ describe("PropertyMappingService", () => {
         },
       };
 
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/multi-parent.md", name: "multi-parent.md", basename: "multi-parent" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -405,7 +405,7 @@ describe("PropertyMappingService", () => {
       const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
 
       // Act
-      const task = service.createUnscheduledTask(filePath, text, {} as BasesEntry);
+      const task = service.createUnscheduledTask(filePath, text, {} as unknown as BasesEntryLike);
 
       // Assert
       expect(task.id).toBe(filePath);
@@ -422,7 +422,7 @@ describe("PropertyMappingService", () => {
       const task = service.createUnscheduledTask(
         "u.md",
         "U",
-        {} as BasesEntry,
+        {} as unknown as BasesEntryLike,
         42,
         "projects/p.md"
       );
@@ -432,7 +432,7 @@ describe("PropertyMappingService", () => {
     });
 
     it("adds unmapped visible properties and skips built-in column ids", () => {
-      const entry: BasesEntry = {
+      const entry: BasesEntryLike = {
         file: { path: "u.md", name: "u.md", basename: "u" },
         getValue: (propertyId: string) => {
           const values: Record<string, any> = {
@@ -461,7 +461,7 @@ describe("PropertyMappingService", () => {
       parentProperty: "note:parent",
     };
 
-    function entryWithParent(parentRaw: unknown): BasesEntry {
+    function entryWithParent(parentRaw: unknown): BasesEntryLike {
       return {
         file: { path: "tasks/child.md", name: "child.md", basename: "child" },
         getValue: (propertyId: string) => {
@@ -520,7 +520,7 @@ describe("PropertyMappingService", () => {
       progressProperty: "note:progress",
     };
 
-    function scheduledEntry(): BasesEntry {
+    function scheduledEntry(): BasesEntryLike {
       return {
         file: { path: "tasks/t.md", name: "t.md", basename: "t" },
         getValue: (propertyId: string) => {

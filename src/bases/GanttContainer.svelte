@@ -41,7 +41,7 @@
     /** Reactive bundle of the dynamic render inputs (see GanttData). */
     data: import('svelte/store').Readable<GanttData>;
     app: import('obsidian').App;
-    config?: import('./register').BasesViewConfig;
+    config?: import('obsidian').BasesViewConfig;
     /**
      * Persist a field patch for a render instance through the controller (U8).
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
