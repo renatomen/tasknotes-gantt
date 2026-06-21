@@ -14,6 +14,7 @@
  */
 import type { BasesAllOptions } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
+import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 
 /**
  * The shared field-mapping property options consumed by both the Gantt view
@@ -152,6 +153,17 @@ export function ganttViewOptions(): BasesAllOptions[] {
       key: 'tngantt_showToolbar',
       default: false,
     },
+    // Per-view max-height in px (plan 003 R1). The chart host fits its content
+    // up to this cap, then scrolls internally. Number → slider (the official
+    // options union has no 'number' control). Read in getMaxHeight(); a ~2-row
+    // floor is enforced in the clamp, not here. min mirrors that floor.
+    {
+      type: 'slider',
+      displayName: 'Max height (px)',
+      key: 'tngantt_maxHeight',
+      default: DEFAULT_MAX_HEIGHT,
+      min: GANTT_MIN_HEIGHT,
+    },
   ];
 }
 
@@ -165,6 +177,21 @@ export function ganttViewOptions(): BasesAllOptions[] {
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+/**
+ * Read the per-view max-height in px (plan 003 R1), defaulting to
+ * {@link DEFAULT_MAX_HEIGHT}. A non-positive, non-finite, or non-numeric stored
+ * value falls back to the default. Pure (no Obsidian/DOM): the caller passes the
+ * Bases `config.get` so the reader unit-tests in isolation;
+ * `register.getMaxHeight()` wraps it. Co-located with the `tngantt_maxHeight`
+ * option definition above; mirrors {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readMaxHeight(get: (key: string) => unknown): number {
+  const raw = Number(get('tngantt_maxHeight'));
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_HEIGHT;
 }
 
 /**

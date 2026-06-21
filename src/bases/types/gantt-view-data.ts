@@ -39,6 +39,13 @@ export interface GanttData {
    * the toolbar without a remount — same treatment as {@link showDateIndicators}.
    */
   showToolbar: boolean;
+  /**
+   * Per-view max-height (px) cap for the chart host (plan 003 R1). Flows through
+   * the reactive data path so changing the option re-fits the host live without
+   * a remount — same treatment as {@link showToolbar}. The host fits its content
+   * up to this cap, then scrolls internally.
+   */
+  maxHeight: number;
   /** Status→color palette (TaskNotes). */
   statusColors: StatusColor[];
   /** Invalid date-mapping notice, when a start/end mapping fell back. */
