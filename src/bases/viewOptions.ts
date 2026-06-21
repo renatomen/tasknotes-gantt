@@ -156,13 +156,18 @@ export function ganttViewOptions(): BasesAllOptions[] {
     // Per-view max-height in px (plan 003 R1). The chart host fits its content
     // up to this cap, then scrolls internally. Number → slider (the official
     // options union has no 'number' control). Read in getMaxHeight(); a ~2-row
-    // floor is enforced in the clamp, not here. min mirrors that floor.
+    // floor is enforced in the clamp, not here. `max`/`step` are REQUIRED for a
+    // usable control: an Obsidian slider with no `max` falls back to an HTML
+    // range max of 100, which is below our `min` floor (112) and renders the
+    // slider disabled. min mirrors the ~2-row floor.
     {
       type: 'slider',
       displayName: 'Max height (px)',
       key: 'tngantt_maxHeight',
       default: DEFAULT_MAX_HEIGHT,
       min: GANTT_MIN_HEIGHT,
+      max: 2000,
+      step: 10,
     },
   ];
 }

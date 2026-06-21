@@ -68,6 +68,10 @@ describe("ganttViewOptions", () => {
       key: "tngantt_maxHeight",
       default: 400,
       min: 112,
+      // max + step are REQUIRED: without max, Obsidian's slider falls back to an
+      // HTML range max of 100 (< the 112 min), rendering the control disabled.
+      max: 2000,
+      step: 10,
     });
   });
 
