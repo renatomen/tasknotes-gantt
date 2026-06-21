@@ -22,7 +22,7 @@ import GanttContainer from './GanttContainer.svelte';
 import type { GanttData } from './types/gantt-view-data';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
-import { FIELD_MAPPING_KEYS, readFieldMappings } from './fieldMappingConfig';
+import { readFieldMappings } from './fieldMappingConfig';
 import {
   GanttController,
   type DatePolicyConfig,
@@ -36,6 +36,7 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
+import { ganttViewOptions, taskListViewOptions } from './viewOptions';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -507,52 +508,6 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     return () => {};
   }
 
-  // Shared field mapping options for both views
-  const sharedOptions: BasesAllOptions[] = [
-    {
-      type: 'property' as const,
-      displayName: 'Task Name Property',
-      key: FIELD_MAPPING_KEYS.text,
-      default: '',
-      placeholder: 'Select task name property (defaults to file name)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Start Date Property',
-      key: FIELD_MAPPING_KEYS.start,
-      default: '',
-      placeholder: 'Defaults to TaskNotes Scheduled; or pick a TaskNotes date field',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'End Date Property',
-      key: FIELD_MAPPING_KEYS.end,
-      default: '',
-      placeholder: 'Defaults to TaskNotes Due; or pick a TaskNotes date field',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Progress Property',
-      key: FIELD_MAPPING_KEYS.progress,
-      default: 'note.progress',
-      placeholder: 'Select progress property (0-100)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Parent Property',
-      key: FIELD_MAPPING_KEYS.parent,
-      default: '',
-      placeholder: 'Select parent task property (optional)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Status Property',
-      key: FIELD_MAPPING_KEYS.status,
-      default: '',
-      placeholder: 'Select status property (colors bars by TaskNotes status)',
-    },
-  ];
-
   // Register the Gantt chart view type
   const registeredGantt = plugin.registerBasesView(VIEW_TYPE_ID, {
     name: VIEW_NAME,
@@ -560,78 +515,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => [
-      ...sharedOptions,
-      {
-        type: 'dropdown',
-        displayName: 'Default Scale',
-        key: 'tngantt_defaultScale',
-        default: 'day',
-        options: {
-          hour: 'Hours',
-          day: 'Days',
-          week: 'Weeks',
-          month: 'Months',
-        },
-      },
-      // R27: how dependency arrows render across duplicated multi-parent
-      // instances. Persisted per-view via config.set/get; read in mountGantt.
-      {
-        type: 'dropdown',
-        displayName: 'Dependency Arrows',
-        key: 'tngantt_dependencyArrowMode',
-        default: 'primary',
-        options: {
-          primary: 'Primary instance only',
-          all: 'All instances',
-        },
-      },
-      // Parent/ancestor date-cascade behavior when a child drag/resize would
-      // change ancestor spans. Read per-view in getCascadeMode(); consumed by
-      // the GanttContainer drag-persistence gate.
-      {
-        type: 'dropdown',
-        displayName: 'Parent date updates',
-        key: 'tngantt_parentDateCascade',
-        default: 'ask',
-        options: {
-          ask: 'Ask before updating parent dates',
-          auto: 'Update parent dates automatically',
-          never: 'Never update parent dates',
-        },
-      },
-      // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
-      // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
-      // controller's date policy + the view's bar-level indicators.
-      // Number → slider (the official Bases options union has no 'number'
-      // control; 'slider' is the closest numeric input). Behavior-equivalent.
-      {
-        type: 'slider',
-        displayName: 'Default task duration (days)',
-        key: 'tngantt_defaultDuration',
-        default: 1,
-        min: 1,
-      },
-      // Boolean → toggle (the official options union has no 'boolean' control).
-      {
-        type: 'toggle',
-        displayName: 'Show tasks with no dates',
-        key: 'tngantt_showUndatedTasks',
-        default: true,
-      },
-      {
-        type: 'toggle',
-        displayName: 'Show tasks with only one date',
-        key: 'tngantt_showPartialDateTasks',
-        default: true,
-      },
-      {
-        type: 'toggle',
-        displayName: 'Show date-status indicators on bars',
-        key: 'tngantt_showDateIndicators',
-        default: true,
-      },
-    ],
+    options: (_config: BasesViewConfig): BasesAllOptions[] => ganttViewOptions(),
   });
 
   if (registeredGantt) {
@@ -647,7 +531,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new GanttTaskListView(controller, containerEl);
     },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => sharedOptions,
+    options: (_config: BasesViewConfig): BasesAllOptions[] => taskListViewOptions(),
   });
 
   if (registeredTaskList) {
