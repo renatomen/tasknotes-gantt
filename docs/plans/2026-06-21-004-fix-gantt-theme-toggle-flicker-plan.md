@@ -1,7 +1,7 @@
 ---
 title: "fix: Eliminate Gantt remount/flicker on light↔dark theme toggle"
 type: fix
-status: active
+status: completed
 date: 2026-06-21
 ---
 
