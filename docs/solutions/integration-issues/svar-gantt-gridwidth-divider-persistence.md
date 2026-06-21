@@ -118,6 +118,7 @@ The recompute keys on `["displayMode","columns"]` and writes the column-sum via 
 
 ## Related Issues
 
+- `./gantt-theme-toggle-bases-refresh-loop.md` — the re-assert-on-every-reseed pattern here has a hazard: re-asserting the width through `onGridWidthChange` writes it back via `config.set`, and Obsidian re-runs `onDataUpdated` on a per-view config write. If the re-asserted value is **unchanged**, that feeds a refresh loop (a theme remount re-asserting the saved width spun the Bases view 0↔9 until it stalled). The fix is a no-op guard on the persist — read both docs when touching this machinery.
 - `../tooling-decisions/svar-gantt-summary-type-constraints.md` — sibling `@svar-ui/gantt-store` quirk; same pattern of reverse-engineering the shipped store and driving state via `api.exec` instead of trusting props/defaults.
 - `./tasknotes-status-palette-wrong-api-path.md`, `./tasknotes-custom-field-write-top-level-key.md` — same third-party-boundary / silent-clobber family (TaskNotes).
 - No GitHub issue tracks this divider bug (searched `svar gantt` / `gridWidth resize`).
