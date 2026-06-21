@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, MouseEvent, KeyboardEvent, Comment, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, MouseEvent, KeyboardEvent, setTimeout, clearTimeout, getComputedStyle */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -610,26 +610,20 @@
   // in place is trapped to the pane (offset by the sidebar) instead of the
   // window. We therefore MOVE the existing root node to <body> while full-screen
   // — a DOM move, not a Svelte remount, so the SVAR instance and its
-  // zoom/scroll/selection survive (R9) — and restore it to its original slot
-  // (tracked by a placeholder comment) on exit.
-  let fsOriginalParent: HTMLElement | null = null;
-  let fsPlaceholder: Comment | null = null;
+  // zoom/scroll/selection survive (R9). A placeholder comment marks the original
+  // slot; the effect's own cleanup restores the node there, so exit AND unmount
+  // (even unmount while still full-screen) both leave the DOM intact — no
+  // reliance on the caller to sweep an orphaned placeholder.
   $effect(() => {
-    if (!rootEl) return;
-    if (fullScreen) {
-      if (rootEl.parentElement !== document.body) {
-        fsOriginalParent = rootEl.parentElement;
-        fsPlaceholder = document.createComment('og-fullscreen-placeholder');
-        fsOriginalParent?.insertBefore(fsPlaceholder, rootEl);
-        document.body.appendChild(rootEl);
-      }
-    } else if (fsPlaceholder && fsOriginalParent) {
-      // Restore to the exact original position.
-      fsOriginalParent.insertBefore(rootEl, fsPlaceholder);
-      fsPlaceholder.remove();
-      fsPlaceholder = null;
-      fsOriginalParent = null;
-    }
+    if (!rootEl || !fullScreen) return;
+    const node = rootEl;
+    const placeholder = document.createComment('og-fullscreen-placeholder');
+    node.parentElement?.insertBefore(placeholder, node);
+    document.body.appendChild(node);
+    return () => {
+      placeholder.parentElement?.insertBefore(node, placeholder);
+      placeholder.remove();
+    };
   });
 
   // Native interaction state (U2). Map render-instance id → source note path so
@@ -1362,12 +1356,15 @@
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
-  /* Full-screen overlay (plan 003 U3): restyle the existing root in place to fill
-     the Obsidian window — no DOM reparent, so no remount (R9). `inset:0` drives
-     the size, so the inline px height is skipped while full-screen and the
-     max-height cap does not apply (R8). z-index sits above the workspace/panes
-     and sidebars but below Obsidian's menus and modals, so context menus and
-     dialogs still surface over it. A solid background hides the panes behind. */
+  /* Full-screen overlay (plan 003 U3): a fixed full-window layer. The root node
+     is DOM-reparented to <body> while full-screen (see the reparent effect) so
+     `position:fixed; inset:0` reaches the viewport rather than being trapped by
+     Obsidian's containing-block leaf — a DOM move, not a Svelte remount, so no
+     remount (R9). `inset:0` drives the size, so the inline px height is skipped
+     while full-screen and the max-height cap does not apply (R8). z-index sits
+     above the workspace/panes and sidebars but below Obsidian's menus and modals,
+     so context menus and dialogs still surface over it. A solid background hides
+     the panes behind. */
   .og-bases-gantt.og-fullscreen {
     position: fixed;
     inset: 0;
