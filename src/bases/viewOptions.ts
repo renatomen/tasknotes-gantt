@@ -156,6 +156,18 @@ export function ganttViewOptions(): BasesAllOptions[] {
 }
 
 /**
+ * Read the per-view "show toolbar" toggle (plan 002 R2), defaulting to off. Pure
+ * (no Obsidian/DOM): the caller passes the Bases `config.get` so the reader
+ * unit-tests in isolation; `register.getShowToolbar()` wraps it. Co-located with
+ * the `tngantt_showToolbar` option definition above; mirrors `readThemeMode`.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readShowToolbar(get: (key: string) => unknown): boolean {
+  return get('tngantt_showToolbar') === true;
+}
+
+/**
  * The TaskList view's Bases view options: the shared field-mapping property
  * options only.
  */

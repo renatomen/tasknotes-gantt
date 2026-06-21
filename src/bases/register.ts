@@ -36,8 +36,8 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
-import { ganttViewOptions, taskListViewOptions } from './viewOptions';
-import { readThemeMode, type ThemeMode } from './themeResolver';
+import { ganttViewOptions, readShowToolbar, taskListViewOptions } from './viewOptions';
+import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -266,7 +266,7 @@ class ObsidianGanttBasesView extends BasesView {
 
   /** Read the per-view "show toolbar" toggle (plan 002 R2); default off. */
   private getShowToolbar(): boolean {
-    return this.config.get('tngantt_showToolbar') === true;
+    return readShowToolbar((key) => this.config.get(key));
   }
 
   /**
@@ -360,13 +360,8 @@ class ObsidianGanttBasesView extends BasesView {
           // flows through the reactive GanttData store (showToolbar) so toggling
           // the option live shows/hides the toolbar without a remount.
           themeMode: this.getThemeMode(),
-          onThemeModeChange: (mode: ThemeMode) => {
-            try {
-              this.config.set('tngantt_themeMode', mode);
-            } catch (error) {
-              console.warn('[Gantt] Failed to persist theme mode:', error);
-            }
-          },
+          onThemeModeChange: (mode: ThemeMode) =>
+            persistThemeMode((key, value) => this.config.set(key, value), mode),
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),

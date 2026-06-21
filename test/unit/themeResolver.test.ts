@@ -9,7 +9,9 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import type { App } from "obsidian";
 import {
   isEffectiveDark,
+  isObsidianDark,
   normalizeThemeMode,
+  persistThemeMode,
   readThemeMode,
   subscribeObsidianTheme,
 } from "../../src/bases/themeResolver";
@@ -67,6 +69,50 @@ describe("readThemeMode", () => {
 
   it("normalizes an unexpected stored value to auto", () => {
     expect(readThemeMode(() => "neon")).toBe("auto");
+  });
+});
+
+describe("persistThemeMode", () => {
+  it("writes the mode through the injected set under the canonical key", () => {
+    const set = jest.fn();
+    persistThemeMode(set, "dark");
+    expect(set).toHaveBeenCalledWith("tngantt_themeMode", "dark");
+  });
+
+  it("swallows a failing write so the toolbar handler never crashes", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const set = jest.fn(() => {
+      throw new Error("config unavailable");
+    });
+
+    // The throwing set must not propagate out of the handler.
+    expect(() => persistThemeMode(set, "light")).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
+describe("isObsidianDark", () => {
+  const realDocument = (globalThis as Record<string, unknown>).document;
+  afterEach(() => {
+    (globalThis as Record<string, unknown>).document = realDocument;
+  });
+
+  it("returns false when no document is available", () => {
+    (globalThis as Record<string, unknown>).document = undefined;
+    expect(isObsidianDark()).toBe(false);
+  });
+
+  it("reads the theme-dark class off document.body", () => {
+    (globalThis as Record<string, unknown>).document = {
+      body: { classList: { contains: (c: string) => c === "theme-dark" } },
+    };
+    expect(isObsidianDark()).toBe(true);
+
+    (globalThis as Record<string, unknown>).document = {
+      body: { classList: { contains: () => false } },
+    };
+    expect(isObsidianDark()).toBe(false);
   });
 });
 
@@ -164,6 +210,21 @@ describe("subscribeObsidianTheme", () => {
     expect(() => dispose()).not.toThrow();
     // Both teardown paths fired exactly once.
     expect(offref).toHaveBeenCalledTimes(1);
+    expect(observer.disconnectCount).toBe(1);
+  });
+
+  it("tears down the remaining disposers even when one throws (best-effort)", () => {
+    installDomGlobals();
+    // workspace.offref throws — the disposer loop must still reach the
+    // observer.disconnect() that follows it, and must not propagate.
+    const app = fakeAppWithWorkspace(() => {
+      throw new Error("offref blew up");
+    });
+
+    const dispose = subscribeObsidianTheme(app, jest.fn());
+    const observer = FakeMutationObserver.instances[0]!;
+
+    expect(() => dispose()).not.toThrow();
     expect(observer.disconnectCount).toBe(1);
   });
 

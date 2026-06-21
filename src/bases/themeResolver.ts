@@ -40,6 +40,24 @@ export function readThemeMode(get: (key: string) => unknown): ThemeMode {
 }
 
 /**
+ * Persist the per-view theme mode (plan 002 U3/U4), swallowing a failing write
+ * so a transient Bases `config.set` error can never crash the toolbar's change
+ * handler. Pure aside from the injected `set` (the Bases `config.set`), so the
+ * success and failure paths unit-test in isolation; `register`'s
+ * `onThemeModeChange` wraps it. Mirrors {@link readThemeMode}.
+ *
+ * @param set - persists a per-view option value by key (the Bases `config.set`).
+ * @param mode - the mode to store (already a known {@link ThemeMode}).
+ */
+export function persistThemeMode(set: (key: string, value: unknown) => void, mode: ThemeMode): void {
+  try {
+    set('tngantt_themeMode', mode);
+  } catch (error) {
+    console.warn('[Gantt] Failed to persist theme mode:', error);
+  }
+}
+
+/**
  * Resolve whether the *effective* theme is dark, from the mode + Obsidian state.
  * `auto` follows Obsidian; `light`/`dark` override it. Unknown modes follow
  * `auto` (via {@link normalizeThemeMode}). Drives the choice between SVAR's

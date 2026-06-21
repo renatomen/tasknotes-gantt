@@ -8,6 +8,7 @@ import { describe, expect, it } from "@jest/globals";
 import type { BasesAllOptions } from "obsidian";
 import {
   ganttViewOptions,
+  readShowToolbar,
   taskListViewOptions,
 } from "../../src/bases/viewOptions";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
@@ -143,5 +144,19 @@ describe("taskListViewOptions", () => {
       default: "",
       placeholder: "Select task name property (defaults to file name)",
     });
+  });
+});
+
+describe("readShowToolbar", () => {
+  it("defaults to false when the toggle is unset (R2 default off)", () => {
+    expect(readShowToolbar(() => undefined)).toBe(false);
+  });
+
+  it("is true only for an explicit boolean true", () => {
+    expect(readShowToolbar((k) => ({ tngantt_showToolbar: true })[k])).toBe(true);
+    // Truthy-but-not-true values must NOT enable the toolbar.
+    expect(readShowToolbar(() => "true")).toBe(false);
+    expect(readShowToolbar(() => 1)).toBe(false);
+    expect(readShowToolbar(() => false)).toBe(false);
   });
 });
