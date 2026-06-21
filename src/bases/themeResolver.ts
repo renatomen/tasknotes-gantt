@@ -3,11 +3,10 @@
  *
  * Split into two concerns:
  *
- * 1. **Pure resolvers** (`resolveThemeClass` / `resolveThemeContext`) — map a
- *    user-chosen `mode` plus the current Obsidian dark/light state to the SVAR
- *    theme CSS class and the matching `wx-theme` context value. These have NO
- *    DOM or Obsidian import, so they unit-test in isolation (the test env is
- *    `node`, no jsdom).
+ * 1. **Pure resolver** (`isEffectiveDark`) — maps a user-chosen `mode` plus the
+ *    current Obsidian dark/light state to a boolean that selects SVAR's real
+ *    <Willow> / <WillowDark> theme component in the view. No DOM or Obsidian
+ *    import, so it unit-tests in isolation (the test env is `node`, no jsdom).
  * 2. **Detection helpers** (`isObsidianDark` / `subscribeObsidianTheme`) — the
  *    thin, side-effecting reads of the live document/workspace. Injectable into
  *    the view so its behavior is testable without a live Obsidian.
@@ -22,16 +21,6 @@ import type { App } from 'obsidian';
 
 /** The per-view theme mode: follow Obsidian, or pin light/dark for this chart. */
 export type ThemeMode = 'auto' | 'light' | 'dark';
-
-/** The SVAR gantt-level theme CSS class applied to the wrapper element. */
-type ThemeClass = 'wx-willow-theme' | 'wx-willow-dark-theme';
-
-/**
- * The SVAR `wx-theme` context value. SVAR's `Portal.svelte` reads this via
- * `getContext('wx-theme')` and renders portalled content (the dependency
- * Tooltip) inside `wx-{value}-theme` — so it must mirror the class mapping.
- */
-type ThemeContext = 'willow' | 'willow-dark';
 
 /** Coerce an arbitrary stored value to a known mode; unknown → `auto`. */
 export function normalizeThemeMode(value: unknown): ThemeMode {
@@ -53,30 +42,14 @@ export function readThemeMode(get: (key: string) => unknown): ThemeMode {
 /**
  * Resolve whether the *effective* theme is dark, from the mode + Obsidian state.
  * `auto` follows Obsidian; `light`/`dark` override it. Unknown modes follow
- * `auto` (via {@link normalizeThemeMode}).
+ * `auto` (via {@link normalizeThemeMode}). Drives the choice between SVAR's
+ * `<Willow>` and `<WillowDark>` theme components in the view.
  */
-function isEffectiveDark(mode: ThemeMode, obsidianIsDark: boolean): boolean {
+export function isEffectiveDark(mode: ThemeMode, obsidianIsDark: boolean): boolean {
   const normalized = normalizeThemeMode(mode);
   if (normalized === 'light') return false;
   if (normalized === 'dark') return true;
   return obsidianIsDark;
-}
-
-/**
- * The SVAR theme class for the Gantt wrapper.
- * `auto` → mirrors Obsidian; `light`/`dark` → fixed override.
- */
-export function resolveThemeClass(mode: ThemeMode, obsidianIsDark: boolean): ThemeClass {
-  return isEffectiveDark(mode, obsidianIsDark) ? 'wx-willow-dark-theme' : 'wx-willow-theme';
-}
-
-/**
- * The SVAR `wx-theme` context value, mirroring {@link resolveThemeClass}, for
- * the wrapper's `setContext('wx-theme', …)` so portalled content (the
- * dependency Tooltip) themes correctly.
- */
-export function resolveThemeContext(mode: ThemeMode, obsidianIsDark: boolean): ThemeContext {
-  return isEffectiveDark(mode, obsidianIsDark) ? 'willow-dark' : 'willow';
 }
 
 /**

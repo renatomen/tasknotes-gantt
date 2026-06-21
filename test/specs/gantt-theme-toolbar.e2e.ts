@@ -12,19 +12,19 @@ import { fileURLToPath } from "node:url";
  * opens the base, and asserts:
  *   1. the per-view Gantt toolbar renders (`.og-gantt-toolbar`) when the
  *      `tngantt_showToolbar` option is on (plan 002 R2);
- *   2. the SVAR theme wrapper carries one of the willow theme classes
- *      (`wx-willow-theme` / `wx-willow-dark-theme`), proving our stable theme
- *      wrapper drives the SVAR theme (plan 002 U2).
+ *   2. SVAR's real <Willow>/<WillowDark> theme component renders inside the
+ *      view (its `.wx-willow-theme` / `.wx-willow-dark-theme` element), proving
+ *      the chart is wrapped in a complete SVAR theme (plan 002 U2).
  *
  * The LIVE theme-switch case (clicking Auto/Light/Dark and asserting the
  * wrapper class flips) is left to MANUAL verification — driving Obsidian's
  * appearance and reading the reactive class transition is more harness
  * machinery than this minimal render check warrants.
  *
- * SELECTOR NOTE: `.og-bases-gantt`, `.og-gantt-toolbar`, and `.og-theme-wrapper`
- * are owned by this plugin and stable; `.wx-bar` is SVAR's chart bar (verified
- * against @svar-ui/svelte-gantt). The willow theme classes are applied by our
- * own wrapper (effectiveThemeClass), not by SVAR internals.
+ * SELECTOR NOTE: `.og-bases-gantt` and `.og-gantt-toolbar` are owned by this
+ * plugin and stable; `.wx-bar` is SVAR's chart bar and `.wx-willow-theme` /
+ * `.wx-willow-dark-theme` are the theme-root classes SVAR's <Willow>/
+ * <WillowDark> render (verified against @svar-ui/svelte-gantt).
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -78,12 +78,12 @@ describe("Gantt (OG) theme + toolbar render", () => {
     await expect(toolbar).toHaveText(expect.stringContaining("Theme"));
   });
 
-  it("applies a willow theme class to the SVAR theme wrapper (U2)", async () => {
-    const wrapper = await $(".og-bases-gantt .og-theme-wrapper");
-    await expect(wrapper).toBeExisting();
-    const cls = await wrapper.getAttribute("class");
-    const themed =
-      cls.includes("wx-willow-theme") || cls.includes("wx-willow-dark-theme");
-    expect(themed).toBe(true);
+  it("renders SVAR's willow theme component inside the view (U2)", async () => {
+    // SVAR's <Willow>/<WillowDark> render a theme-root element carrying one of
+    // the willow theme classes; either proves the chart is wrapped in a
+    // complete SVAR theme.
+    const light = await $$(".og-bases-gantt .wx-willow-theme");
+    const dark = await $$(".og-bases-gantt .wx-willow-dark-theme");
+    expect(light.length + dark.length).toBeGreaterThan(0);
   });
 });

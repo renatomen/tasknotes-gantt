@@ -1,19 +1,16 @@
 <script lang="ts">
   /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
-  // Willow + WillowDark are imported only for their `:global` CSS side-effects
-  // (each transitively pulls the core + grid + gantt theme layers), so BOTH
-  // light and dark rule-sets ship in the bundle. We do NOT render them as
-  // wrappers — the theme is applied via our own stable `wx-theme` wrapper below
-  // (plan 002 U2), toggling its class/context with zero remount.
+  // Willow / WillowDark are SVAR's real theme components: each renders the full
+  // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
+  // context, and guarantees its CSS. We render the one chosen by the effective
+  // theme around the chart (plan 002 U2) so the theme applies completely.
   import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
-  import { setContext } from 'svelte';
   import { get } from 'svelte/store';
   import {
-    resolveThemeClass,
-    resolveThemeContext,
+    isEffectiveDark,
     isObsidianDark,
     subscribeObsidianTheme,
     type ThemeMode,
@@ -137,64 +134,68 @@
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
-  // Reference the theme components so their `:global` theme CSS is retained in
-  // the bundle without rendering them as wrappers. Importing both guarantees
-  // BOTH light + dark rule-sets ship across the core/grid/gantt layers; the
-  // active theme is selected purely by the wrapper's class/context below.
-  void Willow;
-  void WillowDark;
-
   // Live theme mode (seeded from the per-view prop) + the current Obsidian
-  // dark/light read. The wrapper's class + `wx-theme` context derive from these
-  // via the pure resolvers (U1) — toggling them re-applies the SVAR CSS
-  // variables instantly with NO remount of the Gantt/Tooltip subtree.
-  // One-shot reads at init for seeding both the reactive state and the context
-  // (the context is captured once; see setContext below).
+  // dark/light read. `effectiveIsDark` (U1) chooses between SVAR's real
+  // <Willow> / <WillowDark> theme components in the markup — each renders the
+  // full core/grid/gantt theme layers and sets the `wx-theme` context itself.
   const initialMode: ThemeMode = themeMode;
   const initialDark = isObsidianDark();
   let mode = $state<ThemeMode>(initialMode);
   let obsidianIsDark = $state(initialDark);
 
-  const effectiveThemeClass = $derived(resolveThemeClass(mode, obsidianIsDark));
-
-  // Replicate SVAR's load-bearing `wx-theme` context (the core Willow/WillowDark
-  // components set it). `Portal.svelte` reads it via getContext to theme
-  // portalled content — the dependency Tooltip — so dropping it would render
-  // that tooltip unthemed. `setContext` is one-shot: the value is captured ONCE
-  // at mount and frozen for the view's session — SVAR's Portal re-reads it per
-  // open but always gets that frozen string, so it is NOT re-themed live. The
-  // chart itself DOES re-theme live (the wrapper's `wx-…-theme` class is
-  // reactive via effectiveThemeClass), but an already-mounted view's dependency
-  // tooltip renders at the mount-time theme for the whole session. Acceptable:
-  // the tooltip is transient, and a fresh view mount picks up the current theme.
-  // (A live-context fix isn't worth it — SVAR consumes a plain string, not a
-  // store.) Computed from the initial mode/dark read (not the reactive $derived)
-  // to make the one-shot capture explicit and avoid a misleading "state
-  // referenced locally" warning.
-  setContext('wx-theme', resolveThemeContext(initialMode, initialDark));
+  const effectiveIsDark = $derived(isEffectiveDark(mode, obsidianIsDark));
 
   // While in Auto, follow Obsidian's theme live (R1/R6) — independent of toolbar
   // visibility. Re-read `isObsidianDark()` on each `css-change` (MutationObserver
   // fallback inside the helper). Subscribe only in Auto; dispose on mode change
-  // and on unmount.
+  // and on unmount. Apply the read THROUGH the guarded setter so a flip reseeds
+  // the SVAR seed props before the {#if} remounts (see maybeReseedForThemeFlip).
   $effect(() => {
     if (mode !== 'auto') return;
     // Sync immediately in case the theme changed since mount/last subscription.
-    obsidianIsDark = isObsidianDark();
+    applyObsidianDark(isObsidianDark());
     const dispose = subscribeObsidianTheme(app, () => {
-      obsidianIsDark = isObsidianDark();
+      applyObsidianDark(isObsidianDark());
     });
     return dispose;
   });
 
   /**
-   * Toolbar change handler: persist the chosen mode per-view (U3/U4). The live
-   * `mode` state is owned by `bind:mode` on <GanttToolbar> — the toolbar already
-   * wrote it before calling this — so this only persists; re-setting `mode` here
-   * would be a redundant double-write (FIX C).
+   * Toolbar change handler (U3/U4). The parent owns the `mode` write so the
+   * reseed + the flip batch in one synchronous tick before the {#if} re-renders:
+   * reseed the SVAR seeds first (only when the effective theme actually flips),
+   * then flip `mode`, then persist. A no-op change short-circuits.
    */
   function handleThemeModeChange(next: ThemeMode): void {
+    if (next === mode) return;
+    maybeReseedForThemeFlip(next, obsidianIsDark);
+    mode = next;
     onThemeModeChange?.(next);
+  }
+
+  /**
+   * Apply a new Obsidian dark/light read (auto-follow). Reseeds the SVAR seeds
+   * first when the effective theme flips, then flips `obsidianIsDark` — same
+   * synchronous-tick ordering as the toolbar handler.
+   */
+  function applyObsidianDark(nextDark: boolean): void {
+    if (nextDark === obsidianIsDark) return;
+    maybeReseedForThemeFlip(mode, nextDark);
+    obsidianIsDark = nextDark;
+  }
+
+  /**
+   * Reseed the SVAR seed props from the current data ONLY when the *effective*
+   * theme actually flips. The {#if effectiveIsDark} swap remounts the <Gantt>,
+   * which re-reads the seed props; those are otherwise refreshed only on a
+   * column change, so a theme flip would show stale data without this. Guarded
+   * so it never fires on unrelated mode/dark changes (e.g. auto→light while
+   * already light).
+   */
+  function maybeReseedForThemeFlip(nextMode: ThemeMode, nextDark: boolean): void {
+    if (isEffectiveDark(nextMode, nextDark) !== isEffectiveDark(mode, obsidianIsDark)) {
+      reseedSeedsFromData(get(data));
+    }
   }
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
@@ -454,6 +455,23 @@
     appliedColumnsKey = d.gridColumnsKey;
     columns = buildSvarColumns(d.gridColumns);
 
+    reseedSeedsFromData(d);
+
+    // The re-init triggers the column recompute (gridWidth → column-sum); re-
+    // assert the user's persisted divider width afterward so a column-config
+    // change doesn't silently reset it.
+    applyPersistedGridWidth();
+  }
+
+  /**
+   * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
+   * resync the applied-state maps so the next incremental diff is a no-op.
+   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
+   * remounts the <Gantt> (the {#if effectiveIsDark} swap), which re-reads these
+   * seeds — without this the post-flip chart would show the stale mount-time
+   * seed instead of the current data.
+   */
+  function reseedSeedsFromData(d: GanttData): void {
     const tasks = buildSvarTasks(toInputs(d));
     initialTasks = tasks;
     initialLinks = d.links;
@@ -462,11 +480,6 @@
     for (const t of tasks) appliedTasks.set(t.id, t);
     appliedLinks.clear();
     for (const l of d.links) appliedLinks.set(l.id, l);
-
-    // The re-init triggers the column recompute (gridWidth → column-sum); re-
-    // assert the user's persisted divider width afterward so a column-config
-    // change doesn't silently reset it.
-    applyPersistedGridWidth();
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -1119,83 +1132,92 @@
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
   {#if showToolbar}
-    <GanttToolbar bind:mode onModeChange={handleThemeModeChange} />
+    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} />
   {/if}
 
-  <!-- Our own stable theme wrapper (plan 002 U2): replaces SVAR's <Willow>.
-       The class toggles wx-willow-theme ↔ wx-willow-dark-theme reactively
-       (effectiveThemeClass) with NO remount of the <Gantt>/<Tooltip> subtree.
-       Both themes' CSS is bundled via the Willow/WillowDark imports above. The
-       matching wx-theme context (set in the script) themes the dependency
-       tooltip's Portal. The font CDN <link> that <Willow> emitted is
-       intentionally omitted (the prior `fonts={false}` intent). -->
-  <div class="wx-theme og-theme-wrapper {effectiveThemeClass}">
-    <!-- Read-only banner (R5/R11): shown whenever the active source has no
-         write capability, regardless of which source is active. Copy varies on
-         whether TaskNotes is present (see readOnlyBannerText). -->
-    {#if readOnly}
-      <div class="og-readonly-banner" role="status">
-        <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
-        <span class="og-readonly-text">{readOnlyBannerText}</span>
-      </div>
+  <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
+       the full nested core → grid → gantt theme layers, set the load-bearing
+       `wx-theme` context (so the dependency Tooltip's Portal themes correctly),
+       and guarantee their CSS. Chosen reactively by effectiveIsDark; the {#if}
+       only re-renders on an actual theme flip (effectiveIsDark is stable across
+       data updates), and the flip reseeds the chart's data (see
+       maybeReseedForThemeFlip) so the remounted <Gantt> shows current data.
+       fonts={false} omits the font CDN <link> (CSP). -->
+  <div class="og-chart-area">
+    {#if effectiveIsDark}
+      <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
+    {:else}
+      <Willow fonts={false}>{@render chartBody()}</Willow>
     {/if}
-
-    <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
-         isn't a writable TaskNotes date field, so it fell back to the default. -->
-    {#if dateMappingNotice}
-      <div class="og-readonly-banner" role="status">
-        <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
-        <span class="og-readonly-text">{dateMappingNotice}</span>
-      </div>
-    {/if}
-
-    <div class="gtcell">
-      <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
-           targeted api.exec actions (diff-sync $effect above) so SVAR never
-           re-inits its store and the user's zoom/scroll/selection survive. -->
-      <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
-           from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
-           dependent task's tooltip is the surface. Falls back to the task name
-           for tasks with no dependencies. -->
-      <Tooltip {api} content={DependencyTooltip}>
-        <Gantt
-          init={initGantt}
-          tasks={initialTasks}
-          taskTypes={svarTaskTypes}
-          links={initialLinks}
-          {columns}
-          gridWidth={initialGridWidth}
-          zoom={zoomConfig}
-          readonly={svarReadonly}
-        />
-      </Tooltip>
-
-      <!-- Floating Zoom Controls (OG-81) -->
-      <div class="zoom-controls">
-        <button
-          class="zoom-btn zoom-in"
-          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
-          aria-label="Zoom in"
-          title="Zoom in"
-        >
-          <span class="zoom-icon" use:lucideIcon={'plus'}></span>
-        </button>
-        <button
-          class="zoom-btn zoom-out"
-          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
-          aria-label="Zoom out"
-          title="Zoom out"
-        >
-          <span class="zoom-icon" use:lucideIcon={'minus'}></span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
-         Left/double-click and right-click on bars route through onBarActivate /
-         onBarContextMenu to the TaskNotes interaction service. -->
   </div>
 </div>
+
+{#snippet chartBody()}
+  <!-- Read-only banner (R5/R11): shown whenever the active source has no
+       write capability, regardless of which source is active. Copy varies on
+       whether TaskNotes is present (see readOnlyBannerText). -->
+  {#if readOnly}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
+      <span class="og-readonly-text">{readOnlyBannerText}</span>
+    </div>
+  {/if}
+
+  <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
+       isn't a writable TaskNotes date field, so it fell back to the default. -->
+  {#if dateMappingNotice}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
+      <span class="og-readonly-text">{dateMappingNotice}</span>
+    </div>
+  {/if}
+
+  <div class="gtcell">
+    <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
+         targeted api.exec actions (diff-sync $effect above) so SVAR never
+         re-inits its store and the user's zoom/scroll/selection survive. -->
+    <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
+         from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
+         dependent task's tooltip is the surface. Falls back to the task name
+         for tasks with no dependencies. -->
+    <Tooltip {api} content={DependencyTooltip}>
+      <Gantt
+        init={initGantt}
+        tasks={initialTasks}
+        taskTypes={svarTaskTypes}
+        links={initialLinks}
+        {columns}
+        gridWidth={initialGridWidth}
+        zoom={zoomConfig}
+        readonly={svarReadonly}
+      />
+    </Tooltip>
+
+    <!-- Floating Zoom Controls (OG-81) -->
+    <div class="zoom-controls">
+      <button
+        class="zoom-btn zoom-in"
+        onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+        aria-label="Zoom in"
+        title="Zoom in"
+      >
+        <span class="zoom-icon" use:lucideIcon={'plus'}></span>
+      </button>
+      <button
+        class="zoom-btn zoom-out"
+        onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+        aria-label="Zoom out"
+        title="Zoom out"
+      >
+        <span class="zoom-icon" use:lucideIcon={'minus'}></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
+       Left/double-click and right-click on bars route through onBarActivate /
+       onBarContextMenu to the TaskNotes interaction service. -->
+{/snippet}
 
 <style>
   .og-bases-gantt {
@@ -1212,9 +1234,11 @@
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
-  /* SVAR theme wrapper: fills the remaining height below the toolbar (flex child,
-     min-height:0 so it can shrink within the flex column rather than overflow). */
-  .og-theme-wrapper {
+  /* SVAR theme component host: fills the remaining height below the toolbar
+     (flex child, min-height:0 so it can shrink within the flex column rather
+     than overflow). The <Willow>/<WillowDark> render their own
+     `<div class="wx-theme wx-willow-theme" style="height:100%">` inside this. */
+  .og-chart-area {
     flex: 1 1 auto;
     min-height: 0;
   }

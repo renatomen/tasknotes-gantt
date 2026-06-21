@@ -1,56 +1,39 @@
 /**
- * Locks down the pure theme resolvers (plan 002 U1). These map the per-view
- * mode + Obsidian dark state to the SVAR theme class and `wx-theme` context
- * value, with no DOM/Obsidian dependency. The DOM detection helpers
- * (isObsidianDark/subscribeObsidianTheme) are exercised by U2's view, not here.
+ * Locks down the pure theme resolver (plan 002 U1). `isEffectiveDark` maps the
+ * per-view mode + Obsidian dark state to a boolean that chooses SVAR's real
+ * <Willow> / <WillowDark> theme component in the view, with no DOM/Obsidian
+ * dependency. The DOM detection helpers (isObsidianDark/subscribeObsidianTheme)
+ * are exercised by U2's view, not here.
  */
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import type { App } from "obsidian";
 import {
+  isEffectiveDark,
   normalizeThemeMode,
   readThemeMode,
-  resolveThemeClass,
-  resolveThemeContext,
   subscribeObsidianTheme,
 } from "../../src/bases/themeResolver";
 
-describe("resolveThemeClass", () => {
+describe("isEffectiveDark", () => {
   it("follows Obsidian in auto mode (F1/F3)", () => {
-    expect(resolveThemeClass("auto", true)).toBe("wx-willow-dark-theme");
-    expect(resolveThemeClass("auto", false)).toBe("wx-willow-theme");
+    expect(isEffectiveDark("auto", true)).toBe(true);
+    expect(isEffectiveDark("auto", false)).toBe(false);
   });
 
   it("overrides Obsidian when mode is light or dark (F2)", () => {
     // light wins even when Obsidian is dark
-    expect(resolveThemeClass("light", true)).toBe("wx-willow-theme");
+    expect(isEffectiveDark("light", true)).toBe(false);
     // dark wins even when Obsidian is light
-    expect(resolveThemeClass("dark", false)).toBe("wx-willow-dark-theme");
+    expect(isEffectiveDark("dark", false)).toBe(true);
     // …and the agreeing-state half of the override matrix: the override still
     // wins (independently of Obsidian) when Obsidian already matches it.
-    expect(resolveThemeClass("light", false)).toBe("wx-willow-theme");
-    expect(resolveThemeClass("dark", true)).toBe("wx-willow-dark-theme");
+    expect(isEffectiveDark("light", false)).toBe(false);
+    expect(isEffectiveDark("dark", true)).toBe(true);
   });
 
   it("treats an unknown/missing mode as auto", () => {
-    expect(resolveThemeClass("bogus" as never, true)).toBe("wx-willow-dark-theme");
-    expect(resolveThemeClass(undefined as never, false)).toBe("wx-willow-theme");
-  });
-});
-
-describe("resolveThemeContext", () => {
-  it("mirrors the class mapping", () => {
-    expect(resolveThemeContext("auto", true)).toBe("willow-dark");
-    expect(resolveThemeContext("auto", false)).toBe("willow");
-    expect(resolveThemeContext("light", true)).toBe("willow");
-    expect(resolveThemeContext("dark", false)).toBe("willow-dark");
-    // Agreeing-state half of the override matrix (mirrors resolveThemeClass).
-    expect(resolveThemeContext("light", false)).toBe("willow");
-    expect(resolveThemeContext("dark", true)).toBe("willow-dark");
-  });
-
-  it("treats an unknown/missing mode as auto", () => {
-    expect(resolveThemeContext("bogus" as never, true)).toBe("willow-dark");
-    expect(resolveThemeContext(undefined as never, false)).toBe("willow");
+    expect(isEffectiveDark("bogus" as never, true)).toBe(true);
+    expect(isEffectiveDark(undefined as never, false)).toBe(false);
   });
 });
 

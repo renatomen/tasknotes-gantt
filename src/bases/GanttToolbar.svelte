@@ -4,9 +4,10 @@
    * the chart only when the per-view `tngantt_showToolbar` toggle is on.
    *
    * v1 holds a single control: a 3-state Auto / Light / Dark theme switch (R3,
-   * R7). On change it sets the live theme `mode` (bound back to GanttContainer's
-   * reactive state, U2) and calls the persist callback that closes over the
-   * per-view config write (U3). The toolbar never touches Bases config directly.
+   * R7). On change it calls `onModeChange` — the parent (GanttContainer) owns the
+   * live theme `mode` write so the reseed + theme flip batch in one tick (U2);
+   * the parent's callback also persists the per-view config (U3). The toolbar
+   * never writes `mode` locally and never touches Bases config directly.
    *
    * Styled with Obsidian CSS variables so it reads as native chrome — the chart
    * itself is themed by the SVAR wrapper, but this toolbar lives in Obsidian's
@@ -15,14 +16,14 @@
   import type { ThemeMode } from './themeResolver';
 
   interface Props {
-    /** Current theme mode (bindable: the segmented control writes it back). */
+    /** Current theme mode (read-only display; the parent owns the write). */
     mode: ThemeMode;
-    /** Persist the chosen mode per-view (closes over config.set in register). */
+    /** Notify the parent of the chosen mode; the parent updates state + persists. */
     // eslint-disable-next-line no-unused-vars -- type-signature param name
     onModeChange: (mode: ThemeMode) => void;
   }
 
-  let { mode = $bindable(), onModeChange }: Props = $props();
+  let { mode, onModeChange }: Props = $props();
 
   const choices: ReadonlyArray<{ value: ThemeMode; label: string }> = [
     { value: 'auto', label: 'Auto' },
@@ -32,7 +33,6 @@
 
   function select(next: ThemeMode): void {
     if (next === mode) return;
-    mode = next;
     onModeChange(next);
   }
 </script>
