@@ -101,6 +101,10 @@ export default [
     rules: {
       ...sveltePlugin.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Defer to the TS-aware rule (matches the .ts block). Core no-unused-vars
+      // misfires on TS function-type parameter names (e.g. `(ev: MouseEvent) =>
+      // void` in a type annotation), which aren't runtime bindings.
+      'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
     }
   },
