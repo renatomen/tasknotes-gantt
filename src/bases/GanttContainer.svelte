@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, MouseEvent, KeyboardEvent, setTimeout, clearTimeout, getComputedStyle */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -43,6 +43,12 @@
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
   import { buildZoomConfig } from './zoomConfig';
+  import {
+    resolveHostHeight,
+    DEFAULT_MAX_HEIGHT,
+    SVAR_CELL_HEIGHT,
+    SVAR_SCALE_HEIGHT,
+  } from './ganttHeight';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -215,6 +221,10 @@
   // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
+
+  // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
+  // option re-fits the host live without a remount. Default 400 (R1).
+  const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -524,6 +534,97 @@
   // CSP violations for external fonts are prevented by fonts={false} and custom icon implementation
 
   let api: GanttAPI = $state();
+
+  // ── Viewport height (plan 003 U2) ───────────────────────────────────────
+  // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
+  // SVAR's own height inputs from its reactive store — the collapse-aware
+  // visible-row count (`_tasks`), the row height (`cellHeight`), and the
+  // scale-header height (`_scales.height`) — and resolve a host height that fits
+  // content up to `maxHeight`, then scrolls (R2/R3/R4). Driving this from the
+  // STORE (not a DOM ResizeObserver) avoids both fighting SVAR's own observer and
+  // the virtualization measure→set fixed-point. Applied as an explicit px height
+  // on the root below.
+  let rowCount = $state(0);
+  let cellH = $state(SVAR_CELL_HEIGHT);
+  let scaleAreaH = $state(SVAR_SCALE_HEIGHT);
+
+  $effect(() => {
+    // Re-subscribe whenever the SVAR api instance changes (e.g. the theme-flip
+    // remount of <Gantt>). Each signal's subscribe fires immediately with the
+    // current value and on every change, and returns a disposer for teardown.
+    if (!api?.getReactiveState) return;
+    const rs = api.getReactiveState();
+    const disposers = [
+      rs._tasks?.subscribe?.((t: unknown) => {
+        rowCount = Array.isArray(t) ? t.length : 0;
+      }),
+      rs.cellHeight?.subscribe?.((v: unknown) => {
+        cellH = typeof v === 'number' && v > 0 ? v : SVAR_CELL_HEIGHT;
+      }),
+      rs._scales?.subscribe?.((s: unknown) => {
+        const h = (s as { height?: unknown } | undefined)?.height;
+        scaleAreaH = typeof h === 'number' && h > 0 ? h : SVAR_SCALE_HEIGHT;
+      }),
+    ];
+    return () => {
+      for (const dispose of disposers) {
+        if (typeof dispose === 'function') dispose();
+      }
+    };
+  });
+
+  // Resolved host height in px (R2/R3). `$derived` memoizes, so the inline style
+  // re-applies only when the value actually changes — the no-op guard is free.
+  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight));
+
+  // ── Full-screen overlay (plan 003 U3/U4) ────────────────────────────────
+  // A CSS-in-place class toggle: `og-fullscreen` restyles the EXISTING root to a
+  // fixed full-window overlay (position:fixed; inset:0). The Svelte tree is never
+  // moved or remounted, so SVAR keeps its zoom/scroll/selection/data (R9). While
+  // full-screen the explicit px height is skipped (the overlay rule drives the
+  // size via inset), so the max-height cap does not apply (R8). Transient (R10).
+  let fullScreen = $state(false);
+
+  function toggleFullScreen() {
+    fullScreen = !fullScreen;
+  }
+
+  // Esc exits full-screen (R7). The listener exists only while full-screen;
+  // capture phase + stopPropagation so Esc closes the overlay rather than some
+  // unrelated Obsidian handler consuming it first.
+  $effect(() => {
+    if (!fullScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        fullScreen = false;
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  });
+
+  // Containing-block escape (plan 003 KTD 3 fallback). Obsidian's workspace leaf
+  // is a containing block (transform/contain), so a `position:fixed` overlay left
+  // in place is trapped to the pane (offset by the sidebar) instead of the
+  // window. We therefore MOVE the existing root node to <body> while full-screen
+  // — a DOM move, not a Svelte remount, so the SVAR instance and its
+  // zoom/scroll/selection survive (R9). A placeholder comment marks the original
+  // slot; the effect's own cleanup restores the node there, so exit AND unmount
+  // (even unmount while still full-screen) both leave the DOM intact — no
+  // reliance on the caller to sweep an orphaned placeholder.
+  $effect(() => {
+    if (!rootEl || !fullScreen) return;
+    const node = rootEl;
+    const placeholder = document.createComment('og-fullscreen-placeholder');
+    node.parentElement?.insertBefore(placeholder, node);
+    document.body.appendChild(node);
+    return () => {
+      placeholder.parentElement?.insertBefore(node, placeholder);
+      placeholder.remove();
+    };
+  });
 
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
@@ -1127,7 +1228,12 @@
   verified by the E2E render spec.
 -->
 
-<div class="og-bases-gantt" bind:this={rootEl}>
+<div
+  class="og-bases-gantt"
+  class:og-fullscreen={fullScreen}
+  style={fullScreen ? '' : `height: ${hostHeightPx}px;`}
+  bind:this={rootEl}
+>
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
@@ -1193,6 +1299,19 @@
       />
     </Tooltip>
 
+    <!-- Floating full-screen toggle (plan 003 U4): always visible, independent
+         of the optional theme toolbar. Top-right so it never crowds the
+         bottom-right zoom controls; the icon + label reflect enter vs exit (R7). -->
+    <button
+      class="og-fullscreen-toggle"
+      onclick={toggleFullScreen}
+      aria-label={fullScreen ? 'Exit full screen' : 'Full screen'}
+      title={fullScreen ? 'Exit full screen' : 'Full screen'}
+      aria-pressed={fullScreen}
+    >
+      <span class="og-fullscreen-icon" use:lucideIcon={fullScreen ? 'minimize' : 'maximize'}></span>
+    </button>
+
     <!-- Floating Zoom Controls (OG-81) -->
     <div class="zoom-controls">
       <button
@@ -1221,17 +1340,38 @@
 
 <style>
   .og-bases-gantt {
-    height: 400px;
     width: 100%;
-    min-height: 400px;
+    /* Height is set inline as an explicit px value (plan 003 U2): the host fits
+       its content up to the per-view max-height, then scrolls. SVAR's
+       `height:100%` chain needs a *definite* host height, so there is no CSS
+       `height`/`min-height` here — the inline value (always ≥ the ~2-row floor)
+       is authoritative, and full-screen (U3) overrides it. */
     /* Column layout so the optional toolbar takes its natural height and the
        chart fills the remaining space — without this the toolbar + a height:100%
-       chart overflow the fixed-height view, clipping the toolbar or the floating
-       zoom buttons on scroll. */
+       chart overflow the host, clipping the toolbar or the floating zoom buttons
+       on scroll. */
     display: flex;
     flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* Full-screen overlay (plan 003 U3): a fixed full-window layer. The root node
+     is DOM-reparented to <body> while full-screen (see the reparent effect) so
+     `position:fixed; inset:0` reaches the viewport rather than being trapped by
+     Obsidian's containing-block leaf — a DOM move, not a Svelte remount, so no
+     remount (R9). `inset:0` drives the size, so the inline px height is skipped
+     while full-screen and the max-height cap does not apply (R8). z-index sits
+     above the workspace/panes and sidebars but below Obsidian's menus and modals,
+     so context menus and dialogs still surface over it. A solid background hides
+     the panes behind. */
+  .og-bases-gantt.og-fullscreen {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    z-index: var(--layer-popover, 30);
+    background-color: var(--background-primary);
+    padding: 8px;
   }
 
   /* SVAR theme component host: fills the remaining height below the toolbar
@@ -1307,6 +1447,45 @@
 
   /* Container for Lucide icon (OG-81) */
   .zoom-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+  }
+
+  /* Floating full-screen toggle (plan 003 U4): top-right, clear of the
+     bottom-right zoom controls. Always visible on the chart. */
+  .og-fullscreen-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 4px;
+    background-color: #ffffff;
+    color: #5f6368;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .og-fullscreen-toggle:active {
+    background-color: #e0e0e0;
+  }
+
+  .og-fullscreen-icon {
     display: flex;
     align-items: center;
     justify-content: center;

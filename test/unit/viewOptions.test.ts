@@ -8,6 +8,7 @@ import { describe, expect, it } from "@jest/globals";
 import type { BasesAllOptions } from "obsidian";
 import {
   ganttViewOptions,
+  readMaxHeight,
   readShowToolbar,
   taskListViewOptions,
 } from "../../src/bases/viewOptions";
@@ -55,6 +56,22 @@ describe("ganttViewOptions", () => {
       displayName: "Show toolbar",
       key: "tngantt_showToolbar",
       default: false,
+    });
+  });
+
+  it("models the max-height input as a slider defaulting to 400 (plan 003 R1)", () => {
+    const maxHeight = byKey(options, "tngantt_maxHeight");
+    expect(maxHeight.type).toBe("slider");
+    expect(maxHeight).toMatchObject({
+      type: "slider",
+      displayName: "Max height (px)",
+      key: "tngantt_maxHeight",
+      default: 400,
+      min: 112,
+      // max + step are REQUIRED: without max, Obsidian's slider falls back to an
+      // HTML range max of 100 (< the 112 min), rendering the control disabled.
+      max: 2000,
+      step: 10,
     });
   });
 
@@ -111,8 +128,8 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 3 dropdowns + 1 slider + 4 toggles.
-    expect(options).toHaveLength(14);
+    // 6 shared property options + 3 dropdowns + 2 sliders + 4 toggles.
+    expect(options).toHaveLength(15);
   });
 });
 
@@ -158,5 +175,25 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
+  });
+});
+
+describe("readMaxHeight", () => {
+  it("defaults to 400 when the value is unset (R1 default)", () => {
+    expect(readMaxHeight(() => undefined)).toBe(400);
+  });
+
+  it("returns the stored positive value (number or numeric string)", () => {
+    expect(readMaxHeight(() => 800)).toBe(800);
+    // Bases may persist a numeric option as a string — coerce it.
+    expect(readMaxHeight(() => "640")).toBe(640);
+  });
+
+  it("falls back to the default for non-positive / non-finite / junk values", () => {
+    expect(readMaxHeight(() => 0)).toBe(400);
+    expect(readMaxHeight(() => -100)).toBe(400);
+    expect(readMaxHeight(() => "abc")).toBe(400);
+    expect(readMaxHeight(() => null)).toBe(400);
+    expect(readMaxHeight(() => Infinity)).toBe(400);
   });
 });

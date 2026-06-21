@@ -36,7 +36,7 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
-import { ganttViewOptions, readShowToolbar, taskListViewOptions } from './viewOptions';
+import { ganttViewOptions, readMaxHeight, readShowToolbar, taskListViewOptions } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
 /**
@@ -269,6 +269,11 @@ class ObsidianGanttBasesView extends BasesView {
     return readShowToolbar((key) => this.config.get(key));
   }
 
+  /** Read the per-view max-height in px (plan 003 R1); default 400. */
+  private getMaxHeight(): number {
+    return readMaxHeight((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view theme mode (plan 002 R4), normalized to
    * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
@@ -452,6 +457,7 @@ class ObsidianGanttBasesView extends BasesView {
       arrowMode,
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
+      maxHeight: this.getMaxHeight(),
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
