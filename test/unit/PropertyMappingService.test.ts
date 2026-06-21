@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from "@jest/globals";
 import type { App } from "obsidian";
 import { PropertyMappingService } from "../../src/bases/services/PropertyMappingService";
 import type { FieldMappings, SVARTask } from "../../src/bases/types/field-mapping";
-import type { BasesEntryLike } from "../../src/bases/services/BasesDataAdapter";
+import type { BasesEntryLike } from "../../src/bases/types/bases-entry";
 
 describe("PropertyMappingService", () => {
   let service: PropertyMappingService;

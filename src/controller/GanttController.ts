@@ -687,6 +687,7 @@ export class GanttController {
     this.dateMappingInfo = null;
 
     if (this.sourceStrategy === 'bases-scoped') {
+      // Official BasesEntry is structurally assignable to the adapter's BasesEntryLike (see bases-entry.ts / plan KTD 4).
       const { entries, mappings } = this.basesInput();
       // Create the enrichment first so its field config can resolve the
       // effective read properties + write targets before the base is built.

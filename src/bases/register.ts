@@ -33,7 +33,8 @@ import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
-import { BasesDataAdapter, asPropertyId } from './services/BasesDataAdapter';
+import { BasesDataAdapter } from './services/BasesDataAdapter';
+import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
 
 /**
@@ -646,7 +647,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new GanttTaskListView(controller, containerEl);
     },
-    options: () => sharedOptions,
+    options: (_config: BasesViewConfig): BasesAllOptions[] => sharedOptions,
   });
 
   if (registeredTaskList) {

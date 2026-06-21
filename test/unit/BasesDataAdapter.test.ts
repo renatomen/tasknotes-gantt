@@ -7,7 +7,8 @@
 
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import type { BasesEntry } from "obsidian";
-import { BasesDataAdapter, type BasesEntryLike } from "../../src/bases/services/BasesDataAdapter";
+import { BasesDataAdapter } from "../../src/bases/services/BasesDataAdapter";
+import { type BasesEntryLike, asPropertyId } from "../../src/bases/types/bases-entry";
 
 describe("BasesDataAdapter", () => {
   let adapter: BasesDataAdapter;
@@ -345,6 +346,24 @@ describe("BasesDataAdapter", () => {
       expect(result).toBe("My Task");
     });
 
+    it("reads a dot-form note. text property via the frontmatter fast path (no getValue)", () => {
+      // Arrange - DOT-form id routes through readFrontmatterProperty end-to-end;
+      // getValue must never be called for the note. fast path.
+      const mockEntry: BasesEntryLike = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { title: "Frontmatter Task" },
+        getValue: () => {
+          throw new Error("getValue should not be called for note. fast path");
+        },
+      };
+
+      // Act
+      const result = adapter.extractText(mockEntry, "note.title");
+
+      // Assert
+      expect(result).toBe("Frontmatter Task");
+    });
+
     it("should fallback to file.basename when property is empty", () => {
       // Arrange - NullValue
       const mockEntry: BasesEntryLike = {
@@ -431,6 +450,27 @@ describe("BasesDataAdapter", () => {
       expect(result).toBeInstanceOf(Date);
       expect(result?.getFullYear()).toBe(2024);
       expect(result?.getMonth()).toBe(4); // May (0-indexed)
+    });
+
+    it("reads a dot-form note. date property via the frontmatter fast path (no getValue)", () => {
+      // Arrange - DOT-form id routes through readFrontmatterProperty end-to-end;
+      // getValue must never be called for the note. fast path.
+      const mockEntry: BasesEntryLike = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { start: "2024-05-15" },
+        getValue: () => {
+          throw new Error("getValue should not be called for note. fast path");
+        },
+      };
+
+      // Act
+      const result = adapter.extractDate(mockEntry, "note.start");
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getFullYear()).toBe(2024);
+      expect(result?.getMonth()).toBe(4); // May (0-indexed)
+      expect(result?.getDate()).toBe(15);
     });
 
     it("should return null for missing date property", () => {
@@ -680,6 +720,19 @@ describe("BasesDataAdapter", () => {
 
       // Assert
       expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+  });
+
+  describe("asPropertyId", () => {
+    it("returns the identity string value (round-trip narrowing)", () => {
+      // Arrange - a raw prefixed id string.
+      const raw = "note.start";
+
+      // Act - narrowing to BasesPropertyId is a compile-time-only cast.
+      const result = asPropertyId(raw);
+
+      // Assert - the runtime value is unchanged (identity).
+      expect(result).toBe("note.start");
     });
   });
 });

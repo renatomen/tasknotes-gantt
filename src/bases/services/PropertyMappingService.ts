@@ -11,7 +11,8 @@
 
 import type { App } from "obsidian";
 import type { FieldMappings, SVARTask, MappingValidationError } from "../types/field-mapping";
-import { BasesDataAdapter, type BasesEntryLike } from "./BasesDataAdapter";
+import { BasesDataAdapter } from "./BasesDataAdapter";
+import type { BasesEntryLike } from "../types/bases-entry";
 import { resolveParentLink } from "../parentLink";
 
 /**
