@@ -8,6 +8,8 @@ import { describe, expect, it } from "@jest/globals";
 import type { BasesAllOptions } from "obsidian";
 import {
   ganttViewOptions,
+  readExpandedRelationships,
+  readHideTopLevelSubtasks,
   readMaxHeight,
   readShowToolbar,
   taskListViewOptions,
@@ -75,6 +77,41 @@ describe("ganttViewOptions", () => {
     });
   });
 
+  it("exposes the Expanded relationships dropdown defaulting to inherit, with a Record choice map", () => {
+    const dropdown = byKey(options, "tngantt_expandedRelationships");
+    expect(dropdown.type).toBe("dropdown");
+    expect(dropdown).toMatchObject({
+      type: "dropdown",
+      displayName: "Expanded relationships",
+      key: "tngantt_expandedRelationships",
+      default: "inherit",
+      // MUST be a Record<string,string>, not an array — an array renders every
+      // choice as "[object Object]" in the Bases config panel.
+      options: { inherit: "Inherit", "show-all": "Show all" },
+    });
+  });
+
+  it("exposes the Hide top-level subtasks toggle, defaulting off", () => {
+    const toggle = byKey(options, "tngantt_hideTopLevelSubtasks");
+    expect(toggle.type).toBe("toggle");
+    expect(toggle).toMatchObject({
+      type: "toggle",
+      displayName: "Hide top-level subtasks",
+      key: "tngantt_hideTopLevelSubtasks",
+      default: false,
+    });
+  });
+
+  it("omits the companion-only controls in standalone mode (never present-but-inert)", () => {
+    const standalone = ganttViewOptions(false);
+    const keys = standalone.map((o) => ("key" in o ? o.key : undefined));
+    expect(keys).not.toContain("tngantt_expandedRelationships");
+    expect(keys).not.toContain("tngantt_hideTopLevelSubtasks");
+    // Non-companion controls remain.
+    expect(keys).toContain("tngantt_showToolbar");
+    expect(keys).toContain("tngantt_defaultScale");
+  });
+
   it("exposes the scale/arrow/cascade selectors as dropdowns", () => {
     for (const key of [
       "tngantt_defaultScale",
@@ -128,8 +165,8 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 3 dropdowns + 2 sliders + 4 toggles.
-    expect(options).toHaveLength(15);
+    // 6 shared property options + 4 dropdowns + 2 sliders + 5 toggles.
+    expect(options).toHaveLength(17);
   });
 });
 
@@ -175,6 +212,39 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
+  });
+});
+
+describe("readExpandedRelationships", () => {
+  it("defaults to inherit when unset", () => {
+    expect(readExpandedRelationships(() => undefined)).toBe("inherit");
+  });
+
+  it("returns show-all for the show-all value (and normalizes variants)", () => {
+    expect(readExpandedRelationships(() => "show-all")).toBe("show-all");
+    expect(readExpandedRelationships(() => "Show All")).toBe("show-all");
+    expect(readExpandedRelationships(() => " show_all ")).toBe("show-all");
+    expect(readExpandedRelationships(() => 1)).toBe("show-all");
+  });
+
+  it("returns inherit for the inherit value and any unrecognized junk", () => {
+    expect(readExpandedRelationships(() => "inherit")).toBe("inherit");
+    expect(readExpandedRelationships(() => 0)).toBe("inherit");
+    expect(readExpandedRelationships(() => "nonsense")).toBe("inherit");
+    expect(readExpandedRelationships(() => null)).toBe("inherit");
+  });
+});
+
+describe("readHideTopLevelSubtasks", () => {
+  it("defaults to false when unset", () => {
+    expect(readHideTopLevelSubtasks(() => undefined)).toBe(false);
+  });
+
+  it("is true only for an explicit boolean true", () => {
+    expect(readHideTopLevelSubtasks((k) => ({ tngantt_hideTopLevelSubtasks: true })[k])).toBe(true);
+    expect(readHideTopLevelSubtasks(() => "true")).toBe(false);
+    expect(readHideTopLevelSubtasks(() => 1)).toBe(false);
+    expect(readHideTopLevelSubtasks(() => false)).toBe(false);
   });
 });
 

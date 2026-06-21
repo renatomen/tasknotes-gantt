@@ -517,6 +517,23 @@ class ObsidianGanttBasesView extends BasesView {
 }
 
 /**
+ * Whether the TaskNotes plugin is present with an exposed API. Sync (used at
+ * options-panel build time) — mirrors the `app.plugins.getPlugin('tasknotes')`
+ * resolution in {@link TaskNotesSource}. Companion-only relationship controls
+ * are shown only when this is true.
+ */
+function isTaskNotesPresent(app: Plugin['app']): boolean {
+  try {
+    const plugins = (app as unknown as {
+      plugins?: { getPlugin(id: string): { api?: unknown } | null | undefined };
+    }).plugins;
+    return Boolean(plugins?.getPlugin('tasknotes')?.api);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Register the Gantt view with Obsidian's Bases API
  *
  * @param plugin - The Obsidian plugin instance
@@ -547,7 +564,11 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => ganttViewOptions(),
+    // Companion-only relationship controls render only when TaskNotes is
+    // present (expansion is companion-only — see plan U1/R6). Presence is
+    // re-checked each time the options panel builds; cheap.
+    options: (_config: BasesViewConfig): BasesAllOptions[] =>
+      ganttViewOptions(isTaskNotesPresent(plugin.app)),
   });
 
   if (registeredGantt) {

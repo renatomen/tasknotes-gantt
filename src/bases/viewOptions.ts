@@ -67,13 +67,50 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
   ];
 }
 
+/** The two allowed values of the "Expanded relationships" setting. */
+export type ExpandedRelationships = 'inherit' | 'show-all';
+
+/**
+ * Companion-only relationship controls (Expanded relationships + Hide top-level
+ * subtasks). Grouped together and rendered ONLY when TaskNotes is present —
+ * expansion is companion-only, so in standalone mode these are omitted rather
+ * than shown inert. Labels match TaskNotes' exact strings for cross-plugin
+ * recognizability.
+ */
+function relationshipOptions(): BasesAllOptions[] {
+  return [
+    {
+      type: 'dropdown',
+      displayName: 'Expanded relationships',
+      key: 'tngantt_expandedRelationships',
+      default: 'inherit',
+      // Record<string,string> — an array renders every choice as "[object Object]".
+      options: {
+        inherit: 'Inherit',
+        'show-all': 'Show all',
+      },
+    },
+    {
+      type: 'toggle',
+      displayName: 'Hide top-level subtasks',
+      key: 'tngantt_hideTopLevelSubtasks',
+      default: false,
+    },
+  ];
+}
+
 /**
  * The Gantt chart view's Bases view options: the shared field-mapping property
  * options followed by the Gantt-specific dropdowns, slider, and toggles.
+ *
+ * @param companionAvailable - whether TaskNotes is present. When false, the
+ *   companion-only relationship controls are omitted (expansion has no effect in
+ *   standalone mode, so the controls would be inert — hide them instead).
  */
-export function ganttViewOptions(): BasesAllOptions[] {
+export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
   return [
     ...sharedFieldMappingOptions(),
+    ...(companionAvailable ? relationshipOptions() : []),
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -197,6 +234,41 @@ export function readShowToolbar(get: (key: string) => unknown): boolean {
 export function readMaxHeight(get: (key: string) => unknown): number {
   const raw = Number(get('tngantt_maxHeight'));
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_HEIGHT;
+}
+
+/**
+ * Read the per-view "Expanded relationships" mode, defaulting to `inherit`.
+ * Normalizes TaskNotes' value vocabulary: `show-all` (any case, with surrounding
+ * quotes or space/underscore separators) and the numeric/boolean truthy encodings
+ * (`1`, `true`) map to `show-all`; everything else — including `inherit`, `0`, and
+ * junk — maps to `inherit`. Pure (no Obsidian/DOM): the caller passes the Bases
+ * `config.get`. Mirrors {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readExpandedRelationships(get: (key: string) => unknown): ExpandedRelationships {
+  const raw = get('tngantt_expandedRelationships');
+  if (raw === 1 || raw === '1' || raw === true) return 'show-all';
+  if (typeof raw === 'string') {
+    const norm = raw
+      .trim()
+      .toLowerCase()
+      .replace(/^["']|["']$/g, '')
+      .replace(/[\s_]+/g, '-');
+    if (norm === 'show-all') return 'show-all';
+  }
+  return 'inherit';
+}
+
+/**
+ * Read the per-view "Hide top-level subtasks" toggle, defaulting to off. True
+ * only for an explicit boolean `true` (mirrors {@link readShowToolbar} and
+ * TaskNotes' own `=== true` read). Pure (no Obsidian/DOM).
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readHideTopLevelSubtasks(get: (key: string) => unknown): boolean {
+  return get('tngantt_hideTopLevelSubtasks') === true;
 }
 
 /**
