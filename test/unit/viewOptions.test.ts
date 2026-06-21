@@ -8,6 +8,7 @@ import { describe, expect, it } from "@jest/globals";
 import type { BasesAllOptions } from "obsidian";
 import {
   ganttViewOptions,
+  readShowToolbar,
   taskListViewOptions,
 } from "../../src/bases/viewOptions";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
@@ -44,6 +45,17 @@ describe("ganttViewOptions", () => {
       expect(toggle.type).toBe("toggle");
       expect(toggle).toMatchObject({ key, default: true });
     }
+  });
+
+  it("exposes the show-toolbar toggle, defaulting off (plan 002 R2)", () => {
+    const toggle = byKey(options, "tngantt_showToolbar");
+    expect(toggle.type).toBe("toggle");
+    expect(toggle).toMatchObject({
+      type: "toggle",
+      displayName: "Show toolbar",
+      key: "tngantt_showToolbar",
+      default: false,
+    });
   });
 
   it("exposes the scale/arrow/cascade selectors as dropdowns", () => {
@@ -99,8 +111,8 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 3 dropdowns + 1 slider + 3 toggles.
-    expect(options).toHaveLength(13);
+    // 6 shared property options + 3 dropdowns + 1 slider + 4 toggles.
+    expect(options).toHaveLength(14);
   });
 });
 
@@ -132,5 +144,19 @@ describe("taskListViewOptions", () => {
       default: "",
       placeholder: "Select task name property (defaults to file name)",
     });
+  });
+});
+
+describe("readShowToolbar", () => {
+  it("defaults to false when the toggle is unset (R2 default off)", () => {
+    expect(readShowToolbar(() => undefined)).toBe(false);
+  });
+
+  it("is true only for an explicit boolean true", () => {
+    expect(readShowToolbar((k) => ({ tngantt_showToolbar: true })[k])).toBe(true);
+    // Truthy-but-not-true values must NOT enable the toolbar.
+    expect(readShowToolbar(() => "true")).toBe(false);
+    expect(readShowToolbar(() => 1)).toBe(false);
+    expect(readShowToolbar(() => false)).toBe(false);
   });
 });

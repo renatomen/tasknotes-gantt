@@ -33,6 +33,12 @@ export interface GanttData {
   arrowMode: LinkRewriteMode;
   /** Per-view bar-level date-status indicator toggle. */
   showDateIndicators: boolean;
+  /**
+   * Per-view "show toolbar" toggle (plan 002 R2). Flows through the reactive
+   * data path (not a static mount prop) so toggling the option live shows/hides
+   * the toolbar without a remount — same treatment as {@link showDateIndicators}.
+   */
+  showToolbar: boolean;
   /** Status→color palette (TaskNotes). */
   statusColors: StatusColor[];
   /** Invalid date-mapping notice, when a start/end mapping fell back. */

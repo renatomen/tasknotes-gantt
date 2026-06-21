@@ -142,7 +142,29 @@ export function ganttViewOptions(): BasesAllOptions[] {
       key: 'tngantt_showDateIndicators',
       default: true,
     },
+    // Per-view toolbar visibility (plan 002 R2); default off. When on, the
+    // GanttToolbar renders above the chart with the Auto/Light/Dark theme
+    // switch. The theme MODE itself (tngantt_themeMode) is persisted via the
+    // toolbar, not an options-panel entry — see register.getThemeMode().
+    {
+      type: 'toggle',
+      displayName: 'Show toolbar',
+      key: 'tngantt_showToolbar',
+      default: false,
+    },
   ];
+}
+
+/**
+ * Read the per-view "show toolbar" toggle (plan 002 R2), defaulting to off. Pure
+ * (no Obsidian/DOM): the caller passes the Bases `config.get` so the reader
+ * unit-tests in isolation; `register.getShowToolbar()` wraps it. Co-located with
+ * the `tngantt_showToolbar` option definition above; mirrors `readThemeMode`.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readShowToolbar(get: (key: string) => unknown): boolean {
+  return get('tngantt_showToolbar') === true;
 }
 
 /**

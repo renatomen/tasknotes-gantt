@@ -1,0 +1,18 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt (OG)"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_progressProperty: note.progress
+    tngantt_parentProperty: note.parent
+    tngantt_dependencyArrowMode: primary
+    tngantt_defaultScale: month
+    tngantt_showToolbar: true
+    order:
+      - file.name
+      - note.start
+      - note.due
+      - note.progress
