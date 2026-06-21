@@ -63,6 +63,9 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.scheduled.changed',
   'task.due.changed',
   'task.dependencies.changed',
+  // Project-edge changes re-key the companion hierarchy (Show-all / nesting):
+  // a re-parent or new child must refresh the expanded tree (plan U2/R7).
+  'task.projects.changed',
   'task.created',
   'task.deleted',
 ] as const;
@@ -176,6 +179,22 @@ export interface TaskNotesApi {
     dependencies(
       path: string
     ): Promise<TaskNotesDependencyEdge[]> | TaskNotesDependencyEdge[];
+    /**
+     * Direct subtasks of `path` (tasks whose `projects` field links to it).
+     * TaskNotes 4.11.0: `relationships.subtasks` → `getSubtasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded (older versions lack it).
+     */
+    subtasks?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
+    /**
+     * Direct parents of `path` (the tasks its `projects` field references).
+     * TaskNotes 4.11.0: `relationships.parents` → `getParentTasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded.
+     */
+    parents?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
   };
   events?: {
     on(name: string, handler: (payload?: unknown) => void): TaskNotesEventRef;
@@ -378,6 +397,66 @@ export class TaskNotesSource implements DataSource {
         }
       }
       return deps;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read the direct subtasks of `path` (tasks whose `projects` field links to
+   * it) as raw {@link SourceTask}s, via `api.relationships.subtasks(path)`
+   * (TaskNotes 4.11.0). Children with no resolvable path are dropped. Returns
+   * `[]` when the accessor is absent or on any failure. The companion-hierarchy
+   * resolver (U3) owns parent-edge assignment; mapped children carry
+   * `parents: []` here (set by {@link toSourceTask}).
+   *
+   * @param path - The task whose direct subtasks to read.
+   */
+  public async getSubtasks(path: string): Promise<SourceTask[]> {
+    try {
+      if (
+        !this.api.relationships ||
+        typeof this.api.relationships.subtasks !== 'function'
+      ) {
+        return [];
+      }
+      const children = await this.api.relationships.subtasks(path);
+      if (!Array.isArray(children)) {
+        return [];
+      }
+      return children
+        .filter(
+          (t): t is TaskNotesTaskInfo =>
+            !!t && typeof t.path === 'string' && t.path.length > 0,
+        )
+        .map((t) => this.toSourceTask(t));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read the resolved vault paths of the direct parents of `path` (the tasks its
+   * `projects` field references), via `api.relationships.parents(path)`
+   * (TaskNotes 4.11.0). Returns `[]` when the accessor is absent or on failure.
+   *
+   * @param path - The task whose direct parents to read.
+   */
+  public async getParents(path: string): Promise<string[]> {
+    try {
+      if (
+        !this.api.relationships ||
+        typeof this.api.relationships.parents !== 'function'
+      ) {
+        return [];
+      }
+      const parents = await this.api.relationships.parents(path);
+      if (!Array.isArray(parents)) {
+        return [];
+      }
+      return parents
+        .map((t) => t?.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
     } catch {
       return [];
     }
