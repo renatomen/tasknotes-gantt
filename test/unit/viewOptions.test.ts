@@ -46,6 +46,17 @@ describe("ganttViewOptions", () => {
     }
   });
 
+  it("exposes the show-toolbar toggle, defaulting off (plan 002 R2)", () => {
+    const toggle = byKey(options, "tngantt_showToolbar");
+    expect(toggle.type).toBe("toggle");
+    expect(toggle).toMatchObject({
+      type: "toggle",
+      displayName: "Show toolbar",
+      key: "tngantt_showToolbar",
+      default: false,
+    });
+  });
+
   it("exposes the scale/arrow/cascade selectors as dropdowns", () => {
     for (const key of [
       "tngantt_defaultScale",
@@ -99,8 +110,8 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 3 dropdowns + 1 slider + 3 toggles.
-    expect(options).toHaveLength(13);
+    // 6 shared property options + 3 dropdowns + 1 slider + 4 toggles.
+    expect(options).toHaveLength(14);
   });
 });
 

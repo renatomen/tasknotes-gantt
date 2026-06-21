@@ -1,9 +1,23 @@
 <script lang="ts">
   /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
-  import { Gantt, Tooltip, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  // Willow + WillowDark are imported only for their `:global` CSS side-effects
+  // (each transitively pulls the core + grid + gantt theme layers), so BOTH
+  // light and dark rule-sets ship in the bundle. We do NOT render them as
+  // wrappers — the theme is applied via our own stable `wx-theme` wrapper below
+  // (plan 002 U2), toggling its class/context with zero remount.
+  import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
   import DependencyTooltip from './DependencyTooltip.svelte';
+  import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
+  import { setContext } from 'svelte';
   import { get } from 'svelte/store';
+  import {
+    resolveThemeClass,
+    resolveThemeContext,
+    isObsidianDark,
+    subscribeObsidianTheme,
+    type ThemeMode,
+  } from './themeResolver';
   import type { TaskPatch } from '../datasource/types';
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
@@ -91,6 +105,18 @@
      */
     // eslint-disable-next-line no-unused-vars -- type-signature param names
     onGridWidthChange?: (width: number) => void;
+    /**
+     * The initial per-view theme mode (plan 002 U3). Seeds the live `mode`
+     * state; `auto` follows Obsidian, `light`/`dark` pin this chart's theme.
+     */
+    themeMode?: ThemeMode;
+    /**
+     * Persist a chosen theme mode per-view (plan 002 U3). The toolbar calls
+     * this on change; register.ts closes it over `config.set`. Absent callers
+     * keep an in-session-only switch.
+     */
+    // eslint-disable-next-line no-unused-vars -- type-signature param names
+    onThemeModeChange?: (mode: ThemeMode) => void;
   }
 
   // `config` remains part of the props contract (register.ts passes it) but the
@@ -106,7 +132,70 @@
     onBarContextMenu,
     onColumnResize,
     onGridWidthChange,
+    themeMode = 'auto',
+    onThemeModeChange,
   }: Props = $props();
+
+  // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
+  // Reference the theme components so their `:global` theme CSS is retained in
+  // the bundle without rendering them as wrappers. Importing both guarantees
+  // BOTH light + dark rule-sets ship across the core/grid/gantt layers; the
+  // active theme is selected purely by the wrapper's class/context below.
+  void Willow;
+  void WillowDark;
+
+  // Live theme mode (seeded from the per-view prop) + the current Obsidian
+  // dark/light read. The wrapper's class + `wx-theme` context derive from these
+  // via the pure resolvers (U1) — toggling them re-applies the SVAR CSS
+  // variables instantly with NO remount of the Gantt/Tooltip subtree.
+  // One-shot reads at init for seeding both the reactive state and the context
+  // (the context is captured once; see setContext below).
+  const initialMode: ThemeMode = themeMode;
+  const initialDark = isObsidianDark();
+  let mode = $state<ThemeMode>(initialMode);
+  let obsidianIsDark = $state(initialDark);
+
+  const effectiveThemeClass = $derived(resolveThemeClass(mode, obsidianIsDark));
+
+  // Replicate SVAR's load-bearing `wx-theme` context (the core Willow/WillowDark
+  // components set it). `Portal.svelte` reads it via getContext to theme
+  // portalled content — the dependency Tooltip — so dropping it would render
+  // that tooltip unthemed. `setContext` is one-shot: the value is captured ONCE
+  // at mount and frozen for the view's session — SVAR's Portal re-reads it per
+  // open but always gets that frozen string, so it is NOT re-themed live. The
+  // chart itself DOES re-theme live (the wrapper's `wx-…-theme` class is
+  // reactive via effectiveThemeClass), but an already-mounted view's dependency
+  // tooltip renders at the mount-time theme for the whole session. Acceptable:
+  // the tooltip is transient, and a fresh view mount picks up the current theme.
+  // (A live-context fix isn't worth it — SVAR consumes a plain string, not a
+  // store.) Computed from the initial mode/dark read (not the reactive $derived)
+  // to make the one-shot capture explicit and avoid a misleading "state
+  // referenced locally" warning.
+  setContext('wx-theme', resolveThemeContext(initialMode, initialDark));
+
+  // While in Auto, follow Obsidian's theme live (R1/R6) — independent of toolbar
+  // visibility. Re-read `isObsidianDark()` on each `css-change` (MutationObserver
+  // fallback inside the helper). Subscribe only in Auto; dispose on mode change
+  // and on unmount.
+  $effect(() => {
+    if (mode !== 'auto') return;
+    // Sync immediately in case the theme changed since mount/last subscription.
+    obsidianIsDark = isObsidianDark();
+    const dispose = subscribeObsidianTheme(app, () => {
+      obsidianIsDark = isObsidianDark();
+    });
+    return dispose;
+  });
+
+  /**
+   * Toolbar change handler: persist the chosen mode per-view (U3/U4). The live
+   * `mode` state is owned by `bind:mode` on <GanttToolbar> — the toolbar already
+   * wrote it before calling this — so this only persists; re-setting `mode` here
+   * would be a redundant double-write (FIX C).
+   */
+  function handleThemeModeChange(next: ThemeMode): void {
+    onThemeModeChange?.(next);
+  }
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
   // local names means the rest of the component is unchanged — only the source
@@ -120,6 +209,11 @@
   const statusColors = $derived($data.statusColors ?? []);
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
+  // Toolbar visibility is store-driven (FIX A): reading it from the reactive
+  // data — like showDateIndicators — makes the `tngantt_showToolbar` option a
+  // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
+  // register.getShowToolbar()'s `=== true` default-false read.
+  const showToolbar = $derived($data.showToolbar ?? false);
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -1021,7 +1115,21 @@
 -->
 
 <div class="og-bases-gantt" bind:this={rootEl}>
-  <Willow fonts={false}>
+  <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
+       tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
+       (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
+  {#if showToolbar}
+    <GanttToolbar bind:mode onModeChange={handleThemeModeChange} />
+  {/if}
+
+  <!-- Our own stable theme wrapper (plan 002 U2): replaces SVAR's <Willow>.
+       The class toggles wx-willow-theme ↔ wx-willow-dark-theme reactively
+       (effectiveThemeClass) with NO remount of the <Gantt>/<Tooltip> subtree.
+       Both themes' CSS is bundled via the Willow/WillowDark imports above. The
+       matching wx-theme context (set in the script) themes the dependency
+       tooltip's Portal. The font CDN <link> that <Willow> emitted is
+       intentionally omitted (the prior `fonts={false}` intent). -->
+  <div class="wx-theme og-theme-wrapper {effectiveThemeClass}">
     <!-- Read-only banner (R5/R11): shown whenever the active source has no
          write capability, regardless of which source is active. Copy varies on
          whether TaskNotes is present (see readOnlyBannerText). -->
@@ -1086,7 +1194,7 @@
     <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
          Left/double-click and right-click on bars route through onBarActivate /
          onBarContextMenu to the TaskNotes interaction service. -->
-  </Willow>
+  </div>
 </div>
 
 <style>
@@ -1096,6 +1204,12 @@
     min-height: 400px;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* SVAR theme wrapper: fills the view height (FIX G — replaces an inline
+     style:height on the element). */
+  .og-theme-wrapper {
+    height: 100%;
   }
 
   .gtcell {

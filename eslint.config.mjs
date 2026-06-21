@@ -35,6 +35,7 @@ export default [
         window: "readonly",
         document: "readonly",
         HTMLElement: "readonly",
+        MutationObserver: "readonly",
         setTimeout: "readonly",
       },
     },

@@ -142,6 +142,16 @@ export function ganttViewOptions(): BasesAllOptions[] {
       key: 'tngantt_showDateIndicators',
       default: true,
     },
+    // Per-view toolbar visibility (plan 002 R2); default off. When on, the
+    // GanttToolbar renders above the chart with the Auto/Light/Dark theme
+    // switch. The theme MODE itself (tngantt_themeMode) is persisted via the
+    // toolbar, not an options-panel entry — see register.getThemeMode().
+    {
+      type: 'toggle',
+      displayName: 'Show toolbar',
+      key: 'tngantt_showToolbar',
+      default: false,
+    },
   ];
 }
 
