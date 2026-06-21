@@ -1,10 +1,11 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, MouseEvent, KeyboardEvent, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
   // theme around the chart (plan 002 U2) so the theme applies completely.
   import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  import { Fullscreen } from '@svar-ui/svelte-core';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
@@ -50,6 +51,11 @@
     SVAR_SCALE_HEIGHT,
   } from './ganttHeight';
 
+  // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
+  // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
+  // signature can be typed without an inline function-type param.
+  type FullscreenToggleAction = (ev: MouseEvent) => void;
+
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
   // across data changes and keeps its view state (zoom, scroll). Static inputs
@@ -64,20 +70,17 @@
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
      * read-only contexts / older callers — drag persistence is then inert.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
     /**
      * Create a Finish-to-Start dependency from a drawn link (M2/U4): the task
      * behind `predecessorInstanceId` blocks the one behind `dependentInstanceId`.
      * Routed to the controller's `addDependency`. Absent in read-only contexts.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onAddDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
     /**
      * Remove a dependency from a deleted link (M2/U3). Routed to the controller's
      * `removeDependency`. Absent in read-only contexts.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onRemoveDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
     /**
      * Native edit interaction: invoked on a left/double-click of a bar with the
@@ -85,20 +88,17 @@
      * binder (register.ts) routes this to the TaskNotes interaction service
      * (open note / open native edit modal per TaskNotes settings).
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onBarActivate?: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => void;
     /**
      * Native context menu: invoked on right-click of a bar with the resolved
      * note path and the mouse event, routed to TaskNotes' own task menu.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onBarContextMenu?: (path: string, event: MouseEvent) => void;
     /**
      * Persist a column's new width (U5/R8). Invoked on a resize commit with the
      * Bases property id the column maps to (the name column reports its name
      * key, not `text`). The binder writes it to the standard `columnSize` map.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onColumnResize?: (propId: string, width: number) => void;
     /**
      * Persist the grid/timeline divider width (plan 002 U3). Invoked on a
@@ -106,7 +106,6 @@
      * the standard `obsidianGantt.tableWidth`. In-session dragging is SVAR's own
      * Resizer — this only persists the chosen width across reloads.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onGridWidthChange?: (width: number) => void;
     /**
      * The initial per-view theme mode (plan 002 U3). Seeds the live `mode`
@@ -118,7 +117,6 @@
      * this on change; register.ts closes it over `config.set`. Absent callers
      * keep an in-session-only switch.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onThemeModeChange?: (mode: ThemeMode) => void;
   }
 
@@ -577,54 +575,12 @@
   // re-applies only when the value actually changes — the no-op guard is free.
   const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight));
 
-  // ── Full-screen overlay (plan 003 U3/U4) ────────────────────────────────
-  // A CSS-in-place class toggle: `og-fullscreen` restyles the EXISTING root to a
-  // fixed full-window overlay (position:fixed; inset:0). The Svelte tree is never
-  // moved or remounted, so SVAR keeps its zoom/scroll/selection/data (R9). While
-  // full-screen the explicit px height is skipped (the overlay rule drives the
-  // size via inset), so the max-height cap does not apply (R8). Transient (R10).
-  let fullScreen = $state(false);
-
-  function toggleFullScreen() {
-    fullScreen = !fullScreen;
-  }
-
-  // Esc exits full-screen (R7). The listener exists only while full-screen;
-  // capture phase + stopPropagation so Esc closes the overlay rather than some
-  // unrelated Obsidian handler consuming it first.
-  $effect(() => {
-    if (!fullScreen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        fullScreen = false;
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  });
-
-  // Containing-block escape (plan 003 KTD 3 fallback). Obsidian's workspace leaf
-  // is a containing block (transform/contain), so a `position:fixed` overlay left
-  // in place is trapped to the pane (offset by the sidebar) instead of the
-  // window. We therefore MOVE the existing root node to <body> while full-screen
-  // — a DOM move, not a Svelte remount, so the SVAR instance and its
-  // zoom/scroll/selection survive (R9). A placeholder comment marks the original
-  // slot; the effect's own cleanup restores the node there, so exit AND unmount
-  // (even unmount while still full-screen) both leave the DOM intact — no
-  // reliance on the caller to sweep an orphaned placeholder.
-  $effect(() => {
-    if (!rootEl || !fullScreen) return;
-    const node = rootEl;
-    const placeholder = document.createComment('og-fullscreen-placeholder');
-    node.parentElement?.insertBefore(placeholder, node);
-    document.body.appendChild(node);
-    return () => {
-      placeholder.parentElement?.insertBefore(node, placeholder);
-      placeholder.remove();
-    };
-  });
+  // Full screen is handled by SVAR's official <Fullscreen> component (svelte-core)
+  // in the markup — it wraps the chart, uses the native browser Fullscreen API,
+  // and handles Esc itself. We pass a custom `toggleButton` snippet so our own
+  // floating lucide button drives it (SVAR's default button uses a wxi-* icon,
+  // which renders blank with fonts disabled). No bespoke overlay/reparent state
+  // here — see https://docs.svar.dev/svelte/gantt/guides/fullscreen/.
 
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
@@ -1230,8 +1186,7 @@
 
 <div
   class="og-bases-gantt"
-  class:og-fullscreen={fullScreen}
-  style={fullScreen ? '' : `height: ${hostHeightPx}px;`}
+  style={`height: ${hostHeightPx}px;`}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -1279,38 +1234,34 @@
   {/if}
 
   <div class="gtcell">
-    <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
-         targeted api.exec actions (diff-sync $effect above) so SVAR never
-         re-inits its store and the user's zoom/scroll/selection survive. -->
-    <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
-         from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
-         dependent task's tooltip is the surface. Falls back to the task name
-         for tasks with no dependencies. -->
-    <Tooltip {api} content={DependencyTooltip}>
-      <Gantt
-        init={initGantt}
-        tasks={initialTasks}
-        taskTypes={svarTaskTypes}
-        links={initialLinks}
-        {columns}
-        gridWidth={initialGridWidth}
-        zoom={zoomConfig}
-        readonly={svarReadonly}
-      />
-    </Tooltip>
-
-    <!-- Floating full-screen toggle (plan 003 U4): always visible, independent
-         of the optional theme toolbar. Top-right so it never crowds the
-         bottom-right zoom controls; the icon + label reflect enter vs exit (R7). -->
-    <button
-      class="og-fullscreen-toggle"
-      onclick={toggleFullScreen}
-      aria-label={fullScreen ? 'Exit full screen' : 'Full screen'}
-      title={fullScreen ? 'Exit full screen' : 'Full screen'}
-      aria-pressed={fullScreen}
-    >
-      <span class="og-fullscreen-icon" use:lucideIcon={fullScreen ? 'minimize' : 'maximize'}></span>
-    </button>
+    <!-- Full screen via SVAR's official <Fullscreen> component (plan 003 U3/U4;
+         https://docs.svar.dev/svelte/gantt/guides/fullscreen/): it wraps the
+         chart, uses the native browser Fullscreen API, and exits on Esc itself —
+         no bespoke overlay/reparent/z-index. We pass our own floating lucide
+         button through its `toggleButton` slot (the default uses a wxi-* icon,
+         blank with fonts disabled). The button + zoom controls render inside the
+         fullscreen node, so they stay visible (and the exit affordance works) in
+         full screen. -->
+    <Fullscreen toggleButton={fullscreenToggle}>
+      <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
+           targeted api.exec actions (diff-sync $effect above) so SVAR never
+           re-inits its store and the user's zoom/scroll/selection survive. -->
+      <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
+           from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
+           dependent task's tooltip is the surface. Falls back to the task name
+           for tasks with no dependencies. -->
+      <Tooltip {api} content={DependencyTooltip}>
+        <Gantt
+          init={initGantt}
+          tasks={initialTasks}
+          taskTypes={svarTaskTypes}
+          links={initialLinks}
+          {columns}
+          gridWidth={initialGridWidth}
+          zoom={zoomConfig}
+          readonly={svarReadonly}
+        />
+      </Tooltip>
 
     <!-- Floating Zoom Controls (OG-81) -->
     <div class="zoom-controls">
@@ -1331,11 +1282,27 @@
         <span class="zoom-icon" use:lucideIcon={'minus'}></span>
       </button>
     </div>
+    </Fullscreen>
   </div>
 
   <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
        Left/double-click and right-click on bars route through onBarActivate /
        onBarContextMenu to the TaskNotes interaction service. -->
+{/snippet}
+
+<!-- Our floating full-screen button, passed to <Fullscreen> via its toggleButton
+     slot. `toggle` enters/exits; `inFull` reflects state (icon + label, R7).
+     Always visible on the chart, independent of the optional theme toolbar (R5). -->
+{#snippet fullscreenToggle(toggle: FullscreenToggleAction, inFull: boolean)}
+  <button
+    class="og-fullscreen-toggle"
+    onclick={toggle}
+    aria-label={inFull ? 'Exit full screen' : 'Full screen'}
+    title={inFull ? 'Exit full screen' : 'Full screen'}
+    aria-pressed={inFull}
+  >
+    <span class="og-fullscreen-icon" use:lucideIcon={inFull ? 'minimize' : 'maximize'}></span>
+  </button>
 {/snippet}
 
 <style>
@@ -1345,7 +1312,8 @@
        its content up to the per-view max-height, then scrolls. SVAR's
        `height:100%` chain needs a *definite* host height, so there is no CSS
        `height`/`min-height` here — the inline value (always ≥ the ~2-row floor)
-       is authoritative, and full-screen (U3) overrides it. */
+       is authoritative. Full screen doesn't touch this: SVAR's <Fullscreen>
+       promotes its own inner node to the native top layer. */
     /* Column layout so the optional toolbar takes its natural height and the
        chart fills the remaining space — without this the toolbar + a height:100%
        chart overflow the host, clipping the toolbar or the floating zoom buttons
@@ -1356,23 +1324,10 @@
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
-  /* Full-screen overlay (plan 003 U3): a fixed full-window layer. The root node
-     is DOM-reparented to <body> while full-screen (see the reparent effect) so
-     `position:fixed; inset:0` reaches the viewport rather than being trapped by
-     Obsidian's containing-block leaf — a DOM move, not a Svelte remount, so no
-     remount (R9). `inset:0` drives the size, so the inline px height is skipped
-     while full-screen and the max-height cap does not apply (R8). z-index sits
-     above the workspace/panes and sidebars but below Obsidian's menus and modals,
-     so context menus and dialogs still surface over it. A solid background hides
-     the panes behind. */
-  .og-bases-gantt.og-fullscreen {
-    position: fixed;
-    inset: 0;
-    width: auto;
-    z-index: var(--layer-popover, 30);
-    background-color: var(--background-primary);
-    padding: 8px;
-  }
+  /* Full screen is the native browser Fullscreen API via SVAR's <Fullscreen>
+     component (its `.wx-fullscreen` node is promoted to the top layer at screen
+     size) — no in-plugin overlay/position/z-index needed. The component's
+     `::backdrop` is themed from the inherited --wx-* vars. */
 
   /* SVAR theme component host: fills the remaining height below the toolbar
      (flex child, min-height:0 so it can shrink within the flex column rather

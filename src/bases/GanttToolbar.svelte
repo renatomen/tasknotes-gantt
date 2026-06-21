@@ -19,7 +19,6 @@
     /** Current theme mode (read-only display; the parent owns the write). */
     mode: ThemeMode;
     /** Notify the parent of the chosen mode; the parent updates state + persists. */
-    // eslint-disable-next-line no-unused-vars -- type-signature param name
     onModeChange: (mode: ThemeMode) => void;
   }
 
