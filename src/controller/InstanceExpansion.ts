@@ -26,7 +26,22 @@ import { isoDurationToDays } from './dateGap';
  * `SourceTask`s through {@link import('./datePolicy').applyDatePolicy} before
  * expansion, so the expander only ever sees resolved tasks.
  */
-export type ExpandableTask = SourceTask & { dateStatus?: DateStatus };
+export type ExpandableTask = SourceTask & {
+  dateStatus?: DateStatus;
+  /**
+   * When true, the expander emits an extra **root** instance in addition to the
+   * per-parent nested instances — a matched, also-nested task under hide-off, so
+   * it appears both at top level and under its parent (origin AE1). Produced by
+   * {@link import('../datasource/companionResolve').resolveCompanionTree}.
+   */
+  alsoTopLevel?: boolean;
+  /**
+   * When true, this source task is a Show-all fetched descendant (outside the
+   * matched set). Carried onto every {@link RenderInstance} for the view's
+   * "context" cue.
+   */
+  isFetched?: boolean;
+};
 
 /**
  * A single SVAR render row produced from a source task. One source task yields
@@ -77,6 +92,12 @@ export interface RenderInstance {
   dateStatus: DateStatus;
   /** Raw task status string (drives status coloring); `null` when unset. */
   status: string | null;
+  /**
+   * `true` when the source task is a Show-all fetched descendant (outside the
+   * matched set) — drives the view's "context" cue (origin R18). `false` for
+   * matched rows and for tasks that bypassed companion resolution.
+   */
+  isFetched: boolean;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -359,6 +380,13 @@ export function expandInstances(
           built.push(makeInstance(task, id, parentInstance.id, isVirtual));
         }
       }
+      // Matched, also-nested task under hide-off: ALSO render at top level. The
+      // bare-path id is free (nested ids embed a parent), and children nest
+      // under this root too via the normal recursion — faithful to a task that
+      // appears both at root and nested with its subtree.
+      if (task.alsoTopLevel && built.length > 0) {
+        built.push(makeInstance(task, task.path, undefined, isVirtual));
+      }
       // A child whose every parent edge was cycle-broken (so `parents` is
       // non-empty but no ancestry materialized) still must not vanish: fall
       // back to a root instance.
@@ -429,6 +457,7 @@ function makeInstance(
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
     status: task.status,
+    isFetched: task.isFetched ?? false,
   };
 }
 

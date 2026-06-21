@@ -28,6 +28,54 @@ function byId(instances: readonly RenderInstance[], id: string): RenderInstance 
   return found;
 }
 
+describe('expandInstances — alsoTopLevel + isFetched (U4)', () => {
+  it('alsoTopLevel adds a bare-path root instance in addition to the nested one', () => {
+    const result = expandInstances([
+      task({ path: 'P.md' }),
+      { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true },
+    ]);
+    expect(result.getInstanceIds('C.md').sort()).toEqual(['C.md', 'C.md#parent-P.md']);
+    expect(byId(result.instances, 'C.md').parent).toBeUndefined();
+    expect(byId(result.instances, 'C.md#parent-P.md').parent).toBe('P.md');
+  });
+
+  it('without alsoTopLevel a child with a visible parent is nested only', () => {
+    const result = expandInstances([
+      task({ path: 'P.md' }),
+      task({ path: 'C.md', parents: ['P.md'] }),
+    ]);
+    expect(result.getInstanceIds('C.md')).toEqual(['C.md#parent-P.md']);
+  });
+
+  it('alsoTopLevel does not double a task that has no visible parent (already root)', () => {
+    const result = expandInstances([
+      { ...task({ path: 'C.md', parents: ['missing.md'] }), alsoTopLevel: true },
+    ]);
+    expect(result.getInstanceIds('C.md')).toEqual(['C.md']);
+  });
+
+  it('children nest under the alsoTopLevel root instance too (subtree duplicated)', () => {
+    const result = expandInstances([
+      task({ path: 'P.md' }),
+      { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true },
+      task({ path: 'G.md', parents: ['C.md'] }),
+    ]);
+    expect(result.getInstanceIds('G.md').sort()).toEqual([
+      'G.md#parent-C.md',
+      'G.md#parent-C.md#parent-P.md',
+    ]);
+  });
+
+  it('carries isFetched onto every instance (defaults false)', () => {
+    const result = expandInstances([
+      { ...task({ path: 'F.md' }), isFetched: true },
+      task({ path: 'M.md' }),
+    ]);
+    expect(byId(result.instances, 'F.md').isFetched).toBe(true);
+    expect(byId(result.instances, 'M.md').isFetched).toBe(false);
+  });
+});
+
 describe('expandInstances — root / single-parent cases', () => {
   it('0 visible parents → a single root instance whose id is the bare path', () => {
     const result = expandInstances([task({ path: 'root.md' })]);
