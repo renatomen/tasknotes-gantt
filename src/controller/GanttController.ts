@@ -55,8 +55,7 @@
  */
 
 /* global clearTimeout */
-import type { App } from 'obsidian';
-import type { BasesEntry } from '../bases/register';
+import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import {
   BasesSource,

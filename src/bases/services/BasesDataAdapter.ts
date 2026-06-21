@@ -9,7 +9,60 @@
  * @module bases/services/BasesDataAdapter
  */
 
-import type { BasesEntry, BasesPropertyId } from "../register";
+import type { BasesPropertyId } from "obsidian";
+
+/**
+ * The runtime shape of a Bases entry that this adapter actually reads.
+ *
+ * **Documented loose boundary (plan 2026-06-21-001, KTD 4).** Obsidian's public
+ * `BasesEntry` is intentionally narrower than the runtime object: it declares
+ * only `file: TFile` and `getValue(): Value | null`, and the concrete `Value`
+ * subclasses are not exported. The adapter, by deliberate design, reads cheap
+ * `frontmatter`/`properties` directly (its fast path) and unwraps the raw
+ * payload off `Value` objects (`.data` / `.date` / `.file`), none of which are
+ * expressible against the public types. Rather than re-route through the
+ * computed `getValue()` path (a behavior + perf change — out of scope), we type
+ * the extraction surface against this single narrow interface and keep the
+ * `Value`-unwrapping (`convertValueToNative`) behind one `any` seam.
+ *
+ * The official `BasesEntry` is structurally assignable to this interface, so the
+ * real query entries (`view.data.data`) flow in unchanged.
+ */
+export interface BasesEntryLike {
+  /**
+   * The entry's file. The official `TFile` is assignable here; the adapter reads
+   * `path`/`name`/`basename`/`stat`/`parent` plus arbitrary `file.`-prefixed
+   * names off this object (via the `readFileProperty` loose-`any` helper).
+   */
+  file: {
+    path: string;
+    name: string;
+    basename: string;
+    stat?: { size?: number; ctime?: number; mtime?: number };
+    parent?: { name?: string } | null;
+  };
+  /** Direct frontmatter access (the adapter's cheap fast path). */
+  frontmatter?: Record<string, unknown>;
+  /** Alternative property access used by some Bases versions. */
+  properties?: Record<string, unknown>;
+  /** Computed/formula property accessor (only used off the cheap path). */
+  getValue(propertyId: string): unknown;
+}
+
+/**
+ * Narrow a raw string to the official template-literal `BasesPropertyId`.
+ *
+ * `FieldMappings` and other config sites hold bare `string` ids (e.g.
+ * `"note.start"`, `"file.name"`); the official `BasesPropertyId` is the
+ * `` `${BasesPropertyType}.${string}` `` template literal. This is the single
+ * documented narrowing point (KTD 4) — route raw-string→id conversions through
+ * it instead of scattering ad-hoc casts. No runtime validation: callers already
+ * supply prefixed ids, and `extractValue`'s `split('.')` parse is structurally
+ * safe for any string.
+ */
+export function asPropertyId(s: string): BasesPropertyId {
+  return s as BasesPropertyId;
+}
 
 /**
  * Options for number conversion
@@ -302,7 +355,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract (e.g., "note.start", "file.name")
    * @returns The extracted value or null if empty
    */
-  extractValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
+  extractValue(entry: BasesEntryLike, propertyId: string): unknown {
     // Parse property ID to determine source
     const parts = propertyId.split('.');
     const prefix = parts[0];
@@ -449,7 +502,7 @@ export class BasesDataAdapter {
    * @param textProperty - The property ID for text (empty string = use basename)
    * @returns The text value or file basename
    */
-  extractText(entry: BasesEntry, textProperty: BasesPropertyId): string {
+  extractText(entry: BasesEntryLike, textProperty: string): string {
     // If textProperty is empty string, always use file.basename
     if (textProperty === "") {
       return entry.file.basename;
@@ -476,8 +529,8 @@ export class BasesDataAdapter {
    * @returns The raw status string, or null when unmapped/empty/missing
    */
   extractStatus(
-    entry: BasesEntry,
-    statusProperty: BasesPropertyId | undefined,
+    entry: BasesEntryLike,
+    statusProperty: string | undefined,
   ): string | null {
     if (!statusProperty) {
       return null;
@@ -499,7 +552,7 @@ export class BasesDataAdapter {
    * @param dateProperty - The property ID for the date
    * @returns Date object or null if missing/invalid
    */
-  extractDate(entry: BasesEntry, dateProperty: BasesPropertyId): Date | null {
+  extractDate(entry: BasesEntryLike, dateProperty: string): Date | null {
     const value = this.extractValue(entry, dateProperty);
     const date = this.convertToDate(value);
     // Diagnostic: when a mapped date drives the bar (Bases-scoped views), a
@@ -524,7 +577,7 @@ export class BasesDataAdapter {
    * @param progressProperty - The property ID for progress
    * @returns Progress number (0-100) or null if missing
    */
-  extractProgress(entry: BasesEntry, progressProperty: BasesPropertyId): number | null {
+  extractProgress(entry: BasesEntryLike, progressProperty: string): number | null {
     const value = this.extractValue(entry, progressProperty);
     return this.convertToNumber(value, { min: 0, max: 100 });
   }
@@ -536,7 +589,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract
    * @returns Formatted value suitable for display, or null if missing
    */
-  extractPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): string | number | null {
+  extractPropertyValue(entry: BasesEntryLike, propertyId: string): string | number | null {
     const value = this.extractValue(entry, propertyId);
 
     if (value === null || value === undefined) {
@@ -572,7 +625,7 @@ export class BasesDataAdapter {
    * @param parentProperty - The property ID for parent references
    * @returns Array of parent file paths (empty if no parents)
    */
-  extractParents(entry: BasesEntry, parentProperty: BasesPropertyId): string[] {
+  extractParents(entry: BasesEntryLike, parentProperty: string): string[] {
     // Return empty array if parent property not configured
     if (!parentProperty || parentProperty === '') {
       return [];

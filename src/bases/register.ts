@@ -1,32 +1,25 @@
 /**
  * Obsidian Bases API Registration for Gantt View
  *
- * Uses the official Obsidian Bases API (1.10.0+) via plugin.registerBasesView()
- *
- * Official Documentation:
- * - Guide: https://docs.obsidian.md/Plugins/Guides/Build+a+Bases+view
- *
- * TypeScript API References:
- * - BasesConfigFile: https://docs.obsidian.md/Reference/TypeScript+API/BasesConfigFile
- * - BasesConfigFileView: https://docs.obsidian.md/Reference/TypeScript+API/BasesConfigFileView
- * - BasesEntry: https://docs.obsidian.md/Reference/TypeScript+API/BasesEntry
- * - BasesEntryGroup: https://docs.obsidian.md/Reference/TypeScript+API/BasesEntryGroup
- * - BasesProperty: https://docs.obsidian.md/Reference/TypeScript+API/BasesProperty
- * - BasesQueryResult: https://docs.obsidian.md/Reference/TypeScript+API/BasesQueryResult
- * - BasesView: https://docs.obsidian.md/Reference/TypeScript+API/BasesView
- * - BasesViewConfig: https://docs.obsidian.md/Reference/TypeScript+API/BasesViewConfig
- * - BasesViewRegistration: https://docs.obsidian.md/Reference/TypeScript+API/BasesViewRegistration
+ * Uses the official Obsidian Bases API (1.10.0+) via plugin.registerBasesView().
+ * All Bases types are imported from the `obsidian` package.
  *
  * @module bases/register
  */
 
 /* global MouseEvent */
-import { Component, type Plugin } from 'obsidian';
+import {
+  BasesView,
+  type Plugin,
+  type BasesViewConfig,
+  type BasesPropertyId,
+  type BasesAllOptions,
+  type QueryController,
+} from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import type { GanttData } from './types/gantt-view-data';
-import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
 import { FIELD_MAPPING_KEYS, readFieldMappings } from './fieldMappingConfig';
@@ -40,7 +33,7 @@ import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
-import { BasesDataAdapter } from './services/BasesDataAdapter';
+import { BasesDataAdapter, asPropertyId } from './services/BasesDataAdapter';
 import { normalizeDefaultScale } from './zoomConfig';
 
 /**
@@ -63,177 +56,13 @@ import { readDatePolicyConfig } from './datePolicyConfig';
 export { readDatePolicyConfig } from './datePolicyConfig';
 
 // ============================================================================
-// Type Definitions for Official Obsidian Bases API (1.10.0+)
-// These types are based on the official Obsidian API documentation.
-// They will be available in the official obsidian package in future versions.
-//
-// See TypeScript API references in module header for official documentation.
-// ============================================================================
-
-/** Property ID used by Bases to identify note properties */
-export type BasesPropertyId = string;
-
-/** Entry representing a single note in the Bases query result */
-export interface BasesEntry {
-  /** The TFile for this entry */
-  file: { path: string; name: string; basename: string };
-  /** Direct access to frontmatter properties (preferred for basic properties) */
-  frontmatter?: Record<string, any>;
-  /** Alternative property access (used by some Bases versions) */
-  properties?: Record<string, any>;
-  /** Get the evaluated value of a property for this entry (use for computed properties only) */
-  getValue(propertyId: BasesPropertyId): BasesValue;
-}
-
-/** Value wrapper returned by BasesEntry.getValue() */
-export interface BasesValue {
-  /** Check if the value is empty/null */
-  isEmpty(): boolean;
-  /** Convert value to string representation */
-  toString(): string;
-  /** The underlying value */
-  value?: unknown;
-  /** Value type identifier */
-  type?: string;
-}
-
-/** Group of entries when groupBy is configured */
-export interface BasesEntryGroup {
-  /** Entries in this group */
-  entries: BasesEntry[];
-  /** Group key value (null if no grouping) */
-  key?: BasesValue;
-  /** Check if group has a key */
-  hasKey(): boolean;
-}
-
-/** Result of executing a Bases query */
-export interface BasesQueryResult {
-  /** Ungrouped data with sort/limit applied */
-  data: BasesEntry[];
-  /** Data grouped according to groupBy config */
-  readonly groupedData: BasesEntryGroup[];
-  /** Visible properties defined by user */
-  readonly properties: BasesPropertyId[];
-}
-
-/** Configuration for a Bases view instance */
-export interface BasesViewConfig {
-  /** User-friendly name for this view */
-  name: string;
-  /** Get user-configured option value */
-  get(key: string): unknown;
-  /** Set configuration value */
-  set(key: string, value: unknown): void;
-  /** Get ordered list of properties to display */
-  getOrder(): BasesPropertyId[];
-  /** Get sort configuration */
-  getSort(): Array<{ property: BasesPropertyId; direction: 'asc' | 'desc' }>;
-  /** Get property as BasesPropertyId */
-  getAsPropertyId(key: string): BasesPropertyId | null;
-  /** Get display name for a property */
-  getDisplayName(propertyId: BasesPropertyId): string;
-}
-
-/** Controller for query execution - extends Component */
-export interface QueryController extends Component {
-  // Inherited from Component: load, unload, register, etc.
-}
-
-/** View option types for configuration UI */
-export type ViewOption =
-  | TextViewOption
-  | NumberViewOption
-  | BooleanViewOption
-  | DropdownViewOption
-  | PropertyViewOption
-  | FormulaViewOption;
-
-interface BaseViewOption {
-  /** Option type identifier */
-  type: string;
-  /** Display name shown in settings */
-  displayName: string;
-  /** Key used to store/retrieve value */
-  key: string;
-  /** Whether to hide this option based on current config */
-  shouldHide?: (config: BasesViewConfig) => boolean;
-}
-
-interface TextViewOption extends BaseViewOption {
-  type: 'text';
-  default?: string;
-  placeholder?: string;
-}
-
-interface NumberViewOption extends BaseViewOption {
-  type: 'number';
-  default?: number;
-  min?: number;
-  max?: number;
-}
-
-interface BooleanViewOption extends BaseViewOption {
-  type: 'boolean';
-  default?: boolean;
-}
-
-interface DropdownViewOption extends BaseViewOption {
-  type: 'dropdown';
-  default?: string;
-  /**
-   * Value → display-label map. Bases feeds this straight to Obsidian's
-   * `DropdownComponent.addOptions(Record<string, string>)`; an array of
-   * `{ value, display }` objects renders every choice as `[object Object]`.
-   */
-  options: Record<string, string>;
-}
-
-interface PropertyViewOption extends BaseViewOption {
-  type: 'property';
-  default?: string;
-  placeholder?: string;
-}
-
-interface FormulaViewOption extends BaseViewOption {
-  type: 'formula';
-  default?: string;
-  placeholder?: string;
-}
-
-/** Factory function type for creating Bases views */
-export type BasesViewFactory = (
-  controller: QueryController,
-  containerEl: HTMLElement
-) => GanttBasesView;
-
-/** Registration options for a Bases view type */
-export interface BasesViewRegistration {
-  /** Display name for the view type */
-  name: string;
-  /** Icon ID (lucide icon name) */
-  icon: string;
-  /** Factory function to create view instances */
-  factory: BasesViewFactory;
-  /** Optional configuration options */
-  options?: () => ViewOption[];
-}
-
-// Augment Plugin type to include registerBasesView
-declare module 'obsidian' {
-  interface Plugin {
-    /**
-     * Register a Bases view type (Obsidian 1.10.0+)
-     * @param viewId - Unique identifier for the view type
-     * @param registration - View registration options
-     * @returns false if Bases is not enabled
-     */
-    registerBasesView(viewId: string, registration: BasesViewRegistration): boolean;
-  }
-}
-
-// ============================================================================
 // Gantt Bases View Implementation
+//
+// Bases types (`BasesView`, `BasesViewConfig`, `BasesPropertyId`,
+// `BasesAllOptions`, `QueryController`, the option interfaces, etc.) are now
+// imported from the official `obsidian` package (1.10.0+); the hand-rolled
+// parallel vocabulary and the `declare module 'obsidian'` augmentation that
+// previously lived here were removed once the package shipped them.
 // ============================================================================
 
 const VIEW_TYPE_ID = 'obsidianGantt';
@@ -249,7 +78,7 @@ interface GanttEphemeralState {
 /**
  * Gantt chart view for Obsidian Bases
  */
-class ObsidianGanttBasesView extends GanttBasesView {
+class ObsidianGanttBasesView extends BasesView {
   readonly type = VIEW_TYPE_ID;
   private readonly containerEl: HTMLElement;
   private svelteComponent: ReturnType<typeof mount> | null = null;
@@ -586,7 +415,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
     );
     const gridColumns = buildGridColumns(
       visiblePropIds,
-      (id) => this.getDisplayName(id),
+      (id) => this.getDisplayName(asPropertyId(id)),
       this.getColumnSize(),
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
@@ -678,7 +507,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
   }
 
   // Shared field mapping options for both views
-  const sharedOptions = [
+  const sharedOptions: BasesAllOptions[] = [
     {
       type: 'property' as const,
       displayName: 'Task Name Property',
@@ -730,7 +559,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: (): ViewOption[] => [
+    options: (_config: BasesViewConfig): BasesAllOptions[] => [
       ...sharedOptions,
       {
         type: 'dropdown',
@@ -773,27 +602,30 @@ export function registerBasesGantt(plugin: Plugin): () => void {
       // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
       // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
       // controller's date policy + the view's bar-level indicators.
+      // Number → slider (the official Bases options union has no 'number'
+      // control; 'slider' is the closest numeric input). Behavior-equivalent.
       {
-        type: 'number',
+        type: 'slider',
         displayName: 'Default task duration (days)',
         key: 'tngantt_defaultDuration',
         default: 1,
         min: 1,
       },
+      // Boolean → toggle (the official options union has no 'boolean' control).
       {
-        type: 'boolean',
+        type: 'toggle',
         displayName: 'Show tasks with no dates',
         key: 'tngantt_showUndatedTasks',
         default: true,
       },
       {
-        type: 'boolean',
+        type: 'toggle',
         displayName: 'Show tasks with only one date',
         key: 'tngantt_showPartialDateTasks',
         default: true,
       },
       {
-        type: 'boolean',
+        type: 'toggle',
         displayName: 'Show date-status indicators on bars',
         key: 'tngantt_showDateIndicators',
         default: true,

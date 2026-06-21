@@ -16,8 +16,7 @@
  * @module datasource/BasesSource
  */
 
-import type { App } from 'obsidian';
-import type { BasesEntry } from '../bases/register';
+import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import type {

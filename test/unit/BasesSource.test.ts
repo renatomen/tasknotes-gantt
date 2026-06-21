@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { BasesSource } from '../../src/datasource/BasesSource';
-import type { BasesEntry } from '../../src/bases/register';
+import type { BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 import type { App } from 'obsidian';
 
@@ -38,22 +38,23 @@ function makeEntry(
   basename: string,
   values: Record<string, unknown>
 ): BasesEntry {
+  // A faithful runtime double of a Bases entry: only `file` + `getValue` are the
+  // official surface, so it's cast through `unknown` to the public `BasesEntry`
+  // (the official `file: TFile` and `Value` return are intentionally narrower
+  // than this loose double — see BasesDataAdapter KTD 4).
   return {
     file: { path, name: `${basename}.md`, basename },
     getValue: (propertyId: string) => {
       if (!(propertyId in values)) {
-        return null as never;
+        return null;
       }
       const raw = values[propertyId];
       if (raw instanceof Date) {
-        return { date: raw } as never;
+        return { date: raw };
       }
-      if (Array.isArray(raw)) {
-        return { data: raw } as never;
-      }
-      return { data: raw } as never;
+      return { data: raw };
     },
-  };
+  } as unknown as BasesEntry;
 }
 
 /**

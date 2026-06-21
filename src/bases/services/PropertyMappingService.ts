@@ -10,9 +10,8 @@
  */
 
 import type { App } from "obsidian";
-import type { BasesEntry } from "../register";
 import type { FieldMappings, SVARTask, MappingValidationError } from "../types/field-mapping";
-import { BasesDataAdapter } from "./BasesDataAdapter";
+import { BasesDataAdapter, type BasesEntryLike } from "./BasesDataAdapter";
 import { resolveParentLink } from "../parentLink";
 
 /**
@@ -110,7 +109,7 @@ export class PropertyMappingService {
    * @returns Transform result with tasks and errors
    */
   transformEntries(
-    entries: BasesEntry[],
+    entries: BasesEntryLike[],
     mappings: FieldMappings,
     visibleProperties?: string[]
   ): TransformResult {
@@ -150,7 +149,7 @@ export class PropertyMappingService {
    * @returns The transformed SVARTask
    */
   private transformEntry(
-    entry: BasesEntry,
+    entry: BasesEntryLike,
     mappings: FieldMappings,
     visibleProperties?: string[]
   ): SVARTask {
@@ -207,7 +206,7 @@ export class PropertyMappingService {
    * Resolve a parent reference to a vault file path (Phase 1: first parent only).
    * Returns `undefined` when no parent property is mapped or it can't be resolved.
    */
-  private resolveParent(entry: BasesEntry, parentProperty?: string): string | undefined {
+  private resolveParent(entry: BasesEntryLike, parentProperty?: string): string | undefined {
     if (!parentProperty) {
       return undefined;
     }
@@ -247,7 +246,7 @@ export class PropertyMappingService {
   createUnscheduledTask(
     filePath: string,
     text: string,
-    entry: BasesEntry,
+    entry: BasesEntryLike,
     progress?: number | null,
     parent?: string,
     visibleProperties?: string[]

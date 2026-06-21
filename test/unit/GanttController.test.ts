@@ -30,7 +30,7 @@ import type {
   SourceDependency,
   SourceTask,
 } from '../../src/datasource/types';
-import type { BasesEntry } from '../../src/bases/register';
+import type { BasesEntry } from 'obsidian';
 
 /** Concise SourceTask factory. */
 function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
