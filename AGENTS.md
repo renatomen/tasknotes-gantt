@@ -8,6 +8,7 @@ Project guidelines for both AI agents and human collaborators. This is the alway
 
 - Plugin id: `tasknotes-gantt`. Bases view type: `obsidianGantt`.
 - The SVAR Gantt library is bundled into `main.js` at build time (single-file plugin output).
+- `project_tracker: github` — issues tracked on `renatomen/tasknotes-gantt` (GitHub Issues).
 
 ## How we work
 
