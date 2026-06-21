@@ -24,3 +24,60 @@ export const DEFAULT_MAX_HEIGHT = 400;
  * chart is never a sliver. Derived from SVAR's defaults: `36 + 2×38 = 112`.
  */
 export const GANTT_MIN_HEIGHT = SVAR_SCALE_HEIGHT + 2 * SVAR_CELL_HEIGHT;
+
+/**
+ * Vertical space (px) reserved for the chart's horizontal scrollbar, mirroring
+ * the `scrollSize` term in SVAR's own height formula
+ * (`Layout.svelte`: `scrollHeight = scales.height + tasks.length×cellHeight +
+ * scrollSize`). Without it, a chart sized to exactly its content would show a
+ * spurious *vertical* scrollbar whenever a horizontal one is present, defeating
+ * the fit. A small over-allocation when no horizontal scrollbar exists is benign
+ * (and matches SVAR's behavior).
+ */
+export const SCROLLBAR_ALLOWANCE = 17;
+
+/**
+ * Natural content height (px) of the chart: the scale header, plus one row per
+ * visible task, plus the horizontal-scrollbar allowance — SVAR's own formula
+ * (see {@link SCROLLBAR_ALLOWANCE}). `rowCount` is the length of SVAR's
+ * collapse-aware visible-row array (`_tasks`), so collapsed/grouped rows are
+ * already excluded. Negative counts are floored at 0.
+ *
+ * @param rowCount - number of currently-visible rows (`_tasks.length`).
+ * @param cellHeight - per-row height in px (SVAR `cellHeight`).
+ * @param scaleHeight - total scale-header height in px (SVAR `_scales.height`).
+ * @param scrollbarAllowance - horizontal-scrollbar reserve; defaults to {@link SCROLLBAR_ALLOWANCE}.
+ */
+export function computeContentHeight(
+  rowCount: number,
+  cellHeight: number,
+  scaleHeight: number,
+  scrollbarAllowance: number = SCROLLBAR_ALLOWANCE,
+): number {
+  const rows = Math.max(0, rowCount);
+  return scaleHeight + rows * cellHeight + scrollbarAllowance;
+}
+
+/**
+ * Resolve the host height (px): fit the content up to `maxHeight`, then scroll
+ * (R2). The result is clamped to {@link GANTT_MIN_HEIGHT} so a tiny chart is
+ * never a sliver (R3) — and the floor *wins* even when `maxHeight` is below it
+ * (so a mis-set tiny max can't produce an unusable chart). When content exceeds
+ * `maxHeight` the host caps at `maxHeight` and SVAR scrolls internally.
+ *
+ * @param rowCount - number of currently-visible rows (`_tasks.length`).
+ * @param cellHeight - per-row height in px.
+ * @param scaleHeight - total scale-header height in px.
+ * @param maxHeight - per-view cap in px (`tngantt_maxHeight`).
+ * @param scrollbarAllowance - horizontal-scrollbar reserve; defaults to {@link SCROLLBAR_ALLOWANCE}.
+ */
+export function resolveHostHeight(
+  rowCount: number,
+  cellHeight: number,
+  scaleHeight: number,
+  maxHeight: number,
+  scrollbarAllowance: number = SCROLLBAR_ALLOWANCE,
+): number {
+  const content = computeContentHeight(rowCount, cellHeight, scaleHeight, scrollbarAllowance);
+  return Math.max(GANTT_MIN_HEIGHT, Math.min(content, maxHeight));
+}

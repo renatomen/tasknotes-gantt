@@ -43,6 +43,12 @@
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
   import { buildZoomConfig } from './zoomConfig';
+  import {
+    resolveHostHeight,
+    DEFAULT_MAX_HEIGHT,
+    SVAR_CELL_HEIGHT,
+    SVAR_SCALE_HEIGHT,
+  } from './ganttHeight';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -215,6 +221,10 @@
   // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
+
+  // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
+  // option re-fits the host live without a remount. Default 400 (R1).
+  const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -524,6 +534,48 @@
   // CSP violations for external fonts are prevented by fonts={false} and custom icon implementation
 
   let api: GanttAPI = $state();
+
+  // ── Viewport height (plan 003 U2) ───────────────────────────────────────
+  // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
+  // SVAR's own height inputs from its reactive store — the collapse-aware
+  // visible-row count (`_tasks`), the row height (`cellHeight`), and the
+  // scale-header height (`_scales.height`) — and resolve a host height that fits
+  // content up to `maxHeight`, then scrolls (R2/R3/R4). Driving this from the
+  // STORE (not a DOM ResizeObserver) avoids both fighting SVAR's own observer and
+  // the virtualization measure→set fixed-point. Applied as an explicit px height
+  // on the root below.
+  let rowCount = $state(0);
+  let cellH = $state(SVAR_CELL_HEIGHT);
+  let scaleAreaH = $state(SVAR_SCALE_HEIGHT);
+
+  $effect(() => {
+    // Re-subscribe whenever the SVAR api instance changes (e.g. the theme-flip
+    // remount of <Gantt>). Each signal's subscribe fires immediately with the
+    // current value and on every change, and returns a disposer for teardown.
+    if (!api?.getReactiveState) return;
+    const rs = api.getReactiveState();
+    const disposers = [
+      rs._tasks?.subscribe?.((t: unknown) => {
+        rowCount = Array.isArray(t) ? t.length : 0;
+      }),
+      rs.cellHeight?.subscribe?.((v: unknown) => {
+        cellH = typeof v === 'number' && v > 0 ? v : SVAR_CELL_HEIGHT;
+      }),
+      rs._scales?.subscribe?.((s: unknown) => {
+        const h = (s as { height?: unknown } | undefined)?.height;
+        scaleAreaH = typeof h === 'number' && h > 0 ? h : SVAR_SCALE_HEIGHT;
+      }),
+    ];
+    return () => {
+      for (const dispose of disposers) {
+        if (typeof dispose === 'function') dispose();
+      }
+    };
+  });
+
+  // Resolved host height in px (R2/R3). `$derived` memoizes, so the inline style
+  // re-applies only when the value actually changes — the no-op guard is free.
+  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight));
 
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
@@ -1127,7 +1179,7 @@
   verified by the E2E render spec.
 -->
 
-<div class="og-bases-gantt" bind:this={rootEl}>
+<div class="og-bases-gantt" style="height: {hostHeightPx}px;" bind:this={rootEl}>
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
@@ -1221,13 +1273,16 @@
 
 <style>
   .og-bases-gantt {
-    height: 400px;
     width: 100%;
-    min-height: 400px;
+    /* Height is set inline as an explicit px value (plan 003 U2): the host fits
+       its content up to the per-view max-height, then scrolls. SVAR's
+       `height:100%` chain needs a *definite* host height, so there is no CSS
+       `height`/`min-height` here — the inline value (always ≥ the ~2-row floor)
+       is authoritative, and full-screen (U3) overrides it. */
     /* Column layout so the optional toolbar takes its natural height and the
        chart fills the remaining space — without this the toolbar + a height:100%
-       chart overflow the fixed-height view, clipping the toolbar or the floating
-       zoom buttons on scroll. */
+       chart overflow the host, clipping the toolbar or the floating zoom buttons
+       on scroll. */
     display: flex;
     flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
