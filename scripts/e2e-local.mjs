@@ -20,8 +20,11 @@ console.log(
   `[local] Using OBSIDIAN_TEST_VAULT=${process.env.OBSIDIAN_TEST_VAULT}`
 );
 
-// Build and install locally
-const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
+// Build and install locally. Use the same Vite build that ships + that CI's
+// e2e job runs, so the local e2e tests the exact artifact users get (single
+// build pipeline — see the build-consolidation brainstorm).
+const viteBin = path.join(process.cwd(), "node_modules", "vite", "bin", "vite.js");
+const build = spawnSync(process.execPath, [viteBin, "build"], {
   stdio: "inherit",
   env: process.env,
   cwd: process.cwd(),
