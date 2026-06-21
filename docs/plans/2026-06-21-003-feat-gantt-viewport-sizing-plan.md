@@ -1,7 +1,7 @@
 ---
 title: "feat: Gantt viewport sizing — configurable max-height + full-screen toggle"
 type: feat
-status: active
+status: completed
 date: 2026-06-21
 origin: docs/brainstorms/2026-06-21-gantt-viewport-sizing-requirements.md
 ---
