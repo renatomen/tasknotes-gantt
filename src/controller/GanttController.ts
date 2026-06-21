@@ -85,6 +85,11 @@ import {
   type SourceLink,
 } from './InstanceExpansion';
 import { applyDatePolicy, type DateStatus } from './datePolicy';
+import {
+  resolveCompanionTree,
+  type CompanionAccessor,
+  type CompanionMode,
+} from '../datasource/companionResolve';
 
 /**
  * Date-policy + visibility configuration the controller applies when building a
@@ -209,6 +214,16 @@ export interface GanttControllerOptions {
    * {@link DEFAULT_DATE_POLICY_CONFIG} when omitted.
    */
   policyConfig?: DatePolicyConfig;
+  /**
+   * Expanded-relationships mode (companion mode only). Read at each snapshot
+   * build. Defaults to `'inherit'`.
+   */
+  expandedRelationships?: CompanionMode;
+  /**
+   * Hide-top-level-subtasks toggle (companion mode only). Read at each snapshot
+   * build. Defaults to `false`.
+   */
+  hideTopLevel?: boolean;
   /** Optional injected source factories (tests). */
   deps?: GanttControllerDeps;
   /**
@@ -279,6 +294,21 @@ export class GanttController {
   private readonly basesInput: BasesInputProvider;
   private readonly sourceStrategy: SourceStrategy;
   private readonly policyConfig: DatePolicyConfig;
+  private readonly expandedRelationships: CompanionMode;
+  private readonly hideTopLevel: boolean;
+  /**
+   * Companion relationship accessor — set in {@link selectSource} when
+   * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
+   * (TaskNotes present). `null` in standalone mode → no companion expansion.
+   */
+  private companionAccessor: CompanionAccessor | null = null;
+  /**
+   * Monotonic recompute token. Each {@link recompute} captures the current
+   * value; if a newer recompute starts while it awaits the async build, the
+   * stale result is discarded (latest-wins) — guards against overlapping async
+   * snapshot builds clobbering each other.
+   */
+  private recomputeSeq = 0;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
@@ -335,6 +365,8 @@ export class GanttController {
     this.basesInput = options.basesInput;
     this.sourceStrategy = options.sourceStrategy ?? 'tasknotes-first';
     this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
+    this.expandedRelationships = options.expandedRelationships ?? 'inherit';
+    this.hideTopLevel = options.hideTopLevel ?? false;
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
     this.newCorrelationId = options.newCorrelationId ?? defaultCorrelationId;
@@ -685,6 +717,9 @@ export class GanttController {
     this.startWriteTarget = null;
     this.endWriteTarget = null;
     this.dateMappingInfo = null;
+    // Reset companion accessor; the bases-scoped branch repopulates it when
+    // TaskNotes (enrichment) exposes the relationship reads.
+    this.companionAccessor = null;
 
     if (this.sourceStrategy === 'bases-scoped') {
       // Official BasesEntry is structurally assignable to the adapter's BasesEntryLike (see bases-entry.ts / plan KTD 4).
@@ -692,6 +727,10 @@ export class GanttController {
       // Create the enrichment first so its field config can resolve the
       // effective read properties + write targets before the base is built.
       const enrichment = await this.createTaskNotesSource(this.app);
+      // Companion expansion (Inherit/Show-all + hide) runs only when TaskNotes
+      // is present and exposes the relationship reads; in companion mode its
+      // `projects` edges supersede the configured parentProperty (KTD1).
+      this.companionAccessor = toCompanionAccessor(enrichment);
       const fieldConfig = enrichment
         ? (await enrichment.getFieldConfig?.()) ?? null
         : null;
@@ -852,10 +891,17 @@ export class GanttController {
       return;
     }
 
+    // Latest-wins guard: capture a token before the async build; if a newer
+    // recompute starts while we await, discard our (now-stale) result.
+    const seq = ++this.recomputeSeq;
     const source = this.activeSource;
     const next: Snapshot = source
       ? await this.buildSnapshot(source)
       : emptySnapshot();
+
+    if (this.disposed || seq !== this.recomputeSeq) {
+      return;
+    }
 
     const changed = !this.snapshot || !snapshotsEqual(this.snapshot, next);
     this.snapshot = next;
@@ -868,7 +914,18 @@ export class GanttController {
   /** Build a fresh snapshot by querying the source for tasks and dependencies. */
   private async buildSnapshot(source: DataSource): Promise<Snapshot> {
     const rawTasks = await source.getTasks();
-    const tasks = this.resolveAndFilter(rawTasks);
+    // Companion stage (bases-scoped + TaskNotes): resolve the displayed set
+    // (Inherit/Show-all), override parents from `projects`, and flag
+    // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
+    // unchanged (parents from the Base's parentProperty).
+    const displayedTasks = this.companionAccessor
+      ? await resolveCompanionTree(
+          rawTasks,
+          { mode: this.expandedRelationships, hideTopLevel: this.hideTopLevel },
+          this.companionAccessor,
+        )
+      : rawTasks;
+    const tasks = this.resolveAndFilter(displayedTasks);
     const expansion = expandInstances(tasks);
 
     const sourceLinks: SourceLink[] = [];
@@ -900,7 +957,7 @@ export class GanttController {
    * root (expansion drops parent paths not in the visible set) — accepted
    * behaviour, not a silent surprise (see plan U2).
    */
-  private resolveAndFilter(rawTasks: readonly SourceTask[]): ExpandableTask[] {
+  private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
     const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfig;
 
@@ -932,6 +989,29 @@ export class GanttController {
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
   return { expansion: expandInstances([]), sourceLinks: [] };
+}
+
+/**
+ * Build a {@link CompanionAccessor} from a source that exposes the TaskNotes
+ * relationship reads (`getSubtasks`/`getParents`), or `null` when it doesn't
+ * (standalone / non-TaskNotes enrichment). Duck-typed because the enrichment is
+ * declared as the capability-typed {@link DataSource}, which doesn't surface the
+ * relationship reads.
+ */
+function toCompanionAccessor(source: DataSource | null): CompanionAccessor | null {
+  const candidate = source as unknown as Partial<CompanionAccessor> | null;
+  if (
+    candidate &&
+    typeof candidate.getSubtasks === 'function' &&
+    typeof candidate.getParents === 'function'
+  ) {
+    const accessor = candidate as CompanionAccessor;
+    return {
+      getSubtasks: (path) => accessor.getSubtasks(path),
+      getParents: (path) => accessor.getParents(path),
+    };
+  }
+  return null;
 }
 
 /**

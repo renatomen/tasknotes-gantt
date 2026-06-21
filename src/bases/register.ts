@@ -37,7 +37,14 @@ import { persistGridWidth } from './gridWidthPersist';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
-import { ganttViewOptions, readMaxHeight, readShowToolbar, taskListViewOptions } from './viewOptions';
+import {
+  ganttViewOptions,
+  readExpandedRelationships,
+  readHideTopLevelSubtasks,
+  readMaxHeight,
+  readShowToolbar,
+  taskListViewOptions,
+} from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
 /**
@@ -275,6 +282,16 @@ class ObsidianGanttBasesView extends BasesView {
     return readMaxHeight((key) => this.config.get(key));
   }
 
+  /** Read the per-view Expanded relationships mode (companion mode); default inherit. */
+  private getExpandedRelationships() {
+    return readExpandedRelationships((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Hide top-level subtasks toggle (companion mode); default off. */
+  private getHideTopLevelSubtasks(): boolean {
+    return readHideTopLevelSubtasks((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view theme mode (plan 002 R4), normalized to
    * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
@@ -322,6 +339,8 @@ class ObsidianGanttBasesView extends BasesView {
           mappings: this.buildFieldMappings(),
         }),
         policyConfig: this.buildDatePolicyConfig(),
+        expandedRelationships: this.getExpandedRelationships(),
+        hideTopLevel: this.getHideTopLevelSubtasks(),
       });
 
       await controller.init();
