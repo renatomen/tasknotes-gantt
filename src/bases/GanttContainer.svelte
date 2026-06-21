@@ -1202,14 +1202,21 @@
     height: 400px;
     width: 100%;
     min-height: 400px;
+    /* Column layout so the optional toolbar takes its natural height and the
+       chart fills the remaining space — without this the toolbar + a height:100%
+       chart overflow the fixed-height view, clipping the toolbar or the floating
+       zoom buttons on scroll. */
+    display: flex;
+    flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
-  /* SVAR theme wrapper: fills the view height (FIX G — replaces an inline
-     style:height on the element). */
+  /* SVAR theme wrapper: fills the remaining height below the toolbar (flex child,
+     min-height:0 so it can shrink within the flex column rather than overflow). */
   .og-theme-wrapper {
-    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .gtcell {
