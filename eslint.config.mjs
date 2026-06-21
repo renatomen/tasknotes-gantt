@@ -121,6 +121,12 @@ export default [
         console: "readonly",
         Buffer: "readonly",
         jest: "readonly",
+        // Browser globals referenced inside `browser.execute(() => …)` callbacks
+        // (those bodies run in the page, but eslint lints them in-file).
+        window: "readonly",
+        document: "readonly",
+        getComputedStyle: "readonly",
+        Element: "readonly",
       },
     },
   },

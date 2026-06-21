@@ -9,6 +9,7 @@
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
   import { get } from 'svelte/store';
+  import { setContext } from 'svelte';
   import {
     isEffectiveDark,
     isObsidianDark,
@@ -151,11 +152,24 @@
 
   const effectiveIsDark = $derived(isEffectiveDark(mode, obsidianIsDark));
 
+  // Provide SVAR's `wx-theme` context for the chart subtree (plan 004 KTD 3).
+  // The chart is themed by swapping a CSS class on a stable wrapper (no remount),
+  // and the childless <Willow/>/<WillowDark/> below set context only for their own
+  // (empty) subtrees — so GanttContainer must provide the context the <Gantt> /
+  // dependency-Tooltip subtree reads. The value is a STABLE object whose
+  // toString() reflects the LIVE effective theme: SVAR's Portal and grid
+  // string-interpolate it (`wx-${value}-theme`), and the Tooltip's Portal re-reads
+  // it per hover (it mounts under `{#if shouldRender}`), so a tooltip opened after
+  // a flip themes correctly. The stable reference also keeps the grid's `_skin`
+  // $derived from re-firing reinitStore on a flip (the only other context reader;
+  // otherwise consumed solely by SVAR's unused Print component).
+  setContext('wx-theme', { toString: () => (effectiveIsDark ? 'willow-dark' : 'willow') });
+
   // While in Auto, follow Obsidian's theme live (R1/R6) — independent of toolbar
   // visibility. Re-read `isObsidianDark()` on each `css-change` (MutationObserver
   // fallback inside the helper). Subscribe only in Auto; dispose on mode change
-  // and on unmount. Apply the read THROUGH the guarded setter so a flip reseeds
-  // the SVAR seed props before the {#if} remounts (see maybeReseedForThemeFlip).
+  // and on unmount. Apply the read through the guarded setter, which flips
+  // `obsidianIsDark` → `effectiveIsDark` → the wrapper class swaps in place.
   $effect(() => {
     if (mode !== 'auto') return;
     // Sync immediately in case the theme changed since mount/last subscription.
@@ -167,41 +181,25 @@
   });
 
   /**
-   * Toolbar change handler (U3/U4). The parent owns the `mode` write so the
-   * reseed + the flip batch in one synchronous tick before the {#if} re-renders:
-   * reseed the SVAR seeds first (only when the effective theme actually flips),
-   * then flip `mode`, then persist. A no-op change short-circuits.
+   * Toolbar change handler (U3/U4): flip `mode` and persist. A theme flip
+   * restyles the chart in place via the class swap (plan 004) — no remount, so
+   * no reseed is needed (the seed props are never re-read on a flip). A no-op
+   * change short-circuits.
    */
   function handleThemeModeChange(next: ThemeMode): void {
     if (next === mode) return;
-    maybeReseedForThemeFlip(next, obsidianIsDark);
     mode = next;
     onThemeModeChange?.(next);
   }
 
   /**
-   * Apply a new Obsidian dark/light read (auto-follow). Reseeds the SVAR seeds
-   * first when the effective theme flips, then flips `obsidianIsDark` — same
-   * synchronous-tick ordering as the toolbar handler.
+   * Apply a new Obsidian dark/light read (auto-follow): flip `obsidianIsDark`.
+   * Like the toolbar handler, the effective-theme change is applied in place via
+   * the class swap — no remount, no reseed.
    */
   function applyObsidianDark(nextDark: boolean): void {
     if (nextDark === obsidianIsDark) return;
-    maybeReseedForThemeFlip(mode, nextDark);
     obsidianIsDark = nextDark;
-  }
-
-  /**
-   * Reseed the SVAR seed props from the current data ONLY when the *effective*
-   * theme actually flips. The {#if effectiveIsDark} swap remounts the <Gantt>,
-   * which re-reads the seed props; those are otherwise refreshed only on a
-   * column change, so a theme flip would show stale data without this. Guarded
-   * so it never fires on unrelated mode/dark changes (e.g. auto→light while
-   * already light).
-   */
-  function maybeReseedForThemeFlip(nextMode: ThemeMode, nextDark: boolean): void {
-    if (isEffectiveDark(nextMode, nextDark) !== isEffectiveDark(mode, obsidianIsDark)) {
-      reseedSeedsFromData(get(data));
-    }
   }
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
@@ -476,10 +474,9 @@
   /**
    * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
    * resync the applied-state maps so the next incremental diff is a no-op.
-   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
-   * remounts the <Gantt> (the {#if effectiveIsDark} swap), which re-reads these
-   * seeds — without this the post-flip chart would show the stale mount-time
-   * seed instead of the current data.
+   * Used by the column-config reseed (`reseedForColumnChange`), which re-inits
+   * SVAR's store to change the column set. (A theme flip does NOT reseed — it
+   * restyles in place via the wrapper class swap, plan 004.)
    */
   function reseedSeedsFromData(d: GanttData): void {
     const tasks = buildSvarTasks(toInputs(d));
@@ -549,9 +546,9 @@
   let scaleAreaH = $state(SVAR_SCALE_HEIGHT);
 
   $effect(() => {
-    // Re-subscribe whenever the SVAR api instance changes (e.g. the theme-flip
-    // remount of <Gantt>). Each signal's subscribe fires immediately with the
-    // current value and on every change, and returns a disposer for teardown.
+    // Re-subscribe whenever the SVAR api instance changes (e.g. a column-config
+    // reseed re-inits the store). Each signal's subscribe fires immediately with
+    // the current value and on every change, and returns a disposer for teardown.
     if (!api?.getReactiveState) return;
     const rs = api.getReactiveState();
     const disposers = [
@@ -1241,20 +1238,31 @@
     <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} />
   {/if}
 
-  <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
-       the full nested core → grid → gantt theme layers, set the load-bearing
-       `wx-theme` context (so the dependency Tooltip's Portal themes correctly),
-       and guarantee their CSS. Chosen reactively by effectiveIsDark; the {#if}
-       only re-renders on an actual theme flip (effectiveIsDark is stable across
-       data updates), and the flip reseeds the chart's data (see
-       maybeReseedForThemeFlip) so the remounted <Gantt> shows current data.
-       fonts={false} omits the font CDN <link> (CSP). -->
+  <!-- Theme is applied by swapping the CSS class on the STABLE wrapper below
+       (plan 004), NOT by swapping <Willow>/<WillowDark> components — so a
+       light↔dark flip never remounts <Gantt> and the chart keeps its
+       zoom/scroll/selection/data with no flicker. SVAR's theme styling is
+       entirely CSS-variable-driven, declared globally and keyed on the theme
+       class (`:global(.wx-willow-theme)` / `.wx-willow-dark-theme`), so toggling
+       the class re-cascades every variable instantly.
+       The childless <Willow/>/<WillowDark/> render no visible DOM but keep BOTH
+       theme stylesheets emitted in the build (Svelte emits a component's :global
+       CSS only when the component is instantiated — importing without rendering
+       tree-shakes it, which is what caused the earlier "heavy lines" regression).
+       The reactive `wx-theme` context (set in the script) themes the dependency
+       Tooltip's body-mounted Portal. fonts={false} omits the font CDN <link>
+       (CSP); icons come from the GanttContainer CSS. -->
+  <Willow fonts={false} />
+  <WillowDark fonts={false} />
   <div class="og-chart-area">
-    {#if effectiveIsDark}
-      <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
-    {:else}
-      <Willow fonts={false}>{@render chartBody()}</Willow>
-    {/if}
+    <div
+      class="wx-theme"
+      class:wx-willow-theme={!effectiveIsDark}
+      class:wx-willow-dark-theme={effectiveIsDark}
+      style="height:100%"
+    >
+      {@render chartBody()}
+    </div>
   </div>
 </div>
 
