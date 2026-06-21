@@ -398,8 +398,17 @@ class ObsidianGanttBasesView extends BasesView {
           // width to the standard `tableWidth` so it survives reload. In-session
           // dragging is SVAR's Resizer; this only persists the chosen value.
           onGridWidthChange: (width: number) => {
+            const next = Math.round(width);
+            // No-op guard (critical): persisting the view config makes Obsidian
+            // re-run onDataUpdated, which refreshes the chart, which re-asserts
+            // the grid width — a self-feeding loop when the value is unchanged.
+            // It ignites on the command-palette light/dark toggle: that flips the
+            // effective theme → remounts the chart → applyPersistedGridWidth
+            // re-execs resize-grid with the already-persisted width. Only write
+            // when the width actually changed (a real divider drag).
+            if (next === this.getTableWidth()) return;
             try {
-              this.config.set('tngantt_tableWidth', Math.round(width));
+              this.config.set('tngantt_tableWidth', next);
             } catch (error) {
               console.warn('[Gantt] Failed to persist grid width:', error);
             }
