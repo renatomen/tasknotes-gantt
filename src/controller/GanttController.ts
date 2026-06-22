@@ -71,7 +71,6 @@ import {
   type FieldConfig,
   type MutationContext,
   type SourceDependency,
-  type SourceTask,
   type StatusColor,
   type TaskPatch,
 } from '../datasource';
