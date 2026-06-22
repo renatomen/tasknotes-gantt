@@ -658,6 +658,11 @@
     width: number;
     align: 'left' | 'center' | 'right';
     resize: boolean;
+    // Disable SVAR's header-click sort on every column — the Obsidian Base
+    // toolbar sort is the single ordering authority (R16). Without this the
+    // built-in name/tree column stays sortable while the property columns are
+    // not, an inconsistent dual-authority UX.
+    sort: false;
     // SVAR cell component for property columns; the name column omits it (uses
     // the default cell, which renders the tree + row.text).
     cell?: typeof PropertyCell;
@@ -672,6 +677,7 @@
         width: c.width,
         align: c.align,
         resize: true,
+        sort: false,
       };
       if (!c.isName) col.cell = PropertyCell;
       return col;
@@ -798,6 +804,12 @@
     // Double-click → SVAR fires `show-editor` (no modifier info; we use the
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
+    // Block all user-initiated column-header sorting — the Base toolbar sort is
+    // the single ordering authority (R16). Belt-and-braces with the columns'
+    // `sort: false`; safe because our own reordering uses `move-task`, not
+    // `sort-tasks`, so this only ever cancels a header click.
+    api.intercept("sort-tasks", () => false);
+
     api.intercept("show-editor", ({ id }: { id: string }) => {
       // Ignore programmatic selection/editor events emitted while we reseed the
       // store (add/delete/update during diff-sync) — those are not user clicks.
