@@ -27,6 +27,7 @@
     planTaskSync,
     planLinkSync,
     planReorder,
+    baseSortDescriptor,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -56,6 +57,7 @@
   import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
   import { toggleCollapseAll } from './collapseState';
   import { propertyColumnSort } from './columnSort';
+  import { cycleNext, type EphemeralSort } from './sortCycle';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -126,12 +128,14 @@
     onThemeModeChange?: (mode: ThemeMode) => void;
   }
 
-  // `config` remains part of the props contract (register.ts passes it) but the
-  // controller owns the transform, so the view does not read it. `app` is used
-  // to host the parent-date-cascade confirmation modal (U3/U4).
+  // The controller owns the data transform, so the view does not read `config`
+  // for rendering — but it DOES read `config.getSort()` to detect a Base toolbar
+  // sort change while an ephemeral column sort is active (plan 2026-06-22-002,
+  // U4/U5/R6). `app` is used to host the parent-date-cascade confirmation modal.
   let {
     data,
     app,
+    config,
     onMutate,
     onAddDependency,
     onRemoveDependency,
@@ -400,7 +404,7 @@
   // A non-null value means the user clicked a column header to override it; the
   // floating reset pill (U3) and the asc→desc→clear cycle (U2) drive it back to
   // null. Recorded by the `sort-tasks` interceptor below.
-  let ephemeralSort: { column: string; direction: 'asc' | 'desc' } | null = $state(null);
+  let ephemeralSort: EphemeralSort | null = $state(null);
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -464,6 +468,13 @@
     return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
   }
   let appliedOrderKey = orderFingerprint(seedTasks0);
+  // Last-applied Base toolbar sort descriptor (plan 2026-06-22-002, U4/U5, KTD4).
+  // While an ephemeral column sort is active, the sync $effect compares this to
+  // `config.getSort()` to tell a Base re-sort (descriptor changed → clear the
+  // override, R6) from a plain data refresh (unchanged → keep & re-assert, R8).
+  // Tracking the descriptor — not a row-position fingerprint — is the deliberate
+  // fix: adding/removing a row shifts positions without a toolbar-sort change.
+  let appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -507,6 +518,11 @@
     const taskPlan = planTaskSync(appliedTasks, next);
     const linkPlan = planLinkSync(appliedLinks, d.links);
     const orderKey = orderFingerprint(next);
+    // Base toolbar sort descriptor (U4/U5, KTD4). Compared against the last
+    // applied value to drive R6 (Base re-sort clears the ephemeral override) vs
+    // R8 (data-only refresh keeps it).
+    const baseSortKey = baseSortDescriptor(config?.getSort?.());
+    const baseSortChanged = baseSortKey !== appliedBaseSortKey;
 
     const contentNoop =
       !taskPlan.moves.length &&
@@ -515,8 +531,10 @@
       !taskPlan.adds.length &&
       !linkPlan.deletes.length &&
       !linkPlan.adds.length;
-    // Nothing changed at all (content or order) → no work.
-    if (contentNoop && orderKey === appliedOrderKey) return;
+    // Nothing changed at all (content, order, or Base sort) → no work. The Base
+    // sort term keeps an R6 clear from being skipped when a toolbar re-sort
+    // happens to leave the row order identical (e.g. a single-row tree).
+    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) return;
 
     syncing = true;
     try {
@@ -545,30 +563,103 @@
         api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
         appliedLinks.set(l.id, l);
       }
-      // Reconcile sibling ORDER to the Base order. The diff above is id-keyed
-      // and never reorders existing rows, so a pure reorder (toolbar sort) or an
-      // add that shifts positions needs explicit move-task steps. `move-task`
-      // (mode `after`) keeps each task under its parent — zoom/scroll survive,
-      // unlike a re-init reseed. Inside the syncing block, so the resulting
-      // select/echo is suppressed (no spurious edit modal).
-      if (orderKey !== appliedOrderKey) {
-        for (const m of planReorder(next)) {
-          api.exec('move-task', {
-            id: m.id,
-            target: m.after,
-            mode: 'after',
-            eventSource: OG_ECHO_SOURCE,
-          });
+      // Reconcile sibling ORDER. Three cases (plan 2026-06-22-002, U4/U5):
+      if (ephemeralSort && !baseSortChanged) {
+        // R8 — an ephemeral column sort is active and the Base toolbar sort is
+        // unchanged (a plain data refresh). Keep the user's sort: re-assert it
+        // over the new row set instead of snapping back to Base order, and SKIP
+        // planReorder. Echo-guarded so it doesn't re-enter the sort-tasks
+        // interceptor (U2). `appliedOrderKey` still advances to the Base order of
+        // `next` below: the display is under ephemeral control, but the later
+        // clear/R6 reorder diffs against this baseline (a stale key would issue
+        // duplicate/missing moves).
+        reassertEphemeralSort();
+      } else {
+        // Default path (no ephemeral sort) OR R6 (the user changed the Base
+        // toolbar sort while a sort was active → newest explicit sort wins: drop
+        // the override and show the new Base order). The id-keyed diff above never
+        // reorders existing rows, so a pure reorder (toolbar sort) or a
+        // position-shifting add needs explicit `move-task` (mode `after`) steps —
+        // these keep each task under its parent so zoom/scroll survive.
+        if (ephemeralSort && baseSortChanged) {
+          ephemeralSort = null;
+          // Clear SVAR's lit ephemeral sort arrow (no sort-tasks payload nulls
+          // `_sort`; reach the data store directly — verified vs 2.7.0 source).
+          api.getStores?.().data?.setState?.({ _sort: null });
+        }
+        if (orderKey !== appliedOrderKey) {
+          for (const m of planReorder(next)) {
+            api.exec('move-task', {
+              id: m.id,
+              target: m.after,
+              mode: 'after',
+              eventSource: OG_ECHO_SOURCE,
+            });
+          }
         }
       }
-      // Commit the applied order INSIDE the try, after the moves land. If a
-      // move-task exec throws mid-sequence, this is skipped so the stale key
-      // forces the next sync to replay the full reorder (rather than diffing
-      // against an order we never finished applying).
+      // Commit the applied order + Base sort descriptor INSIDE the try, after the
+      // moves land. If a move-task exec throws mid-sequence, these are skipped so
+      // the stale keys force the next sync to replay the work (rather than diffing
+      // against state we never finished applying).
       appliedOrderKey = orderKey;
+      appliedBaseSortKey = baseSortKey;
     } finally {
       syncing = false;
     }
+  }
+
+  /**
+   * Re-apply the active ephemeral column sort over SVAR's current rows (R8).
+   * Echo-guarded (`OG_ECHO_SOURCE`) so it never re-enters the `sort-tasks`
+   * recording interceptor (U2). A no-op when no ephemeral sort is active or the
+   * api isn't ready. Called from the data-only sync branch (synchronously, inside
+   * the `syncing` block) and, deferred a tick, after a reseed remount (see
+   * `reseedSeedsFromData`).
+   */
+  function reassertEphemeralSort(): void {
+    if (!ephemeralSort || !api?.exec) return;
+    api.exec('sort-tasks', {
+      key: ephemeralSort.column,
+      order: ephemeralSort.direction,
+      eventSource: OG_ECHO_SOURCE,
+    });
+  }
+
+  /**
+   * Restore the Base row order after an ephemeral sort is cleared (plan
+   * 2026-06-22-002, U2 third click + U3 reset button). SVAR's `tree.sort` mutated
+   * the row order in place and there is no `sort-tasks` payload that nulls `_sort`
+   * (verified vs `@svar-ui/gantt-store` 2.7.0), so this resets `_sort` directly to
+   * drop the lit header arrow, then replays the Base-order `move-task` steps so the
+   * rows return to the Base order. Echo-guarded + `syncing`-wrapped so the moves
+   * don't re-enter our interceptors. Does NOT touch `ephemeralSort` — the caller
+   * sets it null first (so the reset pill hides immediately).
+   */
+  function restoreBaseOrder(): void {
+    if (!api?.exec) return;
+    syncing = true;
+    try {
+      api.getStores?.().data?.setState?.({ _sort: null });
+      const next = buildSvarTasks(toInputs(get(data)));
+      for (const m of planReorder(next)) {
+        api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
+      }
+      appliedOrderKey = orderFingerprint(next);
+    } finally {
+      syncing = false;
+    }
+  }
+
+  /**
+   * Shared clear path for the floating reset pill (U3): drop the ephemeral sort
+   * and restore the Base order. The third-click cancel (U2) clears inline instead
+   * (it must return falsy to cancel SVAR's toggle), but funnels into the same
+   * `restoreBaseOrder`.
+   */
+  function clearEphemeralSort(): void {
+    ephemeralSort = null;
+    restoreBaseOrder();
   }
 
   /**
@@ -609,6 +700,23 @@
     // The reseed re-inits SVAR from `tasks` (already in Base order), so the
     // applied order key tracks it — the next diff won't re-issue reorder moves.
     appliedOrderKey = orderFingerprint(tasks);
+
+    // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
+    // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
+    // the store's column recompute settles — deferred a tick like
+    // applyPersistedGridWidth, since a theme-flip reseed remounts <Gantt> (fresh
+    // api/store). Echo-guarded inside reassertEphemeralSort.
+    if (ephemeralSort) {
+      setTimeout(() => {
+        if (!ephemeralSort) return;
+        syncing = true;
+        try {
+          reassertEphemeralSort();
+        } finally {
+          syncing = false;
+        }
+      }, 0);
+    }
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -896,18 +1004,30 @@
     // Double-click → SVAR fires `show-editor` (no modifier info; we use the
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
-    // Ephemeral column sort (plan 2026-06-22-002, reverses R16): record a user
-    // header-click sort into `ephemeralSort` and let SVAR perform it. Ignore our
-    // own programmatic re-asserts (echo-guarded like the open-task interceptor) so
-    // U4's re-assert-after-diff can't re-enter this. The asc→desc→clear cycle (U2)
-    // and the live-coexistence branch (U4) build on this.
+    // Ephemeral column sort (plan 2026-06-22-002, reverses R16): a user header
+    // click cycles the column asc → desc → cleared (cycleNext, U2). SVAR's native
+    // header click is an infinite asc↔desc toggle with no "clear" state, so we
+    // drive the cycle off OUR `ephemeralSort` and inject the third (clear) state
+    // ourselves. For asc/desc we let SVAR perform the sort (its `order` matches
+    // the cycle, since both go no-sort→asc→desc); for the clear we CANCEL SVAR's
+    // toggle-back-to-asc (return falsy) and restore the Base order. Echo-guarded
+    // (mirrors the open-task interceptor) so U4/U5's re-asserts can't re-enter.
     api.intercept(
       "sort-tasks",
       (ev: { key?: string; order?: string; eventSource?: string }) => {
         if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
-        if (typeof ev?.key === 'string' && (ev.order === 'asc' || ev.order === 'desc')) {
-          ephemeralSort = { column: ev.key, direction: ev.order };
+        if (typeof ev?.key !== 'string') return true;
+        const nextSort = cycleNext(ephemeralSort, ev.key);
+        if (nextSort === null) {
+          // Third click on the active column → clear. Hide the reset pill now
+          // (synchronous state), and restore the Base order on a deferred tick so
+          // the store finishes cancelling THIS action before we reset `_sort` +
+          // replay the Base-order moves (avoids re-entrancy inside the intercept).
+          ephemeralSort = null;
+          setTimeout(() => restoreBaseOrder(), 0);
+          return false;
         }
+        ephemeralSort = nextSort;
         return true;
       },
     );
@@ -1451,6 +1571,23 @@
          bottom-right stack with a small gap between them — the collapse/expand
          toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
     <div class="zoom-controls-stack">
+      <!-- Reset ephemeral column sort (plan 2026-06-22-002, U3/R5). Shown ONLY
+           while an ephemeral sort is active; clicking restores the Base order
+           (same path as the third header click). SVAR's lit column-header arrow
+           is the active-column cue, so no extra banner. Lucide `list-restart`
+           (wxi-* fonts are disabled). -->
+      {#if ephemeralSort}
+        <div class="zoom-controls">
+          <button
+            class="zoom-btn reset-sort"
+            onclick={clearEphemeralSort}
+            aria-label="Reset to Base sort"
+            title="Reset to Base sort"
+          >
+            <span class="zoom-icon" use:lucideIcon={'list-restart'}></span>
+          </button>
+        </div>
+      {/if}
       <!-- Collapse-all / expand-all (U7). Hidden when the tree has no parents
            (nothing to collapse). Lucide icons render (wxi-* fonts are disabled). -->
       {#if parentInstanceIds.size > 0}

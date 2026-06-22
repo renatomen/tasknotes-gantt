@@ -489,6 +489,36 @@ function orderAddsParentFirst(adds: ReadonlyArray<SvarTask>): SvarTask[] {
   return ordered;
 }
 
+/** A single Base sort entry (the structural subset of Obsidian's `BasesSortConfig`). */
+export interface BaseSortEntry {
+  property: string;
+  direction: string;
+}
+
+/**
+ * Fold the Base toolbar sort (`config.getSort()`) into a stable descriptor string
+ * (plan 2026-06-22-002, U4/U5, KTD4). While an ephemeral column sort is active the
+ * sync `$effect` compares this descriptor across refreshes to tell two cases apart:
+ * the user re-sorted the Base toolbar (descriptor CHANGED → clear the ephemeral
+ * override, R6) versus a plain data refresh (descriptor UNCHANGED → keep and
+ * re-assert the ephemeral sort, R8).
+ *
+ * Folding the `{property, direction}` pairs — not a matched-row position
+ * fingerprint — is the deliberate fix (KTD4): a position fingerprint
+ * false-positives when a row is merely added to or removed from the Base result
+ * (the matched sequence shifts with no toolbar-sort change), which would wrongly
+ * clear the user's sort. The descriptor only changes when the sort key or
+ * direction changes. Order is significant (compound sort), so the pairs are joined
+ * in `getSort()` order. An empty/absent sort yields `''`.
+ *
+ * Pure (no Obsidian import — `ganttSync` is dependency-free); takes the structural
+ * {@link BaseSortEntry} subset of `BasesSortConfig`.
+ */
+export function baseSortDescriptor(sort: ReadonlyArray<BaseSortEntry> | undefined): string {
+  if (!sort || sort.length === 0) return '';
+  return sort.map((s) => `${s.property}:${s.direction}`).join('|');
+}
+
 /**
  * Link diff. Link ids are deterministic from endpoints+type, so an endpoint or
  * type change yields a new id — handled as a delete of the old + add of the new.
