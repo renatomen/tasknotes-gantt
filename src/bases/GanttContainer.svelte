@@ -23,6 +23,7 @@
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
+    buildInstanceCueTaskTypes,
     planTaskSync,
     planLinkSync,
     planReorder,
@@ -360,9 +361,14 @@
   // its store (reverting our incremental updates to the seed), so this stays a
   // const. A status value added to TaskNotes config while the view is open won't
   // color until the view is reopened — rare, and acceptable.
+  const statusTaskTypes = buildStatusTaskTypes(initialData.statusColors ?? []);
   const svarTaskTypes = [
     ...defaultTaskTypes,
-    ...buildStatusTaskTypes(initialData.statusColors ?? []),
+    ...statusTaskTypes,
+    // Instance cues (U6) cross the date-status/status combos, so a bar can carry
+    // both a state class and a replicated/context cue and still match a
+    // registered whole `type` string.
+    ...buildInstanceCueTaskTypes(statusTaskTypes.map((t) => t.id)),
   ];
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
@@ -1664,6 +1670,42 @@
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
+  }
+
+  /*
+   * Instance cues (U6). SVAR emits a registered task type as a bare class on the
+   * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
+   * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no
+   * glyph badges. Both treatments are deliberately subtle and stack (a bar can
+   * be replicated AND context); tune the exact look here.
+   *
+   * Replicated: the same note shown in more than one place. A faint diagonal
+   * hatch overlays every duplicate equally — none is privileged — without
+   * overriding the bar's status colour. The ::after fills the absolutely-
+   * positioned bar and ignores pointer events so drag/click still hit the bar.
+   */
+  .og-bases-gantt :global(.wx-bar.og-replicated)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.3) 0,
+      rgba(255, 255, 255, 0.3) 2px,
+      transparent 2px,
+      transparent 6px
+    );
+  }
+
+  /*
+   * Context: a Show-all descendant that does not itself match the Base filter —
+   * pulled in only to show structure. Render it muted so matched rows stay
+   * visually dominant.
+   */
+  .og-bases-gantt :global(.wx-bar.og-context) {
+    opacity: 0.55;
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

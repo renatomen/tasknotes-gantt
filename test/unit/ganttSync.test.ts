@@ -20,6 +20,9 @@ import {
   planReorder,
   taskStateKey,
   DATE_STATUS_TYPE,
+  buildInstanceCueTaskTypes,
+  REPLICATED_TYPE,
+  CONTEXT_TYPE,
   type SvarTask,
   type SvarTaskInputs,
 } from '../../src/bases/ganttSync';
@@ -42,6 +45,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isCollapsed: over.isCollapsed ?? false,
     dateStatus: over.dateStatus ?? 'complete',
     status: over.status ?? null,
+    isFetched: over.isFetched ?? false,
   };
 }
 
@@ -196,6 +200,76 @@ describe('buildStatusTaskTypes', () => {
     expect(buildStatusTaskTypes(colors).map((t) => t.id)).toEqual(
       buildStatusTaskTypes(colors).map((t) => t.id),
     );
+  });
+});
+
+describe('instance cues (U6)', () => {
+  it('marks both bars replicated when a source path appears more than once', () => {
+    // Same note shown under two parents → two instances, distinct ids.
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'p1', sourcePath: 'shared.md' }),
+          inst({ id: 'p2', sourcePath: 'shared.md' }),
+        ],
+      }),
+    );
+    for (const t of tasks) {
+      expect(t.type.split(' ')).toContain(REPLICATED_TYPE);
+      expect(t.custom.isReplicated).toBe(true);
+    }
+  });
+
+  it('does not mark a unique source path replicated', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
+    expect(t.type.split(' ')).not.toContain(REPLICATED_TYPE);
+    expect(t.custom.isReplicated).toBe(false);
+  });
+
+  it('marks a fetched (out-of-filter) instance as context', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'f', isFetched: true })] }));
+    expect(t.type.split(' ')).toContain(CONTEXT_TYPE);
+    expect(t.custom.isContext).toBe(true);
+  });
+
+  it('does not mark an in-filter instance as context', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'm', isFetched: false })] }));
+    expect(t.type.split(' ')).not.toContain(CONTEXT_TYPE);
+    expect(t.custom.isContext).toBe(false);
+  });
+
+  it('composes cues after state classes, replicated before context, in registration order', () => {
+    // A date-flagged, status-colored, replicated, context bar — the worst case.
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+        ],
+        statusColors: colors,
+      }),
+    );
+    const expected = `${DATE_STATUS_TYPE} ${statusSlug('wip')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
+    expect(tasks[0]!.type).toBe(expected);
+    // The coupling contract: that exact whole string must be a registered type id,
+    // or SVAR's whole-string match drops every cue/state class to plain "task".
+    const registered = buildInstanceCueTaskTypes(buildStatusTaskTypes(colors).map((t) => t.id)).map(
+      (t) => t.id,
+    );
+    expect(registered).toContain(expected);
+  });
+
+  it('registers cue-only forms and the cross-product with base types', () => {
+    const base = [DATE_STATUS_TYPE];
+    const ids = buildInstanceCueTaskTypes(base).map((t) => t.id);
+    // Cue-only (a plain bar that is replicated/context with no state class).
+    expect(ids).toContain(REPLICATED_TYPE);
+    expect(ids).toContain(CONTEXT_TYPE);
+    expect(ids).toContain(`${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
+    // Crossed with each base id.
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE}`);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
   });
 });
 
