@@ -255,6 +255,8 @@ describe("readExpandedRelationships", () => {
     expect(readExpandedRelationships(() => "Show All")).toBe("show-all");
     expect(readExpandedRelationships(() => " show_all ")).toBe("show-all");
     expect(readExpandedRelationships(() => 1)).toBe("show-all");
+    expect(readExpandedRelationships(() => "1")).toBe("show-all");
+    expect(readExpandedRelationships(() => true)).toBe("show-all");
   });
 
   it("returns inherit for the inherit value and any unrecognized junk", () => {

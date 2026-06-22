@@ -232,6 +232,41 @@ describe('GanttController — reactive re-selection', () => {
   });
 });
 
+describe('GanttController — recompute race guard (recomputeSeq)', () => {
+  it('latest-wins: a stale recompute resolving LAST does not clobber the newer one', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['init.md']);
+
+    // Gate getTasks so we control the resolution order of two overlapping
+    // recomputes. fireChange() triggers recompute synchronously up to the
+    // getTasks await, so each call queues exactly one resolver.
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+
+    tn.fireChange(); // recompute seq N (older)
+    tn.fireChange(); // recompute seq N+1 (newer = latest)
+    expect(gates).toHaveLength(2);
+
+    const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+    // Resolve the NEWER recompute first → snapshot becomes 'new.md'.
+    gates[1]!([task({ path: 'new.md' })]);
+    await flush();
+    // Then resolve the OLDER (now-stale) recompute → the seq guard must DISCARD
+    // it, even though it resolved last, so the snapshot stays 'new.md'.
+    gates[0]!([task({ path: 'old.md' })]);
+    await flush();
+
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['new.md']);
+  });
+});
+
 describe('GanttController — getInstances expansion', () => {
   it('expands multi-parent source tasks consistently with InstanceExpansion', async () => {
     // child has parents [A, B], both visible → two instances (under A, under B).

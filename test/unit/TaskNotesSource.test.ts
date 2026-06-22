@@ -708,6 +708,22 @@ describe('TaskNotesSource', () => {
       expect(await source!.getParents('x.md')).toEqual([]);
     });
 
+    it('getParents returns [] when the accessor throws', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = () => {
+        throw new Error('boom');
+      };
+      const throwing = await TaskNotesSource.create(makeApp(api));
+      expect(await throwing!.getParents('x.md')).toEqual([]);
+    });
+
+    it('getParents returns [] when the accessor returns a non-array', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = (() => null) as unknown as typeof api.relationships.parents;
+      const bad = await TaskNotesSource.create(makeApp(api));
+      expect(await bad!.getParents('x.md')).toEqual([]);
+    });
+
     it('subscribes to task.projects.changed for hierarchy freshness', async () => {
       expect(TASKNOTES_CHANGE_EVENTS).toContain('task.projects.changed');
       const { api, onSpy } = makeApi();

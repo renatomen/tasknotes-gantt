@@ -250,12 +250,18 @@
 
   function toggleAllCollapse(): void {
     const next = toggleCollapseAll(parentInstanceIds, collapsedIds);
-    collapsedIds = next;
-    if (!api) return;
+    if (!api) {
+      collapsedIds = next;
+      return;
+    }
+    // Set `syncing` BEFORE mutating collapsedIds: the sync $effect tracks
+    // collapsedIds (via toInputs), so the write schedules it — raising the guard
+    // first ensures any resulting diff treats our open-task execs as echoes.
     // Apply live via SVAR's own open-task action (tagged so the open-task
     // intercept skips re-persisting). The reactive seed/diff keeps `open`
     // consistent on any later reseed; this just reflects the change immediately.
     syncing = true;
+    collapsedIds = next;
     try {
       for (const id of parentInstanceIds) {
         const shouldClose = next.has(id);
@@ -548,10 +554,14 @@
           });
         }
       }
+      // Commit the applied order INSIDE the try, after the moves land. If a
+      // move-task exec throws mid-sequence, this is skipped so the stale key
+      // forces the next sync to replay the full reorder (rather than diffing
+      // against an order we never finished applying).
+      appliedOrderKey = orderKey;
     } finally {
       syncing = false;
     }
-    appliedOrderKey = orderKey;
   }
 
   /**

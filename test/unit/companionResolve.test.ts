@@ -127,4 +127,31 @@ describe("resolveCompanionTree", () => {
     );
     expect(byPath(out, "C.md").alsoTopLevel).toBe(true);
   });
+
+  it("Show-all + hide ON: a matched child with a matched parent is nested only (no alsoTopLevel)", async () => {
+    // The fourth (mode × hideTopLevel) quadrant: hide-top-level suppresses the
+    // extra top-level instance even in Show-all, so C renders nested under P only.
+    const out = await resolveCompanionTree(
+      [task("P.md"), task("C.md")],
+      { mode: "show-all", hideTopLevel: true },
+      accessor({ subtasks: { "P.md": [task("C.md")] }, parents: { "C.md": ["P.md"] } }),
+    );
+    expect(byPath(out, "C.md").alsoTopLevel).toBe(false);
+    expect(byPath(out, "C.md").parents).toEqual(["P.md"]);
+  });
+
+  it("Show-all + hide off, multi-parent both matched: alsoTopLevel with both parents carried", async () => {
+    // Symmetric to AE6 (which had one matched/one not) — here BOTH parents match.
+    const out = await resolveCompanionTree(
+      [task("P1.md"), task("P2.md"), task("C.md")],
+      { mode: "show-all", hideTopLevel: false },
+      accessor({
+        subtasks: { "P1.md": [task("C.md")], "P2.md": [task("C.md")] },
+        parents: { "C.md": ["P1.md", "P2.md"] },
+      }),
+    );
+    const c = byPath(out, "C.md");
+    expect(c.alsoTopLevel).toBe(true);
+    expect([...c.parents].sort()).toEqual(["P1.md", "P2.md"]);
+  });
 });

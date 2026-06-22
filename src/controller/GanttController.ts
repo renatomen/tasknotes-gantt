@@ -1090,6 +1090,7 @@ function instancesEqual(
       x.parent !== y.parent ||
       x.isVirtual !== y.isVirtual ||
       x.isCollapsed !== y.isCollapsed ||
+      x.isFetched !== y.isFetched ||
       x.dateStatus !== y.dateStatus ||
       x.status !== y.status ||
       !datesEqual(x.start, y.start) ||
