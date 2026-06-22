@@ -1,6 +1,7 @@
 ---
 title: "SVAR Gantt column sort: property columns no-op + TSortFunction typing"
 date: 2026-06-22
+last_updated: 2026-06-23
 category: docs/solutions/integration-issues
 module: bases-gantt
 problem_type: integration_issue
@@ -127,6 +128,10 @@ Two related SVAR facts confirmed while solving this (reverse-engineered from
 
 ## Related Issues
 
+- [../architecture-patterns/property-agnostic-field-resolution.md](../architecture-patterns/property-agnostic-field-resolution.md)
+  — the property→field *sort-key* mapping this comparator relies on is now resolved
+  from the configured `FieldMappings` (not the old hardcoded `PROPERTY_TO_FIELD`
+  table), so a custom-mapped vault sorts by the right value.
 - [svar-gantt-diff-sync-interactions.md](svar-gantt-diff-sync-interactions.md) —
   the seed-once + id-keyed-diff + `syncing`-echo + `move-task`-reorder core this
   column-sort feature must coexist with; same "drive state via the store action,
