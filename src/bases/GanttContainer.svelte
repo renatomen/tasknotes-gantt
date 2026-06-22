@@ -123,13 +123,6 @@
      * keep an in-session-only switch.
      */
     onThemeModeChange?: (mode: ThemeMode) => void;
-    /**
-     * Persist the collapsed-instance-id set per-view (U7). The view calls this
-     * whenever the user collapses/expands a branch or uses collapse-all;
-     * register.ts closes it over a no-op-guarded `config.set`. Absent callers
-     * keep collapse state in-session only.
-     */
-    onCollapseChange?: (ids: string[]) => void;
   }
 
   // `config` remains part of the props contract (register.ts passes it) but the
@@ -147,7 +140,6 @@
     onGridWidthChange,
     themeMode = 'auto',
     onThemeModeChange,
-    onCollapseChange,
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
@@ -259,7 +251,6 @@
   function toggleAllCollapse(): void {
     const next = toggleCollapseAll(parentInstanceIds, collapsedIds);
     collapsedIds = next;
-    onCollapseChange?.([...next]);
     if (!api) return;
     // Apply live via SVAR's own open-task action (tagged so the open-task
     // intercept skips re-persisting). The reactive seed/diff keeps `open`
@@ -391,10 +382,12 @@
   }
 
   const initialData = get(data);
-  // Collapsed instance ids (U7). Seeded once from the data (register reads it
-  // from per-view config); the view owns the live set thereafter and persists
-  // changes via onCollapseChange — read-once-then-owned, mirroring gridWidth.
-  let collapsedIds: Set<string> = $state(new Set(initialData.collapsedIds ?? []));
+  // Collapsed instance ids (U7) — EPHEMERAL session state, not persisted. Drives
+  // the collapse-all toggle's icon/decision and seeds SVAR's `open` via toInputs
+  // so a collapse survives data refreshes/reseeds within the session. Starts
+  // empty (all expanded) on every mount; the user re-adjusts with the toggle or
+  // the row chevrons. Updated by the `open-task` intercept and toggleAllCollapse.
+  let collapsedIds: Set<string> = $state(new Set());
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -899,7 +892,6 @@
         if (ev.mode) next.delete(id);
         else next.add(id);
         collapsedIds = next;
-        onCollapseChange?.([...next]);
         return true;
       },
     );
