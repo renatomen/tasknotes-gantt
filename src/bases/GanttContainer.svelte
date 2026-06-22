@@ -55,6 +55,7 @@
   } from './ganttHeight';
   import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
   import { toggleCollapseAll } from './collapseState';
+  import { propertyColumnSort } from './columnSort';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -394,6 +395,12 @@
   // empty (all expanded) on every mount; the user re-adjusts with the toggle or
   // the row chevrons. Updated by the `open-task` intercept and toggleAllCollapse.
   let collapsedIds: Set<string> = $state(new Set());
+  // Active ephemeral column sort (plan 2026-06-22-002) — EPHEMERAL session state,
+  // not persisted. `null` = the Base toolbar sort is in effect (the default).
+  // A non-null value means the user clicked a column header to override it; the
+  // floating reset pill (U3) and the asc→desc→clear cycle (U2) drive it back to
+  // null. Recorded by the `sort-tasks` interceptor below.
+  let ephemeralSort: { column: string; direction: 'asc' | 'desc' } | null = $state(null);
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -736,11 +743,13 @@
     width: number;
     align: 'left' | 'center' | 'right';
     resize: boolean;
-    // Disable SVAR's header-click sort on every column — the Obsidian Base
-    // toolbar sort is the single ordering authority (R16). Without this the
-    // built-in name/tree column stays sortable while the property columns are
-    // not, an inconsistent dual-authority UX.
-    sort: false;
+    // Header-click sort is ENABLED (plan 2026-06-22-002, reverses R16): the Base
+    // toolbar sort is the DEFAULT, an ephemeral column sort is an override. The
+    // name column uses SVAR's default comparator (sorts by `task.text`); property
+    // columns need an explicit comparator because their value lives in
+    // `task.custom.properties[id]`, not as a flat `task[id]` field — SVAR's default
+    // would read `undefined` and silently no-op (see columnSort.ts).
+    sort: boolean | ((a: Record<string, unknown>, b: Record<string, unknown>) => 1 | -1 | 0);
     // SVAR cell component for property columns; the name column omits it (uses
     // the default cell, which renders the tree + row.text).
     cell?: typeof PropertyCell;
@@ -755,7 +764,12 @@
         width: c.width,
         align: c.align,
         resize: true,
-        sort: false,
+        // Name column → SVAR default (task.text); property column → TypedValue-aware
+        // comparator over custom.properties[propId]. Math.sign normalizes to the
+        // 1|-1|0 SVAR's TSortFunction type wants (SVAR negates it for descending).
+        sort: c.isName
+          ? true
+          : (a, b) => Math.sign(propertyColumnSort(c.propId)(a, b)) as 1 | -1 | 0,
       };
       if (!c.isName) col.cell = PropertyCell;
       return col;
@@ -882,11 +896,21 @@
     // Double-click → SVAR fires `show-editor` (no modifier info; we use the
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
-    // Block all user-initiated column-header sorting — the Base toolbar sort is
-    // the single ordering authority (R16). Belt-and-braces with the columns'
-    // `sort: false`; safe because our own reordering uses `move-task`, not
-    // `sort-tasks`, so this only ever cancels a header click.
-    api.intercept("sort-tasks", () => false);
+    // Ephemeral column sort (plan 2026-06-22-002, reverses R16): record a user
+    // header-click sort into `ephemeralSort` and let SVAR perform it. Ignore our
+    // own programmatic re-asserts (echo-guarded like the open-task interceptor) so
+    // U4's re-assert-after-diff can't re-enter this. The asc→desc→clear cycle (U2)
+    // and the live-coexistence branch (U4) build on this.
+    api.intercept(
+      "sort-tasks",
+      (ev: { key?: string; order?: string; eventSource?: string }) => {
+        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        if (typeof ev?.key === 'string' && (ev.order === 'asc' || ev.order === 'desc')) {
+          ephemeralSort = { column: ev.key, direction: ev.order };
+        }
+        return true;
+      },
+    );
 
     // Persist user collapse/expand (U7). SVAR fires open-task on a toggle-icon
     // click — mode=true expands, mode=false collapses. Let it proceed (return
