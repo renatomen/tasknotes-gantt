@@ -18,6 +18,7 @@ import {
   planTaskSync,
   planLinkSync,
   planReorder,
+  baseSortDescriptor,
   taskStateKey,
   DATE_STATUS_TYPE,
   buildInstanceCueTaskTypes,
@@ -443,5 +444,52 @@ describe('planReorder', () => {
     expect(planReorder([])).toEqual([]);
     expect(planReorder([{ id: 'only' }])).toEqual([]);
     expect(planReorder([{ id: 'P' }, { id: 'c', parent: 'P' }])).toEqual([]);
+  });
+});
+
+describe('baseSortDescriptor', () => {
+  it('is empty when there is no Base sort', () => {
+    expect(baseSortDescriptor([])).toBe('');
+    expect(baseSortDescriptor(undefined)).toBe('');
+  });
+
+  it('folds the property+direction pairs into a stable string', () => {
+    expect(baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }])).toBe('note.due:ASC');
+    expect(
+      baseSortDescriptor([
+        { property: 'note.due', direction: 'ASC' },
+        { property: 'file.name', direction: 'DESC' },
+      ]),
+    ).toBe('note.due:ASC|file.name:DESC');
+  });
+
+  it('is identical for two getSort() results with the same keys+directions (data-only refresh)', () => {
+    const a = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const b = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    expect(a).toBe(b);
+  });
+
+  it('changes when the direction changes (user re-sorted the Base)', () => {
+    const asc = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const desc = baseSortDescriptor([{ property: 'note.due', direction: 'DESC' }]);
+    expect(asc).not.toBe(desc);
+  });
+
+  it('changes when the sort property changes', () => {
+    const due = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const name = baseSortDescriptor([{ property: 'file.name', direction: 'ASC' }]);
+    expect(due).not.toBe(name);
+  });
+
+  it('preserves order significance (compound sort is order-sensitive)', () => {
+    const ab = baseSortDescriptor([
+      { property: 'a', direction: 'ASC' },
+      { property: 'b', direction: 'ASC' },
+    ]);
+    const ba = baseSortDescriptor([
+      { property: 'b', direction: 'ASC' },
+      { property: 'a', direction: 'ASC' },
+    ]);
+    expect(ab).not.toBe(ba);
   });
 });

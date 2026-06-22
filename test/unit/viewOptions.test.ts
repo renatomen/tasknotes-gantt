@@ -216,13 +216,13 @@ describe("taskListViewOptions", () => {
     ]);
   });
 
-  it("pins the progress property default and placeholders", () => {
+  it("leaves the progress property unset by default (property-agnostic) with a guiding placeholder", () => {
     const progress = byKey(options, FIELD_MAPPING_KEYS.progress);
     expect(progress).toMatchObject({
       type: "property",
       displayName: "Progress Property",
-      default: "note.progress",
-      placeholder: "Select progress property (0-100)",
+      default: "",
+      placeholder: "Select a progress property (0-100); optional",
     });
     expect(byKey(options, FIELD_MAPPING_KEYS.text)).toMatchObject({
       default: "",

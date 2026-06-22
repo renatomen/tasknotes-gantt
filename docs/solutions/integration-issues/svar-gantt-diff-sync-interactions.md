@@ -142,6 +142,16 @@ sort: false,
 api.intercept("sort-tasks", () => false);
 ```
 
+> **Reversed by plan 2026-06-22-002 (ephemeral column sort).** This block (originally "R16")
+> was narrowed, not removed: the blocking backstop became a *recording* interceptor that lets
+> `sort-tasks` proceed while tracking `{column, direction}` session state, and per-column `sort`
+> fns were re-enabled. The Base toolbar sort remains the **default** authority — restored on
+> every mount, on the reset pill / third-header-click, and whenever the Base sort descriptor
+> (`config.getSort()`) changes — while a header click is an ephemeral, session-only override.
+> The `syncing` / `OG_ECHO_SOURCE` echo guard on the recording interceptor is mandatory so the
+> diff-sync re-assert can't re-enter it and loop. Clearing the lit arrow needs a direct
+> `api.getStores().data.setState({ _sort: null })` (no `sort-tasks` payload nulls `_sort`).
+
 Verified: 577 unit tests pass (including `planReorder`, expander input-order, controller
 fresh-config and companion-stage tests), typecheck clean, built, deployed, user-confirmed.
 

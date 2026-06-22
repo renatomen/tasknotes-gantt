@@ -89,6 +89,8 @@ import {
   type CompanionAccessor,
   type CompanionResolveOptions,
 } from '../datasource/companionResolve';
+import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
+import type { BasesSortConfig } from 'obsidian';
 
 /**
  * Date-policy + visibility configuration the controller applies when building a
@@ -222,6 +224,16 @@ export interface GanttControllerOptions {
    * recompute without a remount. Defaults to Inherit + hide-off.
    */
   companionConfig?: () => CompanionResolveOptions;
+  /**
+   * Provider for the Base's sort descriptor (`config.getSort()`), read **fresh at
+   * each snapshot build** — a closure (like {@link basesInput}). Drives the
+   * default-view safe-partial interleave (R7): with no ephemeral column sort
+   * active, fetched (Show-all) rows are positioned among their matched siblings
+   * by the primary Base sort when it maps to a Gantt field; otherwise the current
+   * matched-first fallback is kept. Defaults to `() => []` (no sort → fallback),
+   * so non-Base callers and existing tests are unaffected.
+   */
+  sortConfig?: () => readonly BasesSortConfig[];
   /** Optional injected source factories (tests). */
   deps?: GanttControllerDeps;
   /**
@@ -299,6 +311,24 @@ export class GanttController {
    */
   private readonly companionConfig: () => CompanionResolveOptions;
   /**
+   * Provider for the Base sort descriptor, read fresh at each snapshot build so
+   * the default-view interleave (R7) reflects the current toolbar sort without a
+   * remount. Defaults to `() => []` (no sort → matched-first fallback).
+   */
+  private readonly sortConfig: () => readonly BasesSortConfig[];
+  /**
+   * The resolved field mappings the active source reads from (per-user config,
+   * from TaskNotes when present) — set in {@link selectSource}. The default-view
+   * interleave inverts these to map a Base sort property to a Gantt field, so no
+   * Obsidian property name is ever hardcoded. Empty until the first source select.
+   */
+  private effectiveMappings: FieldMappings = {
+    textProperty: '',
+    startProperty: '',
+    endProperty: '',
+    progressProperty: '',
+  };
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -370,6 +400,7 @@ export class GanttController {
     this.policyConfigProvider = typeof pc === 'function' ? pc : () => pc;
     this.companionConfig =
       options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
+    this.sortConfig = options.sortConfig ?? (() => []);
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
     this.newCorrelationId = options.newCorrelationId ?? defaultCorrelationId;
@@ -738,6 +769,10 @@ export class GanttController {
         ? (await enrichment.getFieldConfig?.()) ?? null
         : null;
       const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      // Remember the resolved mappings the source reads from: the default-view
+      // interleave (buildSnapshot) inverts them to decide which Gantt field a Base
+      // sort property corresponds to (never a hardcoded property name).
+      this.effectiveMappings = effectiveMappings;
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
       // Force read-only when we have no resolvable field config: without write
       // targets, a date edit would fall through to canonical scheduled/due and
@@ -775,14 +810,11 @@ export class GanttController {
         startReadProp: null,
         endReadProp: null,
       };
-      // No TaskNotes field config (TaskNotes absent): no write targets, and the
-      // read falls back to the legacy note.start/note.due when unset, preserving
-      // the pre-TaskNotes Bases behavior.
-      return {
-        ...mappings,
-        startProperty: mappings.startProperty || 'note.start',
-        endProperty: mappings.endProperty || 'note.due',
-      };
+      // No TaskNotes field config (TaskNotes absent): no write targets. Read
+      // straight from the view-configured start/end properties — empty when the
+      // user mapped none. We do NOT assume note.start/note.due; the plugins are
+      // property-agnostic (a user's date field can be any property).
+      return { ...mappings };
     }
 
     const startRes = resolveDateMapping(
@@ -921,10 +953,26 @@ export class GanttController {
     // (Inherit/Show-all), override parents from `projects`, and flag
     // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
     // unchanged (parents from the Base's parentProperty).
-    const displayedTasks = this.companionAccessor
-      ? await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor)
-      : rawTasks;
-    const tasks = this.resolveAndFilter(displayedTasks);
+    // Companion mode resolves the subtask tree (matched + fetched) and applies the
+    // default-view safe-partial interleave (R7): position fetched (Show-all) rows
+    // among their matched siblings by the primary Base sort when it maps to a Gantt
+    // field — matched-row Base order is never re-sorted (KTD5). A returns-input fast
+    // path keeps the matched-first fallback when the sort is unmapped/empty or there
+    // are no fetched rows. expandInstances then preserves this per-sibling input
+    // order. Resolving + positioning in one branch keeps `CompanionTask[]` known to
+    // the type checker (no cast). Standalone (no accessor) passes tasks through.
+    let orderedTasks: readonly ExpandableTask[];
+    if (this.companionAccessor) {
+      const companionTasks = await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor);
+      // Interleave by the RESOLVED field mappings (the same per-user config that
+      // filled task.start/end/status/…), never a hardcoded property table — so a
+      // Base sort only positions fetched rows when its property is the one a Gantt
+      // field was actually mapped from.
+      orderedTasks = positionFetchedAmongMatched(companionTasks, this.sortConfig(), this.effectiveMappings);
+    } else {
+      orderedTasks = rawTasks;
+    }
+    const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
 
     const sourceLinks: SourceLink[] = [];

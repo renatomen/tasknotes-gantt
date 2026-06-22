@@ -136,15 +136,12 @@ export class GanttTaskListView extends BasesView {
   /**
    * Get field mappings from view config.
    *
-   * Uses the shared reader (single source of truth for the `tngantt_` keys),
-   * overriding start/end to concrete properties since this view renders dates
-   * directly rather than going through the gantt controller's fallback.
+   * Uses the shared reader (single source of truth for the `tngantt_` keys).
+   * Property-agnostic: reads the user's configured start/end properties with no
+   * hardcoded date-property defaults — an unset field simply yields no date.
    */
   private getFieldMappings(): FieldMappings {
-    return readFieldMappings((key) => this.config?.get(key), {
-      startProperty: 'note.start',
-      endProperty: 'note.due',
-    });
+    return readFieldMappings((key) => this.config?.get(key));
   }
 
   /**

@@ -47,8 +47,8 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
       type: 'property' as const,
       displayName: 'Progress Property',
       key: FIELD_MAPPING_KEYS.progress,
-      default: 'note.progress',
-      placeholder: 'Select progress property (0-100)',
+      default: '',
+      placeholder: 'Select a progress property (0-100); optional',
     },
     {
       type: 'property' as const,
