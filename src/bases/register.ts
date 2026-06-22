@@ -10,6 +10,7 @@
 /* global MouseEvent */
 import {
   BasesView,
+  TFile,
   type Plugin,
   type BasesViewConfig,
   type BasesPropertyId,
@@ -31,7 +32,7 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { buildEntryProperties } from './propertyValues';
+import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
 import { persistGridWidth } from './gridWidthPersist';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
@@ -481,6 +482,33 @@ class ObsidianGanttBasesView extends BasesView {
       visiblePropIds,
       this.gridAdapter,
     );
+    // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
+    // result, so the matched-only map above leaves their grid cells blank. Fill
+    // their note.*/file.* columns from the metadata cache (formula columns fall
+    // back to empty — R5). Matched rows already in the map are never overwritten.
+    if (visiblePropIds.length > 0) {
+      const seen = new Set(propertyValues.keys());
+      const fetchedMetas: FetchedFileMeta[] = [];
+      for (const inst of instances) {
+        if (seen.has(inst.sourcePath)) continue;
+        seen.add(inst.sourcePath);
+        const file = this.app.vault.getAbstractFileByPath(inst.sourcePath);
+        if (!(file instanceof TFile)) continue;
+        fetchedMetas.push({
+          path: inst.sourcePath,
+          basename: file.basename,
+          extension: file.extension,
+          frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
+        });
+      }
+      for (const [path, record] of buildFetchedEntryProperties(
+        fetchedMetas,
+        visiblePropIds,
+        this.gridAdapter,
+      )) {
+        propertyValues.set(path, record);
+      }
+    }
     const gridColumns = buildGridColumns(
       visiblePropIds,
       (id) => this.getDisplayName(asPropertyId(id)),
