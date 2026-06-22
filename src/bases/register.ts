@@ -338,10 +338,10 @@ class ObsidianGanttBasesView extends BasesView {
           entries: this.data?.data ?? [],
           mappings: this.buildFieldMappings(),
         }),
-        policyConfig: this.buildDatePolicyConfig(),
-        // Provider closure → read fresh on every recompute, so toggling these
-        // per-view options applies instantly (onDataUpdated → refreshSource),
-        // no manual refresh/remount needed.
+        // All per-view controller settings are provider closures → read fresh on
+        // every recompute, so toggling any per-view option applies instantly
+        // (onDataUpdated → refreshSource), no manual refresh/remount needed.
+        policyConfig: () => this.buildDatePolicyConfig(),
         companionConfig: () => ({
           mode: this.getExpandedRelationships(),
           hideTopLevel: this.getHideTopLevelSubtasks(),

@@ -953,3 +953,43 @@ describe('GanttController — companion expansion stage (U4)', () => {
     expect(instances.every((i) => i.isFetched === false)).toBe(true);
   });
 });
+
+describe('GanttController — per-view settings freshness', () => {
+  it('reads date-policy config fresh each recompute (visibility toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] }); // no dates → placeholder
+    const policy = { defaultDuration: 1, showUndatedTasks: true, showPartialDateTasks: true };
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      policyConfig: () => ({ ...policy }),
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
+
+    // Hide undated tasks; a recompute (what onDataUpdated triggers) re-reads it.
+    policy.showUndatedTasks = false;
+    await controller.refreshSource();
+    expect(await controller.getInstances()).toEqual([]);
+  });
+
+  it('still accepts a static policyConfig object (backward compatible)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      policyConfig: { defaultDuration: 1, showUndatedTasks: false, showPartialDateTasks: true },
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+    await controller.init();
+    expect(await controller.getInstances()).toEqual([]);
+  });
+});

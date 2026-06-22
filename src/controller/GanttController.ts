@@ -209,11 +209,13 @@ export interface GanttControllerOptions {
    */
   sourceStrategy?: SourceStrategy;
   /**
-   * Date-policy + visibility config (per-view; supplied by U3). Read at each
-   * snapshot build, so a remount with new options takes effect. Defaults to
-   * {@link DEFAULT_DATE_POLICY_CONFIG} when omitted.
+   * Date-policy + visibility config (per-view). Accepts a static value or a
+   * **provider closure** read fresh at each snapshot build — pass a closure so a
+   * per-view option change applies on the next recompute (onDataUpdated →
+   * refreshSource) without a remount, consistent with {@link basesInput} and
+   * {@link companionConfig}. Defaults to {@link DEFAULT_DATE_POLICY_CONFIG}.
    */
-  policyConfig?: DatePolicyConfig;
+  policyConfig?: DatePolicyConfig | (() => DatePolicyConfig);
   /**
    * Provider for the companion settings (expanded-relationships mode +
    * hide-top-level). Read **fresh at each snapshot build** — a closure (like
@@ -290,7 +292,8 @@ export class GanttController {
   private readonly app: App;
   private readonly basesInput: BasesInputProvider;
   private readonly sourceStrategy: SourceStrategy;
-  private readonly policyConfig: DatePolicyConfig;
+  /** Provider for the date-policy config, read fresh at each snapshot build. */
+  private readonly policyConfigProvider: () => DatePolicyConfig;
   /**
    * Provider for the companion settings, read fresh at each snapshot build so
    * an option change applies on the next recompute (no remount).
@@ -364,7 +367,8 @@ export class GanttController {
     this.app = options.app;
     this.basesInput = options.basesInput;
     this.sourceStrategy = options.sourceStrategy ?? 'tasknotes-first';
-    this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
+    const pc = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
+    this.policyConfigProvider = typeof pc === 'function' ? pc : () => pc;
     this.companionConfig =
       options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
     this.now = options.now ?? (() => new Date());
@@ -955,7 +959,7 @@ export class GanttController {
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfig;
+    const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfigProvider();
 
     const resolved: ExpandableTask[] = [];
     for (const task of rawTasks) {
