@@ -583,9 +583,7 @@
         // these keep each task under its parent so zoom/scroll survive.
         if (ephemeralSort && baseSortChanged) {
           ephemeralSort = null;
-          // Clear SVAR's lit ephemeral sort arrow (no sort-tasks payload nulls
-          // `_sort`; reach the data store directly — verified vs 2.7.0 source).
-          api.getStores?.().data?.setState?.({ _sort: null });
+          clearSvarSortArrow();
         }
         if (orderKey !== appliedOrderKey) {
           for (const m of planReorder(next)) {
@@ -627,25 +625,38 @@
   }
 
   /**
+   * Clear SVAR's lit column-header sort arrow by nulling its internal `_sort`
+   * state. There is no `sort-tasks` payload that resets `_sort` to null (verified
+   * vs `@svar-ui/gantt-store` 2.7.0), so reach the data store directly — the same
+   * internal-but-reachable class as the gridWidth recompute workaround. Centralised
+   * here so a SVAR upgrade that renames `_sort`/`setState` has a single site to fix.
+   */
+  function clearSvarSortArrow(): void {
+    api?.getStores?.().data?.setState?.({ _sort: null });
+  }
+
+  /**
    * Restore the Base row order after an ephemeral sort is cleared (plan
    * 2026-06-22-002, U2 third click + U3 reset button). SVAR's `tree.sort` mutated
-   * the row order in place and there is no `sort-tasks` payload that nulls `_sort`
-   * (verified vs `@svar-ui/gantt-store` 2.7.0), so this resets `_sort` directly to
-   * drop the lit header arrow, then replays the Base-order `move-task` steps so the
-   * rows return to the Base order. Echo-guarded + `syncing`-wrapped so the moves
-   * don't re-enter our interceptors. Does NOT touch `ephemeralSort` — the caller
-   * sets it null first (so the reset pill hides immediately).
+   * the row order in place, so this resets `_sort` (drops the lit header arrow)
+   * then replays the Base-order `move-task` steps so the rows return to the Base
+   * order. Echo-guarded + `syncing`-wrapped so the moves don't re-enter our
+   * interceptors. Does NOT touch `ephemeralSort` — the caller sets it null first
+   * (so the reset pill hides immediately).
    */
   function restoreBaseOrder(): void {
     if (!api?.exec) return;
     syncing = true;
     try {
-      api.getStores?.().data?.setState?.({ _sort: null });
+      clearSvarSortArrow();
       const next = buildSvarTasks(toInputs(get(data)));
       for (const m of planReorder(next)) {
         api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
       }
       appliedOrderKey = orderFingerprint(next);
+    } catch {
+      /* a move-task threw mid-restore (e.g. store torn down); the stale
+         appliedOrderKey forces the next sync to replay the full reorder */
     } finally {
       syncing = false;
     }
@@ -716,6 +727,8 @@
         syncing = true;
         try {
           reassertEphemeralSort();
+        } catch {
+          /* exec threw on a torn-down / freshly-remounted store — skip */
         } finally {
           syncing = false;
         }
@@ -1027,8 +1040,13 @@
           // (synchronous state), and restore the Base order on a deferred tick so
           // the store finishes cancelling THIS action before we reset `_sort` +
           // replay the Base-order moves (avoids re-entrancy inside the intercept).
+          // Bail if a new sort started within the tick (a fast re-click) — that
+          // sort now owns the display (mirrors the reseed re-assert's guard).
           ephemeralSort = null;
-          setTimeout(() => restoreBaseOrder(), 0);
+          setTimeout(() => {
+            if (ephemeralSort) return;
+            restoreBaseOrder();
+          }, 0);
           return false;
         }
         ephemeralSort = nextSort;

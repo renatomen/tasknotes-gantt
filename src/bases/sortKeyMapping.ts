@@ -210,17 +210,17 @@ function positionGroup(
   const sortedFetched = stableSortByKey(fetched, keyOf, cmp);
 
   const out: CompanionTask[] = [];
-  let fi = 0;
-  for (const m of matched) {
-    const mk = keyOf(m);
+  let fetchedIndex = 0;
+  for (const matchedRow of matched) {
+    const matchedKey = keyOf(matchedRow);
     // Emit every remaining fetched row that sorts before this matched anchor.
-    while (fi < sortedFetched.length && cmp(keyOf(sortedFetched[fi] as CompanionTask), mk) < 0) {
-      out.push(sortedFetched[fi++] as CompanionTask);
+    while (fetchedIndex < sortedFetched.length && cmp(keyOf(sortedFetched[fetchedIndex]!), matchedKey) < 0) {
+      out.push(sortedFetched[fetchedIndex++]!);
     }
-    out.push(m);
+    out.push(matchedRow);
   }
   // Fetched rows not less than any matched anchor (incl. null keys) trail the group.
-  while (fi < sortedFetched.length) out.push(sortedFetched[fi++] as CompanionTask);
+  while (fetchedIndex < sortedFetched.length) out.push(sortedFetched[fetchedIndex++]!);
   return out;
 }
 
@@ -231,10 +231,10 @@ function stableSortByKey(
   cmp: (a: SortKey, b: SortKey) => number,
 ): CompanionTask[] {
   return tasks
-    .map((t, i) => ({ t, i }))
+    .map((task, index) => ({ task, index }))
     .sort((a, b) => {
-      const c = cmp(keyOf(a.t), keyOf(b.t));
-      return c !== 0 ? c : a.i - b.i;
+      const comparison = cmp(keyOf(a.task), keyOf(b.task));
+      return comparison !== 0 ? comparison : a.index - b.index;
     })
-    .map((x) => x.t);
+    .map((entry) => entry.task);
 }

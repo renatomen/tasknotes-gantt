@@ -88,7 +88,6 @@ import {
   resolveCompanionTree,
   type CompanionAccessor,
   type CompanionResolveOptions,
-  type CompanionTask,
 } from '../datasource/companionResolve';
 import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 import type { BasesSortConfig } from 'obsidian';
@@ -941,18 +940,21 @@ export class GanttController {
     // (Inherit/Show-all), override parents from `projects`, and flag
     // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
     // unchanged (parents from the Base's parentProperty).
-    const displayedTasks = this.companionAccessor
-      ? await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor)
-      : rawTasks;
-    // Default-view safe-partial interleave (R7): position fetched (Show-all) rows
-    // among their matched siblings by the primary Base sort when it maps to a
-    // Gantt field — matched-row Base order is never re-sorted (KTD5). Only runs in
-    // companion mode (where fetched rows exist); a returns-input fast path keeps
-    // the matched-first fallback when the sort is unmapped/empty or there are no
-    // fetched rows. expandInstances then preserves this per-sibling input order.
-    const orderedTasks = this.companionAccessor
-      ? positionFetchedAmongMatched(displayedTasks as CompanionTask[], this.sortConfig())
-      : displayedTasks;
+    // Companion mode resolves the subtask tree (matched + fetched) and applies the
+    // default-view safe-partial interleave (R7): position fetched (Show-all) rows
+    // among their matched siblings by the primary Base sort when it maps to a Gantt
+    // field — matched-row Base order is never re-sorted (KTD5). A returns-input fast
+    // path keeps the matched-first fallback when the sort is unmapped/empty or there
+    // are no fetched rows. expandInstances then preserves this per-sibling input
+    // order. Resolving + positioning in one branch keeps `CompanionTask[]` known to
+    // the type checker (no cast). Standalone (no accessor) passes tasks through.
+    let orderedTasks: readonly ExpandableTask[];
+    if (this.companionAccessor) {
+      const companionTasks = await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor);
+      orderedTasks = positionFetchedAmongMatched(companionTasks, this.sortConfig());
+    } else {
+      orderedTasks = rawTasks;
+    }
     const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
 
