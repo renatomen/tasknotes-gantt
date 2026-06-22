@@ -17,6 +17,7 @@ import {
   buildStatusTaskTypes,
   planTaskSync,
   planLinkSync,
+  planReorder,
   taskStateKey,
   DATE_STATUS_TYPE,
   type SvarTask,
@@ -328,5 +329,36 @@ describe('planLinkSync', () => {
     const prev = new Map([['L1', link('L1')]]);
     const plan = planLinkSync(prev, [link('L1')]);
     expect(plan).toEqual({ deletes: [], adds: [] });
+  });
+});
+
+describe('planReorder', () => {
+  it('chains move-after within a root branch to match the desired order', () => {
+    const moves = planReorder([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    expect(moves).toEqual([
+      { id: 'b', after: 'a' },
+      { id: 'c', after: 'b' },
+    ]);
+  });
+
+  it('reorders each parent branch independently (tree-preserving)', () => {
+    const moves = planReorder([
+      { id: 'P' },
+      { id: 'c1', parent: 'P' },
+      { id: 'c2', parent: 'P' },
+      { id: 'Q' },
+      { id: 'd1', parent: 'Q' },
+    ]);
+    // Root branch [P, Q] → Q after P; P's children c1,c2 → c2 after c1; Q's lone child → no move.
+    expect(moves).toEqual([
+      { id: 'Q', after: 'P' },
+      { id: 'c2', after: 'c1' },
+    ]);
+  });
+
+  it('emits no moves for single-child branches or an empty set', () => {
+    expect(planReorder([])).toEqual([]);
+    expect(planReorder([{ id: 'only' }])).toEqual([]);
+    expect(planReorder([{ id: 'P' }, { id: 'c', parent: 'P' }])).toEqual([]);
   });
 });

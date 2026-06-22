@@ -25,6 +25,7 @@
     buildStatusTaskTypes,
     planTaskSync,
     planLinkSync,
+    planReorder,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -371,6 +372,18 @@
   const appliedLinks = new Map<string, RenderLink>();
   for (const l of seedLinks0) appliedLinks.set(l.id, l);
 
+  // Fingerprint of the rendered row ORDER (parent + id sequence). The
+  // incremental diff is keyed by id and cannot reorder existing rows, so a
+  // pure reorder — e.g. a Base toolbar sort change with the same task set —
+  // leaves SVAR in the prior order. We detect an order change and apply it via
+  // `move-task` (mode `after`) inside the syncing block (zoom/scroll survive;
+  // the syncing guard suppresses the echo/select that would otherwise open the
+  // edit modal). Seeded so the first diff after mount is a no-op.
+  function orderFingerprint(tasks: readonly SvarTask[]): string {
+    return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
+  }
+  let appliedOrderKey = orderFingerprint(seedTasks0);
+
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
   // tag covers our own writes; this also covers SVAR-internal echoes such as
@@ -409,17 +422,20 @@
       return;
     }
 
-    const taskPlan = planTaskSync(appliedTasks, buildSvarTasks(toInputs(d)));
+    const next = buildSvarTasks(toInputs(d));
+    const taskPlan = planTaskSync(appliedTasks, next);
     const linkPlan = planLinkSync(appliedLinks, d.links);
+    const orderKey = orderFingerprint(next);
 
-    const noop =
+    const contentNoop =
       !taskPlan.moves.length &&
       !taskPlan.updates.length &&
       !taskPlan.deletes.length &&
       !taskPlan.adds.length &&
       !linkPlan.deletes.length &&
       !linkPlan.adds.length;
-    if (noop) return;
+    // Nothing changed at all (content or order) → no work.
+    if (contentNoop && orderKey === appliedOrderKey) return;
 
     syncing = true;
     try {
@@ -448,9 +464,26 @@
         api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
         appliedLinks.set(l.id, l);
       }
+      // Reconcile sibling ORDER to the Base order. The diff above is id-keyed
+      // and never reorders existing rows, so a pure reorder (toolbar sort) or an
+      // add that shifts positions needs explicit move-task steps. `move-task`
+      // (mode `after`) keeps each task under its parent — zoom/scroll survive,
+      // unlike a re-init reseed. Inside the syncing block, so the resulting
+      // select/echo is suppressed (no spurious edit modal).
+      if (orderKey !== appliedOrderKey) {
+        for (const m of planReorder(next)) {
+          api.exec('move-task', {
+            id: m.id,
+            target: m.after,
+            mode: 'after',
+            eventSource: OG_ECHO_SOURCE,
+          });
+        }
+      }
     } finally {
       syncing = false;
     }
+    appliedOrderKey = orderKey;
   }
 
   /**
@@ -488,6 +521,9 @@
     for (const t of tasks) appliedTasks.set(t.id, t);
     appliedLinks.clear();
     for (const l of d.links) appliedLinks.set(l.id, l);
+    // The reseed re-inits SVAR from `tasks` (already in Base order), so the
+    // applied order key tracks it — the next diff won't re-issue reorder moves.
+    appliedOrderKey = orderFingerprint(tasks);
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)

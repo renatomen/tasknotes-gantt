@@ -319,6 +319,47 @@ export function planTaskSync(prev: ReadonlyMap<string, SvarTask>, next: Readonly
   return { moves, updates, deletes, adds: orderAddsParentFirst(adds) };
 }
 
+/** A sibling reorder step: place `id` immediately after `after` (same parent). */
+export interface ReorderMove {
+  id: string;
+  after: string;
+}
+
+/**
+ * Plan the minimal `move-task` (mode `after`) steps to put each parent's
+ * children into `next`'s order. The diff-sync (`planTaskSync`) is keyed by id
+ * and cannot reorder existing rows, so a pure reorder (e.g. a Base toolbar sort
+ * change with the same task set) needs explicit moves. Within each parent
+ * branch, chaining `move after the previous sibling` left-to-right yields the
+ * target order regardless of the current order (moving a later sibling after an
+ * earlier one pulls it out of its old slot). `move-task` with mode `after`
+ * keeps the task under the same parent, so zoom/scroll survive (no re-init).
+ *
+ * Pure (no SVAR/DOM): the caller execs each step. Tree-preserving — siblings are
+ * grouped by parent and only reordered within their branch.
+ */
+export function planReorder(
+  next: ReadonlyArray<{ id: string; parent?: string }>,
+): ReorderMove[] {
+  const byParent = new Map<string, string[]>();
+  for (const t of next) {
+    const key = t.parent ?? '';
+    let ids = byParent.get(key);
+    if (!ids) {
+      ids = [];
+      byParent.set(key, ids);
+    }
+    ids.push(t.id);
+  }
+  const moves: ReorderMove[] = [];
+  for (const ids of byParent.values()) {
+    for (let i = 1; i < ids.length; i++) {
+      moves.push({ id: ids[i]!, after: ids[i - 1]! });
+    }
+  }
+  return moves;
+}
+
 /**
  * Order a set of to-add tasks so any task whose parent is also being added comes
  * after that parent. Tasks whose parent already exists (or is root) can go in
