@@ -104,9 +104,9 @@ npm install --no-save @swc/core-win32-x64-msvc@$(node -p "require('./node_module
 
 A durable fix beyond the `--no-save` workaround: run a full `npm install` on the Windows machine and commit the resulting `package-lock.json` — it records the Windows optional binding (`os`/`cpu`-constrained, so it's skipped on other platforms) so future `npm ci` on Windows installs it automatically. CI here is `windows-latest`, so this is safe and beneficial. (Observed 2026-06-16: pruning unused deps + reinstalling picked up the previously-missing `@swc/core-win32-x64-msvc` lockfile entry.)
 
-### 4. The vault path is `.env`-driven, not hardcoded
+### 4. The vault path is `.env`-driven and optional (no hardcoded fallback)
 
-`scripts/install-to-vault.cjs` (the `postbuild` step) and `test/wdio/wdio.conf.mts` both read `OBSIDIAN_TEST_VAULT` (via dotenv). With no `.env`, they fall back to **another dev machine's hardcoded path** (`C:\Users\renato\...`), so on a fresh machine `npm run build` fails its postbuild with `EPERM: mkdir 'C:\Users\renato'`. The `renato` path is not a typo to fix — it is just a stale default; the correct fix is to create `.env` (gitignored). The **same variable drives both** the manual-install copy and the E2E harness, so:
+`scripts/install-to-vault.mjs` (run by the Vite build's `closeBundle`, so `vite build` / `npm run build` / `dev --watch` all behave identically) and `test/wdio/wdio.conf.mts` both read `OBSIDIAN_TEST_VAULT` (via dotenv / Vite's env loading). The install is **opt-in and best-effort**: with no `OBSIDIAN_TEST_VAULT` — or a path that doesn't exist — it is **skipped** and the build still succeeds. There is **no hardcoded fallback** anymore, so a fresh machine no longer fails the build (this was previously an `EPERM: mkdir 'C:\Users\renato'` from a stale per-machine default — removed in the optional-install refactor). The **same variable drives both** the manual-install copy and the E2E harness, so:
 
 ```ini
 # .env (gitignored) — point at the LIVE vault for manual checking

@@ -11,8 +11,8 @@
   },
   "scripts": {
     "build": "vite build",
-    "postbuild": "node scripts/install-to-vault.cjs",
     "dev": "vite build --watch",
+    "install:vault": "node scripts/install-to-vault.mjs",
     "test": "jest --passWithNoTests",
     "test:coverage": "jest --coverage --passWithNoTests",
     "lint": "eslint . --ext .ts,.svelte",

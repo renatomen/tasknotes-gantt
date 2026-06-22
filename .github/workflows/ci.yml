@@ -61,9 +61,10 @@ jobs:
           echo "OBSIDIAN_TEST_VAULT=$vault" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path $vault | Out-Null
       - name: Build plugin
+        # The Vite build installs the plugin into OBSIDIAN_TEST_VAULT (set above,
+        # and the temp vault exists) via its closeBundle hook — no separate
+        # install step needed. See scripts/install-to-vault.mjs.
         run: npm run build
-      - name: Install plugin into temp vault
-        run: node scripts/install-to-vault.cjs
       - name: Run E2E tests (WDIO)
         # GITHUB_TOKEN authenticates obsidian-launcher's GitHub API calls when it
         # downloads the TaskNotes release (the dependency spec installs it via
