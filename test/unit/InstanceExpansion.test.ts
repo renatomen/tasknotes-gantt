@@ -445,17 +445,35 @@ describe('ExpansionResult.rewriteLinks', () => {
   });
 });
 
-describe('expandInstances — determinism', () => {
-  it('produces identical output regardless of input order', () => {
-    const a = [
+describe('expandInstances — order follows input (Base sort) + determinism (U5)', () => {
+  it('row order follows the input order, NOT path order (Base toolbar sort applies)', () => {
+    // The Base hands data.data pre-sorted; the expander must preserve that order
+    // rather than re-sorting on path (the old "Base sort does nothing" bug).
+    const tasks = [task({ path: 'zebra.md' }), task({ path: 'apple.md' })];
+    const ids = expandInstances(tasks).instances.map((i) => i.id);
+    expect(ids).toEqual(['zebra.md', 'apple.md']); // input order, not ['apple','zebra']
+  });
+
+  it('children of a parent render in input (Base) order, not path order', () => {
+    const tasks = [
+      task({ path: 'P.md' }),
+      task({ path: 'c-zzz.md', parents: ['P.md'] }),
+      task({ path: 'c-aaa.md', parents: ['P.md'] }),
+    ];
+    const childOrder = expandInstances(tasks)
+      .instances.filter((i) => i.parent === 'P.md')
+      .map((i) => i.sourcePath);
+    expect(childOrder).toEqual(['c-zzz.md', 'c-aaa.md']); // input order preserved
+  });
+
+  it('same input produces identical output (deterministic across re-renders)', () => {
+    const tasks = [
       task({ path: 'A.md' }),
       task({ path: 'B.md' }),
       task({ path: 'T.md', parents: ['A.md', 'B.md'] }),
     ];
-    const b = [a[2]!, a[1]!, a[0]!];
-
-    const ra = expandInstances(a).instances.map((i) => i.id);
-    const rb = expandInstances(b).instances.map((i) => i.id);
-    expect(ra).toEqual(rb);
+    const r1 = expandInstances(tasks).instances.map((i) => i.id);
+    const r2 = expandInstances(tasks.map((t) => ({ ...t }))).instances.map((i) => i.id);
+    expect(r1).toEqual(r2);
   });
 });

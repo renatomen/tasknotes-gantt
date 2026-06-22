@@ -297,8 +297,26 @@ export function expandInstances(
 ): ExpansionResult {
   const fanOutCap = options.fanOutCap ?? DEFAULT_FANOUT_CAP;
 
-  // Stable, deterministic order so primaries and link ids are reproducible.
-  const sorted = [...tasks].sort((a, b) => compareStr(a.path, b.path));
+  // Preserve the INPUT order so the Obsidian Base's toolbar sort drives row
+  // order. The Base hands `data.data` already sorted by the toolbar sort, and
+  // BasesSource → companionResolve → resolveAndFilter all keep that order, so
+  // the desired order is already encoded in `tasks`. The previous path-only sort
+  // discarded it (the "Base sort makes no difference" bug). Determinism now
+  // comes from input stability (Bases keeps `data.data` stable for the same
+  // query + sort) rather than from an input-order-independent path sort; row
+  // order, primary selection ([0]), link ids, and cycle-break edge choice all
+  // follow this stable input order. `compareStr` is retained only as a final
+  // tie-break against a degenerate duplicate-path input (positions are unique,
+  // so it is normally dormant).
+  const orderIndex = new Map<string, number>();
+  tasks.forEach((t, i) => {
+    if (!orderIndex.has(t.path)) orderIndex.set(t.path, i);
+  });
+  const sorted = [...tasks].sort((a, b) => {
+    const ia = orderIndex.get(a.path) ?? 0;
+    const ib = orderIndex.get(b.path) ?? 0;
+    return ia !== ib ? ia - ib : compareStr(a.path, b.path);
+  });
 
   const byPath = new Map<string, ExpandableTask>();
   for (const t of sorted) byPath.set(t.path, t);
