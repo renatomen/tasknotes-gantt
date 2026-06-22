@@ -88,7 +88,10 @@ import {
   resolveCompanionTree,
   type CompanionAccessor,
   type CompanionResolveOptions,
+  type CompanionTask,
 } from '../datasource/companionResolve';
+import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
+import type { BasesSortConfig } from 'obsidian';
 
 /**
  * Date-policy + visibility configuration the controller applies when building a
@@ -222,6 +225,16 @@ export interface GanttControllerOptions {
    * recompute without a remount. Defaults to Inherit + hide-off.
    */
   companionConfig?: () => CompanionResolveOptions;
+  /**
+   * Provider for the Base's sort descriptor (`config.getSort()`), read **fresh at
+   * each snapshot build** — a closure (like {@link basesInput}). Drives the
+   * default-view safe-partial interleave (R7): with no ephemeral column sort
+   * active, fetched (Show-all) rows are positioned among their matched siblings
+   * by the primary Base sort when it maps to a Gantt field; otherwise the current
+   * matched-first fallback is kept. Defaults to `() => []` (no sort → fallback),
+   * so non-Base callers and existing tests are unaffected.
+   */
+  sortConfig?: () => readonly BasesSortConfig[];
   /** Optional injected source factories (tests). */
   deps?: GanttControllerDeps;
   /**
@@ -299,6 +312,12 @@ export class GanttController {
    */
   private readonly companionConfig: () => CompanionResolveOptions;
   /**
+   * Provider for the Base sort descriptor, read fresh at each snapshot build so
+   * the default-view interleave (R7) reflects the current toolbar sort without a
+   * remount. Defaults to `() => []` (no sort → matched-first fallback).
+   */
+  private readonly sortConfig: () => readonly BasesSortConfig[];
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -370,6 +389,7 @@ export class GanttController {
     this.policyConfigProvider = typeof pc === 'function' ? pc : () => pc;
     this.companionConfig =
       options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
+    this.sortConfig = options.sortConfig ?? (() => []);
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
     this.newCorrelationId = options.newCorrelationId ?? defaultCorrelationId;
@@ -924,7 +944,16 @@ export class GanttController {
     const displayedTasks = this.companionAccessor
       ? await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor)
       : rawTasks;
-    const tasks = this.resolveAndFilter(displayedTasks);
+    // Default-view safe-partial interleave (R7): position fetched (Show-all) rows
+    // among their matched siblings by the primary Base sort when it maps to a
+    // Gantt field — matched-row Base order is never re-sorted (KTD5). Only runs in
+    // companion mode (where fetched rows exist); a returns-input fast path keeps
+    // the matched-first fallback when the sort is unmapped/empty or there are no
+    // fetched rows. expandInstances then preserves this per-sibling input order.
+    const orderedTasks = this.companionAccessor
+      ? positionFetchedAmongMatched(displayedTasks as CompanionTask[], this.sortConfig())
+      : displayedTasks;
+    const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
 
     const sourceLinks: SourceLink[] = [];

@@ -1028,3 +1028,120 @@ describe('GanttController — per-view settings freshness', () => {
     expect(await controller.getInstances()).toEqual([]);
   });
 });
+
+describe('GanttController — default-view safe-partial interleave (U6/R7)', () => {
+  /**
+   * Build a bases-scoped, Show-all companion controller with a configurable
+   * Base sort descriptor provider, so the R7 interleave wiring is exercised
+   * end-to-end (resolveCompanionTree → positionFetchedAmongMatched → expand).
+   */
+  function makeSorted(opts: {
+    baseTasks: SourceTask[];
+    subtasks?: Record<string, SourceTask[]>;
+    parents?: Record<string, string[]>;
+    sortConfig: () => readonly import('obsidian').BasesSortConfig[];
+  }): GanttController {
+    const base = new FakeSource({ tasks: opts.baseTasks });
+    const enrichment = new CompanionEnrichment({
+      subtasks: opts.subtasks,
+      parents: opts.parents,
+    });
+    return new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      sortConfig: opts.sortConfig,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+  }
+
+  it('interleaves a fetched child before a later matched sibling under the same parent (note.due ASC)', async () => {
+    // P is the matched parent; matchedChild (due 03-10) is matched under P;
+    // fetched (due 03-03) is pulled by Show-all under P → must precede matchedChild.
+    const controller = makeSorted({
+      baseTasks: [
+        task({ path: 'P.md' }),
+        task({ path: 'matched.md', end: new Date('2026-03-10'), parents: ['P.md'] }),
+      ],
+      subtasks: { 'P.md': [task({ path: 'fetched.md', end: new Date('2026-03-03') })] },
+      parents: { 'matched.md': ['P.md'], 'fetched.md': ['P.md'] },
+      sortConfig: () => [{ property: 'note.due' as never, direction: 'ASC' }],
+    });
+    await controller.init();
+    // Children nested under P, in render order.
+    const childOrder = (await controller.getInstances())
+      .filter((i) => i.parent !== undefined)
+      .map((i) => i.sourcePath);
+    expect(childOrder).toEqual(['fetched.md', 'matched.md']);
+  });
+
+  it('keeps the matched-first fallback for an unmapped (formula) Base sort', async () => {
+    const controller = makeSorted({
+      baseTasks: [
+        task({ path: 'P.md' }),
+        task({ path: 'matched.md', end: new Date('2026-03-10'), parents: ['P.md'] }),
+      ],
+      subtasks: { 'P.md': [task({ path: 'fetched.md', end: new Date('2026-03-03') })] },
+      parents: { 'matched.md': ['P.md'], 'fetched.md': ['P.md'] },
+      sortConfig: () => [{ property: 'formula.daysLeft' as never, direction: 'ASC' }],
+    });
+    await controller.init();
+    const childOrder = (await controller.getInstances())
+      .filter((i) => i.parent !== undefined)
+      .map((i) => i.sourcePath);
+    // No positioning → fetched trails the matched sibling (discovery order).
+    expect(childOrder).toEqual(['matched.md', 'fetched.md']);
+  });
+
+  it('reads the sort descriptor fresh each recompute (toolbar-sort change reflows without remount)', async () => {
+    const live: { sort: import('obsidian').BasesSortConfig[] } = {
+      sort: [{ property: 'formula.x' as never, direction: 'ASC' }],
+    };
+    const controller = makeSorted({
+      baseTasks: [
+        task({ path: 'P.md' }),
+        task({ path: 'matched.md', end: new Date('2026-03-10'), parents: ['P.md'] }),
+      ],
+      subtasks: { 'P.md': [task({ path: 'fetched.md', end: new Date('2026-03-03') })] },
+      parents: { 'matched.md': ['P.md'], 'fetched.md': ['P.md'] },
+      sortConfig: () => live.sort,
+    });
+    await controller.init();
+    const childOrderBefore = (await controller.getInstances())
+      .filter((i) => i.parent !== undefined)
+      .map((i) => i.sourcePath);
+    expect(childOrderBefore).toEqual(['matched.md', 'fetched.md']);
+
+    // Toolbar sort switches to note.due ASC → next recompute interleaves.
+    live.sort = [{ property: 'note.due' as never, direction: 'ASC' }];
+    await controller.refreshSource();
+    const childOrderAfter = (await controller.getInstances())
+      .filter((i) => i.parent !== undefined)
+      .map((i) => i.sourcePath);
+    expect(childOrderAfter).toEqual(['fetched.md', 'matched.md']);
+  });
+
+  it('defaults to the matched-first fallback when no sortConfig provider is given', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'matched.md', end: new Date('2026-03-10'), parents: ['P.md'] })] });
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'fetched.md', end: new Date('2026-03-03') })] },
+      parents: { 'matched.md': ['P.md'], 'fetched.md': ['P.md'] },
+    });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+    await controller.init();
+    const childOrder = (await controller.getInstances())
+      .filter((i) => i.parent !== undefined)
+      .map((i) => i.sourcePath);
+    expect(childOrder).toEqual(['matched.md', 'fetched.md']);
+  });
+});

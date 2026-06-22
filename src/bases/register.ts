@@ -14,6 +14,7 @@ import {
   type Plugin,
   type BasesViewConfig,
   type BasesPropertyId,
+  type BasesSortConfig,
   type BasesAllOptions,
   type QueryController,
 } from 'obsidian';
@@ -214,6 +215,22 @@ class ObsidianGanttBasesView extends BasesView {
     return this.data?.properties ?? [];
   }
 
+  /**
+   * The Base's sort descriptor (`config.getSort()`) — the toolbar sort, as
+   * `{ property, direction }[]` (primary first). Drives the default-view
+   * fetched-row interleave (R7/U6). Returns `[]` when no sort is configured or
+   * `getSort()` is unavailable on this Bases version → matched-first fallback.
+   */
+  private getBaseSort(): readonly BasesSortConfig[] {
+    try {
+      const sort = this.config.getSort?.();
+      if (Array.isArray(sort)) return sort;
+    } catch {
+      // getSort unavailable on this Bases version — fall through to no sort.
+    }
+    return [];
+  }
+
   /** The Base's display name for a property id, falling back to the id (U2). */
   private getDisplayName(propertyId: BasesPropertyId): string {
     try {
@@ -359,6 +376,12 @@ class ObsidianGanttBasesView extends BasesView {
           mode: this.getExpandedRelationships(),
           hideTopLevel: this.getHideTopLevelSubtasks(),
         }),
+        // Default-view safe-partial interleave (plan 002 R7/U6): the controller
+        // positions Show-all fetched rows among their matched siblings by the
+        // Base's primary sort when it maps to a Gantt field. Read fresh each
+        // recompute (provider closure) so a toolbar-sort change reflows without a
+        // remount. getSort() returns [] when no sort is configured → fallback.
+        sortConfig: () => this.getBaseSort(),
       });
 
       await controller.init();
