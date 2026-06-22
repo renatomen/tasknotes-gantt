@@ -1955,6 +1955,39 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
   }
 
+  /*
+   * Grid header sort indicator (plan 2026-06-22-002): SVAR renders the active
+   * sort direction as `<i class="wxi-arrow-up|down">` inside the header's
+   * `.wx-sort`, but the wxi icon font is disabled (`fonts={false}`, CSP), so the
+   * glyph is blank — the sort STATE is tracked (aria-sort flips) but there is no
+   * visible cue. Render an inline-SVG chevron masked with the header text colour
+   * (`currentColor`) so the active column + direction read in both light and dark
+   * themes. Mask (not background-image) so it inherits the themed text colour;
+   * Obsidian is Chromium, so `-webkit-mask` alpha masking is reliable.
+   */
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-up),
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-down) {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background-color: currentColor;
+    opacity: 0.8;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-up) {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 15-6-6-6 6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 15-6-6-6 6'/%3E%3C/svg%3E");
+  }
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-down) {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+
   /* OG-82: Hide the decorative spike/arrow pseudo-elements from SVAR Resizer */
   .og-bases-gantt :global(.wx-button-expand-content::before),
   .og-bases-gantt :global(.wx-button-expand-content::after) {
