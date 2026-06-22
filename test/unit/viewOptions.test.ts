@@ -8,11 +8,13 @@ import { describe, expect, it } from "@jest/globals";
 import type { BasesAllOptions } from "obsidian";
 import {
   ganttViewOptions,
+  readContextOpacity,
   readExpandedRelationships,
   readHideTopLevelSubtasks,
   readMaxHeight,
   readShowToolbar,
   taskListViewOptions,
+  DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
 
@@ -107,6 +109,7 @@ describe("ganttViewOptions", () => {
     const keys = standalone.map((o) => ("key" in o ? o.key : undefined));
     expect(keys).not.toContain("tngantt_expandedRelationships");
     expect(keys).not.toContain("tngantt_hideTopLevelSubtasks");
+    expect(keys).not.toContain("tngantt_contextOpacity");
     // Non-companion controls remain.
     expect(keys).toContain("tngantt_showToolbar");
     expect(keys).toContain("tngantt_defaultScale");
@@ -165,8 +168,21 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 4 dropdowns + 2 sliders + 5 toggles.
-    expect(options).toHaveLength(17);
+    // 6 shared property options + 4 dropdowns + 3 sliders + 5 toggles.
+    // (3rd slider: the companion-only context-bar opacity, U6.)
+    expect(options).toHaveLength(18);
+  });
+
+  it("models the companion-only context-bar opacity as a slider (U6)", () => {
+    const opacity = byKey(options, "tngantt_contextOpacity");
+    expect(opacity).toMatchObject({
+      type: "slider",
+      key: "tngantt_contextOpacity",
+      default: 55,
+      min: 10,
+      max: 100,
+      step: 5,
+    });
   });
 });
 
@@ -265,5 +281,29 @@ describe("readMaxHeight", () => {
     expect(readMaxHeight(() => "abc")).toBe(400);
     expect(readMaxHeight(() => null)).toBe(400);
     expect(readMaxHeight(() => Infinity)).toBe(400);
+  });
+});
+
+describe("readContextOpacity", () => {
+  it("defaults to DEFAULT_CONTEXT_OPACITY when unset", () => {
+    expect(readContextOpacity(() => undefined)).toBe(DEFAULT_CONTEXT_OPACITY);
+  });
+
+  it("converts the stored percentage to a 0–1 fraction (number or numeric string)", () => {
+    expect(readContextOpacity(() => 55)).toBeCloseTo(0.55);
+    expect(readContextOpacity(() => "80")).toBeCloseTo(0.8);
+    expect(readContextOpacity(() => 100)).toBe(1);
+  });
+
+  it("clamps to [0.1, 1] so context bars never vanish or exceed full opacity", () => {
+    expect(readContextOpacity(() => 0)).toBe(0.1);
+    expect(readContextOpacity(() => 5)).toBe(0.1);
+    expect(readContextOpacity(() => 150)).toBe(1);
+  });
+
+  it("falls back to the default for non-finite / junk values", () => {
+    expect(readContextOpacity(() => "abc")).toBe(DEFAULT_CONTEXT_OPACITY);
+    expect(readContextOpacity(() => null)).toBe(DEFAULT_CONTEXT_OPACITY);
+    expect(readContextOpacity(() => Infinity)).toBe(DEFAULT_CONTEXT_OPACITY);
   });
 });

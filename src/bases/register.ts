@@ -39,6 +39,7 @@ import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
 import {
   ganttViewOptions,
+  readContextOpacity,
   readExpandedRelationships,
   readHideTopLevelSubtasks,
   readMaxHeight,
@@ -292,6 +293,11 @@ class ObsidianGanttBasesView extends BasesView {
     return readHideTopLevelSubtasks((key) => this.config.get(key));
   }
 
+  /** Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. */
+  private getContextOpacity(): number {
+    return readContextOpacity((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view theme mode (plan 002 R4), normalized to
    * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
@@ -484,6 +490,7 @@ class ObsidianGanttBasesView extends BasesView {
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
       maxHeight: this.getMaxHeight(),
+      contextOpacity: this.getContextOpacity(),
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),

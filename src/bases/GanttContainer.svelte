@@ -52,6 +52,7 @@
     SVAR_CELL_HEIGHT,
     SVAR_SCALE_HEIGHT,
   } from './ganttHeight';
+  import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -226,6 +227,11 @@
   // option re-fits the host live without a remount. Default 400 (R1).
   const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
 
+  // Show-all context-bar opacity (U6). Reactive so the slider re-tints bars live.
+  // Applied below as a CSS custom property the `.og-context` rule reads (driving
+  // a dynamic value through a class-only stylesheet isn't possible otherwise).
+  const contextOpacity = $derived($data.contextOpacity ?? DEFAULT_CONTEXT_OPACITY);
+
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
   // SVAR-store echo guard — KTD "two echo loops").
@@ -252,6 +258,13 @@
       rootEl.appendChild(styleEl);
     }
     styleEl.textContent = css;
+  });
+
+  // Drive the Show-all context-bar opacity (U6) as a CSS custom property on the
+  // view root; the `.og-context` rule reads `var(--og-context-opacity)`. Reactive
+  // on the slider value so it re-tints live (rootEl is bound by the time this runs).
+  $effect(() => {
+    rootEl?.style.setProperty('--og-context-opacity', String(contextOpacity));
   });
 
   // Native interaction listeners on the chart root (U2): capture the last
@@ -1705,7 +1718,9 @@
    * visually dominant.
    */
   .og-bases-gantt :global(.wx-bar.og-context) {
-    opacity: 0.55;
+    /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
+       matches DEFAULT_CONTEXT_OPACITY. */
+    opacity: var(--og-context-opacity, 0.55);
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

@@ -71,6 +71,18 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
 export type ExpandedRelationships = 'inherit' | 'show-all';
 
 /**
+ * Default opacity (fraction 0–1) for Show-all *context* bars (U6) — descendants
+ * pulled in for structure that don't match the Base filter. Used as the slider's
+ * default (as a percentage) and as the fallback in {@link readContextOpacity} and
+ * the view. Context bars are companion-only, so the slider lives in
+ * {@link relationshipOptions}.
+ */
+export const DEFAULT_CONTEXT_OPACITY = 0.55;
+
+/** Minimum context-bar opacity (fraction) — keep context bars faintly visible. */
+const MIN_CONTEXT_OPACITY = 0.1;
+
+/**
  * Companion-only relationship controls (Expanded relationships + Hide top-level
  * subtasks). Grouped together and rendered ONLY when TaskNotes is present —
  * expansion is companion-only, so in standalone mode these are omitted rather
@@ -95,6 +107,20 @@ function relationshipOptions(): BasesAllOptions[] {
       displayName: 'Hide top-level subtasks',
       key: 'tngantt_hideTopLevelSubtasks',
       default: false,
+    },
+    // U6 cue tuning: how prominent Show-all *context* bars (out-of-filter
+    // descendants) are. Stored as a percentage; read as a 0–1 fraction in
+    // readContextOpacity() and applied as a CSS custom property. Number → slider
+    // (the official options union has no 'number' control). `max`/`step` are
+    // required for a usable Obsidian slider (see the max-height note below).
+    {
+      type: 'slider',
+      displayName: 'Context bar opacity (%)',
+      key: 'tngantt_contextOpacity',
+      default: Math.round(DEFAULT_CONTEXT_OPACITY * 100),
+      min: Math.round(MIN_CONTEXT_OPACITY * 100),
+      max: 100,
+      step: 5,
     },
   ];
 }
@@ -269,6 +295,25 @@ export function readExpandedRelationships(get: (key: string) => unknown): Expand
  */
 export function readHideTopLevelSubtasks(get: (key: string) => unknown): boolean {
   return get('tngantt_hideTopLevelSubtasks') === true;
+}
+
+/**
+ * Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. The
+ * slider stores a percentage; this converts and clamps to
+ * `[MIN_CONTEXT_OPACITY, 1]` so context bars never fully vanish or exceed 1. A
+ * non-numeric/non-finite stored value falls back to {@link DEFAULT_CONTEXT_OPACITY}.
+ * Pure (no Obsidian/DOM); mirrors {@link readMaxHeight}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readContextOpacity(get: (key: string) => unknown): number {
+  const raw = get('tngantt_contextOpacity');
+  // Unset/blank reads as the default — distinct from a real 0, which `Number()`
+  // would also coerce from null/'' and then clamp (hiding the "unset" intent).
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_CONTEXT_OPACITY;
+  const pct = Number(raw);
+  if (!Number.isFinite(pct)) return DEFAULT_CONTEXT_OPACITY;
+  return Math.min(1, Math.max(MIN_CONTEXT_OPACITY, pct / 100));
 }
 
 /**
