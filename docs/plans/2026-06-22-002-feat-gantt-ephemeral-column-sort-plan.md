@@ -1,7 +1,7 @@
 ---
 title: "feat: Gantt ephemeral column sort + reset"
 type: feat
-status: active
+status: completed
 date: 2026-06-22
 origin: docs/brainstorms/2026-06-22-gantt-ephemeral-column-sort-requirements.md
 related:
