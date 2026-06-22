@@ -339,8 +339,13 @@ class ObsidianGanttBasesView extends BasesView {
           mappings: this.buildFieldMappings(),
         }),
         policyConfig: this.buildDatePolicyConfig(),
-        expandedRelationships: this.getExpandedRelationships(),
-        hideTopLevel: this.getHideTopLevelSubtasks(),
+        // Provider closure → read fresh on every recompute, so toggling these
+        // per-view options applies instantly (onDataUpdated → refreshSource),
+        // no manual refresh/remount needed.
+        companionConfig: () => ({
+          mode: this.getExpandedRelationships(),
+          hideTopLevel: this.getHideTopLevelSubtasks(),
+        }),
       });
 
       await controller.init();

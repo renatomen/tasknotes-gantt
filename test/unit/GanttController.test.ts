@@ -818,8 +818,10 @@ describe('GanttController — companion expansion stage (U4)', () => {
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      expandedRelationships: opts.mode,
-      hideTopLevel: opts.hideTopLevel,
+      companionConfig: () => ({
+        mode: opts.mode ?? 'inherit',
+        hideTopLevel: opts.hideTopLevel ?? false,
+      }),
       deps: {
         createBasesSource: () => base,
         createTaskNotesSource: async () => enrichment,
@@ -895,6 +897,37 @@ describe('GanttController — companion expansion stage (U4)', () => {
     expect(
       links.some((l) => l.source === 'P.md' && l.target.startsWith('C.md') && l.type === 'e2s'),
     ).toBe(true);
+  });
+
+  it('reads companion settings fresh each recompute (toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const live = { mode: 'inherit' as 'inherit' | 'show-all', hideTopLevel: true };
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: live.mode, hideTopLevel: live.hideTopLevel }),
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+    await controller.init();
+    // hide on → nested only.
+    expect(
+      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id),
+    ).toEqual(['C.md#parent-P.md']);
+
+    // Flip the live setting and re-run selection (what onDataUpdated does).
+    live.hideTopLevel = false;
+    await controller.refreshSource();
+    expect(
+      (await controller.getInstances())
+        .filter((i) => i.sourcePath === 'C.md')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(['C.md', 'C.md#parent-P.md']);
   });
 
   it('companion stage is inert in standalone mode (parents from the Base)', async () => {

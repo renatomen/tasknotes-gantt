@@ -88,7 +88,7 @@ import { applyDatePolicy, type DateStatus } from './datePolicy';
 import {
   resolveCompanionTree,
   type CompanionAccessor,
-  type CompanionMode,
+  type CompanionResolveOptions,
 } from '../datasource/companionResolve';
 
 /**
@@ -215,15 +215,12 @@ export interface GanttControllerOptions {
    */
   policyConfig?: DatePolicyConfig;
   /**
-   * Expanded-relationships mode (companion mode only). Read at each snapshot
-   * build. Defaults to `'inherit'`.
+   * Provider for the companion settings (expanded-relationships mode +
+   * hide-top-level). Read **fresh at each snapshot build** — a closure (like
+   * {@link basesInput}), so a per-view option change applies on the next
+   * recompute without a remount. Defaults to Inherit + hide-off.
    */
-  expandedRelationships?: CompanionMode;
-  /**
-   * Hide-top-level-subtasks toggle (companion mode only). Read at each snapshot
-   * build. Defaults to `false`.
-   */
-  hideTopLevel?: boolean;
+  companionConfig?: () => CompanionResolveOptions;
   /** Optional injected source factories (tests). */
   deps?: GanttControllerDeps;
   /**
@@ -294,8 +291,11 @@ export class GanttController {
   private readonly basesInput: BasesInputProvider;
   private readonly sourceStrategy: SourceStrategy;
   private readonly policyConfig: DatePolicyConfig;
-  private readonly expandedRelationships: CompanionMode;
-  private readonly hideTopLevel: boolean;
+  /**
+   * Provider for the companion settings, read fresh at each snapshot build so
+   * an option change applies on the next recompute (no remount).
+   */
+  private readonly companionConfig: () => CompanionResolveOptions;
   /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
@@ -365,8 +365,8 @@ export class GanttController {
     this.basesInput = options.basesInput;
     this.sourceStrategy = options.sourceStrategy ?? 'tasknotes-first';
     this.policyConfig = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
-    this.expandedRelationships = options.expandedRelationships ?? 'inherit';
-    this.hideTopLevel = options.hideTopLevel ?? false;
+    this.companionConfig =
+      options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
     this.newCorrelationId = options.newCorrelationId ?? defaultCorrelationId;
@@ -919,11 +919,7 @@ export class GanttController {
     // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
     // unchanged (parents from the Base's parentProperty).
     const displayedTasks = this.companionAccessor
-      ? await resolveCompanionTree(
-          rawTasks,
-          { mode: this.expandedRelationships, hideTopLevel: this.hideTopLevel },
-          this.companionAccessor,
-        )
+      ? await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor)
       : rawTasks;
     const tasks = this.resolveAndFilter(displayedTasks);
     const expansion = expandInstances(tasks);
