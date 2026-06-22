@@ -1336,7 +1336,6 @@
 
 <div
   class="og-bases-gantt"
-  style={`height: ${hostHeightPx}px;`}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -1354,7 +1353,13 @@
        data updates), and the flip reseeds the chart's data (see
        maybeReseedForThemeFlip) so the remounted <Gantt> shows current data.
        fonts={false} omits the font CDN <link> (CSP). -->
-  <div class="og-chart-area">
+  <!-- The computed host height (plan 003 U2) is applied HERE, on the chart
+       region — NOT the outer container — so the optional toolbar and notice
+       banners add their height ABOVE the chart instead of subtracting from it.
+       Applied to the outer container, chrome shrank the chart below its content
+       height; collapsed to a single root that clipped the only row. This element
+       is the definite-height ancestor SVAR's `height:100%` chain resolves against. -->
+  <div class="og-chart-area" style={`height: ${hostHeightPx}px;`}>
     {#if effectiveIsDark}
       <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
     {:else}
@@ -1473,16 +1478,13 @@
 <style>
   .og-bases-gantt {
     width: 100%;
-    /* Height is set inline as an explicit px value (plan 003 U2): the host fits
-       its content up to the per-view max-height, then scrolls. SVAR's
-       `height:100%` chain needs a *definite* host height, so there is no CSS
-       `height`/`min-height` here — the inline value (always ≥ the ~2-row floor)
-       is authoritative. Full screen doesn't touch this: SVAR's <Fullscreen>
-       promotes its own inner node to the native top layer. */
-    /* Column layout so the optional toolbar takes its natural height and the
-       chart fills the remaining space — without this the toolbar + a height:100%
-       chart overflow the host, clipping the toolbar or the floating zoom buttons
-       on scroll. */
+    /* No explicit height here: the computed chart height is applied to
+       `.og-chart-area` (plan 003 U2 / collapse-clip fix), so this outer container
+       sizes to its content — the optional toolbar/banners plus the chart region.
+       Applying the chart height here instead made chrome subtract from the chart,
+       clipping a single collapsed root. Full screen is unaffected: SVAR's
+       <Fullscreen> promotes its own inner node to the native top layer. */
+    /* Column layout so the toolbar stacks above the chart region. */
     display: flex;
     flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
@@ -1499,7 +1501,11 @@
      than overflow). The <Willow>/<WillowDark> render their own
      `<div class="wx-theme wx-willow-theme" style="height:100%">` inside this. */
   .og-chart-area {
-    flex: 1 1 auto;
+    /* Height is set inline (plan 003 U2 / collapse-clip fix): this region owns
+       the computed chart height so the toolbar/banners sit above it rather than
+       eating into it. `flex: none` so the flex column never shrinks it below the
+       explicit height. */
+    flex: none;
     min-height: 0;
   }
 
