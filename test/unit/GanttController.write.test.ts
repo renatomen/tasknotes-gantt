@@ -329,13 +329,14 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.getDateMappingInfo().startInvalid).toBe(false);
   });
 
-  it('forces read-only (no writes) when there is no field config, keeping legacy read defaults (R-F)', async () => {
+  it('forces read-only (no writes) when there is no field config; date props pass through unchanged (no hardcoded fallback) (R-F)', async () => {
     const { controller, enrichment, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
     await controller.init();
 
-    // Read mapping still uses the legacy defaults so the chart renders.
-    expect(getBaseMappings()?.startProperty).toBe('note.start');
-    expect(getBaseMappings()?.endProperty).toBe('note.due');
+    // No TaskNotes field config AND no configured date property → the read mapping
+    // passes through unset (property-agnostic: we never assume note.start/note.due).
+    expect(getBaseMappings()?.startProperty).toBeUndefined();
+    expect(getBaseMappings()?.endProperty).toBeUndefined();
 
     // But without resolvable write targets the composite is read-only — a write
     // could otherwise land in a different field than the Base reads (R-F / #70).

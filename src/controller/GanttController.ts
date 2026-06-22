@@ -317,6 +317,18 @@ export class GanttController {
    */
   private readonly sortConfig: () => readonly BasesSortConfig[];
   /**
+   * The resolved field mappings the active source reads from (per-user config,
+   * from TaskNotes when present) — set in {@link selectSource}. The default-view
+   * interleave inverts these to map a Base sort property to a Gantt field, so no
+   * Obsidian property name is ever hardcoded. Empty until the first source select.
+   */
+  private effectiveMappings: FieldMappings = {
+    textProperty: '',
+    startProperty: '',
+    endProperty: '',
+    progressProperty: '',
+  };
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -757,6 +769,10 @@ export class GanttController {
         ? (await enrichment.getFieldConfig?.()) ?? null
         : null;
       const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      // Remember the resolved mappings the source reads from: the default-view
+      // interleave (buildSnapshot) inverts them to decide which Gantt field a Base
+      // sort property corresponds to (never a hardcoded property name).
+      this.effectiveMappings = effectiveMappings;
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
       // Force read-only when we have no resolvable field config: without write
       // targets, a date edit would fall through to canonical scheduled/due and
@@ -794,14 +810,11 @@ export class GanttController {
         startReadProp: null,
         endReadProp: null,
       };
-      // No TaskNotes field config (TaskNotes absent): no write targets, and the
-      // read falls back to the legacy note.start/note.due when unset, preserving
-      // the pre-TaskNotes Bases behavior.
-      return {
-        ...mappings,
-        startProperty: mappings.startProperty || 'note.start',
-        endProperty: mappings.endProperty || 'note.due',
-      };
+      // No TaskNotes field config (TaskNotes absent): no write targets. Read
+      // straight from the view-configured start/end properties — empty when the
+      // user mapped none. We do NOT assume note.start/note.due; the plugins are
+      // property-agnostic (a user's date field can be any property).
+      return { ...mappings };
     }
 
     const startRes = resolveDateMapping(
@@ -951,7 +964,11 @@ export class GanttController {
     let orderedTasks: readonly ExpandableTask[];
     if (this.companionAccessor) {
       const companionTasks = await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor);
-      orderedTasks = positionFetchedAmongMatched(companionTasks, this.sortConfig());
+      // Interleave by the RESOLVED field mappings (the same per-user config that
+      // filled task.start/end/status/…), never a hardcoded property table — so a
+      // Base sort only positions fetched rows when its property is the one a Gantt
+      // field was actually mapped from.
+      orderedTasks = positionFetchedAmongMatched(companionTasks, this.sortConfig(), this.effectiveMappings);
     } else {
       orderedTasks = rawTasks;
     }

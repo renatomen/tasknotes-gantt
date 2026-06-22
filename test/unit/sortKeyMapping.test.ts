@@ -3,18 +3,20 @@
  * 2026-06-22-002, U6 / R7).
  *
  * Covers:
- * - property→field mapping for the five mapped Gantt fields, and `null` for an
- *   unmapped / formula sort key (Covers AE5).
+ * - property→field mapping driven by the user's configured {@link FieldMappings}
+ *   (NEVER hardcoded names) — a custom-mapped property maps; a Base sort property
+ *   that isn't the configured property for any field returns `null` (the fix for
+ *   the chatgpt-codex-connector P2: don't position by a value Bases didn't sort by).
  * - sort-key extraction off a SourceTask for each mapped field.
  * - {@link positionFetchedAmongMatched}: fetched rows positioned among their
  *   matched siblings by the mapped key, with matched-row Base order preserved
- *   EXACTLY (the don't-re-sort-matched regression guard); null keys sort last;
- *   an unmapped key leaves the current matched-first fallback (fetched trail);
- *   descending order positions correctly.
+ *   EXACTLY; null keys sort last; an unmapped key leaves the matched-first
+ *   fallback; descending order positions correctly.
  */
 
 import { describe, it, expect } from '@jest/globals';
 import type { CompanionTask } from '../../src/datasource/companionResolve';
+import type { FieldMappings } from '../../src/bases/types/field-mapping';
 import type { BasesSortConfig } from 'obsidian';
 import {
   mapSortPropertyToField,
@@ -43,31 +45,66 @@ function sort(property: string, direction: 'ASC' | 'DESC' = 'ASC'): BasesSortCon
   return [{ property: property as BasesSortConfig['property'], direction }];
 }
 
-describe('sortKeyMapping — mapSortPropertyToField', () => {
-  it('maps note.scheduled → start', () => {
-    expect(mapSortPropertyToField('note.scheduled')).toBe('start');
+/** Build a FieldMappings with sane test defaults; override per case. */
+function mapped(over: Partial<FieldMappings> = {}): FieldMappings {
+  return {
+    textProperty: '',
+    startProperty: 'note.scheduled',
+    endProperty: 'note.due',
+    statusProperty: 'note.status',
+    progressProperty: 'note.progress',
+    ...over,
+  };
+}
+
+/** The common case used by the positioning tests (sort key == configured end prop). */
+const MAPPINGS = mapped();
+
+describe('sortKeyMapping — mapSortPropertyToField (config-driven, property-agnostic)', () => {
+  it('maps each configured property to its Gantt field', () => {
+    const m = mapped();
+    expect(mapSortPropertyToField(m.startProperty, m)).toBe('start');
+    expect(mapSortPropertyToField(m.endProperty, m)).toBe('end');
+    expect(mapSortPropertyToField(m.statusProperty as string, m)).toBe('status');
+    expect(mapSortPropertyToField(m.progressProperty, m)).toBe('progress');
   });
 
-  it('maps note.due → end', () => {
-    expect(mapSortPropertyToField('note.due')).toBe('end');
+  it('is property-agnostic: a custom-mapped property (note.banana → start) maps; the conventional name does not', () => {
+    const m = mapped({ startProperty: 'note.banana' });
+    expect(mapSortPropertyToField('note.banana', m)).toBe('start');
+    // With "scheduled" remapped to note.banana, the conventional note.scheduled is
+    // no longer a Gantt-field property → no positioning (must not assume it).
+    expect(mapSortPropertyToField('note.scheduled', m)).toBeNull();
   });
 
-  it('maps file.name → text', () => {
-    expect(mapSortPropertyToField('file.name')).toBe('text');
+  it('maps the configured name property, or the file-name built-ins when textProperty is unset', () => {
+    expect(mapSortPropertyToField('file.name', mapped({ textProperty: '' }))).toBe('text');
+    expect(mapSortPropertyToField('file.basename', mapped({ textProperty: '' }))).toBe('text');
+    const m = mapped({ textProperty: 'note.title' });
+    expect(mapSortPropertyToField('note.title', m)).toBe('text');
+    // With a configured name property, the file-name built-ins no longer map to text.
+    expect(mapSortPropertyToField('file.name', m)).toBeNull();
   });
 
-  it('maps note.status → status', () => {
-    expect(mapSortPropertyToField('note.status')).toBe('status');
+  it('returns null for a sort key that is not the configured property of any field (Codex P2 fix)', () => {
+    // end is mapped to a CUSTOM property; the Base sorts by note.due → must NOT be
+    // treated as `end` (matched rows were ordered by note.due, not the custom field).
+    const m = mapped({ endProperty: 'note.customDue' });
+    expect(mapSortPropertyToField('note.due', m)).toBeNull();
   });
 
-  it('maps note.progress → progress', () => {
-    expect(mapSortPropertyToField('note.progress')).toBe('progress');
+  it('returns null for a formula / arbitrary / empty sort key', () => {
+    const m = mapped();
+    expect(mapSortPropertyToField('formula.daysLeft', m)).toBeNull();
+    expect(mapSortPropertyToField('note.assignee', m)).toBeNull();
+    expect(mapSortPropertyToField('', m)).toBeNull();
   });
 
-  it('returns null for an unmapped property (Covers AE5: formula/arbitrary)', () => {
-    expect(mapSortPropertyToField('formula.daysLeft')).toBeNull();
-    expect(mapSortPropertyToField('note.assignee')).toBeNull();
-    expect(mapSortPropertyToField('file.mtime')).toBeNull();
+  it('ignores empty mappings (no field has a configured property → always null)', () => {
+    const empty = mapped({ startProperty: '', endProperty: '', statusProperty: '', progressProperty: '', textProperty: '' });
+    expect(mapSortPropertyToField('note.due', empty)).toBeNull();
+    // textProperty unset still allows the file-name built-ins for the name column.
+    expect(mapSortPropertyToField('file.name', empty)).toBe('text');
   });
 });
 
@@ -113,7 +150,7 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       ctask({ path: 'm1.md', isFetched: false, end: new Date('2026-03-20'), parents: ['P.md'] }),
       ctask({ path: 'm2.md', isFetched: false, end: new Date('2026-03-01'), parents: ['P.md'] }),
     ];
-    const result = positionFetchedAmongMatched(matched, sort('note.due', 'ASC'));
+    const result = positionFetchedAmongMatched(matched, sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['m1.md', 'm2.md']);
   });
 
@@ -131,7 +168,7 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       end: new Date('2026-03-03'),
       parents: ['P.md'],
     });
-    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'));
+    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['fetched.md', 'matched.md']);
   });
 
@@ -148,22 +185,40 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       end: new Date('2026-03-15'),
       parents: ['P.md'],
     });
-    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'));
+    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['matched.md', 'fetched.md']);
+  });
+
+  it('positions by a CUSTOM-mapped sort property (property-agnostic, end → note.banana)', () => {
+    // The user's "end" is note.banana, and the Base sorts by note.banana → positions
+    // by task.end (which BasesSource filled from note.banana). Proves no hardcoding.
+    const m = mapped({ endProperty: 'note.banana' });
+    const matched = ctask({ path: 'matched.md', isFetched: false, end: new Date('2026-03-10'), parents: ['P.md'] });
+    const fetched = ctask({ path: 'fetched.md', isFetched: true, end: new Date('2026-03-03'), parents: ['P.md'] });
+    const result = positionFetchedAmongMatched([matched, fetched], sort('note.banana', 'ASC'), m);
+    expect(result.map((t) => t.path)).toEqual(['fetched.md', 'matched.md']);
+  });
+
+  it('does NOT position when the Base sort key differs from the configured field property (Codex P2)', () => {
+    // Base sorts by note.due, but the view mapped end → note.customDue. Treating
+    // note.due as end would order fetched by the wrong value → must fall back.
+    const m = mapped({ endProperty: 'note.customDue' });
+    const tasks: CompanionTask[] = [
+      ctask({ path: 'm.md', isFetched: false, end: new Date('2026-03-10'), parents: ['P.md'] }),
+      ctask({ path: 'f.md', isFetched: true, end: new Date('2026-03-01'), parents: ['P.md'] }),
+    ];
+    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'), m);
+    expect(result).toBe(tasks); // unchanged (matched-first fallback)
   });
 
   it('positions fetched rows independently per sibling group (by parent)', () => {
     const tasks: CompanionTask[] = [
       ctask({ path: 'A.md', isFetched: false, end: new Date('2026-03-10'), parents: ['P.md'] }),
       ctask({ path: 'B.md', isFetched: false, end: new Date('2026-03-10'), parents: ['Q.md'] }),
-      // Fetched under P, earlier than A → before A.
       ctask({ path: 'fP.md', isFetched: true, end: new Date('2026-03-01'), parents: ['P.md'] }),
-      // Fetched under Q, later than B → after B.
       ctask({ path: 'fQ.md', isFetched: true, end: new Date('2026-03-20'), parents: ['Q.md'] }),
     ];
-    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'));
-    // P group: fP before A. Q group: B before fQ. Matched A precedes matched B
-    // in Base order, so groups stay anchored to their matched members' order.
+    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'), MAPPINGS);
     const order = result.map((t) => t.path);
     expect(order.indexOf('fP.md')).toBeLessThan(order.indexOf('A.md'));
     expect(order.indexOf('B.md')).toBeLessThan(order.indexOf('fQ.md'));
@@ -177,12 +232,11 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       parents: ['P.md'],
     });
     const fetched = ctask({ path: 'fetched.md', isFetched: true, end: null, parents: ['P.md'] });
-    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'));
+    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['matched.md', 'fetched.md']);
   });
 
   it('positions correctly for descending order', () => {
-    // Descending: larger keys first. Fetched 03-20 should land before matched 03-10.
     const matched = ctask({
       path: 'matched.md',
       isFetched: false,
@@ -195,7 +249,7 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       end: new Date('2026-03-20'),
       parents: ['P.md'],
     });
-    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'DESC'));
+    const result = positionFetchedAmongMatched([matched, fetched], sort('note.due', 'DESC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['fetched.md', 'matched.md']);
   });
 
@@ -204,8 +258,7 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       ctask({ path: 'm.md', isFetched: false, parents: ['P.md'] }),
       ctask({ path: 'f.md', isFetched: true, end: new Date('2026-03-01'), parents: ['P.md'] }),
     ];
-    // Input already has matched-first; an unmapped key must leave it untouched.
-    const result = positionFetchedAmongMatched(tasks, sort('formula.daysLeft', 'ASC'));
+    const result = positionFetchedAmongMatched(tasks, sort('formula.daysLeft', 'ASC'), MAPPINGS);
     expect(result).toBe(tasks);
   });
 
@@ -214,7 +267,7 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       ctask({ path: 'm.md', isFetched: false, parents: ['P.md'] }),
       ctask({ path: 'f.md', isFetched: true, parents: ['P.md'] }),
     ];
-    const result = positionFetchedAmongMatched(tasks, []);
+    const result = positionFetchedAmongMatched(tasks, [], MAPPINGS);
     expect(result).toBe(tasks);
   });
 
@@ -223,19 +276,16 @@ describe('sortKeyMapping — positionFetchedAmongMatched', () => {
       ctask({ path: 'a.md', isFetched: false, end: new Date('2026-03-10'), parents: ['P.md'] }),
       ctask({ path: 'b.md', isFetched: false, end: new Date('2026-03-01'), parents: ['P.md'] }),
     ];
-    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'));
-    // No fetched rows to position → matched order preserved exactly.
+    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['a.md', 'b.md']);
   });
 
   it('a fetched row with no matched sibling in its group keeps its relative order', () => {
-    // Group P has only fetched rows; they keep their input (discovery) order
-    // among themselves but ordered by key when both have keys.
     const tasks: CompanionTask[] = [
       ctask({ path: 'f2.md', isFetched: true, end: new Date('2026-03-20'), parents: ['P.md'] }),
       ctask({ path: 'f1.md', isFetched: true, end: new Date('2026-03-01'), parents: ['P.md'] }),
     ];
-    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'));
+    const result = positionFetchedAmongMatched(tasks, sort('note.due', 'ASC'), MAPPINGS);
     expect(result.map((t) => t.path)).toEqual(['f1.md', 'f2.md']);
   });
 });

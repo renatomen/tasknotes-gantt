@@ -1049,7 +1049,19 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
     return new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
-      basesInput: basesInputStub,
+      // Explicitly map the fields the interleave keys on — the controller inverts
+      // these (never a hardcoded property table), so the Base sort by `note.due`
+      // resolves to the `end` field only because the test configures it as such.
+      basesInput: () => ({
+        entries: [],
+        mappings: {
+          textProperty: '',
+          startProperty: 'note.scheduled',
+          endProperty: 'note.due',
+          statusProperty: 'note.status',
+          progressProperty: 'note.progress',
+        } as never,
+      }),
       companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
       sortConfig: opts.sortConfig,
       deps: {

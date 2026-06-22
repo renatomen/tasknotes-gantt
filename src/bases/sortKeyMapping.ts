@@ -3,11 +3,16 @@
  *
  * With **no ephemeral column sort active**, the default Gantt view should show
  * Show-all *fetched* ("context") rows interleaved among their matched siblings
- * by the Obsidian Base sort — but only when the Base sort property maps to a
- * Gantt field we can compare locally (`note.scheduled→start`, `note.due→end`,
- * `file.name→text`, `note.status→status`, `note.progress→progress`). For any
- * other (formula / arbitrary-property) sort key we can't reproduce Bases'
- * comparator, so we keep the existing matched-first fallback (fetched trail).
+ * by the Obsidian Base sort — but only when the Base sort property is the SAME
+ * property a Gantt field was resolved from (per the user's configured
+ * {@link FieldMappings}), so the value we compare matches what Bases sorted by.
+ * For any other (formula / arbitrary / differently-mapped) sort key we can't
+ * reproduce Bases' comparator, so we keep the matched-first fallback.
+ *
+ * Property names are NEVER hardcoded here: the plugins are property-agnostic, so
+ * which property is start/end/status/progress/name is whatever the user (via
+ * TaskNotes / the view config) mapped — `note.scheduled` for one vault, `note.banana`
+ * for another. The map is therefore the **inverse of the resolved `FieldMappings`**.
  *
  * **Critical invariant (KTD5).** Bases sorts matched rows with locale/timezone
  * aware comparators we can't reproduce, and the Base is the ordering authority.
@@ -27,6 +32,7 @@
  */
 import type { BasesSortConfig } from 'obsidian';
 import type { CompanionTask } from '../datasource/companionResolve';
+import type { FieldMappings } from './types/field-mapping';
 import { compareScalars } from './columnSort';
 
 /** A Gantt field a Base sort property can map onto. */
@@ -36,28 +42,32 @@ export type SortableField = 'start' | 'end' | 'text' | 'status' | 'progress';
 export type SortKey = Date | number | string | null;
 
 /**
- * Base sort property id → Gantt {@link SortableField}, or `null` when the
- * property doesn't map to a comparable Gantt field (a formula or any other
- * arbitrary property → the matched-first fallback, R7/AE5).
- *
- * The five mappings are fixed by the plan (KTD5). Property ids are the dotted
- * Bases ids (e.g. `note.due`, `file.name`).
- */
-const PROPERTY_TO_FIELD: Readonly<Record<string, SortableField>> = {
-  'note.scheduled': 'start',
-  'note.due': 'end',
-  'file.name': 'text',
-  'note.status': 'status',
-  'note.progress': 'progress',
-};
-
-/**
- * Map a Bases sort property id to the Gantt field it sorts, or `null` when the
- * property is unmapped (formula / arbitrary) — the caller then keeps the current
+ * Map a Bases sort property id to the Gantt field it sorts, by INVERTING the
+ * resolved {@link FieldMappings} (the same per-user config that fills
+ * `task.start/end/status/progress/text`). A property maps to a field ONLY when it
+ * equals that field's configured property — so the value the interleave sorts
+ * fetched rows by always matches what Bases sorted matched rows by. Any other
+ * property (a formula, or one mapped to no Gantt field, or a field whose configured
+ * property differs from the sort key) returns `null` → the caller keeps the
  * matched-first fallback (no positioning, no throw).
+ *
+ * No property name is hardcoded — the only literals are the Obsidian BUILT-IN
+ * file-name properties used for the name column when `textProperty` is unset
+ * (`file.name`/`file.basename` are not user-remappable TaskNotes fields).
  */
-export function mapSortPropertyToField(propertyId: string): SortableField | null {
-  return PROPERTY_TO_FIELD[propertyId] ?? null;
+export function mapSortPropertyToField(
+  propertyId: string,
+  mappings: FieldMappings,
+): SortableField | null {
+  if (!propertyId) return null;
+  if (mappings.startProperty && propertyId === mappings.startProperty) return 'start';
+  if (mappings.endProperty && propertyId === mappings.endProperty) return 'end';
+  if (mappings.statusProperty && propertyId === mappings.statusProperty) return 'status';
+  if (mappings.progressProperty && propertyId === mappings.progressProperty) return 'progress';
+  const matchesName = mappings.textProperty
+    ? propertyId === mappings.textProperty
+    : propertyId === 'file.name' || propertyId === 'file.basename';
+  return matchesName ? 'text' : null;
 }
 
 /**
@@ -113,13 +123,16 @@ function groupKeyOf(task: CompanionTask): string {
  *
  * @param tasks - the displayed companion set (matched first, then fetched).
  * @param sortConfig - `config.getSort()` (primary key at `[0]`; `[]` → no sort).
+ * @param mappings - the resolved field mappings (the user's property→field config,
+ *   from TaskNotes when present); inverted to decide which field the sort maps to.
  */
 export function positionFetchedAmongMatched(
   tasks: readonly CompanionTask[],
   sortConfig: readonly BasesSortConfig[],
+  mappings: FieldMappings,
 ): CompanionTask[] | readonly CompanionTask[] {
   const primary = sortConfig[0];
-  const field = primary ? mapSortPropertyToField(primary.property) : null;
+  const field = primary ? mapSortPropertyToField(primary.property, mappings) : null;
   if (!field) {
     // Unmapped / formula / no sort → keep the current matched-first fallback.
     return tasks;
