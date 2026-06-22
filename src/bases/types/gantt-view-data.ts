@@ -52,6 +52,13 @@ export interface GanttData {
    * treatment as {@link maxHeight}. Applied as a CSS custom property in the view.
    */
   contextOpacity: number;
+  /**
+   * Instance ids the user has collapsed (U7), read once at mount to seed SVAR's
+   * `open` state so a collapsed branch survives reload/settings changes. The view
+   * owns the live set after mount and persists changes via its onCollapseChange
+   * callback — same read-once-then-owned treatment as {@link gridWidth}.
+   */
+  collapsedIds: string[];
   /** Status→color palette (TaskNotes). */
   statusColors: StatusColor[];
   /** Invalid date-mapping notice, when a start/end mapping fell back. */

@@ -34,6 +34,7 @@ import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
 import { persistGridWidth } from './gridWidthPersist';
+import { persistCollapsed, parseCollapsed, COLLAPSED_KEY } from './collapseState';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
@@ -436,6 +437,15 @@ class ObsidianGanttBasesView extends BasesView {
           // already-persisted width).
           onGridWidthChange: (width: number) =>
             persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
+          // Collapse-state persistence (U7): the view calls this whenever the
+          // user collapses/expands a branch or hits collapse-all. persistCollapsed
+          // skips unchanged writes (the same refresh-loop guard as gridWidth).
+          onCollapseChange: (ids: string[]) =>
+            persistCollapsed(
+              (key, value) => this.config.set(key, value),
+              this.config.get(COLLAPSED_KEY),
+              ids,
+            ),
         },
       });
 
@@ -491,6 +501,7 @@ class ObsidianGanttBasesView extends BasesView {
       showToolbar: this.getShowToolbar(),
       maxHeight: this.getMaxHeight(),
       contextOpacity: this.getContextOpacity(),
+      collapsedIds: [...parseCollapsed(this.config.get(COLLAPSED_KEY))],
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),

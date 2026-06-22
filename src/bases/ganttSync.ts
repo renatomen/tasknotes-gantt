@@ -78,6 +78,13 @@ export interface SvarTaskInputs {
    * render them. Omitted in pure-task contexts (e.g. some tests).
    */
   propertyValues?: Map<string, Record<string, TypedValue>>;
+  /**
+   * Instance ids the user has collapsed (U7). A parent in this set seeds with
+   * `open: false`. Threaded through here — not re-asserted only via `api.exec` —
+   * so the seed, the id-keyed diff, and any full reseed (column/theme) all agree
+   * on `open`, and the diff never fights a persisted collapse. Omitted → all open.
+   */
+  collapsedIds?: ReadonlySet<string>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -131,7 +138,8 @@ export interface SvarTask {
  * `$derived` in the component verbatim, so rendering is unchanged.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
-  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues } = input;
+  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues, collapsedIds } =
+    input;
 
   // Which instance ids are referenced as a parent → mark them summary/open.
   const parentIds = new Set<string>();
@@ -242,7 +250,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       },
     };
     if (inst.parent) task.parent = inst.parent;
-    if (isParent) task.open = true;
+    // Parents are open unless the user persisted this instance as collapsed (U7).
+    if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
 }

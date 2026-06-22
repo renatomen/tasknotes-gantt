@@ -57,6 +57,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
     propertyValues: over.propertyValues,
+    collapsedIds: over.collapsedIds,
   };
 }
 
@@ -79,6 +80,14 @@ describe('buildSvarTasks', () => {
     expect(parent.end).toEqual(end);
     expect(parent.open).toBe(true);
     expect(child.parent).toBe('p');
+  });
+
+  it('seeds a parent open by default but closed when in collapsedIds (U7)', () => {
+    const instances = [inst({ id: 'p' }), inst({ id: 'c', parent: 'p' })];
+    const open = buildSvarTasks(inputs({ instances }));
+    expect(open.find((t) => t.id === 'p')!.open).toBe(true);
+    const closed = buildSvarTasks(inputs({ instances, collapsedIds: new Set(['p']) }));
+    expect(closed.find((t) => t.id === 'p')!.open).toBe(false);
   });
 
   it('applies the status-color class to a parent (parents are ordinary bars)', () => {

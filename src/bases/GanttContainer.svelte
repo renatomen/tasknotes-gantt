@@ -53,6 +53,7 @@
     SVAR_SCALE_HEIGHT,
   } from './ganttHeight';
   import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
+  import { toggleCollapseAll } from './collapseState';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -121,6 +122,13 @@
      * keep an in-session-only switch.
      */
     onThemeModeChange?: (mode: ThemeMode) => void;
+    /**
+     * Persist the collapsed-instance-id set per-view (U7). The view calls this
+     * whenever the user collapses/expands a branch or uses collapse-all;
+     * register.ts closes it over a no-op-guarded `config.set`. Absent callers
+     * keep collapse state in-session only.
+     */
+    onCollapseChange?: (ids: string[]) => void;
   }
 
   // `config` remains part of the props contract (register.ts passes it) but the
@@ -138,6 +146,7 @@
     onGridWidthChange,
     themeMode = 'auto',
     onThemeModeChange,
+    onCollapseChange,
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
@@ -231,6 +240,43 @@
   // Applied below as a CSS custom property the `.og-context` rule reads (driving
   // a dynamic value through a class-only stylesheet isn't possible otherwise).
   const contextOpacity = $derived($data.contextOpacity ?? DEFAULT_CONTEXT_OPACITY);
+
+  // Collapse-all / expand-all (U7). Collapsible ids = instance ids referenced as
+  // a parent by some row. The floating toggle collapses all when any is open,
+  // otherwise expands all. `allCollapsed` drives the button's icon/label.
+  const parentInstanceIds = $derived.by(() => {
+    const ids = new Set<string>();
+    for (const inst of $data.instances) if (inst.parent) ids.add(inst.parent);
+    return ids;
+  });
+  const allCollapsed = $derived(
+    parentInstanceIds.size > 0 && [...parentInstanceIds].every((id) => collapsedIds.has(id)),
+  );
+
+  function toggleAllCollapse(): void {
+    const next = toggleCollapseAll(parentInstanceIds, collapsedIds);
+    collapsedIds = next;
+    onCollapseChange?.([...next]);
+    if (!api) return;
+    // Apply live via SVAR's own open-task action (tagged so the open-task
+    // intercept skips re-persisting). The reactive seed/diff keeps `open`
+    // consistent on any later reseed; this just reflects the change immediately.
+    syncing = true;
+    try {
+      for (const id of parentInstanceIds) {
+        const shouldClose = next.has(id);
+        const task = api.getTask?.(id);
+        const isOpen = task ? task.open !== false : true;
+        if (shouldClose && isOpen) {
+          api.exec('open-task', { id, mode: false, eventSource: OG_ECHO_SOURCE });
+        } else if (!shouldClose && !isOpen) {
+          api.exec('open-task', { id, mode: true, eventSource: OG_ECHO_SOURCE });
+        }
+      }
+    } finally {
+      syncing = false;
+    }
+  }
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -335,10 +381,17 @@
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,
+      // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
+      // and any reseed all compute `open` from the same source of truth.
+      collapsedIds,
     };
   }
 
   const initialData = get(data);
+  // Collapsed instance ids (U7). Seeded once from the data (register reads it
+  // from per-view config); the view owns the live set thereafter and persists
+  // changes via onCollapseChange — read-once-then-owned, mirroring gridWidth.
+  let collapsedIds: Set<string> = $state(new Set(initialData.collapsedIds ?? []));
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -828,6 +881,25 @@
     // `sort: false`; safe because our own reordering uses `move-task`, not
     // `sort-tasks`, so this only ever cancels a header click.
     api.intercept("sort-tasks", () => false);
+
+    // Persist user collapse/expand (U7). SVAR fires open-task on a toggle-icon
+    // click — mode=true expands, mode=false collapses. Let it proceed (return
+    // true) and record the change so it survives reload. Ignore our own bulk
+    // collapse-all execs (tagged eventSource) and any event during a reseed.
+    api.intercept(
+      "open-task",
+      (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
+        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        const id = ev?.id != null ? String(ev.id) : null;
+        if (!id || typeof ev.mode !== 'boolean') return true;
+        const next = new Set(collapsedIds);
+        if (ev.mode) next.delete(id);
+        else next.add(id);
+        collapsedIds = next;
+        onCollapseChange?.([...next]);
+        return true;
+      },
+    );
 
     api.intercept("show-editor", ({ id }: { id: string }) => {
       // Ignore programmatic selection/editor events emitted while we reseed the
@@ -1341,8 +1413,23 @@
         />
       </Tooltip>
 
-    <!-- Floating Zoom Controls (OG-81) -->
+    <!-- Floating Zoom Controls (OG-81) + collapse-all toggle (U7) -->
     <div class="zoom-controls">
+      <!-- Collapse-all / expand-all (U7). Hidden when the tree has no parents
+           (nothing to collapse). Lucide icons render (wxi-* fonts are disabled). -->
+      {#if parentInstanceIds.size > 0}
+        <button
+          class="zoom-btn collapse-all"
+          onclick={toggleAllCollapse}
+          aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
+          title={allCollapsed ? 'Expand all' : 'Collapse all'}
+        >
+          <span
+            class="zoom-icon"
+            use:lucideIcon={allCollapsed ? 'chevrons-up-down' : 'chevrons-down-up'}
+          ></span>
+        </button>
+      {/if}
       <button
         class="zoom-btn zoom-in"
         onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
