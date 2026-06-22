@@ -9,3 +9,5 @@ views:
     tngantt_expandedRelationships: show-all
     order:
       - file.name
+      - note.scheduled
+      - note.due

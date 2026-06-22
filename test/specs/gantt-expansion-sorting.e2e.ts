@@ -289,6 +289,31 @@ describe("Gantt (OG) companion expansion + sorting", () => {
     expect(idxB).toBeGreaterThan(idxA);
   });
 
+  it("populates grid columns for fetched context rows", async () => {
+    // The Base shows note.scheduled + note.due columns. Before the context-row
+    // fix, only the two matched projects had populated property cells (2 rows ×
+    // 2 cols = 4); with the fix every fetched row populates from the metadata
+    // cache too (6 instances × 2 = 12). Asserting well above the matched-only
+    // baseline proves the context columns fill, without depending on the exact
+    // rendered date format. `.og-grid-cell` is PropertyCell's span.
+    let populated = -1;
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        populated = await browser.execute(() => {
+          const root = document.querySelector(".og-bases-gantt");
+          if (!root) return -1;
+          return Array.from(root.querySelectorAll(".og-grid-cell")).filter(
+            (c) => (c.textContent ?? "").trim().length > 0,
+          ).length;
+        });
+        return populated >= 8;
+      },
+      { timeout: 15000, timeoutMsg: () => `Expected context rows to populate grid cells; saw ${populated} non-empty` },
+    );
+    expect(populated).toBeGreaterThanOrEqual(8);
+  });
+
   it("keeps the chart at/above the minimum height (collapse-clip regression guard)", async () => {
     // The host (chart region) must never be a sliver — regression guard for the
     // collapse-clip fix (height applied to .og-chart-area) and the min-height
