@@ -1421,39 +1421,45 @@
         />
       </Tooltip>
 
-    <!-- Floating Zoom Controls (OG-81) + collapse-all toggle (U7) -->
-    <div class="zoom-controls">
+    <!-- Floating controls (OG-81 zoom + U7 collapse-all). Two separate pills in a
+         bottom-right stack with a small gap between them — the collapse/expand
+         toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
+    <div class="zoom-controls-stack">
       <!-- Collapse-all / expand-all (U7). Hidden when the tree has no parents
            (nothing to collapse). Lucide icons render (wxi-* fonts are disabled). -->
       {#if parentInstanceIds.size > 0}
-        <button
-          class="zoom-btn collapse-all"
-          onclick={toggleAllCollapse}
-          aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
-          title={allCollapsed ? 'Expand all' : 'Collapse all'}
-        >
-          <span
-            class="zoom-icon"
-            use:lucideIcon={allCollapsed ? 'chevrons-up-down' : 'chevrons-down-up'}
-          ></span>
-        </button>
+        <div class="zoom-controls">
+          <button
+            class="zoom-btn collapse-all"
+            onclick={toggleAllCollapse}
+            aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
+            title={allCollapsed ? 'Expand all' : 'Collapse all'}
+          >
+            <span
+              class="zoom-icon"
+              use:lucideIcon={allCollapsed ? 'chevrons-up-down' : 'chevrons-down-up'}
+            ></span>
+          </button>
+        </div>
       {/if}
-      <button
-        class="zoom-btn zoom-in"
-        onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
-        aria-label="Zoom in"
-        title="Zoom in"
-      >
-        <span class="zoom-icon" use:lucideIcon={'plus'}></span>
-      </button>
-      <button
-        class="zoom-btn zoom-out"
-        onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
-        aria-label="Zoom out"
-        title="Zoom out"
-      >
-        <span class="zoom-icon" use:lucideIcon={'minus'}></span>
-      </button>
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn zoom-in"
+          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <span class="zoom-icon" use:lucideIcon={'plus'}></span>
+        </button>
+        <button
+          class="zoom-btn zoom-out"
+          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <span class="zoom-icon" use:lucideIcon={'minus'}></span>
+        </button>
+      </div>
     </div>
     </Fullscreen>
   </div>
@@ -1531,16 +1537,23 @@
     touch-action: none;
   }
 
-  /* Floating Zoom Controls - Google Maps style (OG-81). Anchored bottom-right but
-     offset left of the 40px fullscreen toggle (right:16) so the two never overlap
-     even when the chart is at its minimum height and this pill grows upward. */
-  .zoom-controls {
+  /* Floating controls stack (OG-81 zoom + U7 collapse-all), bottom-right. The
+     `gap` separates the collapse/expand pill from the zoom pill; within each pill
+     the buttons stay flush (so zoom +/− have no gap between them). */
+  .zoom-controls-stack {
     position: absolute;
     bottom: 16px;
-    right: 64px;
+    right: 16px;
     display: flex;
     flex-direction: column;
+    gap: 6px;
     z-index: 100;
+  }
+
+  /* Each control pill - Google Maps style (OG-81). */
+  .zoom-controls {
+    display: flex;
+    flex-direction: column;
     border-radius: 4px;
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1589,12 +1602,8 @@
   /* Floating full-screen toggle (plan 003 U4): top-right, clear of the
      bottom-right zoom controls. Always visible on the chart. */
   .og-fullscreen-toggle {
-    /* Bottom-right corner, beside the zoom/collapse pill (which sits to its
-       left at right:64px). Both are bottom-anchored so they never overlap, even
-       when the chart shrinks to its minimum height — the previous top-right
-       position collided with the upward-growing zoom pill on a short chart. */
     position: absolute;
-    bottom: 16px;
+    top: 16px;
     right: 16px;
     z-index: 100;
     display: flex;
