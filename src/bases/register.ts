@@ -44,6 +44,7 @@ import {
   readExpandedRelationships,
   readHideTopLevelSubtasks,
   readMaxHeight,
+  readMinHeight,
   readShowToolbar,
   taskListViewOptions,
 } from './viewOptions';
@@ -284,6 +285,11 @@ class ObsidianGanttBasesView extends BasesView {
     return readMaxHeight((key) => this.config.get(key));
   }
 
+  /** Read the per-view min-height in px; default/clamped to the ~2-row floor. */
+  private getMinHeight(): number {
+    return readMinHeight((key) => this.config.get(key));
+  }
+
   /** Read the per-view Expanded relationships mode (companion mode); default inherit. */
   private getExpandedRelationships() {
     return readExpandedRelationships((key) => this.config.get(key));
@@ -500,6 +506,7 @@ class ObsidianGanttBasesView extends BasesView {
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
       maxHeight: this.getMaxHeight(),
+      minHeight: this.getMinHeight(),
       contextOpacity: this.getContextOpacity(),
       collapsedIds: [...parseCollapsed(this.config.get(COLLAPSED_KEY))],
       statusColors,

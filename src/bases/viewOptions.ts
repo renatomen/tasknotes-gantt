@@ -216,6 +216,20 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
       key: 'tngantt_showToolbar',
       default: false,
     },
+    // Per-view min-height in px. The chart host never shrinks below this, so a
+    // chart reduced to a single (e.g. collapsed) root stays a usable size rather
+    // than a sliver. Read in getMinHeight(); clamped to the absolute ~2-row floor
+    // (GANTT_MIN_HEIGHT) so it can be raised but not set below what keeps one row
+    // visible. Number → slider; `max`/`step` required (see Max height note below).
+    {
+      type: 'slider',
+      displayName: 'Min height (px)',
+      key: 'tngantt_minHeight',
+      default: GANTT_MIN_HEIGHT,
+      min: GANTT_MIN_HEIGHT,
+      max: 2000,
+      step: 10,
+    },
     // Per-view max-height in px (plan 003 R1). The chart host fits its content
     // up to this cap, then scrolls internally. Number → slider (the official
     // options union has no 'number' control). Read in getMaxHeight(); a ~2-row
@@ -260,6 +274,20 @@ export function readShowToolbar(get: (key: string) => unknown): boolean {
 export function readMaxHeight(get: (key: string) => unknown): number {
   const raw = Number(get('tngantt_maxHeight'));
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_HEIGHT;
+}
+
+/**
+ * Read the per-view min-height in px, defaulting to {@link GANTT_MIN_HEIGHT}. A
+ * finite value is clamped UP to {@link GANTT_MIN_HEIGHT} (the absolute ~2-row
+ * floor — the chart must never go below what keeps a single row visible); a
+ * non-finite/junk value falls back to the default. Pure (no Obsidian/DOM);
+ * mirrors {@link readMaxHeight}. `register.getMinHeight()` wraps it.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readMinHeight(get: (key: string) => unknown): number {
+  const raw = Number(get('tngantt_minHeight'));
+  return Number.isFinite(raw) ? Math.max(GANTT_MIN_HEIGHT, raw) : GANTT_MIN_HEIGHT;
 }
 
 /**

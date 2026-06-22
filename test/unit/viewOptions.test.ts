@@ -12,6 +12,7 @@ import {
   readExpandedRelationships,
   readHideTopLevelSubtasks,
   readMaxHeight,
+  readMinHeight,
   readShowToolbar,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
@@ -168,9 +169,22 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 4 dropdowns + 3 sliders + 5 toggles.
-    // (3rd slider: the companion-only context-bar opacity, U6.)
-    expect(options).toHaveLength(18);
+    // 6 shared property options + 4 dropdowns + 4 sliders + 5 toggles.
+    // Sliders: default-duration, min-height, max-height, companion context opacity.
+    expect(options).toHaveLength(19);
+  });
+
+  it("models the min-height input as a slider defaulting to the ~2-row floor", () => {
+    const minHeight = byKey(options, "tngantt_minHeight");
+    expect(minHeight).toMatchObject({
+      type: "slider",
+      key: "tngantt_minHeight",
+      min: 112,
+      max: 2000,
+      step: 10,
+    });
+    // Default equals the absolute floor so behavior is unchanged until raised.
+    expect((minHeight as { default: number }).default).toBe(112);
   });
 
   it("models the companion-only context-bar opacity as a slider (U6)", () => {
@@ -281,6 +295,29 @@ describe("readMaxHeight", () => {
     expect(readMaxHeight(() => "abc")).toBe(400);
     expect(readMaxHeight(() => null)).toBe(400);
     expect(readMaxHeight(() => Infinity)).toBe(400);
+  });
+});
+
+describe("readMinHeight", () => {
+  it("defaults to the ~2-row floor (112) when unset", () => {
+    expect(readMinHeight(() => undefined)).toBe(112);
+  });
+
+  it("returns a stored value at or above the floor (number or numeric string)", () => {
+    expect(readMinHeight(() => 300)).toBe(300);
+    expect(readMinHeight(() => "240")).toBe(240);
+  });
+
+  it("clamps a below-floor value up to 112", () => {
+    expect(readMinHeight(() => 50)).toBe(112);
+    expect(readMinHeight(() => 0)).toBe(112);
+    expect(readMinHeight(() => -100)).toBe(112);
+  });
+
+  it("falls back to the floor for non-finite / junk values", () => {
+    expect(readMinHeight(() => "abc")).toBe(112);
+    expect(readMinHeight(() => null)).toBe(112);
+    expect(readMinHeight(() => Infinity)).toBe(112);
   });
 });
 

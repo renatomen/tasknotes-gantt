@@ -49,6 +49,7 @@
   import {
     resolveHostHeight,
     DEFAULT_MAX_HEIGHT,
+    GANTT_MIN_HEIGHT,
     SVAR_CELL_HEIGHT,
     SVAR_SCALE_HEIGHT,
   } from './ganttHeight';
@@ -235,6 +236,8 @@
   // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
   // option re-fits the host live without a remount. Default 400 (R1).
   const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
+  // Per-view min-height floor; clamped to the absolute ~2-row floor in the reader.
+  const minHeight = $derived($data.minHeight ?? GANTT_MIN_HEIGHT);
 
   // Show-all context-bar opacity (U6). Reactive so the slider re-tints bars live.
   // Applied below as a CSS custom property the `.og-context` rule reads (driving
@@ -681,7 +684,7 @@
 
   // Resolved host height in px (R2/R3). `$derived` memoizes, so the inline style
   // re-applies only when the value actually changes — the no-op guard is free.
-  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight));
+  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight, minHeight));
 
   // Full screen is handled by SVAR's official <Fullscreen> component (svelte-core)
   // in the markup — it wraps the chart, uses the native browser Fullscreen API,
@@ -1528,11 +1531,13 @@
     touch-action: none;
   }
 
-  /* Floating Zoom Controls - Google Maps style (OG-81) */
+  /* Floating Zoom Controls - Google Maps style (OG-81). Anchored bottom-right but
+     offset left of the 40px fullscreen toggle (right:16) so the two never overlap
+     even when the chart is at its minimum height and this pill grows upward. */
   .zoom-controls {
     position: absolute;
     bottom: 16px;
-    right: 16px;
+    right: 64px;
     display: flex;
     flex-direction: column;
     z-index: 100;
@@ -1584,8 +1589,12 @@
   /* Floating full-screen toggle (plan 003 U4): top-right, clear of the
      bottom-right zoom controls. Always visible on the chart. */
   .og-fullscreen-toggle {
+    /* Bottom-right corner, beside the zoom/collapse pill (which sits to its
+       left at right:64px). Both are bottom-anchored so they never overlap, even
+       when the chart shrinks to its minimum height — the previous top-right
+       position collided with the upward-growing zoom pill on a short chart. */
     position: absolute;
-    top: 16px;
+    bottom: 16px;
     right: 16px;
     z-index: 100;
     display: flex;

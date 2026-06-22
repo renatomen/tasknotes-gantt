@@ -75,4 +75,24 @@ describe("resolveHostHeight", () => {
     expect(resolveHostHeight(15, 38, 36, 400)).toBe(400);
     expect(resolveHostHeight(15, 38, 36, 800)).toBe(computeContentHeight(15, 38, 36));
   });
+
+  it("honors a configured minHeight above the absolute floor", () => {
+    // 1 row content = 91, but the user set a 300px minimum → stays 300.
+    expect(resolveHostHeight(1, 38, 36, 400, 300)).toBe(300);
+  });
+
+  it("clamps a configured minHeight up to the absolute ~2-row floor", () => {
+    // A minHeight below GANTT_MIN_HEIGHT can't make the chart a sliver.
+    expect(resolveHostHeight(1, 38, 36, 400, 50)).toBe(GANTT_MIN_HEIGHT);
+  });
+
+  it("lets content/maxHeight win when taller than the configured minHeight", () => {
+    // 10 rows → content 433, capped at maxHeight 400 > min 300 → 400.
+    expect(resolveHostHeight(10, 38, 36, 400, 300)).toBe(400);
+  });
+
+  it("lets the configured minHeight win even over a smaller maxHeight", () => {
+    // min 500 > max 200 and > content → never shrink below the user's minimum.
+    expect(resolveHostHeight(1, 38, 36, 200, 500)).toBe(500);
+  });
 });
