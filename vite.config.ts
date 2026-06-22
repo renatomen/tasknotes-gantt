@@ -1,8 +1,9 @@
 import path from "path";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import builtins from "builtin-modules";
 import fs from "fs";
+import { installToVault } from "./scripts/install-to-vault.mjs";
 
 const prod = process.argv[2] === "production";
 
@@ -14,7 +15,22 @@ const copyManifest = (): Plugin => ({
   },
 });
 
-export default defineConfig(() => {
+// Optional, opt-in install of the built plugin into a developer's local Obsidian
+// vault for manual checking. Lives in the build (closeBundle) so every build path
+// behaves identically; a no-op unless OBSIDIAN_TEST_VAULT points at an existing
+// vault, and it never fails the build. See scripts/install-to-vault.mjs.
+const installToVaultPlugin = (vault: string | undefined): Plugin => ({
+  name: "install-to-vault",
+  closeBundle() {
+    installToVault({ vault });
+  },
+});
+
+export default defineConfig(({ mode }) => {
+  // Resolve the optional vault: an inline shell var wins (so E2E can target a
+  // disposable copy), falling back to a gitignored .env. No hardcoded default.
+  const env = loadEnv(mode, process.cwd(), "");
+  const vault = process.env.OBSIDIAN_TEST_VAULT || env.OBSIDIAN_TEST_VAULT;
   return {
     plugins: [
       svelte({
@@ -24,6 +40,7 @@ export default defineConfig(() => {
         },
       }),
       copyManifest(),
+      installToVaultPlugin(vault),
     ],
     watch: !prod,
     build: {

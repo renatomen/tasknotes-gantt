@@ -25,7 +25,7 @@ npm ci
 | Unit tests (Jest) | `npm test` |
 | End-to-end tests (WebdriverIO + Obsidian) | `npm run e2e` |
 
-`npm run build` also installs the built plugin into a local vault via `scripts/install-to-vault.cjs`, which reads `OBSIDIAN_TEST_VAULT` from a `.env` file (see `.env.example` if present). Set it to your test vault path for in-Obsidian iteration.
+Any build — `npm run build`, `vite build`, or `npm run dev` (watch) — **optionally** installs the built plugin into a local Obsidian vault for in-app iteration. To opt in, set `OBSIDIAN_TEST_VAULT` to an existing vault path in a gitignored `.env` (see `.env.example`); each machine can use its own path. If it is unset or the path doesn't exist, the install is skipped and the build still succeeds — so this is never required to contribute, and CI is unaffected. (You can also run it manually: `npm run install:vault`.)
 
 The e2e suite downloads Obsidian and the TaskNotes release through `wdio-obsidian-service`; set `GITHUB_TOKEN` in the environment to avoid GitHub API rate limits during that download.
 

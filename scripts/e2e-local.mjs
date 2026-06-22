@@ -32,14 +32,8 @@ const build = spawnSync(process.execPath, [viteBin, "build"], {
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
-const install = spawnSync(process.execPath, ["scripts/install-to-vault.cjs"], {
-  stdio: "inherit",
-  env: process.env,
-  cwd: process.cwd(),
-});
-if (install.status !== 0) {
-  process.exit(install.status ?? 1);
-}
+// The Vite build installs the plugin into OBSIDIAN_TEST_VAULT itself (closeBundle,
+// see scripts/install-to-vault.mjs), so no separate install step is needed here.
 
 // Run WDIO directly via its bin script using local node_modules path
 const wdioBin = path.join(
