@@ -196,3 +196,45 @@ export function buildEntryProperties(
   }
   return map;
 }
+
+/** Minimal metadata for a fetched (out-of-result) note's synthetic Bases entry. */
+export interface FetchedFileMeta {
+  /** Vault-relative path (the map key). */
+  path: string;
+  /** File basename (no extension). */
+  basename: string;
+  /** File extension without the dot; defaults to `md`. */
+  extension?: string;
+  /** The note's frontmatter, or `null` when it has none. */
+  frontmatter: Record<string, unknown> | null;
+}
+
+/**
+ * Build grid property records for fetched (out-of-result) paths — the Show-all
+ * *context* rows (U6), which are NOT in the Bases filter result and so have no
+ * real Bases entry. Each path is given a *synthetic* entry (frontmatter + a
+ * minimal file + a `getValue` that returns `null`) and run through the SAME
+ * `extractor` matched rows use, so `note.*`/`file.*` columns resolve from the
+ * note while genuine Base **formula/computed** columns fall back to empty (R5 —
+ * fetched rows can't run the Bases formula engine). Keyed by path; merge into
+ * {@link buildEntryProperties}' matched-row map.
+ */
+export function buildFetchedEntryProperties(
+  metas: readonly FetchedFileMeta[],
+  visiblePropIds: readonly string[],
+  extractor: PropertyExtractor,
+): Map<string, Record<string, TypedValue>> {
+  const entries = metas.map((m) => ({
+    file: {
+      path: m.path,
+      basename: m.basename,
+      name: `${m.basename}.${m.extension ?? 'md'}`,
+      extension: m.extension ?? 'md',
+    },
+    frontmatter: m.frontmatter ?? {},
+    // A synthetic entry has no formula engine; null keeps formula columns empty
+    // (cleanly, without the extractor's getValue-threw warning path).
+    getValue: () => null,
+  }));
+  return buildEntryProperties(entries, visiblePropIds, extractor);
+}

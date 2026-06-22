@@ -33,6 +33,37 @@ import type { IncomingDep } from './dependencyTooltip';
  */
 export const DATE_STATUS_TYPE = 'datestatus-flagged';
 
+/**
+ * Custom SVAR task type marking a bar whose source task appears more than once
+ * in the displayed tree (U6) — the same note shown under several parents, or as
+ * both a top-level row and a nested descendant. Every duplicate carries this
+ * cue uniformly (none is privileged as "the real one"), so the reader can tell a
+ * replicated instance from a unique row. Emitted as a bare class (`.wx-bar.og-replicated`).
+ */
+export const REPLICATED_TYPE = 'og-replicated';
+
+/**
+ * Custom SVAR task type marking a bar pulled in only for *context* under Show-all
+ * expansion (U6) — a descendant fetched from TaskNotes that does not itself match
+ * the Base filter (`RenderInstance.isFetched`). Rendered muted so matched rows
+ * stay visually dominant. Emitted as a bare class (`.wx-bar.og-context`).
+ */
+export const CONTEXT_TYPE = 'og-context';
+
+/**
+ * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to
+ * a bar's `type` string (replicated before context). SVAR matches the *whole*
+ * type string against the registered task-type ids (see `taskTypeCss` in SVAR's
+ * `Bars.svelte`), so {@link buildInstanceCueTaskTypes} must register every
+ * composed form using this same order — the push order here and the registration
+ * order there are a single coupled contract (pinned by a unit test).
+ */
+const INSTANCE_CUE_SUFFIXES: readonly string[] = [
+  REPLICATED_TYPE,
+  CONTEXT_TYPE,
+  `${REPLICATED_TYPE} ${CONTEXT_TYPE}`,
+];
+
 /** The render-data inputs the SVAR-task shaping reads (subset of GanttData). */
 export interface SvarTaskInputs {
   instances: RenderInstance[];
@@ -47,6 +78,13 @@ export interface SvarTaskInputs {
    * render them. Omitted in pure-task contexts (e.g. some tests).
    */
   propertyValues?: Map<string, Record<string, TypedValue>>;
+  /**
+   * Instance ids the user has collapsed (U7). A parent in this set seeds with
+   * `open: false`. Threaded through here — not re-asserted only via `api.exec` —
+   * so the seed, the id-keyed diff, and any full reseed (column/theme) all agree
+   * on `open`, and the diff never fights a persisted collapse. Omitted → all open.
+   */
+  collapsedIds?: ReadonlySet<string>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -65,6 +103,17 @@ export interface SvarTask {
     sourceTaskId: string;
     isVirtual: boolean;
     isCollapsed: boolean;
+    /**
+     * The source task is shown more than once in the displayed tree (U6). Drives
+     * the `og-replicated` cue. Folded into the bar `type`, so {@link taskStateKey}
+     * tracks it via `type` and need not list it separately.
+     */
+    isReplicated: boolean;
+    /**
+     * The instance was fetched for context under Show-all and does not match the
+     * Base filter (U6). Drives the `og-context` cue. Also folded into `type`.
+     */
+    isContext: boolean;
     showHasDeps: boolean;
     /**
      * Type-tagged values for the grid's visible property columns, keyed by
@@ -89,7 +138,8 @@ export interface SvarTask {
  * `$derived` in the component verbatim, so rendering is unchanged.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
-  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues } = input;
+  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues, collapsedIds } =
+    input;
 
   // Which instance ids are referenced as a parent → mark them summary/open.
   const parentIds = new Set<string>();
@@ -99,10 +149,16 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 
   // The primary (first-in-order) instance id for each source path.
   const primaryBySource = new Map<string, string>();
+  // How many instances each source path produced — >1 means the note is shown in
+  // multiple places, which drives the uniform `og-replicated` cue (U6). Counting
+  // the *displayed* instances (not parent count) catches every replication path:
+  // multi-parent membership, an `alsoTopLevel` root plus its nested copy, etc.
+  const countBySource = new Map<string, number>();
   for (const inst of instances) {
     if (!primaryBySource.has(inst.sourcePath)) {
       primaryBySource.set(inst.sourcePath, inst.id);
     }
+    countBySource.set(inst.sourcePath, (countBySource.get(inst.sourcePath) ?? 0) + 1);
   }
 
   // Source paths that participate in any dependency link (either endpoint),
@@ -153,12 +209,19 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // status-color class when configured). SVAR's taskTypeCss emits each
     // space-joined, registered type id as bare classes.
     const flagged = showDateIndicators && inst.dateStatus !== 'complete';
+    const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
+    const isContext = inst.isFetched;
     let type = 'task';
     const classes: string[] = [];
     if (flagged) classes.push(DATE_STATUS_TYPE);
     if (inst.status && coloredStatuses.has(inst.status)) {
       classes.push(statusSlug(inst.status));
     }
+    // Instance cues come AFTER the state classes, replicated before context. This
+    // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
+    // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
+    if (isReplicated) classes.push(REPLICATED_TYPE);
+    if (isContext) classes.push(CONTEXT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
     const task: SvarTask = {
@@ -174,6 +237,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         sourceTaskId: inst.sourcePath,
         isVirtual: inst.isVirtual,
         isCollapsed: inst.isCollapsed,
+        isReplicated,
+        isContext,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -185,7 +250,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       },
     };
     if (inst.parent) task.parent = inst.parent;
-    if (isParent) task.open = true;
+    // Parents are open unless the user persisted this instance as collapsed (U7).
+    if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
 }
@@ -207,6 +273,29 @@ export function buildStatusTaskTypes(colors: ReadonlyArray<StatusColor>): Array<
     const s = statusSlug(value);
     ids.add(s);
     ids.add(`${DATE_STATUS_TYPE} ${s}`);
+  }
+  return [...ids].map((id) => ({ id, label: id }));
+}
+
+/**
+ * Register the instance-cue task types (U6). SVAR matches a bar's *whole* `type`
+ * string against the registered ids, so every composed form a bar can produce
+ * must be registered: each cue suffix alone (a plain bar that is replicated
+ * and/or context), and each `${base} ${suffix}` (a date-status/status bar that is
+ * also replicated/context). `baseTypeIds` is the output of
+ * {@link buildStatusTaskTypes} (date-status + status combos); pass it so the
+ * cross-product covers a bar carrying both a state class and a cue.
+ *
+ * Derived from the static palette (not the present tasks), so the set is stable
+ * across refreshes — a changing `taskTypes` reference would re-init SVAR's store.
+ */
+export function buildInstanceCueTaskTypes(
+  baseTypeIds: ReadonlyArray<string>,
+): Array<{ id: string; label: string }> {
+  const ids = new Set<string>();
+  for (const suffix of INSTANCE_CUE_SUFFIXES) {
+    ids.add(suffix);
+    for (const base of baseTypeIds) ids.add(`${base} ${suffix}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
 }
@@ -317,6 +406,47 @@ export function planTaskSync(prev: ReadonlyMap<string, SvarTask>, next: Readonly
   const deletes = [...goneIds].sort((a, b) => depthOf(b) - depthOf(a));
 
   return { moves, updates, deletes, adds: orderAddsParentFirst(adds) };
+}
+
+/** A sibling reorder step: place `id` immediately after `after` (same parent). */
+export interface ReorderMove {
+  id: string;
+  after: string;
+}
+
+/**
+ * Plan the minimal `move-task` (mode `after`) steps to put each parent's
+ * children into `next`'s order. The diff-sync (`planTaskSync`) is keyed by id
+ * and cannot reorder existing rows, so a pure reorder (e.g. a Base toolbar sort
+ * change with the same task set) needs explicit moves. Within each parent
+ * branch, chaining `move after the previous sibling` left-to-right yields the
+ * target order regardless of the current order (moving a later sibling after an
+ * earlier one pulls it out of its old slot). `move-task` with mode `after`
+ * keeps the task under the same parent, so zoom/scroll survive (no re-init).
+ *
+ * Pure (no SVAR/DOM): the caller execs each step. Tree-preserving — siblings are
+ * grouped by parent and only reordered within their branch.
+ */
+export function planReorder(
+  next: ReadonlyArray<{ id: string; parent?: string }>,
+): ReorderMove[] {
+  const byParent = new Map<string, string[]>();
+  for (const t of next) {
+    const key = t.parent ?? '';
+    let ids = byParent.get(key);
+    if (!ids) {
+      ids = [];
+      byParent.set(key, ids);
+    }
+    ids.push(t.id);
+  }
+  const moves: ReorderMove[] = [];
+  for (const ids of byParent.values()) {
+    for (let i = 1; i < ids.length; i++) {
+      moves.push({ id: ids[i]!, after: ids[i - 1]! });
+    }
+  }
+  return moves;
 }
 
 /**

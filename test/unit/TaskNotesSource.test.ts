@@ -32,6 +32,10 @@ interface FakeApiOptions {
   ready?: () => Promise<void>;
   tasks?: TaskNotesTaskInfo[];
   dependencies?: Record<string, TaskNotesDependencyEdge[]>;
+  /** When provided, adds `relationships.subtasks`; omitted ⇒ accessor absent. */
+  subtasks?: Record<string, TaskNotesTaskInfo[]>;
+  /** When provided, adds `relationships.parents`; omitted ⇒ accessor absent. */
+  parents?: Record<string, TaskNotesTaskInfo[]>;
   hasWrite?: boolean;
   omitHasCapability?: boolean;
   /** When provided, `api.config()` returns `{ statuses }`; omitted ⇒ no `config`. */
@@ -74,6 +78,12 @@ function makeApi(opts: FakeApiOptions = {}) {
     },
     relationships: {
       dependencies: (path: string) => opts.dependencies?.[path] ?? [],
+      ...(opts.subtasks
+        ? { subtasks: (path: string) => opts.subtasks![path] ?? [] }
+        : {}),
+      ...(opts.parents
+        ? { parents: (path: string) => opts.parents![path] ?? [] }
+        : {}),
     },
     events: {
       on: onSpy,
@@ -641,6 +651,87 @@ describe('TaskNotesSource', () => {
 
       // Act / Assert
       expect(await source!.getDependencies('x.md')).toEqual([]);
+    });
+  });
+
+  describe('relationships — subtasks/parents (U2)', () => {
+    it('getSubtasks maps children to SourceTasks (parent edges owned by the resolver)', async () => {
+      const { api } = makeApi({
+        subtasks: {
+          'parent.md': [
+            { path: 'child-a.md', title: 'Child A', scheduled: '2026-01-01', due: '2026-01-05', status: 'open' },
+            { path: 'child-b.md', title: 'Child B' },
+          ],
+        },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      const subs = await source!.getSubtasks('parent.md');
+      expect(subs).toHaveLength(2);
+      expect(subs[0]).toMatchObject({ path: 'child-a.md', text: 'Child A', status: 'open', progress: null, parents: [] });
+      expect(subs[0]!.start).toBeInstanceOf(Date);
+      expect(subs[0]!.end).toBeInstanceOf(Date);
+      expect(subs[1]).toMatchObject({ path: 'child-b.md', text: 'Child B', status: null, start: null, end: null, parents: [] });
+    });
+
+    it('getSubtasks drops children with no resolvable path', async () => {
+      const { api } = makeApi({
+        subtasks: { 'p.md': [{ path: 'ok.md' }, { title: 'no path' } as TaskNotesTaskInfo] },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      expect((await source!.getSubtasks('p.md')).map((s) => s.path)).toEqual(['ok.md']);
+    });
+
+    it('getSubtasks returns [] when the accessor is absent or throws', async () => {
+      const absent = await TaskNotesSource.create(makeApp(makeApi().api));
+      expect(await absent!.getSubtasks('x.md')).toEqual([]);
+
+      const { api } = makeApi({ subtasks: { 'x.md': [] } });
+      api.relationships!.subtasks = () => {
+        throw new Error('boom');
+      };
+      const throwing = await TaskNotesSource.create(makeApp(api));
+      expect(await throwing!.getSubtasks('x.md')).toEqual([]);
+    });
+
+    it('getParents returns resolved parent paths, filtering junk', async () => {
+      const { api } = makeApi({
+        parents: {
+          'child.md': [{ path: 'p1.md' }, { title: 'no path' } as TaskNotesTaskInfo, { path: 'p2.md' }],
+        },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      expect(await source!.getParents('child.md')).toEqual(['p1.md', 'p2.md']);
+    });
+
+    it('getParents returns [] when the accessor is absent', async () => {
+      const source = await TaskNotesSource.create(makeApp(makeApi().api));
+      expect(await source!.getParents('x.md')).toEqual([]);
+    });
+
+    it('getParents returns [] when the accessor throws', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = () => {
+        throw new Error('boom');
+      };
+      const throwing = await TaskNotesSource.create(makeApp(api));
+      expect(await throwing!.getParents('x.md')).toEqual([]);
+    });
+
+    it('getParents returns [] when the accessor returns a non-array', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = (() => null) as unknown as typeof api.relationships.parents;
+      const bad = await TaskNotesSource.create(makeApp(api));
+      expect(await bad!.getParents('x.md')).toEqual([]);
+    });
+
+    it('subscribes to task.projects.changed for hierarchy freshness', async () => {
+      expect(TASKNOTES_CHANGE_EVENTS).toContain('task.projects.changed');
+      const { api, onSpy } = makeApi();
+      const source = await TaskNotesSource.create(makeApp(api));
+      const off = source!.subscribe(() => {});
+      const names = onSpy.mock.calls.map((c) => c[0]);
+      expect(names).toContain('task.projects.changed');
+      off();
     });
   });
 

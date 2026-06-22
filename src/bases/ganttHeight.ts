@@ -65,10 +65,16 @@ export function computeContentHeight(
  * (so a mis-set tiny max can't produce an unusable chart). When content exceeds
  * `maxHeight` the host caps at `maxHeight` and SVAR scrolls internally.
  *
+ * The floor is the larger of the configured `minHeight` (per-view
+ * `tngantt_minHeight`) and the absolute {@link GANTT_MIN_HEIGHT} — so the user
+ * can raise the minimum (a stable, taller chart even with few rows) but never
+ * lower it below the ~2-row floor that keeps a single row from clipping.
+ *
  * @param rowCount - number of currently-visible rows (`_tasks.length`).
  * @param cellHeight - per-row height in px.
  * @param scaleHeight - total scale-header height in px.
  * @param maxHeight - per-view cap in px (`tngantt_maxHeight`).
+ * @param minHeight - per-view floor in px (`tngantt_minHeight`); defaults to {@link GANTT_MIN_HEIGHT}.
  * @param scrollbarAllowance - horizontal-scrollbar reserve; defaults to {@link SCROLLBAR_ALLOWANCE}.
  */
 export function resolveHostHeight(
@@ -76,8 +82,10 @@ export function resolveHostHeight(
   cellHeight: number,
   scaleHeight: number,
   maxHeight: number,
+  minHeight: number = GANTT_MIN_HEIGHT,
   scrollbarAllowance: number = SCROLLBAR_ALLOWANCE,
 ): number {
   const content = computeContentHeight(rowCount, cellHeight, scaleHeight, scrollbarAllowance);
-  return Math.max(GANTT_MIN_HEIGHT, Math.min(content, maxHeight));
+  const floor = Math.max(GANTT_MIN_HEIGHT, minHeight);
+  return Math.max(floor, Math.min(content, maxHeight));
 }

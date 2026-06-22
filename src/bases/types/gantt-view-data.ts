@@ -46,6 +46,18 @@ export interface GanttData {
    * up to this cap, then scrolls internally.
    */
   maxHeight: number;
+  /**
+   * Per-view min-height (px) floor for the chart host. Flows through the reactive
+   * data path like {@link maxHeight} so the slider re-sizes live without a
+   * remount; clamped to the absolute ~2-row floor in the reader.
+   */
+  minHeight: number;
+  /**
+   * Opacity (fraction 0–1) for Show-all context bars (U6). Flows through the
+   * reactive data path so the slider re-tints bars live without a remount — same
+   * treatment as {@link maxHeight}. Applied as a CSS custom property in the view.
+   */
+  contextOpacity: number;
   /** Status→color palette (TaskNotes). */
   statusColors: StatusColor[];
   /** Invalid date-mapping notice, when a start/end mapping fell back. */

@@ -23,8 +23,10 @@
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
+    buildInstanceCueTaskTypes,
     planTaskSync,
     planLinkSync,
+    planReorder,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -47,9 +49,12 @@
   import {
     resolveHostHeight,
     DEFAULT_MAX_HEIGHT,
+    GANTT_MIN_HEIGHT,
     SVAR_CELL_HEIGHT,
     SVAR_SCALE_HEIGHT,
   } from './ganttHeight';
+  import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
+  import { toggleCollapseAll } from './collapseState';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -223,6 +228,55 @@
   // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
   // option re-fits the host live without a remount. Default 400 (R1).
   const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
+  // Per-view min-height floor; clamped to the absolute ~2-row floor in the reader.
+  const minHeight = $derived($data.minHeight ?? GANTT_MIN_HEIGHT);
+
+  // Show-all context-bar opacity (U6). Reactive so the slider re-tints bars live.
+  // Applied below as a CSS custom property the `.og-context` rule reads (driving
+  // a dynamic value through a class-only stylesheet isn't possible otherwise).
+  const contextOpacity = $derived($data.contextOpacity ?? DEFAULT_CONTEXT_OPACITY);
+
+  // Collapse-all / expand-all (U7). Collapsible ids = instance ids referenced as
+  // a parent by some row. The floating toggle collapses all when any is open,
+  // otherwise expands all. `allCollapsed` drives the button's icon/label.
+  const parentInstanceIds = $derived.by(() => {
+    const ids = new Set<string>();
+    for (const inst of $data.instances) if (inst.parent) ids.add(inst.parent);
+    return ids;
+  });
+  const allCollapsed = $derived(
+    parentInstanceIds.size > 0 && [...parentInstanceIds].every((id) => collapsedIds.has(id)),
+  );
+
+  function toggleAllCollapse(): void {
+    const next = toggleCollapseAll(parentInstanceIds, collapsedIds);
+    if (!api) {
+      collapsedIds = next;
+      return;
+    }
+    // Set `syncing` BEFORE mutating collapsedIds: the sync $effect tracks
+    // collapsedIds (via toInputs), so the write schedules it — raising the guard
+    // first ensures any resulting diff treats our open-task execs as echoes.
+    // Apply live via SVAR's own open-task action (tagged so the open-task
+    // intercept skips re-persisting). The reactive seed/diff keeps `open`
+    // consistent on any later reseed; this just reflects the change immediately.
+    syncing = true;
+    collapsedIds = next;
+    try {
+      for (const id of parentInstanceIds) {
+        const shouldClose = next.has(id);
+        const task = api.getTask?.(id);
+        const isOpen = task ? task.open !== false : true;
+        if (shouldClose && isOpen) {
+          api.exec('open-task', { id, mode: false, eventSource: OG_ECHO_SOURCE });
+        } else if (!shouldClose && !isOpen) {
+          api.exec('open-task', { id, mode: true, eventSource: OG_ECHO_SOURCE });
+        }
+      }
+    } finally {
+      syncing = false;
+    }
+  }
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -250,6 +304,13 @@
       rootEl.appendChild(styleEl);
     }
     styleEl.textContent = css;
+  });
+
+  // Drive the Show-all context-bar opacity (U6) as a CSS custom property on the
+  // view root; the `.og-context` rule reads `var(--og-context-opacity)`. Reactive
+  // on the slider value so it re-tints live (rootEl is bound by the time this runs).
+  $effect(() => {
+    rootEl?.style.setProperty('--og-context-opacity', String(contextOpacity));
   });
 
   // Native interaction listeners on the chart root (U2): capture the last
@@ -320,10 +381,19 @@
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,
+      // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
+      // and any reseed all compute `open` from the same source of truth.
+      collapsedIds,
     };
   }
 
   const initialData = get(data);
+  // Collapsed instance ids (U7) — EPHEMERAL session state, not persisted. Drives
+  // the collapse-all toggle's icon/decision and seeds SVAR's `open` via toInputs
+  // so a collapse survives data refreshes/reseeds within the session. Starts
+  // empty (all expanded) on every mount; the user re-adjusts with the toggle or
+  // the row chevrons. Updated by the `open-task` intercept and toggleAllCollapse.
+  let collapsedIds: Set<string> = $state(new Set());
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -359,9 +429,14 @@
   // its store (reverting our incremental updates to the seed), so this stays a
   // const. A status value added to TaskNotes config while the view is open won't
   // color until the view is reopened — rare, and acceptable.
+  const statusTaskTypes = buildStatusTaskTypes(initialData.statusColors ?? []);
   const svarTaskTypes = [
     ...defaultTaskTypes,
-    ...buildStatusTaskTypes(initialData.statusColors ?? []),
+    ...statusTaskTypes,
+    // Instance cues (U6) cross the date-status/status combos, so a bar can carry
+    // both a state class and a replicated/context cue and still match a
+    // registered whole `type` string.
+    ...buildInstanceCueTaskTypes(statusTaskTypes.map((t) => t.id)),
   ];
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
@@ -370,6 +445,18 @@
   for (const t of seedTasks0) appliedTasks.set(t.id, t);
   const appliedLinks = new Map<string, RenderLink>();
   for (const l of seedLinks0) appliedLinks.set(l.id, l);
+
+  // Fingerprint of the rendered row ORDER (parent + id sequence). The
+  // incremental diff is keyed by id and cannot reorder existing rows, so a
+  // pure reorder — e.g. a Base toolbar sort change with the same task set —
+  // leaves SVAR in the prior order. We detect an order change and apply it via
+  // `move-task` (mode `after`) inside the syncing block (zoom/scroll survive;
+  // the syncing guard suppresses the echo/select that would otherwise open the
+  // edit modal). Seeded so the first diff after mount is a no-op.
+  function orderFingerprint(tasks: readonly SvarTask[]): string {
+    return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
+  }
+  let appliedOrderKey = orderFingerprint(seedTasks0);
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -409,17 +496,20 @@
       return;
     }
 
-    const taskPlan = planTaskSync(appliedTasks, buildSvarTasks(toInputs(d)));
+    const next = buildSvarTasks(toInputs(d));
+    const taskPlan = planTaskSync(appliedTasks, next);
     const linkPlan = planLinkSync(appliedLinks, d.links);
+    const orderKey = orderFingerprint(next);
 
-    const noop =
+    const contentNoop =
       !taskPlan.moves.length &&
       !taskPlan.updates.length &&
       !taskPlan.deletes.length &&
       !taskPlan.adds.length &&
       !linkPlan.deletes.length &&
       !linkPlan.adds.length;
-    if (noop) return;
+    // Nothing changed at all (content or order) → no work.
+    if (contentNoop && orderKey === appliedOrderKey) return;
 
     syncing = true;
     try {
@@ -448,6 +538,27 @@
         api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
         appliedLinks.set(l.id, l);
       }
+      // Reconcile sibling ORDER to the Base order. The diff above is id-keyed
+      // and never reorders existing rows, so a pure reorder (toolbar sort) or an
+      // add that shifts positions needs explicit move-task steps. `move-task`
+      // (mode `after`) keeps each task under its parent — zoom/scroll survive,
+      // unlike a re-init reseed. Inside the syncing block, so the resulting
+      // select/echo is suppressed (no spurious edit modal).
+      if (orderKey !== appliedOrderKey) {
+        for (const m of planReorder(next)) {
+          api.exec('move-task', {
+            id: m.id,
+            target: m.after,
+            mode: 'after',
+            eventSource: OG_ECHO_SOURCE,
+          });
+        }
+      }
+      // Commit the applied order INSIDE the try, after the moves land. If a
+      // move-task exec throws mid-sequence, this is skipped so the stale key
+      // forces the next sync to replay the full reorder (rather than diffing
+      // against an order we never finished applying).
+      appliedOrderKey = orderKey;
     } finally {
       syncing = false;
     }
@@ -488,6 +599,9 @@
     for (const t of tasks) appliedTasks.set(t.id, t);
     appliedLinks.clear();
     for (const l of d.links) appliedLinks.set(l.id, l);
+    // The reseed re-inits SVAR from `tasks` (already in Base order), so the
+    // applied order key tracks it — the next diff won't re-issue reorder moves.
+    appliedOrderKey = orderFingerprint(tasks);
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -573,7 +687,7 @@
 
   // Resolved host height in px (R2/R3). `$derived` memoizes, so the inline style
   // re-applies only when the value actually changes — the no-op guard is free.
-  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight));
+  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight, minHeight));
 
   // Full screen is handled by SVAR's official <Fullscreen> component (svelte-core)
   // in the markup — it wraps the chart, uses the native browser Fullscreen API,
@@ -622,6 +736,11 @@
     width: number;
     align: 'left' | 'center' | 'right';
     resize: boolean;
+    // Disable SVAR's header-click sort on every column — the Obsidian Base
+    // toolbar sort is the single ordering authority (R16). Without this the
+    // built-in name/tree column stays sortable while the property columns are
+    // not, an inconsistent dual-authority UX.
+    sort: false;
     // SVAR cell component for property columns; the name column omits it (uses
     // the default cell, which renders the tree + row.text).
     cell?: typeof PropertyCell;
@@ -636,6 +755,7 @@
         width: c.width,
         align: c.align,
         resize: true,
+        sort: false,
       };
       if (!c.isName) col.cell = PropertyCell;
       return col;
@@ -762,7 +882,36 @@
     // Double-click → SVAR fires `show-editor` (no modifier info; we use the
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
+    // Block all user-initiated column-header sorting — the Base toolbar sort is
+    // the single ordering authority (R16). Belt-and-braces with the columns'
+    // `sort: false`; safe because our own reordering uses `move-task`, not
+    // `sort-tasks`, so this only ever cancels a header click.
+    api.intercept("sort-tasks", () => false);
+
+    // Persist user collapse/expand (U7). SVAR fires open-task on a toggle-icon
+    // click — mode=true expands, mode=false collapses. Let it proceed (return
+    // true) and record the change so it survives reload. Ignore our own bulk
+    // collapse-all execs (tagged eventSource) and any event during a reseed.
+    api.intercept(
+      "open-task",
+      (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
+        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        const id = ev?.id != null ? String(ev.id) : null;
+        if (!id || typeof ev.mode !== 'boolean') return true;
+        const next = new Set(collapsedIds);
+        if (ev.mode) next.delete(id);
+        else next.add(id);
+        collapsedIds = next;
+        return true;
+      },
+    );
+
     api.intercept("show-editor", ({ id }: { id: string }) => {
+      // Ignore programmatic selection/editor events emitted while we reseed the
+      // store (add/delete/update during diff-sync) — those are not user clicks.
+      // Without this, a per-view settings change that reseeds the chart would
+      // spuriously open the TaskNotes edit modal. Same guard as update-task.
+      if (syncing) return false;
       if (pendingSingleClick) {
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
@@ -777,6 +926,12 @@
     // Defer the action so a following double-click can cancel it. Allow SVAR's
     // own selection to proceed (return true) — we only add the native action.
     api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
+      // Ignore programmatic re-selection emitted during a store reseed (a
+      // deleted/re-added selected task makes SVAR fire select-task with
+      // syncing=true). Only genuine user clicks should trigger the native
+      // activate → TaskNotes modal. Fixes the modal popping up on a settings
+      // toggle (which now reseeds the chart for instant apply).
+      if (syncing) return true;
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
         const ctrlOrMeta = ev.toggle === true;
@@ -1186,7 +1341,6 @@
 
 <div
   class="og-bases-gantt"
-  style={`height: ${hostHeightPx}px;`}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -1204,7 +1358,13 @@
        data updates), and the flip reseeds the chart's data (see
        maybeReseedForThemeFlip) so the remounted <Gantt> shows current data.
        fonts={false} omits the font CDN <link> (CSP). -->
-  <div class="og-chart-area">
+  <!-- The computed host height (plan 003 U2) is applied HERE, on the chart
+       region — NOT the outer container — so the optional toolbar and notice
+       banners add their height ABOVE the chart instead of subtracting from it.
+       Applied to the outer container, chrome shrank the chart below its content
+       height; collapsed to a single root that clipped the only row. This element
+       is the definite-height ancestor SVAR's `height:100%` chain resolves against. -->
+  <div class="og-chart-area" style={`height: ${hostHeightPx}px;`}>
     {#if effectiveIsDark}
       <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
     {:else}
@@ -1263,24 +1423,45 @@
         />
       </Tooltip>
 
-    <!-- Floating Zoom Controls (OG-81) -->
-    <div class="zoom-controls">
-      <button
-        class="zoom-btn zoom-in"
-        onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
-        aria-label="Zoom in"
-        title="Zoom in"
-      >
-        <span class="zoom-icon" use:lucideIcon={'plus'}></span>
-      </button>
-      <button
-        class="zoom-btn zoom-out"
-        onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
-        aria-label="Zoom out"
-        title="Zoom out"
-      >
-        <span class="zoom-icon" use:lucideIcon={'minus'}></span>
-      </button>
+    <!-- Floating controls (OG-81 zoom + U7 collapse-all). Two separate pills in a
+         bottom-right stack with a small gap between them — the collapse/expand
+         toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
+    <div class="zoom-controls-stack">
+      <!-- Collapse-all / expand-all (U7). Hidden when the tree has no parents
+           (nothing to collapse). Lucide icons render (wxi-* fonts are disabled). -->
+      {#if parentInstanceIds.size > 0}
+        <div class="zoom-controls">
+          <button
+            class="zoom-btn collapse-all"
+            onclick={toggleAllCollapse}
+            aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
+            title={allCollapsed ? 'Expand all' : 'Collapse all'}
+          >
+            <span
+              class="zoom-icon"
+              use:lucideIcon={allCollapsed ? 'chevrons-up-down' : 'chevrons-down-up'}
+            ></span>
+          </button>
+        </div>
+      {/if}
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn zoom-in"
+          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <span class="zoom-icon" use:lucideIcon={'plus'}></span>
+        </button>
+        <button
+          class="zoom-btn zoom-out"
+          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <span class="zoom-icon" use:lucideIcon={'minus'}></span>
+        </button>
+      </div>
     </div>
     </Fullscreen>
   </div>
@@ -1308,16 +1489,13 @@
 <style>
   .og-bases-gantt {
     width: 100%;
-    /* Height is set inline as an explicit px value (plan 003 U2): the host fits
-       its content up to the per-view max-height, then scrolls. SVAR's
-       `height:100%` chain needs a *definite* host height, so there is no CSS
-       `height`/`min-height` here — the inline value (always ≥ the ~2-row floor)
-       is authoritative. Full screen doesn't touch this: SVAR's <Fullscreen>
-       promotes its own inner node to the native top layer. */
-    /* Column layout so the optional toolbar takes its natural height and the
-       chart fills the remaining space — without this the toolbar + a height:100%
-       chart overflow the host, clipping the toolbar or the floating zoom buttons
-       on scroll. */
+    /* No explicit height here: the computed chart height is applied to
+       `.og-chart-area` (plan 003 U2 / collapse-clip fix), so this outer container
+       sizes to its content — the optional toolbar/banners plus the chart region.
+       Applying the chart height here instead made chrome subtract from the chart,
+       clipping a single collapsed root. Full screen is unaffected: SVAR's
+       <Fullscreen> promotes its own inner node to the native top layer. */
+    /* Column layout so the toolbar stacks above the chart region. */
     display: flex;
     flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
@@ -1334,7 +1512,11 @@
      than overflow). The <Willow>/<WillowDark> render their own
      `<div class="wx-theme wx-willow-theme" style="height:100%">` inside this. */
   .og-chart-area {
-    flex: 1 1 auto;
+    /* Height is set inline (plan 003 U2 / collapse-clip fix): this region owns
+       the computed chart height so the toolbar/banners sit above it rather than
+       eating into it. `flex: none` so the flex column never shrinks it below the
+       explicit height. */
+    flex: none;
     min-height: 0;
   }
 
@@ -1357,14 +1539,23 @@
     touch-action: none;
   }
 
-  /* Floating Zoom Controls - Google Maps style (OG-81) */
-  .zoom-controls {
+  /* Floating controls stack (OG-81 zoom + U7 collapse-all), bottom-right. The
+     `gap` separates the collapse/expand pill from the zoom pill; within each pill
+     the buttons stay flush (so zoom +/− have no gap between them). */
+  .zoom-controls-stack {
     position: absolute;
     bottom: 16px;
     right: 16px;
     display: flex;
     flex-direction: column;
+    gap: 6px;
     z-index: 100;
+  }
+
+  /* Each control pill - Google Maps style (OG-81). */
+  .zoom-controls {
+    display: flex;
+    flex-direction: column;
     border-radius: 4px;
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1605,6 +1796,44 @@
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
+  }
+
+  /*
+   * Instance cues (U6). SVAR emits a registered task type as a bare class on the
+   * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
+   * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no
+   * glyph badges. Both treatments are deliberately subtle and stack (a bar can
+   * be replicated AND context); tune the exact look here.
+   *
+   * Replicated: the same note shown in more than one place. A faint diagonal
+   * hatch overlays every duplicate equally — none is privileged — without
+   * overriding the bar's status colour. The ::after fills the absolutely-
+   * positioned bar and ignores pointer events so drag/click still hit the bar.
+   */
+  .og-bases-gantt :global(.wx-bar.og-replicated)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.3) 0,
+      rgba(255, 255, 255, 0.3) 2px,
+      transparent 2px,
+      transparent 6px
+    );
+  }
+
+  /*
+   * Context: a Show-all descendant that does not itself match the Base filter —
+   * pulled in only to show structure. Render it muted so matched rows stay
+   * visually dominant.
+   */
+  .og-bases-gantt :global(.wx-bar.og-context) {
+    /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
+       matches DEFAULT_CONTEXT_OPACITY. */
+    opacity: var(--og-context-opacity, 0.55);
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

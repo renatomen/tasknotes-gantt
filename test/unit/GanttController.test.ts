@@ -115,6 +115,31 @@ class FakeSource implements DataSource {
   }
 }
 
+/**
+ * A companion-capable enrichment fake: a FakeSource that also exposes the
+ * TaskNotes relationship reads (`getSubtasks`/`getParents`), so the controller's
+ * companion stage activates (toCompanionAccessor duck-types on these).
+ */
+class CompanionEnrichment extends FakeSource {
+  private readonly subtasksMap: Record<string, SourceTask[]>;
+  private readonly parentsMap: Record<string, string[]>;
+  constructor(opts: {
+    subtasks?: Record<string, SourceTask[]>;
+    parents?: Record<string, string[]>;
+    deps?: Record<string, SourceDependency[]>;
+  }) {
+    super({ deps: opts.deps });
+    this.subtasksMap = opts.subtasks ?? {};
+    this.parentsMap = opts.parents ?? {};
+  }
+  async getSubtasks(path: string): Promise<SourceTask[]> {
+    return this.subtasksMap[path] ?? [];
+  }
+  async getParents(path: string): Promise<string[]> {
+    return this.parentsMap[path] ?? [];
+  }
+}
+
 /** A no-op App stand-in (the fake deps never touch it). */
 const fakeApp = {} as App;
 
@@ -204,6 +229,41 @@ describe('GanttController — reactive re-selection', () => {
 
     expect(controller.capabilities.write).toBe(false);
     expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['bs.md']);
+  });
+});
+
+describe('GanttController — recompute race guard (recomputeSeq)', () => {
+  it('latest-wins: a stale recompute resolving LAST does not clobber the newer one', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['init.md']);
+
+    // Gate getTasks so we control the resolution order of two overlapping
+    // recomputes. fireChange() triggers recompute synchronously up to the
+    // getTasks await, so each call queues exactly one resolver.
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+
+    tn.fireChange(); // recompute seq N (older)
+    tn.fireChange(); // recompute seq N+1 (newer = latest)
+    expect(gates).toHaveLength(2);
+
+    const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+    // Resolve the NEWER recompute first → snapshot becomes 'new.md'.
+    gates[1]!([task({ path: 'new.md' })]);
+    await flush();
+    // Then resolve the OLDER (now-stale) recompute → the seq guard must DISCARD
+    // it, even though it resolved last, so the snapshot stays 'new.md'.
+    gates[0]!([task({ path: 'old.md' })]);
+    await flush();
+
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['new.md']);
   });
 });
 
@@ -772,3 +832,199 @@ async function flushAsync(): Promise<void> {
   // (getTasks + getDependencies per task) it chains internally.
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe('GanttController — companion expansion stage (U4)', () => {
+  /** Build a bases-scoped controller whose enrichment supports the companion reads. */
+  function makeCompanion(opts: {
+    baseTasks: SourceTask[];
+    subtasks?: Record<string, SourceTask[]>;
+    parents?: Record<string, string[]>;
+    deps?: Record<string, SourceDependency[]>;
+    mode?: 'inherit' | 'show-all';
+    hideTopLevel?: boolean;
+  }): GanttController {
+    const base = new FakeSource({ tasks: opts.baseTasks });
+    const enrichment = new CompanionEnrichment({
+      subtasks: opts.subtasks,
+      parents: opts.parents,
+      deps: opts.deps,
+    });
+    return new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({
+        mode: opts.mode ?? 'inherit',
+        hideTopLevel: opts.hideTopLevel ?? false,
+      }),
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+  }
+
+  it('Show-all pulls transitive fetched descendants into the snapshot, flagged isFetched', async () => {
+    const controller = makeCompanion({
+      baseTasks: [task({ path: 'P.md' })],
+      subtasks: { 'P.md': [task({ path: 'C.md' })], 'C.md': [task({ path: 'G.md' })] },
+      parents: { 'C.md': ['P.md'], 'G.md': ['C.md'] },
+      mode: 'show-all',
+    });
+    await controller.init();
+    const instances = await controller.getInstances();
+    expect(new Set(instances.map((i) => i.sourcePath))).toEqual(new Set(['P.md', 'C.md', 'G.md']));
+    const fetched = instances.filter((i) => i.isFetched).map((i) => i.sourcePath);
+    expect(new Set(fetched)).toEqual(new Set(['C.md', 'G.md']));
+  });
+
+  it('Inherit does not fetch out-of-result subtasks', async () => {
+    const controller = makeCompanion({
+      baseTasks: [task({ path: 'P.md' })],
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+      mode: 'inherit',
+    });
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['P.md']);
+  });
+
+  it('hide off: a matched child renders both at root and nested (alsoTopLevel)', async () => {
+    const controller = makeCompanion({
+      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
+      parents: { 'C.md': ['P.md'] },
+      mode: 'inherit',
+      hideTopLevel: false,
+    });
+    await controller.init();
+    const cIds = (await controller.getInstances())
+      .filter((i) => i.sourcePath === 'C.md')
+      .map((i) => i.id)
+      .sort();
+    expect(cIds).toEqual(['C.md', 'C.md#parent-P.md']);
+  });
+
+  it('hide on: a matched child renders nested only', async () => {
+    const controller = makeCompanion({
+      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
+      parents: { 'C.md': ['P.md'] },
+      mode: 'inherit',
+      hideTopLevel: true,
+    });
+    await controller.init();
+    const cIds = (await controller.getInstances())
+      .filter((i) => i.sourcePath === 'C.md')
+      .map((i) => i.id);
+    expect(cIds).toEqual(['C.md#parent-P.md']);
+  });
+
+  it('resolves dependency edges for fetched (Show-all) descendants', async () => {
+    const controller = makeCompanion({
+      baseTasks: [task({ path: 'P.md' })],
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+      // Fetched C is blocked by matched P; both endpoints have instances.
+      deps: { 'C.md': [{ predecessorPath: 'P.md', reltype: 'FINISHTOSTART', gap: null }] },
+      mode: 'show-all',
+    });
+    await controller.init();
+    const links = await controller.getLinks('primary');
+    expect(
+      links.some((l) => l.source === 'P.md' && l.target.startsWith('C.md') && l.type === 'e2s'),
+    ).toBe(true);
+  });
+
+  it('reads companion settings fresh each recompute (toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const live = { mode: 'inherit' as 'inherit' | 'show-all', hideTopLevel: true };
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: live.mode, hideTopLevel: live.hideTopLevel }),
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => enrichment,
+      },
+    });
+    await controller.init();
+    // hide on → nested only.
+    expect(
+      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id),
+    ).toEqual(['C.md#parent-P.md']);
+
+    // Flip the live setting and re-run selection (what onDataUpdated does).
+    live.hideTopLevel = false;
+    await controller.refreshSource();
+    expect(
+      (await controller.getInstances())
+        .filter((i) => i.sourcePath === 'C.md')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(['C.md', 'C.md#parent-P.md']);
+  });
+
+  it('companion stage is inert in standalone mode (parents from the Base)', async () => {
+    const base = new FakeSource({
+      tasks: [task({ path: 'P.md' }), task({ path: 'C.md', parents: ['P.md'] })],
+    });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+    await controller.init();
+    // No TaskNotes accessor → parents come from the Base; C nests under P, no
+    // extra root, nothing flagged fetched.
+    const instances = await controller.getInstances();
+    expect(instances.filter((i) => i.sourcePath === 'C.md').map((i) => i.id)).toEqual([
+      'C.md#parent-P.md',
+    ]);
+    expect(instances.every((i) => i.isFetched === false)).toBe(true);
+  });
+});
+
+describe('GanttController — per-view settings freshness', () => {
+  it('reads date-policy config fresh each recompute (visibility toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] }); // no dates → placeholder
+    const policy = { defaultDuration: 1, showUndatedTasks: true, showPartialDateTasks: true };
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      policyConfig: () => ({ ...policy }),
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+    await controller.init();
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
+
+    // Hide undated tasks; a recompute (what onDataUpdated triggers) re-reads it.
+    policy.showUndatedTasks = false;
+    await controller.refreshSource();
+    expect(await controller.getInstances()).toEqual([]);
+  });
+
+  it('still accepts a static policyConfig object (backward compatible)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      policyConfig: { defaultDuration: 1, showUndatedTasks: false, showPartialDateTasks: true },
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+    await controller.init();
+    expect(await controller.getInstances()).toEqual([]);
+  });
+});

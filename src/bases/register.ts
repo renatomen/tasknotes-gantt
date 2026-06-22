@@ -10,6 +10,7 @@
 /* global MouseEvent */
 import {
   BasesView,
+  TFile,
   type Plugin,
   type BasesViewConfig,
   type BasesPropertyId,
@@ -31,13 +32,22 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { buildEntryProperties } from './propertyValues';
+import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
 import { persistGridWidth } from './gridWidthPersist';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
-import { ganttViewOptions, readMaxHeight, readShowToolbar, taskListViewOptions } from './viewOptions';
+import {
+  ganttViewOptions,
+  readContextOpacity,
+  readExpandedRelationships,
+  readHideTopLevelSubtasks,
+  readMaxHeight,
+  readMinHeight,
+  readShowToolbar,
+  taskListViewOptions,
+} from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
 /**
@@ -275,6 +285,26 @@ class ObsidianGanttBasesView extends BasesView {
     return readMaxHeight((key) => this.config.get(key));
   }
 
+  /** Read the per-view min-height in px; default/clamped to the ~2-row floor. */
+  private getMinHeight(): number {
+    return readMinHeight((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Expanded relationships mode (companion mode); default inherit. */
+  private getExpandedRelationships() {
+    return readExpandedRelationships((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Hide top-level subtasks toggle (companion mode); default off. */
+  private getHideTopLevelSubtasks(): boolean {
+    return readHideTopLevelSubtasks((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. */
+  private getContextOpacity(): number {
+    return readContextOpacity((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view theme mode (plan 002 R4), normalized to
    * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
@@ -321,7 +351,14 @@ class ObsidianGanttBasesView extends BasesView {
           entries: this.data?.data ?? [],
           mappings: this.buildFieldMappings(),
         }),
-        policyConfig: this.buildDatePolicyConfig(),
+        // All per-view controller settings are provider closures → read fresh on
+        // every recompute, so toggling any per-view option applies instantly
+        // (onDataUpdated → refreshSource), no manual refresh/remount needed.
+        policyConfig: () => this.buildDatePolicyConfig(),
+        companionConfig: () => ({
+          mode: this.getExpandedRelationships(),
+          hideTopLevel: this.getHideTopLevelSubtasks(),
+        }),
       });
 
       await controller.init();
@@ -445,6 +482,33 @@ class ObsidianGanttBasesView extends BasesView {
       visiblePropIds,
       this.gridAdapter,
     );
+    // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
+    // result, so the matched-only map above leaves their grid cells blank. Fill
+    // their note.*/file.* columns from the metadata cache (formula columns fall
+    // back to empty — R5). Matched rows already in the map are never overwritten.
+    if (visiblePropIds.length > 0) {
+      const seen = new Set(propertyValues.keys());
+      const fetchedMetas: FetchedFileMeta[] = [];
+      for (const inst of instances) {
+        if (seen.has(inst.sourcePath)) continue;
+        seen.add(inst.sourcePath);
+        const file = this.app.vault.getAbstractFileByPath(inst.sourcePath);
+        if (!(file instanceof TFile)) continue;
+        fetchedMetas.push({
+          path: inst.sourcePath,
+          basename: file.basename,
+          extension: file.extension,
+          frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
+        });
+      }
+      for (const [path, record] of buildFetchedEntryProperties(
+        fetchedMetas,
+        visiblePropIds,
+        this.gridAdapter,
+      )) {
+        propertyValues.set(path, record);
+      }
+    }
     const gridColumns = buildGridColumns(
       visiblePropIds,
       (id) => this.getDisplayName(asPropertyId(id)),
@@ -460,6 +524,8 @@ class ObsidianGanttBasesView extends BasesView {
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
       maxHeight: this.getMaxHeight(),
+      minHeight: this.getMinHeight(),
+      contextOpacity: this.getContextOpacity(),
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
@@ -517,6 +583,23 @@ class ObsidianGanttBasesView extends BasesView {
 }
 
 /**
+ * Whether the TaskNotes plugin is present with an exposed API. Sync (used at
+ * options-panel build time) — mirrors the `app.plugins.getPlugin('tasknotes')`
+ * resolution in {@link TaskNotesSource}. Companion-only relationship controls
+ * are shown only when this is true.
+ */
+function isTaskNotesPresent(app: Plugin['app']): boolean {
+  try {
+    const plugins = (app as unknown as {
+      plugins?: { getPlugin(id: string): { api?: unknown } | null | undefined };
+    }).plugins;
+    return Boolean(plugins?.getPlugin('tasknotes')?.api);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Register the Gantt view with Obsidian's Bases API
  *
  * @param plugin - The Obsidian plugin instance
@@ -547,7 +630,11 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => ganttViewOptions(),
+    // Companion-only relationship controls render only when TaskNotes is
+    // present (expansion is companion-only — see plan U1/R6). Presence is
+    // re-checked each time the options panel builds; cheap.
+    options: (_config: BasesViewConfig): BasesAllOptions[] =>
+      ganttViewOptions(isTaskNotesPresent(plugin.app)),
   });
 
   if (registeredGantt) {
