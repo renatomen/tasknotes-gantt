@@ -80,6 +80,22 @@ async function activateBaseLeaf(): Promise<void> {
   });
 }
 
+/**
+ * Force a fresh mount of the Gantt view: detach every Bases leaf, then let
+ * activateBaseLeaf reopen Companion.base. The remount reseeds the component's
+ * ephemeral-sort `$state(null)`, so this is how AE3 proves the sort is
+ * session-only (R4) — there is no persisted sort to restore.
+ */
+async function reopenBase(): Promise<void> {
+  await browser.executeObsidian(async ({ app }) => {
+    const ws = app.workspace as unknown as {
+      getLeavesOfType: (t: string) => Array<{ detach?: () => void }>;
+    };
+    for (const leaf of ws.getLeavesOfType("bases")) leaf.detach?.();
+  });
+  await ensureGanttReady();
+}
+
 interface SortState {
   mounted: boolean;
   /** Stripped (no leading `:`) instance ids of every rendered bar, in DOM order. */
@@ -128,6 +144,18 @@ async function clickColumnHeader(columnId: string): Promise<boolean> {
     header.click();
     return true;
   }, columnId);
+}
+
+/**
+ * Click a column header, retrying until the grid header cell is rendered and the
+ * click lands. On the first test the bars (.wx-bar) are ready before the grid
+ * header cells settle, so a one-shot click can miss; this waits for the header.
+ */
+async function sortByColumn(columnId: string): Promise<void> {
+  await browser.waitUntil(() => clickColumnHeader(columnId), {
+    timeout: 10000,
+    timeoutMsg: `Column header "${columnId}" did not become clickable`,
+  });
 }
 
 function idx(ids: string[], sourcePath: string): number {
@@ -241,8 +269,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     // `note.due` property column → descending → B (2026-03-25) before A
     // (2026-03-20). A reorder here can ONLY happen if the property-column
     // comparator runs (the value lives in custom.properties, not task.note.due).
-    const found1 = await clickColumnHeader("note.due");
-    expect(found1).toBe(true);
+    await sortByColumn("note.due"); // first click → ascending (retries until header is ready)
     await clickColumnHeader("note.due"); // second click → descending
 
     let state: SortState | null = null;
@@ -267,7 +294,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     expect((await readSortState()).resetPill).toBe(false);
 
     // First click → ascending: reset pill appears, header reads as sorted.
-    await clickColumnHeader("note.due");
+    await sortByColumn("note.due");
     await browser.waitUntil(async () => (await readSortState()).resetPill, {
       timeout: 10000,
       timeoutMsg: "Reset pill did not appear on the first sort click",
@@ -301,7 +328,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("clears an active sort back to the Base order via the reset pill (R5)", async () => {
     // Sort descending (B before A), then click the reset pill → Base order (A before B).
-    await clickColumnHeader("note.due");
+    await sortByColumn("note.due");
     await clickColumnHeader("note.due");
     await browser.waitUntil(
       async () => {
@@ -330,9 +357,29 @@ describe("Gantt (OG) ephemeral column sort", () => {
     expect(state!.resetPill).toBe(false);
   });
 
+  it("is session-only: reopening the view returns to the Base sort (AE3/R4)", async () => {
+    // Sort descending (B before A), then remount the view by reopening the Base.
+    await sortByColumn("note.due");
+    await clickColumnHeader("note.due");
+    await browser.waitUntil(
+      async () => {
+        const s = await readSortState();
+        return s.resetPill && idx(s.ids, "Project B.md") < idx(s.ids, "Project A.md");
+      },
+      { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before reopen" },
+    );
+
+    await reopenBase();
+
+    // The remount seeds ephemeralSort=null → no pill, Base order (A before B).
+    const state = await readSortState();
+    expect(state.resetPill).toBe(false);
+    expect(idx(state.ids, "Project A.md")).toBeLessThan(idx(state.ids, "Project B.md"));
+  });
+
   it("keeps an active sort across a data refresh and stays above min height (AE6/R8)", async () => {
     // Sort descending (B before A).
-    await clickColumnHeader("note.due");
+    await sortByColumn("note.due");
     await clickColumnHeader("note.due");
     await browser.waitUntil(
       async () => {
