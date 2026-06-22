@@ -27,6 +27,7 @@
  */
 import type { BasesSortConfig } from 'obsidian';
 import type { CompanionTask } from '../datasource/companionResolve';
+import { compareScalars } from './columnSort';
 
 /** A Gantt field a Base sort property can map onto. */
 export type SortableField = 'start' | 'end' | 'text' | 'status' | 'progress';
@@ -79,25 +80,16 @@ export function extractSortKey(task: CompanionTask, field: SortableField): SortK
 }
 
 /**
- * Ascending comparison of two non-null sort keys, type-aware. Dates compare
- * chronologically, numbers numerically, everything else by a locale-aware,
- * numeric-aware string compare (consistent with the grid column comparator).
- */
-function compareKeys(a: Exclude<SortKey, null>, b: Exclude<SortKey, null>): number {
-  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base', numeric: true });
-}
-
-/**
  * Ascending comparison with null-last semantics: a `null` key always sorts after
- * a non-null one (and two nulls are equal).
+ * a non-null one (and two nulls are equal). Non-null values delegate to the shared
+ * {@link compareScalars} (the same locale-numeric convention as the grid column
+ * comparator), so the two never drift apart.
  */
 function compareKeysNullLast(a: SortKey, b: SortKey): number {
   if (a === null && b === null) return 0;
   if (a === null) return 1;
   if (b === null) return -1;
-  return compareKeys(a, b);
+  return compareScalars(a, b);
 }
 
 /** The sibling-group key for a task: its first parent path, or `''` for roots. */
@@ -200,6 +192,13 @@ export function positionFetchedAmongMatched(
  * aren't less than any matched row trail the matched rows, ordered among
  * themselves by key (then stable discovery order). A group with no matched rows
  * returns the fetched rows ordered by key.
+ *
+ * Implemented as a two-pointer merge of the matched list (kept in its exact Base
+ * order) and the key-sorted fetched list. This is correct even though the matched
+ * keys are NOT monotonic (matched is in Base order, never re-sorted): a fetched
+ * row's target slot is the first matched index whose key is greater, and that
+ * slot is monotonic in fetched-sorted order — so once fetched is sorted ascending,
+ * a single forward pass places every row, with matched keys read once each.
  */
 function positionGroup(
   matched: readonly CompanionTask[],
@@ -207,40 +206,21 @@ function positionGroup(
   field: SortableField,
   cmp: (a: SortKey, b: SortKey) => number,
 ): CompanionTask[] {
-  // Pre-extract keys once.
   const keyOf = (t: CompanionTask): SortKey => extractSortKey(t, field);
+  const sortedFetched = stableSortByKey(fetched, keyOf, cmp);
 
-  if (matched.length === 0) {
-    // No matched anchors: order fetched by key (stable for equal keys).
-    return stableSortByKey(fetched, keyOf, cmp);
-  }
-
-  // For each matched slot index i (0..matched.length), collect fetched rows that
-  // belong *before* matched[i] — i.e. their key is strictly less than
-  // matched[i]'s key AND not already placed before an earlier matched row.
-  const slots: CompanionTask[][] = Array.from({ length: matched.length + 1 }, () => []);
-  for (const f of fetched) {
-    const fk = keyOf(f);
-    let placed = matched.length; // default: trailing slot (after all matched).
-    for (let i = 0; i < matched.length; i++) {
-      const mk = keyOf(matched[i] as CompanionTask);
-      if (cmp(fk, mk) < 0) {
-        placed = i;
-        break;
-      }
-    }
-    slots[placed]?.push(f);
-  }
-
-  // Order fetched within each slot by key (stable), then assemble.
   const out: CompanionTask[] = [];
-  for (let i = 0; i < matched.length; i++) {
-    for (const f of stableSortByKey(slots[i] as CompanionTask[], keyOf, cmp)) out.push(f);
-    out.push(matched[i] as CompanionTask);
+  let fi = 0;
+  for (const m of matched) {
+    const mk = keyOf(m);
+    // Emit every remaining fetched row that sorts before this matched anchor.
+    while (fi < sortedFetched.length && cmp(keyOf(sortedFetched[fi] as CompanionTask), mk) < 0) {
+      out.push(sortedFetched[fi++] as CompanionTask);
+    }
+    out.push(m);
   }
-  for (const f of stableSortByKey(slots[matched.length] as CompanionTask[], keyOf, cmp)) {
-    out.push(f);
-  }
+  // Fetched rows not less than any matched anchor (incl. null keys) trail the group.
+  while (fi < sortedFetched.length) out.push(sortedFetched[fi++] as CompanionTask);
   return out;
 }
 

@@ -20,6 +20,21 @@ function isEmpty(v: TypedValue | undefined): boolean {
 }
 
 /**
+ * Ascending, type-aware comparison of two raw scalar values: dates compare
+ * chronologically, numbers numerically, booleans false<true, and everything else
+ * by a locale-aware, numeric-aware string form. Shared by {@link compareTypedValues}
+ * (grid column sort) and the default-view interleave (`sortKeyMapping`) so the one
+ * locale-numeric compare convention can't drift between them. Empty/null handling
+ * is the caller's job — this assumes both values are present.
+ */
+export function compareScalars(a: unknown, b: unknown): number {
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return (a ? 1 : 0) - (b ? 1 : 0);
+  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base', numeric: true });
+}
+
+/**
  * Ascending comparator over two {@link TypedValue}s, type-aware by `kind`. Empty
  * values sort last. Same-kind values compare by their natural order (dates
  * chronologically, numbers numerically, booleans false<true); everything else
@@ -32,14 +47,7 @@ export function compareTypedValues(a: TypedValue | undefined, b: TypedValue | un
   if (aEmpty) return 1; // empty after non-empty (ascending)
   if (bEmpty) return -1;
 
-  const av = (a as TypedValue).value;
-  const bv = (b as TypedValue).value;
-
-  if (av instanceof Date && bv instanceof Date) return av.getTime() - bv.getTime();
-  if (typeof av === 'number' && typeof bv === 'number') return av - bv;
-  if (typeof av === 'boolean' && typeof bv === 'boolean') return (av ? 1 : 0) - (bv ? 1 : 0);
-
-  return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base', numeric: true });
+  return compareScalars((a as TypedValue).value, (b as TypedValue).value);
 }
 
 /**

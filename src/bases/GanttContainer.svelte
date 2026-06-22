@@ -699,7 +699,11 @@
     for (const l of d.links) appliedLinks.set(l.id, l);
     // The reseed re-inits SVAR from `tasks` (already in Base order), so the
     // applied order key tracks it — the next diff won't re-issue reorder moves.
+    // Re-baseline the Base sort descriptor too (symmetry with appliedOrderKey): a
+    // reseed coinciding with a toolbar-sort change must not leave the next sync
+    // comparing against a stale descriptor.
     appliedOrderKey = orderFingerprint(tasks);
+    appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
 
     // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
     // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
