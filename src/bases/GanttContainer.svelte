@@ -763,6 +763,11 @@
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
     api.intercept("show-editor", ({ id }: { id: string }) => {
+      // Ignore programmatic selection/editor events emitted while we reseed the
+      // store (add/delete/update during diff-sync) — those are not user clicks.
+      // Without this, a per-view settings change that reseeds the chart would
+      // spuriously open the TaskNotes edit modal. Same guard as update-task.
+      if (syncing) return false;
       if (pendingSingleClick) {
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
@@ -777,6 +782,12 @@
     // Defer the action so a following double-click can cancel it. Allow SVAR's
     // own selection to proceed (return true) — we only add the native action.
     api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
+      // Ignore programmatic re-selection emitted during a store reseed (a
+      // deleted/re-added selected task makes SVAR fire select-task with
+      // syncing=true). Only genuine user clicks should trigger the native
+      // activate → TaskNotes modal. Fixes the modal popping up on a settings
+      // toggle (which now reseeds the chart for instant apply).
+      if (syncing) return true;
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
         const ctrlOrMeta = ev.toggle === true;
