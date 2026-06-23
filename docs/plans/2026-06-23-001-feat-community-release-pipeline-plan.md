@@ -2,7 +2,7 @@
 title: "feat: Community release pipeline — AI-drafted notes, beta→prod packaging, in-app what's new"
 date: 2026-06-23
 deepened: 2026-06-23
-status: active
+status: completed
 type: feat
 origin: docs/brainstorms/2026-06-23-community-release-pipeline-requirements.md
 related:
