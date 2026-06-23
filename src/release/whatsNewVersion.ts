@@ -37,26 +37,38 @@ export function compareSemver(a: string, b: string): number {
   if (pa.major !== pb.major) return pa.major - pb.major;
   if (pa.minor !== pb.minor) return pa.minor - pb.minor;
   if (pa.patch !== pb.patch) return pa.patch - pb.patch;
-  if (pa.prerelease === pb.prerelease) return 0;
-  if (pa.prerelease === null) return 1; // stable follows its prerelease
-  if (pb.prerelease === null) return -1;
-  const aIds = pa.prerelease.split(".");
-  const bIds = pb.prerelease.split(".");
+  return comparePrerelease(pa.prerelease, pb.prerelease);
+}
+
+/**
+ * Compare the prerelease portions of two equal-x.y.z versions. A version with no
+ * prerelease (stable) ranks above one that has a prerelease; otherwise compare
+ * the dot-separated identifiers left to right.
+ */
+function comparePrerelease(a: string | null, b: string | null): number {
+  if (a === b) return 0; // both stable, or identical prerelease strings
+  if (a === null) return 1; // stable follows its prerelease
+  if (b === null) return -1;
+  const aIds = a.split(".");
+  const bIds = b.split(".");
   for (let i = 0; i < Math.max(aIds.length, bIds.length); i++) {
-    const ai = aIds[i];
-    const bi = bIds[i];
-    if (ai === undefined) return -1;
-    if (bi === undefined) return 1;
-    const aNum = /^\d+$/.test(ai);
-    const bNum = /^\d+$/.test(bi);
-    if (aNum && bNum) {
-      const d = Number(ai) - Number(bi);
-      if (d !== 0) return d;
-    } else if (ai !== bi) {
-      return ai < bi ? -1 : 1;
-    }
+    const c = compareIdentifiers(aIds[i], bIds[i]);
+    if (c !== 0) return c;
   }
   return 0;
+}
+
+/**
+ * Compare two prerelease identifiers. Either may be undefined when one version
+ * has fewer parts (the shorter prerelease ranks lower). Two numeric identifiers
+ * compare numerically; otherwise the comparison is lexical.
+ */
+function compareIdentifiers(ai: string | undefined, bi: string | undefined): number {
+  if (ai === undefined) return -1;
+  if (bi === undefined) return 1;
+  if (/^\d+$/.test(ai) && /^\d+$/.test(bi)) return Number(ai) - Number(bi);
+  if (ai === bi) return 0;
+  return ai < bi ? -1 : 1;
 }
 
 /**
