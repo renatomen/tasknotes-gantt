@@ -143,15 +143,7 @@ export function positionFetchedAmongMatched(
     return tasks;
   }
 
-  const descending = primary?.direction === 'DESC';
-  const cmp = (a: SortKey, b: SortKey): number => {
-    const base = compareKeysNullLast(a, b);
-    // Null always sorts last regardless of direction, so only flip non-null
-    // comparisons. compareKeysNullLast already returns ±1 for null cases; detect
-    // a null-driven result and leave it unflipped.
-    if (a === null || b === null) return base;
-    return descending ? -base : base;
-  };
+  const cmp = makeSortKeyComparator(primary?.direction === 'DESC');
 
   // Group matched + fetched by sibling group, preserving input order in each.
   const matchedByGroup = new Map<string, CompanionTask[]>();
@@ -171,11 +163,31 @@ export function positionFetchedAmongMatched(
     positionedByGroup.set(key, positionGroup(matched, fetched, field, cmp));
   }
 
-  // Stitch back globally: walk the original task list; the first time a group is
-  // encountered, splice in that group's full positioned order; skip the group's
-  // other members (they were already emitted in the positioned block). This
-  // anchors each group to where its FIRST member sat in the Base order, keeping
-  // matched rows in their exact relative Base positions across groups.
+  // Reassemble the global order, anchoring each group to where its first member
+  // sat in the Base order (see stitchPositionedGroups).
+  return stitchPositionedGroups(tasks, positionedByGroup);
+}
+
+/** Build the null-last sort-key comparator for the given direction (asc/desc). */
+function makeSortKeyComparator(descending: boolean): (a: SortKey, b: SortKey) => number {
+  return (a, b) => {
+    const base = compareKeysNullLast(a, b);
+    // Null always sorts last regardless of direction; only flip non-null results.
+    if (a === null || b === null) return base;
+    return descending ? -base : base;
+  };
+}
+
+/**
+ * Reassemble the global order: walk the original task list and, the first time a
+ * group is met, splice in its full positioned block (later members of that group
+ * are skipped — already emitted). Matched-only groups emit members in input order
+ * as encountered, anchoring each group to where its FIRST member sat in Base order.
+ */
+function stitchPositionedGroups(
+  tasks: readonly CompanionTask[],
+  positionedByGroup: ReadonlyMap<string, CompanionTask[]>,
+): CompanionTask[] {
   const out: CompanionTask[] = [];
   const emittedGroups = new Set<string>();
   for (const t of tasks) {
@@ -186,12 +198,8 @@ export function positionFetchedAmongMatched(
       out.push(...positioned);
       emittedGroups.add(key);
     } else {
-      // Group has no fetched rows → emit its members in original order as we
-      // meet them (matched-only group; nothing to reposition).
+      // Matched-only member: emit once in input order; NOT added to emittedGroups.
       out.push(t);
-      // Mark so the remaining matched members of this group flow through the
-      // else-branch below as encountered (we do NOT add to emittedGroups so each
-      // matched-only member is emitted exactly once in input order).
     }
   }
   return out;
@@ -247,7 +255,7 @@ function stableSortByKey(
     .map((task, index) => ({ task, index }))
     .sort((a, b) => {
       const comparison = cmp(keyOf(a.task), keyOf(b.task));
-      return comparison !== 0 ? comparison : a.index - b.index;
+      return comparison === 0 ? a.index - b.index : comparison;
     })
     .map((entry) => entry.task);
 }

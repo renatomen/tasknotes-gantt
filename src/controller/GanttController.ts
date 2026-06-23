@@ -55,7 +55,7 @@
  */
 
 /* global clearTimeout */
-import type { App, BasesEntry } from 'obsidian';
+import type { App, BasesEntry, BasesSortConfig } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import {
   BasesSource,
@@ -90,7 +90,6 @@ import {
   type CompanionResolveOptions,
 } from '../datasource/companionResolve';
 import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
-import type { BasesSortConfig } from 'obsidian';
 
 /**
  * Date-policy + visibility configuration the controller applies when building a

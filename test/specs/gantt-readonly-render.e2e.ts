@@ -94,7 +94,7 @@ describe("Gantt (OG) read-only render", () => {
     // Shared Task once under EACH visible parent, so the instance count is 5,
     // not 4 — that extra bar is the multi-parent duplication (R24).
     const bars = await $$(".og-bases-gantt .wx-bar");
-    expect(bars.length).toBe(5);
+    expect(bars).toHaveLength(5);
   });
 
   it("shows read-only affordances in Bases mode", async () => {

@@ -315,7 +315,7 @@ export function expandInstances(
   const sorted = [...tasks].sort((a, b) => {
     const ia = orderIndex.get(a.path) ?? 0;
     const ib = orderIndex.get(b.path) ?? 0;
-    return ia !== ib ? ia - ib : compareStr(a.path, b.path);
+    return ia === ib ? compareStr(a.path, b.path) : ia - ib;
   });
 
   const byPath = new Map<string, ExpandableTask>();
@@ -371,6 +371,29 @@ export function expandInstances(
   // ---------------------------------------------------------------------------
   const instancesByPath = new Map<string, RenderInstance[]>();
 
+  // Build a task's instances from its cycle-free parents: one per parent instance,
+  // plus an extra root for an also-top-level matched task. Falls back to a single
+  // root when every parent edge was cycle-broken, so the task never vanishes.
+  const buildParentedInstances = (
+    task: ExpandableTask,
+    parents: readonly string[],
+    isVirtual: boolean,
+  ): RenderInstance[] => {
+    const built: RenderInstance[] = [];
+    for (const parentPath of parents) {
+      // Partial ancestry: only materialize children for parent instances that exist.
+      for (const parentInstance of computeInstances(parentPath)) {
+        const id = `${task.path}${PARENT_DELIMITER}${parentInstance.id}`;
+        built.push(makeInstance(task, id, parentInstance.id, isVirtual));
+      }
+    }
+    // Matched, also-nested task under hide-off: ALSO render at top level.
+    if (task.alsoTopLevel && built.length > 0) {
+      built.push(makeInstance(task, task.path, undefined, isVirtual));
+    }
+    return built.length > 0 ? built : [makeInstance(task, task.path, undefined, isVirtual)];
+  };
+
   const computeInstances = (path: string): RenderInstance[] => {
     const memo = instancesByPath.get(path);
     if (memo) return memo;
@@ -381,38 +404,12 @@ export function expandInstances(
     const parents = effectiveParents.get(path) ?? [];
     const isVirtual = parents.length > 1;
 
-    let instances: RenderInstance[];
-
-    if (parents.length === 0) {
-      // No visible (cycle-free) parents → a single root instance keyed by the
-      // bare path. This is also the safety net that guarantees a task caught in
-      // a cycle still materializes rather than being silently dropped.
-      instances = [makeInstance(task, task.path, undefined, isVirtual)];
-    } else {
-      const built: RenderInstance[] = [];
-      for (const parentPath of parents) {
-        // Partial ancestry: only materialize children for parent instances that
-        // actually exist — never dangle to a non-existent ancestry.
-        for (const parentInstance of computeInstances(parentPath)) {
-          const id = `${task.path}${PARENT_DELIMITER}${parentInstance.id}`;
-          built.push(makeInstance(task, id, parentInstance.id, isVirtual));
-        }
-      }
-      // Matched, also-nested task under hide-off: ALSO render at top level. The
-      // bare-path id is free (nested ids embed a parent), and children nest
-      // under this root too via the normal recursion — faithful to a task that
-      // appears both at root and nested with its subtree.
-      if (task.alsoTopLevel && built.length > 0) {
-        built.push(makeInstance(task, task.path, undefined, isVirtual));
-      }
-      // A child whose every parent edge was cycle-broken (so `parents` is
-      // non-empty but no ancestry materialized) still must not vanish: fall
-      // back to a root instance.
-      instances =
-        built.length > 0
-          ? built
-          : [makeInstance(task, task.path, undefined, isVirtual)];
-    }
+    // One root instance with no visible parents (also the cycle safety net), or
+    // one instance per parent ancestry (see buildParentedInstances).
+    let instances =
+      parents.length === 0
+        ? [makeInstance(task, task.path, undefined, isVirtual)]
+        : buildParentedInstances(task, parents, isVirtual);
 
     // Fan-out guard: collapse to a single primary instance (first by stable
     // ancestry order) rather than silently dropping the task.
