@@ -88,7 +88,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     it("renders every task regardless of date completeness, incl. both dateless (R7, AE3)", async () => {
       // 4 source notes, all roots → 4 bars: Complete, Due Only, Dateless One/Two.
       const bars = await $$(".og-bases-gantt .wx-bar");
-      expect(bars.length).toBe(4);
+      expect(bars).toHaveLength(4);
       await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`)).toBeExisting();
       await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless Two.md"]`)).toBeExisting();
     });
@@ -114,7 +114,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
       // Exactly 3 flagged (due-only + two dateless).
       const flagged = await $$(".og-bases-gantt .wx-bar.datestatus-flagged");
-      expect(flagged.length).toBe(3);
+      expect(flagged).toHaveLength(3);
     });
   });
 
@@ -126,14 +126,14 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     it("removes dateless tasks while complete + partial remain (AE5)", async () => {
       // Dateless One/Two hidden → 2 bars: Complete + Due Only.
       const bars = await $$(".og-bases-gantt .wx-bar");
-      expect(bars.length).toBe(2);
+      expect(bars).toHaveLength(2);
       await expect($(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`)).not.toBeExisting();
       await expect($(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`)).toBeExisting();
     });
 
     it("applies no indicator treatment when showDateIndicators is off (R11)", async () => {
       const flagged = await $$(".og-bases-gantt .wx-bar.datestatus-flagged");
-      expect(flagged.length).toBe(0);
+      expect(flagged).toHaveLength(0);
     });
   });
 });

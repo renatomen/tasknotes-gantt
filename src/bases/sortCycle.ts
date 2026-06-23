@@ -42,7 +42,7 @@ export function cycleNext(
   current: EphemeralSort | null,
   clickedColumn: string,
 ): EphemeralSort | null {
-  if (!current || current.column !== clickedColumn) {
+  if (current?.column !== clickedColumn) {
     return { column: clickedColumn, direction: 'asc' };
   }
   if (current.direction === 'asc') {

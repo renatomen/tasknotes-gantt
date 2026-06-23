@@ -86,22 +86,7 @@ export async function resolveCompanionTree(
   }
 
   if (opts.mode === 'show-all') {
-    // BFS over subtasks; cycle-guarded by displayed membership (a node already
-    // displayed is never re-enqueued, so a projects cycle terminates).
-    const queue: string[] = matched.map((t) => t.path);
-    while (queue.length > 0) {
-      const parent = queue.shift() as string;
-      const children = await accessor.getSubtasks(parent);
-      for (const child of children) {
-        if (!child || typeof child.path !== 'string' || child.path.length === 0) {
-          continue;
-        }
-        if (!displayed.has(child.path)) {
-          displayed.set(child.path, child);
-          queue.push(child.path);
-        }
-      }
-    }
+    await collectShowAllDescendants(matched, displayed, accessor);
   }
 
   const out: CompanionTask[] = [];
@@ -113,4 +98,31 @@ export async function resolveCompanionTree(
     out.push({ ...src, parents, isFetched, alsoTopLevel });
   }
   return out;
+}
+
+/** A child usable for Show-all expansion (defends against malformed source reads). */
+function hasUsablePath(child: SourceTask | null | undefined): child is SourceTask {
+  return !!child && typeof child.path === 'string' && child.path.length > 0;
+}
+
+/**
+ * BFS over subtasks, adding every newly-discovered descendant to `displayed`.
+ * Cycle-guarded by `displayed` membership: a node already displayed is never
+ * re-enqueued, so a `projects` cycle terminates.
+ */
+async function collectShowAllDescendants(
+  roots: readonly SourceTask[],
+  displayed: Map<string, SourceTask>,
+  accessor: CompanionAccessor,
+): Promise<void> {
+  const queue: string[] = roots.map((t) => t.path);
+  while (queue.length > 0) {
+    const parent = queue.shift() as string;
+    const children = await accessor.getSubtasks(parent);
+    for (const child of children) {
+      if (!hasUsablePath(child) || displayed.has(child.path)) continue;
+      displayed.set(child.path, child);
+      queue.push(child.path);
+    }
+  }
 }
