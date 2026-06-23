@@ -3,12 +3,28 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { registerBasesGantt } from './bases/register';
 import { ReleaseNotesView, RELEASE_NOTES_VIEW_TYPE } from './release/ReleaseNotesView';
 import { RELEASE_NOTES_BUNDLE } from './releaseNotes';
+import {
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+  planWhatsNew,
+  type GanttPluginSettings,
+} from './release/settings';
+
+/** Delay before the post-update "What's New" check, so the UI is ready first. */
+const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
 
 export default class ObsidianGanttPlugin extends Plugin {
   private unregisterBases: (() => void) | null = null;
+  settings: GanttPluginSettings = { ...DEFAULT_SETTINGS };
+  /** Overridable so tests/e2e don't race the real timer. */
+  whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
+  private versionCheckTimer: number | null = null;
+  private versionChecked = false;
 
   async onload() {
     console.log('Loading TaskNotes Gantt plugin');
+
+    this.settings = normalizeSettings(await this.loadData());
 
     // MVP: Register Obsidian Bases custom view "Gantt (OG)" (no chart yet)
     try {
@@ -18,7 +34,6 @@ export default class ObsidianGanttPlugin extends Plugin {
     }
 
     // In-app "What's New": register the view + a command to open it on demand.
-    // (The once-per-update auto-open is wired in checkForVersionUpdate — U6.)
     this.registerView(
       RELEASE_NOTES_VIEW_TYPE,
       (leaf) => new ReleaseNotesView(leaf, RELEASE_NOTES_BUNDLE),
@@ -30,11 +45,54 @@ export default class ObsidianGanttPlugin extends Plugin {
         void this.activateReleaseNotesView();
       },
     });
+
+    // Auto-open once after an update, after the layout settles.
+    this.app.workspace.onLayoutReady(() => {
+      this.versionCheckTimer = window.setTimeout(() => {
+        void this.checkForVersionUpdate();
+      }, this.whatsNewAutoOpenDelayMs);
+    });
   }
 
   onunload() {
     console.log('Unloading TaskNotes Gantt plugin');
+    if (this.versionCheckTimer !== null) {
+      window.clearTimeout(this.versionCheckTimer);
+      this.versionCheckTimer = null;
+    }
     try { this.unregisterBases?.(); } catch {}
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
+  }
+
+  /**
+   * Show the "What's New" view once when the installed version has increased
+   * since it was last seen, then record the current version. Guarded so it runs
+   * at most once per load and never writes redundantly. Best-effort: a failure is
+   * logged, never thrown, so plugin load is unaffected.
+   */
+  async checkForVersionUpdate(): Promise<void> {
+    if (this.versionChecked) return;
+    this.versionChecked = true;
+    try {
+      const current = this.manifest.version;
+      const plan = planWhatsNew({
+        lastSeen: this.settings.lastSeenVersion,
+        current,
+        showReleaseNotesOnUpdate: this.settings.showReleaseNotesOnUpdate,
+      });
+      if (plan.showView) {
+        await this.activateReleaseNotesView();
+      }
+      if (plan.recordVersion && this.settings.lastSeenVersion !== current) {
+        this.settings.lastSeenVersion = current;
+        await this.saveSettings();
+      }
+    } catch (e) {
+      console.warn('[Gantt] version-update check failed', e);
+    }
   }
 
   /**
