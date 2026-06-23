@@ -19,6 +19,18 @@ jobs:
         # --ignore-scripts: supply-chain hardening; native deps (rollup/esbuild/
         # @swc) are optionalDependencies, not install scripts, so build is unaffected.
         run: npm ci --ignore-scripts
+      - name: Assert manifest is a clean release version (no prerelease suffix on main)
+        # A `-beta` manifest must never merge to main: it is the store-facing
+        # version. Betas are cut on a tag, not on main. Mechanical guard for the
+        # manifest-on-main invariant (see docs/RELEASING.md), per "enforce always-X
+        # with a mechanism, not memory".
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::manifest.json version '$VERSION' is not a clean release version (X.Y.Z). A prerelease manifest must not merge to main."
+            exit 1
+          fi
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck
