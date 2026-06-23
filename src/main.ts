@@ -9,6 +9,7 @@ import {
   planWhatsNew,
   type GanttPluginSettings,
 } from './release/settings';
+import { GanttSettingTab } from './release/GanttSettingTab';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
@@ -45,6 +46,7 @@ export default class ObsidianGanttPlugin extends Plugin {
         void this.activateReleaseNotesView();
       },
     });
+    this.addSettingTab(new GanttSettingTab(this.app, this));
 
     // Auto-open once after an update, after the layout settles.
     this.app.workspace.onLayoutReady(() => {
