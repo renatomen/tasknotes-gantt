@@ -16,6 +16,7 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
 import { RELEASE_NOTES_BUNDLE, type ReleaseNoteVersion } from "../releaseNotes";
 import { REPO_URL, transformReleaseNoteIssueLinks } from "./releaseNoteLinks";
+import { defaultExpandedIndices } from "./releaseNotesExpand";
 
 export const RELEASE_NOTES_VIEW_TYPE = "tasknotes-gantt-release-notes";
 
@@ -39,20 +40,6 @@ export class ReleaseNotesView extends ItemView {
     return "scroll-text";
   }
 
-  /** Indices to expand by default: current + first prior, with degenerate fallbacks. */
-  private expandedIndices(): Set<number> {
-    const expanded = new Set<number>();
-    if (this.bundle.length === 0) return expanded;
-    const currentIdx = this.bundle.findIndex((v) => v.isCurrent);
-    if (this.bundle.length === 1 || currentIdx === -1) {
-      expanded.add(0);
-    } else {
-      expanded.add(currentIdx);
-      if (currentIdx + 1 < this.bundle.length) expanded.add(currentIdx + 1);
-    }
-    return expanded;
-  }
-
   override async onOpen(): Promise<void> {
     const root = this.contentEl;
     root.empty();
@@ -64,7 +51,7 @@ export class ReleaseNotesView extends ItemView {
       return;
     }
 
-    const expanded = this.expandedIndices();
+    const expanded = defaultExpandedIndices(this.bundle);
     for (let i = 0; i < this.bundle.length; i++) {
       const v = this.bundle[i];
       if (!v) continue;

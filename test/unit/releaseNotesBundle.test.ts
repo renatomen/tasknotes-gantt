@@ -68,8 +68,12 @@ describe("findRawHtml", () => {
     expect(findRawHtml("```\n<div>ok in code</div>\n```\nuse `<span>` literally\n")).toBeNull();
   });
 
-  it("allows autolinks", () => {
+  it("allows autolinks (http(s), mailto, bare email)", () => {
     expect(findRawHtml("see <https://example.com/x>\n")).toBeNull();
+    expect(findRawHtml("mail <mailto:a@b.com>\n")).toBeNull();
+    expect(findRawHtml("ping <user@host.com>\n")).toBeNull();
+    // ...but a real anchor tag is still rejected
+    expect(findRawHtml("<a href=x>link</a>")).toBe("<a href=x>");
   });
 
   it("rejects raw HTML tags", () => {

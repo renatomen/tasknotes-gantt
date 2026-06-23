@@ -55,7 +55,7 @@ export function parseVersion(version) {
  */
 export function compareVersions(a, b) {
   if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return b.minor === a.minor ? 0 : a.minor - b.minor;
+  if (a.minor !== b.minor) return a.minor - b.minor;
   if (a.patch !== b.patch) return a.patch - b.patch;
   // Same x.y.z: a prerelease is lower than the stable release.
   if (a.prerelease === b.prerelease) return 0;
@@ -91,13 +91,15 @@ export function extractReleaseDate(content) {
 }
 
 /**
- * Remove a leading `<!-- release-date: ... -->` comment line so the bundled /
- * published content stays clean. Only strips the leading metadata comment.
+ * Remove the `<!-- release-date: ... -->` metadata comment so the bundled /
+ * published content stays clean. Strips the first occurrence wherever it sits
+ * (normally the first line), so a misplaced comment never leaks into rendered
+ * notes.
  * @param {string} content
  * @returns {string}
  */
 export function stripDateComment(content) {
-  return content.replace(/^<!--\s*release-date:[^>]*-->\s*\r?\n/, "");
+  return content.replace(/<!--\s*release-date:[^>]*-->\s*\r?\n?/, "");
 }
 
 /**
