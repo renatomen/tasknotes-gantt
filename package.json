@@ -18,7 +18,7 @@
     "lint": "eslint . --ext .ts,.svelte",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",
-    "version": "node version-bump.mjs && node scripts/generate-release-notes-import.mjs && git add manifest.json versions.json src/releaseNotes.ts",
+    "version": "node version-bump.mjs && node scripts/generate-release-notes-import.mjs && node scripts/update-release-index.mjs && git add manifest.json versions.json src/releaseNotes.ts docs/releases.md",
     "e2e": "wdio run ./test/wdio/wdio.conf.mts",
     "build:local": "vite build",
     "e2e:local": "node scripts/e2e-local.mjs",
