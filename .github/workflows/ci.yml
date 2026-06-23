@@ -19,6 +19,18 @@ jobs:
         # --ignore-scripts: supply-chain hardening; native deps (rollup/esbuild/
         # @swc) are optionalDependencies, not install scripts, so build is unaffected.
         run: npm ci --ignore-scripts
+      - name: Assert manifest is a clean release version (no prerelease suffix on main)
+        # A `-beta` manifest must never merge to main: it is the store-facing
+        # version. Betas are cut on a tag, not on main. Mechanical guard for the
+        # manifest-on-main invariant (see docs/RELEASING.md), per "enforce always-X
+        # with a mechanism, not memory".
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::manifest.json version '$VERSION' is not a clean release version (X.Y.Z). A prerelease manifest must not merge to main."
+            exit 1
+          fi
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck
@@ -30,18 +42,12 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Bundle hygiene (no network/eval/base64 in dist/main.js)
-        shell: bash
-        run: |
-          # The plugin is local-only: the released bundle must contain no
-          # network calls, dynamic code execution, or base64 obscuring. Match
-          # CALL patterns (not bare keywords) so the SVAR comment "are fetched
-          # lazily" doesn't false-fail. If a dependency reintroduces any of
-          # these, fail CI so it gets disclosed or removed (scorecard R12).
-          if grep -E '\beval\(|new Function|\.atob\(|\batob\(|\bbtoa\(|XMLHttpRequest|\bfetch\(|sendBeacon|new WebSocket' dist/main.js; then
-            echo "::error::Forbidden runtime pattern found in dist/main.js (network/eval/base64)."
-            exit 1
-          fi
-          echo "bundle hygiene OK: no network/eval/base64 call-patterns in dist/main.js"
+        # The plugin is local-only: the released bundle must contain no network
+        # calls, dynamic code execution, or base64 obscuring (scorecard R12). Use
+        # the SAME masking-aware check release.yml runs — it strips the inlined
+        # release-notes prose before matching, so legitimate notes text like
+        # "fixed the fetch() retry" can't false-fail the gate.
+        run: node scripts/check-bundle-hygiene.mjs
 
   e2e:
     runs-on: windows-latest

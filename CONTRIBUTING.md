@@ -43,6 +43,15 @@ The e2e suite downloads Obsidian and the TaskNotes release through `wdio-obsidia
 3. Ensure `npm run lint`, `npm run typecheck`, `npm test`, and the build pass locally.
 4. Describe what changed and how you verified it.
 
+## Releasing
+
+Releases are cut by the maintainer. Release notes live one file per version under
+`docs/releases/` (see [`docs/releases/unreleased.md`](docs/releases/unreleased.md)
+for the format), are drafted by the `/release` command, and feed the GitHub release
+body, the in-app "What's New" view, and the [`docs/releases.md`](docs/releases.md)
+index. The full procedure (beta → prod, the review/publish gate) is in
+[`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## Reporting bugs and requesting features
 
 Open a [GitHub issue](../../issues) with steps to reproduce (for bugs) or a clear use case (for features).

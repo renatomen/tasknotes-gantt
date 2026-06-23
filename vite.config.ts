@@ -4,6 +4,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import builtins from "builtin-modules";
 import fs from "fs";
 import { installToVault } from "./scripts/install-to-vault.mjs";
+import { generate as generateReleaseNotes } from "./scripts/generate-release-notes-import.mjs";
 
 const prod = process.argv[2] === "production";
 
@@ -12,6 +13,17 @@ const copyManifest = (): Plugin => ({
   name: "copy-manifest",
   writeBundle() {
     fs.copyFileSync("manifest.json", "dist/manifest.json");
+  },
+});
+
+// Regenerate the in-app "What's New" bundle (src/releaseNotes.ts) before Rollup
+// resolves src/main.ts — it is a compile-time INPUT, so this must run at
+// buildStart, not writeBundle/closeBundle. Write-if-different keeps watch builds
+// from dirtying the tree. See scripts/generate-release-notes-import.mjs.
+const generateReleaseNotesPlugin = (): Plugin => ({
+  name: "generate-release-notes",
+  buildStart() {
+    generateReleaseNotes();
   },
 });
 
@@ -39,6 +51,7 @@ export default defineConfig(({ mode }) => {
           runes: true,
         },
       }),
+      generateReleaseNotesPlugin(),
       copyManifest(),
       installToVaultPlugin(vault),
     ],
