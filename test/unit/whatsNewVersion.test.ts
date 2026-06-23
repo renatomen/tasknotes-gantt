@@ -23,6 +23,20 @@ describe("compareSemver", () => {
     expect(compareSemver("1.2.0-beta.2", "1.2.0-beta.10")).toBeLessThan(0);
     expect(compareSemver("garbage", "1.2.0")).toBe(0);
   });
+  it("orders alphanumeric prerelease identifiers lexically", () => {
+    expect(compareSemver("1.0.0-alpha", "1.0.0-beta")).toBeLessThan(0);
+    expect(compareSemver("1.0.0-rc", "1.0.0-beta")).toBeGreaterThan(0);
+  });
+  it("orders numeric below alphanumeric at the same identifier position", () => {
+    expect(compareSemver("1.0.0-1", "1.0.0-alpha")).toBeLessThan(0);
+  });
+  it("treats a longer prerelease as higher when the prefix is equal", () => {
+    expect(compareSemver("1.0.0-beta.1", "1.0.0-beta")).toBeGreaterThan(0);
+    expect(compareSemver("1.0.0-beta", "1.0.0-beta.1")).toBeLessThan(0);
+  });
+  it("returns 0 for identical prerelease versions", () => {
+    expect(compareSemver("1.0.0-beta.1", "1.0.0-beta.1")).toBe(0);
+  });
 });
 
 describe("shouldShowWhatsNew", () => {
