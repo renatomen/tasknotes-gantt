@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { generate } from "../perf/generator/generate";
 import { emitVault } from "../perf/generator/emitVault";
+import { paramsForScale } from "../perf/generator/presets";
 import type { GenerateParams } from "../perf/generator/graph";
 
 /**
@@ -44,22 +45,13 @@ const WINDOW_ROW_BOUND = 60;
 const RENDER_TIMEOUT_MS = Number(process.env.PERF_RENDER_TIMEOUT_MS ?? 240000);
 
 function perfParams(): GenerateParams {
-  return {
-    seed: 1,
+  // The calibrated #161-explosion shape (shared with the isolated gate), with the
+  // scale env-overridable so the scheduled job can push to the full ~10k/~5k shape.
+  return paramsForScale("large", {
     totalNotes: TOTAL_NOTES,
     taskCount: TASK_COUNT,
     matchedCount: MATCHED_COUNT,
-    multiParentDist: [
-      { parents: 2, count: 150 },
-      { parents: 4, count: 40 },
-      { parents: 7, count: 12 },
-    ],
-    maxDepth: 6,
-    depDensity: 0.1,
-    dateMix: { dated: 0.7, undated: 0.1, startOnly: 0.1, endOnly: 0.1 },
-    cycleCount: 3,
-    orphanCount: 6,
-  };
+  });
 }
 
 describe("Gantt (OG) full-stack perf — generated large vault", () => {

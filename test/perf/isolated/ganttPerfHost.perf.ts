@@ -10,26 +10,11 @@ import { render } from 'vitest-browser-svelte';
 import GanttPerfHost from './GanttPerfHost.svelte';
 import { buildGanttData } from '../generator/buildGanttData';
 import { generate } from '../generator/generate';
-import type { GenerateParams } from '../generator/graph';
-
-/** A tiny graph: a handful of matched roots with Show-all children. */
-function tinyParams(): GenerateParams {
-  return {
-    seed: 5,
-    totalNotes: 60,
-    taskCount: 40,
-    matchedCount: 8,
-    multiParentDist: [{ parents: 2, count: 3 }],
-    maxDepth: 4,
-    depDensity: 0.2,
-    dateMix: { dated: 0.7, undated: 0.1, startOnly: 0.1, endOnly: 0.1 },
-    cycleCount: 0,
-    orphanCount: 1,
-  };
-}
+import { paramsForScale } from '../generator/presets';
 
 async function mountTinyHost() {
-  const { data } = await buildGanttData(generate(tinyParams()), { mode: 'show-all' });
+  // The 'small' calibrated point (~31 instances) — enough to render bars + settle.
+  const { data } = await buildGanttData(generate(paramsForScale('small')), { mode: 'show-all' });
   const screen = render(GanttPerfHost, { props: { data } });
   return screen.container as HTMLElement;
 }

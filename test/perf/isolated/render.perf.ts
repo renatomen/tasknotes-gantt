@@ -22,7 +22,7 @@ import GanttPerfHost from './GanttPerfHost.svelte';
 import { buildGanttData } from '../generator/buildGanttData';
 import { generate } from '../generator/generate';
 import { SVAR_CELL_HEIGHT } from '../../../src/bases/ganttHeight';
-import type { GenerateParams } from '../generator/graph';
+import { paramsForScale, type ScalePointName } from '../generator/presets';
 
 /* global performance, requestAnimationFrame */
 
@@ -55,34 +55,15 @@ const SUPERLINEAR_RATIO = 8;
  */
 const WINDOW_OVERSCAN_MAX = 8;
 
-/** Representative instance-count points (calibrated on seed 1). */
-const CASES = [
-  { label: 'small', matchedCount: 12 },
-  { label: 'medium', matchedCount: 30 },
-  { label: 'large', matchedCount: 70 },
-] as const;
+/** Representative instance-count points (calibrated scale points, seed 1). */
+const CASES: ReadonlyArray<{ label: ScalePointName }> = [
+  { label: 'small' },
+  { label: 'medium' },
+  { label: 'large' },
+];
 
 /** The production-scale (#161 reproduction) case the timing gate fires on. */
 const LARGE = CASES[2];
-
-function paramsFor(matchedCount: number): GenerateParams {
-  return {
-    seed: 1,
-    totalNotes: 6000,
-    taskCount: 3000,
-    matchedCount,
-    multiParentDist: [
-      { parents: 2, count: 150 },
-      { parents: 4, count: 40 },
-      { parents: 7, count: 12 },
-    ],
-    maxDepth: 6,
-    depDensity: 0.1,
-    dateMix: { dated: 0.7, undated: 0.1, startOnly: 0.1, endOnly: 0.1 },
-    cycleCount: 3,
-    orphanCount: 6,
-  };
-}
 
 interface Measurement {
   label: string;
@@ -107,10 +88,10 @@ async function waitForSentinel(container: HTMLElement, timeout = 15000): Promise
   );
 }
 
-/** Build → mount → settle one case, returning the metrics breakdown. */
-async function measure(matchedCount: number, label: string): Promise<Measurement> {
+/** Build → mount → settle one calibrated scale point, returning the metrics breakdown. */
+async function measure(label: ScalePointName): Promise<Measurement> {
   const t0 = performance.now();
-  const { data } = await buildGanttData(generate(paramsFor(matchedCount)), { mode: 'show-all' });
+  const { data } = await buildGanttData(generate(paramsForScale(label)), { mode: 'show-all' });
   const tBuilt = performance.now();
 
   const screen = render(GanttPerfHost, { props: { data } });
@@ -146,7 +127,7 @@ let measured: Measurement[] = [];
 
 beforeAll(async () => {
   measured = [];
-  for (const c of CASES) measured.push(await measure(c.matchedCount, c.label));
+  for (const c of CASES) measured.push(await measure(c.label));
 }, 120000);
 
 afterAll(async () => {
@@ -205,7 +186,7 @@ test('SANITY: the materialized window is host-bounded and constant across 31/980
 test('instance count is deterministic and matches the expected multi-parent expansion', async () => {
   const large = measured.find((m) => m.label === LARGE.label) as Measurement;
   // Re-build the same graph → identical count (catches expansion-multiplier regressions).
-  const { data } = await buildGanttData(generate(paramsFor(LARGE.matchedCount)), { mode: 'show-all' });
+  const { data } = await buildGanttData(generate(paramsForScale(LARGE.label)), { mode: 'show-all' });
   expect(data.instances.length).toBe(large.instanceCount);
 });
 
@@ -225,7 +206,7 @@ test('NEGATIVE CONTROL: with chart-area height forced to 0, the sentinel never f
   style.textContent = '.og-chart-area { height: 0 !important; min-height: 0 !important; }';
   document.head.appendChild(style);
   try {
-    const { data } = await buildGanttData(generate(paramsFor(CASES[0].matchedCount)), {
+    const { data } = await buildGanttData(generate(paramsForScale(CASES[0].label)), {
       mode: 'show-all',
     });
     const screen = render(GanttPerfHost, { props: { data } });

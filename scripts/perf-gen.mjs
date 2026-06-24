@@ -17,45 +17,17 @@ import path from "node:path";
 import { generate } from "../test/perf/generator/generate.ts";
 import { emitVault } from "../test/perf/generator/emitVault.ts";
 import { graphStats } from "../test/perf/generator/graph.ts";
+import { paramsForScale } from "../test/perf/generator/presets.ts";
 
-/** Named presets — the calibrated points the isolated gate (U4) measures. */
-const PRESETS = {
-  small: { totalNotes: 3000, taskCount: 1500, matchedCount: 12 },
-  medium: { totalNotes: 6000, taskCount: 3000, matchedCount: 30 },
+/** CLI preset name → shared calibrated scale point (single source of truth). */
+const PRESET_TO_SCALE = {
+  small: "small",
+  medium: "medium",
   // ~3332 render instances under Show-all — the #161 explosion scale.
-  "show-all-2660": { totalNotes: 6000, taskCount: 3000, matchedCount: 70 },
-  // The full production shape (heavy diagnosis / scheduled-job parity).
-  "full-10k": {
-    totalNotes: 10000,
-    taskCount: 5000,
-    matchedCount: 261,
-    multiParentDist: [
-      { parents: 2, count: 400 },
-      { parents: 4, count: 120 },
-      { parents: 7, count: 40 },
-    ],
-  },
+  "show-all-2660": "large",
+  // The full ~10k/~5k/~261 production shape (heavy diagnosis / scheduled parity).
+  "full-10k": "full",
 };
-
-/** The shared structural mix; presets/flags override the scale fields. */
-function baseParams() {
-  return {
-    seed: 1,
-    totalNotes: 6000,
-    taskCount: 3000,
-    matchedCount: 70,
-    multiParentDist: [
-      { parents: 2, count: 150 },
-      { parents: 4, count: 40 },
-      { parents: 7, count: 12 },
-    ],
-    maxDepth: 6,
-    depDensity: 0.1,
-    dateMix: { dated: 0.7, undated: 0.1, startOnly: 0.1, endOnly: 0.1 },
-    cycleCount: 3,
-    orphanCount: 6,
-  };
-}
 
 /** Minimal `--key value` / `--key=value` parser (no new dependency). */
 function parseArgs(argv) {
@@ -83,19 +55,20 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const presetName = args.preset ?? "show-all-2660";
-  const preset = PRESETS[presetName];
-  if (!preset) {
+  const scalePoint = PRESET_TO_SCALE[presetName];
+  if (!scalePoint) {
     console.error(
-      `Unknown preset "${presetName}". Available: ${Object.keys(PRESETS).join(", ")}`,
+      `Unknown preset "${presetName}". Available: ${Object.keys(PRESET_TO_SCALE).join(", ")}`,
     );
     process.exit(1);
   }
 
-  const params = { ...baseParams(), ...preset };
-  if (args.seed !== undefined) params.seed = Number(args.seed);
-  if (args.tasks !== undefined) params.taskCount = Number(args.tasks);
-  if (args.notes !== undefined) params.totalNotes = Number(args.notes);
-  if (args.matched !== undefined) params.matchedCount = Number(args.matched);
+  const overrides = {};
+  if (args.seed !== undefined) overrides.seed = Number(args.seed);
+  if (args.tasks !== undefined) overrides.taskCount = Number(args.tasks);
+  if (args.notes !== undefined) overrides.totalNotes = Number(args.notes);
+  if (args.matched !== undefined) overrides.matchedCount = Number(args.matched);
+  const params = paramsForScale(scalePoint, overrides);
 
   const outDir =
     typeof args.out === "string" && args.out !== ""
