@@ -65,6 +65,10 @@ export interface CompanionAccessor {
    * resolver never performs a per-node vault scan (the O(N²) freeze fix — plan
    * #161, U1). Returns empty maps (never throws) when the relationship API is
    * absent or fails.
+   *
+   * This is a **full-vault read** (`api.tasks.list()`), so the controller caches
+   * its result and only re-fetches on a genuine TaskNotes data-change — calling
+   * it on every Bases notify re-pokes Bases into re-notifying (the #161 loop).
    */
   getRelationshipIndex(): Promise<RelationshipIndex>;
 }
@@ -89,21 +93,22 @@ export interface CompanionResolveOptions {
 /**
  * Resolve the displayed companion task set + per-task flags.
  *
+ * Takes the prebuilt {@link RelationshipIndex} directly (the controller owns
+ * fetching + caching it — #161: re-fetching the full-vault index on every
+ * recompute re-pokes Bases into an infinite notify loop). All child/parent reads
+ * below are O(1) map lookups against the index. Pure + synchronous.
+ *
  * @param matched - the Base's matched task set.
  * @param opts - expanded-relationships mode + hide-top-level toggle.
- * @param accessor - injected TaskNotes relationship reads.
+ * @param index - the prebuilt relationship index (children + parents by path).
  * @returns the displayed {@link CompanionTask}s (matched first, then fetched in
  *   discovery order), each carrying resolved `parents` + flags.
  */
-export async function resolveCompanionTree(
+export function resolveCompanionTree(
   matched: readonly SourceTask[],
   opts: CompanionResolveOptions,
-  accessor: CompanionAccessor,
-): Promise<CompanionTask[]> {
-  // Build the relationship index ONCE up front (plan #161, U2): all child and
-  // parent reads below are O(1) map lookups against it — zero per-node
-  // `getSubtasks`, zero per-task `getParents`.
-  const index = await accessor.getRelationshipIndex();
+  index: RelationshipIndex,
+): CompanionTask[] {
   const matchedPaths = new Set(matched.map((t) => t.path));
 
   // Displayed set: matched first (preserve input order), then Show-all fetches.

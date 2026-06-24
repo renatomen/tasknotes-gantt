@@ -37,6 +37,7 @@ export default [
         HTMLElement: "readonly",
         MutationObserver: "readonly",
         setTimeout: "readonly",
+        performance: "readonly",
       },
     },
     plugins: {
@@ -91,7 +92,8 @@ export default [
       globals: {
         console: 'readonly',
         window: 'readonly',
-        document: 'readonly'
+        document: 'readonly',
+        performance: 'readonly'
       }
     },
     plugins: {

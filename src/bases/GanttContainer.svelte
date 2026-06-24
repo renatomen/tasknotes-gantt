@@ -194,6 +194,7 @@
    */
   function applyObsidianDark(nextDark: boolean): void {
     if (nextDark === obsidianIsDark) return;
+    console.log(`[OGDBG] applyObsidianDark ${obsidianIsDark} -> ${nextDark} (effectiveIsDark may flip → <Gantt> remount)`);
     maybeReseedForThemeFlip(mode, nextDark);
     obsidianIsDark = nextDark;
   }
@@ -510,6 +511,7 @@
     // resync the applied maps, and let the single re-init render it. Zoom/scroll
     // reset here — accepted, since this only fires on an actual column change.
     if (d.gridColumnsKey !== appliedColumnsKey) {
+      console.log(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
       reseedForColumnChange(d);
       return;
     }
@@ -534,9 +536,19 @@
     // Nothing changed at all (content, order, or Base sort) → no work. The Base
     // sort term keeps an R6 clear from being skipped when a toolbar re-sort
     // happens to leave the row order identical (e.g. a single-row tree).
-    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) return;
+    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) {
+      console.log('[OGDBG] sync NOOP');
+      return;
+    }
+    console.log(
+      `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
+        ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
+        ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
+        ` orderChanged=${orderKey !== appliedOrderKey} baseSortChanged=${baseSortChanged}`,
+    );
 
     syncing = true;
+    const tSyncStart = performance.now(); // [OGDBG #161]
     try {
       // Order: reparent → field updates → remove links → remove tasks (leaf-first)
       // → add tasks (parent-first) → add links (endpoints now exist).
@@ -563,6 +575,8 @@
         api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
         appliedLinks.set(l.id, l);
       }
+      const tAfterExec = performance.now(); // [OGDBG #161]
+      let reorderMoves = 0; // [OGDBG #161]
       // Reconcile sibling ORDER. Three cases (plan 2026-06-22-002, U4/U5):
       if (ephemeralSort && !baseSortChanged) {
         // R8 — an ephemeral column sort is active and the Base toolbar sort is
@@ -587,6 +601,7 @@
         }
         if (orderKey !== appliedOrderKey) {
           for (const m of planReorder(next)) {
+            reorderMoves += 1;
             api.exec('move-task', {
               id: m.id,
               target: m.after,
@@ -602,6 +617,15 @@
       // against state we never finished applying).
       appliedOrderKey = orderKey;
       appliedBaseSortKey = baseSortKey;
+      // [OGDBG #161] split timing: exec loop (add/update/delete) vs reorder pass
+      // (planReorder + per-row move-task). A large reorderMoves with a big total
+      // is the O(N²) suspect for the refresh freeze.
+      const now = performance.now();
+      console.log(
+        `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
+          ` (exec=${Math.round(tAfterExec - tSyncStart)}ms reorder=${Math.round(now - tAfterExec)}ms` +
+          ` reorderMoves=${reorderMoves})`,
+      );
     } finally {
       syncing = false;
     }
@@ -994,6 +1018,9 @@
     }, 0);
   }
 
+  /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
+  let dbgInitCount = 0;
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
@@ -1002,16 +1029,10 @@
     // Restore the persisted divider width after the initial column recompute.
     applyPersistedGridWidth();
 
-    // Log the state SVAR received
-    console.log('[GanttContainer] SVAR Gantt initialized');
-    if (api && api.getState) {
-      const state = api.getState();
-      console.log('[GanttContainer] SVAR state:', state);
-      console.log('[GanttContainer] SVAR tasks count:', state?.tasks?.length || 0);
-      if (state?.tasks && state.tasks.length > 0) {
-        console.log('[GanttContainer] First SVAR task:', state.tasks[0]);
-      }
-    }
+    // [OGDBG #161] initGantt fires once per SVAR (re)initialization. Repeated
+    // lines during a config toggle ⇒ a remount/reseed loop, not refresh-in-place.
+    dbgInitCount += 1;
+    console.log(`[OGDBG] initGantt #${dbgInitCount} svarTasks=${api?.getState?.()?.tasks?.length ?? '?'}`);
 
     // Native edit interaction (U2): a bar's left/double-click routes to the
     // TaskNotes interaction service (via onBarActivate) instead of a custom
@@ -1193,13 +1214,13 @@
       return false;
     });
 
-    // Fix initial scroll position - ensure the grid starts with first column visible
-    // SVAR Gantt sometimes initializes with horizontal scroll that hides the first column
+    // Fix initial scroll position - ensure the grid starts with first column
+    // visible. SVAR Gantt sometimes initializes with horizontal scroll that hides
+    // the first column. Best-effort + silent (the verbose diagnostic dump this
+    // once carried enumerated every `wx-` node — catastrophic under the #161
+    // re-init storm; never reinstate an all-elements console dump here).
     setTimeout(() => {
       try {
-        console.log('[GanttContainer] Attempting to reset grid scroll position...');
-
-        // Try multiple possible selectors for the scrollable grid container
         const selectors = [
           '.og-bases-gantt .wx-grid',
           '.og-bases-gantt .wx-grid-area',
@@ -1208,37 +1229,12 @@
           '.og-bases-gantt .wx-grid-body',
           '.og-bases-gantt [data-id="grid"]',
         ];
-
-        let foundScrollable = false;
         for (const selector of selectors) {
-          const element = document.querySelector(selector) as HTMLElement;
-          if (element) {
-            console.log(`[GanttContainer] Found element with selector "${selector}"`, {
-              scrollLeft: element.scrollLeft,
-              scrollWidth: element.scrollWidth,
-              clientWidth: element.clientWidth,
-              overflowX: getComputedStyle(element).overflowX,
-            });
-
-            // Reset scroll if this element has scrollLeft > 0
-            if (element.scrollLeft > 0) {
-              console.log(`[GanttContainer] Resetting scrollLeft from ${element.scrollLeft} to 0`);
-              element.scrollLeft = 0;
-              foundScrollable = true;
-            }
-          }
+          const element = document.querySelector(selector) as HTMLElement | null;
+          if (element && element.scrollLeft > 0) element.scrollLeft = 0;
         }
-
-        if (!foundScrollable) {
-          console.warn('[GanttContainer] Could not find grid element with scroll to reset');
-          // Log all elements with wx- classes for debugging
-          const wxElements = document.querySelectorAll('[class*="wx-"]');
-          console.log('[GanttContainer] Found elements with wx- classes:', Array.from(wxElements).map(el => el.className));
-        } else {
-          console.log('[GanttContainer] Successfully reset grid scroll position');
-        }
-      } catch (error) {
-        console.error('[GanttContainer] Error resetting grid scroll:', error);
+      } catch {
+        /* scroll reset is best-effort */
       }
     }, 200); // Increased delay to ensure DOM is fully ready
   }

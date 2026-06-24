@@ -451,6 +451,67 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('does NOT notify on repeated refreshSource when data + capability are unchanged (#161 in-place loop fix)', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Simulate Bases re-notifying repeatedly with identical data (the loop):
+    // each refreshSource recomputes a value-equal snapshot, so the idempotent
+    // backstop must suppress every notify — no re-render, no feedback loop.
+    await controller.refreshSource();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('still notifies on refreshSource when the data actually changed', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    tn.tasks = [task({ path: 'a.md' }), task({ path: 'b.md' })];
+    await controller.refreshSource();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
+  });
+
+  it('notifies on a write-capability flip via re-selection even when the snapshot is unchanged', async () => {
+    const ro = new FakeSource({ tasks: [task({ path: 'a.md' })], write: false });
+    const rw = new FakeSource({ tasks: [task({ path: 'a.md' })], write: true });
+    let current: FakeSource = ro;
+    const controller = makeController({
+      createTaskNotesSource: async () => current,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Same data, but the active source's write capability flips — recompute
+    // must still notify so write affordances update (the case the old
+    // force-notify covered, now driven by capability-change detection).
+    current = rw;
+    await controller.onExternalSourceChange();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it('unsubscribes the previous source on re-selection', async () => {
     const tn = new FakeSource({ tasks: [] });
     tn.enableSubscribe();
@@ -1071,6 +1132,55 @@ describe('GanttController — source memoization + dependency batching (plan #16
 
     await controller.onExternalSourceChange();
     expect(createTaskNotesSource).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches the relationship index across plain refreshes — never re-reads the full-vault index per Bases notify (#161 loop fix)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit', hideTopLevel: false }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    // init + two Bases-driven refreshes, no TaskNotes data-change → the
+    // full-vault relationship index (api.tasks.list / getAllTasks) is read
+    // exactly ONCE and reused. Re-reading it inside Bases' notify cycle is the
+    // re-poke that drives the #161 infinite render loop.
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+  });
+
+  it('re-fetches the relationship index after a genuine TaskNotes data-change, then reuses it (cache invalidate + re-cache)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    enrichment.enableSubscribe();
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit', hideTopLevel: false }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+
+    // A genuine TaskNotes change sets enrichmentDirty → the next build busts the
+    // cache and re-reads the index, so fresh relationship data renders (the
+    // correctness half of the fix: caching must not stale out real edits).
+    enrichment.fireChange();
+    await flushAsync();
+    expect(enrichment.relationshipIndexCalls).toBe(2);
+
+    // A subsequent plain Bases refresh rides the freshly-cached index again.
+    await controller.refreshSource();
+    expect(enrichment.relationshipIndexCalls).toBe(2);
   });
 
   it('re-reads field config / readiness each refresh even when the source is reused (cold→warm)', async () => {

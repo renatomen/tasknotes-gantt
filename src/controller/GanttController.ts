@@ -88,6 +88,7 @@ import {
   resolveCompanionTree,
   type CompanionAccessor,
   type CompanionResolveOptions,
+  type RelationshipIndex,
 } from '../datasource/companionResolve';
 import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 
@@ -333,6 +334,21 @@ export class GanttController {
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
    */
   private companionAccessor: CompanionAccessor | null = null;
+
+  /**
+   * Cached TaskNotes enrichment (#161 loop fix). The relationship index is a
+   * full-vault read (`api.tasks.list()`) and dependencies are per-task reads;
+   * running them on every Bases notify re-pokes Bases into re-notifying (an
+   * infinite loop). They only change on a genuine TaskNotes data-change, so we
+   * cache them and re-fetch only when {@link enrichmentDirty} is set (by the
+   * source subscription or an availability flip) — plain Bases notifies reuse
+   * the cache. Expansion/positioning still re-run each recompute (no reads), so
+   * option toggles + sort changes apply without a re-fetch.
+   */
+  private relationshipIndex: RelationshipIndex | null = null;
+  private readonly dependencyCache = new Map<string, SourceDependency[]>();
+  private enrichmentDirty = true;
+
   /**
    * Monotonic recompute token. Each {@link recompute} captures the current
    * value; if a newer recompute starts while it awaits the async build, the
@@ -381,6 +397,13 @@ export class GanttController {
 
   /** The current coherent source-graph snapshot. `null` until first compute. */
   private snapshot: Snapshot | null = null;
+
+  /**
+   * The write capability at the last notify, so {@link recompute} can notify on a
+   * capability flip even when the snapshot is value-equal — replacing the old
+   * unconditional force-notify on re-selection (#161). `null` until first notify.
+   */
+  private lastNotifiedWrite: boolean | null = null;
 
   /** Registered snapshot-change listeners. */
   private readonly listeners = new Set<ChangeListener>();
@@ -466,9 +489,11 @@ export class GanttController {
     // Subscribe to change events when the active source supports it (TaskNotes).
     this.subscribeToSource(next);
 
-    // Recompute the snapshot from the new source and notify (selection changed
-    // the capability surface and possibly the data, so always notify here).
-    await this.recompute({ forceNotify: true });
+    // Recompute the snapshot from the new source. recompute() notifies only on
+    // an actual change (snapshot value-inequality or a write-capability flip), so
+    // a re-selection that yields identical data + capability is a no-op — the
+    // guard that stops the in-place refresh loop (#161).
+    await this.recompute();
   }
 
   /**
@@ -484,6 +509,9 @@ export class GanttController {
     // capabilities (plan #161, KTD3). Plain entry-change refreshes
     // (onDataUpdated → refreshSource) keep reusing the memo.
     this.taskNotesResolved = false;
+    // A new/absent enrichment source means the cached relationship index +
+    // dependencies are stale — invalidate so the next build re-fetches (#161).
+    this.enrichmentDirty = true;
     await this.refreshSource();
   }
 
@@ -953,10 +981,15 @@ export class GanttController {
         this.clearInFlight(correlationId);
         return;
       }
+      // A genuine TaskNotes data-change: the cached enrichment (relationship
+      // index + dependencies) may be stale, so invalidate it before recomputing
+      // (#161). This is the ONLY place plain recomputes re-fetch the full-vault
+      // index — Bases notifies reuse the cache.
+      this.enrichmentDirty = true;
       // Fire-and-forget recompute; the idempotent backstop suppresses
       // notification when nothing actually changed (covers a late self-event
       // whose correlationId TTL already expired).
-      void this.recompute({ forceNotify: false });
+      void this.recompute();
     });
   }
 
@@ -975,7 +1008,7 @@ export class GanttController {
   /** Compute a snapshot on demand if one does not exist yet. */
   private async ensureSnapshot(): Promise<Snapshot> {
     if (!this.snapshot) {
-      await this.recompute({ forceNotify: false });
+      await this.recompute();
     }
     // recompute always assigns this.snapshot (even for an empty source).
     return this.snapshot as Snapshot;
@@ -984,11 +1017,14 @@ export class GanttController {
   /**
    * Recompute the coherent source-graph snapshot from the active source:
    * `getTasks()` → `expandInstances(...)`, plus `getDependencies(path)` per task
-   * → `SourceLink[]`. Notifies listeners when the new snapshot differs from the
-   * previous (the idempotent backstop), or when `forceNotify` is set (selection
-   * changed the capability surface even if data is value-equal).
+   * → `SourceLink[]`. Notifies listeners only on an **actual change** — the new
+   * snapshot differs from the previous (the idempotent backstop) OR the active
+   * source's write capability flipped. There is no force-notify: re-selection
+   * with an identical snapshot and unchanged capability is a no-op, so a Bases
+   * re-notify carrying unchanged data does not re-render (fixes the in-place
+   * refresh loop where each render re-triggered Bases' notify — #161).
    */
-  private async recompute(opts: { forceNotify: boolean }): Promise<void> {
+  private async recompute(): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -1005,17 +1041,30 @@ export class GanttController {
       return;
     }
 
-    const changed = !this.snapshot || !snapshotsEqual(this.snapshot, next);
+    const write = this.capabilities.write;
+    const reason = !this.snapshot
+      ? 'noSnap'
+      : !snapshotsEqual(this.snapshot, next)
+        ? 'notEqual'
+        : write !== this.lastNotifiedWrite
+          ? 'writeFlip'
+          : 'none';
+    const changed = reason !== 'none';
+    // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
+    console.log(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
 
-    if (opts.forceNotify || changed) {
+    if (changed) {
+      this.lastNotifiedWrite = write;
       this.notify();
     }
   }
 
   /** Build a fresh snapshot by querying the source for tasks and dependencies. */
   private async buildSnapshot(source: DataSource): Promise<Snapshot> {
+    const tStart = performance.now(); // [OGDBG #161] stage timing
     const rawTasks = await source.getTasks();
+    const tGetTasks = performance.now(); // [OGDBG #161]
     // Companion stage (bases-scoped + TaskNotes): resolve the displayed set
     // (Inherit/Show-all), override parents from `projects`, and flag
     // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
@@ -1028,9 +1077,29 @@ export class GanttController {
     // are no fetched rows. expandInstances then preserves this per-sibling input
     // order. Resolving + positioning in one branch keeps `CompanionTask[]` known to
     // the type checker (no cast). Standalone (no accessor) passes tasks through.
+    // #161 loop fix: the TaskNotes enrichment reads (the full-vault relationship
+    // index + per-task dependencies) re-poke Bases into re-notifying when run on
+    // every notify. The relationship/dependency data only changes on a genuine
+    // TaskNotes data-change (which sets `enrichmentDirty` via the source
+    // subscription / availability flip), so we cache it and reuse it across plain
+    // Bases notifies — no re-fetch, no re-poke. Expansion + companion positioning
+    // still re-run each recompute (cheap, no reads), so option toggles + sort
+    // changes apply without a re-fetch.
+    const dbgDirty = this.enrichmentDirty; // [OGDBG #161]
+    if (this.enrichmentDirty) {
+      this.relationshipIndex = null;
+      this.dependencyCache.clear();
+      this.enrichmentDirty = false;
+    }
+
+    let dbgFetchedIndex = false; // [OGDBG #161]
     let orderedTasks: readonly ExpandableTask[];
     if (this.companionAccessor) {
-      const companionTasks = await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor);
+      if (!this.relationshipIndex) {
+        this.relationshipIndex = await this.companionAccessor.getRelationshipIndex();
+        dbgFetchedIndex = true;
+      }
+      const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), this.relationshipIndex);
       // Interleave by the RESOLVED field mappings (the same per-user config that
       // filled task.start/end/status/…), never a hardcoded property table — so a
       // Base sort only positions fetched rows when its property is the one a Gantt
@@ -1039,17 +1108,44 @@ export class GanttController {
     } else {
       orderedTasks = rawTasks;
     }
+    const tCompanion = performance.now(); // [OGDBG #161]
     const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
+    const tExpand = performance.now(); // [OGDBG #161]
 
-    // Resolve dependencies for all tasks concurrently (plan #161, U3): the old
-    // sequential `await` per task added ~one round-trip per displayed row (a
-    // fixed linear cost on top of the now-bounded rebuild). `Promise.all` lets
-    // the upstream cache reads overlap; the result order matches `tasks`, so
-    // link discovery order is unchanged.
+    // Dependencies are cached per source path (cleared on a TaskNotes data-change
+    // via `enrichmentDirty` above); only a cache miss hits TaskNotes. Reusing
+    // them across notifies is part of the #161 loop fix.
+    let dbgDepMisses = 0; // [OGDBG #161]
     const depsByTask = await Promise.all(
-      tasks.map((t) => source.getDependencies(t.path)),
+      tasks.map(async (t) => {
+        const cached = this.dependencyCache.get(t.path);
+        if (cached) return cached;
+        dbgDepMisses += 1;
+        const fetched = await source.getDependencies(t.path);
+        this.dependencyCache.set(t.path, fetched);
+        return fetched;
+      }),
     );
+    const tDeps = performance.now(); // [OGDBG #161]
+    // [OGDBG #161] enrichment-cache effectiveness + live config values + stage
+    // timings (ms) per build — discriminates a slow data pipeline from slow SVAR.
+    try {
+      const cc = this.companionConfig();
+      const pc = this.policyConfigProvider();
+      const ms = (a: number, b: number) => Math.round(b - a);
+      console.log(
+        `[OGDBG] build dirty=${dbgDirty} fetchedIndex=${dbgFetchedIndex} depMisses=${dbgDepMisses}` +
+          ` companion=${!!this.companionAccessor} mode=${cc.mode} hideTop=${cc.hideTopLevel}` +
+          ` showUndated=${pc.showUndatedTasks} showPartial=${pc.showPartialDateTasks}` +
+          ` tasks=${tasks.length} instances=${expansion.instances.length}` +
+          ` | ms: total=${ms(tStart, tDeps)} getTasks=${ms(tStart, tGetTasks)}` +
+          ` companion=${ms(tGetTasks, tCompanion)} expand=${ms(tCompanion, tExpand)}` +
+          ` deps=${ms(tExpand, tDeps)}`,
+      );
+    } catch (e) {
+      console.log('[OGDBG] build log failed', e);
+    }
 
     const sourceLinks: SourceLink[] = [];
     for (let i = 0; i < tasks.length; i += 1) {
