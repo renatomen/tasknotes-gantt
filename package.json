@@ -23,6 +23,7 @@
     "build:local": "vite build",
     "e2e:local": "node scripts/e2e-local.mjs",
     "perf:isolated": "vitest run --config test/perf/vitest.config.ts",
+    "perf:gen": "tsx scripts/perf-gen.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
