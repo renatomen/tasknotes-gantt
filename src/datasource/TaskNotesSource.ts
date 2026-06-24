@@ -33,6 +33,7 @@
  */
 
 import type { App } from 'obsidian';
+import type { RelationshipIndex } from './companionResolve';
 import type {
   CustomDateField,
   DataSource,
@@ -403,35 +404,60 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
-   * Read the direct subtasks of `path` (tasks whose `projects` field links to
-   * it) as raw {@link SourceTask}s, via `api.relationships.subtasks(path)`
-   * (TaskNotes 4.11.0). Children with no resolvable path are dropped. Returns
-   * `[]` when the accessor is absent or on any failure. The companion-hierarchy
-   * resolver (U3) owns parent-edge assignment; mapped children carry
-   * `parents: []` here (set by {@link toSourceTask}).
+   * Build the bulk {@link RelationshipIndex} in ONE pass (plan #161, U1/KTD2) —
+   * the O(N) replacement for the per-node `getSubtasks` scan that made Show-all
+   * expansion O(N²) and froze the view.
    *
-   * @param path - The task whose direct subtasks to read.
+   * Strategy (KTD2 — parity-safe, no `taskReferenceMatches` replication): list
+   * every vault task once, resolve each task's parents via {@link getParents}
+   * (parallelized), then **invert** that relation into `childrenByPath` while
+   * recording `parentsByPath`. This is equivalent to N× `getSubtasks` because
+   * `getSubtasks(P)` includes child C iff `resolveTaskReferencePath(C.projectRef)
+   * === P`, the very resolution `getParents(C)` performs — and the companion BFS
+   * only ever expands real parent tasks, so the two relations agree on every
+   * edge the BFS can traverse (dangling/alias refs that resolve to no real task
+   * are dropped by both).
+   *
+   * Mirrors the read paths' graceful-fallback contract: returns empty maps (never
+   * throws) when the task list / relationship API is absent or fails.
    */
-  public async getSubtasks(path: string): Promise<SourceTask[]> {
+  public async getRelationshipIndex(): Promise<RelationshipIndex> {
+    const empty: RelationshipIndex = {
+      childrenByPath: new Map<string, SourceTask[]>(),
+      parentsByPath: new Map<string, string[]>(),
+    };
     try {
-      if (
-        !this.api.relationships ||
-        typeof this.api.relationships.subtasks !== 'function'
-      ) {
-        return [];
+      const tasks = await this.getTasks();
+      if (tasks.length === 0) {
+        return empty;
       }
-      const children = await this.api.relationships.subtasks(path);
-      if (!Array.isArray(children)) {
-        return [];
+      // Resolve every task's parents concurrently (each is an O(1) TaskNotes
+      // cache read upstream); a single failed lookup degrades to no parents
+      // rather than aborting the whole index.
+      const parentLists = await Promise.all(
+        tasks.map((t) => this.getParents(t.path)),
+      );
+
+      const childrenByPath = new Map<string, SourceTask[]>();
+      const parentsByPath = new Map<string, string[]>();
+      for (let i = 0; i < tasks.length; i += 1) {
+        const child = tasks[i]!;
+        const parents = parentLists[i] ?? [];
+        if (parents.length > 0) {
+          parentsByPath.set(child.path, parents);
+        }
+        for (const parentPath of parents) {
+          const bucket = childrenByPath.get(parentPath);
+          if (bucket) {
+            bucket.push(child);
+          } else {
+            childrenByPath.set(parentPath, [child]);
+          }
+        }
       }
-      return children
-        .filter(
-          (t): t is TaskNotesTaskInfo =>
-            !!t && typeof t.path === 'string' && t.path.length > 0,
-        )
-        .map((t) => this.toSourceTask(t));
+      return { childrenByPath, parentsByPath };
     } catch {
-      return [];
+      return empty;
     }
   }
 

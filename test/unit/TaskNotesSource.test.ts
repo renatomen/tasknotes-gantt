@@ -654,43 +654,68 @@ describe('TaskNotesSource', () => {
     });
   });
 
-  describe('relationships — subtasks/parents (U2)', () => {
-    it('getSubtasks maps children to SourceTasks (parent edges owned by the resolver)', async () => {
+  describe('relationships — relationship index / parents (plan #161 U1)', () => {
+    it('getRelationshipIndex inverts parents over the task list into childrenByPath + parentsByPath', async () => {
+      // P.md is the parent of child-a + child-b; getRelationshipIndex lists all
+      // tasks, resolves each task's parents, and inverts into children.
       const { api } = makeApi({
-        subtasks: {
-          'parent.md': [
-            { path: 'child-a.md', title: 'Child A', scheduled: '2026-01-01', due: '2026-01-05', status: 'open' },
-            { path: 'child-b.md', title: 'Child B' },
-          ],
+        tasks: [
+          { path: 'P.md', title: 'Parent' },
+          { path: 'child-a.md', title: 'Child A', scheduled: '2026-01-01', due: '2026-01-05', status: 'open' },
+          { path: 'child-b.md', title: 'Child B' },
+        ],
+        parents: {
+          'child-a.md': [{ path: 'P.md' }],
+          'child-b.md': [{ path: 'P.md' }],
         },
       });
       const source = await TaskNotesSource.create(makeApp(api));
-      const subs = await source!.getSubtasks('parent.md');
-      expect(subs).toHaveLength(2);
-      expect(subs[0]).toMatchObject({ path: 'child-a.md', text: 'Child A', status: 'open', progress: null, parents: [] });
-      expect(subs[0]!.start).toBeInstanceOf(Date);
-      expect(subs[0]!.end).toBeInstanceOf(Date);
-      expect(subs[1]).toMatchObject({ path: 'child-b.md', text: 'Child B', status: null, start: null, end: null, parents: [] });
+      const index = await source!.getRelationshipIndex();
+
+      const children = index.childrenByPath.get('P.md') ?? [];
+      expect(children.map((c) => c.path).sort()).toEqual(['child-a.md', 'child-b.md']);
+      // Children are mapped to raw SourceTasks (dates parsed, parents owned by resolver).
+      const childA = children.find((c) => c.path === 'child-a.md')!;
+      expect(childA).toMatchObject({ text: 'Child A', status: 'open', progress: null, parents: [] });
+      expect(childA.start).toBeInstanceOf(Date);
+      expect(childA.end).toBeInstanceOf(Date);
+
+      expect(index.parentsByPath.get('child-a.md')).toEqual(['P.md']);
+      expect(index.parentsByPath.get('child-b.md')).toEqual(['P.md']);
+      // Childless / parentless tasks are absent from the respective maps.
+      expect(index.childrenByPath.has('child-a.md')).toBe(false);
+      expect(index.parentsByPath.has('P.md')).toBe(false);
     });
 
-    it('getSubtasks drops children with no resolvable path', async () => {
+    it('getRelationshipIndex records multi-parent children under each parent', async () => {
       const { api } = makeApi({
-        subtasks: { 'p.md': [{ path: 'ok.md' }, { title: 'no path' } as TaskNotesTaskInfo] },
+        tasks: [{ path: 'P1.md' }, { path: 'P2.md' }, { path: 'C.md' }],
+        parents: { 'C.md': [{ path: 'P1.md' }, { path: 'P2.md' }] },
       });
       const source = await TaskNotesSource.create(makeApp(api));
-      expect((await source!.getSubtasks('p.md')).map((s) => s.path)).toEqual(['ok.md']);
+      const index = await source!.getRelationshipIndex();
+      expect(index.childrenByPath.get('P1.md')!.map((c) => c.path)).toEqual(['C.md']);
+      expect(index.childrenByPath.get('P2.md')!.map((c) => c.path)).toEqual(['C.md']);
+      expect(index.parentsByPath.get('C.md')).toEqual(['P1.md', 'P2.md']);
     });
 
-    it('getSubtasks returns [] when the accessor is absent or throws', async () => {
-      const absent = await TaskNotesSource.create(makeApp(makeApi().api));
-      expect(await absent!.getSubtasks('x.md')).toEqual([]);
+    it('getRelationshipIndex returns empty maps when the task list is empty / API absent', async () => {
+      const empty = await TaskNotesSource.create(makeApp(makeApi({ tasks: [] }).api));
+      const idx = await empty!.getRelationshipIndex();
+      expect(idx.childrenByPath.size).toBe(0);
+      expect(idx.parentsByPath.size).toBe(0);
+    });
 
-      const { api } = makeApi({ subtasks: { 'x.md': [] } });
-      api.relationships!.subtasks = () => {
+    it('getRelationshipIndex degrades gracefully when parents resolution throws', async () => {
+      const { api } = makeApi({ tasks: [{ path: 'a.md' }], parents: { 'a.md': [] } });
+      api.relationships!.parents = () => {
         throw new Error('boom');
       };
-      const throwing = await TaskNotesSource.create(makeApp(api));
-      expect(await throwing!.getSubtasks('x.md')).toEqual([]);
+      const source = await TaskNotesSource.create(makeApp(api));
+      const idx = await source!.getRelationshipIndex();
+      // getParents swallows the throw → no parents → empty inversion, no throw.
+      expect(idx.childrenByPath.size).toBe(0);
+      expect(idx.parentsByPath.size).toBe(0);
     });
 
     it('getParents returns resolved parent paths, filtering junk', async () => {

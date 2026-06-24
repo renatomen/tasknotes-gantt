@@ -116,27 +116,34 @@ class FakeSource implements DataSource {
 }
 
 /**
- * A companion-capable enrichment fake: a FakeSource that also exposes the
- * TaskNotes relationship reads (`getSubtasks`/`getParents`), so the controller's
- * companion stage activates (toCompanionAccessor duck-types on these).
+ * A companion-capable enrichment fake: a FakeSource that also exposes the bulk
+ * relationship index (`getRelationshipIndex`), so the controller's companion
+ * stage activates (toCompanionAccessor duck-types on it). The index is built
+ * from the same `subtasks`/`parents` maps the test fixtures use, and a counter
+ * records how many times it was requested (plan #161 — must be once per build).
  */
 class CompanionEnrichment extends FakeSource {
-  private readonly subtasksMap: Record<string, SourceTask[]>;
-  private readonly parentsMap: Record<string, string[]>;
+  private readonly index: import('../../src/datasource/companionResolve').RelationshipIndex;
+  public relationshipIndexCalls = 0;
   constructor(opts: {
     subtasks?: Record<string, SourceTask[]>;
     parents?: Record<string, string[]>;
     deps?: Record<string, SourceDependency[]>;
   }) {
     super({ deps: opts.deps });
-    this.subtasksMap = opts.subtasks ?? {};
-    this.parentsMap = opts.parents ?? {};
+    const childrenByPath = new Map<string, SourceTask[]>(
+      Object.entries(opts.subtasks ?? {}),
+    );
+    const parentsByPath = new Map<string, string[]>(
+      Object.entries(opts.parents ?? {}),
+    );
+    this.index = { childrenByPath, parentsByPath };
   }
-  async getSubtasks(path: string): Promise<SourceTask[]> {
-    return this.subtasksMap[path] ?? [];
-  }
-  async getParents(path: string): Promise<string[]> {
-    return this.parentsMap[path] ?? [];
+  async getRelationshipIndex(): Promise<
+    import('../../src/datasource/companionResolve').RelationshipIndex
+  > {
+    this.relationshipIndexCalls += 1;
+    return this.index;
   }
 }
 
@@ -1026,6 +1033,110 @@ describe('GanttController — per-view settings freshness', () => {
     });
     await controller.init();
     expect(await controller.getInstances()).toEqual([]);
+  });
+});
+
+describe('GanttController — source memoization + dependency batching (plan #161, U3)', () => {
+  it('does NOT re-create the TaskNotes source across plain refreshes (availability unchanged)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const enrichment = new FakeSource({ deps: {} });
+    const createTaskNotesSource = jest.fn(async () => enrichment as DataSource);
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: { createBasesSource: () => base, createTaskNotesSource },
+    });
+
+    await controller.init();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    // init + two refreshes, availability unchanged → resolved exactly once.
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-creates the TaskNotes source after onExternalSourceChange (availability flip)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const createTaskNotesSource = jest.fn(async () => new FakeSource({ deps: {} }) as DataSource);
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: { createBasesSource: () => base, createTaskNotesSource },
+    });
+
+    await controller.init();
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+
+    await controller.onExternalSourceChange();
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads field config / readiness each refresh even when the source is reused (cold→warm)', async () => {
+    // A single memoized enrichment whose field config starts cold (null →
+    // read-only) and warms to a resolvable config WITHOUT an availability event.
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const live: { fieldConfig: import('../../src/datasource/types').FieldConfig | null } = {
+      fieldConfig: null,
+    };
+    const enrichment: DataSource = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getFieldConfig: async () => live.fieldConfig,
+    };
+    const createTaskNotesSource = jest.fn(async () => enrichment);
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: { createBasesSource: () => base, createTaskNotesSource },
+    });
+
+    await controller.init();
+    // Cold cache: no resolvable field config → composite forced read-only (R-F).
+    expect(controller.capabilities.write).toBe(false);
+
+    // Cache warms (background indexing). A plain refresh re-reads getFieldConfig
+    // from the SAME (memoized) source object — no re-create, but the warm config
+    // is now observed and write is enabled.
+    live.fieldConfig = { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [] };
+    await controller.refreshSource();
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1); // still memoized
+    expect(controller.capabilities.write).toBe(true);
+  });
+
+  it('resolves dependencies for all tasks via one batched pass (no N sequential awaits)', async () => {
+    // Gate getDependencies so every call is pending simultaneously: if the
+    // controller awaited them sequentially, only one would be in flight at a
+    // time. Asserting all N are pending before any resolves proves concurrency.
+    const tasks = [task({ path: 'a.md' }), task({ path: 'b.md' }), task({ path: 'c.md' })];
+    const tn = new FakeSource({ tasks });
+    let inFlight = 0;
+    let peak = 0;
+    const resolvers: Array<() => void> = [];
+    tn.getDependencies = () =>
+      new Promise<SourceDependency[]>((resolve) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        resolvers.push(() => {
+          inFlight -= 1;
+          resolve([]);
+        });
+      });
+
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    const init = controller.init();
+    // Let getTasks + the batched getDependencies dispatch settle.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(peak).toBe(3); // all three dependency reads in flight at once
+    resolvers.forEach((r) => r());
+    await init;
   });
 });
 

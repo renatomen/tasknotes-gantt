@@ -38,12 +38,35 @@ import type { SourceTask } from './types';
 /** Expanded-relationships mode (mirrors the view setting). */
 export type CompanionMode = 'inherit' | 'show-all';
 
+/**
+ * A bulk relationship index built ONCE per resolve (plan #161, U1/KTD1+KTD2).
+ *
+ * - `childrenByPath` maps a parent path → its direct child source tasks
+ *   (parity-equivalent to calling `getSubtasks(parent)`). A parent with no
+ *   children is simply absent.
+ * - `parentsByPath` maps a path → the resolved vault paths of its direct parents
+ *   (parity-equivalent to `getParents(path)`). A task with no parents is absent.
+ *
+ * The accessor produces this in a single pass (the O(N) replacement for the old
+ * per-node `getSubtasks` / per-task `getParents` calls that made expansion
+ * O(N²)), so the resolver only ever does O(1) map lookups.
+ */
+export interface RelationshipIndex {
+  /** Parent path → direct child source tasks (Show-all expansion). */
+  childrenByPath: Map<string, SourceTask[]>;
+  /** Task path → resolved direct parent paths (`projects` edges). */
+  parentsByPath: Map<string, string[]>;
+}
+
 /** The TaskNotes relationship reads the resolver needs (injected). */
 export interface CompanionAccessor {
-  /** Direct subtasks of `path` as raw source tasks (Show-all expansion). */
-  getSubtasks(path: string): Promise<SourceTask[]>;
-  /** Resolved vault paths of the direct parents of `path` (`projects` edges). */
-  getParents(path: string): Promise<string[]>;
+  /**
+   * Build the full {@link RelationshipIndex} in one bulk operation, so the
+   * resolver never performs a per-node vault scan (the O(N²) freeze fix — plan
+   * #161, U1). Returns empty maps (never throws) when the relationship API is
+   * absent or fails.
+   */
+  getRelationshipIndex(): Promise<RelationshipIndex>;
 }
 
 /** A displayed task plus the flags the instance expander consumes. */
@@ -77,6 +100,10 @@ export async function resolveCompanionTree(
   opts: CompanionResolveOptions,
   accessor: CompanionAccessor,
 ): Promise<CompanionTask[]> {
+  // Build the relationship index ONCE up front (plan #161, U2): all child and
+  // parent reads below are O(1) map lookups against it — zero per-node
+  // `getSubtasks`, zero per-task `getParents`.
+  const index = await accessor.getRelationshipIndex();
   const matchedPaths = new Set(matched.map((t) => t.path));
 
   // Displayed set: matched first (preserve input order), then Show-all fetches.
@@ -86,12 +113,12 @@ export async function resolveCompanionTree(
   }
 
   if (opts.mode === 'show-all') {
-    await collectShowAllDescendants(matched, displayed, accessor);
+    collectShowAllDescendants(matched, displayed, index);
   }
 
   const out: CompanionTask[] = [];
   for (const [path, src] of displayed) {
-    const parents = await accessor.getParents(path);
+    const parents = index.parentsByPath.get(path) ?? [];
     const isFetched = !matchedPaths.has(path);
     const hasDisplayedParent = parents.some((p) => displayed.has(p));
     const alsoTopLevel = !isFetched && !opts.hideTopLevel && hasDisplayedParent;
@@ -106,19 +133,23 @@ function hasUsablePath(child: SourceTask | null | undefined): child is SourceTas
 }
 
 /**
- * BFS over subtasks, adding every newly-discovered descendant to `displayed`.
+ * BFS over the prebuilt child index, adding every newly-discovered descendant to
+ * `displayed`. Each lookup is O(1) against {@link RelationshipIndex.childrenByPath}
+ * (the freeze fix — plan #161, U2: no per-node vault scan). Discovery order is
+ * preserved (FIFO queue, source order within each parent's children) so the
+ * downstream interleave/expansion order is unchanged from the per-node version.
  * Cycle-guarded by `displayed` membership: a node already displayed is never
  * re-enqueued, so a `projects` cycle terminates.
  */
-async function collectShowAllDescendants(
+function collectShowAllDescendants(
   roots: readonly SourceTask[],
   displayed: Map<string, SourceTask>,
-  accessor: CompanionAccessor,
-): Promise<void> {
+  index: RelationshipIndex,
+): void {
   const queue: string[] = roots.map((t) => t.path);
   while (queue.length > 0) {
     const parent = queue.shift() as string;
-    const children = await accessor.getSubtasks(parent);
+    const children = index.childrenByPath.get(parent) ?? [];
     for (const child of children) {
       if (!hasUsablePath(child) || displayed.has(child.path)) continue;
       displayed.set(child.path, child);

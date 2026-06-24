@@ -329,7 +329,7 @@ export class GanttController {
   };
   /**
    * Companion relationship accessor — set in {@link selectSource} when
-   * bases-scoped AND the enrichment source exposes `getSubtasks`/`getParents`
+   * bases-scoped AND the enrichment source exposes `getRelationshipIndex`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
    */
   private companionAccessor: CompanionAccessor | null = null;
@@ -355,6 +355,26 @@ export class GanttController {
 
   /** The currently selected source. `null` until {@link init}. */
   private activeSource: DataSource | null = null;
+
+  /**
+   * Memoized TaskNotes source object (plan #161, KTD3). `createTaskNotesSource`
+   * re-resolves the api and re-awaits `lifecycle.ready()` each call; on a busy
+   * resultset that ran on every `onDataUpdated`. We reuse the resolved object
+   * across refreshes and only re-create when TaskNotes **availability** actually
+   * changes — gated on the {@link taskNotesProbe} identity below, or forced by
+   * {@link onExternalSourceChange}. Field config / readiness are still re-read
+   * each refresh from the (reused) source, so a source memoized while the cache
+   * is cold still observes it warming.
+   */
+  private memoizedTaskNotesSource: DataSource | null = null;
+  /**
+   * The availability probe (`app.plugins.getPlugin('tasknotes')?.api` identity)
+   * captured when {@link memoizedTaskNotesSource} was last resolved. A change in
+   * identity (TaskNotes enabled/disabled/reloaded) invalidates the memo.
+   */
+  private taskNotesProbe: unknown;
+  /** Whether {@link memoizedTaskNotesSource}/{@link taskNotesProbe} are populated. */
+  private taskNotesResolved = false;
 
   /** Disposer for the active TaskNotes event subscription, if any. */
   private sourceUnsubscribe: (() => void) | null = null;
@@ -459,6 +479,11 @@ export class GanttController {
    * lifecycle events; **U7 wires the real Obsidian signal to this method.**
    */
   public async onExternalSourceChange(): Promise<void> {
+    // An availability flip is exactly the event the memo must not survive:
+    // force a re-resolve so a TaskNotes enable/disable re-derives the source +
+    // capabilities (plan #161, KTD3). Plain entry-change refreshes
+    // (onDataUpdated → refreshSource) keep reusing the memo.
+    this.taskNotesResolved = false;
     await this.refreshSource();
   }
 
@@ -759,7 +784,9 @@ export class GanttController {
       const { entries, mappings } = this.basesInput();
       // Create the enrichment first so its field config can resolve the
       // effective read properties + write targets before the base is built.
-      const enrichment = await this.createTaskNotesSource(this.app);
+      // Memoized across entry-change refreshes (KTD3); field config is still
+      // re-read below each time, so a cold→warm cache is observed.
+      const enrichment = await this.resolveTaskNotesSource();
       // Companion expansion (Inherit/Show-all + hide) runs only when TaskNotes
       // is present and exposes the relationship reads; in companion mode its
       // `projects` edges supersede the configured parentProperty (KTD1).
@@ -782,13 +809,54 @@ export class GanttController {
       });
     }
 
-    const taskNotes = await this.createTaskNotesSource(this.app);
+    const taskNotes = await this.resolveTaskNotesSource();
     if (taskNotes) {
       return taskNotes;
     }
     const { entries, mappings } = this.basesInput();
     // Apply the same legacy read defaults the bases-scoped no-config path uses.
     return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
+  }
+
+  /**
+   * Resolve the TaskNotes source, memoized across refreshes (plan #161, KTD3).
+   *
+   * `createTaskNotesSource` re-resolves the api and re-awaits readiness on every
+   * call — wasteful when it ran on each `onDataUpdated`. Reuse the resolved
+   * object while TaskNotes **availability** is unchanged (cheap probe of the
+   * `app.plugins.getPlugin('tasknotes')?.api` identity); re-create when the probe
+   * identity changes or {@link onExternalSourceChange} forced invalidation. The
+   * caller still re-reads field config / readiness from the returned source each
+   * refresh, so a source memoized while the cache was cold observes it warming.
+   */
+  private async resolveTaskNotesSource(): Promise<DataSource | null> {
+    const probe = this.probeTaskNotesAvailability();
+    if (this.taskNotesResolved && probe === this.taskNotesProbe) {
+      return this.memoizedTaskNotesSource;
+    }
+    const resolved = await this.createTaskNotesSource(this.app);
+    this.memoizedTaskNotesSource = resolved;
+    this.taskNotesProbe = probe;
+    this.taskNotesResolved = true;
+    return resolved;
+  }
+
+  /**
+   * Cheap availability signal for the memo: the identity of the TaskNotes api
+   * object via the plugin registry. A reload/enable/disable swaps (or removes)
+   * the api object, changing the identity and invalidating the memo. Reached
+   * through a narrow local interface (not in the public Obsidian typings, and no
+   * `any`); guarded so a missing registry resolves to `undefined`.
+   */
+  private probeTaskNotesAvailability(): unknown {
+    try {
+      const plugins = (this.app as unknown as {
+        plugins?: { getPlugin(id: string): { api?: unknown } | undefined | null };
+      }).plugins;
+      return plugins?.getPlugin('tasknotes')?.api ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -974,10 +1042,19 @@ export class GanttController {
     const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
 
+    // Resolve dependencies for all tasks concurrently (plan #161, U3): the old
+    // sequential `await` per task added ~one round-trip per displayed row (a
+    // fixed linear cost on top of the now-bounded rebuild). `Promise.all` lets
+    // the upstream cache reads overlap; the result order matches `tasks`, so
+    // link discovery order is unchanged.
+    const depsByTask = await Promise.all(
+      tasks.map((t) => source.getDependencies(t.path)),
+    );
+
     const sourceLinks: SourceLink[] = [];
-    for (const t of tasks) {
-      const deps = await source.getDependencies(t.path);
-      for (const dep of deps) {
+    for (let i = 0; i < tasks.length; i += 1) {
+      const t = tasks[i]!;
+      for (const dep of depsByTask[i]!) {
         sourceLinks.push({
           // The dependency edge belongs to `t` (an entry in t's blockedBy):
           // predecessor → this task.
@@ -1038,23 +1115,20 @@ function emptySnapshot(): Snapshot {
 }
 
 /**
- * Build a {@link CompanionAccessor} from a source that exposes the TaskNotes
- * relationship reads (`getSubtasks`/`getParents`), or `null` when it doesn't
+ * Build a {@link CompanionAccessor} from a source that exposes the bulk
+ * relationship index (`getRelationshipIndex`), or `null` when it doesn't
  * (standalone / non-TaskNotes enrichment). Duck-typed because the enrichment is
  * declared as the capability-typed {@link DataSource}, which doesn't surface the
- * relationship reads.
+ * relationship reads. The probe keys on `getRelationshipIndex` — the single
+ * O(N) read the resolver consumes (plan #161, U3); the old per-node
+ * `getSubtasks` was removed as an O(N²) footgun.
  */
 function toCompanionAccessor(source: DataSource | null): CompanionAccessor | null {
   const candidate = source as unknown as Partial<CompanionAccessor> | null;
-  if (
-    candidate &&
-    typeof candidate.getSubtasks === 'function' &&
-    typeof candidate.getParents === 'function'
-  ) {
+  if (candidate && typeof candidate.getRelationshipIndex === 'function') {
     const accessor = candidate as CompanionAccessor;
     return {
-      getSubtasks: (path) => accessor.getSubtasks(path),
-      getParents: (path) => accessor.getParents(path),
+      getRelationshipIndex: () => accessor.getRelationshipIndex(),
     };
   }
   return null;
