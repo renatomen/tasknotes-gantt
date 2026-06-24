@@ -40,3 +40,6 @@ featureSyncStage/
 # Installed/fetched agent skills (reproduced from skills-lock.json)
 .agents/skills/
 .claude/skills/
+
+# Perf-harness runtime trend artifacts (uploaded by CI, never committed)
+test/perf/.trend/

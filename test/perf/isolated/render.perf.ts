@@ -15,8 +15,9 @@
  * Seed 1 is calibrated (see the param sweep in the U4 build notes) to a clean
  * 31 / 980 / 3332-instance spread — the small / medium / #161-explosion points.
  */
-import { test, expect, vi, beforeAll } from 'vitest';
+import { test, expect, vi, beforeAll, afterAll } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { server } from 'vitest/browser';
 import GanttPerfHost from './GanttPerfHost.svelte';
 import { buildGanttData } from '../generator/buildGanttData';
 import { generate } from '../generator/generate';
@@ -147,6 +148,20 @@ beforeAll(async () => {
   measured = [];
   for (const c of CASES) measured.push(await measure(c.matchedCount, c.label));
 }, 120000);
+
+afterAll(async () => {
+  // Best-effort wall-clock trend artifact for U6 (uploaded by CI, compared on a
+  // future run for relative regression — inert until a baseline exists). A write
+  // failure must never fail the gate, so swallow it.
+  try {
+    await server.commands.writeFile(
+      'test/perf/.trend/isolated-latest.json',
+      `${JSON.stringify({ measured }, null, 2)}\n`,
+    );
+  } catch {
+    /* trend persistence is non-essential; the hard gates above are the real gate */
+  }
+});
 
 test('PRIMARY: mount+settle cost at the ~3332 case stays under the absolute ceiling', () => {
   const large = measured.find((m) => m.label === LARGE.label) as Measurement;

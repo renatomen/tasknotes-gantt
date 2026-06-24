@@ -34,6 +34,11 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: 'chromium' }],
+      // Let the perf gate persist its wall-clock trend JSON via the built-in
+      // `server.commands.writeFile` (U6); the write is best-effort and never
+      // fails the gate.
+      api: { allowWrite: true },
     },
+    api: { allowWrite: true },
   },
 });
