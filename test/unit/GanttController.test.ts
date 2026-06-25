@@ -1250,6 +1250,89 @@ describe('GanttController — source memoization + dependency batching (plan #16
   });
 });
 
+describe('GanttController — #161 dynamic resultset-change burst (P1 loop regression lock)', () => {
+  /**
+   * These replay the *dynamic* trigger of #161 as a composed SEQUENCE, not a
+   * single guard in isolation: Bases fires `onDataUpdated` in a rapid burst
+   * during a view-option persist+reload, and the persisted value oscillates
+   * (`hideTop` read `true→true→false` across one toggle — bug report §6/§14).
+   * The per-guard tests above each cover one brake (idempotent backstop, index
+   * cache, fresh-config); this asserts the brakes COMPOSE so the burst can never
+   * amplify into the loop, which is the property the static harness cannot see.
+   *
+   * Scope: this is the *controller half* of the loop (recompute/notify/refetch).
+   * The Bases re-notify FEEDBACK itself (render → Bases notifies → render) lives
+   * only in real Bases and is covered by the dynamic-trigger e2e — see
+   * `match-harness-execution-model-to-bug-trigger.md`.
+   */
+  function makeBurstController(live: { hideTopLevel: boolean }) {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit', hideTopLevel: live.hideTopLevel }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+    return { controller, enrichment };
+  }
+
+  it('an arbitrarily long burst of identical Bases re-notifies neither re-fetches the full-vault index nor notifies (no amplification)', async () => {
+    const live = { hideTopLevel: false };
+    const { controller, enrichment } = makeBurstController(live);
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // The loop, distilled: Bases re-notifies many times with NOTHING changed.
+    // refreshSource() is what onDataUpdated drives; firing it repeatedly must be
+    // a no-op — zero re-fetch of the full-vault index (the re-poke), zero notify
+    // (the re-render). The count of effects is bounded by the data, never by the
+    // number of fires.
+    for (let i = 0; i < 12; i += 1) await controller.refreshSource();
+
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('the documented hide-top oscillation burst settles to the final value with notifies bounded by genuine transitions, index fetched once (#161 trace)', async () => {
+    const live = { hideTopLevel: false };
+    const { controller, enrichment } = makeBurstController(live);
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Replay the captured oscillation: false→true→true→false across one toggle's
+    // onDataUpdated burst (bug report §14). Each fire re-reads the live config
+    // (exactly what the un-debounced view did), so the controller sees the value
+    // flip. The correct behavior is to notify ONCE per genuine state transition
+    // (false→true, true→false) and stay inert on the repeat (true→true) — the
+    // idempotent backstop — never amplifying. The view's 500ms debounce collapses
+    // this burst to a single settled read upstream; this proves that even WITHOUT
+    // the debounce the controller does not spin.
+    const oscillation = [true, true, false];
+    for (const v of oscillation) {
+      live.hideTopLevel = v;
+      await controller.refreshSource();
+    }
+
+    // false→true (1) ... true→true (no-op) ... true→false (1) = exactly 2.
+    expect(listener).toHaveBeenCalledTimes(2);
+    // A view-option toggle is NOT a TaskNotes data-change → the full-vault index
+    // is never re-read across the whole burst (no re-poke).
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+    // And it settled on the FINAL value (hide off → C renders at root + nested),
+    // not a stale mid-burst state.
+    expect(
+      (await controller.getInstances())
+        .filter((i) => i.sourcePath === 'C.md')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(['C.md', 'C.md#parent-P.md']);
+  });
+});
+
 describe('GanttController — default-view safe-partial interleave (U6/R7)', () => {
   /**
    * Build a bases-scoped, Show-all companion controller with a configurable
