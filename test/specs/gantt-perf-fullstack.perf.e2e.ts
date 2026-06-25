@@ -98,13 +98,28 @@ async function settledRowCount(): Promise<number> {
 
 describe("Gantt (OG) full-stack perf — generated large vault", () => {
   let firstRenderMs = 0;
+  let matchedTaskCount = 0;
+  /** Total rows the chart actually holds (non-windowed), inferred from `.wx-area` height. */
+  let totalContentRows = 0;
+  /** A matched task that is ALSO a parent — Show-all must pull its children in. */
+  let sampleParentPath: string | null = null;
 
   before(async () => {
     // Generate a fresh production-shaped vault into a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-perf-fullstack");
     fs.rmSync(tmpVault, { recursive: true, force: true });
-    const result = await emitVault(generate(perfParams()), { outDir: tmpVault });
-    console.log(`[PERF-E2E] generated ${result.notesWritten} notes → ${tmpVault}`);
+    const graph = generate(perfParams());
+    const result = await emitVault(graph, { outDir: tmpVault });
+    matchedTaskCount = graph.tasks.filter((t) => t.matched).length;
+    // A matched task that is itself a parent of >=1 task: Show-all must fetch its
+    // children, so it is both the relationship-readiness probe and proof that the
+    // expansion path (not a matched-only render) is exercised.
+    const parentPaths = new Set(graph.tasks.flatMap((t) => t.parents));
+    sampleParentPath = graph.tasks.find((t) => t.matched && parentPaths.has(t.path))?.path ?? null;
+    console.log(`[PERF-E2E] generated ${result.notesWritten} notes, ${matchedTaskCount} matched → ${tmpVault}`);
+    if (!sampleParentPath) {
+      console.warn("[PERF-E2E] no matched task has children — Show-all expansion cannot be exercised by this graph");
+    }
 
     // Boot Obsidian with TaskNotes ENABLED (companion relationships drive the
     // Show-all explosion the spec reproduces).
@@ -162,6 +177,32 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
         }),
       { timeout: INDEX_TIMEOUT_MS, interval: 1000, timeoutMsg: "metadataCache cold scan did not finish in time" }
     );
+    // Step 3: TaskNotes RELATIONSHIPS resolved — Show-all companion expansion is
+    // ACTIVE, not just the API up. The metadata cache builds asynchronously after
+    // `lifecycle.ready()` (see gantt-dependency-types.e2e.ts), so `subtasks` for a
+    // matched parent can be empty even after Step 2; gate until it resolves so the
+    // open-time snapshot includes the expansion (else the gate could pass on a
+    // matched-only render that never exercised the #161 path).
+    if (sampleParentPath) {
+      await browser.waitUntil(
+        async () =>
+          browser.executeObsidian(async ({ app }, parentPath) => {
+            const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.("tasknotes") as
+              | { api?: { relationships?: { subtasks?: (p: string) => Promise<unknown[]> | unknown[] } } }
+              | undefined;
+            const subtasks = tn?.api?.relationships?.subtasks;
+            if (!subtasks) return false;
+            try {
+              const kids = await subtasks(parentPath);
+              return Array.isArray(kids) && kids.length > 0;
+            } catch {
+              return false;
+            }
+          }, sampleParentPath),
+        { timeout: INDEX_TIMEOUT_MS, interval: 1000, timeoutMsg: "TaskNotes relationships did not resolve — Show-all expansion would be inactive" }
+      );
+    }
+
     const indexMs = Date.now() - indexStart;
     console.log(`[PERF-E2E] cold index complete in ${indexMs}ms (${result.notesWritten} notes)`);
 
@@ -182,6 +223,19 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
     );
     firstRenderMs = Date.now() - renderStart;
     console.log(`[PERF-E2E] time-to-first-render (post-index): ${firstRenderMs}ms`);
+
+    // Capture the NON-windowed row count to prove Show-all expansion actually
+    // rendered (not just the matched set). SVAR sizes `.wx-area` to the full
+    // content height (total-rows * cell-height), so reading it back tells us how
+    // many rows the chart holds vs the ~15 materialized in the viewport window.
+    const areas = await $$(".og-bases-gantt .wx-area");
+    let maxAreaHeight = 0;
+    for (const area of areas) {
+      const size = await area.getSize();
+      if (size.height > maxAreaHeight) maxAreaHeight = size.height;
+    }
+    totalContentRows = Math.round(maxAreaHeight / 38); // SVAR_CELL_HEIGHT (ganttHeight.ts)
+    console.log(`[PERF-E2E] total content rows ≈ ${totalContentRows} (matched ${matchedTaskCount})`);
   });
 
   it("opens the generated base and shows the matched set without freezing", async () => {
@@ -203,6 +257,14 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
     console.log(`[PERF-E2E] settled materialized .wx-row count: ${rows}`);
     expect(rows).toBeGreaterThan(0);
     expect(rows).toBeLessThanOrEqual(WINDOW_ROW_BOUND);
+  });
+
+  it("exercises Show-all companion expansion: total rows exceed the matched set", () => {
+    // Guards against a hollow pass where only the matched Base rows render and the
+    // companion expansion (the #161 path this harness exists to exercise) never
+    // ran. Total content rows > matched ⇒ Show-all pulled in fetched descendants.
+    expect(matchedTaskCount).toBeGreaterThan(0);
+    expect(totalContentRows).toBeGreaterThan(matchedTaskCount);
   });
 
   it("resolves the host to the bounded max-height, not 0 or content-height", async () => {
