@@ -1,7 +1,7 @@
 ---
 title: "feat: Gantt performance harness & perf gate"
 type: feat
-status: active
+status: completed
 date: 2026-06-25
 origin: docs/brainstorms/2026-06-25-gantt-perf-harness-requirements.md
 related: docs/bug-reports/2026-06-24-resultset-render-loop-161.md

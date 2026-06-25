@@ -22,6 +22,17 @@ import type { GenerateParams } from "../perf/generator/graph";
  * Assertions are structural (row count, host size) + a logged wall-clock — never
  * pixel/feel/timing-precise (WDIO can't measure feel; wall-clock is noisy).
  *
+ * FIRST-RUN FINDING (2026-06-25): on its first real local runs (400 and 2000
+ * tasks, Node 20), the generated vault did NOT render any `.wx-bar` within a
+ * generous 150–240s in real Obsidian + TaskNotes — far beyond indexing latency,
+ * while the 5-note companion fixture renders the same Show-all+TaskNotes path
+ * fine. The generated vault is structurally correct (verified), so the cost is
+ * the real-embed render / TaskNotes-relationship resolution at scale over the
+ * generated graph (cycles/orphans/multi-parent) — i.e. either the Electron-
+ * specific #161 freeze this harness exists to surface, or a generator-fidelity
+ * gap. Root-causing it is the deferred "fix #161 / P2" follow-up (plan Scope
+ * Boundaries); this spec is the instrument that surfaces it, run on a schedule.
+ *
  * SELECTOR NOTE: `.og-bases-gantt` is this plugin's stable root; `.wx-bar` /
  * `.wx-row` are SVAR's chart bar / row.
  */
