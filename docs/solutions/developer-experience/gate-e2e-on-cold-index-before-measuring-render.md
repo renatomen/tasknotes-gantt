@@ -132,6 +132,7 @@ firstRenderMs = Date.now() - start; // cold-scan latency + render, conflated →
 
 ## Related
 
+- [match-harness-execution-model-to-bug-trigger.md](./match-harness-execution-model-to-bug-trigger.md) — sibling from the same #161/PR #162 harness work, the complementary failure mode: this doc is a false *failure* (a still-indexing wait masquerades as a freeze — measurement contamination); that one is a false *pass* (a clean run on a trigger the harness can't even exercise).
 - [headless-e2e-verification-for-ui-work.md](../developer-experience/headless-e2e-verification-for-ui-work.md) — sibling: what the WDIO harness *can* verify; this doc supplies the missing precondition (gate the clock) that makes those assertions trustworthy over large/generated vaults.
 - [windows-build-and-e2e-environment-setup.md](../developer-experience/windows-build-and-e2e-environment-setup.md) — prerequisite: getting the WDIO + `wdio-obsidian-service` harness running (Node 20, AV cert, `OBSIDIAN_TEST_VAULT`).
 - [gantt-theme-toggle-bases-refresh-loop.md](../integration-issues/gantt-theme-toggle-bases-refresh-loop.md) — same instrument-the-boundary discipline (log each boundary, drive real Obsidian) used here to tell a cold scan apart from a real freeze.
