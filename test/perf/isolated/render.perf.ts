@@ -39,12 +39,19 @@ const SETTLE_CEILING_MS = 6000;
 
 /**
  * Super-linear backstop: the largest case's total must stay within this multiple
- * of the smallest case's total. Measured in the SAME run, so it is
- * environment-normalized (immune to runner speed). An O(N²) model-build
- * regression at 3332 instances blows past it; the ~1.4× observed baseline leaves
- * generous headroom against the fixed mount cost that dominates the small case.
+ * of the MEDIUM case's total. Measured in the SAME run, so it is
+ * environment-normalized (immune to runner speed). Medium (not small) is the
+ * denominator deliberately — small is dominated by fixed mount cost, which
+ * dilutes the ratio; medium's 980 instances have amortized that, so the ratio
+ * tracks per-instance scaling between 980 and 3332. A linear regression is
+ * mathematically capped near the 3332/980 ≈ 3.4 instance ratio, so this gate
+ * fires only on SUPER-linear (≈O(N²) → ~11×) blowups; the bound sits between.
+ * Constant-factor (linear) regressions in the sub-catastrophic band are the U6
+ * relative-trend gate's job (compare to a stored baseline), inert until a
+ * baseline exists — not something an in-run ratio or the absolute ceiling can
+ * catch (KD4: two complementary gates).
  */
-const SUPERLINEAR_RATIO = 8;
+const SUPERLINEAR_RATIO = 6;
 
 /**
  * Max overscan rows SVAR may materialize above the strict `ceil(chartHeight /
@@ -154,9 +161,10 @@ test('PRIMARY: mount+settle cost at the ~3332 case stays under the absolute ceil
   expect(large.totalMs).toBeLessThan(SETTLE_CEILING_MS);
 
   // Environment-normalized super-linear backstop (catches an O(N²) blowup that an
-  // absolute ms ceiling tuned for a slow runner would let slip).
-  const small = measured.find((m) => m.label === 'small') as Measurement;
-  expect(large.totalMs).toBeLessThan(small.totalMs * SUPERLINEAR_RATIO);
+  // absolute ms ceiling tuned for a slow runner would let slip). Denominator is
+  // the MEDIUM case — small is fixed-cost-dominated and dilutes the ratio.
+  const medium = measured.find((m) => m.label === 'medium') as Measurement;
+  expect(large.totalMs).toBeLessThan(medium.totalMs * SUPERLINEAR_RATIO);
 });
 
 test('SANITY: the materialized window is host-bounded and constant across 31/980/3332 inputs (virtualization holds)', () => {
@@ -169,10 +177,12 @@ test('SANITY: the materialized window is host-bounded and constant across 31/980
     const windowCeiling = Math.ceil(m.chartHeight / SVAR_CELL_HEIGHT) + WINDOW_OVERSCAN_MAX;
     expect(m.rowCount).toBeLessThanOrEqual(windowCeiling);
   }
-  // The verdict: the row count does NOT scale with instance count — identical for
-  // 31 / 980 / 3332 instances (all capped by maxHeight=400 → same chartHeight).
+  // The verdict: the row count does NOT scale with instance count — it stays within
+  // a tiny band (SVAR's overscan buffer) across 31 / 980 / 3332 instances, not
+  // byte-identical (the buffer can differ by a row between counts; coupling to
+  // exact equality would flake without indicating a real regression).
   const windows = measured.map((m) => m.rowCount);
-  expect(new Set(windows).size).toBe(1);
+  expect(Math.max(...windows) - Math.min(...windows)).toBeLessThanOrEqual(WINDOW_OVERSCAN_MAX);
   // And it is genuinely a WINDOW: far below the materialized instance count.
   for (const m of measured.filter((x) => x.instanceCount > 100)) {
     expect(m.rowCount).toBeLessThan(m.instanceCount);

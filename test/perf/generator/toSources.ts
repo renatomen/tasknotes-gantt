@@ -63,7 +63,10 @@ function statusColors(graph: TaskGraph): StatusColor[] {
   const present = new Set(graph.tasks.map((t) => t.status));
   return [...present]
     .filter((s) => palette[s])
-    .map((s) => ({ value: s, color: (palette[s] as { color: string }).color, isCompleted: (palette[s] as { isCompleted: boolean }).isCompleted }));
+    .map((s) => {
+      const entry = palette[s] as { color: string; isCompleted: boolean };
+      return { value: s, color: entry.color, isCompleted: entry.isCompleted };
+    });
 }
 
 /**

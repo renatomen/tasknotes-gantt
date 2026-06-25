@@ -31,11 +31,20 @@
 
   /** Frames the (.wx-chart height > 0, .wx-row count) reading must stay stable. */
   const STABLE_FRAMES = 2;
+  /**
+   * Hard frame budget. A render that never stabilizes (continuous remeasure /
+   * oscillation) must not reschedule forever — after this many frames without
+   * settling, stop and raise a distinct `data-render-failed` sentinel so a stuck
+   * render surfaces explicitly instead of silently burning frames until the
+   * outer test timeout (or unmount) stops it.
+   */
+  const MAX_FRAMES = 600;
 
   onMount(() => {
     let cancelled = false;
     let prevRows = -1;
     let stable = 0;
+    let frames = 0;
 
     const tick = (): void => {
       if (cancelled || !hostEl) return;
@@ -48,6 +57,11 @@
       prevRows = rows;
       if (stable >= STABLE_FRAMES) {
         hostEl.setAttribute('data-render-complete', 'true');
+        return;
+      }
+      frames += 1;
+      if (frames >= MAX_FRAMES) {
+        hostEl.setAttribute('data-render-failed', 'never-settled');
         return;
       }
       requestAnimationFrame(tick);

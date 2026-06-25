@@ -113,6 +113,19 @@ export function generate(params: GenerateParams): TaskGraph {
   // 2. Lay out disjoint role pools (ascending multi-parent count so a 7-parent
   //    task always sits at a high-enough index to have 7 earlier candidates).
   const buckets = [...params.multiParentDist].sort((p, q) => p.parents - q.parents);
+  // Fail loud if the disjoint role pools cannot fit in the task space: the
+  // exact-count invariants (multi-parent histogram, cycle count, orphan count)
+  // silently degrade otherwise (a drifted/over-aggressive scale config). The
+  // shipped presets have ample headroom; this guards CLI/env overrides.
+  const multiParentTotal = buckets.reduce((sum, b) => sum + b.count, 0);
+  const reservedPoolSize =
+    Math.min(params.maxDepth, n) + multiParentTotal + params.cycleCount * 2 + params.orphanCount;
+  if (reservedPoolSize > n) {
+    throw new Error(
+      `generate: role pools (${reservedPoolSize}) exceed taskCount (${n}); ` +
+        `lower multiParentDist/cycleCount/orphanCount/maxDepth or raise taskCount.`,
+    );
+  }
   let cursor = 0;
   const take = (k: number): number[] => {
     const out: number[] = [];

@@ -43,3 +43,7 @@ featureSyncStage/
 
 # Perf-harness runtime trend artifacts (uploaded by CI, never committed)
 test/perf/.trend/
+
+# Vitest browser-mode artifacts (screenshots/attachments from failing runs)
+test/perf/**/__screenshots__/
+.vitest-attachments/

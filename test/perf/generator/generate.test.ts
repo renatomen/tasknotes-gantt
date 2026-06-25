@@ -144,6 +144,23 @@ describe('generate — structural mix', () => {
     expect(stats.dateMix.endOnly / total).toBeCloseTo(0.15, 1);
   });
 
+  it('throws when the disjoint role pools cannot fit in taskCount (no silent count truncation)', () => {
+    // chain(5) + multiParent(20) + cycles(2*5) + orphans(10) = 45 > taskCount 30.
+    expect(() =>
+      generate(
+        baseParams({
+          taskCount: 30,
+          totalNotes: 60,
+          matchedCount: 5,
+          multiParentDist: [{ parents: 2, count: 20 }],
+          maxDepth: 5,
+          cycleCount: 5,
+          orphanCount: 10,
+        }),
+      ),
+    ).toThrow(/role pools .* exceed taskCount/);
+  });
+
   it('emits dependency edges with valid reltypes at roughly the requested density', () => {
     const graph = generate(baseParams({ taskCount: 1000, totalNotes: 1500, depDensity: 0.3 }));
     const stats = graphStats(graph);

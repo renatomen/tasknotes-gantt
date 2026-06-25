@@ -54,6 +54,28 @@ function perfParams(): GenerateParams {
   });
 }
 
+/**
+ * Poll the materialized `.wx-row` count until it is stable across two consecutive
+ * samples (the real-embed analogue of GanttPerfHost's settle sentinel), so the
+ * virtualization verdict is taken on the settled DOM rather than a transient
+ * mid-expansion count. Returns the settled count.
+ */
+async function settledRowCount(): Promise<number> {
+  let prev = -1;
+  let stable = 0;
+  await browser.waitUntil(
+    async () => {
+      const n = (await $$(".og-bases-gantt .wx-row")).length;
+      const ok = n > 0 && n === prev;
+      stable = ok ? stable + 1 : 0;
+      prev = n;
+      return stable >= 2;
+    },
+    { timeout: 30000, interval: 250, timeoutMsg: "row count never stabilized" }
+  );
+  return (await $$(".og-bases-gantt .wx-row")).length;
+}
+
 describe("Gantt (OG) full-stack perf — generated large vault", () => {
   let firstRenderMs = 0;
 
@@ -113,8 +135,14 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
     // The production-faithful verdict (U4's isolated check, now in Electron). If
     // the embed defeated virtualization the row count would scale into the
     // hundreds/thousands — the prime P2 suspect.
-    const rows = (await $$(".og-bases-gantt .wx-row")).length;
-    console.log(`[PERF-E2E] materialized .wx-row count: ${rows}`);
+    //
+    // Take the verdict on the SETTLED DOM, not the first paint: companion Show-all
+    // expansion + SVAR windowing populate incrementally, so reading immediately
+    // after the first bar could sample a transient low count and pass falsely.
+    // Mirror the isolated host's sentinel — poll until the row count is stable
+    // across consecutive samples before asserting the bound.
+    const rows = await settledRowCount();
+    console.log(`[PERF-E2E] settled materialized .wx-row count: ${rows}`);
     expect(rows).toBeGreaterThan(0);
     expect(rows).toBeLessThanOrEqual(WINDOW_ROW_BOUND);
   });
