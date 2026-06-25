@@ -22,16 +22,16 @@ import type { GenerateParams } from "../perf/generator/graph";
  * Assertions are structural (row count, host size) + a logged wall-clock — never
  * pixel/feel/timing-precise (WDIO can't measure feel; wall-clock is noisy).
  *
- * FIRST-RUN FINDING (2026-06-25): on its first real local runs (400 and 2000
- * tasks, Node 20), the generated vault did NOT render any `.wx-bar` within a
- * generous 150–240s in real Obsidian + TaskNotes — far beyond indexing latency,
- * while the 5-note companion fixture renders the same Show-all+TaskNotes path
- * fine. The generated vault is structurally correct (verified), so the cost is
- * the real-embed render / TaskNotes-relationship resolution at scale over the
- * generated graph (cycles/orphans/multi-parent) — i.e. either the Electron-
- * specific #161 freeze this harness exists to surface, or a generator-fidelity
- * gap. Root-causing it is the deferred "fix #161 / P2" follow-up (plan Scope
- * Boundaries); this spec is the instrument that surfaces it, run on a schedule.
+ * COLD-INDEX NOTE: the vault is regenerated every run (rmSync below), so
+ * Obsidian's metadataCache scan + TaskNotes' index build are ALWAYS cold —
+ * minutes for a multi-thousand-note vault. An earlier version started the render
+ * clock before indexing finished and timed out mid-scan, which looked like (but
+ * was NOT) a render freeze. The `before` hook now waits out indexing
+ * (TaskNotes `lifecycle.ready()` + every markdown file resolved in the
+ * metadataCache) SEPARATELY, then measures render against a tight budget — so a
+ * render-budget timeout here is a real render problem (the #161 freeze), cleanly
+ * distinguished from cold-scan latency. Root-causing any genuine render hang at
+ * scale remains the deferred "fix #161 / P2" follow-up.
  *
  * SELECTOR NOTE: `.og-bases-gantt` is this plugin's stable root; `.wx-bar` /
  * `.wx-row` are SVAR's chart bar / row.
@@ -49,11 +49,20 @@ const MAX_HEIGHT = 400;
 const WINDOW_ROW_BOUND = 60;
 
 /**
- * Indexing a multi-thousand-note vault before Bases can open plausibly needs
- * 2–5× the 60s `.wx-bar` wait the smaller fixtures use; fail fast with a clear
- * message if it blows past.
+ * Cold-index budget. The vault is regenerated every run (rmSync below), so
+ * Obsidian's metadataCache scan + TaskNotes' index build are ALWAYS cold —
+ * minutes for a multi-thousand-note vault, sub-second once warm (which never
+ * happens here). We wait out the cold scan SEPARATELY from the render so the
+ * render measurement isn't contaminated by index latency.
  */
-const RENDER_TIMEOUT_MS = Number(process.env.PERF_RENDER_TIMEOUT_MS ?? 240000);
+const INDEX_TIMEOUT_MS = Number(process.env.PERF_INDEX_TIMEOUT_MS ?? 420000);
+
+/**
+ * Render budget — TIGHT, because indexing is already complete when the render
+ * clock starts. A hang here is a real render problem (the #161 freeze), not a
+ * cold scan. This is the measurement that actually means something.
+ */
+const RENDER_TIMEOUT_MS = Number(process.env.PERF_RENDER_TIMEOUT_MS ?? 60000);
 
 function perfParams(): GenerateParams {
   // The calibrated #161-explosion shape (shared with the isolated gate), with the
@@ -116,25 +125,63 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
       }
     });
 
-    const start = Date.now();
+    // ---- Wait out COLD indexing BEFORE the render clock (the fix) ----
+    // The vault is regenerated every run, so the metadataCache scan + TaskNotes
+    // index build are always cold. If we opened the base now and timed it, we'd
+    // be measuring the cold scan, not the render. Gate on indexing-complete
+    // first, then measure render against a tight budget.
+    const indexStart = Date.now();
+
+    // Step 1: TaskNotes API up (pattern from gantt-dependency-types.e2e.ts).
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(async ({ app }) => {
+          const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.("tasknotes") as
+            | { api?: { lifecycle?: { ready?: () => Promise<void> } } }
+            | undefined;
+          if (!tn?.api) return false;
+          try {
+            await tn.api.lifecycle?.ready?.();
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+      { timeout: INDEX_TIMEOUT_MS, interval: 1000, timeoutMsg: "TaskNotes API did not become ready" }
+    );
+
+    // Step 2: Obsidian's cold metadataCache scan finished — every markdown file
+    // has a resolved cache entry (getFileCache stays null until indexed). This is
+    // the multi-minute cold scan; bars cannot resolve until it completes.
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(({ app }) => {
+          const files = app.vault.getMarkdownFiles();
+          if (files.length === 0) return false;
+          return files.every((f) => app.metadataCache.getFileCache(f) !== null);
+        }),
+      { timeout: INDEX_TIMEOUT_MS, interval: 1000, timeoutMsg: "metadataCache cold scan did not finish in time" }
+    );
+    const indexMs = Date.now() - indexStart;
+    console.log(`[PERF-E2E] cold index complete in ${indexMs}ms (${result.notesWritten} notes)`);
+
+    // ---- Now measure RENDER against a tight budget ----
+    const renderStart = Date.now();
     await browser.executeObsidian(async ({ app }) => {
       const file = app.vault.getAbstractFileByPath("Generated.base");
       if (file) {
         await app.workspace.getLeaf(true).openFile(file as never);
       }
     });
-
-    // A 10k-note vault needs TaskNotes to finish indexing before Bases opens —
-    // generous wait, clear failure message if indexing exceeds it.
     await browser.waitUntil(
       async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
       {
         timeout: RENDER_TIMEOUT_MS,
-        timeoutMsg: `Generated .base did not render any task bars within ${RENDER_TIMEOUT_MS}ms (TaskNotes indexing too slow?)`,
+        timeoutMsg: `Indexing finished but the Gantt rendered no bars within ${RENDER_TIMEOUT_MS}ms — a real render problem (the #161 freeze), not a cold scan.`,
       }
     );
-    firstRenderMs = Date.now() - start;
-    console.log(`[PERF-E2E] time-to-first-render: ${firstRenderMs}ms`);
+    firstRenderMs = Date.now() - renderStart;
+    console.log(`[PERF-E2E] time-to-first-render (post-index): ${firstRenderMs}ms`);
   });
 
   it("opens the generated base and shows the matched set without freezing", async () => {
