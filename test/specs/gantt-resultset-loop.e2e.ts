@@ -291,13 +291,30 @@ describe("Gantt (OG) resultset-change — no re-render loop (#161 P1)", () => {
       { timeout: 60000, interval: 1000, timeoutMsg: "TaskNotes subtask relationships did not resolve" },
     );
 
-    // Open + render the Gantt (Show-all → the expanded set is present).
+    // Open the Gantt and wait until Show-all has actually EXPANDED past the matched
+    // set. The controller fetches its relationship index ONCE and caches it (the
+    // index object is non-null even when empty, so it is not re-fetched until a
+    // TaskNotes data-change). An open that races TaskNotes' `tasks.list`/`parents`
+    // readiness therefore caches an EMPTY index and Show-all is stuck at the
+    // matched-only count — and it won't self-heal. Re-opening the base forces a
+    // FRESH controller + fresh index fetch; loop until that fetch sees the resolved
+    // relationships. gantt-companion has 2 matched projects, and Show-all adds their
+    // subtasks, so an expanded render is strictly greater than MATCHED_BAR_COUNT.
+    const MATCHED_BAR_COUNT = 2;
     await browser.waitUntil(
       async () => {
         await activateBaseLeaf();
-        return (await barCount()) > 0;
+        if ((await barCount()) > MATCHED_BAR_COUNT) return true; // Show-all expanded
+        // Empty cached index → detach so the next iteration re-opens a fresh view.
+        await browser.executeObsidian(({ app }) => {
+          const ws = app.workspace as unknown as {
+            getLeavesOfType: (t: string) => Array<{ detach?: () => void }>;
+          };
+          ws.getLeavesOfType("bases").forEach((l) => l.detach?.());
+        });
+        return false;
       },
-      { timeout: 90000, interval: 500, timeoutMsg: "Companion Gantt did not render any bars" },
+      { timeout: 120000, interval: 2000, timeoutMsg: "Show-all never expanded past the matched set" },
     );
     await waitSettled();
   });
