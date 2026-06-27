@@ -1,14 +1,23 @@
 # Bug Report — Render loop + freeze on resultset change (#161)
 
-**Status:** Two distinct problems were entangled under this issue.
+**Status:** Two distinct problems were entangled under this issue. **Both are now resolved — issue #161 is CLOSED.**
 - **(P1) The re-render LOOP — FIXED & verified in-vault.** Root cause was *not* the originally-hypothesised O(N²)/starvation; it was Bases re-firing `onDataUpdated` in a burst (with the persisted view-option value oscillating) plus a full view remount, which our synchronous-recompute-per-fire amplified. Fixed by a trailing debounce + `isConnected` skip (matching TaskNotes' `BasesViewBase`). The user confirmed "no loop in any case."
-- **(P2) A render FREEZE / Obsidian CRASH with large instance counts — STILL OPEN.** In **Show-all** (and likely Inherit) on the production vault, the chart freezes "before it fully renders" and "crashes Obsidian after a while." This is **separate from the loop** and is the current blocker.
+- **(P2) The render FREEZE / Obsidian CRASH with large instance counts — RESOLVED (not an independent bug).** Re-assessed 2026-06-28: P2 was the *visible symptom* of three now-fixed causes, not a distinct static-render-scale defect. See the **P2 resolution** box below.
 
-**Date opened:** 2026-06-24 · **Last revised:** 2026-06-25 (rewritten from in-vault instrumented evidence; the prior static-analysis root cause in §7 was superseded — see §7/§8).
+**Date opened:** 2026-06-24 · **Last revised:** 2026-06-28 (P2 resolved — see resolution box; superseding the 2026-06-25 "P2 still open" framing). The prior static-analysis root cause in §7 was already superseded by §8.
 **Component:** `src/bases/register.ts` (notification handling — P1 fix) · `src/bases/coalesce.ts` (debounce) · `src/bases/GanttContainer.svelte` (SVAR render/diff-sync — P2) · `src/controller/GanttController.ts` (`buildSnapshot`) · `src/controller/InstanceExpansion.ts` (instance count).
-**Severity:** High — Show-all is unusable on the production vault (freeze/crash).
+**Severity:** ~~High~~ → **Resolved** (Show-all renders without freezing at production scale; see resolution box).
 
-> **Reading note for the next agent:** §5 lists hypotheses **invalidated by in-vault evidence** — do not re-try them. The static-analysis conclusions in the *original* report (an O(N²) `getSubtasks` freeze + a thread-starvation loop) are **superseded**: instrumentation proved the data pipeline is fast (~200ms). Trust the measured numbers in §6.
+> **P2 RESOLUTION (2026-06-28).** P2 was a **composite symptom of three now-fixed causes**, not a genuine "SVAR can't render at scale" bug:
+> 1. **F1 — a leftover debug `console.log` enumerating ~45,298 `wx-*` strings** in the scroll-reset block → the "48-second freeze" (`focuschange took 48367ms`), catastrophic **only with DevTools open**. *Removed.* The famous "45k DOM nodes / not virtualizing" evidence (§2, §8) came from **that dump's own enumeration under DevTools** — a confounded observation, not the live render.
+> 2. **O(N²) `getSubtasks` per-node build** → replaced by the O(N) bulk relationship index (a4bdd52). Build dropped to ~200ms (§6).
+> 3. **P1 render loop** (resultset-change re-render feedback) → fixed (coalescer + idempotent backstop + enrichment cache + `reuseTasks`). A sustained loop pegs CPU and grows memory — exactly the "freezes, then crashes after a while" signature.
+>
+> The **perf harness (PR #162)** then empirically **answered §8's gating question** ("is SVAR virtualizing?") with **yes**: virtualization holds at **3,332 instances** (isolated, headless Chromium) and **~3,710 instances** in real Obsidian + TaskNotes (~5.5s render, ~15 rows materialized, no freeze). The static-render-scale theory did not reproduce.
+>
+> Three independent confirmations: drivers removed → harness green at larger scale → **maintainer cannot reproduce on the production vault (2026-06-28)**. Honest caveat: the crash was never isolated to a single line and watched to vanish; it was resolved by removing its likely drivers, which is the expected outcome for a DevTools-confounded heisenbug. **No open issue tracks P2; do not re-open it as a blocker without a fresh, DevTools-closed reproduction.** §5/§8 below are retained as the investigation record.
+
+> **Reading note for the next agent:** §5 lists hypotheses **invalidated by in-vault evidence** — do not re-try them. The static-analysis conclusions in the *original* report (an O(N²) `getSubtasks` freeze + a thread-starvation loop) are **superseded**: instrumentation proved the data pipeline is fast (~200ms). Trust the measured numbers in §6. Per the P2 resolution box above, the §8 "freeze is open" framing is also superseded.
 
 ---
 
@@ -105,7 +114,9 @@ This is the correct, proven discipline; **keep it.**
 
 ---
 
-## 8. P2 (render freeze / crash) — current root-cause understanding (OPEN)
+## 8. P2 (render freeze / crash) — root-cause understanding (RESOLVED — see the P2 RESOLUTION box at the top)
+
+> **Superseded (2026-06-28):** the "OPEN / is SVAR virtualizing?" framing below was answered **yes** by the perf harness (PR #162) and P2 is resolved as a composite of F1 + O(N²) + P1 (see the resolution box at the top). The section is kept as the investigation record.
 
 **What we know:** data build + `mount()` are fast; the freeze is in SVAR's render/layout of **1000–2660 instances**, before the chart fully paints, and degrades to an Obsidian crash. The first screenshot showed **~45k `wx-*` DOM nodes** for the Show-all set.
 
