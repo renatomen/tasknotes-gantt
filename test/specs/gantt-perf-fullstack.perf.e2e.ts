@@ -96,6 +96,85 @@ async function settledRowCount(): Promise<number> {
   return (await $$(".og-bases-gantt .wx-row")).length;
 }
 
+/**
+ * Fire a view-option toggle through the REAL Bases reload path — the confirmed
+ * #161 trigger (Step-1 probe): a bare `config.set` does NOT reload, and Bases
+ * ignores external `.base` edits; what the toolbar does is set the option AND
+ * call the controller's internal `onConfigChanged()`. We replicate that exactly:
+ * BFS the bases leaf for our gantt view (has `config.set` + `onDataUpdated`) and
+ * the QueryController (has `onConfigChanged`), set the option, then fire
+ * `onConfigChanged()`. Returns whether both were found/invoked, so a wiring break
+ * fails loudly rather than silently doing nothing.
+ */
+async function fireConfigToggle(
+  key: string,
+  value: unknown,
+): Promise<{ set: boolean; configChanged: boolean }> {
+  return browser.executeObsidian(
+    ({ app }, k, v) => {
+      const ws = app.workspace as unknown as {
+        getLeavesOfType: (t: string) => Array<{ view?: Record<string, unknown> }>;
+      };
+      const SKIP = new Set([
+        "app", "vault", "workspace", "containerEl", "contentEl", "scope",
+        "leaf", "headerEl", "navigation", "owner", "metadataCache",
+      ]);
+      const seen = new Set<unknown>();
+      let set = false;
+      let configChanged = false;
+      const visit = (obj: unknown, depth: number): void => {
+        if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 6) return;
+        if ((obj as { nodeType?: number }).nodeType !== undefined) return;
+        seen.add(obj);
+        const rec = obj as Record<string, unknown>;
+        const cfg = rec.config as { set?: (kk: string, vv: unknown) => void } | undefined;
+        if (!set && cfg && typeof cfg.set === "function" && typeof rec.onDataUpdated === "function") {
+          cfg.set(k, v);
+          set = true;
+        }
+        if (!configChanged && typeof rec.onConfigChanged === "function") {
+          try { (rec.onConfigChanged as () => void).call(rec); configChanged = true; } catch { /* ignore */ }
+        }
+        for (const childKey of Object.keys(rec)) {
+          if (SKIP.has(childKey)) continue;
+          let child: unknown;
+          try { child = rec[childKey]; } catch { continue; }
+          if (child && typeof child === "object") visit(child, depth + 1);
+        }
+      };
+      for (const leaf of ws.getLeavesOfType("bases")) if (leaf.view) visit(leaf.view, 0);
+      return { set, configChanged };
+    },
+    key,
+    value,
+  );
+}
+
+/** Install a counter over the plugin's `[OGDBG]` loop-diagnostic logs. */
+async function installStormCounter(): Promise<void> {
+  await browser.executeObsidian(() => {
+    const w = window as unknown as { __storm?: Record<string, number>; __stormOrig?: (...a: unknown[]) => void };
+    w.__storm = { recompute: 0, constructed: 0, onDataUpdated: 0, coalescer: 0 };
+    (w as unknown as { __tnGanttDebug?: boolean }).__tnGanttDebug = true; // #161: enable gated [OGDBG] markers
+    const orig = console.log.bind(console);
+    w.__stormOrig = orig;
+    console.log = (...args: unknown[]) => {
+      try {
+        const s = args.map((a) => (typeof a === "string" ? a : "")).join(" ");
+        if (s.includes("[OGDBG] recompute seq")) w.__storm!.recompute++;
+        else if (s.includes("constructed #")) w.__storm!.constructed++;
+        else if (s.includes("[OGDBG] onDataUpdated")) w.__storm!.onDataUpdated++;
+        else if (s.includes("[OGDBG] coalescer fired")) w.__storm!.coalescer++;
+      } catch { /* ignore */ }
+      orig(...args);
+    };
+  });
+}
+
+async function readStormCounts(): Promise<Record<string, number>> {
+  return browser.executeObsidian(() => (window as unknown as { __storm: Record<string, number> }).__storm);
+}
+
 describe("Gantt (OG) full-stack perf — generated large vault", () => {
   let firstRenderMs = 0;
   let matchedTaskCount = 0;
@@ -276,5 +355,51 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
 
   it("captures time-to-first-render for the trend (not gated)", () => {
     expect(firstRenderMs).toBeGreaterThan(0);
+  });
+
+  /**
+   * The #161 at-scale TOGGLE STORM repro. This is the path production hits and
+   * neither the static tests above nor the small-fixture loop spec can reach:
+   * a view-option toggle at scale makes Bases re-run + remount the view in a
+   * ~15s storm. We fire the CONFIRMED trigger (config.set + controller
+   * .onConfigChanged — the real toolbar reload path), then watch for the storm
+   * signature over a window: `GanttView constructed #N` (remounts) and
+   * `recompute seq` climbing far past a healthy bound.
+   *
+   * FAIL-FIRST: on the current (unfixed) build this MUST reproduce the storm
+   * (the assertion below fails). Only once it reliably reproduces is it a valid
+   * regression gate; the fix then turns it green. If it does NOT storm at this
+   * scale, the repro is insufficient (bump PERF_MATCHED_COUNT) — do not treat a
+   * non-storm as "fixed".
+   */
+  it("does NOT storm (remount/recompute runaway) on a view-option toggle at scale [#161 repro]", async () => {
+    await settledRowCount();
+    await installStormCounter();
+
+    // Fire the real toolbar reload path once (the single toggle that storms in
+    // production). hide-top flips the matched-also-nested set at scale.
+    const fired = await fireConfigToggle("tngantt_hideTopLevelSubtasks", true);
+    console.log(`[PERF-E2E] toggle fired: ${JSON.stringify(fired)}`);
+    expect(fired.set && fired.configChanged).toBe(true); // wiring: both reached
+
+    // Watch the storm window (production churned ~15s). Sample counts over 20s.
+    await browser.pause(20000);
+    const counts = await readStormCounts();
+    console.log(`[PERF-E2E] post-toggle storm counts (20s): ${JSON.stringify(counts)}`);
+
+    // Healthy (fixed) = a single toggle yields a small bounded number of
+    // recomputes and ≤1 remount. Storm (current) = recompute climbs into the
+    // dozens and the view remounts repeatedly. These bounds fail on the storm.
+    expect(counts.constructed).toBeLessThanOrEqual(1);
+    expect(counts.recompute).toBeLessThanOrEqual(6);
+
+    // And it must end alive + settled (not frozen/crashed).
+    const rows = await settledRowCount();
+    expect(rows).toBeGreaterThan(0);
+
+    await browser.executeObsidian(() => {
+      const w = window as unknown as { __stormOrig?: (...a: unknown[]) => void };
+      if (w.__stormOrig) console.log = w.__stormOrig;
+    });
   });
 });

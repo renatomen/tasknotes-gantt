@@ -24,7 +24,7 @@ import { generate } from '../generator/generate';
 import { SVAR_CELL_HEIGHT } from '../../../src/bases/ganttHeight';
 import { paramsForScale, type ScalePointName } from '../generator/presets';
 
-/* global performance, requestAnimationFrame */
+/* global requestAnimationFrame */
 
 /**
  * ABSOLUTE mount+settle ceiling (ms) for the ~3332 case — the catastrophic

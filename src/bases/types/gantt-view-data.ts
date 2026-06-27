@@ -40,6 +40,30 @@ export interface GanttData {
    */
   showToolbar: boolean;
   /**
+   * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
+   * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
+   * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows
+   * (`SvarTask.custom.isTopLevelPlacement`) without changing the task set. Because
+   * the instance set is identical whether this is on or off, a Bases config
+   * toggle (even an oscillating one) cannot churn the chart.
+   */
+  hideTopLevelSubtasks: boolean;
+  /**
+   * Per-view "Show tasks with no dates" toggle (#161). Flows through the reactive
+   * data path like {@link hideTopLevelSubtasks}: when `false`, the view hides
+   * `placeholder` rows via SVAR `filter-tasks` over the stable instance set —
+   * never by re-derivation — so a Bases config oscillation cannot churn the chart.
+   * Reads the same `tngantt_showUndatedTasks` key (R4); defaults to shown.
+   */
+  showUndatedTasks: boolean;
+  /**
+   * Per-view "Show tasks with only one date" toggle (#161). Same presentation-filter
+   * treatment as {@link showUndatedTasks}: when `false`, the view hides partial-date
+   * (`inferred-start`/`inferred-end`) rows via `filter-tasks`. Reads the same
+   * `tngantt_showPartialDateTasks` key (R4); defaults to shown.
+   */
+  showPartialDateTasks: boolean;
+  /**
    * Per-view max-height (px) cap for the chart host (plan 003 R1). Flows through
    * the reactive data path so changing the option re-fits the host live without
    * a remount — same treatment as {@link showToolbar}. The host fits its content

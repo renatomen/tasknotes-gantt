@@ -1,12 +1,17 @@
 /**
- * U3 — per-view date-policy config reader.
+ * U3 — per-view date-policy + row-visibility option readers.
  *
  * Covers the coercion/defaulting rules for the Bases view options without an
- * Obsidian view: missing options fall back to (duration 1, all shown); an
- * explicit `false` hides; `defaultDuration` coerces to an integer ≥ 1.
+ * Obsidian view. Two readers, two layers (#161, KTD7):
+ * - `readDatePolicyConfig` → the controller's derivation input (`defaultDuration`).
+ * - `readRowVisibilityOptions` → the view's presentation toggles (show-undated /
+ *   show-partial): missing → shown; an explicit `false` hides.
  */
 
-import { readDatePolicyConfig } from '../../src/bases/datePolicyConfig';
+import {
+  readDatePolicyConfig,
+  readRowVisibilityOptions,
+} from '../../src/bases/datePolicyConfig';
 
 /** Build a `config.get`-style reader from a plain record. */
 function getter(values: Record<string, unknown>): (key: string) => unknown {
@@ -14,11 +19,13 @@ function getter(values: Record<string, unknown>): (key: string) => unknown {
 }
 
 describe('readDatePolicyConfig', () => {
-  it('defaults to duration 1 and all toggles shown when options are absent', () => {
-    expect(readDatePolicyConfig(getter({}))).toEqual({
+  it('defaults to duration 1 when the option is absent', () => {
+    expect(readDatePolicyConfig(getter({}))).toEqual({ defaultDuration: 1 });
+  });
+
+  it('does not carry any row-visibility fields (derivation is visibility-free, KTD7)', () => {
+    expect(readDatePolicyConfig(getter({ tngantt_showUndatedTasks: false }))).toEqual({
       defaultDuration: 1,
-      showUndatedTasks: true,
-      showPartialDateTasks: true,
     });
   });
 
@@ -36,17 +43,26 @@ describe('readDatePolicyConfig', () => {
     expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: -4 })).defaultDuration).toBe(1);
     expect(readDatePolicyConfig(getter({ tngantt_defaultDuration: 'abc' })).defaultDuration).toBe(1);
   });
+});
+
+describe('readRowVisibilityOptions', () => {
+  it('defaults both toggles to shown when options are absent', () => {
+    expect(readRowVisibilityOptions(getter({}))).toEqual({
+      showUndatedTasks: true,
+      showPartialDateTasks: true,
+    });
+  });
 
   it('hides a category only on an explicit false', () => {
-    const cfg = readDatePolicyConfig(
+    const opts = readRowVisibilityOptions(
       getter({ tngantt_showUndatedTasks: false, tngantt_showPartialDateTasks: false }),
     );
-    expect(cfg.showUndatedTasks).toBe(false);
-    expect(cfg.showPartialDateTasks).toBe(false);
+    expect(opts.showUndatedTasks).toBe(false);
+    expect(opts.showPartialDateTasks).toBe(false);
   });
 
   it('treats a missing toggle as shown (not hidden)', () => {
-    const cfg = readDatePolicyConfig(getter({ tngantt_showUndatedTasks: undefined }));
-    expect(cfg.showUndatedTasks).toBe(true);
+    const opts = readRowVisibilityOptions(getter({ tngantt_showUndatedTasks: undefined }));
+    expect(opts.showUndatedTasks).toBe(true);
   });
 });

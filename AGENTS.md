@@ -29,7 +29,7 @@ npx skills add svar-widgets/skills --skill svar-svelte
 
 ## Always-apply standards
 
-**Testing** — Test-first (red→green→refactor). Jest unit tests (`*.test.ts`), WebdriverIO e2e against real Obsidian. Mock Obsidian APIs via dependency injection. One behavior per test, descriptive names, AAA. → [testing.md](docs/conventions/testing.md)
+**Testing** — Test-first (red→green→refactor). Jest unit tests (`*.test.ts`) AND **WebdriverIO e2e against real Obsidian — a first-class verification gate, not optional.** The e2e harness is wired and verified on dev machines; run it with **`npm run e2e:local`** (builds + installs + drives a real Obsidian). For any change to e2e-observable behavior, **run the relevant spec rather than deferring it — never claim e2e is unrunnable** (only driving the full real production vault *through* WDIO is walled; use a manual install + maintainer review for that one case). Mock Obsidian APIs via dependency injection. One behavior per test, descriptive names, AAA. → [testing.md](docs/conventions/testing.md)
 
 **TypeScript** — `strict` on, no `any`, interfaces for complex objects, barrel exports. Type Obsidian API interactions properly. → [typescript.md](docs/conventions/typescript.md)
 

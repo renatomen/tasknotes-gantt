@@ -27,8 +27,6 @@ import type { TaskGraph } from './graph';
 export interface BuildOptions {
   /** Companion expanded-relationships mode (default `show-all` — the #161 repro). */
   mode?: 'inherit' | 'show-all';
-  /** Hide matched-but-nested rows at top level (default `false`). */
-  hideTopLevel?: boolean;
   /** Chart-host max-height px cap — governs SVAR's row window (default production 400). */
   maxHeight?: number;
   /** Chart-host min-height px floor (default the absolute ~2-row floor). */
@@ -45,12 +43,11 @@ const FIXED_NOW = (): Date => new Date(2026, 0, 1);
 export function makePerfController(graph: TaskGraph, options: BuildOptions = {}): GanttController {
   const { baseSource, enrichment } = toSources(graph);
   const mode = options.mode ?? 'show-all';
-  const hideTopLevel = options.hideTopLevel ?? false;
   return new GanttController({
     app: {} as App,
     sourceStrategy: 'bases-scoped',
     basesInput: () => ({ entries: [], mappings: {} as FieldMappings }),
-    companionConfig: () => ({ mode, hideTopLevel }),
+    companionConfig: () => ({ mode }),
     now: FIXED_NOW,
     deps: {
       createBasesSource: () => baseSource,
@@ -84,6 +81,8 @@ export async function assembleGanttData(
     arrowMode,
     showDateIndicators: true,
     showToolbar: false,
+    showUndatedTasks: true,
+    showPartialDateTasks: true,
     maxHeight: options.maxHeight ?? DEFAULT_MAX_HEIGHT,
     minHeight: options.minHeight ?? GANTT_MIN_HEIGHT,
     contextOpacity: 0.5,

@@ -16,6 +16,8 @@ export default [
       "project/**",
       "test-results/**",
       "vendor/**",
+      // Local-only e2e probes (gitignored, point at private vaults; never committed)
+      "test/specs/_local-*",
     ],
   },
   // Base JS recommended rules
@@ -37,6 +39,7 @@ export default [
         HTMLElement: "readonly",
         MutationObserver: "readonly",
         setTimeout: "readonly",
+        performance: "readonly",
       },
     },
     plugins: {
@@ -91,7 +94,8 @@ export default [
       globals: {
         console: 'readonly',
         window: 'readonly',
-        document: 'readonly'
+        document: 'readonly',
+        performance: 'readonly'
       }
     },
     plugins: {

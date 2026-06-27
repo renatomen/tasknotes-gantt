@@ -200,7 +200,7 @@ Expected output:
 
 ## References
 
-- TaskNotes implementation: `/mnt/c/Users/renat/OneDrive/1-Projects/repos/tasknotes/src/bases/`
+- TaskNotes implementation: `<your-tasknotes-clone>/src/bases/`
 - Obsidian Bases API: https://docs.obsidian.md/Plugins/Guides/Build+a+Bases+view
 - BasesDataAdapter: `src/bases/services/BasesDataAdapter.ts`
 - GanttTaskListView: `src/bases/views/GanttTaskListView.ts`

@@ -19,6 +19,7 @@
  */
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
+import type { DateStatus } from '../controller/datePolicy';
 import type { StatusColor } from '../datasource/types';
 import { statusSlug } from './statusColor';
 import type { TypedValue } from './propertyValues';
@@ -114,6 +115,20 @@ export interface SvarTask {
      * Base filter (U6). Drives the `og-context` cue. Also folded into `type`.
      */
     isContext: boolean;
+    /**
+     * The instance belongs to an also-top-level DUPLICATE placement (the extra
+     * root copy of an already-nested task + its subtree). The view hides these via
+     * SVAR `filter-tasks` when "Hide top-level subtasks" is on — a pure display
+     * filter over a STABLE task set, so the toggle can't churn the chart (#161).
+     */
+    isTopLevelPlacement: boolean;
+    /**
+     * The date-policy classification of this row's dates (#161). The composed
+     * display filter reads it so "Show tasks with no dates" (`placeholder`) and
+     * "Show tasks with only one date" (`inferred-*`) hide rows via SVAR
+     * `filter-tasks` over the STABLE task set — never by re-deriving it.
+     */
+    dateStatus: DateStatus;
     showHasDeps: boolean;
     /**
      * Type-tagged values for the grid's visible property columns, keyed by
@@ -239,6 +254,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isCollapsed: inst.isCollapsed,
         isReplicated,
         isContext,
+        isTopLevelPlacement: inst.isTopLevelPlacement,
+        dateStatus: inst.dateStatus,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,

@@ -98,6 +98,16 @@ export interface RenderInstance {
    * matched rows and for tasks that bypassed companion resolution.
    */
   isFetched: boolean;
+  /**
+   * `true` when this instance belongs to an **also-top-level DUPLICATE placement**
+   * — the extra root copy of an already-nested task (origin AE1) plus everything
+   * rendered under that root copy. The view hides these via SVAR `filter-tasks`
+   * when "Hide top-level subtasks" is on, so the toggle is a pure DISPLAY filter
+   * over a STABLE instance set (it never changes which instances exist) — the
+   * #161 fix that stops a config toggle from churning the chart. `false` for the
+   * real nested copies and for genuine roots (tasks with no visible parent).
+   */
+  isTopLevelPlacement: boolean;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -384,12 +394,16 @@ export function expandInstances(
       // Partial ancestry: only materialize children for parent instances that exist.
       for (const parentInstance of computeInstances(parentPath)) {
         const id = `${task.path}${PARENT_DELIMITER}${parentInstance.id}`;
-        built.push(makeInstance(task, id, parentInstance.id, isVirtual));
+        // Propagate the placement flag DOWN: a child built under a top-level
+        // duplicate placement is itself part of that (hideable) duplicate subtree.
+        built.push(makeInstance(task, id, parentInstance.id, isVirtual, parentInstance.isTopLevelPlacement));
       }
     }
-    // Matched, also-nested task under hide-off: ALSO render at top level.
+    // Matched, also-nested task: ALSO render an extra ROOT copy — the also-top-level
+    // DUPLICATE placement. Always emitted (hide-on/off no longer changes the set);
+    // flagged so the view hides it via filter-tasks under "Hide top-level subtasks".
     if (task.alsoTopLevel && built.length > 0) {
-      built.push(makeInstance(task, task.path, undefined, isVirtual));
+      built.push(makeInstance(task, task.path, undefined, isVirtual, true));
     }
     return built.length > 0 ? built : [makeInstance(task, task.path, undefined, isVirtual)];
   };
@@ -459,6 +473,7 @@ function makeInstance(
   id: string,
   parent: string | undefined,
   isVirtual: boolean,
+  isTopLevelPlacement = false,
 ): RenderInstance {
   return {
     id,
@@ -473,6 +488,7 @@ function makeInstance(
     dateStatus: task.dateStatus ?? 'complete',
     status: task.status,
     isFetched: task.isFetched ?? false,
+    isTopLevelPlacement,
   };
 }
 
