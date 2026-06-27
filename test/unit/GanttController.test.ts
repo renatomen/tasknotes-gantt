@@ -1499,6 +1499,43 @@ describe('GanttController — readiness re-check surface (U1 / #161 §11 relatio
     expect(status.matchedEdgesResolved).toBe(true);
   });
 
+  it('Show-all: matchedEdgesResolved is FALSE when a matched task has a resolved PARENT edge but its children are still cold — the signal must not early-stop on the wrong edge type (Codex review).', async () => {
+    // Partial warmup: M.md's parent edge resolved (parentsByPath) but its children
+    // (childrenByPath) have NOT. Show-all pulls descendants only from childrenByPath,
+    // so reporting ready here would cache the partial index and leave M's children
+    // absent. The Show-all signal must key on childrenByPath, not "any edge".
+    const enrichment = new CompanionEnrichment({
+      parents: { 'M.md': ['P.md'] }, // matched M's parent edge warmed…
+      // …but no childrenByPath entry for M.md yet (children cold).
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'M.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('Inherit: matchedEdgesResolved is true when a matched task has a resolved PARENT edge (the edge Inherit nesting consumes).', async () => {
+    // Inherit nests displayed tasks via parentsByPath, so a matched task whose parent
+    // resolved IS the warmed signal for Inherit (no childrenByPath needed).
+    const enrichment = new CompanionEnrichment({
+      parents: { 'C.md': ['P.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'C.md' })],
+      enrichment,
+      mode: 'inherit',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(true);
+  });
+
   it('readinessStatus().matchedEdgesResolved is false when only an UNMATCHED parent has children (matched parents still cold). Covers AE7.', async () => {
     // The Base matches A.md only; the index has edges for X.md (not matched).
     const enrichment = new CompanionEnrichment({

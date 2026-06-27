@@ -1200,25 +1200,29 @@ export class GanttController {
         dbgFetchedIndex = true;
       }
       const resolvedIndex = this.relationshipIndex;
-      // Key the signal on MATCHED task paths only (not any global edge): a matched
-      // path appearing as a childrenByPath key covers Show-all child pull, and as a
-      // parentsByPath key covers Inherit parent nesting. A warmed but unmatched-only
-      // index must NOT count (AE7) — that would false-stop the window mid-warmup.
-      // An empty matched set has no edges to wait for → vacuously resolved, so the
-      // readiness window never starts (and never burns the cap on full-vault scans)
-      // for a companion Base that matches nothing.
+      const companionOpts = this.companionConfig();
+      // Key the signal on MATCHED task paths only (not any global edge) AND on the
+      // edge type the active mode's expansion actually consumes:
+      //   - Show-all pulls descendants from `childrenByPath` (collectShowAllDescendants),
+      //     so its "warmed" signal is a matched parent whose CHILDREN resolved.
+      //   - Inherit nests displayed tasks via `parentsByPath`, so its signal is a
+      //     matched task whose PARENT resolved.
+      // Treating EITHER edge as sufficient (the original spec) lets a resolved parent
+      // edge falsely report Show-all ready while the matched parent's children are
+      // still cold — the partial index then gets cached and the children stay absent
+      // until a later TaskNotes event (Codex review). A warmed but unmatched-only
+      // index must NOT count (AE7). An empty matched set has nothing to wait for →
+      // vacuously resolved, so the window never starts (and never burns the cap on
+      // full-vault scans) for a companion Base that matches nothing.
+      const matchedHasModeEdge = (t: ExpandableTask): boolean =>
+        companionOpts.mode === 'show-all'
+          ? resolvedIndex!.childrenByPath.has(t.path)
+          : resolvedIndex!.parentsByPath.has(t.path);
       matchedEdgesResolved =
-        rawTasks.length === 0
-          ? true
-          : !!resolvedIndex &&
-            rawTasks.some(
-              (t) =>
-                resolvedIndex.childrenByPath.has(t.path) ||
-                resolvedIndex.parentsByPath.has(t.path),
-            );
+        rawTasks.length === 0 ? true : !!resolvedIndex && rawTasks.some(matchedHasModeEdge);
       const index: RelationshipIndex =
         resolvedIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
-      const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), index);
+      const companionTasks = resolveCompanionTree(rawTasks, companionOpts, index);
       // Interleave by the RESOLVED field mappings (the same per-user config that
       // filled task.start/end/status/…), never a hardcoded property table — so a
       // Base sort only positions fetched rows when its property is the one a Gantt
