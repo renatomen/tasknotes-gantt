@@ -17,6 +17,17 @@ Core testing principles for the plugin. Test-first, behavior-focused, isolated.
 - Mock external dependencies via **dependency injection** (pass collaborators in, don't reach for globals) — this is what makes the Obsidian API mockable.
 - Group related tests in `describe` blocks with clear names.
 
+## Running e2e (a first-class gate — run it, don't punt)
+
+WebdriverIO e2e against real Obsidian is central to this project's verification, not an afterthought. The harness is wired and verified on dev machines.
+
+- **One command:** `npm run e2e:local` — builds, installs the plugin into the test vault, and drives a real Obsidian (`scripts/e2e-local.mjs` sets the local-vault default and respects `OBSIDIAN_TEST_VAULT` if exported). Target one spec with WDIO's `--spec` to keep iterations fast.
+- **Machine prerequisites** (this Windows dev box): Node 20 via fnm, `NODE_EXTRA_CA_CERTS` pointed at the Norton root CA, a disposable `OBSIDIAN_TEST_VAULT` (never the live Drive vault), and kill any stale `Obsidian.exe` first. See the maintainer's run-config notes.
+- **Two tiers, two tools:**
+  - **Fast-fixture + synthetic specs** (`gantt-resultset-loop`, `gantt-column-sort`, the `.perf.e2e.ts` storm/perf specs over generated vaults) — **runnable in WDIO; run them.** When a change touches e2e-observable behavior, run the relevant spec rather than deferring it. Do **not** report e2e as "unrunnable."
+  - **The full real production vault driven *through* WDIO** is the one walled path (AV-scan + cold-index dead-ends) — verify *that* vault by a manual install (`npm run build` installs to `OBSIDIAN_TEST_VAULT`) plus maintainer review, not WDIO.
+- **Loop/notify diagnosis:** the plugin's `[OGDBG]` lifecycle markers are gated off by default; set `window.__tnGanttDebug = true` (in a spec via `executeObsidian`, or by hand in the console) to observe `recompute`/`onDataUpdated`/`coalescer` flow and the `onDataUpdated`-stack (Bases-internal frames ⇒ autonomous re-notify; our-plugin frames ⇒ a feedback loop). Keep such instrumentation cheap and default-off — see `docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md`.
+
 ## Test Quality
 
 - One specific behavior per test.
