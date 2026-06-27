@@ -38,6 +38,14 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns
 import { persistGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
+import {
+  createReadinessWindow,
+  DEFAULT_READINESS_WINDOW_CONFIG,
+} from './readinessWindow';
+import {
+  createReadinessOrchestrator,
+  type ReadinessOrchestrator,
+} from './readinessController';
 import { installBasesConfigRefreshHook } from './basesConfigRefresh';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
 import { asPropertyId } from './types/bases-entry';
@@ -146,6 +154,16 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private refreshCoalescer: Coalescer | null = null;
 
+  /**
+   * Post-mount readiness re-check window (#161 §11). When companion mode is active
+   * but TaskNotes' relationship index hasn't resolved matched-set edges yet (the
+   * lag state PR #166 leaves cached as authoritative-empty), this bounded-backoff
+   * orchestrator re-fetches the index a few times until it warms, healing Show-all/
+   * Inherit without a manual edit. A no-op in standalone / already-warm mounts.
+   * Created per mount; cancelled on unload/remount alongside `refreshCoalescer`.
+   */
+  private readinessOrchestrator: ReadinessOrchestrator | null = null;
+
   /** The action layer / source of truth (U6). Recreated per mount. */
   private ganttController: GanttController | null = null;
 
@@ -209,6 +227,7 @@ class ObsidianGanttBasesView extends BasesView {
   override onunload(): void {
     dlog(`[OGDBG] GanttView onunload #${this.dbgInstanceId}`);
     this.refreshCoalescer?.cancel();
+    this.readinessOrchestrator?.cancel();
     this.restoreConfigChangeHook?.();
     this.restoreConfigChangeHook = null;
     this.unmountGantt();
@@ -638,6 +657,23 @@ class ObsidianGanttBasesView extends BasesView {
           void this.refreshData();
         }
       });
+
+      // Post-mount readiness re-check (#161 §11). The initial build above already
+      // ran once, so readinessStatus() now reflects it: if companion mode is active
+      // but the relationship index hasn't resolved matched-set edges yet (the
+      // post-#166 lag state), drive a bounded-backoff re-fetch until it warms. Each
+      // re-check flows through the controller's onChange listener above, so the
+      // healed Show-all rows reach the view via the normal refresh path. Standalone
+      // / already-warm mounts allocate no scheduler. Cancelled on unload/remount.
+      this.readinessOrchestrator = createReadinessOrchestrator({
+        controller,
+        createWindow: () => createReadinessWindow(DEFAULT_READINESS_WINDOW_CONFIG),
+        // Re-checked at fire time: a stale attempt landing during teardown must not
+        // re-fetch against a disposed controller (R6) — mirrors the coalescer's
+        // isConnected + mountToken guards.
+        isAlive: () => !!this.containerEl?.isConnected && token === this.mountToken,
+      });
+      this.readinessOrchestrator.maybeStart();
     } catch (error) {
       console.error('[Gantt] Failed to mount GanttContainer:', error);
       if (token === this.mountToken) {
@@ -749,6 +785,11 @@ class ObsidianGanttBasesView extends BasesView {
   private unmountGantt(): void {
     // Invalidate any in-flight async mount so it does not resurrect the view.
     this.mountToken++;
+
+    // Cancel the readiness window so a pending re-check can't fire against the
+    // controller we're about to dispose (R6).
+    this.readinessOrchestrator?.cancel();
+    this.readinessOrchestrator = null;
 
     if (this.svelteComponent) {
       try {

@@ -45,6 +45,23 @@ export interface ReadinessWindowConfig {
   scheduler?: ReadinessScheduler;
 }
 
+/**
+ * Default bound + schedule (R5) — named, in one place, so call sites never carry
+ * magic literals and U4 calibrates them from the perf harness here.
+ *
+ * 5 attempts at base 500ms × factor 2 → re-checks at ~0.5s, 1s, 2s, 4s, 8s after
+ * mount (≈15.5s of coverage), bounding warmup to ≤5 full-vault scans per mount
+ * (R10/R12) while the exponential spacing keeps later attempts off the in-progress
+ * cold `metadataCache` scan. Confirmed against the perf harness in U4.
+ */
+export const DEFAULT_READINESS_WINDOW_CONFIG: Readonly<
+  Omit<ReadinessWindowConfig, 'scheduler'>
+> = {
+  maxAttempts: 5,
+  baseDelayMs: 500,
+  backoffFactor: 2,
+};
+
 /** A started/cancellable bounded-backoff window. */
 export interface ReadinessWindow {
   /**
