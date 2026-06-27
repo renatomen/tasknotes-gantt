@@ -1373,6 +1373,180 @@ describe('GanttController — source memoization + dependency batching (plan #16
   });
 });
 
+describe('GanttController — readiness re-check surface (U1 / #161 §11 relationship-lag)', () => {
+  type RIndex = import('../../src/datasource/companionResolve').RelationshipIndex;
+
+  /**
+   * Build a bases-scoped controller whose enrichment is the given object, with a
+   * `createTaskNotesSource` jest.fn so a test can assert the source is NOT
+   * re-resolved on a readiness re-check (distinct from onExternalSourceChange).
+   */
+  function makeReadinessController(opts: {
+    baseTasks: SourceTask[];
+    enrichment: DataSource;
+    createTaskNotesSource?: jest.Mock<(app: App) => Promise<DataSource | null>>;
+    mode?: 'inherit' | 'show-all';
+  }): {
+    controller: GanttController;
+    base: FakeSource;
+    createTaskNotesSource: jest.Mock<(app: App) => Promise<DataSource | null>>;
+  } {
+    const base = new FakeSource({ tasks: opts.baseTasks });
+    const createTaskNotesSource =
+      opts.createTaskNotesSource ??
+      (jest.fn(async () => opts.enrichment) as unknown as jest.Mock<
+        (app: App) => Promise<DataSource | null>
+      >);
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: opts.mode ?? 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource },
+    });
+    return { controller, base, createTaskNotesSource };
+  }
+
+  it('recheckRelationshipIndex() re-fetches the index WITHOUT re-resolving the source or re-reading base entries (reuseTasks honored). Covers R7.', async () => {
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const createTaskNotesSource = jest.fn(async () => enrichment) as unknown as jest.Mock<
+      (app: App) => Promise<DataSource | null>
+    >;
+    const { controller, base } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
+      enrichment,
+      createTaskNotesSource,
+      mode: 'inherit',
+    });
+
+    await controller.init();
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+    expect(base.getTasksCalls).toBe(1);
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+
+    await controller.recheckRelationshipIndex();
+
+    // Index re-fetched (cache busted via enrichmentDirty)…
+    expect(enrichment.relationshipIndexCalls).toBe(2);
+    // …but the base entries were NOT re-read (reuseTasks:true — the read #161's
+    // storm fix avoids)…
+    expect(base.getTasksCalls).toBe(1);
+    // …and the TaskNotes source was NOT re-resolved (unlike onExternalSourceChange).
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('two overlapping recheckRelationshipIndex() calls are latest-wins safe — a stale re-check resolving last does not clobber the newer readiness. Covers the recomputeSeq guard.', async () => {
+    // Gate getRelationshipIndex so two overlapping re-checks can resolve out of
+    // order. Call 1 returns a cold (no-matched-edge) index; call 2 returns a warm
+    // (matched-edge) index. Resolving call 2 first then call 1 proves the stale
+    // call 1 cannot overwrite the warm readiness.
+    const resolvers: Array<(v: RIndex | null) => void> = [];
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: () =>
+        new Promise<RIndex | null>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    } as unknown as DataSource;
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    // Settle init's first (gated) index read with a cold index.
+    const init = controller.init();
+    await flushAsync();
+    resolvers.shift()!({ childrenByPath: new Map(), parentsByPath: new Map() });
+    await init;
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+
+    // Two overlapping re-checks: both reach the gated index read.
+    const r1 = controller.recheckRelationshipIndex();
+    const r2 = controller.recheckRelationshipIndex();
+    await flushAsync();
+    expect(resolvers.length).toBe(2);
+
+    // Resolve the NEWER re-check (call 2) first with a warm index, then the older
+    // (call 1) with a cold index. Latest-wins must keep the warm readiness.
+    resolvers[1]!({
+      childrenByPath: new Map([['P.md', [task({ path: 'C.md' })]]]),
+      parentsByPath: new Map(),
+    });
+    resolvers[0]!({ childrenByPath: new Map(), parentsByPath: new Map() });
+    await Promise.all([r1, r2]);
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(true);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is true when a matched parent has resolved children. Covers AE1.', async () => {
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(true);
+    expect(status.matchedEdgesResolved).toBe(true);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is false when only an UNMATCHED parent has children (matched parents still cold). Covers AE7.', async () => {
+    // The Base matches A.md only; the index has edges for X.md (not matched).
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'X.md': [task({ path: 'Y.md' })] },
+      parents: { 'Y.md': ['X.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'A.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is false on an all-empty index — never satisfied by emptiness. Covers AE7.', async () => {
+    const enrichment = new CompanionEnrichment({});
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'A.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('readinessStatus().companionActive is false in standalone (no enrichment / companionAccessor). Covers AE6.', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => null },
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(false);
+    expect(status.matchedEdgesResolved).toBe(false);
+  });
+});
+
 describe('GanttController — #161 dynamic resultset-change burst (P1 loop regression lock)', () => {
   /**
    * These replay the *dynamic* trigger of #161 as a composed SEQUENCE, not a

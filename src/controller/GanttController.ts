@@ -276,6 +276,34 @@ interface Snapshot {
   expansion: ExpansionResult;
   /** Source-level dependency links gathered across all tasks. */
   sourceLinks: SourceLink[];
+  /**
+   * Whether this build resolved a relationship edge touching at least one
+   * currently-matched task — the U1 readiness signal (#161 §11). Computed at
+   * build time and committed (via {@link GanttController.recompute}) only after
+   * the latest-wins guard, so a discarded stale build can't leave a false
+   * positive. Deliberately excluded from {@link snapshotsEqual}: it is readiness
+   * metadata, not render-affecting state (a genuine edge resolving changes the
+   * instance set anyway, which is what drives notification).
+   */
+  matchedEdgesResolved: boolean;
+}
+
+/**
+ * The view-facing readiness signal (U1). Drives the post-mount readiness re-check
+ * window (#161 §11): the window starts only when `companionActive` (TaskNotes
+ * companion mode is on) and `!matchedEdgesResolved` (the relationship index has
+ * resolved no edges for the matched set yet — the lag state), and stops early
+ * once `matchedEdgesResolved` flips true.
+ */
+export interface ReadinessStatus {
+  /** Whether companion mode is active (`companionAccessor !== null`). */
+  companionActive: boolean;
+  /**
+   * Whether the last committed build resolved a relationship edge touching a
+   * currently-matched task. `false` in standalone, on a not-ready (null) index,
+   * and on a non-null-but-empty index (never satisfied by emptiness — R2).
+   */
+  matchedEdgesResolved: boolean;
 }
 
 /** Maps a TaskNotes reltype to the SVAR link type. */
@@ -396,6 +424,14 @@ export class GanttController {
   private snapshot: Snapshot | null = null;
 
   /**
+   * The last committed build's readiness signal (U1), read by
+   * {@link readinessStatus}. Written by {@link recompute} **after** the
+   * latest-wins guard so a discarded stale build never leaves a false signal.
+   * `null` until the first build → reported as not-ready.
+   */
+  private lastReadiness: ReadinessStatus | null = null;
+
+  /**
    * The write capability at the last notify, so {@link recompute} can notify on a
    * capability flip even when the snapshot is value-equal — replacing the old
    * unconditional force-notify on re-selection (#161). `null` until first notify.
@@ -512,6 +548,40 @@ export class GanttController {
     // dependencies are stale — invalidate so the next build re-fetches (#161).
     this.enrichmentDirty = true;
     await this.refreshSource();
+  }
+
+  /**
+   * Narrow readiness re-fetch trigger (U1 / #161 §11): bust ONLY the enrichment
+   * cache and recompute, re-fetching the relationship index on the next build.
+   *
+   * Unlike {@link onExternalSourceChange}, this does NOT re-resolve the TaskNotes
+   * source (no `taskNotesResolved = false`, so the memoized source is reused and
+   * `lifecycle.ready()` is not re-awaited) and recomputes with `reuseTasks:true`
+   * (skipping the Bases entry re-read that #161's storm fix avoids). It exists to
+   * override PR #166's "authoritative-empty is cached" rule for the duration of
+   * the post-mount readiness window only — flipping {@link enrichmentDirty} so the
+   * next {@link buildSnapshot} clears + re-fetches the index (R7).
+   */
+  public async recheckRelationshipIndex(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    this.enrichmentDirty = true;
+    await this.refreshSource({ reuseTasks: true });
+  }
+
+  /**
+   * The view-facing readiness signal (U1), read by the post-mount readiness
+   * window to decide whether to start and when to stop early. Reflects the last
+   * committed build (see {@link lastReadiness}); reports not-ready before the
+   * first build. `companionActive` is read live from the current
+   * {@link companionAccessor} so a standalone mount reports `false` immediately.
+   */
+  public readinessStatus(): ReadinessStatus {
+    return {
+      companionActive: this.companionAccessor !== null,
+      matchedEdgesResolved: this.lastReadiness?.matchedEdgesResolved ?? false,
+    };
   }
 
   /**
@@ -1054,6 +1124,13 @@ export class GanttController {
     // counter the storm/loop e2es read to detect an unbounded notify loop.
     dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
+    // Commit the readiness signal AFTER the latest-wins guard above (U1): a
+    // discarded stale build returns early before this line, so a slow re-check
+    // resolving last can never overwrite a newer build's readiness (R13).
+    this.lastReadiness = {
+      companionActive: this.companionAccessor !== null,
+      matchedEdgesResolved: next.matchedEdgesResolved,
+    };
 
     if (changed) {
       this.lastNotifiedWrite = write;
@@ -1107,6 +1184,12 @@ export class GanttController {
 
     let dbgFetchedIndex = false; // [OGDBG #161]
     let orderedTasks: readonly ExpandableTask[];
+    // U1 readiness signal (#161 §11): does the (re-fetched) index resolve any
+    // edge touching a currently-matched task? Default false — standalone, a
+    // not-ready (null) index, and a non-null-but-empty index all report not-ready
+    // (never satisfied by emptiness — R2). The post-mount readiness window reads
+    // this via readinessStatus() to start/early-stop the bounded re-check.
+    let matchedEdgesResolved = false;
     if (this.companionAccessor) {
       if (!this.relationshipIndex) {
         // `null` = the source is not-ready (cold metadataCache): render
@@ -1117,8 +1200,20 @@ export class GanttController {
         this.relationshipIndex = await this.companionAccessor.getRelationshipIndex();
         dbgFetchedIndex = true;
       }
+      const resolvedIndex = this.relationshipIndex;
+      // Key the signal on MATCHED task paths only (not any global edge): a matched
+      // path appearing as a childrenByPath key covers Show-all child pull, and as a
+      // parentsByPath key covers Inherit parent nesting. A warmed but unmatched-only
+      // index must NOT count (AE7) — that would false-stop the window mid-warmup.
+      matchedEdgesResolved = resolvedIndex
+        ? rawTasks.some(
+            (t) =>
+              resolvedIndex.childrenByPath.has(t.path) ||
+              resolvedIndex.parentsByPath.has(t.path),
+          )
+        : false;
       const index: RelationshipIndex =
-        this.relationshipIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
+        resolvedIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
       const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), index);
       // Interleave by the RESOLVED field mappings (the same per-user config that
       // filled task.start/end/status/…), never a hardcoded property table — so a
@@ -1185,7 +1280,7 @@ export class GanttController {
       }
     }
 
-    return { expansion, sourceLinks };
+    return { expansion, sourceLinks, matchedEdgesResolved };
   }
 
   /**
@@ -1227,7 +1322,7 @@ export class GanttController {
 
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
-  return { expansion: expandInstances([]), sourceLinks: [] };
+  return { expansion: expandInstances([]), sourceLinks: [], matchedEdgesResolved: false };
 }
 
 /**
