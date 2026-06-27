@@ -1,4 +1,3 @@
-/* global clearTimeout */
 /**
  * Bounded-backoff readiness window (#161 §11) — a view-agnostic, deterministically
  * testable scheduler that heals Gantt Show-all/Inherit when TaskNotes' relationship
@@ -23,11 +22,13 @@
  * @module bases/readinessWindow
  */
 
-/** Injectable timer surface so the window unit-tests with a fake clock. */
-export interface ReadinessScheduler {
-  setTimeout: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
-  clearTimeout: (timer: ReturnType<typeof setTimeout>) => void;
-}
+import { defaultScheduler, type TimerScheduler } from './scheduler';
+
+/**
+ * Injectable timer surface so the window unit-tests with a fake clock. Alias of
+ * the shared {@link TimerScheduler} — kept as a named export for existing callers.
+ */
+export type ReadinessScheduler = TimerScheduler;
 
 /**
  * Bound + schedule configuration. The constants are named + injectable (R5) so
@@ -83,17 +84,6 @@ export interface ReadinessWindow {
   /** Whether an attempt is currently scheduled. */
   readonly pending: boolean;
 }
-
-// Wrap the globals in arrows so they're invoked as FREE functions, not as methods
-// of this object literal — `{ setTimeout, clearTimeout }` would call them with
-// `this === scheduler`, throwing `TypeError: Illegal invocation` in an Electron
-// renderer (the built-in timer methods require `this === window`). Node/jsdom
-// tolerate it, so only the real-timer regression test catches the difference.
-// See coalesce.ts for the original incident (F2).
-const defaultScheduler: ReadinessScheduler = {
-  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (timer) => clearTimeout(timer),
-};
 
 /**
  * Create a bounded-backoff readiness window. See {@link ReadinessWindow}.

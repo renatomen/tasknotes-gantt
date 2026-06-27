@@ -424,12 +424,14 @@ export class GanttController {
   private snapshot: Snapshot | null = null;
 
   /**
-   * The last committed build's readiness signal (U1), read by
+   * The last committed build's matched-edges signal (U1), read by
    * {@link readinessStatus}. Written by {@link recompute} **after** the
    * latest-wins guard so a discarded stale build never leaves a false signal.
-   * `null` until the first build → reported as not-ready.
+   * `null` until the first build → reported as not-ready. Only this boolean is
+   * captured-at-commit; `companionActive` is always read live in
+   * {@link readinessStatus} (no stale copy to drift).
    */
-  private lastReadiness: ReadinessStatus | null = null;
+  private lastMatchedEdgesResolved: boolean | null = null;
 
   /**
    * The write capability at the last notify, so {@link recompute} can notify on a
@@ -580,7 +582,7 @@ export class GanttController {
   public readinessStatus(): ReadinessStatus {
     return {
       companionActive: this.companionAccessor !== null,
-      matchedEdgesResolved: this.lastReadiness?.matchedEdgesResolved ?? false,
+      matchedEdgesResolved: this.lastMatchedEdgesResolved ?? false,
     };
   }
 
@@ -1127,10 +1129,7 @@ export class GanttController {
     // Commit the readiness signal AFTER the latest-wins guard above (U1): a
     // discarded stale build returns early before this line, so a slow re-check
     // resolving last can never overwrite a newer build's readiness (R13).
-    this.lastReadiness = {
-      companionActive: this.companionAccessor !== null,
-      matchedEdgesResolved: next.matchedEdgesResolved,
-    };
+    this.lastMatchedEdgesResolved = next.matchedEdgesResolved;
 
     if (changed) {
       this.lastNotifiedWrite = write;

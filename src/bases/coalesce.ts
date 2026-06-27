@@ -1,4 +1,3 @@
-/* global clearTimeout */
 /**
  * Trailing-debounce coalescer for the Bases data-update storm (#161).
  *
@@ -18,11 +17,13 @@
  * @module bases/coalesce
  */
 
-/** Injectable timer surface so the debounce unit-tests with fake timers. */
-export interface CoalesceScheduler {
-  setTimeout: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
-  clearTimeout: (timer: ReturnType<typeof setTimeout>) => void;
-}
+import { defaultScheduler, type TimerScheduler } from './scheduler';
+
+/**
+ * Injectable timer surface so the debounce unit-tests with fake timers. Alias of
+ * the shared {@link TimerScheduler} — kept as a named export for existing callers.
+ */
+export type CoalesceScheduler = TimerScheduler;
 
 /** A trailing-debounced runner. */
 export interface Coalescer {
@@ -33,17 +34,6 @@ export interface Coalescer {
   /** Whether a trailing run is currently pending. */
   readonly pending: boolean;
 }
-
-// Wrap the globals in arrows so they're invoked as FREE functions, not as
-// methods of this object literal. `{ setTimeout, clearTimeout }` would call them
-// with `this === scheduler`, which throws `TypeError: Illegal invocation` in a
-// browser/Electron renderer (the built-in timer methods require `this ===
-// window`). Node/jsdom tolerate it, which is why a fake-scheduler unit test
-// can't catch this — it only bites in the real Obsidian runtime.
-const defaultScheduler: CoalesceScheduler = {
-  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (timer) => clearTimeout(timer),
-};
 
 /**
  * Create a trailing-debounce coalescer: once {@link Coalescer.schedule} stops
