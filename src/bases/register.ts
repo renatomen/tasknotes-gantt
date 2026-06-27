@@ -78,6 +78,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
+import { entriesSignature } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -313,12 +314,7 @@ class ObsidianGanttBasesView extends BasesView {
    * the controller's cached base tasks instead of re-reading the source.
    */
   private computeEntrySignature(): string {
-    const entries = this.data?.data ?? [];
-    let sig = String(entries.length);
-    for (const entry of entries) {
-      sig += `|${(entry as { file?: { path?: string } }).file?.path ?? ''}`;
-    }
-    return sig;
+    return entriesSignature((this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>);
   }
 
   /** Stateless extractor for grid property-column values (U1). */
