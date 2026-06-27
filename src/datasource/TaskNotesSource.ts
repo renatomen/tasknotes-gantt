@@ -418,18 +418,20 @@ export class TaskNotesSource implements DataSource {
    * edge the BFS can traverse (dangling/alias refs that resolve to no real task
    * are dropped by both).
    *
-   * Mirrors the read paths' graceful-fallback contract: returns empty maps (never
-   * throws) when the task list / relationship API is absent or fails.
+   * Readiness signal (cache-poisoning guard #161): returns `null` (never throws)
+   * when the task list is empty or the read fails — i.e. TaskNotes' metadataCache
+   * scan has not warmed yet, so an index built now would be spuriously empty and
+   * must not be cached. A non-null index — even with empty maps — means the task
+   * list was non-empty (authoritative; the vault just has no parent/child edges),
+   * so the controller caches it and skips the full-vault scan on later notifies.
    */
-  public async getRelationshipIndex(): Promise<RelationshipIndex> {
-    const empty: RelationshipIndex = {
-      childrenByPath: new Map<string, SourceTask[]>(),
-      parentsByPath: new Map<string, string[]>(),
-    };
+  public async getRelationshipIndex(): Promise<RelationshipIndex | null> {
     try {
       const tasks = await this.getTasks();
       if (tasks.length === 0) {
-        return empty;
+        // Cold / empty: not-ready. Do not let the controller cache this — Show-all
+        // would stick at the matched-only count until a TaskNotes data-change.
+        return null;
       }
       // Resolve every task's parents concurrently (each is an O(1) TaskNotes
       // cache read upstream); a single failed lookup degrades to no parents
@@ -457,7 +459,9 @@ export class TaskNotesSource implements DataSource {
       }
       return { childrenByPath, parentsByPath };
     } catch {
-      return empty;
+      // Read failed → treat as not-ready (retry next build) rather than caching
+      // a spurious empty index.
+      return null;
     }
   }
 
