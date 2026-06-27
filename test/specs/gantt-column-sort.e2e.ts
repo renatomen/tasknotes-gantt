@@ -106,12 +106,21 @@ interface SortState {
   sorted: boolean;
   /** Host (chart region) height in px, for the min-height regression guard. */
   hostHeight: number;
+  /**
+   * Whether at least one grid header cell (`[data-header-id]`) has rendered.
+   * The bars (`.wx-bar`) settle BEFORE the grid header cells on first mount, so a
+   * readiness gate that waits only for bars lets the first test race header
+   * settling — clicking before the sortable header exists. Under CI load that
+   * race exceeds the 10s click-retry budget; gating readiness on the header too
+   * absorbs the lag into ensureGanttReady's larger budget.
+   */
+  headerReady: boolean;
 }
 
 async function readSortState(): Promise<SortState> {
   return browser.execute(() => {
     const root = document.querySelector(".og-bases-gantt");
-    if (!root) return { mounted: false, ids: [], resetPill: false, sorted: false, hostHeight: 0 };
+    if (!root) return { mounted: false, ids: [], resetPill: false, sorted: false, hostHeight: 0, headerReady: false };
     const strip = (id: string): string => (id.startsWith(":") ? id.slice(1) : id);
     const ids = Array.from(root.querySelectorAll(".wx-bar")).map((b) => strip(b.getAttribute("data-id") ?? ""));
     const resetPill = !!root.querySelector(".zoom-btn.reset-sort");
@@ -121,7 +130,8 @@ async function readSortState(): Promise<SortState> {
     const sorted = !!root.querySelector('[aria-sort="ascending"], [aria-sort="descending"]');
     const chart = root.querySelector(".og-chart-area") as HTMLElement | null;
     const hostHeight = chart ? chart.getBoundingClientRect().height : 0;
-    return { mounted: true, ids, resetPill, sorted, hostHeight };
+    const headerReady = !!root.querySelector("[data-header-id]");
+    return { mounted: true, ids, resetPill, sorted, hostHeight, headerReady };
   });
 }
 
@@ -178,10 +188,13 @@ async function ensureGanttReady(): Promise<void> {
       async () => {
         await activateBaseLeaf();
         const state = await readSortState();
-        last = JSON.stringify(state.ids);
-        return state.mounted && missingNames(state.ids).length === 0;
+        last = JSON.stringify({ ids: state.ids, headerReady: state.headerReady });
+        // Gate on the grid header too, not just the bars: the header cells settle
+        // after the bars, and the first test clicks a header immediately. Without
+        // this, the click races header settling and times out under CI load.
+        return state.mounted && state.headerReady && missingNames(state.ids).length === 0;
       },
-      { timeout: 90000, timeoutMsg: "Companion Gantt did not reach all six expected instances" },
+      { timeout: 90000, timeoutMsg: "Companion Gantt did not reach all six expected instances + grid header" },
     );
   } catch {
     throw new Error(`Companion Gantt not ready. Last observed: ${last}`);
