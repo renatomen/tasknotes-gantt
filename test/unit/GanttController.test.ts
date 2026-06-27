@@ -314,6 +314,46 @@ describe('GanttController — getInstances expansion', () => {
   });
 });
 
+describe('GanttController — gated debug build log (#161)', () => {
+  const flagged = globalThis as { __tnGanttDebug?: boolean };
+  afterEach(() => {
+    delete flagged.__tnGanttDebug;
+    jest.restoreAllMocks();
+  });
+
+  /** A bases-scoped controller whose snapshot build runs the diagnostic stage-log. */
+  function buildLogController(): GanttController {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] });
+    return new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+  }
+
+  const sawBuildLog = (spy: jest.SpyInstance): boolean =>
+    spy.mock.calls.some((args) =>
+      args.some((a) => typeof a === 'string' && a.includes('[OGDBG] build')),
+    );
+
+  it('stays silent (no build diagnostic) when debug is off — the default', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await buildLogController().init();
+    expect(sawBuildLog(spy)).toBe(false);
+  });
+
+  it('emits the build stage-timing diagnostic when window.__tnGanttDebug is enabled', async () => {
+    flagged.__tnGanttDebug = true;
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await buildLogController().init();
+    expect(sawBuildLog(spy)).toBe(true);
+  });
+});
+
 describe('GanttController — getLinks', () => {
   it('rewrites a blockedBy dependency into a RenderLink with the correct SVAR type', async () => {
     // pred.md blocks dep.md via FINISHTOSTART → SVAR 'e2s'.
