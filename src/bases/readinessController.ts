@@ -81,15 +81,21 @@ export function createReadinessOrchestrator(
    * AFTER the re-fetch resolves. Reading it after is the no-drop mechanism (R13):
    * if a racing config refresh discarded the readiness recompute (latest-wins
    * `recomputeSeq` guard), the signal reads not-ready and the next bounded attempt
-   * retries — a dropped attempt costs one retry, never a missed heal. The fire-time
-   * {@link ReadinessOrchestratorDeps.isAlive} guards bracket the await so a teardown
-   * mid-check never re-fetches against a torn-down controller (R6); returning ready
-   * in that case just stops the (already-irrelevant) window harmlessly.
+   * retries — a dropped attempt costs one retry, never a missed heal.
+   *
+   * The fire-time {@link ReadinessOrchestratorDeps.isAlive} guards bracket the
+   * await so a teardown mid-check never re-fetches against a torn-down controller
+   * (R6). A not-alive check returns NOT-ready (`false`), not ready — so a *transient*
+   * leaf detach (Obsidian reparents/defers leaves without unmounting) retries on a
+   * later bounded attempt instead of permanently giving up on the heal. A genuine
+   * teardown is already stopped by `cancel()` (and the controller's `disposed`
+   * early-return makes the skipped re-fetch a no-op), and the attempt cap bounds
+   * the not-alive case regardless.
    */
   const check = async (): Promise<boolean> => {
-    if (!isAlive()) return true;
+    if (!isAlive()) return false;
     await controller.recheckRelationshipIndex();
-    if (!isAlive()) return true;
+    if (!isAlive()) return false;
     return controller.readinessStatus().matchedEdgesResolved;
   };
 

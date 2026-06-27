@@ -575,8 +575,8 @@ export class GanttController {
   /**
    * The view-facing readiness signal (U1), read by the post-mount readiness
    * window to decide whether to start and when to stop early. Reflects the last
-   * committed build (see {@link lastReadiness}); reports not-ready before the
-   * first build. `companionActive` is read live from the current
+   * committed build (see {@link lastMatchedEdgesResolved}); reports not-ready
+   * before the first build. `companionActive` is read live from the current
    * {@link companionAccessor} so a standalone mount reports `false` immediately.
    */
   public readinessStatus(): ReadinessStatus {
@@ -1204,13 +1204,18 @@ export class GanttController {
       // path appearing as a childrenByPath key covers Show-all child pull, and as a
       // parentsByPath key covers Inherit parent nesting. A warmed but unmatched-only
       // index must NOT count (AE7) — that would false-stop the window mid-warmup.
-      matchedEdgesResolved = resolvedIndex
-        ? rawTasks.some(
-            (t) =>
-              resolvedIndex.childrenByPath.has(t.path) ||
-              resolvedIndex.parentsByPath.has(t.path),
-          )
-        : false;
+      // An empty matched set has no edges to wait for → vacuously resolved, so the
+      // readiness window never starts (and never burns the cap on full-vault scans)
+      // for a companion Base that matches nothing.
+      matchedEdgesResolved =
+        rawTasks.length === 0
+          ? true
+          : !!resolvedIndex &&
+            rawTasks.some(
+              (t) =>
+                resolvedIndex.childrenByPath.has(t.path) ||
+                resolvedIndex.parentsByPath.has(t.path),
+            );
       const index: RelationshipIndex =
         resolvedIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
       const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), index);

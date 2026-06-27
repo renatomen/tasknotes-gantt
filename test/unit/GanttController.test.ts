@@ -1529,6 +1529,27 @@ describe('GanttController — readiness re-check surface (U1 / #161 §11 relatio
     expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
   });
 
+  it('readinessStatus().matchedEdgesResolved is true for an EMPTY matched set — nothing to heal, so the window never starts.', async () => {
+    // Companion mode active but the Base matches zero tasks. There are no matched
+    // edges to wait for, so the signal must report resolved (vacuously) — otherwise
+    // the readiness window would burn its full attempt cap re-scanning the vault for
+    // a view that has nothing to expand.
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(true);
+    expect(status.matchedEdgesResolved).toBe(true);
+  });
+
   it('readinessStatus().companionActive is false in standalone (no enrichment / companionAccessor). Covers AE6.', async () => {
     const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
     const controller = new GanttController({

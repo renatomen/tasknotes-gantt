@@ -75,8 +75,10 @@ export const DEFAULT_READINESS_WINDOW_CONFIG: Readonly<
 export interface ReadinessWindow {
   /**
    * Begin the bounded re-check schedule. `check` returns whether relationships
-   * have warmed (ready); a truthy result stops the window early. (Re)starting
-   * resets the attempt counter and cancels any pending attempt.
+   * have warmed (ready); a truthy result stops the window early. Intended to be
+   * called once per window (the orchestrator allocates a fresh window per mount);
+   * calling it again resets the attempt counter and clears any pending (scheduled)
+   * attempt, but does not abort a `check()` already in flight.
    */
   start(check: () => boolean | Promise<boolean>): void;
   /** Cancel any pending attempt and go dormant; safe to call repeatedly. */

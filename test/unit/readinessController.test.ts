@@ -167,14 +167,17 @@ describe("createReadinessOrchestrator", () => {
     expect(controller.recheckRelationshipIndex).not.toHaveBeenCalled();
   });
 
-  it("a timer that fires while detached (isAlive false) no-ops — never re-checks a torn-down controller. Covers AE4.", async () => {
+  it("a timer firing while detached (isAlive false) skips the re-check but does NOT permanently stop — a transient detach retries when reconnected. Covers AE4.", async () => {
     const sched = fakeScheduler();
     let alive = true;
+    let resolved = false;
     const controller: ReadinessControllerSurface = {
-      recheckRelationshipIndex: jest.fn(async () => {}),
+      recheckRelationshipIndex: jest.fn(async () => {
+        resolved = true; // a successful re-check warms the matched edges
+      }),
       readinessStatus: (): ReadinessStatus => ({
         companionActive: true,
-        matchedEdgesResolved: false,
+        matchedEdgesResolved: resolved,
       }),
     };
     const orch = createReadinessOrchestrator({
@@ -184,13 +187,22 @@ describe("createReadinessOrchestrator", () => {
     });
 
     orch.maybeStart();
-    // The view detaches WITHOUT an explicit cancel() (e.g. a stale fire racing
-    // teardown). The fire-time isAlive guard must suppress the re-check.
+    // The view is TRANSIENTLY detached (e.g. a leaf reparent) WITHOUT an explicit
+    // cancel(). The fire-time guard must suppress the re-check against the
+    // (momentarily) detached controller…
     alive = false;
     sched.flush();
     await tick();
-
     expect(controller.recheckRelationshipIndex).not.toHaveBeenCalled();
+    // …but the window must NOT have given up — a later attempt is still scheduled.
+    expect(sched.pendingCount()).toBe(1);
+
+    // Reconnected: the next attempt now runs the re-check and heals.
+    alive = true;
+    sched.flush();
+    await tick();
+    expect(controller.recheckRelationshipIndex).toHaveBeenCalledTimes(1);
+    expect(sched.pendingCount()).toBe(0); // healed → dormant
   });
 
   it("a re-check racing a config refresh is not silently dropped — the warmed index reaches the view on a subsequent bounded attempt. Covers AE9.", async () => {
