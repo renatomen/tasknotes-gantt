@@ -166,7 +166,7 @@ Sequencing: M1 → M2 → {M4, M3}. M4 needs M2's write path; M3 needs M2 + UT. 
 
 ## Dependencies / Assumptions
 
-- **Cross-repo.** R12 (UT) lands in `C:\Users\renat\@repos-active\tasknotes`; M3 must not ship before it. The author co-develops TaskNotes, so this is feasible in-house.
+- **Cross-repo.** R12 (UT) lands in the sibling TaskNotes clone; M3 must not ship before it. The author co-develops TaskNotes, so this is feasible in-house.
 - **TaskNotes write surface for dependencies.** Writes go through TaskNotes' `blockedBy` (update the dependent's field; `blocking` is read-only reverse). The plugin's `TaskNotesApi` slice currently declares only `relationships.dependencies` (read) + `tasks.update`/`delete`; the dependency-write methods needed (e.g. `tasks.update` with a `blockedBy` patch, or `addDependency`/`removeDependency` if exposed) are to be confirmed against the live API in planning.
 - **SVAR link authoring.** That SVAR supports user-drawn/deletable links and maps the start/end handle of the drag to link type is assumed from the four native link types; exact API + events to be verified in planning.
 - **Non-FS edges may pre-exist.** Vaults edited via the HTTP API or by hand may already contain non-FS reltypes; M1 must render them correctly even before UT/M3.
