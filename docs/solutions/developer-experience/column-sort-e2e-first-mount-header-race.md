@@ -76,4 +76,5 @@ passed on re-run with zero code change.
 Relates to [[gate-e2e-on-cold-index-before-measuring-render]] and the
 `dependency-e2e-flake` learning (a different spec / different root cause — that one
 was a leaf-steal, root-caused and fixed; this one is SVAR grid-header settling and
-remains open-but-rare).
+remains open-but-rare). The #161 §11 / PR #169 readiness re-check this doc references
+is itself documented in [readiness-signal-keys-on-data-its-consumer-reads.md](../design-patterns/readiness-signal-keys-on-data-its-consumer-reads.md).
