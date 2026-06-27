@@ -56,6 +56,8 @@ class FakeSource implements DataSource {
   /** The handler registered via subscribe(), if subscription is enabled. */
   public changeHandler: (() => void) | null = null;
   public unsubscribed = false;
+  /** Count of getTasks() calls (#161 storm fix: a config-only refresh must NOT re-read). */
+  public getTasksCalls = 0;
 
   private readonly subscribable: boolean;
 
@@ -83,6 +85,7 @@ class FakeSource implements DataSource {
   }
 
   async getTasks(): Promise<SourceTask[]> {
+    this.getTasksCalls += 1;
     return this.tasks;
   }
 
@@ -531,7 +534,7 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
   });
 });
 
-describe('GanttController — date policy + visibility (U2)', () => {
+describe('GanttController — date policy + stable instance set (#161 R1)', () => {
   // A fixed "today" so placeholder placement and assertions are deterministic.
   const FIXED_TODAY = new Date(2026, 5, 17); // 2026-06-17
   const AUG17 = new Date(2026, 7, 17, 12, 0, 0); // noon → exercises normalization
@@ -554,14 +557,14 @@ describe('GanttController — date policy + visibility (U2)', () => {
     });
   }
 
-  const showAll: DatePolicyConfig = {
-    defaultDuration: 1,
-    showUndatedTasks: true,
-    showPartialDateTasks: true,
-  };
+  // The derivation is now visibility-free (KTD7): its only data-shaping input is
+  // `defaultDuration`. The show-undated/show-partial toggles are pure VIEW filters
+  // (#161) and cannot be expressed at the controller seam — so the instance set is
+  // stable by construction, which is exactly what R1 demands.
+  const dur1: DatePolicyConfig = { defaultDuration: 1 };
 
   it('resolves a due-only task to its deadline, not today→due', async () => {
-    const controller = makeControllerWith(showAll, [task({ path: 'due.md', end: AUG17 })]);
+    const controller = makeControllerWith(dur1, [task({ path: 'due.md', end: AUG17 })]);
     await controller.init();
     const [inst] = await controller.getInstances();
 
@@ -573,7 +576,7 @@ describe('GanttController — date policy + visibility (U2)', () => {
   });
 
   it('propagates dateStatus onto every RenderInstance', async () => {
-    const controller = makeControllerWith(showAll, [
+    const controller = makeControllerWith(dur1, [
       task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
       task({ path: 'dateless.md' }),
     ]);
@@ -584,37 +587,44 @@ describe('GanttController — date policy + visibility (U2)', () => {
     expect(byPath.get('dateless.md')?.dateStatus).toBe('placeholder');
   });
 
-  it('hide-undated removes dateless tasks; partial + complete remain (AE5)', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'dateless.md' }),
-        task({ path: 'due.md', end: AUG17 }),
-        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
-      ],
-    );
+  it('retains undated tasks tagged placeholder — derivation never drops them (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'dateless.md' }),
+      task({ path: 'due.md', end: AUG17 }),
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+    ]);
     await controller.init();
-    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
-    expect(paths).toEqual(['complete.md', 'due.md']);
+    const byPath = new Map((await controller.getInstances()).map((i) => [i.sourcePath, i]));
+
+    // ALL three present (visibility is a view filter, not a derivation drop).
+    expect([...byPath.keys()].sort()).toEqual(['complete.md', 'dateless.md', 'due.md']);
+    // The undated row carries the `placeholder` tag the view filter keys off of.
+    expect(byPath.get('dateless.md')?.dateStatus).toBe('placeholder');
   });
 
-  it('hide-partial removes one-date tasks; complete + undated remain', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showPartialDateTasks: false },
-      [
-        task({ path: 'dateless.md' }),
-        task({ path: 'due.md', end: AUG17 }),
-        task({ path: 'start.md', start: new Date(2026, 7, 1) }),
-        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
-      ],
-    );
+  it('retains partial-date tasks tagged inferred-* — derivation never drops them (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'dateless.md' }),
+      task({ path: 'due.md', end: AUG17 }),
+      task({ path: 'start.md', start: new Date(2026, 7, 1) }),
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+    ]);
     await controller.init();
-    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
-    expect(paths).toEqual(['complete.md', 'dateless.md']);
+    const byPath = new Map((await controller.getInstances()).map((i) => [i.sourcePath, i]));
+
+    expect([...byPath.keys()].sort()).toEqual([
+      'complete.md',
+      'dateless.md',
+      'due.md',
+      'start.md',
+    ]);
+    // Both one-date rows carry a PARTIAL tag the view's show-partial filter keys off.
+    expect(byPath.get('due.md')?.dateStatus).toBe('inferred-start');
+    expect(byPath.get('start.md')?.dateStatus).toBe('inferred-end');
   });
 
-  it('default visibility shows every task regardless of date completeness (R7)', async () => {
-    const controller = makeControllerWith(showAll, [
+  it('derivation includes every task regardless of date completeness (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
       task({ path: 'dateless.md' }),
       task({ path: 'due.md', end: AUG17 }),
       task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
@@ -623,37 +633,36 @@ describe('GanttController — date policy + visibility (U2)', () => {
     expect(await controller.getInstances()).toHaveLength(3);
   });
 
-  it('a hidden multi-parent task contributes no instances at all', async () => {
-    // child is dateless and would normally render under both A and B.
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'A.md', start: new Date(2026, 7, 1), end: AUG17 }),
-        task({ path: 'B.md', start: new Date(2026, 7, 1), end: AUG17 }),
-        task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
-      ],
-    );
+  it('an undated multi-parent task still expands under every parent (R1)', async () => {
+    // child is dateless; under the old derivation a hide-undated toggle dropped
+    // BOTH placements. The derivation no longer drops — it expands under A and B.
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'A.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      task({ path: 'B.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+    ]);
     await controller.init();
     const childInstances = (await controller.getInstances()).filter(
       (i) => i.sourcePath === 'child.md',
     );
-    expect(childInstances).toHaveLength(0);
+    expect(childInstances).toHaveLength(2);
+    expect(childInstances.every((i) => i.dateStatus === 'placeholder')).toBe(true);
   });
 
-  it('reparents children of a hidden interior parent to root (documented shadow path)', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'parent.md' }), // undated → hidden
-        task({ path: 'child.md', parents: ['parent.md'], end: AUG17 }),
-      ],
-    );
+  it('an undated interior parent is retained with its dated child nested under it (R1)', async () => {
+    // Old derivation hid the undated parent and reparented the child to root.
+    // Now the parent stays and the child nests under it (KTD4: the view's filterTree
+    // keeps an undated parent of a dated child anyway — R8's accepted behavior).
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'parent.md' }), // undated → retained, not dropped
+      task({ path: 'child.md', parents: ['parent.md'], end: AUG17 }),
+    ]);
     await controller.init();
     const instances = await controller.getInstances();
     const child = instances.find((i) => i.sourcePath === 'child.md');
 
-    expect(instances.map((i) => i.sourcePath)).toEqual(['child.md']);
-    expect(child?.parent).toBeUndefined(); // reparented to root
+    expect(instances.map((i) => i.sourcePath).sort()).toEqual(['child.md', 'parent.md']);
+    expect(child?.parent).toBeDefined(); // nested under the retained parent, NOT root
   });
 
   it('refreshes on a status-only change (comparator includes dateStatus)', async () => {
@@ -665,7 +674,7 @@ describe('GanttController — date policy + visibility (U2)', () => {
     const controller = new GanttController({
       app: fakeApp,
       basesInput: basesInputStub,
-      policyConfig: showAll,
+      policyConfig: dur1,
       now: () => FIXED_TODAY,
       deps: {
         createTaskNotesSource: async () => tn,
@@ -909,7 +918,6 @@ describe('GanttController — companion expansion stage (U4)', () => {
     parents?: Record<string, string[]>;
     deps?: Record<string, SourceDependency[]>;
     mode?: 'inherit' | 'show-all';
-    hideTopLevel?: boolean;
   }): GanttController {
     const base = new FakeSource({ tasks: opts.baseTasks });
     const enrichment = new CompanionEnrichment({
@@ -923,7 +931,6 @@ describe('GanttController — companion expansion stage (U4)', () => {
       basesInput: basesInputStub,
       companionConfig: () => ({
         mode: opts.mode ?? 'inherit',
-        hideTopLevel: opts.hideTopLevel ?? false,
       }),
       deps: {
         createBasesSource: () => base,
@@ -957,33 +964,20 @@ describe('GanttController — companion expansion stage (U4)', () => {
     expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['P.md']);
   });
 
-  it('hide off: a matched child renders both at root and nested (alsoTopLevel)', async () => {
+  it('a matched child ALWAYS renders both at root (also-top-level duplicate) and nested — hide-top is a view filter, not a data change (#161)', async () => {
     const controller = makeCompanion({
       baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
       parents: { 'C.md': ['P.md'] },
       mode: 'inherit',
-      hideTopLevel: false,
     });
     await controller.init();
-    const cIds = (await controller.getInstances())
-      .filter((i) => i.sourcePath === 'C.md')
-      .map((i) => i.id)
-      .sort();
-    expect(cIds).toEqual(['C.md', 'C.md#parent-P.md']);
-  });
-
-  it('hide on: a matched child renders nested only', async () => {
-    const controller = makeCompanion({
-      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
-      parents: { 'C.md': ['P.md'] },
-      mode: 'inherit',
-      hideTopLevel: true,
-    });
-    await controller.init();
-    const cIds = (await controller.getInstances())
-      .filter((i) => i.sourcePath === 'C.md')
-      .map((i) => i.id);
-    expect(cIds).toEqual(['C.md#parent-P.md']);
+    const cInstances = (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md');
+    expect(cInstances.map((i) => i.id).sort()).toEqual(['C.md', 'C.md#parent-P.md']);
+    // The duplicate root copy is FLAGGED so the view can hide it via filter-tasks;
+    // the real nested copy is not. The instance SET is identical regardless of the
+    // Hide-top toggle — that stability is what makes a config toggle unable to churn.
+    expect(cInstances.find((i) => i.id === 'C.md')?.isTopLevelPlacement).toBe(true);
+    expect(cInstances.find((i) => i.id === 'C.md#parent-P.md')?.isTopLevelPlacement).toBe(false);
   });
 
   it('resolves dependency edges for fetched (Show-all) descendants', async () => {
@@ -1002,35 +996,34 @@ describe('GanttController — companion expansion stage (U4)', () => {
     ).toBe(true);
   });
 
-  it('reads companion settings fresh each recompute (toggle applies without remount)', async () => {
-    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
-    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
-    const live = { mode: 'inherit' as 'inherit' | 'show-all', hideTopLevel: true };
+  it('reads companion settings fresh each recompute (mode toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' })] });
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+    });
+    const live = { mode: 'inherit' as 'inherit' | 'show-all' };
     const controller = new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: live.mode, hideTopLevel: live.hideTopLevel }),
+      companionConfig: () => ({ mode: live.mode }),
       deps: {
         createBasesSource: () => base,
         createTaskNotesSource: async () => enrichment,
       },
     });
     await controller.init();
-    // hide on → nested only.
-    expect(
-      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id),
-    ).toEqual(['C.md#parent-P.md']);
+    // Inherit → out-of-result subtasks stay out.
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['P.md']);
 
-    // Flip the live setting and re-run selection (what onDataUpdated does).
-    live.hideTopLevel = false;
+    // Flip the live setting and re-run selection (what onDataUpdated does): the
+    // fresh read takes effect without a remount — Show-all now fetches C.
+    live.mode = 'show-all';
     await controller.refreshSource();
-    expect(
-      (await controller.getInstances())
-        .filter((i) => i.sourcePath === 'C.md')
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual(['C.md', 'C.md#parent-P.md']);
+    expect(new Set((await controller.getInstances()).map((i) => i.sourcePath))).toEqual(
+      new Set(['P.md', 'C.md']),
+    );
   });
 
   it('companion stage is inert in standalone mode (parents from the Base)', async () => {
@@ -1058,9 +1051,10 @@ describe('GanttController — companion expansion stage (U4)', () => {
 });
 
 describe('GanttController — per-view settings freshness', () => {
-  it('reads date-policy config fresh each recompute (visibility toggle applies without remount)', async () => {
-    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] }); // no dates → placeholder
-    const policy = { defaultDuration: 1, showUndatedTasks: true, showPartialDateTasks: true };
+  it('reads date-policy config fresh each recompute (defaultDuration change applies without remount)', async () => {
+    // Only a start date → inferred-end bar whose span follows `defaultDuration`.
+    const base = new FakeSource({ tasks: [task({ path: 'S.md', start: new Date(2026, 7, 1) })] });
+    const policy = { defaultDuration: 1 };
     const controller = new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
@@ -1072,12 +1066,17 @@ describe('GanttController — per-view settings freshness', () => {
       },
     });
     await controller.init();
-    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const span1 = await controller.getInstances();
+    // D=1 → single-day bar (start..end within the same day).
+    expect(span1[0]!.end!.getTime() - span1[0]!.start!.getTime()).toBeLessThan(dayMs);
 
-    // Hide undated tasks; a recompute (what onDataUpdated triggers) re-reads it.
-    policy.showUndatedTasks = false;
+    // Widen the bar via a data-shaping change; a recompute re-reads it fresh (R6).
+    policy.defaultDuration = 5;
     await controller.refreshSource();
-    expect(await controller.getInstances()).toEqual([]);
+    const span5 = await controller.getInstances();
+    // D=5 → the inferred end now lands ~4 days after the start.
+    expect(span5[0]!.end!.getTime() - span5[0]!.start!.getTime()).toBeGreaterThan(3 * dayMs);
   });
 
   it('still accepts a static policyConfig object (backward compatible)', async () => {
@@ -1086,14 +1085,15 @@ describe('GanttController — per-view settings freshness', () => {
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      policyConfig: { defaultDuration: 1, showUndatedTasks: false, showPartialDateTasks: true },
+      policyConfig: { defaultDuration: 1 },
       deps: {
         createBasesSource: () => base,
         createTaskNotesSource: async () => null,
       },
     });
     await controller.init();
-    expect(await controller.getInstances()).toEqual([]);
+    // The undated task is RETAINED (visibility is a view filter, not a derivation drop).
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
   });
 });
 
@@ -1141,7 +1141,7 @@ describe('GanttController — source memoization + dependency batching (plan #16
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: 'inherit', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'inherit' }),
       deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
     });
 
@@ -1164,7 +1164,7 @@ describe('GanttController — source memoization + dependency batching (plan #16
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: 'inherit', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'inherit' }),
       deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
     });
 
@@ -1265,22 +1265,21 @@ describe('GanttController — #161 dynamic resultset-change burst (P1 loop regre
    * only in real Bases and is covered by the dynamic-trigger e2e — see
    * `match-harness-execution-model-to-bug-trigger.md`.
    */
-  function makeBurstController(live: { hideTopLevel: boolean }) {
+  function makeBurstController() {
     const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
     const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
     const controller = new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: 'inherit', hideTopLevel: live.hideTopLevel }),
+      companionConfig: () => ({ mode: 'inherit' }),
       deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
     });
-    return { controller, enrichment };
+    return { controller, enrichment, base };
   }
 
   it('an arbitrarily long burst of identical Bases re-notifies neither re-fetches the full-vault index nor notifies (no amplification)', async () => {
-    const live = { hideTopLevel: false };
-    const { controller, enrichment } = makeBurstController(live);
+    const { controller, enrichment } = makeBurstController();
     await controller.init();
     const listener = jest.fn();
     controller.onChange(listener);
@@ -1296,40 +1295,58 @@ describe('GanttController — #161 dynamic resultset-change burst (P1 loop regre
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('the documented hide-top oscillation burst settles to the final value with notifies bounded by genuine transitions, index fetched once (#161 trace)', async () => {
-    const live = { hideTopLevel: false };
-    const { controller, enrichment } = makeBurstController(live);
+  it('a Hide-top toggle burst CANNOT change the instance set — the duplicate placement is invariant, so the chart cannot churn (#161 fix)', async () => {
+    // The #161 churn came from Hide-top being baked into the instance derivation:
+    // toggling it re-built a different instance array (390↔945) on every Bases
+    // re-notify. Now Hide-top is a pure VIEW filter (filter-tasks), so the
+    // controller's instance set is INVARIANT under the toggle. We prove that: many
+    // refreshes (the documented oscillation, distilled — the controller no longer
+    // even reads the toggle) produce the SAME instance set, emit ZERO change
+    // notifications (idempotent), and never re-fetch the full-vault index. There is
+    // nothing left for a config oscillation to churn.
+    const { controller, enrichment } = makeBurstController();
     await controller.init();
+    const snapshot = () =>
+      controller.getInstances().then((xs) =>
+        xs.filter((i) => i.sourcePath === 'C.md').map((i) => i.id).sort(),
+      );
+    const before = await snapshot();
     const listener = jest.fn();
     controller.onChange(listener);
 
-    // Replay the captured oscillation: false→true→true→false across one toggle's
-    // onDataUpdated burst (bug report §14). Each fire re-reads the live config
-    // (exactly what the un-debounced view did), so the controller sees the value
-    // flip. The correct behavior is to notify ONCE per genuine state transition
-    // (false→true, true→false) and stay inert on the repeat (true→true) — the
-    // idempotent backstop — never amplifying. The view's 500ms debounce collapses
-    // this burst to a single settled read upstream; this proves that even WITHOUT
-    // the debounce the controller does not spin.
-    const oscillation = [true, true, false];
-    for (const v of oscillation) {
-      live.hideTopLevel = v;
-      await controller.refreshSource();
-    }
+    for (let i = 0; i < 6; i += 1) await controller.refreshSource();
 
-    // false→true (1) ... true→true (no-op) ... true→false (1) = exactly 2.
-    expect(listener).toHaveBeenCalledTimes(2);
-    // A view-option toggle is NOT a TaskNotes data-change → the full-vault index
-    // is never re-read across the whole burst (no re-poke).
-    expect(enrichment.relationshipIndexCalls).toBe(1);
-    // And it settled on the FINAL value (hide off → C renders at root + nested),
-    // not a stale mid-burst state.
+    expect(await snapshot()).toEqual(before); // instance set unchanged across the burst
+    expect(before).toEqual(['C.md', 'C.md#parent-P.md']); // duplicate placement always present
+    expect(listener).not.toHaveBeenCalled(); // no transitions → no churn
+    expect(enrichment.relationshipIndexCalls).toBe(1); // no re-poke
+  });
+
+  it('reuseTasks skips the Bases source re-read on a config-only refresh, yet still applies the config (#161 storm root-cause fix)', async () => {
+    // ROOT CAUSE: re-reading the Bases source (source.getTasks() — extracting
+    // every entry's values) on a config-only notify is what re-pokes Bases into
+    // an endless onDataUpdated re-notify storm at scale. When the view knows the
+    // entries are unchanged (same matched set), it passes reuseTasks:true so the
+    // controller reuses the cached base tasks — no re-read, no re-poke — while
+    // still re-running the (Bases-free) companion expansion against fresh config.
+    const { controller, base } = makeBurstController();
+    await controller.init();
+    const callsAfterInit = base.getTasksCalls;
+    expect(callsAfterInit).toBeGreaterThan(0); // init did a real read
+
+    // Config-only refresh (entries unchanged) with reuseTasks → NO source re-read.
+    await controller.refreshSource({ reuseTasks: true });
+    expect(base.getTasksCalls).toBe(callsAfterInit); // getTasks NOT called again
+    // …and the expansion still ran (companion-free): the full instance set is
+    // produced (the also-top-level duplicate is always present — Hide-top is a view
+    // filter applied downstream, not here).
     expect(
-      (await controller.getInstances())
-        .filter((i) => i.sourcePath === 'C.md')
-        .map((i) => i.id)
-        .sort(),
+      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id).sort(),
     ).toEqual(['C.md', 'C.md#parent-P.md']);
+
+    // A genuine refresh (entries may have changed) re-reads as before.
+    await controller.refreshSource({ reuseTasks: false });
+    expect(base.getTasksCalls).toBeGreaterThan(callsAfterInit);
   });
 });
 
@@ -1366,7 +1383,7 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
           progressProperty: 'note.progress',
         } as never,
       }),
-      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'show-all' }),
       sortConfig: opts.sortConfig,
       deps: {
         createBasesSource: () => base,
@@ -1451,7 +1468,7 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'show-all' }),
       deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
     });
     await controller.init();

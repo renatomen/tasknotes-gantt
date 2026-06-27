@@ -58,6 +58,10 @@
   import { toggleCollapseAll } from './collapseState';
   import { propertyColumnSort } from './columnSort';
   import { cycleNext, type EphemeralSort } from './sortCycle';
+  import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
+  import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
+  import type { DateStatus } from '../controller/datePolicy';
+  import { dlog } from '../debugLog';
 
   // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
   // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
@@ -194,7 +198,7 @@
    */
   function applyObsidianDark(nextDark: boolean): void {
     if (nextDark === obsidianIsDark) return;
-    console.log(`[OGDBG] applyObsidianDark ${obsidianIsDark} -> ${nextDark} (effectiveIsDark may flip → <Gantt> remount)`);
+    dlog(`[OGDBG] applyObsidianDark ${obsidianIsDark} -> ${nextDark} (effectiveIsDark may flip → <Gantt> remount)`);
     maybeReseedForThemeFlip(mode, nextDark);
     obsidianIsDark = nextDark;
   }
@@ -230,6 +234,27 @@
   // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
+
+  // "Hide top-level subtasks" (#161), store-driven like showToolbar. Applied as a
+  // SVAR filter-tasks DISPLAY filter (see the effect below), NOT by changing the
+  // task set — so toggling it (or Bases oscillating the persisted value) hides/
+  // shows the duplicate root rows cheaply, scroll-stable, and can never churn.
+  const hideTopLevel = $derived($data.hideTopLevelSubtasks ?? false);
+
+  // "Show tasks with no dates / only one date" (#161), store-driven like hideTopLevel.
+  // Applied in the SAME composed filter-tasks DISPLAY filter (see applyDisplayFilters),
+  // never by re-derivation — so toggling them (or Bases oscillating the persisted
+  // value) hides/shows rows cheaply, scroll-stable, and can never churn the chart.
+  const showUndated = $derived($data.showUndatedTasks ?? true);
+  const showPartial = $derived($data.showPartialDateTasks ?? true);
+
+  // Heads-up when a date filter is OFF but incomplete-date PARENTS (undated or
+  // partial-date) stay visible because a dated descendant keeps them (SVAR filterTree
+  // semantics, KTD4/R8). Contextual: only present when it actually happens, so
+  // there's no standing noise.
+  const retainedAncestorNotice = $derived(
+    buildRetainedAncestorNotice($data.instances, { hideTopLevel, showUndated, showPartial }),
+  );
 
   // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
   // option re-fits the host live without a remount. Default 400 (R1).
@@ -502,6 +527,52 @@
     syncToGantt(d);
   });
 
+  /**
+   * Apply ALL row-visibility options (Hide-top ∧ Show-undated ∧ Show-partial) as
+   * ONE composed SVAR `filter-tasks` DISPLAY filter over the stable task array
+   * (#161, U4). The shared {@link shouldHideRow} predicate reads each row's
+   * `custom` (`isTopLevelPlacement` + `dateStatus`). `filter-tasks` recomputes
+   * SVAR's visible set WITHOUT touching the `tasks` array (no add/delete diff) and
+   * preserves scroll/zoom — so a toggle (or a Bases config oscillation) is cheap
+   * and can never churn the chart. When every option is show-everything, clear with
+   * no predicate. `open: false` so it never force-expands collapsed branches.
+   *
+   * The predicate is ALWAYS passed as `filter` (a function), never as a
+   * `{key, value}` column filter — keeping the clear-path semantics intact (KTD4).
+   */
+  function applyDisplayFilters(): void {
+    if (!api?.exec) return;
+    const flags = { hideTopLevel, showUndated, showPartial };
+    if (anyRowFilterActive(flags)) {
+      api.exec('filter-tasks', {
+        filter: (t: { custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } }) =>
+          !shouldHideRow(
+            {
+              isTopLevelPlacement: !!t?.custom?.isTopLevelPlacement,
+              dateStatus: t?.custom?.dateStatus ?? 'complete',
+            },
+            flags,
+          ),
+        open: false,
+      });
+    } else {
+      api.exec('filter-tasks', { open: false });
+    }
+  }
+
+  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle
+  // AND after any data refresh (so newly-added rows are filtered too). Created AFTER
+  // the sync effect so it runs after the diff lands. A display-only change is a
+  // content-NOOP for the sync (the task set is identical), so this is the path that
+  // actually toggles row visibility.
+  $effect(() => {
+    void $data; // re-run after every store update (post-sync)
+    void hideTopLevel; // re-run when any row-visibility toggle flips
+    void showUndated;
+    void showPartial;
+    if (api) applyDisplayFilters();
+  });
+
   function syncToGantt(d: GanttData): void {
     // A column-config change can't be applied incrementally — SVAR has no
     // per-column update action, and a new `columns` reference re-inits the whole
@@ -511,7 +582,7 @@
     // resync the applied maps, and let the single re-init render it. Zoom/scroll
     // reset here — accepted, since this only fires on an actual column change.
     if (d.gridColumnsKey !== appliedColumnsKey) {
-      console.log(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+      dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
       reseedForColumnChange(d);
       return;
     }
@@ -537,10 +608,10 @@
     // sort term keeps an R6 clear from being skipped when a toolbar re-sort
     // happens to leave the row order identical (e.g. a single-row tree).
     if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) {
-      console.log('[OGDBG] sync NOOP');
+      dlog('[OGDBG] sync NOOP');
       return;
     }
-    console.log(
+    dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
         ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
@@ -621,7 +692,7 @@
       // (planReorder + per-row move-task). A large reorderMoves with a big total
       // is the O(N²) suspect for the refresh freeze.
       const now = performance.now();
-      console.log(
+      dlog(
         `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
           ` (exec=${Math.round(tAfterExec - tSyncStart)}ms reorder=${Math.round(now - tAfterExec)}ms` +
           ` reorderMoves=${reorderMoves})`,
@@ -1032,7 +1103,7 @@
     // [OGDBG #161] initGantt fires once per SVAR (re)initialization. Repeated
     // lines during a config toggle ⇒ a remount/reseed loop, not refresh-in-place.
     dbgInitCount += 1;
-    console.log(`[OGDBG] initGantt #${dbgInitCount} svarTasks=${api?.getState?.()?.tasks?.length ?? '?'}`);
+    dlog(`[OGDBG] initGantt #${dbgInitCount} svarTasks=${api?.getState?.()?.tasks?.length ?? '?'}`);
 
     // Native edit interaction (U2): a bar's left/double-click routes to the
     // TaskNotes interaction service (via onBarActivate) instead of a custom
@@ -1552,6 +1623,15 @@
     <div class="og-readonly-banner" role="status">
       <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
       <span class="og-readonly-text">{dateMappingNotice}</span>
+    </div>
+  {/if}
+
+  <!-- Retained incomplete-date-parent notice (#161 U8/R8): a date filter is OFF but
+       some undated/partial-date parents stay visible because a dated child keeps them. -->
+  {#if retainedAncestorNotice}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'info'}></span>
+      <span class="og-readonly-text">{retainedAncestorNotice}</span>
     </div>
   {/if}
 

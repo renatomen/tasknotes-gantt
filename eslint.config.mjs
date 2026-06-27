@@ -16,6 +16,8 @@ export default [
       "project/**",
       "test-results/**",
       "vendor/**",
+      // Local-only e2e probes (gitignored, point at private vaults; never committed)
+      "test/specs/_local-*",
     ],
   },
   // Base JS recommended rules

@@ -179,6 +179,7 @@ async function installCounter(): Promise<void> {
       __ogOrigLog?: (...a: unknown[]) => void;
     };
     w.__ogCounts = { onDataUpdated: 0, recompute: 0, coalescer: 0, mount: 0 };
+    (w as unknown as { __tnGanttDebug?: boolean }).__tnGanttDebug = true; // #161: enable gated [OGDBG] markers
     const orig = console.log.bind(console);
     w.__ogOrigLog = orig;
     console.log = (...args: unknown[]) => {

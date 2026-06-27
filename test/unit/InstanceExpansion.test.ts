@@ -66,6 +66,28 @@ describe('expandInstances — alsoTopLevel + isFetched (U4)', () => {
     ]);
   });
 
+  it('marks the alsoTopLevel root instance AND its whole subtree with isTopLevelPlacement (#161 display-filter)', () => {
+    // hideTop becomes a VIEW filter over a stable instance set: the also-top-level
+    // DUPLICATE placement (root copy + everything under it) is flagged so the view
+    // can hide it via SVAR filter-tasks, without re-deriving the instance array.
+    const result = expandInstances([
+      task({ path: 'P.md' }),
+      { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true },
+      task({ path: 'G.md', parents: ['C.md'] }),
+    ]);
+    // Duplicate root placement + its subtree → flagged.
+    expect(byId(result.instances, 'C.md').isTopLevelPlacement).toBe(true);
+    expect(byId(result.instances, 'G.md#parent-C.md').isTopLevelPlacement).toBe(true);
+    // The real nested copies → NOT flagged (these stay visible under hideTop).
+    expect(byId(result.instances, 'C.md#parent-P.md').isTopLevelPlacement).toBe(false);
+    expect(byId(result.instances, 'G.md#parent-C.md#parent-P.md').isTopLevelPlacement).toBe(false);
+  });
+
+  it('genuine root instances (a task with no visible parent) are NOT flagged isTopLevelPlacement', () => {
+    const result = expandInstances([task({ path: 'R.md' })]);
+    expect(byId(result.instances, 'R.md').isTopLevelPlacement).toBe(false);
+  });
+
   it('carries isFetched onto every instance (defaults false)', () => {
     const result = expandInstances([
       { ...task({ path: 'F.md' }), isFetched: true },

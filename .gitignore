@@ -19,6 +19,9 @@ Thumbs.db
 .test-results/
 .wdio-*
 
+# Local-only e2e probes (point at private vaults; never commit)
+test/specs/_local-*
+
 # Env files (if used)
 .env
 .env.*

@@ -54,7 +54,7 @@ describe("resolveCompanionTree", () => {
   it("AE1 — Inherit + hide off: matched child is nested AND flagged alsoTopLevel", () => {
     const out = resolveCompanionTree(
       [task("P.md"), task("C.md")],
-      { mode: "inherit", hideTopLevel: false },
+      { mode: "inherit" },
       buildIndex({ parents: { "C.md": ["P.md"] } }),
     );
     expect(paths(out)).toEqual(["C.md", "P.md"]);
@@ -65,19 +65,10 @@ describe("resolveCompanionTree", () => {
     expect(byPath(out, "P.md").alsoTopLevel).toBe(false); // no parent → already root
   });
 
-  it("AE2 — Inherit + hide on: matched child is nested only (no alsoTopLevel)", () => {
-    const out = resolveCompanionTree(
-      [task("P.md"), task("C.md")],
-      { mode: "inherit", hideTopLevel: true },
-      buildIndex({ parents: { "C.md": ["P.md"] } }),
-    );
-    expect(byPath(out, "C.md").alsoTopLevel).toBe(false);
-  });
-
   it("AE3 — Show all: pulls transitive fetched descendants, flagged isFetched", () => {
     const out = resolveCompanionTree(
       [task("P.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({
         subtasks: { "P.md": [task("C.md")], "C.md": [task("G.md")] },
         parents: { "C.md": ["P.md"], "G.md": ["C.md"] },
@@ -91,7 +82,7 @@ describe("resolveCompanionTree", () => {
   it("Inherit does NOT fetch subtasks (out-of-result children stay out)", () => {
     const out = resolveCompanionTree(
       [task("P.md")],
-      { mode: "inherit", hideTopLevel: false },
+      { mode: "inherit" },
       buildIndex({ subtasks: { "P.md": [task("C.md")] }, parents: { "C.md": ["P.md"] } }),
     );
     expect(paths(out)).toEqual(["P.md"]);
@@ -100,7 +91,7 @@ describe("resolveCompanionTree", () => {
   it("AE4 — Inherit, matched child of unmatched parent: parent kept on the task but not displayed, no alsoTopLevel", () => {
     const out = resolveCompanionTree(
       [task("C.md")],
-      { mode: "inherit", hideTopLevel: false },
+      { mode: "inherit" },
       buildIndex({ parents: { "C.md": ["P.md"] } }),
     );
     expect(paths(out)).toEqual(["C.md"]);
@@ -111,21 +102,21 @@ describe("resolveCompanionTree", () => {
     expect(c.alsoTopLevel).toBe(false);
   });
 
-  it("AE6 — hide on, multi-parent (one matched, one not): both parents carried, no alsoTopLevel", () => {
+  it("AE6 — multi-parent (one matched, one not): both parents carried; alsoTopLevel since a displayed parent exists", () => {
     const out = resolveCompanionTree(
       [task("C.md"), task("P1.md")],
-      { mode: "inherit", hideTopLevel: true },
+      { mode: "inherit" },
       buildIndex({ parents: { "C.md": ["P1.md", "P2.md"] } }),
     );
     const c = byPath(out, "C.md");
     expect(c.parents).toEqual(["P1.md", "P2.md"]);
-    expect(c.alsoTopLevel).toBe(false);
+    expect(c.alsoTopLevel).toBe(true);
   });
 
   it("Show-all is cycle-guarded: a projects cycle does not loop, each node appears once", () => {
     const out = resolveCompanionTree(
       [task("A.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({
         subtasks: { "A.md": [task("B.md")], "B.md": [task("A.md")] },
         parents: { "A.md": ["B.md"], "B.md": ["A.md"] },
@@ -137,29 +128,17 @@ describe("resolveCompanionTree", () => {
   it("Show-all + hide off: a matched child with a matched parent is still alsoTopLevel", () => {
     const out = resolveCompanionTree(
       [task("P.md"), task("C.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({ subtasks: { "P.md": [task("C.md")] }, parents: { "C.md": ["P.md"] } }),
     );
     expect(byPath(out, "C.md").alsoTopLevel).toBe(true);
-  });
-
-  it("Show-all + hide ON: a matched child with a matched parent is nested only (no alsoTopLevel)", () => {
-    // The fourth (mode × hideTopLevel) quadrant: hide-top-level suppresses the
-    // extra top-level instance even in Show-all, so C renders nested under P only.
-    const out = resolveCompanionTree(
-      [task("P.md"), task("C.md")],
-      { mode: "show-all", hideTopLevel: true },
-      buildIndex({ subtasks: { "P.md": [task("C.md")] }, parents: { "C.md": ["P.md"] } }),
-    );
-    expect(byPath(out, "C.md").alsoTopLevel).toBe(false);
-    expect(byPath(out, "C.md").parents).toEqual(["P.md"]);
   });
 
   it("Show-all + hide off, multi-parent both matched: alsoTopLevel with both parents carried", () => {
     // Symmetric to AE6 (which had one matched/one not) — here BOTH parents match.
     const out = resolveCompanionTree(
       [task("P1.md"), task("P2.md"), task("C.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({
         subtasks: { "P1.md": [task("C.md")], "P2.md": [task("C.md")] },
         parents: { "C.md": ["P1.md", "P2.md"] },
@@ -180,14 +159,14 @@ describe("resolveCompanionTree — index consumption (plan #161)", () => {
     // no descendants.
     const out = resolveCompanionTree(
       [task("P.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({ subtasks: { "P.md": [task("C.md")] }, parents: { "C.md": ["P.md"] } }),
     );
     expect(paths(out)).toEqual(["C.md", "P.md"]);
   });
 
   it("empty matched set → empty result", () => {
-    const out = resolveCompanionTree([], { mode: "show-all", hideTopLevel: false }, buildIndex({}));
+    const out = resolveCompanionTree([], { mode: "show-all" }, buildIndex({}));
     expect(out).toEqual([]);
   });
 
@@ -198,7 +177,7 @@ describe("resolveCompanionTree — index consumption (plan #161)", () => {
     // the same result N× getSubtasks would produce.
     const out = resolveCompanionTree(
       [task("P.md")],
-      { mode: "show-all", hideTopLevel: false },
+      { mode: "show-all" },
       buildIndex({
         subtasks: { "P.md": [task("C.md"), task("ALIAS.md")], "ghost.md": [] },
         parents: { "C.md": ["P.md"], "ALIAS.md": ["P.md"], "DANGLING.md": ["ghost.md"] },

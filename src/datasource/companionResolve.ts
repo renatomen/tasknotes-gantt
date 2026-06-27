@@ -87,7 +87,6 @@ export interface CompanionTask extends SourceTask {
 /** Resolver options. */
 export interface CompanionResolveOptions {
   mode: CompanionMode;
-  hideTopLevel: boolean;
 }
 
 /**
@@ -126,7 +125,11 @@ export function resolveCompanionTree(
     const parents = index.parentsByPath.get(path) ?? [];
     const isFetched = !matchedPaths.has(path);
     const hasDisplayedParent = parents.some((p) => displayed.has(p));
-    const alsoTopLevel = !isFetched && !opts.hideTopLevel && hasDisplayedParent;
+    // A matched, also-nested task ALWAYS gets the extra root copy here; whether it
+    // is actually shown is a pure VIEW concern ("Hide top-level subtasks" applies a
+    // SVAR filter-tasks over the stable instance set). Keeping hide-top OUT of the
+    // data is what stops a config toggle from re-deriving + churning the chart (#161).
+    const alsoTopLevel = !isFetched && hasDisplayedParent;
     out.push({ ...src, parents, isFetched, alsoTopLevel });
   }
   return out;

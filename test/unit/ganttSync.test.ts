@@ -47,6 +47,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     dateStatus: over.dateStatus ?? 'complete',
     status: over.status ?? null,
     isFetched: over.isFetched ?? false,
+    isTopLevelPlacement: over.isTopLevelPlacement ?? false,
   };
 }
 
@@ -130,6 +131,19 @@ describe('buildSvarTasks', () => {
       inputs({ instances: [inst({ id: 'a', status: 'unmapped' })], statusColors: [] }),
     );
     expect(t.type).toBe('task');
+  });
+
+  it('carries dateStatus onto custom for the view filter predicate (U2)', () => {
+    // The presentation-layer show-undated/show-partial filter reads custom.dateStatus
+    // to decide row visibility (#161), so it must ride each instance onto the task.
+    const [placeholder] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })] }),
+    );
+    expect(placeholder.custom.dateStatus).toBe('placeholder');
+    const [partial] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'b', dateStatus: 'inferred-start' })] }),
+    );
+    expect(partial.custom.dateStatus).toBe('inferred-start');
   });
 
   it('sets showHasDeps only for a non-primary linked instance in primary mode', () => {
@@ -228,6 +242,21 @@ describe('instance cues (U6)', () => {
       expect(t.type.split(' ')).toContain(REPLICATED_TYPE);
       expect(t.custom.isReplicated).toBe(true);
     }
+  });
+
+  it('carries isTopLevelPlacement onto the SVAR task custom (#161 — drives the Hide-top filter-tasks predicate)', () => {
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'dup', isTopLevelPlacement: true }),
+          inst({ id: 'real', isTopLevelPlacement: false }),
+        ],
+      }),
+    );
+    // The view's filter-tasks predicate reads exactly this flag to hide the
+    // also-top-level duplicate placement while keeping the real nested copy.
+    expect(tasks.find((t) => t.id === 'dup')!.custom.isTopLevelPlacement).toBe(true);
+    expect(tasks.find((t) => t.id === 'real')!.custom.isTopLevelPlacement).toBe(false);
   });
 
   it('does not mark a unique source path replicated', () => {
@@ -394,6 +423,23 @@ describe('taskStateKey', () => {
   it('is identical for identical content', () => {
     const [a] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
+    expect(taskStateKey(a)).toBe(taskStateKey(b));
+  });
+
+  it('is identical regardless of custom.dateStatus (KTD3 diff-safety guard)', () => {
+    // dateStatus rides into custom for the view filter but MUST NOT enter the
+    // task-update fingerprint — otherwise a date-status change would inflate the
+    // SVAR diff (#161). Same content, different dateStatus → same key.
+    const [a] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'complete' })], showDateIndicators: false }),
+    );
+    const [b] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', dateStatus: 'placeholder' })],
+        showDateIndicators: false,
+      }),
+    );
+    expect(a.custom.dateStatus).not.toBe(b.custom.dateStatus);
     expect(taskStateKey(a)).toBe(taskStateKey(b));
   });
 });

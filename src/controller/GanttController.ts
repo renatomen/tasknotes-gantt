@@ -71,6 +71,7 @@ import {
   type FieldConfig,
   type MutationContext,
   type SourceDependency,
+  type SourceTask,
   type StatusColor,
   type TaskPatch,
 } from '../datasource';
@@ -83,7 +84,8 @@ import {
   type RenderLink,
   type SourceLink,
 } from './InstanceExpansion';
-import { applyDatePolicy, type DateStatus } from './datePolicy';
+import { applyDatePolicy } from './datePolicy';
+import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
   type CompanionAccessor,
@@ -100,17 +102,16 @@ import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 export interface DatePolicyConfig {
   /** Bar length (days) for partial/placeholder tasks; `1` → single-day bars. */
   defaultDuration: number;
-  /** When `false`, undated (placeholder) tasks are filtered out entirely. */
-  showUndatedTasks: boolean;
-  /** When `false`, partial-date (inferred) tasks are filtered out entirely. */
-  showPartialDateTasks: boolean;
 }
 
-/** Default policy config: single-day partials, show everything (R6/R7). */
+/**
+ * Default policy config: single-day partials. Row-visibility options
+ * (`showUndatedTasks`/`showPartialDateTasks`) deliberately do NOT live here —
+ * they are pure presentation filters applied in the view (#161, KTD7), so the
+ * derivation is a function of the matched result + data-shaping config only.
+ */
 export const DEFAULT_DATE_POLICY_CONFIG: DatePolicyConfig = {
   defaultDuration: 1,
-  showUndatedTasks: true,
-  showPartialDateTasks: true,
 };
 
 /**
@@ -124,12 +125,6 @@ export const DEFAULT_CORRELATION_TTL_MS = 5000;
 
 /** `source` tag attached to every write's {@link MutationContext}. */
 const GANTT_MUTATION_SOURCE = 'obsidian-gantt';
-
-/** `dateStatus` values produced by partial (one-date-only) tasks. */
-const PARTIAL_STATUSES: ReadonlySet<DateStatus> = new Set([
-  'inferred-start',
-  'inferred-end',
-]);
 
 /**
  * The Bases fallback inputs the controller needs to construct a
@@ -348,6 +343,8 @@ export class GanttController {
   private relationshipIndex: RelationshipIndex | null = null;
   private readonly dependencyCache = new Map<string, SourceDependency[]>();
   private enrichmentDirty = true;
+  /** [OGDBG #161 fix-prototype] last base tasks read, for the reuse experiment. */
+  private cachedRawTasks: readonly SourceTask[] | null = null;
 
   /**
    * Monotonic recompute token. Each {@link recompute} captures the current
@@ -441,7 +438,7 @@ export class GanttController {
     const pc = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
     this.policyConfigProvider = typeof pc === 'function' ? pc : () => pc;
     this.companionConfig =
-      options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
+      options.companionConfig ?? (() => ({ mode: 'inherit' }));
     this.sortConfig = options.sortConfig ?? (() => []);
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
@@ -475,7 +472,7 @@ export class GanttController {
    * This is the reactive selection entry point: call it whenever TaskNotes
    * availability may have flipped.
    */
-  public async refreshSource(): Promise<void> {
+  public async refreshSource(opts: { reuseTasks?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -492,8 +489,10 @@ export class GanttController {
     // Recompute the snapshot from the new source. recompute() notifies only on
     // an actual change (snapshot value-inequality or a write-capability flip), so
     // a re-selection that yields identical data + capability is a no-op — the
-    // guard that stops the in-place refresh loop (#161).
-    await this.recompute();
+    // guard that stops the in-place refresh loop (#161). `reuseTasks` additionally
+    // skips the Bases entry re-read when the caller knows the entries are unchanged
+    // (config-only notify), which is what stops the re-notify storm (#161).
+    await this.recompute({ reuseTasks: opts.reuseTasks });
   }
 
   /**
@@ -1024,7 +1023,7 @@ export class GanttController {
    * re-notify carrying unchanged data does not re-render (fixes the in-place
    * refresh loop where each render re-triggered Bases' notify — #161).
    */
-  private async recompute(): Promise<void> {
+  private async recompute(opts: { reuseTasks?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -1034,7 +1033,7 @@ export class GanttController {
     const seq = ++this.recomputeSeq;
     const source = this.activeSource;
     const next: Snapshot = source
-      ? await this.buildSnapshot(source)
+      ? await this.buildSnapshot(source, opts.reuseTasks ?? false)
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
@@ -1051,7 +1050,9 @@ export class GanttController {
           : 'none';
     const changed = reason !== 'none';
     // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
-    console.log(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
+    // Gated default-OFF (set window.__tnGanttDebug=true) — a cheap per-recompute
+    // counter the storm/loop e2es read to detect an unbounded notify loop.
+    dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
 
     if (changed) {
@@ -1060,10 +1061,22 @@ export class GanttController {
     }
   }
 
-  /** Build a fresh snapshot by querying the source for tasks and dependencies. */
-  private async buildSnapshot(source: DataSource): Promise<Snapshot> {
+  /**
+   * Build a fresh snapshot by querying the source for tasks and dependencies.
+   *
+   * `reuseTasks` (#161 storm fix): when the caller knows the Bases entries did
+   * NOT change (a config-only / echo notify — same matched set), reuse the
+   * previously-read base tasks instead of calling `source.getTasks()` again.
+   * That re-read (extracting every entry's field values) is what re-pokes Bases
+   * into an `onDataUpdated` re-notify; skipping it on config-only changes breaks
+   * the feedback loop while the (cheap, Bases-free) companion expansion still
+   * re-runs against the fresh config, so the option toggle still applies.
+   */
+  private async buildSnapshot(source: DataSource, reuseTasks: boolean): Promise<Snapshot> {
     const tStart = performance.now(); // [OGDBG #161] stage timing
-    const rawTasks = await source.getTasks();
+    const canReuse = reuseTasks && this.cachedRawTasks !== null;
+    const rawTasks = canReuse ? this.cachedRawTasks! : await source.getTasks();
+    this.cachedRawTasks = rawTasks;
     const tGetTasks = performance.now(); // [OGDBG #161]
     // Companion stage (bases-scoped + TaskNotes): resolve the displayed set
     // (Inherit/Show-all), override parents from `projects`, and flag
@@ -1130,21 +1143,23 @@ export class GanttController {
     const tDeps = performance.now(); // [OGDBG #161]
     // [OGDBG #161] enrichment-cache effectiveness + live config values + stage
     // timings (ms) per build — discriminates a slow data pipeline from slow SVAR.
-    try {
-      const cc = this.companionConfig();
-      const pc = this.policyConfigProvider();
-      const ms = (a: number, b: number) => Math.round(b - a);
-      console.log(
-        `[OGDBG] build dirty=${dbgDirty} fetchedIndex=${dbgFetchedIndex} depMisses=${dbgDepMisses}` +
-          ` companion=${!!this.companionAccessor} mode=${cc.mode} hideTop=${cc.hideTopLevel}` +
-          ` showUndated=${pc.showUndatedTasks} showPartial=${pc.showPartialDateTasks}` +
-          ` tasks=${tasks.length} instances=${expansion.instances.length}` +
-          ` | ms: total=${ms(tStart, tDeps)} getTasks=${ms(tStart, tGetTasks)}` +
-          ` companion=${ms(tGetTasks, tCompanion)} expand=${ms(tCompanion, tExpand)}` +
-          ` deps=${ms(tExpand, tDeps)}`,
-      );
-    } catch (e) {
-      console.log('[OGDBG] build log failed', e);
+    // Gated default-OFF: the whole block (incl. companionConfig()) is skipped in
+    // production so it adds zero per-build cost; enable via window.__tnGanttDebug.
+    if (isGanttDebugEnabled()) {
+      try {
+        const cc = this.companionConfig();
+        const ms = (a: number, b: number) => Math.round(b - a);
+        dlog(
+          `[OGDBG] build dirty=${dbgDirty} fetchedIndex=${dbgFetchedIndex} depMisses=${dbgDepMisses}` +
+            ` companion=${!!this.companionAccessor} mode=${cc.mode}` +
+            ` tasks=${tasks.length} instances=${expansion.instances.length}` +
+            ` | ms: total=${ms(tStart, tDeps)} getTasks=${ms(tStart, tGetTasks)}` +
+            ` companion=${ms(tGetTasks, tCompanion)} expand=${ms(tCompanion, tExpand)}` +
+            ` deps=${ms(tExpand, tDeps)}`,
+        );
+      } catch (e) {
+        dlog('[OGDBG] build log failed', e);
+      }
     }
 
     const sourceLinks: SourceLink[] = [];
@@ -1167,18 +1182,18 @@ export class GanttController {
   }
 
   /**
-   * Resolve each raw task's display dates via the date policy and drop tasks
-   * hidden by the visibility toggles — **before** expansion, so a hidden
-   * multi-parent task produces no instances at all. Returns resolved tasks
-   * (non-null dates + `dateStatus`) ready for {@link expandInstances}.
-   *
-   * Note: hiding an *interior* parent reparents its visible children to the
-   * root (expansion drops parent paths not in the visible set) — accepted
-   * behaviour, not a silent surprise (see plan U2).
+   * Resolve each raw task's display dates via the date policy and tag its
+   * `dateStatus`. Produces the FULL instance set regardless of the "Show tasks
+   * with no dates / only one date" toggles — those are pure DISPLAY filters
+   * applied in the view via SVAR `filter-tasks` (keyed off `dateStatus`), exactly
+   * like "Hide top-level subtasks". Keeping them OUT of the derivation means the
+   * instance set is stable when they toggle, so a Bases config oscillation cannot
+   * churn the chart (#161). `dateStatus` rides each {@link RenderInstance} onto the
+   * SVAR task so the view's predicate can read it.
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfigProvider();
+    const { defaultDuration } = this.policyConfigProvider();
 
     const resolved: ExpandableTask[] = [];
     for (const task of rawTasks) {
@@ -1186,8 +1201,6 @@ export class GanttController {
         { start: task.start, end: task.end },
         { defaultDuration, today },
       );
-      if (!showUndatedTasks && dateStatus === 'placeholder') continue;
-      if (!showPartialDateTasks && PARTIAL_STATUSES.has(dateStatus)) continue;
       resolved.push({ ...task, start, end, dateStatus });
     }
     return resolved;
