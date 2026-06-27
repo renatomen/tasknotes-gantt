@@ -47,12 +47,20 @@ export interface ReadinessWindowConfig {
 
 /**
  * Default bound + schedule (R5) — named, in one place, so call sites never carry
- * magic literals and U4 calibrates them from the perf harness here.
+ * magic literals and U4 tunes them here.
  *
  * 5 attempts at base 500ms × factor 2 → re-checks at ~0.5s, 1s, 2s, 4s, 8s after
  * mount (≈15.5s of coverage), bounding warmup to ≤5 full-vault scans per mount
  * (R10/R12) while the exponential spacing keeps later attempts off the in-progress
- * cold `metadataCache` scan. Confirmed against the perf harness in U4.
+ * cold `metadataCache` scan (the first attempt waits 500ms rather than firing into
+ * the cold scan). The count + ~10–15s span follows the origin's measured-order
+ * guidance; backoff is retained (not collapsed to a single delay) because the
+ * origin observes multi-minute cold scans on large vaults — no single short delay
+ * covers that, and a vault slower than the cap degrades to today's manual-edit
+ * recovery (the accepted residual, kept small by this schedule). The per-vault
+ * relationship-lag is environment-specific; U4 confirmed steady-state
+ * NON-regression (the window is dormant outside the lag) via the isolated perf
+ * gate + the bounded-attempt unit suite, not a single machine's lag number.
  */
 export const DEFAULT_READINESS_WINDOW_CONFIG: Readonly<
   Omit<ReadinessWindowConfig, 'scheduler'>
