@@ -63,14 +63,20 @@ export interface CompanionAccessor {
   /**
    * Build the full {@link RelationshipIndex} in one bulk operation, so the
    * resolver never performs a per-node vault scan (the O(N²) freeze fix — plan
-   * #161, U1). Returns empty maps (never throws) when the relationship API is
-   * absent or fails.
+   * #161, U1).
    *
-   * This is a **full-vault read** (`api.tasks.list()`), so the controller caches
-   * its result and only re-fetches on a genuine TaskNotes data-change — calling
-   * it on every Bases notify re-pokes Bases into re-notifying (the #161 loop).
+   * Returns `null` to signal **not-ready** — the underlying task source was cold
+   * (e.g. Obsidian's `metadataCache` had not warmed at view-mount), so any index
+   * built now would be spuriously empty. The controller must NOT cache a `null`;
+   * it re-fetches on the next build until the source warms. A non-null index —
+   * even one with empty maps — is **authoritative** (the vault simply has no
+   * parent/child edges) and IS cached.
+   *
+   * This is a **full-vault read** (`api.tasks.list()`); caching the authoritative
+   * result and re-fetching only on a genuine TaskNotes data-change keeps the
+   * expensive scan off every Bases notify.
    */
-  getRelationshipIndex(): Promise<RelationshipIndex>;
+  getRelationshipIndex(): Promise<RelationshipIndex | null>;
 }
 
 /** A displayed task plus the flags the instance expander consumes. */

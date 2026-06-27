@@ -1109,10 +1109,17 @@ export class GanttController {
     let orderedTasks: readonly ExpandableTask[];
     if (this.companionAccessor) {
       if (!this.relationshipIndex) {
+        // `null` = the source is not-ready (cold metadataCache): render
+        // matched-only for now but DON'T cache it, so the next build re-fetches
+        // until the index warms (readiness bug #161 — a stale-empty cache would
+        // otherwise stick Show-all at the matched-only count, never self-healing
+        // because a warm-restart metadataCache load fires no task.* event).
         this.relationshipIndex = await this.companionAccessor.getRelationshipIndex();
         dbgFetchedIndex = true;
       }
-      const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), this.relationshipIndex);
+      const index: RelationshipIndex =
+        this.relationshipIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
+      const companionTasks = resolveCompanionTree(rawTasks, this.companionConfig(), index);
       // Interleave by the RESOLVED field mappings (the same per-user config that
       // filled task.start/end/status/…), never a hardcoded property table — so a
       // Base sort only positions fetched rows when its property is the one a Gantt

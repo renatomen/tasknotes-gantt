@@ -1223,6 +1223,89 @@ describe('GanttController — source memoization + dependency batching (plan #16
     expect(enrichment.relationshipIndexCalls).toBe(2);
   });
 
+  it('does NOT cache a not-ready (null) relationship index; re-fetches until warm and heals Show-all (readiness bug)', async () => {
+    // Base matches only the parent; the child is pulled in by Show-all from the
+    // relationship index. While TaskNotes' metadataCache is cold the index is
+    // not-ready (null) → no children pulled → Show-all stuck at matched-only.
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' })] });
+    type RIndex = import('../../src/datasource/companionResolve').RelationshipIndex;
+    const live: { index: RIndex | null } = { index: null };
+    let calls = 0;
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: async (): Promise<RIndex | null> => {
+        calls += 1;
+        return live.index;
+      },
+    } as unknown as DataSource;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    // Cold: not-ready index → matched-only (no Show-all fetch).
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual(['P.md']);
+    expect(calls).toBe(1);
+
+    // TaskNotes warms WITHOUT a data-change (no enrichmentDirty) — exactly the
+    // case that never self-heals today (a warm-restart metadataCache load emits
+    // no task.* event). A plain Bases refresh must re-fetch because the cold
+    // result was never cached, and Show-all then pulls the child.
+    live.index = {
+      childrenByPath: new Map([['P.md', [task({ path: 'C.md' })]]]),
+      parentsByPath: new Map([['C.md', ['P.md']]]),
+    };
+    await controller.refreshSource();
+
+    expect(calls).toBe(2); // re-fetched: the cold (null) read was not cached
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual([
+      'C.md',
+      'P.md',
+    ]);
+
+    // Once warm (non-null), the index IS cached — a further plain refresh reuses it.
+    await controller.refreshSource();
+    expect(calls).toBe(2);
+  });
+
+  it('caches a ready-but-empty relationship index — no re-fetch storm on a no-relationships vault', async () => {
+    // A non-null index with empty maps is AUTHORITATIVE (TaskNotes is warm, the
+    // vault just has no parent/child edges). It must be cached like any other
+    // ready index — never re-read on each Bases notify (the full-vault scan is
+    // the cost the #161 cache exists to avoid). This is the storm guard that a
+    // naive "re-fetch whenever the index is empty" fix would violate.
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    let calls = 0;
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: async () => {
+        calls += 1;
+        return { childrenByPath: new Map(), parentsByPath: new Map() };
+      },
+    } as unknown as DataSource;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    expect(calls).toBe(1); // ready-but-empty is cached, not re-fetched per notify
+  });
+
   it('re-reads field config / readiness each refresh even when the source is reused (cold→warm)', async () => {
     // A single memoized enrichment whose field config starts cold (null →
     // read-only) and warms to a resolvable config WITHOUT an availability event.

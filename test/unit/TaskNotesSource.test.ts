@@ -699,11 +699,31 @@ describe('TaskNotesSource', () => {
       expect(index.parentsByPath.get('C.md')).toEqual(['P1.md', 'P2.md']);
     });
 
-    it('getRelationshipIndex returns empty maps when the task list is empty / API absent', async () => {
+    it('getRelationshipIndex signals NOT-READY (null) when the task list is empty / cold (cache-poisoning guard #161)', async () => {
+      // An empty task list means TaskNotes' metadataCache scan has not warmed
+      // yet (api.tasks.list → getAllTasks scans Obsidian's metadataCache, which
+      // can be cold at view-mount — notably on a warm restart that loads the
+      // persisted cache WITHOUT firing per-file change events, so no task.* event
+      // ever invalidates a stale read). Returning a non-null empty index here
+      // would let the controller cache the cold read and stick Show-all at the
+      // matched-only count forever. null = "not ready, retry next build".
       const empty = await TaskNotesSource.create(makeApp(makeApi({ tasks: [] }).api));
       const idx = await empty!.getRelationshipIndex();
-      expect(idx.childrenByPath.size).toBe(0);
-      expect(idx.parentsByPath.size).toBe(0);
+      expect(idx).toBeNull();
+    });
+
+    it('getRelationshipIndex is READY (non-null, empty maps) when ≥1 task exists with no relationships', async () => {
+      // A warm task list with zero parent/child edges is AUTHORITATIVE, not cold:
+      // it returns a non-null index with empty maps so the controller caches it
+      // and never re-runs the full-vault scan. This is the no-relationships-vault
+      // storm guard — the signal distinguishes "cold" (0 tasks) from "genuinely
+      // empty" (≥1 task, no edges), so the latter is not re-fetched on every notify.
+      const { api } = makeApi({ tasks: [{ path: 'a.md' }, { path: 'b.md' }] });
+      const source = await TaskNotesSource.create(makeApp(api));
+      const idx = await source!.getRelationshipIndex();
+      expect(idx).not.toBeNull();
+      expect(idx!.childrenByPath.size).toBe(0);
+      expect(idx!.parentsByPath.size).toBe(0);
     });
 
     it('getRelationshipIndex degrades gracefully when parents resolution throws', async () => {
@@ -714,8 +734,10 @@ describe('TaskNotesSource', () => {
       const source = await TaskNotesSource.create(makeApp(api));
       const idx = await source!.getRelationshipIndex();
       // getParents swallows the throw → no parents → empty inversion, no throw.
-      expect(idx.childrenByPath.size).toBe(0);
-      expect(idx.parentsByPath.size).toBe(0);
+      // The task list is non-empty, so the index is still READY (non-null).
+      expect(idx).not.toBeNull();
+      expect(idx!.childrenByPath.size).toBe(0);
+      expect(idx!.parentsByPath.size).toBe(0);
     });
 
     it('getParents returns resolved parent paths, filtering junk', async () => {
