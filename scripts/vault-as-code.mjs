@@ -40,12 +40,16 @@ const PLUGIN_CONFIGS = [
 // is committable. Structural settings (fieldMapping, customStatuses, customPriorities,
 // taskIdentificationMethod, taskPropertyName/Value, savedViews) are KEPT — they drive
 // the graph + filtering, contain no secrets.
+// Only SECRET-BEARING keys (tokens, URLs, calendar IDs, captured data) — emptied by
+// type. Boolean feature flags (e.g. basesPOCLogs/basesAdvancedDataLogs/enableBasesPOC)
+// are NOT secrets and are deliberately excluded: emptyLike can't blank a boolean, so
+// listing them would only trip the verify redaction check on a harmless `false`.
 const TASKNOTES_SECRET_KEYS = new Set([
   "apiAuthToken", "lemonSqueezyLicenseKey",
   "googleOAuthClientId", "googleOAuthClientSecret", "microsoftOAuthClientId", "microsoftOAuthClientSecret",
   "googleCalendarSyncTokens", "microsoftCalendarSyncTokens", "googleCalendarSyncQueue",
   "enabledGoogleCalendars", "enabledMicrosoftCalendars", "icsIntegration",
-  "webhooks", "basesPOCLogs", "basesAdvancedDataLogs",
+  "webhooks",
 ]);
 
 /** Empty a value preserving its JSON type (string→"", array→[], object→{}, else unchanged). */
@@ -200,17 +204,40 @@ function cmdVerify(fixturePath, vaultPath) {
     if (a !== b) { fmMismatch += 1; if (fmSamples.length < 5) fmSamples.push(n.p); }
   }
 
+  // Plugin configs (`scanVault` skips `.obsidian`, so they need an explicit check):
+  // TaskNotes' data.json carries the field mappings that make the relationship graph
+  // reproduce — a fixture that lost/garbled them would otherwise still print PASS. Also
+  // assert the secret keys stayed REDACTED (empty) so a fixture can never re-leak them.
+  let pluginConfigMismatch = 0; let secretLeak = 0; const pcSamples = [];
+  for (const pc of fixture.pluginConfigs ?? []) {
+    let genContent; try { genContent = fs.readFileSync(path.join(tmp, pc.p.split("/").join(path.sep)), "utf8"); } catch { genContent = undefined; }
+    if (genContent === undefined || genContent.replace(/\r\n/g, "\n") !== (pc.c ?? "").replace(/\r\n/g, "\n")) {
+      pluginConfigMismatch += 1; if (pcSamples.length < 5) pcSamples.push(pc.p);
+    }
+    if (pc.p.includes("/tasknotes/")) {
+      try {
+        const d = JSON.parse(pc.c);
+        for (const k of TASKNOTES_SECRET_KEYS) {
+          const v = d[k];
+          const empty = v === "" || v == null || (Array.isArray(v) ? v.length === 0 : (typeof v === "object" ? Object.keys(v).length === 0 : false));
+          if (!empty) { secretLeak += 1; pcSamples.push(`SECRET:${k}`); }
+        }
+      } catch { /* unparseable tasknotes config — caught by the mismatch check above */ }
+    }
+  }
+
   // Relationship-graph equality: the `in`-link multiset per note (the bug-relevant
   // structure). Compared as raw frontmatter already covers it, but report explicitly.
   const ok = folderDiff.miss.length === 0 && folderDiff.extra.length === 0
     && noteDiff.miss.length === 0 && noteDiff.extra.length === 0
     && baseDiff.miss.length === 0 && baseDiff.extra.length === 0
-    && fmMismatch === 0;
+    && fmMismatch === 0 && pluginConfigMismatch === 0 && secretLeak === 0;
 
   console.log(`[verify] folders: orig=${orig.folders.length} gen=${gen.folders.length} miss=${folderDiff.miss.length} extra=${folderDiff.extra.length}`);
   console.log(`[verify] notes:   orig=${orig.notes.length} gen=${gen.notes.length} miss=${noteDiff.miss.length} extra=${noteDiff.extra.length}`);
   console.log(`[verify] bases:   orig=${orig.bases.length} gen=${gen.bases.length} miss=${baseDiff.miss.length} extra=${baseDiff.extra.length}`);
   console.log(`[verify] frontmatter mismatches: ${fmMismatch}${fmSamples.length ? " e.g. " + fmSamples.join(", ") : ""}`);
+  console.log(`[verify] pluginConfigs: ${fixture.pluginConfigs?.length ?? 0} captured, mismatches=${pluginConfigMismatch}, secretLeaks=${secretLeak}${pcSamples.length ? " e.g. " + pcSamples.join(", ") : ""}`);
   if (noteDiff.miss.length) console.log(`[verify] sample missing notes: ${noteDiff.miss.slice(0, 5).join(", ")}`);
   console.log(`[verify] ${ok ? "PASS — generated vault is indistinguishable from original (except bodies)" : "FAIL — see diffs above"}`);
   fs.rmSync(tmp, { recursive: true, force: true });

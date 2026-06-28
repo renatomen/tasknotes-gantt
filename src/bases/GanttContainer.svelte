@@ -638,13 +638,17 @@
         // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
         // an active ephemeral sort), then re-assert the persisted divider width (a
         // store re-init can recompute it). Columns are untouched (no column change).
-        // The `applyDisplayFilters` $effect re-runs on this same `$data` update, so the
-        // active row-visibility filter re-applies after the reseed.
         reseedSeedsFromData(d);
         applyPersistedGridWidth();
       } finally {
         syncing = false;
       }
+      // A reinit CLEARS SVAR's filter-tasks state, and SVAR's own reinit effect can
+      // run AFTER the synchronous `$data` display-filter effect — so that effect's
+      // re-apply would be wiped and hidden rows (Hide-top / Show-undated off) flash
+      // back until the next refresh. Re-assert the active row-visibility filter once
+      // the reseed settles (deferred like the ephemeral-sort / grid-width restores).
+      setTimeout(() => applyDisplayFilters(), 0);
       return;
     }
 
