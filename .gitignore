@@ -41,9 +41,6 @@ test/fixtures/maintest-profile.json
 .obsidian/
 test/wdio/.obsidian-cache/
 
-# AssertThat sync staging area
-featureSyncStage/
-
 # Compound Engineering — local agent tooling/config (incl. the example template);
 # not useful in the public repo. The plugin only reads the machine-local
 # config.local.yaml, which never leaves the machine anyway.
