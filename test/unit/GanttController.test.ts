@@ -1839,9 +1839,12 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
 });
 
 describe('computeRecomputeReason', () => {
-  it('returns "noSnap" on the first build (no previous snapshot)', () => {
-    // snapshotChanged/writeChanged are irrelevant when there is no prior snapshot.
+  it('returns "noSnap" on the first build even when both other predicates are true', () => {
+    // No prior snapshot short-circuits before snapshotChanged/writeChanged matter.
     expect(computeRecomputeReason(false, true, true)).toBe('noSnap');
+  });
+
+  it('returns "noSnap" on the first build even when both other predicates are false', () => {
     expect(computeRecomputeReason(false, false, false)).toBe('noSnap');
   });
 

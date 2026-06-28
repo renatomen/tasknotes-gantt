@@ -315,33 +315,6 @@ const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
 };
 
 /**
- * Flatten each task's resolved dependency edges into source-level links
- * (predecessor → task). `depsByTask[i]` holds the `blockedBy` edges of
- * `tasks[i]`. Pure and order-preserving so it's unit-testable in isolation.
- */
-export function buildSourceLinks(
-  tasks: readonly ExpandableTask[],
-  depsByTask: readonly (readonly SourceDependency[])[],
-): SourceLink[] {
-  const sourceLinks: SourceLink[] = [];
-  for (let i = 0; i < tasks.length; i += 1) {
-    const t = tasks[i]!;
-    for (const dep of depsByTask[i]!) {
-      sourceLinks.push({
-        // The dependency edge belongs to `t` (an entry in t's blockedBy):
-        // predecessor → this task.
-        sourcePath: dep.predecessorPath,
-        targetPath: t.path,
-        type: RELTYPE_TO_SVAR[dep.reltype],
-        reltype: dep.reltype,
-        gap: dep.gap,
-      });
-    }
-  }
-  return sourceLinks;
-}
-
-/**
  * Action layer / single source of truth for the Gantt view (read-only, M1).
  *
  * Construct, then `await init()` once. Surfaces call {@link getInstances} /
@@ -1140,11 +1113,11 @@ export class GanttController {
     }
 
     const write = this.capabilities.write;
-    const reason = computeRecomputeReason(
-      this.snapshot !== null,
-      this.snapshot !== null && !snapshotsEqual(this.snapshot, next),
-      write !== this.lastNotifiedWrite,
-    );
+    const prev = this.snapshot;
+    const hasSnapshot = prev !== null;
+    const snapshotChanged = hasSnapshot && !snapshotsEqual(prev, next);
+    const writeChanged = write !== this.lastNotifiedWrite;
+    const reason = computeRecomputeReason(hasSnapshot, snapshotChanged, writeChanged);
     const changed = reason !== 'none';
     // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
     // Gated default-OFF (set window.__tnGanttDebug=true) — a cheap per-recompute
@@ -1409,6 +1382,33 @@ function defaultCorrelationId(): string {
  * The loop-diagnosis e2es (#161) read these reason strings — keep the values
  * stable when refactoring.
  */
+/**
+ * Flatten each task's resolved dependency edges into source-level links
+ * (predecessor → task). `depsByTask[i]` holds the `blockedBy` edges of
+ * `tasks[i]`. Pure and order-preserving so it's unit-testable in isolation.
+ */
+export function buildSourceLinks(
+  tasks: readonly ExpandableTask[],
+  depsByTask: readonly (readonly SourceDependency[])[],
+): SourceLink[] {
+  const sourceLinks: SourceLink[] = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const t = tasks[i]!;
+    for (const dep of depsByTask[i]!) {
+      sourceLinks.push({
+        // The dependency edge belongs to `t` (an entry in t's blockedBy):
+        // predecessor → this task.
+        sourcePath: dep.predecessorPath,
+        targetPath: t.path,
+        type: RELTYPE_TO_SVAR[dep.reltype],
+        reltype: dep.reltype,
+        gap: dep.gap,
+      });
+    }
+  }
+  return sourceLinks;
+}
+
 export type RecomputeReason = 'noSnap' | 'notEqual' | 'writeFlip' | 'none';
 
 /**

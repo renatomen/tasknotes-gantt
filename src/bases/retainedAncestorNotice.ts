@@ -130,6 +130,8 @@ export function buildRetainedAncestorNotice(
 ): string | undefined {
   if (flags.showUndated && flags.showPartial) return undefined; // no date filter active
 
+  // Two passes over instances: first build the child index + shown set, then
+  // count the retained parents against it, then render the copy.
   const { childrenOf, shown } = indexInstances(instances, flags);
   const { undated, partial } = countRetainedParents(instances, flags, childrenOf, shown);
   return formatNotice(undated, partial);
