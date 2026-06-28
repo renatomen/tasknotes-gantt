@@ -73,11 +73,20 @@ node scripts/vault-as-code.mjs generate <fixture.json> <out-vault>    # self-con
 node scripts/vault-as-code.mjs verify    <fixture.json> <vault>       # fidelity + redaction gate
 ```
 
-**5. Test fidelity before testing the bug.** The first deliverable is *not* a repro — it's proof
-the generated vault is indistinguishable from the original in every dimension the bug cares about
-(file set, folder tree, per-note frontmatter, plugin config). `verify` is that gate. Only once
-fidelity passes does reproducing the loop mean anything; a bug that "reproduces" on infidelitous
-data is measuring the wrong thing.
+**5. Test fidelity before testing the bug — and know exactly which dimensions the gate proves.**
+The first deliverable is *not* a repro — it's proof the generated vault matches the original in
+the dimensions the bug cares about. But be precise about what `verify` actually compares, because
+overstating a gate is its own trap. `verify` diffs the **generated vault against the source vault**
+for file set, folder tree, and per-note frontmatter (`scanVault(source)` vs `scanVault(generated)`)
+— those are genuinely validated against ground truth. Plugin config is **not**: `verify` only
+confirms the fixture's baked `data.json` round-trips into the generated vault and that secrets
+stayed redacted. It never re-reads the *source* `data.json` (the scan skips `.obsidian`), so
+`extract` is the **only** step that compares config to ground truth. Consequence: a fixture whose
+TaskNotes mappings drifted from the real vault still passes `verify` while reproducing the *wrong*
+relationship graph — config drift is the gate's blind spot. The discipline that follows: re-run
+`extract` whenever the source's plugin settings change, and don't let `verify`'s PASS stand in for
+config fidelity. Only once the dimensions a gate *does* cover pass does reproducing the loop mean
+anything; a bug that "reproduces" on infidelitous data is measuring the wrong thing.
 
 **6. A self-contained generator that bakes real data IS a leak vector — split it.** This is the
 non-obvious part. "Self-contained" and "no private data in the repo" are in direct tension:
@@ -124,8 +133,11 @@ infrastructure be shared without shipping the data it was built from.
 
 ```
 extract  →  bake real frontmatter + plugin config into a fixture, redacting TASKNOTES_SECRET_KEYS
+            (the ONLY step that reads the source data.json — config ground truth is captured here)
 generate →  rebuild the full vault (every note, empty body) + write plugin data.json, from fixture only
-verify   →  diff generated-vs-source file set / frontmatter / plugin config  AND  assert secrets == ∅
+verify   →  diff generated-vs-SOURCE file set / frontmatter (real fidelity check)
+            + round-trip plugin config from the fixture & assert secrets == ∅
+            (NOTE: config is NOT re-checked against source — drift is verify's blind spot)
 ```
 
 **The gitignore split that resolves the leak tension (`.gitignore`):**
