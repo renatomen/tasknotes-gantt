@@ -197,3 +197,42 @@ onDataUpdated #1 entries=261
 onDataUpdated #2 entries=261
 (30+ seconds, no [OGDBG] coalescer fired / build / recompute — schedule() threw, hidden by OGDBG filter)
 ```
+
+---
+
+## 15. U6 (search→clear churn) — root cause, fix, and repro infrastructure (2026-06-28)
+
+**Root cause (timeline-confirmed on a faithful generated vault that matches the real
+vault):** a Bases search→clear swings the resultset full→empty→full several times
+(keystrokes + Bases re-notifies). Each "full" swing is `reuseTasks=false` → a full
+re-read + full companion re-expansion → `syncToGantt` applies it as **per-instance
+`api.exec('add-task'/'delete-task'/…)` over the whole ~1000s-instance expanded set**
+(~114k DOM mutations / ~4s). A burst of those serialises into a ~25s **bounded**
+churn (not infinite — the real vault stops the same way).
+
+**Fix (PR for plan `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`):**
+when a single sync diff is large (`shouldBulkReseed`, `src/bases/ganttSync.ts`),
+**bulk-reseed** the SVAR store in one virtualized re-init (reuse `reseedSeedsFromData`)
+instead of the per-instance diff. Small diffs keep the incremental path (preserves
+zoom/scroll). Realises §9.3's "bulk replace" via the existing reseed.
+
+**Repro infrastructure — "vault as code" (`scripts/vault-as-code.mjs`):** the loop is
+real-data-specific; an earlier lossy frontmatter clone could not reproduce it. The
+self-contained generator recreates a vault INDISTINGUISHABLE from the source in
+folders, note frontmatter, the relationship graph, **and** the TaskNotes `data.json`
+field mappings (`projects→in`, `taskPropertyName→isActionable`) — with empty bodies
+(fast index, no private content) and TaskNotes **secrets redacted**.
+- `node scripts/vault-as-code.mjs extract <vault> <fixture.json>` — consult a source
+  vault ONCE, bake structure into the fixture.
+- `node scripts/vault-as-code.mjs verify <fixture.json> <vault>` — fidelity gate
+  (every path + frontmatter byte-equal; PASS = indistinguishable except bodies).
+- `node scripts/vault-as-code.mjs generate <fixture.json> <outVault>` — recreate the
+  vault from the fixture ALONE (no source access).
+- `scripts/profile-maintest.mjs` — one-time structural profiler used to design the
+  generator (distributions, the parent forest, the matched-set approximation).
+
+The fixture (`test/fixtures/maintest.vaultcode.json`) carries real frontmatter and is
+**gitignored** pending a privacy/commit decision; regenerate it locally with `extract`.
+The end-to-end repro/regression gate is the gitignored `test/specs/_local-clone-search.e2e.ts`
+(drives the real Bases search→clear and classifies bounded-settle vs runaway); the
+committable regression is the `shouldBulkReseed` unit suite in `test/unit/ganttSync.test.ts`.

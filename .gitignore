@@ -22,6 +22,16 @@ Thumbs.db
 # Local-only e2e probes (point at private vaults; never commit)
 test/specs/_local-*
 
+# #161 U6 "vault as code" DATA artifacts — derived from a private vault (real
+# frontmatter; TaskNotes secrets are redacted, but structure stays private until a
+# commit/privacy decision). The GENERATOR (scripts/vault-as-code.mjs) is committed;
+# regenerate locally with it. Do not commit these.
+test/fixtures/maintest.vaultcode.json
+test/fixtures/maintest-profile.json
+
+# Stray obsidian-launcher cache that can land at repo root (vs the wdio one below)
+/.obsidian-cache/
+
 # Env files (if used)
 .env
 .env.*
