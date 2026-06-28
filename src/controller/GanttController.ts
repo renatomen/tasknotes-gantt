@@ -1113,13 +1113,11 @@ export class GanttController {
     }
 
     const write = this.capabilities.write;
-    const reason = !this.snapshot
-      ? 'noSnap'
-      : !snapshotsEqual(this.snapshot, next)
-        ? 'notEqual'
-        : write !== this.lastNotifiedWrite
-          ? 'writeFlip'
-          : 'none';
+    const prev = this.snapshot;
+    const hasSnapshot = prev !== null;
+    const snapshotChanged = hasSnapshot && !snapshotsEqual(prev, next);
+    const writeChanged = write !== this.lastNotifiedWrite;
+    const reason = computeRecomputeReason(hasSnapshot, snapshotChanged, writeChanged);
     const changed = reason !== 'none';
     // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
     // Gated default-OFF (set window.__tnGanttDebug=true) — a cheap per-recompute
@@ -1272,21 +1270,7 @@ export class GanttController {
       }
     }
 
-    const sourceLinks: SourceLink[] = [];
-    for (let i = 0; i < tasks.length; i += 1) {
-      const t = tasks[i]!;
-      for (const dep of depsByTask[i]!) {
-        sourceLinks.push({
-          // The dependency edge belongs to `t` (an entry in t's blockedBy):
-          // predecessor → this task.
-          sourcePath: dep.predecessorPath,
-          targetPath: t.path,
-          type: RELTYPE_TO_SVAR[dep.reltype],
-          reltype: dep.reltype,
-          gap: dep.gap,
-        });
-      }
-    }
+    const sourceLinks = buildSourceLinks(tasks, depsByTask);
 
     return { expansion, sourceLinks, matchedEdgesResolved };
   }
@@ -1391,6 +1375,61 @@ function defaultCorrelationId(): string {
   }
   correlationCounter += 1;
   return `og-${Date.now()}-${correlationCounter}`;
+}
+
+/**
+ * Why a recompute notifies, or `'none'` when nothing render-affecting changed.
+ * The loop-diagnosis e2es (#161) read these reason strings — keep the values
+ * stable when refactoring.
+ */
+/**
+ * Flatten each task's resolved dependency edges into source-level links
+ * (predecessor → task). `depsByTask[i]` holds the `blockedBy` edges of
+ * `tasks[i]`. Pure and order-preserving so it's unit-testable in isolation.
+ */
+export function buildSourceLinks(
+  tasks: readonly ExpandableTask[],
+  depsByTask: readonly (readonly SourceDependency[])[],
+): SourceLink[] {
+  const sourceLinks: SourceLink[] = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const t = tasks[i]!;
+    for (const dep of depsByTask[i]!) {
+      sourceLinks.push({
+        // The dependency edge belongs to `t` (an entry in t's blockedBy):
+        // predecessor → this task.
+        sourcePath: dep.predecessorPath,
+        targetPath: t.path,
+        type: RELTYPE_TO_SVAR[dep.reltype],
+        reltype: dep.reltype,
+        gap: dep.gap,
+      });
+    }
+  }
+  return sourceLinks;
+}
+
+export type RecomputeReason = 'noSnap' | 'notEqual' | 'writeFlip' | 'none';
+
+/**
+ * Decide why (if at all) a recompute should notify. Pure and parameterized over
+ * already-evaluated predicates (rather than the snapshots themselves) so the
+ * notify-decision is unit-testable in isolation without constructing snapshots,
+ * and so the nullable-snapshot narrowing stays at the call site.
+ *
+ * Precedence mirrors the original guard order: first build (no prior snapshot) →
+ * `'noSnap'`; a value-changed snapshot → `'notEqual'`; otherwise a write-capability
+ * flip → `'writeFlip'`; else `'none'`.
+ */
+export function computeRecomputeReason(
+  hasPreviousSnapshot: boolean,
+  snapshotChanged: boolean,
+  writeChanged: boolean,
+): RecomputeReason {
+  if (!hasPreviousSnapshot) return 'noSnap';
+  if (snapshotChanged) return 'notEqual';
+  if (writeChanged) return 'writeFlip';
+  return 'none';
 }
 
 /**

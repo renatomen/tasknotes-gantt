@@ -197,7 +197,7 @@ test('instance count is deterministic and matches the expected multi-parent expa
   const large = measured.find((m) => m.label === LARGE.label) as Measurement;
   // Re-build the same graph → identical count (catches expansion-multiplier regressions).
   const { data } = await buildGanttData(generate(paramsForScale(LARGE.label)), { mode: 'show-all' });
-  expect(data.instances.length).toBe(large.instanceCount);
+  expect(data.instances).toHaveLength(large.instanceCount);
 });
 
 test('wall-clock trend metrics are present (captured for U6, not thresholded)', () => {

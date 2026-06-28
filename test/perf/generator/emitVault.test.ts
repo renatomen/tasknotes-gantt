@@ -181,7 +181,7 @@ describe('emitVault — write behavior', () => {
     expect(fm.scheduled).toBe(formatDate((sample as GraphTask).start as Date));
     expect(fm.due).toBe(formatDate((sample as GraphTask).due as Date));
     expect(fm.status).toBe((sample as GraphTask).status);
-    expect((fm.projects as string[]).length).toBe((sample as GraphTask).parents.length);
+    expect(fm.projects as string[]).toHaveLength((sample as GraphTask).parents.length);
   });
 });
 
