@@ -1113,13 +1113,11 @@ export class GanttController {
     }
 
     const write = this.capabilities.write;
-    const reason = !this.snapshot
-      ? 'noSnap'
-      : !snapshotsEqual(this.snapshot, next)
-        ? 'notEqual'
-        : write !== this.lastNotifiedWrite
-          ? 'writeFlip'
-          : 'none';
+    const reason = computeRecomputeReason(
+      this.snapshot !== null,
+      this.snapshot !== null && !snapshotsEqual(this.snapshot, next),
+      write !== this.lastNotifiedWrite,
+    );
     const changed = reason !== 'none';
     // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
     // Gated default-OFF (set window.__tnGanttDebug=true) — a cheap per-recompute
@@ -1391,6 +1389,34 @@ function defaultCorrelationId(): string {
   }
   correlationCounter += 1;
   return `og-${Date.now()}-${correlationCounter}`;
+}
+
+/**
+ * Why a recompute notifies, or `'none'` when nothing render-affecting changed.
+ * The loop-diagnosis e2es (#161) read these reason strings — keep the values
+ * stable when refactoring.
+ */
+export type RecomputeReason = 'noSnap' | 'notEqual' | 'writeFlip' | 'none';
+
+/**
+ * Decide why (if at all) a recompute should notify. Pure and parameterized over
+ * already-evaluated predicates (rather than the snapshots themselves) so the
+ * notify-decision is unit-testable in isolation without constructing snapshots,
+ * and so the nullable-snapshot narrowing stays at the call site.
+ *
+ * Precedence mirrors the original guard order: first build (no prior snapshot) →
+ * `'noSnap'`; a value-changed snapshot → `'notEqual'`; otherwise a write-capability
+ * flip → `'writeFlip'`; else `'none'`.
+ */
+export function computeRecomputeReason(
+  hasPreviousSnapshot: boolean,
+  snapshotChanged: boolean,
+  writeChanged: boolean,
+): RecomputeReason {
+  if (!hasPreviousSnapshot) return 'noSnap';
+  if (snapshotChanged) return 'notEqual';
+  if (writeChanged) return 'writeFlip';
+  return 'none';
 }
 
 /**

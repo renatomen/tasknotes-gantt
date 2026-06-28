@@ -19,7 +19,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { App } from 'obsidian';
-import { GanttController } from '../../src/controller/GanttController';
+import { GanttController, computeRecomputeReason } from '../../src/controller/GanttController';
 import type {
   GanttControllerDeps,
   DatePolicyConfig,
@@ -1467,7 +1467,7 @@ describe('GanttController — readiness re-check surface (U1 / #161 §11 relatio
     const r1 = controller.recheckRelationshipIndex();
     const r2 = controller.recheckRelationshipIndex();
     await flushAsync();
-    expect(resolvers.length).toBe(2);
+    expect(resolvers).toHaveLength(2);
 
     // Resolve the NEWER re-check (call 2) first with a warm index, then the older
     // (call 1) with a cold index. Latest-wins must keep the warm readiness.
@@ -1831,5 +1831,29 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
       .filter((i) => i.parent !== undefined)
       .map((i) => i.sourcePath);
     expect(childOrder).toEqual(['matched.md', 'fetched.md']);
+  });
+});
+
+describe('computeRecomputeReason', () => {
+  it('returns "noSnap" on the first build (no previous snapshot)', () => {
+    // snapshotChanged/writeChanged are irrelevant when there is no prior snapshot.
+    expect(computeRecomputeReason(false, true, true)).toBe('noSnap');
+    expect(computeRecomputeReason(false, false, false)).toBe('noSnap');
+  });
+
+  it('returns "notEqual" when the snapshot value changed', () => {
+    expect(computeRecomputeReason(true, true, false)).toBe('notEqual');
+  });
+
+  it('returns "writeFlip" when only the write capability changed', () => {
+    expect(computeRecomputeReason(true, false, true)).toBe('writeFlip');
+  });
+
+  it('returns "none" when neither the snapshot nor the write capability changed', () => {
+    expect(computeRecomputeReason(true, false, false)).toBe('none');
+  });
+
+  it('prefers "notEqual" over "writeFlip" when both changed (precedence)', () => {
+    expect(computeRecomputeReason(true, true, true)).toBe('notEqual');
   });
 });

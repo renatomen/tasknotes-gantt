@@ -106,7 +106,7 @@ describe('buildGanttData — instance-count targeting (R5 sanity)', () => {
     // Deterministic: the same graph re-built yields the same count.
     const again = await makePerfController(graph, { mode: 'show-all' });
     await again.init();
-    expect((await again.getInstances()).length).toBe((await controller.getInstances()).length);
+    expect(await again.getInstances()).toHaveLength((await controller.getInstances()).length);
   });
 
   it('heavier multi-parent fan-out yields at least as many instances (tunable target)', async () => {

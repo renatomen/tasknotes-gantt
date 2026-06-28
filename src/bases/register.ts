@@ -268,7 +268,7 @@ class ObsidianGanttBasesView extends BasesView {
     // (set window.__tnGanttDebug=true) and capped — never always-on in production.
     // See docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md.
     if (isGanttDebugEnabled() && this.dbgDataUpdates <= 6) {
-      dlog(`[OGDBG] onDataUpdated-stack #${this.dbgDataUpdates}:\n${(new Error().stack ?? '').split('\n').slice(1, 12).join('\n')}`);
+      dlog(`[OGDBG] onDataUpdated-stack #${this.dbgDataUpdates}:\n${(new Error('og:onDataUpdated-stack').stack ?? '').split('\n').slice(1, 12).join('\n')}`);
     }
     // #161 config-settle suppression: while a view-option change is in flight,
     // Bases re-fires onDataUpdated with the config value OSCILLATING. Refreshing on
