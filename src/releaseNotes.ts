@@ -8,6 +8,12 @@ export interface ReleaseNoteVersion {
 	isCurrent: boolean;
 }
 
-export const CURRENT_VERSION = "0.0.1";
+export const CURRENT_VERSION = "0.1.0-beta.2";
 export const RELEASE_NOTES_BUNDLE: ReleaseNoteVersion[] = [
+	{
+		version: "0.1.0-beta.2",
+		content: "# TaskNotes Gantt 0.1.0-beta.2\n\nThis beta focuses on render stability for large and changing result sets, and\nintroduces an in-app \"What's New\" view so updates are visible without leaving\nObsidian.\n\n## Added\n\n- In-app **\"What's New\"** view. After updating the plugin, the release notes for\n  the new version open automatically once; you can reopen them any time with the\n  **\"Show release notes\"** command. Versions are listed newest-first and each is\n  collapsible, and a settings toggle lets you turn off the auto-open on update.\n  (#157)\n\n## Fixed\n\n- **Fixed a long freeze (up to roughly 25 seconds) when clearing a Bases search** —\n  or otherwise swinging a large set of tasks out of and back into the view. Large\n  changes now re-seed the timeline in a single pass instead of applying thousands\n  of per-row updates, cutting the work by about 99.8% on large vaults. (#161)\n- **Fixed a render loop that could be triggered by changing the result set** —\n  clearing a search, changing a filter, or toggling a view display option. View\n  display options no longer feed back into how the task set is derived. (#161)\n- **Fixed dependency edges and the **Show all / Inherit** dependency modes** failing\n  to appear when the TaskNotes relationship index was still warming up as the view\n  mounted. The view now re-checks for a bounded window and self-heals once\n  TaskNotes relationships are ready, so dependencies show up without a manual\n  reload. (#161, #167)\n",
+		date: "2026-06-28",
+		isCurrent: true,
+	}
 ];
