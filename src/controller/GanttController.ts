@@ -315,6 +315,33 @@ const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
 };
 
 /**
+ * Flatten each task's resolved dependency edges into source-level links
+ * (predecessor → task). `depsByTask[i]` holds the `blockedBy` edges of
+ * `tasks[i]`. Pure and order-preserving so it's unit-testable in isolation.
+ */
+export function buildSourceLinks(
+  tasks: readonly ExpandableTask[],
+  depsByTask: readonly (readonly SourceDependency[])[],
+): SourceLink[] {
+  const sourceLinks: SourceLink[] = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const t = tasks[i]!;
+    for (const dep of depsByTask[i]!) {
+      sourceLinks.push({
+        // The dependency edge belongs to `t` (an entry in t's blockedBy):
+        // predecessor → this task.
+        sourcePath: dep.predecessorPath,
+        targetPath: t.path,
+        type: RELTYPE_TO_SVAR[dep.reltype],
+        reltype: dep.reltype,
+        gap: dep.gap,
+      });
+    }
+  }
+  return sourceLinks;
+}
+
+/**
  * Action layer / single source of truth for the Gantt view (read-only, M1).
  *
  * Construct, then `await init()` once. Surfaces call {@link getInstances} /
@@ -1270,21 +1297,7 @@ export class GanttController {
       }
     }
 
-    const sourceLinks: SourceLink[] = [];
-    for (let i = 0; i < tasks.length; i += 1) {
-      const t = tasks[i]!;
-      for (const dep of depsByTask[i]!) {
-        sourceLinks.push({
-          // The dependency edge belongs to `t` (an entry in t's blockedBy):
-          // predecessor → this task.
-          sourcePath: dep.predecessorPath,
-          targetPath: t.path,
-          type: RELTYPE_TO_SVAR[dep.reltype],
-          reltype: dep.reltype,
-          gap: dep.gap,
-        });
-      }
-    }
+    const sourceLinks = buildSourceLinks(tasks, depsByTask);
 
     return { expansion, sourceLinks, matchedEdgesResolved };
   }

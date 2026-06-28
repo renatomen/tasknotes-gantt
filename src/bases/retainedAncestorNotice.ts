@@ -35,6 +35,84 @@ function parents(count: number): string {
   return count === 1 ? 'parent' : 'parents';
 }
 
+/** Children grouped by parent id. */
+type ChildIndex = Map<string, RetainedNoticeInstance[]>;
+
+/**
+ * Build the child-by-parent index and the set of row ids that pass the composed
+ * filter, in a single pass over the instances.
+ */
+function indexInstances(
+  instances: readonly RetainedNoticeInstance[],
+  flags: RowVisibilityFlags,
+): { childrenOf: ChildIndex; shown: Set<string> } {
+  const childrenOf: ChildIndex = new Map();
+  const shown = new Set<string>();
+  for (const inst of instances) {
+    if (inst.parent) {
+      const siblings = childrenOf.get(inst.parent);
+      if (siblings) siblings.push(inst);
+      else childrenOf.set(inst.parent, [inst]);
+    }
+    if (!shouldHideRow(inst, flags)) shown.add(inst.id);
+  }
+  return { childrenOf, shown };
+}
+
+/** Does this node have any descendant (at any depth) that passes the filter? */
+function hasShownDescendant(
+  id: string,
+  childrenOf: ChildIndex,
+  shown: ReadonlySet<string>,
+): boolean {
+  const stack = [...(childrenOf.get(id) ?? [])];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (shown.has(node.id)) return true;
+    const kids = childrenOf.get(node.id);
+    if (kids) stack.push(...kids);
+  }
+  return false;
+}
+
+/**
+ * Count the retained incomplete-date parents — those kept visible only because a
+ * descendant passes the filter — split by date-incompleteness class. `undated`
+ * counts `placeholder` parents (gated on Show-undated); `partial` counts
+ * `inferred-*` parents (gated on Show-partial).
+ */
+function countRetainedParents(
+  instances: readonly RetainedNoticeInstance[],
+  flags: RowVisibilityFlags,
+  childrenOf: ChildIndex,
+  shown: ReadonlySet<string>,
+): { undated: number; partial: number } {
+  let undated = 0;
+  let partial = 0;
+  for (const inst of instances) {
+    const hiddenUndated = !flags.showUndated && inst.dateStatus === 'placeholder';
+    const hiddenPartial = !flags.showPartial && PARTIAL_DATE_STATUSES.has(inst.dateStatus);
+    if (!hiddenUndated && !hiddenPartial) continue;
+    if (!hasShownDescendant(inst.id, childrenOf, shown)) continue;
+    if (hiddenUndated) undated += 1;
+    else partial += 1;
+  }
+  return { undated, partial };
+}
+
+/**
+ * Compose the heads-up copy from the counts, or `undefined` when neither class has
+ * a retained parent to report.
+ */
+function formatNotice(undated: number, partial: number): string | undefined {
+  const clauses: string[] = [];
+  if (undated > 0) clauses.push(`${undated} undated ${parents(undated)}`);
+  if (partial > 0) clauses.push(`${partial} partial-date ${parents(partial)}`);
+  if (clauses.length === 0) return undefined;
+
+  return `${clauses.join(' and ')} kept to show their dated subtasks.`;
+}
+
 /**
  * Build the heads-up notice, or `undefined` when it doesn't apply.
  *
@@ -52,45 +130,7 @@ export function buildRetainedAncestorNotice(
 ): string | undefined {
   if (flags.showUndated && flags.showPartial) return undefined; // no date filter active
 
-  // Children grouped by parent id, and the set of rows that pass the composed filter.
-  const childrenOf = new Map<string, RetainedNoticeInstance[]>();
-  const shown = new Set<string>();
-  for (const inst of instances) {
-    if (inst.parent) {
-      const siblings = childrenOf.get(inst.parent);
-      if (siblings) siblings.push(inst);
-      else childrenOf.set(inst.parent, [inst]);
-    }
-    if (!shouldHideRow(inst, flags)) shown.add(inst.id);
-  }
-
-  /** Does this node have any descendant (at any depth) that passes the filter? */
-  function hasShownDescendant(id: string): boolean {
-    const stack = [...(childrenOf.get(id) ?? [])];
-    while (stack.length > 0) {
-      const node = stack.pop()!;
-      if (shown.has(node.id)) return true;
-      const kids = childrenOf.get(node.id);
-      if (kids) stack.push(...kids);
-    }
-    return false;
-  }
-
-  let undated = 0;
-  let partial = 0;
-  for (const inst of instances) {
-    const hiddenUndated = !flags.showUndated && inst.dateStatus === 'placeholder';
-    const hiddenPartial = !flags.showPartial && PARTIAL_DATE_STATUSES.has(inst.dateStatus);
-    if (!hiddenUndated && !hiddenPartial) continue;
-    if (!hasShownDescendant(inst.id)) continue;
-    if (hiddenUndated) undated += 1;
-    else partial += 1;
-  }
-
-  const clauses: string[] = [];
-  if (undated > 0) clauses.push(`${undated} undated ${parents(undated)}`);
-  if (partial > 0) clauses.push(`${partial} partial-date ${parents(partial)}`);
-  if (clauses.length === 0) return undefined;
-
-  return `${clauses.join(' and ')} kept to show their dated subtasks.`;
+  const { childrenOf, shown } = indexInstances(instances, flags);
+  const { undated, partial } = countRetainedParents(instances, flags, childrenOf, shown);
+  return formatNotice(undated, partial);
 }

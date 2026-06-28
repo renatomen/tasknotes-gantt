@@ -19,7 +19,11 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { App } from 'obsidian';
-import { GanttController, computeRecomputeReason } from '../../src/controller/GanttController';
+import {
+  GanttController,
+  computeRecomputeReason,
+  buildSourceLinks,
+} from '../../src/controller/GanttController';
 import type {
   GanttControllerDeps,
   DatePolicyConfig,
@@ -1855,5 +1859,36 @@ describe('computeRecomputeReason', () => {
 
   it('prefers "notEqual" over "writeFlip" when both changed (precedence)', () => {
     expect(computeRecomputeReason(true, true, true)).toBe('notEqual');
+  });
+});
+
+describe('buildSourceLinks', () => {
+  it('flattens each task\'s blockedBy edges into predecessor → task links', () => {
+    const tasks = [task({ path: 'a.md' }), task({ path: 'b.md' })];
+    const links = buildSourceLinks(tasks, [
+      [],
+      [{ predecessorPath: 'a.md', reltype: 'FINISHTOSTART', gap: 'P1D' }],
+    ]);
+    expect(links).toEqual([
+      { sourcePath: 'a.md', targetPath: 'b.md', type: 'e2s', reltype: 'FINISHTOSTART', gap: 'P1D' },
+    ]);
+  });
+
+  it('maps every reltype to its SVAR link type', () => {
+    const tasks = [task({ path: 't.md' })];
+    const links = buildSourceLinks(tasks, [
+      [
+        { predecessorPath: 'p1.md', reltype: 'FINISHTOSTART', gap: null },
+        { predecessorPath: 'p2.md', reltype: 'STARTTOSTART', gap: null },
+        { predecessorPath: 'p3.md', reltype: 'FINISHTOFINISH', gap: null },
+        { predecessorPath: 'p4.md', reltype: 'STARTTOFINISH', gap: null },
+      ],
+    ]);
+    expect(links.map((l) => l.type)).toEqual(['e2s', 's2s', 'e2e', 's2e']);
+  });
+
+  it('returns no links when no task has dependencies', () => {
+    const tasks = [task({ path: 'a.md' }), task({ path: 'b.md' })];
+    expect(buildSourceLinks(tasks, [[], []])).toEqual([]);
   });
 });
