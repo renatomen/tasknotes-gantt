@@ -63,10 +63,20 @@ export interface CompanionAccessor {
   /**
    * Build the full {@link RelationshipIndex} in one bulk operation, so the
    * resolver never performs a per-node vault scan (the O(N²) freeze fix — plan
-   * #161, U1). Returns empty maps (never throws) when the relationship API is
-   * absent or fails.
+   * #161, U1).
+   *
+   * Returns `null` to signal **not-ready** — the underlying task source was cold
+   * (e.g. Obsidian's `metadataCache` had not warmed at view-mount), so any index
+   * built now would be spuriously empty. The controller must NOT cache a `null`;
+   * it re-fetches on the next build until the source warms. A non-null index —
+   * even one with empty maps — is **authoritative** (the vault simply has no
+   * parent/child edges) and IS cached.
+   *
+   * This is a **full-vault read** (`api.tasks.list()`); caching the authoritative
+   * result and re-fetching only on a genuine TaskNotes data-change keeps the
+   * expensive scan off every Bases notify.
    */
-  getRelationshipIndex(): Promise<RelationshipIndex>;
+  getRelationshipIndex(): Promise<RelationshipIndex | null>;
 }
 
 /** A displayed task plus the flags the instance expander consumes. */
@@ -83,27 +93,27 @@ export interface CompanionTask extends SourceTask {
 /** Resolver options. */
 export interface CompanionResolveOptions {
   mode: CompanionMode;
-  hideTopLevel: boolean;
 }
 
 /**
  * Resolve the displayed companion task set + per-task flags.
  *
+ * Takes the prebuilt {@link RelationshipIndex} directly (the controller owns
+ * fetching + caching it — #161: re-fetching the full-vault index on every
+ * recompute re-pokes Bases into an infinite notify loop). All child/parent reads
+ * below are O(1) map lookups against the index. Pure + synchronous.
+ *
  * @param matched - the Base's matched task set.
  * @param opts - expanded-relationships mode + hide-top-level toggle.
- * @param accessor - injected TaskNotes relationship reads.
+ * @param index - the prebuilt relationship index (children + parents by path).
  * @returns the displayed {@link CompanionTask}s (matched first, then fetched in
  *   discovery order), each carrying resolved `parents` + flags.
  */
-export async function resolveCompanionTree(
+export function resolveCompanionTree(
   matched: readonly SourceTask[],
   opts: CompanionResolveOptions,
-  accessor: CompanionAccessor,
-): Promise<CompanionTask[]> {
-  // Build the relationship index ONCE up front (plan #161, U2): all child and
-  // parent reads below are O(1) map lookups against it — zero per-node
-  // `getSubtasks`, zero per-task `getParents`.
-  const index = await accessor.getRelationshipIndex();
+  index: RelationshipIndex,
+): CompanionTask[] {
   const matchedPaths = new Set(matched.map((t) => t.path));
 
   // Displayed set: matched first (preserve input order), then Show-all fetches.
@@ -121,7 +131,11 @@ export async function resolveCompanionTree(
     const parents = index.parentsByPath.get(path) ?? [];
     const isFetched = !matchedPaths.has(path);
     const hasDisplayedParent = parents.some((p) => displayed.has(p));
-    const alsoTopLevel = !isFetched && !opts.hideTopLevel && hasDisplayedParent;
+    // A matched, also-nested task ALWAYS gets the extra root copy here; whether it
+    // is actually shown is a pure VIEW concern ("Hide top-level subtasks" applies a
+    // SVAR filter-tasks over the stable instance set). Keeping hide-top OUT of the
+    // data is what stops a config toggle from re-deriving + churning the chart (#161).
+    const alsoTopLevel = !isFetched && hasDisplayedParent;
     out.push({ ...src, parents, isFetched, alsoTopLevel });
   }
   return out;

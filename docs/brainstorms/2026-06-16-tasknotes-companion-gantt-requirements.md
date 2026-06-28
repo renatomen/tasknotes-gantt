@@ -263,8 +263,8 @@ The JS API is the in-process surface this plugin builds on; the HTTP API is Task
 ## Sources / Research
 
 - Current data layer and view (the refactor surface): [src/bases/services/BasesDataAdapter.ts](src/bases/services/BasesDataAdapter.ts), [src/bases/services/PropertyMappingService.ts](src/bases/services/PropertyMappingService.ts), [src/bases/GanttContainer.svelte](src/bases/GanttContainer.svelte), [src/bases/register.ts](src/bases/register.ts), [src/main.ts](src/main.ts).
-- Prior runtime-interop sketch (read for ideas, predates this repositioning): [project/archived/TaskNotes Integration Architecture.md](project/archived/TaskNotes%20Integration%20Architecture.md).
-- TaskNotes dependency model and hierarchy findings: [docs/tasknotes-learnings.md](docs/tasknotes-learnings.md).
+- Prior runtime-interop sketch (read for ideas, predates this repositioning): `project/archived/TaskNotes Integration Architecture.md` (removed in repo housekeeping; recoverable from git history).
+- TaskNotes dependency model and hierarchy findings: `docs/tasknotes-learnings.md` (removed in repo housekeeping; recoverable from git history).
 - TaskNotes external docs to confirm the API contract during planning: spec (`tasknotes.dev/spec/`), JS API (`tasknotes.dev/javascript-api/`), HTTP API (`tasknotes.dev/HTTP_API/`), CLI (`tasknotes.dev/obsidian-cli/`), NLP API (`tasknotes.dev/nlp-api/`), webhooks (`tasknotes.dev/webhooks/`), companion plugins (`tasknotes.dev/companion-plugins/`).
 - Code to remove (product-orthogonal): [src/bdd/](src/bdd/), [src/errors/SyncErrors.ts](src/errors/SyncErrors.ts), the `sync:*` and `assign:ids` scripts in [package.json](package.json), and the AssertThat docs under [docs/](docs/).
 </content>

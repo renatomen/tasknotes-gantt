@@ -65,13 +65,14 @@ describe('buildGanttData — pipeline parity', () => {
       t({ path: 'Tasks/B.md', matched: true }),
       t({ path: 'Tasks/child.md', matched: true, parents: ['Tasks/A.md', 'Tasks/B.md'] }),
     ]);
-    // hide-on ⇒ the matched child renders nested-only (no extra root instance),
-    // so the multi-parent multiplier is exactly one instance per displayed parent.
-    const { data } = await buildGanttData(graph, { mode: 'inherit', hideTopLevel: true });
+    // The matched child renders once per displayed parent PLUS the also-top-level
+    // duplicate root (Hide-top is a view filter now, not a data change — the
+    // instance set is the same regardless of the toggle).
+    const { data } = await buildGanttData(graph, { mode: 'inherit' });
 
-    // A, B (roots) + child under A + child under B = 4.
-    expect(data.instances).toHaveLength(4);
-    expect(data.instances.filter((i) => i.sourcePath === 'Tasks/child.md')).toHaveLength(2);
+    // A, B (roots) + child under A + child under B + child root duplicate = 5.
+    expect(data.instances).toHaveLength(5);
+    expect(data.instances.filter((i) => i.sourcePath === 'Tasks/child.md')).toHaveLength(3);
   });
 
   it('is read-only (no write affordances in the harness)', async () => {

@@ -71,6 +71,7 @@ import {
   type FieldConfig,
   type MutationContext,
   type SourceDependency,
+  type SourceTask,
   type StatusColor,
   type TaskPatch,
 } from '../datasource';
@@ -83,11 +84,13 @@ import {
   type RenderLink,
   type SourceLink,
 } from './InstanceExpansion';
-import { applyDatePolicy, type DateStatus } from './datePolicy';
+import { applyDatePolicy } from './datePolicy';
+import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
   type CompanionAccessor,
   type CompanionResolveOptions,
+  type RelationshipIndex,
 } from '../datasource/companionResolve';
 import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 
@@ -99,17 +102,16 @@ import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 export interface DatePolicyConfig {
   /** Bar length (days) for partial/placeholder tasks; `1` → single-day bars. */
   defaultDuration: number;
-  /** When `false`, undated (placeholder) tasks are filtered out entirely. */
-  showUndatedTasks: boolean;
-  /** When `false`, partial-date (inferred) tasks are filtered out entirely. */
-  showPartialDateTasks: boolean;
 }
 
-/** Default policy config: single-day partials, show everything (R6/R7). */
+/**
+ * Default policy config: single-day partials. Row-visibility options
+ * (`showUndatedTasks`/`showPartialDateTasks`) deliberately do NOT live here —
+ * they are pure presentation filters applied in the view (#161, KTD7), so the
+ * derivation is a function of the matched result + data-shaping config only.
+ */
 export const DEFAULT_DATE_POLICY_CONFIG: DatePolicyConfig = {
   defaultDuration: 1,
-  showUndatedTasks: true,
-  showPartialDateTasks: true,
 };
 
 /**
@@ -123,12 +125,6 @@ export const DEFAULT_CORRELATION_TTL_MS = 5000;
 
 /** `source` tag attached to every write's {@link MutationContext}. */
 const GANTT_MUTATION_SOURCE = 'obsidian-gantt';
-
-/** `dateStatus` values produced by partial (one-date-only) tasks. */
-const PARTIAL_STATUSES: ReadonlySet<DateStatus> = new Set([
-  'inferred-start',
-  'inferred-end',
-]);
 
 /**
  * The Bases fallback inputs the controller needs to construct a
@@ -280,6 +276,34 @@ interface Snapshot {
   expansion: ExpansionResult;
   /** Source-level dependency links gathered across all tasks. */
   sourceLinks: SourceLink[];
+  /**
+   * Whether this build resolved a relationship edge touching at least one
+   * currently-matched task — the U1 readiness signal (#161 §11). Computed at
+   * build time and committed (via {@link GanttController.recompute}) only after
+   * the latest-wins guard, so a discarded stale build can't leave a false
+   * positive. Deliberately excluded from {@link snapshotsEqual}: it is readiness
+   * metadata, not render-affecting state (a genuine edge resolving changes the
+   * instance set anyway, which is what drives notification).
+   */
+  matchedEdgesResolved: boolean;
+}
+
+/**
+ * The view-facing readiness signal (U1). Drives the post-mount readiness re-check
+ * window (#161 §11): the window starts only when `companionActive` (TaskNotes
+ * companion mode is on) and `!matchedEdgesResolved` (the relationship index has
+ * resolved no edges for the matched set yet — the lag state), and stops early
+ * once `matchedEdgesResolved` flips true.
+ */
+export interface ReadinessStatus {
+  /** Whether companion mode is active (`companionAccessor !== null`). */
+  companionActive: boolean;
+  /**
+   * Whether the last committed build resolved a relationship edge touching a
+   * currently-matched task. `false` in standalone, on a not-ready (null) index,
+   * and on a non-null-but-empty index (never satisfied by emptiness — R2).
+   */
+  matchedEdgesResolved: boolean;
 }
 
 /** Maps a TaskNotes reltype to the SVAR link type. */
@@ -333,6 +357,23 @@ export class GanttController {
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
    */
   private companionAccessor: CompanionAccessor | null = null;
+
+  /**
+   * Cached TaskNotes enrichment (#161 loop fix). The relationship index is a
+   * full-vault read (`api.tasks.list()`) and dependencies are per-task reads;
+   * running them on every Bases notify re-pokes Bases into re-notifying (an
+   * infinite loop). They only change on a genuine TaskNotes data-change, so we
+   * cache them and re-fetch only when {@link enrichmentDirty} is set (by the
+   * source subscription or an availability flip) — plain Bases notifies reuse
+   * the cache. Expansion/positioning still re-run each recompute (no reads), so
+   * option toggles + sort changes apply without a re-fetch.
+   */
+  private relationshipIndex: RelationshipIndex | null = null;
+  private readonly dependencyCache = new Map<string, SourceDependency[]>();
+  private enrichmentDirty = true;
+  /** [OGDBG #161 fix-prototype] last base tasks read, for the reuse experiment. */
+  private cachedRawTasks: readonly SourceTask[] | null = null;
+
   /**
    * Monotonic recompute token. Each {@link recompute} captures the current
    * value; if a newer recompute starts while it awaits the async build, the
@@ -382,6 +423,23 @@ export class GanttController {
   /** The current coherent source-graph snapshot. `null` until first compute. */
   private snapshot: Snapshot | null = null;
 
+  /**
+   * The last committed build's matched-edges signal (U1), read by
+   * {@link readinessStatus}. Written by {@link recompute} **after** the
+   * latest-wins guard so a discarded stale build never leaves a false signal.
+   * `null` until the first build → reported as not-ready. Only this boolean is
+   * captured-at-commit; `companionActive` is always read live in
+   * {@link readinessStatus} (no stale copy to drift).
+   */
+  private lastMatchedEdgesResolved: boolean | null = null;
+
+  /**
+   * The write capability at the last notify, so {@link recompute} can notify on a
+   * capability flip even when the snapshot is value-equal — replacing the old
+   * unconditional force-notify on re-selection (#161). `null` until first notify.
+   */
+  private lastNotifiedWrite: boolean | null = null;
+
   /** Registered snapshot-change listeners. */
   private readonly listeners = new Set<ChangeListener>();
 
@@ -418,7 +476,7 @@ export class GanttController {
     const pc = options.policyConfig ?? DEFAULT_DATE_POLICY_CONFIG;
     this.policyConfigProvider = typeof pc === 'function' ? pc : () => pc;
     this.companionConfig =
-      options.companionConfig ?? (() => ({ mode: 'inherit', hideTopLevel: false }));
+      options.companionConfig ?? (() => ({ mode: 'inherit' }));
     this.sortConfig = options.sortConfig ?? (() => []);
     this.now = options.now ?? (() => new Date());
     this.correlationTtlMs = options.correlationTtlMs ?? DEFAULT_CORRELATION_TTL_MS;
@@ -452,7 +510,7 @@ export class GanttController {
    * This is the reactive selection entry point: call it whenever TaskNotes
    * availability may have flipped.
    */
-  public async refreshSource(): Promise<void> {
+  public async refreshSource(opts: { reuseTasks?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -466,9 +524,13 @@ export class GanttController {
     // Subscribe to change events when the active source supports it (TaskNotes).
     this.subscribeToSource(next);
 
-    // Recompute the snapshot from the new source and notify (selection changed
-    // the capability surface and possibly the data, so always notify here).
-    await this.recompute({ forceNotify: true });
+    // Recompute the snapshot from the new source. recompute() notifies only on
+    // an actual change (snapshot value-inequality or a write-capability flip), so
+    // a re-selection that yields identical data + capability is a no-op — the
+    // guard that stops the in-place refresh loop (#161). `reuseTasks` additionally
+    // skips the Bases entry re-read when the caller knows the entries are unchanged
+    // (config-only notify), which is what stops the re-notify storm (#161).
+    await this.recompute({ reuseTasks: opts.reuseTasks });
   }
 
   /**
@@ -484,7 +546,44 @@ export class GanttController {
     // capabilities (plan #161, KTD3). Plain entry-change refreshes
     // (onDataUpdated → refreshSource) keep reusing the memo.
     this.taskNotesResolved = false;
+    // A new/absent enrichment source means the cached relationship index +
+    // dependencies are stale — invalidate so the next build re-fetches (#161).
+    this.enrichmentDirty = true;
     await this.refreshSource();
+  }
+
+  /**
+   * Narrow readiness re-fetch trigger (U1 / #161 §11): bust ONLY the enrichment
+   * cache and recompute, re-fetching the relationship index on the next build.
+   *
+   * Unlike {@link onExternalSourceChange}, this does NOT re-resolve the TaskNotes
+   * source (no `taskNotesResolved = false`, so the memoized source is reused and
+   * `lifecycle.ready()` is not re-awaited) and recomputes with `reuseTasks:true`
+   * (skipping the Bases entry re-read that #161's storm fix avoids). It exists to
+   * override PR #166's "authoritative-empty is cached" rule for the duration of
+   * the post-mount readiness window only — flipping {@link enrichmentDirty} so the
+   * next {@link buildSnapshot} clears + re-fetches the index (R7).
+   */
+  public async recheckRelationshipIndex(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    this.enrichmentDirty = true;
+    await this.refreshSource({ reuseTasks: true });
+  }
+
+  /**
+   * The view-facing readiness signal (U1), read by the post-mount readiness
+   * window to decide whether to start and when to stop early. Reflects the last
+   * committed build (see {@link lastMatchedEdgesResolved}); reports not-ready
+   * before the first build. `companionActive` is read live from the current
+   * {@link companionAccessor} so a standalone mount reports `false` immediately.
+   */
+  public readinessStatus(): ReadinessStatus {
+    return {
+      companionActive: this.companionAccessor !== null,
+      matchedEdgesResolved: this.lastMatchedEdgesResolved ?? false,
+    };
   }
 
   /**
@@ -953,10 +1052,15 @@ export class GanttController {
         this.clearInFlight(correlationId);
         return;
       }
+      // A genuine TaskNotes data-change: the cached enrichment (relationship
+      // index + dependencies) may be stale, so invalidate it before recomputing
+      // (#161). This is the ONLY place plain recomputes re-fetch the full-vault
+      // index — Bases notifies reuse the cache.
+      this.enrichmentDirty = true;
       // Fire-and-forget recompute; the idempotent backstop suppresses
       // notification when nothing actually changed (covers a late self-event
       // whose correlationId TTL already expired).
-      void this.recompute({ forceNotify: false });
+      void this.recompute();
     });
   }
 
@@ -975,7 +1079,7 @@ export class GanttController {
   /** Compute a snapshot on demand if one does not exist yet. */
   private async ensureSnapshot(): Promise<Snapshot> {
     if (!this.snapshot) {
-      await this.recompute({ forceNotify: false });
+      await this.recompute();
     }
     // recompute always assigns this.snapshot (even for an empty source).
     return this.snapshot as Snapshot;
@@ -984,11 +1088,14 @@ export class GanttController {
   /**
    * Recompute the coherent source-graph snapshot from the active source:
    * `getTasks()` → `expandInstances(...)`, plus `getDependencies(path)` per task
-   * → `SourceLink[]`. Notifies listeners when the new snapshot differs from the
-   * previous (the idempotent backstop), or when `forceNotify` is set (selection
-   * changed the capability surface even if data is value-equal).
+   * → `SourceLink[]`. Notifies listeners only on an **actual change** — the new
+   * snapshot differs from the previous (the idempotent backstop) OR the active
+   * source's write capability flipped. There is no force-notify: re-selection
+   * with an identical snapshot and unchanged capability is a no-op, so a Bases
+   * re-notify carrying unchanged data does not re-render (fixes the in-place
+   * refresh loop where each render re-triggered Bases' notify — #161).
    */
-  private async recompute(opts: { forceNotify: boolean }): Promise<void> {
+  private async recompute(opts: { reuseTasks?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -998,24 +1105,55 @@ export class GanttController {
     const seq = ++this.recomputeSeq;
     const source = this.activeSource;
     const next: Snapshot = source
-      ? await this.buildSnapshot(source)
+      ? await this.buildSnapshot(source, opts.reuseTasks ?? false)
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
       return;
     }
 
-    const changed = !this.snapshot || !snapshotsEqual(this.snapshot, next);
+    const write = this.capabilities.write;
+    const reason = !this.snapshot
+      ? 'noSnap'
+      : !snapshotsEqual(this.snapshot, next)
+        ? 'notEqual'
+        : write !== this.lastNotifiedWrite
+          ? 'writeFlip'
+          : 'none';
+    const changed = reason !== 'none';
+    // [OGDBG #161] loop diagnosis: why (if at all) this recompute notifies.
+    // Gated default-OFF (set window.__tnGanttDebug=true) — a cheap per-recompute
+    // counter the storm/loop e2es read to detect an unbounded notify loop.
+    dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
+    // Commit the readiness signal AFTER the latest-wins guard above (U1): a
+    // discarded stale build returns early before this line, so a slow re-check
+    // resolving last can never overwrite a newer build's readiness (R13).
+    this.lastMatchedEdgesResolved = next.matchedEdgesResolved;
 
-    if (opts.forceNotify || changed) {
+    if (changed) {
+      this.lastNotifiedWrite = write;
       this.notify();
     }
   }
 
-  /** Build a fresh snapshot by querying the source for tasks and dependencies. */
-  private async buildSnapshot(source: DataSource): Promise<Snapshot> {
-    const rawTasks = await source.getTasks();
+  /**
+   * Build a fresh snapshot by querying the source for tasks and dependencies.
+   *
+   * `reuseTasks` (#161 storm fix): when the caller knows the Bases entries did
+   * NOT change (a config-only / echo notify — same matched set), reuse the
+   * previously-read base tasks instead of calling `source.getTasks()` again.
+   * That re-read (extracting every entry's field values) is what re-pokes Bases
+   * into an `onDataUpdated` re-notify; skipping it on config-only changes breaks
+   * the feedback loop while the (cheap, Bases-free) companion expansion still
+   * re-runs against the fresh config, so the option toggle still applies.
+   */
+  private async buildSnapshot(source: DataSource, reuseTasks: boolean): Promise<Snapshot> {
+    const tStart = performance.now(); // [OGDBG #161] stage timing
+    const canReuse = reuseTasks && this.cachedRawTasks !== null;
+    const rawTasks = canReuse ? this.cachedRawTasks! : await source.getTasks();
+    this.cachedRawTasks = rawTasks;
+    const tGetTasks = performance.now(); // [OGDBG #161]
     // Companion stage (bases-scoped + TaskNotes): resolve the displayed set
     // (Inherit/Show-all), override parents from `projects`, and flag
     // isFetched/alsoTopLevel. Standalone (no accessor) passes tasks through
@@ -1028,9 +1166,63 @@ export class GanttController {
     // are no fetched rows. expandInstances then preserves this per-sibling input
     // order. Resolving + positioning in one branch keeps `CompanionTask[]` known to
     // the type checker (no cast). Standalone (no accessor) passes tasks through.
+    // #161 loop fix: the TaskNotes enrichment reads (the full-vault relationship
+    // index + per-task dependencies) re-poke Bases into re-notifying when run on
+    // every notify. The relationship/dependency data only changes on a genuine
+    // TaskNotes data-change (which sets `enrichmentDirty` via the source
+    // subscription / availability flip), so we cache it and reuse it across plain
+    // Bases notifies — no re-fetch, no re-poke. Expansion + companion positioning
+    // still re-run each recompute (cheap, no reads), so option toggles + sort
+    // changes apply without a re-fetch.
+    const dbgDirty = this.enrichmentDirty; // [OGDBG #161]
+    if (this.enrichmentDirty) {
+      this.relationshipIndex = null;
+      this.dependencyCache.clear();
+      this.enrichmentDirty = false;
+    }
+
+    let dbgFetchedIndex = false; // [OGDBG #161]
     let orderedTasks: readonly ExpandableTask[];
+    // U1 readiness signal (#161 §11): does the (re-fetched) index resolve any
+    // edge touching a currently-matched task? Default false — standalone, a
+    // not-ready (null) index, and a non-null-but-empty index all report not-ready
+    // (never satisfied by emptiness — R2). The post-mount readiness window reads
+    // this via readinessStatus() to start/early-stop the bounded re-check.
+    let matchedEdgesResolved = false;
     if (this.companionAccessor) {
-      const companionTasks = await resolveCompanionTree(rawTasks, this.companionConfig(), this.companionAccessor);
+      if (!this.relationshipIndex) {
+        // `null` = the source is not-ready (cold metadataCache): render
+        // matched-only for now but DON'T cache it, so the next build re-fetches
+        // until the index warms (readiness bug #161 — a stale-empty cache would
+        // otherwise stick Show-all at the matched-only count, never self-healing
+        // because a warm-restart metadataCache load fires no task.* event).
+        this.relationshipIndex = await this.companionAccessor.getRelationshipIndex();
+        dbgFetchedIndex = true;
+      }
+      const resolvedIndex = this.relationshipIndex;
+      const companionOpts = this.companionConfig();
+      // Key the signal on MATCHED task paths only (not any global edge) AND on the
+      // edge type the active mode's expansion actually consumes:
+      //   - Show-all pulls descendants from `childrenByPath` (collectShowAllDescendants),
+      //     so its "warmed" signal is a matched parent whose CHILDREN resolved.
+      //   - Inherit nests displayed tasks via `parentsByPath`, so its signal is a
+      //     matched task whose PARENT resolved.
+      // Treating EITHER edge as sufficient (the original spec) lets a resolved parent
+      // edge falsely report Show-all ready while the matched parent's children are
+      // still cold — the partial index then gets cached and the children stay absent
+      // until a later TaskNotes event (Codex review). A warmed but unmatched-only
+      // index must NOT count (AE7). An empty matched set has nothing to wait for →
+      // vacuously resolved, so the window never starts (and never burns the cap on
+      // full-vault scans) for a companion Base that matches nothing.
+      const matchedHasModeEdge = (t: ExpandableTask): boolean =>
+        companionOpts.mode === 'show-all'
+          ? resolvedIndex!.childrenByPath.has(t.path)
+          : resolvedIndex!.parentsByPath.has(t.path);
+      matchedEdgesResolved =
+        rawTasks.length === 0 ? true : !!resolvedIndex && rawTasks.some(matchedHasModeEdge);
+      const index: RelationshipIndex =
+        resolvedIndex ?? { childrenByPath: new Map(), parentsByPath: new Map() };
+      const companionTasks = resolveCompanionTree(rawTasks, companionOpts, index);
       // Interleave by the RESOLVED field mappings (the same per-user config that
       // filled task.start/end/status/…), never a hardcoded property table — so a
       // Base sort only positions fetched rows when its property is the one a Gantt
@@ -1039,17 +1231,46 @@ export class GanttController {
     } else {
       orderedTasks = rawTasks;
     }
+    const tCompanion = performance.now(); // [OGDBG #161]
     const tasks = this.resolveAndFilter(orderedTasks);
     const expansion = expandInstances(tasks);
+    const tExpand = performance.now(); // [OGDBG #161]
 
-    // Resolve dependencies for all tasks concurrently (plan #161, U3): the old
-    // sequential `await` per task added ~one round-trip per displayed row (a
-    // fixed linear cost on top of the now-bounded rebuild). `Promise.all` lets
-    // the upstream cache reads overlap; the result order matches `tasks`, so
-    // link discovery order is unchanged.
+    // Dependencies are cached per source path (cleared on a TaskNotes data-change
+    // via `enrichmentDirty` above); only a cache miss hits TaskNotes. Reusing
+    // them across notifies is part of the #161 loop fix.
+    let dbgDepMisses = 0; // [OGDBG #161]
     const depsByTask = await Promise.all(
-      tasks.map((t) => source.getDependencies(t.path)),
+      tasks.map(async (t) => {
+        const cached = this.dependencyCache.get(t.path);
+        if (cached) return cached;
+        dbgDepMisses += 1;
+        const fetched = await source.getDependencies(t.path);
+        this.dependencyCache.set(t.path, fetched);
+        return fetched;
+      }),
     );
+    const tDeps = performance.now(); // [OGDBG #161]
+    // [OGDBG #161] enrichment-cache effectiveness + live config values + stage
+    // timings (ms) per build — discriminates a slow data pipeline from slow SVAR.
+    // Gated default-OFF: the whole block (incl. companionConfig()) is skipped in
+    // production so it adds zero per-build cost; enable via window.__tnGanttDebug.
+    if (isGanttDebugEnabled()) {
+      try {
+        const cc = this.companionConfig();
+        const ms = (a: number, b: number) => Math.round(b - a);
+        dlog(
+          `[OGDBG] build dirty=${dbgDirty} fetchedIndex=${dbgFetchedIndex} depMisses=${dbgDepMisses}` +
+            ` companion=${!!this.companionAccessor} mode=${cc.mode}` +
+            ` tasks=${tasks.length} instances=${expansion.instances.length}` +
+            ` | ms: total=${ms(tStart, tDeps)} getTasks=${ms(tStart, tGetTasks)}` +
+            ` companion=${ms(tGetTasks, tCompanion)} expand=${ms(tCompanion, tExpand)}` +
+            ` deps=${ms(tExpand, tDeps)}`,
+        );
+      } catch (e) {
+        dlog('[OGDBG] build log failed', e);
+      }
+    }
 
     const sourceLinks: SourceLink[] = [];
     for (let i = 0; i < tasks.length; i += 1) {
@@ -1067,22 +1288,22 @@ export class GanttController {
       }
     }
 
-    return { expansion, sourceLinks };
+    return { expansion, sourceLinks, matchedEdgesResolved };
   }
 
   /**
-   * Resolve each raw task's display dates via the date policy and drop tasks
-   * hidden by the visibility toggles — **before** expansion, so a hidden
-   * multi-parent task produces no instances at all. Returns resolved tasks
-   * (non-null dates + `dateStatus`) ready for {@link expandInstances}.
-   *
-   * Note: hiding an *interior* parent reparents its visible children to the
-   * root (expansion drops parent paths not in the visible set) — accepted
-   * behaviour, not a silent surprise (see plan U2).
+   * Resolve each raw task's display dates via the date policy and tag its
+   * `dateStatus`. Produces the FULL instance set regardless of the "Show tasks
+   * with no dates / only one date" toggles — those are pure DISPLAY filters
+   * applied in the view via SVAR `filter-tasks` (keyed off `dateStatus`), exactly
+   * like "Hide top-level subtasks". Keeping them OUT of the derivation means the
+   * instance set is stable when they toggle, so a Bases config oscillation cannot
+   * churn the chart (#161). `dateStatus` rides each {@link RenderInstance} onto the
+   * SVAR task so the view's predicate can read it.
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration, showUndatedTasks, showPartialDateTasks } = this.policyConfigProvider();
+    const { defaultDuration } = this.policyConfigProvider();
 
     const resolved: ExpandableTask[] = [];
     for (const task of rawTasks) {
@@ -1090,8 +1311,6 @@ export class GanttController {
         { start: task.start, end: task.end },
         { defaultDuration, today },
       );
-      if (!showUndatedTasks && dateStatus === 'placeholder') continue;
-      if (!showPartialDateTasks && PARTIAL_STATUSES.has(dateStatus)) continue;
       resolved.push({ ...task, start, end, dateStatus });
     }
     return resolved;
@@ -1111,7 +1330,7 @@ export class GanttController {
 
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
-  return { expansion: expandInstances([]), sourceLinks: [] };
+  return { expansion: expandInstances([]), sourceLinks: [], matchedEdgesResolved: false };
 }
 
 /**

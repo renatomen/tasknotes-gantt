@@ -6,7 +6,7 @@ import path from "node:path";
 // Platform-aware default vault path
 const LOCAL_VAULT =
   process.platform === "win32"
-    ? "C:/Users/renat/OneDrive/@-Notes/Vaults/obsidian-gantt"
+    ? "C:/Users/<you>/obsidian-test-vaults/obsidian-gantt-test-vault"
     : path.join(
         process.env.HOME || "/home/renato",
         "obsidian-test-vaults/obsidian-gantt-test-vault"

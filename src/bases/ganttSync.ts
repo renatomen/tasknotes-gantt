@@ -19,6 +19,7 @@
  */
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
+import type { DateStatus } from '../controller/datePolicy';
 import type { StatusColor } from '../datasource/types';
 import { statusSlug } from './statusColor';
 import type { TypedValue } from './propertyValues';
@@ -114,6 +115,20 @@ export interface SvarTask {
      * Base filter (U6). Drives the `og-context` cue. Also folded into `type`.
      */
     isContext: boolean;
+    /**
+     * The instance belongs to an also-top-level DUPLICATE placement (the extra
+     * root copy of an already-nested task + its subtree). The view hides these via
+     * SVAR `filter-tasks` when "Hide top-level subtasks" is on — a pure display
+     * filter over a STABLE task set, so the toggle can't churn the chart (#161).
+     */
+    isTopLevelPlacement: boolean;
+    /**
+     * The date-policy classification of this row's dates (#161). The composed
+     * display filter reads it so "Show tasks with no dates" (`placeholder`) and
+     * "Show tasks with only one date" (`inferred-*`) hide rows via SVAR
+     * `filter-tasks` over the STABLE task set — never by re-deriving it.
+     */
+    dateStatus: DateStatus;
     showHasDeps: boolean;
     /**
      * Type-tagged values for the grid's visible property columns, keyed by
@@ -239,6 +254,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isCollapsed: inst.isCollapsed,
         isReplicated,
         isContext,
+        isTopLevelPlacement: inst.isTopLevelPlacement,
+        dateStatus: inst.dateStatus,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -543,4 +560,52 @@ export function planLinkSync(prev: ReadonlyMap<string, RenderLink>, next: Readon
     if (!prev.has(l.id)) adds.push(l);
   }
   return { deletes, adds };
+}
+
+/**
+ * Default structural-op threshold above which a sync should BULK-RESEED the SVAR
+ * store instead of applying the diff instance-by-instance (#161 U6).
+ *
+ * Rationale (plan 2026-06-28-002, KTD3): a per-instance `api.exec` diff preserves
+ * SVAR view state (zoom/scroll) and is the right tool for SMALL changes — an
+ * interactive drag is 1–3 structural ops, a row-visibility toggle is 0 (it is a
+ * display filter, not a task-set change). But a wholesale set replacement (search
+ * clear / filter change re-expands the whole companion tree → hundreds–thousands
+ * of adds/deletes) costs ~one DOM mutation storm per swing; a burst of those is the
+ * ~25s #161 churn. Above this count, a single virtualized re-init (reseed) is both
+ * cheaper and correct, and the lost zoom/scroll is meaningless because the displayed
+ * set changed entirely. The value sits well above any realistic interactive edit and
+ * well below a full set swap; it is intentionally one tunable constant.
+ */
+export const BULK_RESEED_OP_THRESHOLD = 150;
+
+/**
+ * Count the STRUCTURAL ops in a sync diff — task `adds + deletes + moves` plus link
+ * `adds + deletes` (the ops that materialise or remove rows). In-place field
+ * `updates` are EXCLUDED: a value-only refresh of a stable row set is cheap
+ * incrementally and must keep its view state (a bulk field refresh stays incremental).
+ *
+ * Single source of truth for "how big is this diff" — shared by {@link shouldBulkReseed}
+ * (the decision) and the caller's diagnostics, so the two can never diverge on what
+ * counts as a structural op. Pure (no SVAR/DOM) → unit-testable in isolation.
+ */
+export function structuralOpCount(plan: TaskSyncPlan, linkPlan: LinkSyncPlan): number {
+  return plan.adds.length + plan.deletes.length + plan.moves.length + linkPlan.adds.length + linkPlan.deletes.length;
+}
+
+/**
+ * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
+ * incrementally (#161 U6) — true when {@link structuralOpCount} strictly exceeds the
+ * threshold. The caller (`GanttContainer`) asks the question and branches.
+ *
+ * @param plan - the task sync plan from {@link planTaskSync}.
+ * @param linkPlan - the link sync plan from {@link planLinkSync}.
+ * @param threshold - structural-op threshold; defaults to {@link BULK_RESEED_OP_THRESHOLD}.
+ */
+export function shouldBulkReseed(
+  plan: TaskSyncPlan,
+  linkPlan: LinkSyncPlan,
+  threshold: number = BULK_RESEED_OP_THRESHOLD,
+): boolean {
+  return structuralOpCount(plan, linkPlan) > threshold;
 }

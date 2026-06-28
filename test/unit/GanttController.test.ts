@@ -56,6 +56,8 @@ class FakeSource implements DataSource {
   /** The handler registered via subscribe(), if subscription is enabled. */
   public changeHandler: (() => void) | null = null;
   public unsubscribed = false;
+  /** Count of getTasks() calls (#161 storm fix: a config-only refresh must NOT re-read). */
+  public getTasksCalls = 0;
 
   private readonly subscribable: boolean;
 
@@ -83,6 +85,7 @@ class FakeSource implements DataSource {
   }
 
   async getTasks(): Promise<SourceTask[]> {
+    this.getTasksCalls += 1;
     return this.tasks;
   }
 
@@ -311,6 +314,46 @@ describe('GanttController — getInstances expansion', () => {
   });
 });
 
+describe('GanttController — gated debug build log (#161)', () => {
+  const flagged = globalThis as { __tnGanttDebug?: boolean };
+  afterEach(() => {
+    delete flagged.__tnGanttDebug;
+    jest.restoreAllMocks();
+  });
+
+  /** A bases-scoped controller whose snapshot build runs the diagnostic stage-log. */
+  function buildLogController(): GanttController {
+    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] });
+    return new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      deps: {
+        createBasesSource: () => base,
+        createTaskNotesSource: async () => null,
+      },
+    });
+  }
+
+  const sawBuildLog = (spy: jest.SpyInstance): boolean =>
+    spy.mock.calls.some((args) =>
+      args.some((a) => typeof a === 'string' && a.includes('[OGDBG] build')),
+    );
+
+  it('stays silent (no build diagnostic) when debug is off — the default', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await buildLogController().init();
+    expect(sawBuildLog(spy)).toBe(false);
+  });
+
+  it('emits the build stage-timing diagnostic when window.__tnGanttDebug is enabled', async () => {
+    flagged.__tnGanttDebug = true;
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await buildLogController().init();
+    expect(sawBuildLog(spy)).toBe(true);
+  });
+});
+
 describe('GanttController — getLinks', () => {
   it('rewrites a blockedBy dependency into a RenderLink with the correct SVAR type', async () => {
     // pred.md blocks dep.md via FINISHTOSTART → SVAR 'e2s'.
@@ -451,6 +494,67 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('does NOT notify on repeated refreshSource when data + capability are unchanged (#161 in-place loop fix)', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Simulate Bases re-notifying repeatedly with identical data (the loop):
+    // each refreshSource recomputes a value-equal snapshot, so the idempotent
+    // backstop must suppress every notify — no re-render, no feedback loop.
+    await controller.refreshSource();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('still notifies on refreshSource when the data actually changed', async () => {
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    tn.tasks = [task({ path: 'a.md' }), task({ path: 'b.md' })];
+    await controller.refreshSource();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
+  });
+
+  it('notifies on a write-capability flip via re-selection even when the snapshot is unchanged', async () => {
+    const ro = new FakeSource({ tasks: [task({ path: 'a.md' })], write: false });
+    const rw = new FakeSource({ tasks: [task({ path: 'a.md' })], write: true });
+    let current: FakeSource = ro;
+    const controller = makeController({
+      createTaskNotesSource: async () => current,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // Same data, but the active source's write capability flips — recompute
+    // must still notify so write affordances update (the case the old
+    // force-notify covered, now driven by capability-change detection).
+    current = rw;
+    await controller.onExternalSourceChange();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it('unsubscribes the previous source on re-selection', async () => {
     const tn = new FakeSource({ tasks: [] });
     tn.enableSubscribe();
@@ -470,7 +574,7 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
   });
 });
 
-describe('GanttController — date policy + visibility (U2)', () => {
+describe('GanttController — date policy + stable instance set (#161 R1)', () => {
   // A fixed "today" so placeholder placement and assertions are deterministic.
   const FIXED_TODAY = new Date(2026, 5, 17); // 2026-06-17
   const AUG17 = new Date(2026, 7, 17, 12, 0, 0); // noon → exercises normalization
@@ -493,14 +597,14 @@ describe('GanttController — date policy + visibility (U2)', () => {
     });
   }
 
-  const showAll: DatePolicyConfig = {
-    defaultDuration: 1,
-    showUndatedTasks: true,
-    showPartialDateTasks: true,
-  };
+  // The derivation is now visibility-free (KTD7): its only data-shaping input is
+  // `defaultDuration`. The show-undated/show-partial toggles are pure VIEW filters
+  // (#161) and cannot be expressed at the controller seam — so the instance set is
+  // stable by construction, which is exactly what R1 demands.
+  const dur1: DatePolicyConfig = { defaultDuration: 1 };
 
   it('resolves a due-only task to its deadline, not today→due', async () => {
-    const controller = makeControllerWith(showAll, [task({ path: 'due.md', end: AUG17 })]);
+    const controller = makeControllerWith(dur1, [task({ path: 'due.md', end: AUG17 })]);
     await controller.init();
     const [inst] = await controller.getInstances();
 
@@ -512,7 +616,7 @@ describe('GanttController — date policy + visibility (U2)', () => {
   });
 
   it('propagates dateStatus onto every RenderInstance', async () => {
-    const controller = makeControllerWith(showAll, [
+    const controller = makeControllerWith(dur1, [
       task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
       task({ path: 'dateless.md' }),
     ]);
@@ -523,37 +627,44 @@ describe('GanttController — date policy + visibility (U2)', () => {
     expect(byPath.get('dateless.md')?.dateStatus).toBe('placeholder');
   });
 
-  it('hide-undated removes dateless tasks; partial + complete remain (AE5)', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'dateless.md' }),
-        task({ path: 'due.md', end: AUG17 }),
-        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
-      ],
-    );
+  it('retains undated tasks tagged placeholder — derivation never drops them (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'dateless.md' }),
+      task({ path: 'due.md', end: AUG17 }),
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+    ]);
     await controller.init();
-    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
-    expect(paths).toEqual(['complete.md', 'due.md']);
+    const byPath = new Map((await controller.getInstances()).map((i) => [i.sourcePath, i]));
+
+    // ALL three present (visibility is a view filter, not a derivation drop).
+    expect([...byPath.keys()].sort()).toEqual(['complete.md', 'dateless.md', 'due.md']);
+    // The undated row carries the `placeholder` tag the view filter keys off of.
+    expect(byPath.get('dateless.md')?.dateStatus).toBe('placeholder');
   });
 
-  it('hide-partial removes one-date tasks; complete + undated remain', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showPartialDateTasks: false },
-      [
-        task({ path: 'dateless.md' }),
-        task({ path: 'due.md', end: AUG17 }),
-        task({ path: 'start.md', start: new Date(2026, 7, 1) }),
-        task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
-      ],
-    );
+  it('retains partial-date tasks tagged inferred-* — derivation never drops them (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'dateless.md' }),
+      task({ path: 'due.md', end: AUG17 }),
+      task({ path: 'start.md', start: new Date(2026, 7, 1) }),
+      task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
+    ]);
     await controller.init();
-    const paths = (await controller.getInstances()).map((i) => i.sourcePath).sort();
-    expect(paths).toEqual(['complete.md', 'dateless.md']);
+    const byPath = new Map((await controller.getInstances()).map((i) => [i.sourcePath, i]));
+
+    expect([...byPath.keys()].sort()).toEqual([
+      'complete.md',
+      'dateless.md',
+      'due.md',
+      'start.md',
+    ]);
+    // Both one-date rows carry a PARTIAL tag the view's show-partial filter keys off.
+    expect(byPath.get('due.md')?.dateStatus).toBe('inferred-start');
+    expect(byPath.get('start.md')?.dateStatus).toBe('inferred-end');
   });
 
-  it('default visibility shows every task regardless of date completeness (R7)', async () => {
-    const controller = makeControllerWith(showAll, [
+  it('derivation includes every task regardless of date completeness (R1)', async () => {
+    const controller = makeControllerWith(dur1, [
       task({ path: 'dateless.md' }),
       task({ path: 'due.md', end: AUG17 }),
       task({ path: 'complete.md', start: new Date(2026, 7, 1), end: AUG17 }),
@@ -562,37 +673,36 @@ describe('GanttController — date policy + visibility (U2)', () => {
     expect(await controller.getInstances()).toHaveLength(3);
   });
 
-  it('a hidden multi-parent task contributes no instances at all', async () => {
-    // child is dateless and would normally render under both A and B.
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'A.md', start: new Date(2026, 7, 1), end: AUG17 }),
-        task({ path: 'B.md', start: new Date(2026, 7, 1), end: AUG17 }),
-        task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
-      ],
-    );
+  it('an undated multi-parent task still expands under every parent (R1)', async () => {
+    // child is dateless; under the old derivation a hide-undated toggle dropped
+    // BOTH placements. The derivation no longer drops — it expands under A and B.
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'A.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      task({ path: 'B.md', start: new Date(2026, 7, 1), end: AUG17 }),
+      task({ path: 'child.md', parents: ['A.md', 'B.md'] }),
+    ]);
     await controller.init();
     const childInstances = (await controller.getInstances()).filter(
       (i) => i.sourcePath === 'child.md',
     );
-    expect(childInstances).toHaveLength(0);
+    expect(childInstances).toHaveLength(2);
+    expect(childInstances.every((i) => i.dateStatus === 'placeholder')).toBe(true);
   });
 
-  it('reparents children of a hidden interior parent to root (documented shadow path)', async () => {
-    const controller = makeControllerWith(
-      { ...showAll, showUndatedTasks: false },
-      [
-        task({ path: 'parent.md' }), // undated → hidden
-        task({ path: 'child.md', parents: ['parent.md'], end: AUG17 }),
-      ],
-    );
+  it('an undated interior parent is retained with its dated child nested under it (R1)', async () => {
+    // Old derivation hid the undated parent and reparented the child to root.
+    // Now the parent stays and the child nests under it (KTD4: the view's filterTree
+    // keeps an undated parent of a dated child anyway — R8's accepted behavior).
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'parent.md' }), // undated → retained, not dropped
+      task({ path: 'child.md', parents: ['parent.md'], end: AUG17 }),
+    ]);
     await controller.init();
     const instances = await controller.getInstances();
     const child = instances.find((i) => i.sourcePath === 'child.md');
 
-    expect(instances.map((i) => i.sourcePath)).toEqual(['child.md']);
-    expect(child?.parent).toBeUndefined(); // reparented to root
+    expect(instances.map((i) => i.sourcePath).sort()).toEqual(['child.md', 'parent.md']);
+    expect(child?.parent).toBeDefined(); // nested under the retained parent, NOT root
   });
 
   it('refreshes on a status-only change (comparator includes dateStatus)', async () => {
@@ -604,7 +714,7 @@ describe('GanttController — date policy + visibility (U2)', () => {
     const controller = new GanttController({
       app: fakeApp,
       basesInput: basesInputStub,
-      policyConfig: showAll,
+      policyConfig: dur1,
       now: () => FIXED_TODAY,
       deps: {
         createTaskNotesSource: async () => tn,
@@ -848,7 +958,6 @@ describe('GanttController — companion expansion stage (U4)', () => {
     parents?: Record<string, string[]>;
     deps?: Record<string, SourceDependency[]>;
     mode?: 'inherit' | 'show-all';
-    hideTopLevel?: boolean;
   }): GanttController {
     const base = new FakeSource({ tasks: opts.baseTasks });
     const enrichment = new CompanionEnrichment({
@@ -862,7 +971,6 @@ describe('GanttController — companion expansion stage (U4)', () => {
       basesInput: basesInputStub,
       companionConfig: () => ({
         mode: opts.mode ?? 'inherit',
-        hideTopLevel: opts.hideTopLevel ?? false,
       }),
       deps: {
         createBasesSource: () => base,
@@ -896,33 +1004,20 @@ describe('GanttController — companion expansion stage (U4)', () => {
     expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['P.md']);
   });
 
-  it('hide off: a matched child renders both at root and nested (alsoTopLevel)', async () => {
+  it('a matched child ALWAYS renders both at root (also-top-level duplicate) and nested — hide-top is a view filter, not a data change (#161)', async () => {
     const controller = makeCompanion({
       baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
       parents: { 'C.md': ['P.md'] },
       mode: 'inherit',
-      hideTopLevel: false,
     });
     await controller.init();
-    const cIds = (await controller.getInstances())
-      .filter((i) => i.sourcePath === 'C.md')
-      .map((i) => i.id)
-      .sort();
-    expect(cIds).toEqual(['C.md', 'C.md#parent-P.md']);
-  });
-
-  it('hide on: a matched child renders nested only', async () => {
-    const controller = makeCompanion({
-      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
-      parents: { 'C.md': ['P.md'] },
-      mode: 'inherit',
-      hideTopLevel: true,
-    });
-    await controller.init();
-    const cIds = (await controller.getInstances())
-      .filter((i) => i.sourcePath === 'C.md')
-      .map((i) => i.id);
-    expect(cIds).toEqual(['C.md#parent-P.md']);
+    const cInstances = (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md');
+    expect(cInstances.map((i) => i.id).sort()).toEqual(['C.md', 'C.md#parent-P.md']);
+    // The duplicate root copy is FLAGGED so the view can hide it via filter-tasks;
+    // the real nested copy is not. The instance SET is identical regardless of the
+    // Hide-top toggle — that stability is what makes a config toggle unable to churn.
+    expect(cInstances.find((i) => i.id === 'C.md')?.isTopLevelPlacement).toBe(true);
+    expect(cInstances.find((i) => i.id === 'C.md#parent-P.md')?.isTopLevelPlacement).toBe(false);
   });
 
   it('resolves dependency edges for fetched (Show-all) descendants', async () => {
@@ -941,35 +1036,34 @@ describe('GanttController — companion expansion stage (U4)', () => {
     ).toBe(true);
   });
 
-  it('reads companion settings fresh each recompute (toggle applies without remount)', async () => {
-    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
-    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
-    const live = { mode: 'inherit' as 'inherit' | 'show-all', hideTopLevel: true };
+  it('reads companion settings fresh each recompute (mode toggle applies without remount)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' })] });
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+    });
+    const live = { mode: 'inherit' as 'inherit' | 'show-all' };
     const controller = new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: live.mode, hideTopLevel: live.hideTopLevel }),
+      companionConfig: () => ({ mode: live.mode }),
       deps: {
         createBasesSource: () => base,
         createTaskNotesSource: async () => enrichment,
       },
     });
     await controller.init();
-    // hide on → nested only.
-    expect(
-      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id),
-    ).toEqual(['C.md#parent-P.md']);
+    // Inherit → out-of-result subtasks stay out.
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['P.md']);
 
-    // Flip the live setting and re-run selection (what onDataUpdated does).
-    live.hideTopLevel = false;
+    // Flip the live setting and re-run selection (what onDataUpdated does): the
+    // fresh read takes effect without a remount — Show-all now fetches C.
+    live.mode = 'show-all';
     await controller.refreshSource();
-    expect(
-      (await controller.getInstances())
-        .filter((i) => i.sourcePath === 'C.md')
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual(['C.md', 'C.md#parent-P.md']);
+    expect(new Set((await controller.getInstances()).map((i) => i.sourcePath))).toEqual(
+      new Set(['P.md', 'C.md']),
+    );
   });
 
   it('companion stage is inert in standalone mode (parents from the Base)', async () => {
@@ -997,9 +1091,10 @@ describe('GanttController — companion expansion stage (U4)', () => {
 });
 
 describe('GanttController — per-view settings freshness', () => {
-  it('reads date-policy config fresh each recompute (visibility toggle applies without remount)', async () => {
-    const base = new FakeSource({ tasks: [task({ path: 'U.md' })] }); // no dates → placeholder
-    const policy = { defaultDuration: 1, showUndatedTasks: true, showPartialDateTasks: true };
+  it('reads date-policy config fresh each recompute (defaultDuration change applies without remount)', async () => {
+    // Only a start date → inferred-end bar whose span follows `defaultDuration`.
+    const base = new FakeSource({ tasks: [task({ path: 'S.md', start: new Date(2026, 7, 1) })] });
+    const policy = { defaultDuration: 1 };
     const controller = new GanttController({
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
@@ -1011,12 +1106,17 @@ describe('GanttController — per-view settings freshness', () => {
       },
     });
     await controller.init();
-    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const span1 = await controller.getInstances();
+    // D=1 → single-day bar (start..end within the same day).
+    expect(span1[0]!.end!.getTime() - span1[0]!.start!.getTime()).toBeLessThan(dayMs);
 
-    // Hide undated tasks; a recompute (what onDataUpdated triggers) re-reads it.
-    policy.showUndatedTasks = false;
+    // Widen the bar via a data-shaping change; a recompute re-reads it fresh (R6).
+    policy.defaultDuration = 5;
     await controller.refreshSource();
-    expect(await controller.getInstances()).toEqual([]);
+    const span5 = await controller.getInstances();
+    // D=5 → the inferred end now lands ~4 days after the start.
+    expect(span5[0]!.end!.getTime() - span5[0]!.start!.getTime()).toBeGreaterThan(3 * dayMs);
   });
 
   it('still accepts a static policyConfig object (backward compatible)', async () => {
@@ -1025,14 +1125,15 @@ describe('GanttController — per-view settings freshness', () => {
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      policyConfig: { defaultDuration: 1, showUndatedTasks: false, showPartialDateTasks: true },
+      policyConfig: { defaultDuration: 1 },
       deps: {
         createBasesSource: () => base,
         createTaskNotesSource: async () => null,
       },
     });
     await controller.init();
-    expect(await controller.getInstances()).toEqual([]);
+    // The undated task is RETAINED (visibility is a view filter, not a derivation drop).
+    expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['U.md']);
   });
 });
 
@@ -1071,6 +1172,138 @@ describe('GanttController — source memoization + dependency batching (plan #16
 
     await controller.onExternalSourceChange();
     expect(createTaskNotesSource).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches the relationship index across plain refreshes — never re-reads the full-vault index per Bases notify (#161 loop fix)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    // init + two Bases-driven refreshes, no TaskNotes data-change → the
+    // full-vault relationship index (api.tasks.list / getAllTasks) is read
+    // exactly ONCE and reused. Re-reading it inside Bases' notify cycle is the
+    // re-poke that drives the #161 infinite render loop.
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+  });
+
+  it('re-fetches the relationship index after a genuine TaskNotes data-change, then reuses it (cache invalidate + re-cache)', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    enrichment.enableSubscribe();
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+
+    // A genuine TaskNotes change sets enrichmentDirty → the next build busts the
+    // cache and re-reads the index, so fresh relationship data renders (the
+    // correctness half of the fix: caching must not stale out real edits).
+    enrichment.fireChange();
+    await flushAsync();
+    expect(enrichment.relationshipIndexCalls).toBe(2);
+
+    // A subsequent plain Bases refresh rides the freshly-cached index again.
+    await controller.refreshSource();
+    expect(enrichment.relationshipIndexCalls).toBe(2);
+  });
+
+  it('does NOT cache a not-ready (null) relationship index; re-fetches until warm and heals Show-all (readiness bug)', async () => {
+    // Base matches only the parent; the child is pulled in by Show-all from the
+    // relationship index. While TaskNotes' metadataCache is cold the index is
+    // not-ready (null) → no children pulled → Show-all stuck at matched-only.
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' })] });
+    type RIndex = import('../../src/datasource/companionResolve').RelationshipIndex;
+    const live: { index: RIndex | null } = { index: null };
+    let calls = 0;
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: async (): Promise<RIndex | null> => {
+        calls += 1;
+        return live.index;
+      },
+    } as unknown as DataSource;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    // Cold: not-ready index → matched-only (no Show-all fetch).
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual(['P.md']);
+    expect(calls).toBe(1);
+
+    // TaskNotes warms WITHOUT a data-change (no enrichmentDirty) — exactly the
+    // case that never self-heals today (a warm-restart metadataCache load emits
+    // no task.* event). A plain Bases refresh must re-fetch because the cold
+    // result was never cached, and Show-all then pulls the child.
+    live.index = {
+      childrenByPath: new Map([['P.md', [task({ path: 'C.md' })]]]),
+      parentsByPath: new Map([['C.md', ['P.md']]]),
+    };
+    await controller.refreshSource();
+
+    expect(calls).toBe(2); // re-fetched: the cold (null) read was not cached
+    expect((await controller.getInstances()).map((i) => i.sourcePath).sort()).toEqual([
+      'C.md',
+      'P.md',
+    ]);
+
+    // Once warm (non-null), the index IS cached — a further plain refresh reuses it.
+    await controller.refreshSource();
+    expect(calls).toBe(2);
+  });
+
+  it('caches a ready-but-empty relationship index — no re-fetch storm on a no-relationships vault', async () => {
+    // A non-null index with empty maps is AUTHORITATIVE (TaskNotes is warm, the
+    // vault just has no parent/child edges). It must be cached like any other
+    // ready index — never re-read on each Bases notify (the full-vault scan is
+    // the cost the #161 cache exists to avoid). This is the storm guard that a
+    // naive "re-fetch whenever the index is empty" fix would violate.
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    let calls = 0;
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: async () => {
+        calls += 1;
+        return { childrenByPath: new Map(), parentsByPath: new Map() };
+      },
+    } as unknown as DataSource;
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+
+    await controller.init();
+    await controller.refreshSource();
+    await controller.refreshSource();
+
+    expect(calls).toBe(1); // ready-but-empty is cached, not re-fetched per notify
   });
 
   it('re-reads field config / readiness each refresh even when the source is reused (cold→warm)', async () => {
@@ -1140,6 +1373,338 @@ describe('GanttController — source memoization + dependency batching (plan #16
   });
 });
 
+describe('GanttController — readiness re-check surface (U1 / #161 §11 relationship-lag)', () => {
+  type RIndex = import('../../src/datasource/companionResolve').RelationshipIndex;
+
+  /**
+   * Build a bases-scoped controller whose enrichment is the given object, with a
+   * `createTaskNotesSource` jest.fn so a test can assert the source is NOT
+   * re-resolved on a readiness re-check (distinct from onExternalSourceChange).
+   */
+  function makeReadinessController(opts: {
+    baseTasks: SourceTask[];
+    enrichment: DataSource;
+    createTaskNotesSource?: jest.Mock<(app: App) => Promise<DataSource | null>>;
+    mode?: 'inherit' | 'show-all';
+  }): {
+    controller: GanttController;
+    base: FakeSource;
+    createTaskNotesSource: jest.Mock<(app: App) => Promise<DataSource | null>>;
+  } {
+    const base = new FakeSource({ tasks: opts.baseTasks });
+    const createTaskNotesSource =
+      opts.createTaskNotesSource ??
+      (jest.fn(async () => opts.enrichment) as unknown as jest.Mock<
+        (app: App) => Promise<DataSource | null>
+      >);
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: opts.mode ?? 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource },
+    });
+    return { controller, base, createTaskNotesSource };
+  }
+
+  it('recheckRelationshipIndex() re-fetches the index WITHOUT re-resolving the source or re-reading base entries (reuseTasks honored). Covers R7.', async () => {
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const createTaskNotesSource = jest.fn(async () => enrichment) as unknown as jest.Mock<
+      (app: App) => Promise<DataSource | null>
+    >;
+    const { controller, base } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' }), task({ path: 'C.md' })],
+      enrichment,
+      createTaskNotesSource,
+      mode: 'inherit',
+    });
+
+    await controller.init();
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+    expect(base.getTasksCalls).toBe(1);
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+
+    await controller.recheckRelationshipIndex();
+
+    // Index re-fetched (cache busted via enrichmentDirty)…
+    expect(enrichment.relationshipIndexCalls).toBe(2);
+    // …but the base entries were NOT re-read (reuseTasks:true — the read #161's
+    // storm fix avoids)…
+    expect(base.getTasksCalls).toBe(1);
+    // …and the TaskNotes source was NOT re-resolved (unlike onExternalSourceChange).
+    expect(createTaskNotesSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('two overlapping recheckRelationshipIndex() calls are latest-wins safe — a stale re-check resolving last does not clobber the newer readiness. Covers the recomputeSeq guard.', async () => {
+    // Gate getRelationshipIndex so two overlapping re-checks can resolve out of
+    // order. Call 1 returns a cold (no-matched-edge) index; call 2 returns a warm
+    // (matched-edge) index. Resolving call 2 first then call 1 proves the stale
+    // call 1 cannot overwrite the warm readiness.
+    const resolvers: Array<(v: RIndex | null) => void> = [];
+    const enrichment = {
+      capabilities: { write: true },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getRelationshipIndex: () =>
+        new Promise<RIndex | null>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    } as unknown as DataSource;
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    // Settle init's first (gated) index read with a cold index.
+    const init = controller.init();
+    await flushAsync();
+    resolvers.shift()!({ childrenByPath: new Map(), parentsByPath: new Map() });
+    await init;
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+
+    // Two overlapping re-checks: both reach the gated index read.
+    const r1 = controller.recheckRelationshipIndex();
+    const r2 = controller.recheckRelationshipIndex();
+    await flushAsync();
+    expect(resolvers.length).toBe(2);
+
+    // Resolve the NEWER re-check (call 2) first with a warm index, then the older
+    // (call 1) with a cold index. Latest-wins must keep the warm readiness.
+    resolvers[1]!({
+      childrenByPath: new Map([['P.md', [task({ path: 'C.md' })]]]),
+      parentsByPath: new Map(),
+    });
+    resolvers[0]!({ childrenByPath: new Map(), parentsByPath: new Map() });
+    await Promise.all([r1, r2]);
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(true);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is true when a matched parent has resolved children. Covers AE1.', async () => {
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+      parents: { 'C.md': ['P.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'P.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(true);
+    expect(status.matchedEdgesResolved).toBe(true);
+  });
+
+  it('Show-all: matchedEdgesResolved is FALSE when a matched task has a resolved PARENT edge but its children are still cold — the signal must not early-stop on the wrong edge type (Codex review).', async () => {
+    // Partial warmup: M.md's parent edge resolved (parentsByPath) but its children
+    // (childrenByPath) have NOT. Show-all pulls descendants only from childrenByPath,
+    // so reporting ready here would cache the partial index and leave M's children
+    // absent. The Show-all signal must key on childrenByPath, not "any edge".
+    const enrichment = new CompanionEnrichment({
+      parents: { 'M.md': ['P.md'] }, // matched M's parent edge warmed…
+      // …but no childrenByPath entry for M.md yet (children cold).
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'M.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('Inherit: matchedEdgesResolved is true when a matched task has a resolved PARENT edge (the edge Inherit nesting consumes).', async () => {
+    // Inherit nests displayed tasks via parentsByPath, so a matched task whose parent
+    // resolved IS the warmed signal for Inherit (no childrenByPath needed).
+    const enrichment = new CompanionEnrichment({
+      parents: { 'C.md': ['P.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'C.md' })],
+      enrichment,
+      mode: 'inherit',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(true);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is false when only an UNMATCHED parent has children (matched parents still cold). Covers AE7.', async () => {
+    // The Base matches A.md only; the index has edges for X.md (not matched).
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'X.md': [task({ path: 'Y.md' })] },
+      parents: { 'Y.md': ['X.md'] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'A.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is false on an all-empty index — never satisfied by emptiness. Covers AE7.', async () => {
+    const enrichment = new CompanionEnrichment({});
+    const { controller } = makeReadinessController({
+      baseTasks: [task({ path: 'A.md' })],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    expect(controller.readinessStatus().matchedEdgesResolved).toBe(false);
+  });
+
+  it('readinessStatus().matchedEdgesResolved is true for an EMPTY matched set — nothing to heal, so the window never starts.', async () => {
+    // Companion mode active but the Base matches zero tasks. There are no matched
+    // edges to wait for, so the signal must report resolved (vacuously) — otherwise
+    // the readiness window would burn its full attempt cap re-scanning the vault for
+    // a view that has nothing to expand.
+    const enrichment = new CompanionEnrichment({
+      subtasks: { 'P.md': [task({ path: 'C.md' })] },
+    });
+    const { controller } = makeReadinessController({
+      baseTasks: [],
+      enrichment,
+      mode: 'show-all',
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(true);
+    expect(status.matchedEdgesResolved).toBe(true);
+  });
+
+  it('readinessStatus().companionActive is false in standalone (no enrichment / companionAccessor). Covers AE6.', async () => {
+    const base = new FakeSource({ tasks: [task({ path: 'a.md' })] });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'show-all' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => null },
+    });
+
+    await controller.init();
+
+    const status = controller.readinessStatus();
+    expect(status.companionActive).toBe(false);
+    expect(status.matchedEdgesResolved).toBe(false);
+  });
+});
+
+describe('GanttController — #161 dynamic resultset-change burst (P1 loop regression lock)', () => {
+  /**
+   * These replay the *dynamic* trigger of #161 as a composed SEQUENCE, not a
+   * single guard in isolation: Bases fires `onDataUpdated` in a rapid burst
+   * during a view-option persist+reload, and the persisted value oscillates
+   * (`hideTop` read `true→true→false` across one toggle — bug report §6/§14).
+   * The per-guard tests above each cover one brake (idempotent backstop, index
+   * cache, fresh-config); this asserts the brakes COMPOSE so the burst can never
+   * amplify into the loop, which is the property the static harness cannot see.
+   *
+   * Scope: this is the *controller half* of the loop (recompute/notify/refetch).
+   * The Bases re-notify FEEDBACK itself (render → Bases notifies → render) lives
+   * only in real Bases and is covered by the dynamic-trigger e2e — see
+   * `match-harness-execution-model-to-bug-trigger.md`.
+   */
+  function makeBurstController() {
+    const base = new FakeSource({ tasks: [task({ path: 'P.md' }), task({ path: 'C.md' })] });
+    const enrichment = new CompanionEnrichment({ parents: { 'C.md': ['P.md'] } });
+    const controller = new GanttController({
+      app: fakeApp,
+      sourceStrategy: 'bases-scoped',
+      basesInput: basesInputStub,
+      companionConfig: () => ({ mode: 'inherit' }),
+      deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
+    });
+    return { controller, enrichment, base };
+  }
+
+  it('an arbitrarily long burst of identical Bases re-notifies neither re-fetches the full-vault index nor notifies (no amplification)', async () => {
+    const { controller, enrichment } = makeBurstController();
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // The loop, distilled: Bases re-notifies many times with NOTHING changed.
+    // refreshSource() is what onDataUpdated drives; firing it repeatedly must be
+    // a no-op — zero re-fetch of the full-vault index (the re-poke), zero notify
+    // (the re-render). The count of effects is bounded by the data, never by the
+    // number of fires.
+    for (let i = 0; i < 12; i += 1) await controller.refreshSource();
+
+    expect(enrichment.relationshipIndexCalls).toBe(1);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('a Hide-top toggle burst CANNOT change the instance set — the duplicate placement is invariant, so the chart cannot churn (#161 fix)', async () => {
+    // The #161 churn came from Hide-top being baked into the instance derivation:
+    // toggling it re-built a different instance array (390↔945) on every Bases
+    // re-notify. Now Hide-top is a pure VIEW filter (filter-tasks), so the
+    // controller's instance set is INVARIANT under the toggle. We prove that: many
+    // refreshes (the documented oscillation, distilled — the controller no longer
+    // even reads the toggle) produce the SAME instance set, emit ZERO change
+    // notifications (idempotent), and never re-fetch the full-vault index. There is
+    // nothing left for a config oscillation to churn.
+    const { controller, enrichment } = makeBurstController();
+    await controller.init();
+    const snapshot = () =>
+      controller.getInstances().then((xs) =>
+        xs.filter((i) => i.sourcePath === 'C.md').map((i) => i.id).sort(),
+      );
+    const before = await snapshot();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    for (let i = 0; i < 6; i += 1) await controller.refreshSource();
+
+    expect(await snapshot()).toEqual(before); // instance set unchanged across the burst
+    expect(before).toEqual(['C.md', 'C.md#parent-P.md']); // duplicate placement always present
+    expect(listener).not.toHaveBeenCalled(); // no transitions → no churn
+    expect(enrichment.relationshipIndexCalls).toBe(1); // no re-poke
+  });
+
+  it('reuseTasks skips the Bases source re-read on a config-only refresh, yet still applies the config (#161 storm root-cause fix)', async () => {
+    // ROOT CAUSE: re-reading the Bases source (source.getTasks() — extracting
+    // every entry's values) on a config-only notify is what re-pokes Bases into
+    // an endless onDataUpdated re-notify storm at scale. When the view knows the
+    // entries are unchanged (same matched set), it passes reuseTasks:true so the
+    // controller reuses the cached base tasks — no re-read, no re-poke — while
+    // still re-running the (Bases-free) companion expansion against fresh config.
+    const { controller, base } = makeBurstController();
+    await controller.init();
+    const callsAfterInit = base.getTasksCalls;
+    expect(callsAfterInit).toBeGreaterThan(0); // init did a real read
+
+    // Config-only refresh (entries unchanged) with reuseTasks → NO source re-read.
+    await controller.refreshSource({ reuseTasks: true });
+    expect(base.getTasksCalls).toBe(callsAfterInit); // getTasks NOT called again
+    // …and the expansion still ran (companion-free): the full instance set is
+    // produced (the also-top-level duplicate is always present — Hide-top is a view
+    // filter applied downstream, not here).
+    expect(
+      (await controller.getInstances()).filter((i) => i.sourcePath === 'C.md').map((i) => i.id).sort(),
+    ).toEqual(['C.md', 'C.md#parent-P.md']);
+
+    // A genuine refresh (entries may have changed) re-reads as before.
+    await controller.refreshSource({ reuseTasks: false });
+    expect(base.getTasksCalls).toBeGreaterThan(callsAfterInit);
+  });
+});
+
 describe('GanttController — default-view safe-partial interleave (U6/R7)', () => {
   /**
    * Build a bases-scoped, Show-all companion controller with a configurable
@@ -1173,7 +1738,7 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
           progressProperty: 'note.progress',
         } as never,
       }),
-      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'show-all' }),
       sortConfig: opts.sortConfig,
       deps: {
         createBasesSource: () => base,
@@ -1258,7 +1823,7 @@ describe('GanttController — default-view safe-partial interleave (U6/R7)', () 
       app: fakeApp,
       sourceStrategy: 'bases-scoped',
       basesInput: basesInputStub,
-      companionConfig: () => ({ mode: 'show-all', hideTopLevel: false }),
+      companionConfig: () => ({ mode: 'show-all' }),
       deps: { createBasesSource: () => base, createTaskNotesSource: async () => enrichment },
     });
     await controller.init();

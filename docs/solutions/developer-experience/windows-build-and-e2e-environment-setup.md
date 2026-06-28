@@ -160,6 +160,8 @@ obsidian-gantt smoke
 
 ## Related
 
-- `project/repo-setup.md` — **contradicted by this doc**: it states "No .env files (uses environment variables)" and lists Node 18+ as sufficient. Both are now wrong (a `.env` with `OBSIDIAN_TEST_VAULT` is required; Node 20 is mandatory). Should be refreshed.
-- `project/Infrastructure-Setup-Guide.md` — shows the `C:\Users\renato\...` hardcoded vault fallback in `install-to-vault.cjs` and the wdio config as if normal, with no warning that a fresh machine silently targets the wrong path. Should cross-link here.
-- `project/E2E Testing Plan - WebdriverIO Obsidian Service.md` — the E2E harness this setup unblocks.
+This doc supersedes the earlier `project/` setup guides (`repo-setup.md`,
+`Infrastructure-Setup-Guide.md`, `E2E Testing Plan - WebdriverIO Obsidian
+Service.md`), which were removed as stale — they predated the `.env`
+`OBSIDIAN_TEST_VAULT` requirement, the Node 20 mandate, and the current install
+path. Recover them from git history if ever needed.
