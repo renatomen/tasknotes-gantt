@@ -163,7 +163,11 @@ for (const [k, m] of Object.entries(enumScratch)) {
   const actionableWithChildren = actionable.filter((n) => (inDegree.get(n.base) ?? 0) > 0).length;
   const actionableWithDate = actionable.filter((n) => n.hasDate).length;
   // Approx the Base's matched set: isActionable && status not in the excluded set.
-  const EXCLUDED = new Set(["40◻️Archive = Past", "14🟩Done = Recent", "30🟫Reference = Anytime", "32⬛Maybe = Later", "00📌Reminders"]);
+  // The excluded statuses are vault-specific (a private taxonomy), so they are NOT
+  // hardcoded here (property-agnostic core principle) — pass them via
+  // OG_PROFILE_EXCLUDED_STATUSES (comma-separated). Unset → no status exclusion, so
+  // matchedSetApprox over-counts; that's fine for a generic structural profile.
+  const EXCLUDED = new Set((process.env.OG_PROFILE_EXCLUDED_STATUSES ?? "").split(",").map((s) => s.trim()).filter(Boolean));
   const matchedApprox = actionable.filter((n) => !n.status || !EXCLUDED.has(n.status)).length;
   profile.graph = {
     notesWithFm: noteRecords.length,

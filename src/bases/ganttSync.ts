@@ -580,32 +580,32 @@ export function planLinkSync(prev: ReadonlyMap<string, RenderLink>, next: Readon
 export const BULK_RESEED_OP_THRESHOLD = 150;
 
 /**
- * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
- * incrementally (#161 U6). Counts only the STRUCTURAL ops that materialise/remove
- * rows — task `adds + deletes + moves` plus link `adds + deletes`. In-place field
- * `updates` are intentionally excluded: a value-only refresh of a stable row set is
- * cheap incrementally and must keep its view state (so a bulk field refresh of a
- * large set still stays incremental — plan R2).
+ * Count the STRUCTURAL ops in a sync diff — task `adds + deletes + moves` plus link
+ * `adds + deletes` (the ops that materialise or remove rows). In-place field
+ * `updates` are EXCLUDED: a value-only refresh of a stable row set is cheap
+ * incrementally and must keep its view state (a bulk field refresh stays incremental).
  *
- * Pure (no SVAR/DOM) so it unit-tests in isolation; the caller (`GanttContainer`)
- * asks the question and branches.
+ * Single source of truth for "how big is this diff" — shared by {@link shouldBulkReseed}
+ * (the decision) and the caller's diagnostics, so the two can never diverge on what
+ * counts as a structural op. Pure (no SVAR/DOM) → unit-testable in isolation.
+ */
+export function structuralOpCount(plan: TaskSyncPlan, linkPlan: LinkSyncPlan): number {
+  return plan.adds.length + plan.deletes.length + plan.moves.length + linkPlan.adds.length + linkPlan.deletes.length;
+}
+
+/**
+ * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
+ * incrementally (#161 U6) — true when {@link structuralOpCount} strictly exceeds the
+ * threshold. The caller (`GanttContainer`) asks the question and branches.
  *
  * @param plan - the task sync plan from {@link planTaskSync}.
  * @param linkPlan - the link sync plan from {@link planLinkSync}.
- * @param opts.threshold - override the default {@link BULK_RESEED_OP_THRESHOLD}.
- * @returns true when the structural op count strictly exceeds the threshold.
+ * @param threshold - structural-op threshold; defaults to {@link BULK_RESEED_OP_THRESHOLD}.
  */
 export function shouldBulkReseed(
   plan: TaskSyncPlan,
   linkPlan: LinkSyncPlan,
-  opts: { threshold?: number } = {},
+  threshold: number = BULK_RESEED_OP_THRESHOLD,
 ): boolean {
-  const threshold = opts.threshold ?? BULK_RESEED_OP_THRESHOLD;
-  const structuralOps =
-    plan.adds.length +
-    plan.deletes.length +
-    plan.moves.length +
-    linkPlan.adds.length +
-    linkPlan.deletes.length;
-  return structuralOps > threshold;
+  return structuralOpCount(plan, linkPlan) > threshold;
 }

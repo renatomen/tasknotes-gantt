@@ -21,6 +21,7 @@ import {
   baseSortDescriptor,
   taskStateKey,
   shouldBulkReseed,
+  structuralOpCount,
   BULK_RESEED_OP_THRESHOLD,
   DATE_STATUS_TYPE,
   buildInstanceCueTaskTypes,
@@ -590,8 +591,11 @@ describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () =>
     expect(shouldBulkReseed(justOver, linkPlan({}))).toBe(true);
   });
 
-  it('is strictly greater-than at the boundary (== threshold → false, +1 → true)', () => {
+  it('returns false when structural ops EQUAL the threshold (not strictly over)', () => {
     expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD }), linkPlan({}))).toBe(false);
+  });
+
+  it('returns true when structural ops exceed the threshold by one (strict greater-than)', () => {
     expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD + 1 }), linkPlan({}))).toBe(true);
   });
 
@@ -599,9 +603,23 @@ describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () =>
     expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD, deletes: 1 }))).toBe(true);
   });
 
+  it('applies strict greater-than to link ops too (link ops == threshold → false)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD }))).toBe(false);
+  });
+
+  it('ignores updates even when they dwarf a sub-threshold structural count', () => {
+    // 149 structural ops + 10000 updates → still incremental (updates excluded).
+    expect(shouldBulkReseed(plan({ adds: 149, updates: 10000 }), linkPlan({}))).toBe(false);
+  });
+
   it('honors an explicit threshold override', () => {
     const small = plan({ adds: 5 });
-    expect(shouldBulkReseed(small, linkPlan({}), { threshold: 100 })).toBe(false);
-    expect(shouldBulkReseed(small, linkPlan({}), { threshold: 4 })).toBe(true);
+    expect(shouldBulkReseed(small, linkPlan({}), 100)).toBe(false);
+    expect(shouldBulkReseed(small, linkPlan({}), 4)).toBe(true);
+  });
+
+  it('structuralOpCount sums task adds+deletes+moves and link adds+deletes, excluding updates', () => {
+    expect(structuralOpCount(plan({}), linkPlan({}))).toBe(0);
+    expect(structuralOpCount(plan({ adds: 3, deletes: 2, moves: 1, updates: 99 }), linkPlan({ adds: 4, deletes: 5 }))).toBe(15);
   });
 });

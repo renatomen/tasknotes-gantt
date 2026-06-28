@@ -29,6 +29,7 @@
     planReorder,
     baseSortDescriptor,
     shouldBulkReseed,
+    structuralOpCount,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -622,11 +623,18 @@
     // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
     if (shouldBulkReseed(taskPlan, linkPlan)) {
       dlog(
-        `[OGDBG] sync BULK-RESEED ops=${taskPlan.adds.length + taskPlan.deletes.length + taskPlan.moves.length + linkPlan.adds.length + linkPlan.deletes.length}` +
+        `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
           ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
       );
       syncing = true;
       try {
+        // R6 (mirror the incremental path): if the user changed the Base toolbar sort
+        // in the same swing, newest explicit sort wins — drop an active ephemeral sort
+        // first so reseedSeedsFromData doesn't re-assert a now-stale override.
+        if (ephemeralSort && baseSortChanged) {
+          ephemeralSort = null;
+          clearSvarSortArrow();
+        }
         // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
         // an active ephemeral sort), then re-assert the persisted divider width (a
         // store re-init can recompute it). Columns are untouched (no column change).
