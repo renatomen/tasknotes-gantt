@@ -8,11 +8,11 @@
  * @module bases/views/GanttTaskListView
  */
 
-import { type App, setIcon } from 'obsidian';
-import { GanttBasesView } from '../GanttBasesView';
-import type { QueryController } from '../register';
+import { setIcon, BasesView, type QueryController } from 'obsidian';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
 import { readFieldMappings } from '../fieldMappingConfig';
+import { resolveParentLink } from '../parentLink';
+import { buildHierarchy, compareByStartDate } from '../taskHierarchy';
 import type { FieldMappings } from '../types/field-mapping';
 
 /**
@@ -32,20 +32,22 @@ interface GanttTask {
 /**
  * Simple text-based task list view showing hierarchy
  */
-export class GanttTaskListView extends GanttBasesView {
+export class GanttTaskListView extends BasesView {
   readonly type = 'obsidianGanttTaskList';
-  private containerEl: HTMLElement;
-  private adapter: BasesDataAdapter;
+  private readonly containerEl: HTMLElement;
+  private readonly adapter: BasesDataAdapter;
   private itemsContainer: HTMLElement | null = null;
 
-  // Phase 2: Expand/collapse state tracking
-  private collapsedTasks = new Set<string>();
-  private readonly VIRTUAL_SCROLL_THRESHOLD = 100;
+  // Expand/collapse state tracking
+  private readonly collapsedTasks = new Set<string>();
 
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-task-list-root' });
-    this.adapter = new BasesDataAdapter();
+    // Pass the view to the adapter at construction (it reads this.data lazily
+    // at extract time), so the adapter's basesView is set once and stays
+    // readonly — no post-construction `as any` reassignment needed.
+    this.adapter = new BasesDataAdapter(this);
   }
 
   override onload(): void {
@@ -102,9 +104,6 @@ export class GanttTaskListView extends GanttBasesView {
     }
 
     try {
-      // Pass the basesView (this) to the adapter
-      (this.adapter as any).basesView = this;
-
       // Get field mappings from config
       const fieldMappings = this.getFieldMappings();
 
@@ -137,15 +136,12 @@ export class GanttTaskListView extends GanttBasesView {
   /**
    * Get field mappings from view config.
    *
-   * Uses the shared reader (single source of truth for the `tngantt_` keys),
-   * overriding start/end to concrete properties since this view renders dates
-   * directly rather than going through the gantt controller's fallback.
+   * Uses the shared reader (single source of truth for the `tngantt_` keys).
+   * Property-agnostic: reads the user's configured start/end properties with no
+   * hardcoded date-property defaults — an unset field simply yields no date.
    */
   private getFieldMappings(): FieldMappings {
-    return readFieldMappings((key) => this.config?.get(key), {
-      startProperty: 'note.start',
-      endProperty: 'note.due',
-    });
+    return readFieldMappings((key) => this.config?.get(key));
   }
 
   /**
@@ -280,78 +276,15 @@ export class GanttTaskListView extends GanttBasesView {
   /**
    * Build task hierarchy based on parent references
    * Returns { rootTasks, childrenMap } for rendering
+   *
+   * Delegates to the pure `buildHierarchy` (src/bases/taskHierarchy.ts),
+   * injecting Obsidian's link resolution so that module stays DOM/app-free and
+   * unit-testable.
    */
   private buildHierarchy(tasks: GanttTask[]): { rootTasks: GanttTask[]; childrenMap: Map<string, GanttTask[]> } {
-    // Create a map for quick lookup
-    const taskMap = new Map<string, GanttTask>();
-    for (const task of tasks) {
-      taskMap.set(task.path, task);
-    }
-
-    // Build parent-child relationships
-    const rootTasks: GanttTask[] = [];
-    const childrenMap = new Map<string, GanttTask[]>();
-
-    for (const task of tasks) {
-      if (task.parents.length === 0) {
-        // No parents - this is a root task
-        rootTasks.push(task);
-      } else {
-        // Has parents - add to children map for each parent
-        let hasValidParent = false;
-        for (const parentRef of task.parents) {
-          // Resolve parent reference to actual file path (following TaskNotes pattern)
-          const resolvedPath = this.resolveParentLink(parentRef, task.path);
-
-          if (resolvedPath && taskMap.has(resolvedPath)) {
-            hasValidParent = true;
-            if (!childrenMap.has(resolvedPath)) {
-              childrenMap.set(resolvedPath, []);
-            }
-            childrenMap.get(resolvedPath)!.push(task);
-          }
-        }
-        // If no valid parents exist in the dataset, treat as root
-        if (!hasValidParent) {
-          rootTasks.push(task);
-        }
-      }
-    }
-
-    // Assign levels recursively
-    const assignLevel = (task: GanttTask, level: number, visited: Set<string>) => {
-      if (visited.has(task.path)) {
-        // Circular reference - skip
-        return;
-      }
-      visited.add(task.path);
-      task.level = level;
-
-      const children = childrenMap.get(task.path) || [];
-      for (const child of children) {
-        assignLevel(child, level + 1, visited);
-      }
-    };
-
-    for (const rootTask of rootTasks) {
-      assignLevel(rootTask, 0, new Set());
-    }
-
-    return { rootTasks, childrenMap };
-  }
-
-  /**
-   * Filter tasks to show only visible ones (hide children of collapsed tasks)
-   * Phase 2: Used for virtual scrolling optimization
-   */
-  private filterVisibleTasks(allTasks: GanttTask[]): GanttTask[] {
-    return allTasks.filter(task => {
-      // Hide if any parent is collapsed
-      return !task.parents.some(parentRef => {
-        const resolvedPath = this.resolveParentLink(parentRef, task.path);
-        return resolvedPath && this.collapsedTasks.has(resolvedPath);
-      });
-    });
+    return buildHierarchy(tasks, (parentRef, sourcePath) =>
+      resolveParentLink(this.app, parentRef, sourcePath),
+    );
   }
 
   /**
@@ -368,72 +301,32 @@ export class GanttTaskListView extends GanttBasesView {
   }
 
   /**
-   * Resolve a parent link reference to an actual file path.
-   * Handles wikilinks [[Page]], markdown links [text](path), and direct paths.
-   * Following TaskNotes pattern from ProjectSubtasksService.
-   *
-   * @param parentRef - The parent reference string (e.g., "[[Sample Project B]]", "folder/file.md")
-   * @param sourcePath - The path of the file containing the reference (for relative path resolution)
-   * @returns The resolved file path, or null if not resolvable
+   * Assemble the single-line text for a task: indent + tree prefix + text,
+   * followed by the visible-property metadata, an optional date range, and an
+   * optional progress suffix. Pure string assembly extracted from renderTasks
+   * to keep the DOM render method's complexity down; behavior is identical.
    */
-  private resolveParentLink(parentRef: string, sourcePath: string): string | null {
-    if (!parentRef) return null;
+  private buildTaskLineText(task: GanttTask, fieldMappings: ReturnType<typeof this.getFieldMappings>): string {
+    const indent = '  '.repeat(task.level);
+    const prefix = task.level > 0 ? '└─ ' : '';
+    let text = `${indent}${prefix}${task.text}`;
 
-    const trimmed = parentRef.trim();
+    // Add visible properties metadata (following user's format)
+    text += this.buildPropertyMetadata(task, fieldMappings);
 
-    // Extract link path from wikilink format [[path]] or [[path|alias]]
-    let linkPath = trimmed;
-    if (trimmed.startsWith('[[') && trimmed.endsWith(']]')) {
-      const inner = trimmed.slice(2, -2).trim();
-      // Strip alias if present
-      const pipeIndex = inner.indexOf('|');
-      linkPath = pipeIndex !== -1 ? inner.substring(0, pipeIndex) : inner;
-    }
-    // Extract from markdown link format [text](path)
-    else if (trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/)) {
-      const match = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (match && match[2]) {
-        linkPath = match[2].trim();
-      }
+    // Add date info if available
+    if (task.start || task.end) {
+      const startStr = task.start ? this.formatDate(task.start) : '---';
+      const endStr = task.end ? this.formatDate(task.end) : '---';
+      text += ` [${startStr} → ${endStr}]`;
     }
 
-    // Resolve the link using Obsidian's metadata cache (following TaskNotes pattern)
-    // This handles relative paths, aliases, and finds the actual file
-    const resolvedFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath);
-
-    if (resolvedFile) {
-      return resolvedFile.path;
+    // Add progress if available
+    if (task.progress !== null) {
+      text += ` (${task.progress}%)`;
     }
 
-    // If not resolved via metadata cache, try using it as a direct path
-    // (handles cases where the value is already a full path)
-    if (linkPath === trimmed && this.app.vault.getAbstractFileByPath(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
-  }
-
-  /**
-   * Count visible tasks (respecting collapse state)
-   * Phase 2: Used for virtual scrolling threshold check
-   */
-  private countVisibleTasks(rootTasks: GanttTask[], childrenMap: Map<string, GanttTask[]>): number {
-    let count = 0;
-    const countRecursive = (tasks: GanttTask[]) => {
-      for (const task of tasks) {
-        count++;
-        // Only count children if task is not collapsed
-        if (!this.collapsedTasks.has(task.path)) {
-          const children = childrenMap.get(task.path) || [];
-          if (children.length > 0) {
-            countRecursive(children);
-          }
-        }
-      }
-    };
-    countRecursive(rootTasks);
-    return count;
+    return text;
   }
 
   /**
@@ -451,21 +344,8 @@ export class GanttTaskListView extends GanttBasesView {
     // Get field mappings for property filtering
     const fieldMappings = this.getFieldMappings();
 
-    // Phase 2: Check if virtual scrolling threshold exceeded
-    const visibleTaskCount = this.countVisibleTasks(rootTasks, childrenMap);
-    if (visibleTaskCount >= this.VIRTUAL_SCROLL_THRESHOLD) {
-      console.log(`[GanttTaskListView] Virtual scrolling threshold exceeded (${visibleTaskCount}/${this.VIRTUAL_SCROLL_THRESHOLD}). Future optimization opportunity.`);
-      // TODO: Implement virtual scrolling when needed
-      // For now, render all tasks directly (collapse already optimizes rendering)
-    }
-
     // Sort root tasks by start date (if available)
-    const sortedRoots = [...rootTasks].sort((a, b) => {
-      if (!a.start && !b.start) return 0;
-      if (!a.start) return 1;
-      if (!b.start) return -1;
-      return a.start.getTime() - b.start.getTime();
-    });
+    const sortedRoots = [...rootTasks].sort(compareByStartDate);
 
     // Recursive render function
     const renderTask = (task: GanttTask) => {
@@ -515,28 +395,7 @@ export class GanttTaskListView extends GanttBasesView {
       // Build task text
       const textSpan = doc.createElement('span');
       textSpan.style.cssText = 'flex: 1;';
-
-      const indent = '  '.repeat(task.level);
-      const prefix = task.level > 0 ? '└─ ' : '';
-      let text = `${indent}${prefix}${task.text}`;
-
-      // Add visible properties metadata (following user's format)
-      const propertyMetadata = this.buildPropertyMetadata(task, fieldMappings);
-      text += propertyMetadata;
-
-      // Add date info if available
-      if (task.start || task.end) {
-        const startStr = task.start ? this.formatDate(task.start) : '---';
-        const endStr = task.end ? this.formatDate(task.end) : '---';
-        text += ` [${startStr} → ${endStr}]`;
-      }
-
-      // Add progress if available
-      if (task.progress !== null) {
-        text += ` (${task.progress}%)`;
-      }
-
-      textSpan.textContent = text;
+      textSpan.textContent = this.buildTaskLineText(task, fieldMappings);
       taskEl.appendChild(textSpan);
 
       // Add hover effect
@@ -557,12 +416,7 @@ export class GanttTaskListView extends GanttBasesView {
       // Render children recursively if not collapsed
       if (!isCollapsed) {
         // Sort children by start date
-        const sortedChildren = [...children].sort((a, b) => {
-          if (!a.start && !b.start) return 0;
-          if (!a.start) return 1;
-          if (!b.start) return -1;
-          return a.start.getTime() - b.start.getTime();
-        });
+        const sortedChildren = [...children].sort(compareByStartDate);
         for (const child of sortedChildren) {
           renderTask(child);
         }

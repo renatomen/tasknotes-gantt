@@ -20,12 +20,21 @@ export const config: Options.Testrunner = {
   runner: "local",
   framework: "mocha",
   specs: ["../specs/**/*.e2e.ts"],
+  // The full-stack perf spec (`*.perf.e2e.ts`) is slow + generates a large vault;
+  // it runs only via the scheduled perf job (wdio.perf.conf.mts), never per-PR (KD5).
+  exclude: ["../specs/**/*.perf.e2e.ts"],
   maxInstances: 1,
   capabilities: [
     {
       browserName: "obsidian",
-      browserVersion: "latest",
+      // Default to the latest STABLE Obsidian so CI and any developer can run with no
+      // Insider account. The #161 U6 Bases-toolbar-search repro needs a 1.13.x beta;
+      // pin it locally via `OG_OBSIDIAN_VERSION=1.13.1 OG_OBSIDIAN_INSTALLER=1.12.7`
+      // (beta downloads require an Obsidian Insiders login — see scripts/vault-as-code.mjs
+      // header + the #161 bug report). Never hardcode a beta here: it would break CI.
+      browserVersion: process.env.OG_OBSIDIAN_VERSION ?? "latest",
       "wdio:obsidianOptions": {
+        ...(process.env.OG_OBSIDIAN_INSTALLER ? { installerVersion: process.env.OG_OBSIDIAN_INSTALLER } : {}),
         // obsidian-gantt is installed from the local build (always the code
         // under test). TaskNotes is installed from a pinned GitHub release so
         // any developer/CI can run the dependency specs with no access to a

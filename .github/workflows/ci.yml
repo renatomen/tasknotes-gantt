@@ -16,30 +16,55 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm ci
+        # --ignore-scripts: supply-chain hardening; native deps (rollup/esbuild/
+        # @swc) are optionalDependencies, not install scripts, so build is unaffected.
+        run: npm ci --ignore-scripts
+      - name: Assert manifest is a clean release version (no prerelease suffix on main)
+        # A `-beta` manifest must never merge to main: it is the store-facing
+        # version. Betas are cut on a tag, not on main. Mechanical guard for the
+        # manifest-on-main invariant (see docs/RELEASING.md), per "enforce always-X
+        # with a mechanism, not memory".
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::manifest.json version '$VERSION' is not a clean release version (X.Y.Z). A prerelease manifest must not merge to main."
+            exit 1
+          fi
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck
         run: npm run typecheck --if-present
       - name: Unit tests
         run: npm test --if-present
+      - name: Install Chromium for the isolated perf gate
+        # The Layer-1 perf gate (Vitest browser mode) renders the real component
+        # in headless Chromium; install just that browser (not all Playwright
+        # browsers) to keep the step fast.
+        run: npx playwright install chromium
+      - name: Isolated render perf gate (Layer 1)
+        # Mounts the real GanttContainer at production-scale instance counts and
+        # hard-fails on the mount+settle timing ceiling, the virtualization-window
+        # invariant, and the negative control (#161 perf plan U4). Fast (~10s).
+        run: npm run perf:isolated
+      - name: Upload perf trend (isolated)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-trend-isolated
+          path: test/perf/.trend/isolated-latest.json
+          if-no-files-found: ignore
       - name: Build
         run: npm run build
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Bundle hygiene (no network/eval/base64 in dist/main.js)
-        shell: bash
-        run: |
-          # The plugin is local-only: the released bundle must contain no
-          # network calls, dynamic code execution, or base64 obscuring. Match
-          # CALL patterns (not bare keywords) so the SVAR comment "are fetched
-          # lazily" doesn't false-fail. If a dependency reintroduces any of
-          # these, fail CI so it gets disclosed or removed (scorecard R12).
-          if grep -E '\beval\(|new Function|\.atob\(|\batob\(|\bbtoa\(|XMLHttpRequest|\bfetch\(|sendBeacon|new WebSocket' dist/main.js; then
-            echo "::error::Forbidden runtime pattern found in dist/main.js (network/eval/base64)."
-            exit 1
-          fi
-          echo "bundle hygiene OK: no network/eval/base64 call-patterns in dist/main.js"
+        # The plugin is local-only: the released bundle must contain no network
+        # calls, dynamic code execution, or base64 obscuring (scorecard R12). Use
+        # the SAME masking-aware check release.yml runs — it strips the inlined
+        # release-notes prose before matching, so legitimate notes text like
+        # "fixed the fetch() retry" can't false-fail the gate.
+        run: node scripts/check-bundle-hygiene.mjs
 
   e2e:
     runs-on: windows-latest
@@ -50,7 +75,8 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm ci
+        # --ignore-scripts: supply-chain hardening (see build job above).
+        run: npm ci --ignore-scripts
       - name: Prepare temp vault path
         shell: pwsh
         run: |
@@ -58,9 +84,10 @@ jobs:
           echo "OBSIDIAN_TEST_VAULT=$vault" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path $vault | Out-Null
       - name: Build plugin
+        # The Vite build installs the plugin into OBSIDIAN_TEST_VAULT (set above,
+        # and the temp vault exists) via its closeBundle hook — no separate
+        # install step needed. See scripts/install-to-vault.mjs.
         run: npm run build
-      - name: Install plugin into temp vault
-        run: node scripts/install-to-vault.cjs
       - name: Run E2E tests (WDIO)
         # GITHUB_TOKEN authenticates obsidian-launcher's GitHub API calls when it
         # downloads the TaskNotes release (the dependency spec installs it via

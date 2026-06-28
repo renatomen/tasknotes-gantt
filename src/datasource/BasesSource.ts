@@ -16,8 +16,7 @@
  * @module datasource/BasesSource
  */
 
-import type { App } from 'obsidian';
-import type { BasesEntry } from '../bases/register';
+import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import type {
@@ -76,6 +75,7 @@ export class BasesSource implements DataSource {
   private toSourceTask(entry: BasesEntry): SourceTask {
     const path = entry.file.path;
 
+    // Official BasesEntry is structurally assignable to the adapter's BasesEntryLike (see bases-entry.ts / plan KTD 4).
     return {
       path,
       text: this.adapter.extractText(entry, this.mappings.textProperty),
@@ -144,8 +144,8 @@ export class BasesSource implements DataSource {
     }
     // Extract from markdown link format [text](path)
     else {
-      const mdMatch = trimmed.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-      if (mdMatch && mdMatch[2]) {
+      const mdMatch = /^\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+      if (mdMatch?.[2]) {
         linkPath = mdMatch[2].trim();
       }
     }

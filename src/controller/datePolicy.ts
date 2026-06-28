@@ -37,6 +37,16 @@ export type DateStatus =
   | 'placeholder'
   | 'swapped';
 
+/**
+ * `dateStatus` values for a PARTIAL (one-date-only) task. The "Show tasks with
+ * only one date" view option hides these as a DISPLAY filter (#161) — they remain
+ * in the instance set so toggling the option can't churn the chart.
+ */
+export const PARTIAL_DATE_STATUSES: ReadonlySet<DateStatus> = new Set<DateStatus>([
+  'inferred-start',
+  'inferred-end',
+]);
+
 /** Raw (possibly partial) date inputs for a single task. */
 export interface DatePolicyInput {
   /** Start date, or `null` when unset. */

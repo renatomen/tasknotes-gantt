@@ -25,11 +25,18 @@ export const STATUS_CLASS_PREFIX = 'og-status-';
  */
 const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s/]+\))$/i;
 
-/** Stable 32-bit string hash (djb2), base36 — for slug uniqueness. */
+/**
+ * Stable 32-bit string hash (djb2), base36 — for slug uniqueness.
+ *
+ * Iterates by code point (`for…of`) so emoji/astral characters in status
+ * values hash as whole code points rather than surrogate halves. The output is
+ * an internal, per-render CSS-class suffix (not persisted), so it only needs to
+ * be deterministic and collision-resistant — both preserved here.
+ */
 function hash36(s: string): string {
   let h = 5381;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  for (const ch of s) {
+    h = ((h << 5) + h + (ch.codePointAt(0) ?? 0)) >>> 0;
   }
   return h.toString(36);
 }
@@ -44,8 +51,9 @@ function hash36(s: string): string {
 export function statusSlug(value: string): string {
   const readable = value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-') // collapse each run of non-alphanumerics to one dash
+    .replace(/^-/, '') // ...so at most a single leading dash remains to trim
+    .replace(/-$/, ''); // ...and a single trailing one (no backtracking-prone `-+`)
   const suffix = hash36(value);
   return readable
     ? `${STATUS_CLASS_PREFIX}${readable}-${suffix}`

@@ -9,7 +9,7 @@
  * @module bases/services/BasesDataAdapter
  */
 
-import type { BasesEntry, BasesPropertyId } from "../register";
+import type { BasesEntryLike } from "./../types/bases-entry";
 
 /**
  * Options for number conversion
@@ -20,12 +20,120 @@ interface NumberConversionOptions {
 }
 
 /**
+ * Format a Date as a local YYYY-MM-DD string (date only, no time).
+ */
+function formatDateYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Unwrap the raw value carried by a Bases group-key Value object.
+ *
+ * Bases Value objects expose their payload under different fields:
+ * - FileValue: `.file` (TFile) — we surface the path so it can render as a link.
+ * - DateValue: `.date` (Date object).
+ * - Other Value types: `.data`.
+ * Falls back to the key itself when none of those shapes are present.
+ */
+function unwrapBasesKeyValue(key: any): any {
+  if (key.file && typeof key.file === "object") {
+    return key.file.path;
+  }
+  if (key.date instanceof Date) {
+    return key.date;
+  }
+  if (key.data !== undefined) {
+    return key.data;
+  }
+  return key;
+}
+
+/**
+ * Collect the cheap `file.`-prefixed properties available directly on a TFile
+ * (name/basename/extension/path and stat size/ctime/mtime) without any
+ * getValue() calls. Returns an empty record when no file is present.
+ *
+ * Only defined values are included, mirroring the original guarded assignments.
+ */
+function collectCheapFileProperties(file: any): Record<string, any> {
+  const result: Record<string, any> = {};
+  if (!file) {
+    return result;
+  }
+
+  if (file.name !== undefined) result["file.name"] = file.name;
+  if (file.basename !== undefined) result["file.basename"] = file.basename;
+  if (file.extension !== undefined) result["file.extension"] = file.extension;
+  if (file.path !== undefined) result["file.path"] = file.path;
+
+  if (file.stat) {
+    if (file.stat.size !== undefined) result["file.size"] = file.stat.size;
+    if (file.stat.ctime !== undefined) result["file.ctime"] = file.stat.ctime;
+    if (file.stat.mtime !== undefined) result["file.mtime"] = file.stat.mtime;
+  }
+
+  return result;
+}
+
+/**
+ * Treat undefined, null, and empty string as "absent" (null); pass anything
+ * else through unchanged. Mirrors the blank-handling used when reading
+ * frontmatter and file properties directly.
+ */
+function blankToNull(value: unknown): unknown {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read a frontmatter property directly from a Bases entry (the `note.` prefix).
+ * Falls back to `entry.properties` when `entry.frontmatter` is absent.
+ * Returns null for undefined/null/empty-string values.
+ */
+function readFrontmatterProperty(entry: any, propertyName: string): unknown {
+  const frontmatter = entry.frontmatter || entry.properties || {};
+  return blankToNull(frontmatter[propertyName]);
+}
+
+/**
+ * Read a property directly from the entry's TFile (the `file.` prefix).
+ * Handles the stat-backed properties (ctime/mtime/size) and the parent
+ * `folder` name specially, then falls back to direct property access.
+ * Returns null for undefined/null/empty-string values.
+ */
+function readFileProperty(file: any, propertyName: string): unknown {
+  // Special file properties that need stat access
+  if (propertyName === "ctime" && file.stat?.ctime !== undefined) {
+    return file.stat.ctime;
+  }
+  if (propertyName === "mtime" && file.stat?.mtime !== undefined) {
+    return file.stat.mtime;
+  }
+  if (propertyName === "size" && file.stat?.size !== undefined) {
+    return file.stat.size;
+  }
+
+  // Parent folder name
+  if (propertyName === "folder" && file.parent) {
+    return file.parent.name;
+  }
+
+  // Direct property access for other file properties
+  return blankToNull(file[propertyName]);
+}
+
+/**
  * Bases data item structure (matches TaskNotes BasesDataItem)
  */
 export interface BasesDataItem {
   key?: string;
   data?: any;
-  file?: { path?: string } | any;
+  file?: any;
   path?: string;
   properties?: Record<string, any>;
   frontmatter?: Record<string, any>;
@@ -38,7 +146,7 @@ export interface BasesDataItem {
  * Now supports both individual field extraction AND full data extraction like TaskNotes
  */
 export class BasesDataAdapter {
-  constructor(private basesView?: any) {}
+  constructor(private readonly basesView?: any) {}
 
   /**
    * Extract all data items from Bases query result (TaskNotes pattern).
@@ -116,26 +224,7 @@ export class BasesDataAdapter {
       return "Unknown";
     }
 
-    // Extract the actual value from Bases Value object
-    let actualValue: any;
-
-    // FileValue has a .file property containing the TFile object
-    if (key.file && typeof key.file === 'object') {
-      // Return the full path so it can be rendered as a clickable link
-      actualValue = key.file.path;
-    }
-    // DateValue has a .date property containing the Date object
-    else if (key.date instanceof Date) {
-      actualValue = key.date;
-    }
-    // Other Value types have a .data property
-    else if (key.data !== undefined) {
-      actualValue = key.data;
-    }
-    // Fallback: try to use the key directly
-    else {
-      actualValue = key;
-    }
+    const actualValue = unwrapBasesKeyValue(key);
 
     // Handle null/undefined after extraction
     if (actualValue === null || actualValue === undefined) {
@@ -144,10 +233,7 @@ export class BasesDataAdapter {
 
     // Format Date objects as YYYY-MM-DD (date only, no time)
     if (actualValue instanceof Date) {
-      const year = actualValue.getFullYear();
-      const month = String(actualValue.getMonth() + 1).padStart(2, '0');
-      const day = String(actualValue.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+      return formatDateYmd(actualValue);
     }
 
     // Handle other types
@@ -175,6 +261,9 @@ export class BasesDataAdapter {
       const value = basesEntry.getValue(propertyId);
       return this.convertValueToNative(value);
     } catch (e) {
+      // A computed property (e.g. backlinks) can throw on a malformed entry;
+      // degrade gracefully to null rather than failing the whole render.
+      console.debug('[BasesDataAdapter] computed property failed:', propertyId, e);
       return null;
     }
   }
@@ -188,34 +277,14 @@ export class BasesDataAdapter {
     // Extract all properties from the entry's frontmatter
     // We don't filter by visible properties here - that happens during rendering
     // This ensures all properties are available for TaskInfo creation
-    const frontmatter = (entry as any).frontmatter || (entry as any).properties || {};
+    const frontmatter = entry.frontmatter || entry.properties || {};
 
-    // Start with frontmatter properties
-    const result = { ...frontmatter };
-
-    // Also extract file properties directly from the TFile object (these are cheap - no getValue calls)
-    const file = entry.file;
-    if (file) {
-      // Add common TFile properties with file. prefix
-      if (file.name !== undefined) result['file.name'] = file.name;
-      if (file.basename !== undefined) result['file.basename'] = file.basename;
-      if (file.extension !== undefined) result['file.extension'] = file.extension;
-      if (file.path !== undefined) result['file.path'] = file.path;
-
-      // Add file stats if available
-      if (file.stat) {
-        if (file.stat.size !== undefined) result['file.size'] = file.stat.size;
-        if (file.stat.ctime !== undefined) result['file.ctime'] = file.stat.ctime;
-        if (file.stat.mtime !== undefined) result['file.mtime'] = file.stat.mtime;
-      }
-    }
-
+    // Merge frontmatter with cheap `file.`-prefixed TFile properties.
     // NOTE: Computed file properties (links, embeds, tags, backlinks, etc.) are NOT extracted here.
     // They are fetched lazily via getComputedProperty() during rendering to avoid expensive
     // getValue() calls for all entries. With virtualization, only visible items
     // need these properties computed.
-
-    return result;
+    return { ...frontmatter, ...collectCheapFileProperties(entry.file) };
   }
 
   // ============================================================================
@@ -233,7 +302,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract (e.g., "note.start", "file.name")
    * @returns The extracted value or null if empty
    */
-  extractValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
+  extractValue(entry: BasesEntryLike, propertyId: string): unknown {
     // Parse property ID to determine source
     const parts = propertyId.split('.');
     const prefix = parts[0];
@@ -241,42 +310,12 @@ export class BasesDataAdapter {
 
     // Access frontmatter properties directly (note. prefix)
     if (prefix === 'note' && propertyName) {
-      const frontmatter = entry.frontmatter || entry.properties || {};
-      const value = frontmatter[propertyName];
-      // Handle undefined/null/empty string as null
-      if (value === undefined || value === null || value === '') {
-        return null;
-      }
-      return value;
+      return readFrontmatterProperty(entry, propertyName);
     }
 
     // Access file properties directly (file. prefix)
     if (prefix === 'file' && propertyName && entry.file) {
-      const file = entry.file as any;
-
-      // Handle special file properties that need stat access
-      // Following TaskNotes pattern (BasesDataAdapter.ts line 231-233)
-      if (propertyName === 'ctime' && file.stat?.ctime !== undefined) {
-        return file.stat.ctime;
-      }
-      if (propertyName === 'mtime' && file.stat?.mtime !== undefined) {
-        return file.stat.mtime;
-      }
-      if (propertyName === 'size' && file.stat?.size !== undefined) {
-        return file.stat.size;
-      }
-
-      // Handle folder property (parent folder name)
-      if (propertyName === 'folder' && file.parent) {
-        return file.parent.name;
-      }
-
-      // Direct property access for other file properties
-      const value = file[propertyName];
-      if (value === undefined || value === null || value === '') {
-        return null;
-      }
-      return value;
+      return readFileProperty(entry.file as any, propertyName);
     }
 
     // For computed properties or formula properties, use getValue()
@@ -301,7 +340,7 @@ export class BasesDataAdapter {
     }
 
     // PrimitiveValue (string, number, boolean)
-    if (typeof value.data !== "undefined") {
+    if (value.data !== undefined) {
       return value.data;
     }
 
@@ -351,13 +390,13 @@ export class BasesDataAdapter {
 
     // Handle Date objects
     if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value;
+      return Number.isNaN(value.getTime()) ? null : value;
     }
 
     // Handle ISO strings and timestamps
     if (typeof value === "string" || typeof value === "number") {
       const date = new Date(value);
-      return isNaN(date.getTime()) ? null : date;
+      return Number.isNaN(date.getTime()) ? null : date;
     }
 
     return null;
@@ -380,13 +419,13 @@ export class BasesDataAdapter {
     if (typeof value === "number") {
       num = value;
     } else if (typeof value === "string") {
-      num = parseFloat(value);
+      num = Number.parseFloat(value);
     } else {
       return null;
     }
 
     // Check if conversion resulted in NaN
-    if (isNaN(num)) {
+    if (Number.isNaN(num)) {
       return null;
     }
 
@@ -410,7 +449,7 @@ export class BasesDataAdapter {
    * @param textProperty - The property ID for text (empty string = use basename)
    * @returns The text value or file basename
    */
-  extractText(entry: BasesEntry, textProperty: BasesPropertyId): string {
+  extractText(entry: BasesEntryLike, textProperty: string): string {
     // If textProperty is empty string, always use file.basename
     if (textProperty === "") {
       return entry.file.basename;
@@ -437,8 +476,8 @@ export class BasesDataAdapter {
    * @returns The raw status string, or null when unmapped/empty/missing
    */
   extractStatus(
-    entry: BasesEntry,
-    statusProperty: BasesPropertyId | undefined,
+    entry: BasesEntryLike,
+    statusProperty: string | undefined,
   ): string | null {
     if (!statusProperty) {
       return null;
@@ -460,7 +499,7 @@ export class BasesDataAdapter {
    * @param dateProperty - The property ID for the date
    * @returns Date object or null if missing/invalid
    */
-  extractDate(entry: BasesEntry, dateProperty: BasesPropertyId): Date | null {
+  extractDate(entry: BasesEntryLike, dateProperty: string): Date | null {
     const value = this.extractValue(entry, dateProperty);
     const date = this.convertToDate(value);
     // Diagnostic: when a mapped date drives the bar (Bases-scoped views), a
@@ -485,7 +524,7 @@ export class BasesDataAdapter {
    * @param progressProperty - The property ID for progress
    * @returns Progress number (0-100) or null if missing
    */
-  extractProgress(entry: BasesEntry, progressProperty: BasesPropertyId): number | null {
+  extractProgress(entry: BasesEntryLike, progressProperty: string): number | null {
     const value = this.extractValue(entry, progressProperty);
     return this.convertToNumber(value, { min: 0, max: 100 });
   }
@@ -497,7 +536,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract
    * @returns Formatted value suitable for display, or null if missing
    */
-  extractPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): string | number | null {
+  extractPropertyValue(entry: BasesEntryLike, propertyId: string): string | number | null {
     const value = this.extractValue(entry, propertyId);
 
     if (value === null || value === undefined) {
@@ -506,15 +545,12 @@ export class BasesDataAdapter {
 
     // Handle dates - format as YYYY-MM-DD
     if (value instanceof Date) {
-      const year = value.getFullYear();
-      const month = String(value.getMonth() + 1).padStart(2, '0');
-      const day = String(value.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+      return formatDateYmd(value);
     }
 
     // Handle arrays - join with commas
     if (Array.isArray(value)) {
-      return value.map(v => String(v)).join(', ');
+      return value.map(String).join(', ');
     }
 
     // Handle numbers
@@ -536,7 +572,7 @@ export class BasesDataAdapter {
    * @param parentProperty - The property ID for parent references
    * @returns Array of parent file paths (empty if no parents)
    */
-  extractParents(entry: BasesEntry, parentProperty: BasesPropertyId): string[] {
+  extractParents(entry: BasesEntryLike, parentProperty: string): string[] {
     // Return empty array if parent property not configured
     if (!parentProperty || parentProperty === '') {
       return [];

@@ -231,7 +231,28 @@ export function computeSubtreeMove(
   delta: number,
   nodes: ReadonlyArray<SubtreeMoveNode>,
 ): SubtreeShift[] {
-  // Descendants of root (exclusive), via a cycle-guarded walk down parent edges.
+  const byId = new Map<string, SubtreeMoveNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const descendantIds = collectDescendantIds(rootId, nodes);
+  const movedSources = collectSourcePaths(descendantIds, byId);
+
+  const shifts: SubtreeShift[] = [];
+  for (const n of nodes) {
+    if (n.id === rootId || !movedSources.has(n.sourcePath) || !n.start || !n.end) continue;
+    shifts.push(shiftBy({ id: n.id, sourcePath: n.sourcePath, start: n.start, end: n.end }, delta));
+  }
+  return shifts;
+}
+
+/**
+ * Ids strictly below `rootId` (root excluded), via a cycle-guarded walk down
+ * parent edges. A back-edge is visited once.
+ */
+function collectDescendantIds(
+  rootId: string,
+  nodes: ReadonlyArray<SubtreeMoveNode>,
+): Set<string> {
   const childrenByParent = new Map<string, string[]>();
   for (const n of nodes) {
     if (n.parent) {
@@ -240,10 +261,8 @@ export function computeSubtreeMove(
       childrenByParent.set(n.parent, arr);
     }
   }
-  const byId = new Map<string, SubtreeMoveNode>();
-  for (const n of nodes) byId.set(n.id, n);
 
-  const subtree = new Set<string>();
+  const descendants = new Set<string>();
   const seen = new Set<string>([rootId]);
   const stack = [rootId];
   while (stack.length) {
@@ -251,30 +270,37 @@ export function computeSubtreeMove(
     for (const child of childrenByParent.get(id) ?? []) {
       if (seen.has(child)) continue;
       seen.add(child);
-      subtree.add(child);
+      descendants.add(child);
       stack.push(child);
     }
   }
+  return descendants;
+}
 
-  // The source notes those descendants belong to. Every instance of one of
-  // those sources moves (incl. siblings under other parents), except the root.
+/** The set of source notes the given instance ids belong to. */
+function collectSourcePaths(
+  ids: Iterable<string>,
+  byId: ReadonlyMap<string, SubtreeMoveNode>,
+): Set<string> {
   const sources = new Set<string>();
-  for (const id of subtree) {
+  for (const id of ids) {
     const node = byId.get(id);
     if (node) sources.add(node.sourcePath);
   }
+  return sources;
+}
 
-  const shifts: SubtreeShift[] = [];
-  for (const n of nodes) {
-    if (n.id === rootId || !sources.has(n.sourcePath) || !n.start || !n.end) continue;
-    shifts.push({
-      id: n.id,
-      sourcePath: n.sourcePath,
-      start: new Date(n.start.getTime() + delta),
-      end: new Date(n.end.getTime() + delta),
-    });
-  }
-  return shifts;
+/** Shift a dated window by `delta` ms into a {@link SubtreeShift}. */
+function shiftBy(
+  n: { id: string; sourcePath: string; start: Date; end: Date },
+  delta: number,
+): SubtreeShift {
+  return {
+    id: n.id,
+    sourcePath: n.sourcePath,
+    start: new Date(n.start.getTime() + delta),
+    end: new Date(n.end.getTime() + delta),
+  };
 }
 
 /**
@@ -315,7 +341,27 @@ export function computeMoveExtensions(
   const byId = new Map<string, ExtensionNode>();
   for (const n of nodes) byId.set(n.id, n);
 
-  // Accumulate each moved instance's new range into every ancestor instance.
+  const unionByAncestorId = accumulateAncestorUnions(movedRanges, nodes, byId);
+
+  const bySource = new Map<string, AncestorExtension>();
+  for (const [ancId, union] of unionByAncestorId) {
+    const extension = proposeExtension(byId.get(ancId), union, movedRanges);
+    if (extension) mergeExtensionBySource(bySource, extension);
+  }
+  return [...bySource.values()];
+}
+
+/**
+ * For every moved instance, union its new range into each of its ancestor
+ * instances (walking up parent edges, cycle-guarded). Only moved sources
+ * contribute; the result maps ancestor instance id → the union of moved ranges
+ * beneath it.
+ */
+function accumulateAncestorUnions(
+  movedRanges: ReadonlyMap<string, DateRange>,
+  nodes: ReadonlyArray<ExtensionNode>,
+  byId: ReadonlyMap<string, ExtensionNode>,
+): Map<string, DateRange> {
   const unionByAncestorId = new Map<string, DateRange>();
   for (const node of nodes) {
     const range = movedRanges.get(node.sourcePath);
@@ -325,45 +371,64 @@ export function computeMoveExtensions(
     while (cur != null && !seen.has(cur)) {
       seen.add(cur);
       const prev = unionByAncestorId.get(cur);
-      if (!prev) {
-        unionByAncestorId.set(cur, { start: range.start, end: range.end });
+      if (prev) {
+        expandRange(prev, range);
       } else {
-        if (range.start < prev.start) prev.start = range.start;
-        if (range.end > prev.end) prev.end = range.end;
+        unionByAncestorId.set(cur, { start: range.start, end: range.end });
       }
       cur = byId.get(cur)?.parent;
     }
   }
+  return unionByAncestorId;
+}
 
-  // An ancestor that is itself moved kept its relationship to the moved tasks
-  // beneath it (rigid shift), so it needs no new extension. For the rest,
-  // extend on the exceeded edge(s). Dedup by source note.
-  const bySource = new Map<string, AncestorExtension>();
-  for (const [ancId, union] of unionByAncestorId) {
-    const anc = byId.get(ancId);
-    if (!anc || anc.start === null || anc.end === null) continue;
-    if (movedRanges.has(anc.sourcePath)) continue; // moved with the subtree
-    const needStart = union.start.getTime() < anc.start.getTime();
-    const needEnd = union.end.getTime() > anc.end.getTime();
-    if (!needStart && !needEnd) continue;
+/** Widen `target` in place to also contain `addition` (mutates `target`). */
+function expandRange(target: DateRange, addition: DateRange): void {
+  if (addition.start < target.start) target.start = addition.start;
+  if (addition.end > target.end) target.end = addition.end;
+}
 
-    const newStart = needStart ? union.start : anc.start;
-    const newEnd = needEnd ? union.end : anc.end;
-    const existing = bySource.get(anc.sourcePath);
-    if (!existing) {
-      bySource.set(anc.sourcePath, {
-        instanceId: anc.id,
-        sourcePath: anc.sourcePath,
-        name: anc.name,
-        oldStart: anc.start,
-        oldEnd: anc.end,
-        newStart,
-        newEnd,
-      });
-    } else {
-      if (newStart < existing.newStart) existing.newStart = newStart;
-      if (newEnd > existing.newEnd) existing.newEnd = newEnd;
-    }
+/**
+ * The extend-only proposal for one ancestor instance, or `null` when it needs
+ * no extension. An ancestor that is itself moved kept its relationship to the
+ * moved tasks beneath it (rigid shift) and is never extended; one with
+ * incomplete dates is skipped; otherwise only the exceeded edge(s) move out to
+ * the union.
+ */
+function proposeExtension(
+  anc: ExtensionNode | undefined,
+  union: DateRange,
+  movedRanges: ReadonlyMap<string, DateRange>,
+): AncestorExtension | null {
+  if (!anc || anc.start === null || anc.end === null) return null;
+  if (movedRanges.has(anc.sourcePath)) return null; // moved with the subtree
+  const needStart = union.start.getTime() < anc.start.getTime();
+  const needEnd = union.end.getTime() > anc.end.getTime();
+  if (!needStart && !needEnd) return null;
+  return {
+    instanceId: anc.id,
+    sourcePath: anc.sourcePath,
+    name: anc.name,
+    oldStart: anc.start,
+    oldEnd: anc.end,
+    newStart: needStart ? union.start : anc.start,
+    newEnd: needEnd ? union.end : anc.end,
+  };
+}
+
+/**
+ * Record `extension` under its source note, merging into any existing proposal
+ * for that source (a multi-parent ancestor appears once, with the widest edges).
+ */
+function mergeExtensionBySource(
+  bySource: Map<string, AncestorExtension>,
+  extension: AncestorExtension,
+): void {
+  const existing = bySource.get(extension.sourcePath);
+  if (!existing) {
+    bySource.set(extension.sourcePath, extension);
+    return;
   }
-  return [...bySource.values()];
+  if (extension.newStart < existing.newStart) existing.newStart = extension.newStart;
+  if (extension.newEnd > existing.newEnd) existing.newEnd = extension.newEnd;
 }

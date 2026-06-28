@@ -26,7 +26,22 @@ import { isoDurationToDays } from './dateGap';
  * `SourceTask`s through {@link import('./datePolicy').applyDatePolicy} before
  * expansion, so the expander only ever sees resolved tasks.
  */
-export type ExpandableTask = SourceTask & { dateStatus?: DateStatus };
+export type ExpandableTask = SourceTask & {
+  dateStatus?: DateStatus;
+  /**
+   * When true, the expander emits an extra **root** instance in addition to the
+   * per-parent nested instances — a matched, also-nested task under hide-off, so
+   * it appears both at top level and under its parent (origin AE1). Produced by
+   * {@link import('../datasource/companionResolve').resolveCompanionTree}.
+   */
+  alsoTopLevel?: boolean;
+  /**
+   * When true, this source task is a Show-all fetched descendant (outside the
+   * matched set). Carried onto every {@link RenderInstance} for the view's
+   * "context" cue.
+   */
+  isFetched?: boolean;
+};
 
 /**
  * A single SVAR render row produced from a source task. One source task yields
@@ -77,6 +92,22 @@ export interface RenderInstance {
   dateStatus: DateStatus;
   /** Raw task status string (drives status coloring); `null` when unset. */
   status: string | null;
+  /**
+   * `true` when the source task is a Show-all fetched descendant (outside the
+   * matched set) — drives the view's "context" cue (origin R18). `false` for
+   * matched rows and for tasks that bypassed companion resolution.
+   */
+  isFetched: boolean;
+  /**
+   * `true` when this instance belongs to an **also-top-level DUPLICATE placement**
+   * — the extra root copy of an already-nested task (origin AE1) plus everything
+   * rendered under that root copy. The view hides these via SVAR `filter-tasks`
+   * when "Hide top-level subtasks" is on, so the toggle is a pure DISPLAY filter
+   * over a STABLE instance set (it never changes which instances exist) — the
+   * #161 fix that stops a config toggle from churning the chart. `false` for the
+   * real nested copies and for genuine roots (tasks with no visible parent).
+   */
+  isTopLevelPlacement: boolean;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -210,37 +241,56 @@ export class ExpansionResult {
     const result: RenderLink[] = [];
 
     for (const link of sourceLinks) {
-      const sources =
-        mode === 'primary'
-          ? singletonOrEmpty(this.getPrimaryInstanceId(link.sourcePath))
-          : this.getInstanceIds(link.sourcePath);
-      const targets =
-        mode === 'primary'
-          ? singletonOrEmpty(this.getPrimaryInstanceId(link.targetPath))
-          : this.getInstanceIds(link.targetPath);
+      const sources = this.resolveEndpointInstances(link.sourcePath, mode);
+      const targets = this.resolveEndpointInstances(link.targetPath, mode);
 
       // Drop links whose endpoint path has no instances.
       if (sources.length === 0 || targets.length === 0) continue;
 
-      const lag = isoDurationToDays(link.gap);
-      for (const src of sources) {
-        for (const tgt of targets) {
-          const rendered: RenderLink = {
-            id: makeLinkId(src, tgt, link.type, link.gap),
-            source: src,
-            target: tgt,
-            type: link.type,
-            reltype: link.reltype,
-            gap: link.gap,
-          };
-          if (lag !== null) rendered.lag = lag;
-          result.push(rendered);
-        }
-      }
+      result.push(...renderLinkProduct(link, sources, targets));
     }
 
     return result;
   }
+
+  /**
+   * Resolve one endpoint path to the instance ids the link should attach to:
+   * just the primary in `'primary'` mode, or every instance in `'all'` mode.
+   */
+  private resolveEndpointInstances(path: string, mode: LinkRewriteMode): string[] {
+    return mode === 'primary'
+      ? singletonOrEmpty(this.getPrimaryInstanceId(path))
+      : this.getInstanceIds(path);
+  }
+}
+
+/**
+ * Build the cartesian product of `sources × targets` for one source link,
+ * carrying type/reltype/gap through and deriving SVAR's numeric `lag` from the
+ * gap (omitted when not convertible to an exact day count).
+ */
+function renderLinkProduct(
+  link: SourceLink,
+  sources: readonly string[],
+  targets: readonly string[],
+): RenderLink[] {
+  const lag = isoDurationToDays(link.gap);
+  const rendered: RenderLink[] = [];
+  for (const src of sources) {
+    for (const tgt of targets) {
+      const renderLink: RenderLink = {
+        id: makeLinkId(src, tgt, link.type, link.gap),
+        source: src,
+        target: tgt,
+        type: link.type,
+        reltype: link.reltype,
+        gap: link.gap,
+      };
+      if (lag !== null) renderLink.lag = lag;
+      rendered.push(renderLink);
+    }
+  }
+  return rendered;
 }
 
 /**
@@ -257,8 +307,26 @@ export function expandInstances(
 ): ExpansionResult {
   const fanOutCap = options.fanOutCap ?? DEFAULT_FANOUT_CAP;
 
-  // Stable, deterministic order so primaries and link ids are reproducible.
-  const sorted = [...tasks].sort((a, b) => compareStr(a.path, b.path));
+  // Preserve the INPUT order so the Obsidian Base's toolbar sort drives row
+  // order. The Base hands `data.data` already sorted by the toolbar sort, and
+  // BasesSource → companionResolve → resolveAndFilter all keep that order, so
+  // the desired order is already encoded in `tasks`. The previous path-only sort
+  // discarded it (the "Base sort makes no difference" bug). Determinism now
+  // comes from input stability (Bases keeps `data.data` stable for the same
+  // query + sort) rather than from an input-order-independent path sort; row
+  // order, primary selection ([0]), link ids, and cycle-break edge choice all
+  // follow this stable input order. `compareStr` is retained only as a final
+  // tie-break against a degenerate duplicate-path input (positions are unique,
+  // so it is normally dormant).
+  const orderIndex = new Map<string, number>();
+  tasks.forEach((t, i) => {
+    if (!orderIndex.has(t.path)) orderIndex.set(t.path, i);
+  });
+  const sorted = [...tasks].sort((a, b) => {
+    const ia = orderIndex.get(a.path) ?? 0;
+    const ib = orderIndex.get(b.path) ?? 0;
+    return ia === ib ? compareStr(a.path, b.path) : ia - ib;
+  });
 
   const byPath = new Map<string, ExpandableTask>();
   for (const t of sorted) byPath.set(t.path, t);
@@ -313,6 +381,33 @@ export function expandInstances(
   // ---------------------------------------------------------------------------
   const instancesByPath = new Map<string, RenderInstance[]>();
 
+  // Build a task's instances from its cycle-free parents: one per parent instance,
+  // plus an extra root for an also-top-level matched task. Falls back to a single
+  // root when every parent edge was cycle-broken, so the task never vanishes.
+  const buildParentedInstances = (
+    task: ExpandableTask,
+    parents: readonly string[],
+    isVirtual: boolean,
+  ): RenderInstance[] => {
+    const built: RenderInstance[] = [];
+    for (const parentPath of parents) {
+      // Partial ancestry: only materialize children for parent instances that exist.
+      for (const parentInstance of computeInstances(parentPath)) {
+        const id = `${task.path}${PARENT_DELIMITER}${parentInstance.id}`;
+        // Propagate the placement flag DOWN: a child built under a top-level
+        // duplicate placement is itself part of that (hideable) duplicate subtree.
+        built.push(makeInstance(task, id, parentInstance.id, isVirtual, parentInstance.isTopLevelPlacement));
+      }
+    }
+    // Matched, also-nested task: ALSO render an extra ROOT copy — the also-top-level
+    // DUPLICATE placement. Always emitted (hide-on/off no longer changes the set);
+    // flagged so the view hides it via filter-tasks under "Hide top-level subtasks".
+    if (task.alsoTopLevel && built.length > 0) {
+      built.push(makeInstance(task, task.path, undefined, isVirtual, true));
+    }
+    return built.length > 0 ? built : [makeInstance(task, task.path, undefined, isVirtual)];
+  };
+
   const computeInstances = (path: string): RenderInstance[] => {
     const memo = instancesByPath.get(path);
     if (memo) return memo;
@@ -323,31 +418,12 @@ export function expandInstances(
     const parents = effectiveParents.get(path) ?? [];
     const isVirtual = parents.length > 1;
 
-    let instances: RenderInstance[];
-
-    if (parents.length === 0) {
-      // No visible (cycle-free) parents → a single root instance keyed by the
-      // bare path. This is also the safety net that guarantees a task caught in
-      // a cycle still materializes rather than being silently dropped.
-      instances = [makeInstance(task, task.path, undefined, isVirtual)];
-    } else {
-      const built: RenderInstance[] = [];
-      for (const parentPath of parents) {
-        // Partial ancestry: only materialize children for parent instances that
-        // actually exist — never dangle to a non-existent ancestry.
-        for (const parentInstance of computeInstances(parentPath)) {
-          const id = `${task.path}${PARENT_DELIMITER}${parentInstance.id}`;
-          built.push(makeInstance(task, id, parentInstance.id, isVirtual));
-        }
-      }
-      // A child whose every parent edge was cycle-broken (so `parents` is
-      // non-empty but no ancestry materialized) still must not vanish: fall
-      // back to a root instance.
-      instances =
-        built.length > 0
-          ? built
-          : [makeInstance(task, task.path, undefined, isVirtual)];
-    }
+    // One root instance with no visible parents (also the cycle safety net), or
+    // one instance per parent ancestry (see buildParentedInstances).
+    let instances =
+      parents.length === 0
+        ? [makeInstance(task, task.path, undefined, isVirtual)]
+        : buildParentedInstances(task, parents, isVirtual);
 
     // Fan-out guard: collapse to a single primary instance (first by stable
     // ancestry order) rather than silently dropping the task.
@@ -397,6 +473,7 @@ function makeInstance(
   id: string,
   parent: string | undefined,
   isVirtual: boolean,
+  isTopLevelPlacement = false,
 ): RenderInstance {
   return {
     id,
@@ -410,6 +487,8 @@ function makeInstance(
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
     status: task.status,
+    isFetched: task.isFetched ?? false,
+    isTopLevelPlacement,
   };
 }
 
@@ -435,5 +514,6 @@ function singletonOrEmpty(value: string | undefined): string[] {
 
 /** Stable string comparison (locale-independent). */
 function compareStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }

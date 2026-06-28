@@ -19,6 +19,7 @@
  */
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
+import type { DateStatus } from '../controller/datePolicy';
 import type { StatusColor } from '../datasource/types';
 import { statusSlug } from './statusColor';
 import type { TypedValue } from './propertyValues';
@@ -32,6 +33,37 @@ import type { IncomingDep } from './dependencyTooltip';
  * doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
  */
 export const DATE_STATUS_TYPE = 'datestatus-flagged';
+
+/**
+ * Custom SVAR task type marking a bar whose source task appears more than once
+ * in the displayed tree (U6) — the same note shown under several parents, or as
+ * both a top-level row and a nested descendant. Every duplicate carries this
+ * cue uniformly (none is privileged as "the real one"), so the reader can tell a
+ * replicated instance from a unique row. Emitted as a bare class (`.wx-bar.og-replicated`).
+ */
+export const REPLICATED_TYPE = 'og-replicated';
+
+/**
+ * Custom SVAR task type marking a bar pulled in only for *context* under Show-all
+ * expansion (U6) — a descendant fetched from TaskNotes that does not itself match
+ * the Base filter (`RenderInstance.isFetched`). Rendered muted so matched rows
+ * stay visually dominant. Emitted as a bare class (`.wx-bar.og-context`).
+ */
+export const CONTEXT_TYPE = 'og-context';
+
+/**
+ * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to
+ * a bar's `type` string (replicated before context). SVAR matches the *whole*
+ * type string against the registered task-type ids (see `taskTypeCss` in SVAR's
+ * `Bars.svelte`), so {@link buildInstanceCueTaskTypes} must register every
+ * composed form using this same order — the push order here and the registration
+ * order there are a single coupled contract (pinned by a unit test).
+ */
+const INSTANCE_CUE_SUFFIXES: readonly string[] = [
+  REPLICATED_TYPE,
+  CONTEXT_TYPE,
+  `${REPLICATED_TYPE} ${CONTEXT_TYPE}`,
+];
 
 /** The render-data inputs the SVAR-task shaping reads (subset of GanttData). */
 export interface SvarTaskInputs {
@@ -47,6 +79,13 @@ export interface SvarTaskInputs {
    * render them. Omitted in pure-task contexts (e.g. some tests).
    */
   propertyValues?: Map<string, Record<string, TypedValue>>;
+  /**
+   * Instance ids the user has collapsed (U7). A parent in this set seeds with
+   * `open: false`. Threaded through here — not re-asserted only via `api.exec` —
+   * so the seed, the id-keyed diff, and any full reseed (column/theme) all agree
+   * on `open`, and the diff never fights a persisted collapse. Omitted → all open.
+   */
+  collapsedIds?: ReadonlySet<string>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -65,6 +104,31 @@ export interface SvarTask {
     sourceTaskId: string;
     isVirtual: boolean;
     isCollapsed: boolean;
+    /**
+     * The source task is shown more than once in the displayed tree (U6). Drives
+     * the `og-replicated` cue. Folded into the bar `type`, so {@link taskStateKey}
+     * tracks it via `type` and need not list it separately.
+     */
+    isReplicated: boolean;
+    /**
+     * The instance was fetched for context under Show-all and does not match the
+     * Base filter (U6). Drives the `og-context` cue. Also folded into `type`.
+     */
+    isContext: boolean;
+    /**
+     * The instance belongs to an also-top-level DUPLICATE placement (the extra
+     * root copy of an already-nested task + its subtree). The view hides these via
+     * SVAR `filter-tasks` when "Hide top-level subtasks" is on — a pure display
+     * filter over a STABLE task set, so the toggle can't churn the chart (#161).
+     */
+    isTopLevelPlacement: boolean;
+    /**
+     * The date-policy classification of this row's dates (#161). The composed
+     * display filter reads it so "Show tasks with no dates" (`placeholder`) and
+     * "Show tasks with only one date" (`inferred-*`) hide rows via SVAR
+     * `filter-tasks` over the STABLE task set — never by re-deriving it.
+     */
+    dateStatus: DateStatus;
     showHasDeps: boolean;
     /**
      * Type-tagged values for the grid's visible property columns, keyed by
@@ -89,7 +153,8 @@ export interface SvarTask {
  * `$derived` in the component verbatim, so rendering is unchanged.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
-  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues } = input;
+  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues, collapsedIds } =
+    input;
 
   // Which instance ids are referenced as a parent → mark them summary/open.
   const parentIds = new Set<string>();
@@ -99,10 +164,16 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 
   // The primary (first-in-order) instance id for each source path.
   const primaryBySource = new Map<string, string>();
+  // How many instances each source path produced — >1 means the note is shown in
+  // multiple places, which drives the uniform `og-replicated` cue (U6). Counting
+  // the *displayed* instances (not parent count) catches every replication path:
+  // multi-parent membership, an `alsoTopLevel` root plus its nested copy, etc.
+  const countBySource = new Map<string, number>();
   for (const inst of instances) {
     if (!primaryBySource.has(inst.sourcePath)) {
       primaryBySource.set(inst.sourcePath, inst.id);
     }
+    countBySource.set(inst.sourcePath, (countBySource.get(inst.sourcePath) ?? 0) + 1);
   }
 
   // Source paths that participate in any dependency link (either endpoint),
@@ -153,12 +224,19 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // status-color class when configured). SVAR's taskTypeCss emits each
     // space-joined, registered type id as bare classes.
     const flagged = showDateIndicators && inst.dateStatus !== 'complete';
+    const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
+    const isContext = inst.isFetched;
     let type = 'task';
     const classes: string[] = [];
     if (flagged) classes.push(DATE_STATUS_TYPE);
     if (inst.status && coloredStatuses.has(inst.status)) {
       classes.push(statusSlug(inst.status));
     }
+    // Instance cues come AFTER the state classes, replicated before context. This
+    // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
+    // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
+    if (isReplicated) classes.push(REPLICATED_TYPE);
+    if (isContext) classes.push(CONTEXT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
     const task: SvarTask = {
@@ -174,6 +252,10 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         sourceTaskId: inst.sourcePath,
         isVirtual: inst.isVirtual,
         isCollapsed: inst.isCollapsed,
+        isReplicated,
+        isContext,
+        isTopLevelPlacement: inst.isTopLevelPlacement,
+        dateStatus: inst.dateStatus,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -185,7 +267,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       },
     };
     if (inst.parent) task.parent = inst.parent;
-    if (isParent) task.open = true;
+    // Parents are open unless the user persisted this instance as collapsed (U7).
+    if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
 }
@@ -207,6 +290,29 @@ export function buildStatusTaskTypes(colors: ReadonlyArray<StatusColor>): Array<
     const s = statusSlug(value);
     ids.add(s);
     ids.add(`${DATE_STATUS_TYPE} ${s}`);
+  }
+  return [...ids].map((id) => ({ id, label: id }));
+}
+
+/**
+ * Register the instance-cue task types (U6). SVAR matches a bar's *whole* `type`
+ * string against the registered ids, so every composed form a bar can produce
+ * must be registered: each cue suffix alone (a plain bar that is replicated
+ * and/or context), and each `${base} ${suffix}` (a date-status/status bar that is
+ * also replicated/context). `baseTypeIds` is the output of
+ * {@link buildStatusTaskTypes} (date-status + status combos); pass it so the
+ * cross-product covers a bar carrying both a state class and a cue.
+ *
+ * Derived from the static palette (not the present tasks), so the set is stable
+ * across refreshes — a changing `taskTypes` reference would re-init SVAR's store.
+ */
+export function buildInstanceCueTaskTypes(
+  baseTypeIds: ReadonlyArray<string>,
+): Array<{ id: string; label: string }> {
+  const ids = new Set<string>();
+  for (const suffix of INSTANCE_CUE_SUFFIXES) {
+    ids.add(suffix);
+    for (const base of baseTypeIds) ids.add(`${base} ${suffix}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
 }
@@ -314,9 +420,50 @@ export function planTaskSync(prev: ReadonlyMap<string, SvarTask>, next: Readonly
     }
     return depth;
   };
-  const deletes = goneIds.sort((a, b) => depthOf(b) - depthOf(a));
+  const deletes = [...goneIds].sort((a, b) => depthOf(b) - depthOf(a));
 
   return { moves, updates, deletes, adds: orderAddsParentFirst(adds) };
+}
+
+/** A sibling reorder step: place `id` immediately after `after` (same parent). */
+export interface ReorderMove {
+  id: string;
+  after: string;
+}
+
+/**
+ * Plan the minimal `move-task` (mode `after`) steps to put each parent's
+ * children into `next`'s order. The diff-sync (`planTaskSync`) is keyed by id
+ * and cannot reorder existing rows, so a pure reorder (e.g. a Base toolbar sort
+ * change with the same task set) needs explicit moves. Within each parent
+ * branch, chaining `move after the previous sibling` left-to-right yields the
+ * target order regardless of the current order (moving a later sibling after an
+ * earlier one pulls it out of its old slot). `move-task` with mode `after`
+ * keeps the task under the same parent, so zoom/scroll survive (no re-init).
+ *
+ * Pure (no SVAR/DOM): the caller execs each step. Tree-preserving — siblings are
+ * grouped by parent and only reordered within their branch.
+ */
+export function planReorder(
+  next: ReadonlyArray<{ id: string; parent?: string }>,
+): ReorderMove[] {
+  const byParent = new Map<string, string[]>();
+  for (const t of next) {
+    const key = t.parent ?? '';
+    let ids = byParent.get(key);
+    if (!ids) {
+      ids = [];
+      byParent.set(key, ids);
+    }
+    ids.push(t.id);
+  }
+  const moves: ReorderMove[] = [];
+  for (const ids of byParent.values()) {
+    for (let i = 1; i < ids.length; i++) {
+      moves.push({ id: ids[i]!, after: ids[i - 1]! });
+    }
+  }
+  return moves;
 }
 
 /**
@@ -359,6 +506,36 @@ function orderAddsParentFirst(adds: ReadonlyArray<SvarTask>): SvarTask[] {
   return ordered;
 }
 
+/** A single Base sort entry (the structural subset of Obsidian's `BasesSortConfig`). */
+export interface BaseSortEntry {
+  property: string;
+  direction: string;
+}
+
+/**
+ * Fold the Base toolbar sort (`config.getSort()`) into a stable descriptor string
+ * (plan 2026-06-22-002, U4/U5, KTD4). While an ephemeral column sort is active the
+ * sync `$effect` compares this descriptor across refreshes to tell two cases apart:
+ * the user re-sorted the Base toolbar (descriptor CHANGED → clear the ephemeral
+ * override, R6) versus a plain data refresh (descriptor UNCHANGED → keep and
+ * re-assert the ephemeral sort, R8).
+ *
+ * Folding the `{property, direction}` pairs — not a matched-row position
+ * fingerprint — is the deliberate fix (KTD4): a position fingerprint
+ * false-positives when a row is merely added to or removed from the Base result
+ * (the matched sequence shifts with no toolbar-sort change), which would wrongly
+ * clear the user's sort. The descriptor only changes when the sort key or
+ * direction changes. Order is significant (compound sort), so the pairs are joined
+ * in `getSort()` order. An empty/absent sort yields `''`.
+ *
+ * Pure (no Obsidian import — `ganttSync` is dependency-free); takes the structural
+ * {@link BaseSortEntry} subset of `BasesSortConfig`.
+ */
+export function baseSortDescriptor(sort: ReadonlyArray<BaseSortEntry> | undefined): string {
+  if (!sort || sort.length === 0) return '';
+  return sort.map((s) => `${s.property}:${s.direction}`).join('|');
+}
+
 /**
  * Link diff. Link ids are deterministic from endpoints+type, so an endpoint or
  * type change yields a new id — handled as a delete of the old + add of the new.
@@ -383,4 +560,52 @@ export function planLinkSync(prev: ReadonlyMap<string, RenderLink>, next: Readon
     if (!prev.has(l.id)) adds.push(l);
   }
   return { deletes, adds };
+}
+
+/**
+ * Default structural-op threshold above which a sync should BULK-RESEED the SVAR
+ * store instead of applying the diff instance-by-instance (#161 U6).
+ *
+ * Rationale (plan 2026-06-28-002, KTD3): a per-instance `api.exec` diff preserves
+ * SVAR view state (zoom/scroll) and is the right tool for SMALL changes — an
+ * interactive drag is 1–3 structural ops, a row-visibility toggle is 0 (it is a
+ * display filter, not a task-set change). But a wholesale set replacement (search
+ * clear / filter change re-expands the whole companion tree → hundreds–thousands
+ * of adds/deletes) costs ~one DOM mutation storm per swing; a burst of those is the
+ * ~25s #161 churn. Above this count, a single virtualized re-init (reseed) is both
+ * cheaper and correct, and the lost zoom/scroll is meaningless because the displayed
+ * set changed entirely. The value sits well above any realistic interactive edit and
+ * well below a full set swap; it is intentionally one tunable constant.
+ */
+export const BULK_RESEED_OP_THRESHOLD = 150;
+
+/**
+ * Count the STRUCTURAL ops in a sync diff — task `adds + deletes + moves` plus link
+ * `adds + deletes` (the ops that materialise or remove rows). In-place field
+ * `updates` are EXCLUDED: a value-only refresh of a stable row set is cheap
+ * incrementally and must keep its view state (a bulk field refresh stays incremental).
+ *
+ * Single source of truth for "how big is this diff" — shared by {@link shouldBulkReseed}
+ * (the decision) and the caller's diagnostics, so the two can never diverge on what
+ * counts as a structural op. Pure (no SVAR/DOM) → unit-testable in isolation.
+ */
+export function structuralOpCount(plan: TaskSyncPlan, linkPlan: LinkSyncPlan): number {
+  return plan.adds.length + plan.deletes.length + plan.moves.length + linkPlan.adds.length + linkPlan.deletes.length;
+}
+
+/**
+ * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
+ * incrementally (#161 U6) — true when {@link structuralOpCount} strictly exceeds the
+ * threshold. The caller (`GanttContainer`) asks the question and branches.
+ *
+ * @param plan - the task sync plan from {@link planTaskSync}.
+ * @param linkPlan - the link sync plan from {@link planLinkSync}.
+ * @param threshold - structural-op threshold; defaults to {@link BULK_RESEED_OP_THRESHOLD}.
+ */
+export function shouldBulkReseed(
+  plan: TaskSyncPlan,
+  linkPlan: LinkSyncPlan,
+  threshold: number = BULK_RESEED_OP_THRESHOLD,
+): boolean {
+  return structuralOpCount(plan, linkPlan) > threshold;
 }

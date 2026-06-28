@@ -23,6 +23,36 @@ function formatDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Render a `date` carrier: `YYYY-MM-DD` for a valid `Date`, else blank (R6). */
+function formatDateValue(value: unknown): string {
+  return value instanceof Date && !Number.isNaN(value.getTime()) ? formatDate(value) : '';
+}
+
+/** Render a `number` carrier as its string, blank for a non-number or NaN (R6). */
+function formatNumberValue(value: unknown): string {
+  return typeof value === 'number' && !Number.isNaN(value) ? String(value) : '';
+}
+
+/** Render a `boolean` carrier: a checkmark only for `true`, else blank (R5/R6). */
+function formatBooleanValue(value: unknown): string {
+  return value === true ? BOOLEAN_TRUE_TOKEN : '';
+}
+
+/** Render a `list` carrier as a comma-joined string, blank for a non-array (R6). */
+function formatListValue(value: unknown): string {
+  return Array.isArray(value) ? value.map(String).join(', ') : '';
+}
+
+/** Render a `link` carrier as its display string, blank for a non-string (R6). */
+function formatLinkValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** Render a `text` carrier as-is, coercing a non-string (and null → blank). */
+function formatTextValue(value: unknown): string {
+  return typeof value === 'string' ? value : String(value ?? '');
+}
+
 /**
  * Format a {@link TypedValue} for grid display. Returns blank for `empty`, a
  * missing value, or a value whose carried type doesn't match its `kind`.
@@ -31,17 +61,17 @@ export function formatPropertyValue(tv: TypedValue | null | undefined): string {
   if (!tv) return '';
   switch (tv.kind) {
     case 'date':
-      return tv.value instanceof Date && !Number.isNaN(tv.value.getTime()) ? formatDate(tv.value) : '';
+      return formatDateValue(tv.value);
     case 'number':
-      return typeof tv.value === 'number' && !Number.isNaN(tv.value) ? String(tv.value) : '';
+      return formatNumberValue(tv.value);
     case 'boolean':
-      return tv.value === true ? BOOLEAN_TRUE_TOKEN : '';
+      return formatBooleanValue(tv.value);
     case 'list':
-      return Array.isArray(tv.value) ? tv.value.map((v) => String(v)).join(', ') : '';
+      return formatListValue(tv.value);
     case 'link':
-      return typeof tv.value === 'string' ? tv.value : '';
+      return formatLinkValue(tv.value);
     case 'text':
-      return typeof tv.value === 'string' ? tv.value : String(tv.value ?? '');
+      return formatTextValue(tv.value);
     case 'empty':
     default:
       return '';

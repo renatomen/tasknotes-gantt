@@ -7,7 +7,9 @@ describe("tasknotes-gantt smoke", () => {
         process.env.OBSIDIAN_TEST_VAULT ||
         "C:/Users/renato/obsidian-test-vaults/obsidian-gantt-test-vault",
     });
-    // Placeholder until plugin view is implemented
-    expect(true).toBe(true);
+    // Smoke check: the wdio browser session booted and reloadObsidian resolved
+    // above without throwing. Assert the session handle is live.
+    expect(browser).toBeDefined();
+    expect(typeof browser.reloadObsidian).toBe("function");
   });
 });

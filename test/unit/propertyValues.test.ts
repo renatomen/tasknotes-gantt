@@ -12,9 +12,11 @@ import { describe, it, expect } from '@jest/globals';
 import {
   classifyTypedValue,
   buildEntryProperties,
+  buildFetchedEntryProperties,
   type PropertyExtractor,
   type TypedValue,
 } from '../../src/bases/propertyValues';
+import { BasesDataAdapter } from '../../src/bases/services/BasesDataAdapter';
 
 describe('classifyTypedValue', () => {
   it('tags a frontmatter date string (YYYY-MM-DD) as date with a Date value', () => {
@@ -80,6 +82,24 @@ describe('classifyTypedValue', () => {
     });
   });
 
+  it('falls back to text when an ISO-shaped string is not a parseable date', () => {
+    // Matches ISO_DATE_RE (digit shape) but `new Date(...)` is Invalid, so the
+    // date branch declines and the value is tagged as plain text (characterization).
+    expect(classifyTypedValue('2026-13-45T99:99')).toEqual<TypedValue>({
+      kind: 'text',
+      value: '2026-13-45T99:99',
+    });
+  });
+
+  it('tags a plain object without a string file.path as text via String()', () => {
+    // No `file.path` string → not a link object → final String(raw) fallback
+    // (characterization of the unknown-shape branch).
+    expect(classifyTypedValue({ foo: 1 })).toEqual<TypedValue>({
+      kind: 'text',
+      value: String({ foo: 1 }),
+    });
+  });
+
   it('tags null/undefined/empty-string/empty-array/NaN as empty', () => {
     expect(classifyTypedValue(null).kind).toBe('empty');
     expect(classifyTypedValue(undefined).kind).toBe('empty');
@@ -125,5 +145,40 @@ describe('buildEntryProperties', () => {
   it('returns an empty map when there are no visible columns', () => {
     const map = buildEntryProperties([entry('a.md', { 'note.status': 'wip' })], [], extractor);
     expect(map.size).toBe(0);
+  });
+});
+
+describe('buildFetchedEntryProperties', () => {
+  // Integration: uses the REAL extractor so the synthetic-entry shape is proven
+  // against the same code path matched rows use.
+  const adapter = new BasesDataAdapter();
+  const metas = [
+    { path: 'Sub.md', basename: 'Sub', frontmatter: { status: 'open', scheduled: '2026-03-03' } },
+  ];
+
+  it('resolves note.* columns from a fetched path frontmatter', () => {
+    const map = buildFetchedEntryProperties(metas, ['note.status', 'note.scheduled'], adapter);
+    const rec = map.get('Sub.md')!;
+    expect(rec['note.status']).toEqual({ kind: 'text', value: 'open' });
+    expect(rec['note.scheduled'].kind).toBe('date');
+  });
+
+  it('resolves file.* columns from the synthetic file', () => {
+    const map = buildFetchedEntryProperties(metas, ['file.basename'], adapter);
+    expect(map.get('Sub.md')!['file.basename']).toEqual({ kind: 'text', value: 'Sub' });
+  });
+
+  it('falls back to empty for Base formula/computed columns (R5: no formula engine)', () => {
+    const map = buildFetchedEntryProperties(metas, ['formula.foo'], adapter);
+    expect(map.get('Sub.md')!['formula.foo']).toEqual({ kind: 'empty', value: null });
+  });
+
+  it('tolerates a fetched note with no frontmatter', () => {
+    const map = buildFetchedEntryProperties(
+      [{ path: 'X.md', basename: 'X', frontmatter: null }],
+      ['note.status'],
+      adapter,
+    );
+    expect(map.get('X.md')!['note.status'].kind).toBe('empty');
   });
 });

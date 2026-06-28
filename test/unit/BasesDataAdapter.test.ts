@@ -6,8 +6,9 @@
  */
 
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import type { BasesEntry } from "obsidian";
 import { BasesDataAdapter } from "../../src/bases/services/BasesDataAdapter";
-import type { BasesEntry, BasesValue } from "../../src/bases/register";
+import { type BasesEntryLike, asPropertyId } from "../../src/bases/types/bases-entry";
 
 describe("BasesDataAdapter", () => {
   let adapter: BasesDataAdapter;
@@ -19,7 +20,7 @@ describe("BasesDataAdapter", () => {
   describe("extractValue", () => {
     it("should extract string value from BasesValue", () => {
       // Arrange - PrimitiveValue uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           data: "Task Name",
@@ -35,7 +36,7 @@ describe("BasesDataAdapter", () => {
 
     it("should return null for empty BasesValue", () => {
       // Arrange - NullValue
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => null,
       };
@@ -49,7 +50,7 @@ describe("BasesDataAdapter", () => {
 
     it("should return null for undefined BasesValue", () => {
       // Arrange - undefined value
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => undefined,
       };
@@ -59,6 +60,127 @@ describe("BasesDataAdapter", () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+
+    // --- Characterization tests (added before S3776 refactor) ---
+    it("reads a note. (dot) frontmatter property directly without getValue", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { start: "2024-01-01" },
+        getValue: () => { throw new Error("should not be called"); },
+      };
+      expect(adapter.extractValue(mockEntry, "note.start" as any)).toBe("2024-01-01");
+    });
+
+    it("returns null for a note. property that is an empty string", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { start: "" },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "note.start" as any)).toBeNull();
+    });
+
+    it("falls back to entry.properties when frontmatter is absent for note. prefix", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        properties: { start: "via-properties" },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "note.start" as any)).toBe("via-properties");
+    });
+
+    it("reads file.ctime/mtime/size from file.stat", () => {
+      const mockEntry: any = {
+        file: {
+          path: "test.md",
+          name: "test.md",
+          basename: "test",
+          stat: { ctime: 111, mtime: 222, size: 333 },
+        },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "file.ctime" as any)).toBe(111);
+      expect(adapter.extractValue(mockEntry, "file.mtime" as any)).toBe(222);
+      expect(adapter.extractValue(mockEntry, "file.size" as any)).toBe(333);
+    });
+
+    it("reads file.folder from the parent folder name", () => {
+      const mockEntry: any = {
+        file: {
+          path: "projects/test.md",
+          name: "test.md",
+          basename: "test",
+          parent: { name: "projects" },
+        },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "file.folder" as any)).toBe("projects");
+    });
+
+    it("reads a direct file. property (e.g. basename)", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "file.basename" as any)).toBe("test");
+    });
+
+    it("returns null for a direct file. property that is empty", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "" },
+        getValue: () => null,
+      };
+      expect(adapter.extractValue(mockEntry, "file.basename" as any)).toBeNull();
+    });
+
+    it("uses getValue() for computed/formula properties (non note./file. prefix)", () => {
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: (propId: string) => (propId === "formula.x" ? { data: "computed" } : null),
+      };
+      expect(adapter.extractValue(mockEntry, "formula.x" as any)).toBe("computed");
+    });
+
+    it("returns null and warns when getValue() throws", () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const mockEntry: any = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        getValue: () => { throw new Error("boom"); },
+      };
+      expect(adapter.extractValue(mockEntry, "formula.x" as any)).toBeNull();
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    // Faithful-double guard (plan 2026-06-21-001, U3 / P0 risk). The double is
+    // typed against the OFFICIAL `BasesEntry` (file + getValue only), and the
+    // adapter's loose boundary (`BasesEntryLike`) must still read the runtime
+    // `frontmatter` member that Obsidian populates but does not declare. This
+    // proves the `note.*` fast path returns the real non-null value end-to-end
+    // and can't pass by silently re-encoding a wrong assumption.
+    it("reads note.* off the runtime frontmatter of an officially-typed BasesEntry double", () => {
+      // Only the official members are declared; `frontmatter` is the undeclared
+      // runtime member the adapter deliberately relies on (cast through the
+      // public type to model how Obsidian hands us the real entry).
+      const officialDouble = {
+        file: { path: "task.md", name: "task.md", basename: "task" },
+        getValue: () => {
+          throw new Error("note.* must not route through getValue()");
+        },
+      } as unknown as BasesEntry;
+
+      // Attach the undeclared-but-present runtime member exactly as Obsidian does.
+      (officialDouble as unknown as { frontmatter: Record<string, unknown> }).frontmatter = {
+        start: "2026-01-15",
+      };
+
+      const result = adapter.extractValue(
+        officialDouble as unknown as BasesEntryLike,
+        "note.start",
+      );
+
+      expect(result).toBe("2026-01-15");
     });
   });
 
@@ -210,7 +332,7 @@ describe("BasesDataAdapter", () => {
   describe("extractText", () => {
     it("should extract text property value", () => {
       // Arrange - PrimitiveValue uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           data: "My Task",
@@ -224,9 +346,27 @@ describe("BasesDataAdapter", () => {
       expect(result).toBe("My Task");
     });
 
+    it("reads a dot-form note. text property via the frontmatter fast path (no getValue)", () => {
+      // Arrange - DOT-form id routes through readFrontmatterProperty end-to-end;
+      // getValue must never be called for the note. fast path.
+      const mockEntry: BasesEntryLike = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { title: "Frontmatter Task" },
+        getValue: () => {
+          throw new Error("getValue should not be called for note. fast path");
+        },
+      };
+
+      // Act
+      const result = adapter.extractText(mockEntry, "note.title");
+
+      // Assert
+      expect(result).toBe("Frontmatter Task");
+    });
+
     it("should fallback to file.basename when property is empty", () => {
       // Arrange - NullValue
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "folder/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => null,
       };
@@ -240,7 +380,7 @@ describe("BasesDataAdapter", () => {
 
     it("should use file.basename when textProperty is empty string", () => {
       // Arrange - This shouldn't call getValue when textProperty is ""
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "notes/meeting.md", name: "meeting.md", basename: "meeting" },
         getValue: (propertyId: string) => ({
           data: "Should be ignored",
@@ -257,7 +397,7 @@ describe("BasesDataAdapter", () => {
 
   describe("extractStatus", () => {
     it("should extract the raw status string", () => {
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "11🟥Active = Now" }),
       };
@@ -266,7 +406,7 @@ describe("BasesDataAdapter", () => {
     });
 
     it("should return null when statusProperty is undefined", () => {
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "ignored" }),
       };
@@ -275,7 +415,7 @@ describe("BasesDataAdapter", () => {
     });
 
     it("should return null when statusProperty is empty", () => {
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "ignored" }),
       };
@@ -284,7 +424,7 @@ describe("BasesDataAdapter", () => {
     });
 
     it("should return null when the status value is missing (no basename fallback)", () => {
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => null,
       };
@@ -296,7 +436,7 @@ describe("BasesDataAdapter", () => {
   describe("extractDate", () => {
     it("should extract and convert date property", () => {
       // Arrange - DateValue uses .date property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           date: new Date("2024-05-15"),
@@ -312,9 +452,30 @@ describe("BasesDataAdapter", () => {
       expect(result?.getMonth()).toBe(4); // May (0-indexed)
     });
 
+    it("reads a dot-form note. date property via the frontmatter fast path (no getValue)", () => {
+      // Arrange - DOT-form id routes through readFrontmatterProperty end-to-end;
+      // getValue must never be called for the note. fast path.
+      const mockEntry: BasesEntryLike = {
+        file: { path: "test.md", name: "test.md", basename: "test" },
+        frontmatter: { start: "2024-05-15" },
+        getValue: () => {
+          throw new Error("getValue should not be called for note. fast path");
+        },
+      };
+
+      // Act
+      const result = adapter.extractDate(mockEntry, "note.start");
+
+      // Assert
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getFullYear()).toBe(2024);
+      expect(result?.getMonth()).toBe(4); // May (0-indexed)
+      expect(result?.getDate()).toBe(15);
+    });
+
     it("should return null for missing date property", () => {
       // Arrange - NullValue
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => null,
       };
@@ -329,7 +490,7 @@ describe("BasesDataAdapter", () => {
     it("warns when a mapped date value is present but unparseable (returns null)", () => {
       // Arrange - a present value that does not parse to a date.
       const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => "not-a-date",
       };
@@ -350,7 +511,7 @@ describe("BasesDataAdapter", () => {
   describe("extractProgress", () => {
     it("should extract and convert progress value", () => {
       // Arrange - PrimitiveValue (number) uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           data: 75,
@@ -366,7 +527,7 @@ describe("BasesDataAdapter", () => {
 
     it("should return null for missing progress property", () => {
       // Arrange - NullValue
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => null,
       };
@@ -380,7 +541,7 @@ describe("BasesDataAdapter", () => {
 
     it("should clamp progress value above 100", () => {
       // Arrange - PrimitiveValue (number) uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           data: 150,
@@ -396,7 +557,7 @@ describe("BasesDataAdapter", () => {
 
     it("should clamp negative progress value to 0", () => {
       // Arrange - PrimitiveValue (number) uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (propertyId: string) => ({
           data: -10,
@@ -414,7 +575,7 @@ describe("BasesDataAdapter", () => {
   describe("extractParents", () => {
     it("should extract single parent reference (string)", () => {
       // Arrange - PrimitiveValue uses .data property
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/child.md", name: "child.md", basename: "child" },
         getValue: (propertyId: string) => ({
           data: "projects/parent.md",
@@ -430,7 +591,7 @@ describe("BasesDataAdapter", () => {
 
     it("should return empty array when parent property is empty", () => {
       // Arrange - NullValue
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
         getValue: (propertyId: string) => null,
       };
@@ -444,7 +605,7 @@ describe("BasesDataAdapter", () => {
 
     it("should return empty array when parent property is not configured", () => {
       // Arrange
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => null,
       };
@@ -462,7 +623,7 @@ describe("BasesDataAdapter", () => {
         { data: "projects/parent-a.md" },
         { data: "projects/parent-b.md" },
       ];
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/multi-parent.md", name: "multi-parent.md", basename: "multi-parent" },
         getValue: (propertyId: string) => ({
           length: () => items.length,
@@ -480,7 +641,7 @@ describe("BasesDataAdapter", () => {
     it("should handle single-item array", () => {
       // Arrange - ListValue with one item
       const items = [{ data: "projects/parent.md" }];
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => ({
           length: () => items.length,
@@ -504,7 +665,7 @@ describe("BasesDataAdapter", () => {
         undefined,
         { data: "" },
       ];
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => ({
           length: () => items.length,
@@ -525,7 +686,7 @@ describe("BasesDataAdapter", () => {
         { file: { path: "projects/parent-a.md" } },
         { file: { path: "projects/parent-b.md" } },
       ];
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => ({
           length: () => items.length,
@@ -546,7 +707,7 @@ describe("BasesDataAdapter", () => {
         { data: "projects/parent-a.md" },
         { file: { path: "projects/parent-b.md" } },
       ];
-      const mockEntry: BasesEntry = {
+      const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task.md", name: "task.md", basename: "task" },
         getValue: (propertyId: string) => ({
           length: () => items.length,
@@ -559,6 +720,19 @@ describe("BasesDataAdapter", () => {
 
       // Assert
       expect(result).toEqual(["projects/parent-a.md", "projects/parent-b.md"]);
+    });
+  });
+
+  describe("asPropertyId", () => {
+    it("returns the identity string value (round-trip narrowing)", () => {
+      // Arrange - a raw prefixed id string.
+      const raw = "note.start";
+
+      // Act - narrowing to BasesPropertyId is a compile-time-only cast.
+      const result = asPropertyId(raw);
+
+      // Assert - the runtime value is unchanged (identity).
+      expect(result).toBe("note.start");
     });
   });
 });

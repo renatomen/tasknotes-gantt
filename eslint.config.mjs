@@ -16,6 +16,8 @@ export default [
       "project/**",
       "test-results/**",
       "vendor/**",
+      // Local-only e2e probes (gitignored, point at private vaults; never committed)
+      "test/specs/_local-*",
     ],
   },
   // Base JS recommended rules
@@ -35,7 +37,9 @@ export default [
         window: "readonly",
         document: "readonly",
         HTMLElement: "readonly",
+        MutationObserver: "readonly",
         setTimeout: "readonly",
+        performance: "readonly",
       },
     },
     plugins: {
@@ -90,7 +94,8 @@ export default [
       globals: {
         console: 'readonly',
         window: 'readonly',
-        document: 'readonly'
+        document: 'readonly',
+        performance: 'readonly'
       }
     },
     plugins: {
@@ -100,6 +105,10 @@ export default [
     rules: {
       ...sveltePlugin.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Defer to the TS-aware rule (matches the .ts block). Core no-unused-vars
+      // misfires on TS function-type parameter names (e.g. `(ev: MouseEvent) =>
+      // void` in a type annotation), which aren't runtime bindings.
+      'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
     }
   },

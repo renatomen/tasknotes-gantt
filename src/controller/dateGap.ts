@@ -39,11 +39,11 @@ export function isoDurationToDays(iso: string | null | undefined): number | null
   const m = ISO_DURATION.exec(iso.trim());
   if (!m) return null;
   const sign = m[1] === '-' ? -1 : 1;
-  const weeks = m[2] ? parseInt(m[2], 10) : 0;
-  const days = m[3] ? parseInt(m[3], 10) : 0;
-  const hours = m[4] ? parseInt(m[4], 10) : 0;
-  const minutes = m[5] ? parseInt(m[5], 10) : 0;
-  const seconds = m[6] ? parseFloat(m[6]) : 0;
+  const weeks = m[2] ? Number.parseInt(m[2], 10) : 0;
+  const days = m[3] ? Number.parseInt(m[3], 10) : 0;
+  const hours = m[4] ? Number.parseInt(m[4], 10) : 0;
+  const minutes = m[5] ? Number.parseInt(m[5], 10) : 0;
+  const seconds = m[6] ? Number.parseFloat(m[6]) : 0;
   const total = weeks * 7 + days + hours / 24 + minutes / 1440 + seconds / 86400;
   return sign * total;
 }

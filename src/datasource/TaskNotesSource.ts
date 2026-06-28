@@ -33,10 +33,12 @@
  */
 
 import type { App } from 'obsidian';
+import type { RelationshipIndex } from './companionResolve';
 import type {
   CustomDateField,
   DataSource,
   DataSourceCapabilities,
+  DateWrite,
   DependencyRelType,
   FieldConfig,
   MutationContext,
@@ -62,6 +64,9 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.scheduled.changed',
   'task.due.changed',
   'task.dependencies.changed',
+  // Project-edge changes re-key the companion hierarchy (Show-all / nesting):
+  // a re-parent or new child must refresh the expanded tree (plan U2/R7).
+  'task.projects.changed',
   'task.created',
   'task.deleted',
 ] as const;
@@ -167,14 +172,30 @@ export interface TaskNotesApi {
       path: string,
       updates: Record<string, unknown>,
       options?: unknown,
-    ): Promise<unknown> | unknown;
+    ): unknown;
     /** Delete a task and its note (`delete(path, options)`). */
-    delete?(path: string, options?: unknown): Promise<unknown> | unknown;
+    delete?(path: string, options?: unknown): unknown;
   };
   relationships?: {
     dependencies(
       path: string
     ): Promise<TaskNotesDependencyEdge[]> | TaskNotesDependencyEdge[];
+    /**
+     * Direct subtasks of `path` (tasks whose `projects` field links to it).
+     * TaskNotes 4.11.0: `relationships.subtasks` → `getSubtasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded (older versions lack it).
+     */
+    subtasks?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
+    /**
+     * Direct parents of `path` (the tasks its `projects` field references).
+     * TaskNotes 4.11.0: `relationships.parents` → `getParentTasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded.
+     */
+    parents?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
   };
   events?: {
     on(name: string, handler: (payload?: unknown) => void): TaskNotesEventRef;
@@ -383,6 +404,95 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Build the bulk {@link RelationshipIndex} in ONE pass (plan #161, U1/KTD2) —
+   * the O(N) replacement for the per-node `getSubtasks` scan that made Show-all
+   * expansion O(N²) and froze the view.
+   *
+   * Strategy (KTD2 — parity-safe, no `taskReferenceMatches` replication): list
+   * every vault task once, resolve each task's parents via {@link getParents}
+   * (parallelized), then **invert** that relation into `childrenByPath` while
+   * recording `parentsByPath`. This is equivalent to N× `getSubtasks` because
+   * `getSubtasks(P)` includes child C iff `resolveTaskReferencePath(C.projectRef)
+   * === P`, the very resolution `getParents(C)` performs — and the companion BFS
+   * only ever expands real parent tasks, so the two relations agree on every
+   * edge the BFS can traverse (dangling/alias refs that resolve to no real task
+   * are dropped by both).
+   *
+   * Readiness signal (cache-poisoning guard #161): returns `null` (never throws)
+   * when the task list is empty or the read fails — i.e. TaskNotes' metadataCache
+   * scan has not warmed yet, so an index built now would be spuriously empty and
+   * must not be cached. A non-null index — even with empty maps — means the task
+   * list was non-empty (authoritative; the vault just has no parent/child edges),
+   * so the controller caches it and skips the full-vault scan on later notifies.
+   */
+  public async getRelationshipIndex(): Promise<RelationshipIndex | null> {
+    try {
+      const tasks = await this.getTasks();
+      if (tasks.length === 0) {
+        // Cold / empty: not-ready. Do not let the controller cache this — Show-all
+        // would stick at the matched-only count until a TaskNotes data-change.
+        return null;
+      }
+      // Resolve every task's parents concurrently (each is an O(1) TaskNotes
+      // cache read upstream); a single failed lookup degrades to no parents
+      // rather than aborting the whole index.
+      const parentLists = await Promise.all(
+        tasks.map((t) => this.getParents(t.path)),
+      );
+
+      const childrenByPath = new Map<string, SourceTask[]>();
+      const parentsByPath = new Map<string, string[]>();
+      for (let i = 0; i < tasks.length; i += 1) {
+        const child = tasks[i]!;
+        const parents = parentLists[i] ?? [];
+        if (parents.length > 0) {
+          parentsByPath.set(child.path, parents);
+        }
+        for (const parentPath of parents) {
+          const bucket = childrenByPath.get(parentPath);
+          if (bucket) {
+            bucket.push(child);
+          } else {
+            childrenByPath.set(parentPath, [child]);
+          }
+        }
+      }
+      return { childrenByPath, parentsByPath };
+    } catch {
+      // Read failed → treat as not-ready (retry next build) rather than caching
+      // a spurious empty index.
+      return null;
+    }
+  }
+
+  /**
+   * Read the resolved vault paths of the direct parents of `path` (the tasks its
+   * `projects` field references), via `api.relationships.parents(path)`
+   * (TaskNotes 4.11.0). Returns `[]` when the accessor is absent or on failure.
+   *
+   * @param path - The task whose direct parents to read.
+   */
+  public async getParents(path: string): Promise<string[]> {
+    try {
+      if (
+        !this.api.relationships ||
+        typeof this.api.relationships.parents !== 'function'
+      ) {
+        return [];
+      }
+      const parents = await this.api.relationships.parents(path);
+      if (!Array.isArray(parents)) {
+        return [];
+      }
+      return parents
+        .map((t) => t?.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Read TaskNotes' configured custom-status palette as {@link StatusColor}s.
    *
    * Sources `api.catalog.statuses()` (preferred) or `api.model.config().statuses`
@@ -511,41 +621,7 @@ export class TaskNotesSource implements DataSource {
       throw new Error('TaskNotes API does not support task updates');
     }
 
-    const updates: Record<string, unknown> = {};
-    // Resolved date targets (the bases-scoped path, U8b): each routes to its
-    // canonical field or to userFields keyed by the field id.
-    if (patch.dateWrites) {
-      for (const write of patch.dateWrites) {
-        const value = write.value === null ? null : toYmd(write.value);
-        if (write.target.kind === 'scheduled') {
-          updates.scheduled = value;
-        } else if (write.target.kind === 'due') {
-          updates.due = value;
-        } else {
-          // Custom user fields: TaskNotes' frontmatter writer
-          // (mapToFrontmatter) reads each user field's value from the TOP LEVEL
-          // of the updates object, keyed by the field's frontmatter `key` —
-          // NOT from a `userFields` object and NOT by field id (confirmed vs
-          // 4.11.0 main.js). Write it under the key accordingly.
-          updates[write.target.key] = value;
-        }
-      }
-    }
-    // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
-    // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
-    if (patch.start !== undefined) {
-      updates.scheduled = patch.start === null ? null : toYmd(patch.start);
-    }
-    if (patch.end !== undefined) {
-      updates.due = patch.end === null ? null : toYmd(patch.end);
-    }
-    if (patch.text !== undefined) {
-      updates.title = patch.text;
-    }
-    if (patch.status !== undefined) {
-      updates.status = patch.status;
-    }
-    // `patch.progress` is intentionally not written (milestone 1, R17).
+    const updates = buildTaskUpdates(patch);
 
     await tasks.update(path, updates, context);
   }
@@ -625,7 +701,7 @@ export class TaskNotesSource implements DataSource {
   /** Read the dependent task's raw `blockedBy` array (or `[]`). */
   private async readBlockedBy(path: string): Promise<TaskNotesBlockedByEntry[]> {
     const task = await this.api.tasks?.get?.(path);
-    const raw = (task as TaskNotesTaskInfo | null | undefined)?.blockedBy;
+    const raw = task?.blockedBy;
     return Array.isArray(raw) ? [...raw] : [];
   }
 
@@ -712,10 +788,10 @@ export class TaskNotesSource implements DataSource {
       // derived/read-only in milestone 1).
       progress: null,
       status: task.status ?? null,
-      // TODO(U5/multi-parent): TaskNotes' confirmed surface (2026-06-16) exposes
-      // no parent/project relationship resolvable to note paths, so parents are
-      // empty for now. Wire this once a TaskNotes parent/project edge is
-      // confirmed; do not invent an API.
+      // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
+      // exposes no parent/project relationship resolvable to note paths, so
+      // parents stay empty in milestone 1. Revisit when a TaskNotes
+      // parent/project edge is confirmed — do not invent an API.
       parents: [],
     };
   }
@@ -760,6 +836,66 @@ export class TaskNotesSource implements DataSource {
     }
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+}
+
+/**
+ * Build the TaskNotes `tasks.update` field map from a {@link TaskPatch}.
+ *
+ * Only fields **present** in the patch are written, so a partial patch (e.g. a
+ * drag commit carrying dates only) never clobbers `text`/`status`. `progress`
+ * is intentionally dropped (milestone 1, R17). Resolved `dateWrites` and the
+ * direct `start`/`end` shorthands both target the canonical `scheduled`/`due`;
+ * when both are present the direct fields win (applied last), matching the
+ * original ordering.
+ */
+function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
+  const updates: Record<string, unknown> = {};
+
+  // Resolved date targets (the bases-scoped path, U8b): each routes to its
+  // canonical field or to userFields keyed by the field key.
+  if (patch.dateWrites) {
+    for (const write of patch.dateWrites) {
+      applyDateWrite(updates, write);
+    }
+  }
+
+  // Direct start/end (non-resolved callers, e.g. tasknotes-first) map to the
+  // canonical scheduled/due. The bases-scoped view uses dateWrites instead.
+  if (patch.start !== undefined) {
+    updates.scheduled = patch.start === null ? null : toYmd(patch.start);
+  }
+  if (patch.end !== undefined) {
+    updates.due = patch.end === null ? null : toYmd(patch.end);
+  }
+  if (patch.text !== undefined) {
+    updates.title = patch.text;
+  }
+  if (patch.status !== undefined) {
+    updates.status = patch.status;
+  }
+  // `patch.progress` is intentionally not written (milestone 1, R17).
+
+  return updates;
+}
+
+/**
+ * Route a single resolved {@link DateWrite} into the `updates` map: canonical
+ * `scheduled`/`due`, or a custom user field.
+ *
+ * Custom user fields: TaskNotes' frontmatter writer (mapToFrontmatter) reads
+ * each user field's value from the TOP LEVEL of the updates object, keyed by the
+ * field's frontmatter `key` — NOT from a `userFields` object and NOT by field id
+ * (confirmed vs 4.11.0 main.js). Write it under the key accordingly.
+ */
+function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): void {
+  const value = write.value === null ? null : toYmd(write.value);
+  if (write.target.kind === 'scheduled') {
+    updates.scheduled = value;
+  } else if (write.target.kind === 'due') {
+    updates.due = value;
+  } else {
+    updates[write.target.key] = value;
   }
 }
 

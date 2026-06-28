@@ -71,7 +71,7 @@ describe("Gantt (OG) status coloring — graceful path (no TaskNotes)", () => {
 
     // No status coloring without a color source: no bar carries an og-status-* class.
     const colored = await $$('.og-bases-gantt .wx-bar[class*="og-status-"]');
-    expect(colored.length).toBe(0);
+    expect(colored).toHaveLength(0);
   });
 
   it("injects no status color rules when there are no status colors", async () => {

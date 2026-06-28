@@ -19,6 +19,19 @@ Thumbs.db
 .test-results/
 .wdio-*
 
+# Local-only e2e probes (point at private vaults; never commit)
+test/specs/_local-*
+
+# #161 U6 "vault as code" DATA artifacts — derived from a private vault (real
+# frontmatter; TaskNotes secrets are redacted, but structure stays private until a
+# commit/privacy decision). The GENERATOR (scripts/vault-as-code.mjs) is committed;
+# regenerate locally with it. Do not commit these.
+test/fixtures/maintest.vaultcode.json
+test/fixtures/maintest-profile.json
+
+# Stray obsidian-launcher cache that can land at repo root (vs the wdio one below)
+/.obsidian-cache/
+
 # Env files (if used)
 .env
 .env.*
@@ -28,11 +41,10 @@ Thumbs.db
 .obsidian/
 test/wdio/.obsidian-cache/
 
-# AssertThat sync staging area
-featureSyncStage/
-
-# Compound Engineering machine-local config
-.compound-engineering/*.local.yaml
+# Compound Engineering — local agent tooling/config (incl. the example template);
+# not useful in the public repo. The plugin only reads the machine-local
+# config.local.yaml, which never leaves the machine anyway.
+.compound-engineering/
 
 # Claude Code personal settings (machine-local)
 .claude/settings.local.json
@@ -40,3 +52,10 @@ featureSyncStage/
 # Installed/fetched agent skills (reproduced from skills-lock.json)
 .agents/skills/
 .claude/skills/
+
+# Perf-harness runtime trend artifacts (uploaded by CI, never committed)
+test/perf/.trend/
+
+# Vitest browser-mode artifacts (screenshots/attachments from failing runs)
+test/perf/**/__screenshots__/
+.vitest-attachments/
