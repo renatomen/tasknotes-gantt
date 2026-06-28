@@ -33,6 +33,7 @@
  */
 
 import type { App } from 'obsidian';
+import type { RelationshipIndex } from './companionResolve';
 import type {
   CustomDateField,
   DataSource,
@@ -63,6 +64,9 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.scheduled.changed',
   'task.due.changed',
   'task.dependencies.changed',
+  // Project-edge changes re-key the companion hierarchy (Show-all / nesting):
+  // a re-parent or new child must refresh the expanded tree (plan U2/R7).
+  'task.projects.changed',
   'task.created',
   'task.deleted',
 ] as const;
@@ -176,6 +180,22 @@ export interface TaskNotesApi {
     dependencies(
       path: string
     ): Promise<TaskNotesDependencyEdge[]> | TaskNotesDependencyEdge[];
+    /**
+     * Direct subtasks of `path` (tasks whose `projects` field links to it).
+     * TaskNotes 4.11.0: `relationships.subtasks` → `getSubtasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded (older versions lack it).
+     */
+    subtasks?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
+    /**
+     * Direct parents of `path` (the tasks its `projects` field references).
+     * TaskNotes 4.11.0: `relationships.parents` → `getParentTasks`, returning
+     * resolved `TaskInfo[]`. Optional/guarded.
+     */
+    parents?(
+      path: string
+    ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
   };
   events?: {
     on(name: string, handler: (payload?: unknown) => void): TaskNotesEventRef;
@@ -378,6 +398,95 @@ export class TaskNotesSource implements DataSource {
         }
       }
       return deps;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Build the bulk {@link RelationshipIndex} in ONE pass (plan #161, U1/KTD2) —
+   * the O(N) replacement for the per-node `getSubtasks` scan that made Show-all
+   * expansion O(N²) and froze the view.
+   *
+   * Strategy (KTD2 — parity-safe, no `taskReferenceMatches` replication): list
+   * every vault task once, resolve each task's parents via {@link getParents}
+   * (parallelized), then **invert** that relation into `childrenByPath` while
+   * recording `parentsByPath`. This is equivalent to N× `getSubtasks` because
+   * `getSubtasks(P)` includes child C iff `resolveTaskReferencePath(C.projectRef)
+   * === P`, the very resolution `getParents(C)` performs — and the companion BFS
+   * only ever expands real parent tasks, so the two relations agree on every
+   * edge the BFS can traverse (dangling/alias refs that resolve to no real task
+   * are dropped by both).
+   *
+   * Readiness signal (cache-poisoning guard #161): returns `null` (never throws)
+   * when the task list is empty or the read fails — i.e. TaskNotes' metadataCache
+   * scan has not warmed yet, so an index built now would be spuriously empty and
+   * must not be cached. A non-null index — even with empty maps — means the task
+   * list was non-empty (authoritative; the vault just has no parent/child edges),
+   * so the controller caches it and skips the full-vault scan on later notifies.
+   */
+  public async getRelationshipIndex(): Promise<RelationshipIndex | null> {
+    try {
+      const tasks = await this.getTasks();
+      if (tasks.length === 0) {
+        // Cold / empty: not-ready. Do not let the controller cache this — Show-all
+        // would stick at the matched-only count until a TaskNotes data-change.
+        return null;
+      }
+      // Resolve every task's parents concurrently (each is an O(1) TaskNotes
+      // cache read upstream); a single failed lookup degrades to no parents
+      // rather than aborting the whole index.
+      const parentLists = await Promise.all(
+        tasks.map((t) => this.getParents(t.path)),
+      );
+
+      const childrenByPath = new Map<string, SourceTask[]>();
+      const parentsByPath = new Map<string, string[]>();
+      for (let i = 0; i < tasks.length; i += 1) {
+        const child = tasks[i]!;
+        const parents = parentLists[i] ?? [];
+        if (parents.length > 0) {
+          parentsByPath.set(child.path, parents);
+        }
+        for (const parentPath of parents) {
+          const bucket = childrenByPath.get(parentPath);
+          if (bucket) {
+            bucket.push(child);
+          } else {
+            childrenByPath.set(parentPath, [child]);
+          }
+        }
+      }
+      return { childrenByPath, parentsByPath };
+    } catch {
+      // Read failed → treat as not-ready (retry next build) rather than caching
+      // a spurious empty index.
+      return null;
+    }
+  }
+
+  /**
+   * Read the resolved vault paths of the direct parents of `path` (the tasks its
+   * `projects` field references), via `api.relationships.parents(path)`
+   * (TaskNotes 4.11.0). Returns `[]` when the accessor is absent or on failure.
+   *
+   * @param path - The task whose direct parents to read.
+   */
+  public async getParents(path: string): Promise<string[]> {
+    try {
+      if (
+        !this.api.relationships ||
+        typeof this.api.relationships.parents !== 'function'
+      ) {
+        return [];
+      }
+      const parents = await this.api.relationships.parents(path);
+      if (!Array.isArray(parents)) {
+        return [];
+      }
+      return parents
+        .map((t) => t?.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
     } catch {
       return [];
     }

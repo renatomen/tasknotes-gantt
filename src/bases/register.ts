@@ -1,35 +1,30 @@
 /**
  * Obsidian Bases API Registration for Gantt View
  *
- * Uses the official Obsidian Bases API (1.10.0+) via plugin.registerBasesView()
- *
- * Official Documentation:
- * - Guide: https://docs.obsidian.md/Plugins/Guides/Build+a+Bases+view
- *
- * TypeScript API References:
- * - BasesConfigFile: https://docs.obsidian.md/Reference/TypeScript+API/BasesConfigFile
- * - BasesConfigFileView: https://docs.obsidian.md/Reference/TypeScript+API/BasesConfigFileView
- * - BasesEntry: https://docs.obsidian.md/Reference/TypeScript+API/BasesEntry
- * - BasesEntryGroup: https://docs.obsidian.md/Reference/TypeScript+API/BasesEntryGroup
- * - BasesProperty: https://docs.obsidian.md/Reference/TypeScript+API/BasesProperty
- * - BasesQueryResult: https://docs.obsidian.md/Reference/TypeScript+API/BasesQueryResult
- * - BasesView: https://docs.obsidian.md/Reference/TypeScript+API/BasesView
- * - BasesViewConfig: https://docs.obsidian.md/Reference/TypeScript+API/BasesViewConfig
- * - BasesViewRegistration: https://docs.obsidian.md/Reference/TypeScript+API/BasesViewRegistration
+ * Uses the official Obsidian Bases API (1.10.0+) via plugin.registerBasesView().
+ * All Bases types are imported from the `obsidian` package.
  *
  * @module bases/register
  */
 
 /* global MouseEvent */
-import { Component, type Plugin } from 'obsidian';
+import {
+  BasesView,
+  TFile,
+  type Plugin,
+  type BasesViewConfig,
+  type BasesPropertyId,
+  type BasesSortConfig,
+  type BasesAllOptions,
+  type QueryController,
+} from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import type { GanttData } from './types/gantt-view-data';
-import { GanttBasesView } from './GanttBasesView';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
-import { FIELD_MAPPING_KEYS, readFieldMappings } from './fieldMappingConfig';
+import { readFieldMappings } from './fieldMappingConfig';
 import {
   GanttController,
   type DatePolicyConfig,
@@ -38,10 +33,42 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { buildEntryProperties } from './propertyValues';
+import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
+import { persistGridWidth } from './gridWidthPersist';
+import type { TaskPatch } from '../datasource';
+import { createCoalescer, type Coalescer } from './coalesce';
+import {
+  createReadinessWindow,
+  DEFAULT_READINESS_WINDOW_CONFIG,
+} from './readinessWindow';
+import {
+  createReadinessOrchestrator,
+  type ReadinessOrchestrator,
+} from './readinessController';
+import { installBasesConfigRefreshHook } from './basesConfigRefresh';
 import { BasesDataAdapter } from './services/BasesDataAdapter';
+import { asPropertyId } from './types/bases-entry';
 import { normalizeDefaultScale } from './zoomConfig';
+import {
+  ganttViewOptions,
+  readContextOpacity,
+  readExpandedRelationships,
+  readHideTopLevelSubtasks,
+  readMaxHeight,
+  readMinHeight,
+  readShowToolbar,
+  taskListViewOptions,
+} from './viewOptions';
+import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
+
+/**
+ * Trailing-debounce window (ms) for the Bases `onDataUpdated` storm (#161).
+ * Matches TaskNotes' BasesViewBase (`scheduleBasesDataUpdateRender`, 500ms): long
+ * enough to swallow a view-option toggle's persist+reload burst, short enough
+ * that a genuine data change still feels responsive.
+ */
+const GANTT_REFRESH_DEBOUNCE_MS = 500;
 
 /**
  * Build a one-line notice when a start/end date mapping fell back to the default
@@ -58,182 +85,20 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   }
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
-import { readDatePolicyConfig } from './datePolicyConfig';
+import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
+import { entriesSignature } from './entrySignature';
+import { dlog, isGanttDebugEnabled } from '../debugLog';
 
-export { readDatePolicyConfig } from './datePolicyConfig';
-
-// ============================================================================
-// Type Definitions for Official Obsidian Bases API (1.10.0+)
-// These types are based on the official Obsidian API documentation.
-// They will be available in the official obsidian package in future versions.
-//
-// See TypeScript API references in module header for official documentation.
-// ============================================================================
-
-/** Property ID used by Bases to identify note properties */
-export type BasesPropertyId = string;
-
-/** Entry representing a single note in the Bases query result */
-export interface BasesEntry {
-  /** The TFile for this entry */
-  file: { path: string; name: string; basename: string };
-  /** Direct access to frontmatter properties (preferred for basic properties) */
-  frontmatter?: Record<string, any>;
-  /** Alternative property access (used by some Bases versions) */
-  properties?: Record<string, any>;
-  /** Get the evaluated value of a property for this entry (use for computed properties only) */
-  getValue(propertyId: BasesPropertyId): BasesValue;
-}
-
-/** Value wrapper returned by BasesEntry.getValue() */
-export interface BasesValue {
-  /** Check if the value is empty/null */
-  isEmpty(): boolean;
-  /** Convert value to string representation */
-  toString(): string;
-  /** The underlying value */
-  value?: unknown;
-  /** Value type identifier */
-  type?: string;
-}
-
-/** Group of entries when groupBy is configured */
-export interface BasesEntryGroup {
-  /** Entries in this group */
-  entries: BasesEntry[];
-  /** Group key value (null if no grouping) */
-  key?: BasesValue;
-  /** Check if group has a key */
-  hasKey(): boolean;
-}
-
-/** Result of executing a Bases query */
-export interface BasesQueryResult {
-  /** Ungrouped data with sort/limit applied */
-  data: BasesEntry[];
-  /** Data grouped according to groupBy config */
-  readonly groupedData: BasesEntryGroup[];
-  /** Visible properties defined by user */
-  readonly properties: BasesPropertyId[];
-}
-
-/** Configuration for a Bases view instance */
-export interface BasesViewConfig {
-  /** User-friendly name for this view */
-  name: string;
-  /** Get user-configured option value */
-  get(key: string): unknown;
-  /** Set configuration value */
-  set(key: string, value: unknown): void;
-  /** Get ordered list of properties to display */
-  getOrder(): BasesPropertyId[];
-  /** Get sort configuration */
-  getSort(): Array<{ property: BasesPropertyId; direction: 'asc' | 'desc' }>;
-  /** Get property as BasesPropertyId */
-  getAsPropertyId(key: string): BasesPropertyId | null;
-  /** Get display name for a property */
-  getDisplayName(propertyId: BasesPropertyId): string;
-}
-
-/** Controller for query execution - extends Component */
-export interface QueryController extends Component {
-  // Inherited from Component: load, unload, register, etc.
-}
-
-/** View option types for configuration UI */
-export type ViewOption =
-  | TextViewOption
-  | NumberViewOption
-  | BooleanViewOption
-  | DropdownViewOption
-  | PropertyViewOption
-  | FormulaViewOption;
-
-interface BaseViewOption {
-  /** Option type identifier */
-  type: string;
-  /** Display name shown in settings */
-  displayName: string;
-  /** Key used to store/retrieve value */
-  key: string;
-  /** Whether to hide this option based on current config */
-  shouldHide?: (config: BasesViewConfig) => boolean;
-}
-
-interface TextViewOption extends BaseViewOption {
-  type: 'text';
-  default?: string;
-  placeholder?: string;
-}
-
-interface NumberViewOption extends BaseViewOption {
-  type: 'number';
-  default?: number;
-  min?: number;
-  max?: number;
-}
-
-interface BooleanViewOption extends BaseViewOption {
-  type: 'boolean';
-  default?: boolean;
-}
-
-interface DropdownViewOption extends BaseViewOption {
-  type: 'dropdown';
-  default?: string;
-  /**
-   * Value → display-label map. Bases feeds this straight to Obsidian's
-   * `DropdownComponent.addOptions(Record<string, string>)`; an array of
-   * `{ value, display }` objects renders every choice as `[object Object]`.
-   */
-  options: Record<string, string>;
-}
-
-interface PropertyViewOption extends BaseViewOption {
-  type: 'property';
-  default?: string;
-  placeholder?: string;
-}
-
-interface FormulaViewOption extends BaseViewOption {
-  type: 'formula';
-  default?: string;
-  placeholder?: string;
-}
-
-/** Factory function type for creating Bases views */
-export type BasesViewFactory = (
-  controller: QueryController,
-  containerEl: HTMLElement
-) => GanttBasesView;
-
-/** Registration options for a Bases view type */
-export interface BasesViewRegistration {
-  /** Display name for the view type */
-  name: string;
-  /** Icon ID (lucide icon name) */
-  icon: string;
-  /** Factory function to create view instances */
-  factory: BasesViewFactory;
-  /** Optional configuration options */
-  options?: () => ViewOption[];
-}
-
-// Augment Plugin type to include registerBasesView
-declare module 'obsidian' {
-  interface Plugin {
-    /**
-     * Register a Bases view type (Obsidian 1.10.0+)
-     * @param viewId - Unique identifier for the view type
-     * @param registration - View registration options
-     * @returns false if Bases is not enabled
-     */
-    registerBasesView(viewId: string, registration: BasesViewRegistration): boolean;
-  }
-}
+export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
 
 // ============================================================================
 // Gantt Bases View Implementation
+//
+// Bases types (`BasesView`, `BasesViewConfig`, `BasesPropertyId`,
+// `BasesAllOptions`, `QueryController`, the option interfaces, etc.) are now
+// imported from the official `obsidian` package (1.10.0+); the hand-rolled
+// parallel vocabulary and the `declare module 'obsidian'` augmentation that
+// previously lived here were removed once the package shipped them.
 // ============================================================================
 
 const VIEW_TYPE_ID = 'obsidianGantt';
@@ -249,11 +114,55 @@ interface GanttEphemeralState {
 /**
  * Gantt chart view for Obsidian Bases
  */
-class ObsidianGanttBasesView extends GanttBasesView {
+class ObsidianGanttBasesView extends BasesView {
   readonly type = VIEW_TYPE_ID;
   private readonly containerEl: HTMLElement;
   private svelteComponent: ReturnType<typeof mount> | null = null;
   private ephemeralState: GanttEphemeralState = {};
+
+  /** [OGDBG #161] monotonic onDataUpdated counter for loop diagnosis. */
+  private dbgDataUpdates = 0;
+  /** [OGDBG #161] wall-clock of the previous onDataUpdated, to log inter-notify gaps. */
+  private dbgLastUpdateTs = 0;
+  /**
+   * #161 config-settle hook. While Bases is persisting+reloading a view-option
+   * change, it re-fires `onDataUpdated` with the config value oscillating. We
+   * SUPPRESS those refreshes (>0 = a change is in flight) and instead refresh once
+   * when `onConfigChanged` settles — rendering the stable config, not the churn.
+   */
+  private configChangeInFlight = 0;
+  /** Restores the original `controller.onConfigChanged` on unload (or null). */
+  private restoreConfigChangeHook: (() => void) | null = null;
+
+  /**
+   * Signature (count + file paths) of the Bases entries at the last refresh
+   * (#161 storm fix). A config-only / echo `onDataUpdated` carries the same
+   * entries; comparing against this lets the refresh REUSE the controller's
+   * cached base tasks (skip the Bases re-read that re-pokes the notify storm)
+   * rather than re-extracting every entry's values. `null` until the first mount.
+   */
+  private lastEntrySignature: string | null = null;
+
+  /**
+   * Trailing-debounce for the Bases data-update storm (#161). A view-option
+   * toggle / search-clear makes Bases re-fire `onDataUpdated` in a rapid burst
+   * (its config persist+reload cycle, during which the persisted value can
+   * oscillate); refreshing synchronously on each fire amplifies the burst into a
+   * render loop. Coalescing collapses the burst into a single refresh against the
+   * settled config — the discipline TaskNotes' BasesViewBase uses (500ms).
+   * Created per mount (closes over the live controller); cancelled on unload.
+   */
+  private refreshCoalescer: Coalescer | null = null;
+
+  /**
+   * Post-mount readiness re-check window (#161 §11). When companion mode is active
+   * but TaskNotes' relationship index hasn't resolved matched-set edges yet (the
+   * lag state PR #166 leaves cached as authoritative-empty), this bounded-backoff
+   * orchestrator re-fetches the index a few times until it warms, healing Show-all/
+   * Inherit without a manual edit. A no-op in standalone / already-warm mounts.
+   * Created per mount; cancelled on unload/remount alongside `refreshCoalescer`.
+   */
+  private readinessOrchestrator: ReadinessOrchestrator | null = null;
 
   /** The action layer / source of truth (U6). Recreated per mount. */
   private ganttController: GanttController | null = null;
@@ -274,19 +183,53 @@ class ObsidianGanttBasesView extends GanttBasesView {
    */
   private mountToken = 0;
 
+  /** [OGDBG #161] view-instance counter: a bump here = Bases recreated the view
+   * (a remount). Distinguishes "we looped in one view" from "Bases re-created us". */
+  private static dbgInstances = 0;
+  private readonly dbgInstanceId = ++ObsidianGanttBasesView.dbgInstances;
+
   constructor(controller: QueryController, parentEl: HTMLElement) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-bases-gantt-root' });
     this.containerEl.style.height = '100%';
     this.containerEl.style.width = '100%';
+    dlog(`[OGDBG] GanttView constructed #${this.dbgInstanceId} (a new instance = a Bases view remount)`);
+
+    // #161 config-settle hook (TaskNotes-ported). Refresh ONCE after Bases'
+    // `onConfigChanged` settles (its returned persist+reload resolves), against the
+    // stable config — and mark the change "in flight" so the oscillating
+    // `onDataUpdated` burst during the reload is suppressed (see onDataUpdated).
+    this.restoreConfigChangeHook = installBasesConfigRefreshHook({
+      controller,
+      view: this,
+      isConnected: () => !!this.containerEl?.isConnected,
+      onChangeStart: () => {
+        this.configChangeInFlight += 1;
+        dlog(`[OGDBG] onConfigChanged START (inFlight=${this.configChangeInFlight})`);
+      },
+      onSettled: () => {
+        if (this.configChangeInFlight > 0) this.configChangeInFlight -= 1;
+        dlog(`[OGDBG] onConfigChanged SETTLED (inFlight=${this.configChangeInFlight}) → refresh`);
+        // One refresh on the settled config. Entries are unchanged (config-only),
+        // so the coalescer reuses cached tasks and re-runs only the cheap companion
+        // expansion against the now-stable option value.
+        this.refreshCoalescer?.schedule();
+      },
+      scheduleTimeout: (callback, delayMs) => { window.setTimeout(callback, delayMs); },
+    });
   }
 
   override onload(): void {
     // Don't mount yet - wait for onDataUpdated() when config and data are ready
-    console.log('[Gantt] View loaded, waiting for data...');
+    dlog('[Gantt] View loaded, waiting for data...');
   }
 
   override onunload(): void {
+    dlog(`[OGDBG] GanttView onunload #${this.dbgInstanceId}`);
+    this.refreshCoalescer?.cancel();
+    this.readinessOrchestrator?.cancel();
+    this.restoreConfigChangeHook?.();
+    this.restoreConfigChangeHook = null;
     this.unmountGantt();
   }
 
@@ -302,16 +245,45 @@ class ObsidianGanttBasesView extends GanttBasesView {
    * writes and filter changes.
    */
   public onDataUpdated(): void {
+    // Skip a detached view (#161): during a Bases config persist+reload the
+    // outgoing view instance still receives onDataUpdated while disconnected.
+    // Recomputing for it is wasted work that feeds the refresh storm. Mirrors
+    // TaskNotes' BasesViewBase isConnected guard.
+    if (!this.containerEl?.isConnected) {
+      return;
+    }
     if (!this.svelteComponent || !this.ganttController) {
-      console.log('[Gantt] First data event — mounting. Entries:', this.data?.data?.length || 0);
+      dlog('[Gantt] First data event — mounting. Entries:', this.data?.data?.length || 0);
       void this.mountGantt();
       return;
     }
-    console.log('[Gantt] Data updated, refreshing in place. Entries:', this.data?.data?.length || 0);
-    // Re-read the live Bases entries (and re-resolve TaskNotes availability) by
-    // re-selecting the source; the controller's change listener then refreshes
-    // the store. No remount.
-    void this.ganttController.refreshSource();
+    this.dbgDataUpdates += 1;
+    const nowTs = Date.now();
+    const gapMs = this.dbgLastUpdateTs ? nowTs - this.dbgLastUpdateTs : 0;
+    this.dbgLastUpdateTs = nowTs;
+    dlog(`[OGDBG] onDataUpdated #${this.dbgDataUpdates} (+${gapMs}ms) entries=${this.data?.data?.length ?? 0}`);
+    // #161 U6 (search→clear loop) investigation tool: who fired this onDataUpdated?
+    // Bases-internal frames ⇒ autonomous re-notify; our-plugin frames ⇒ a feedback
+    // loop. `new Error().stack` is EXPENSIVE per-event, so it is gated default-OFF
+    // (set window.__tnGanttDebug=true) and capped — never always-on in production.
+    // See docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md.
+    if (isGanttDebugEnabled() && this.dbgDataUpdates <= 6) {
+      dlog(`[OGDBG] onDataUpdated-stack #${this.dbgDataUpdates}:\n${(new Error().stack ?? '').split('\n').slice(1, 12).join('\n')}`);
+    }
+    // #161 config-settle suppression: while a view-option change is in flight,
+    // Bases re-fires onDataUpdated with the config value OSCILLATING. Refreshing on
+    // those paints the intermediate (stale) states — our expensive SVAR diff. Skip
+    // them; the onConfigChanged settle hook refreshes ONCE against the stable config
+    // when Bases' persist+reload resolves. Genuine data updates (no change in
+    // flight) still coalesce + refresh normally below.
+    if (this.configChangeInFlight > 0) {
+      dlog(`[OGDBG] onDataUpdated #${this.dbgDataUpdates} SUPPRESSED (config change in flight)`);
+      return;
+    }
+    // Coalesce a Bases update burst into ONE trailing refresh (#161): debouncing
+    // collapses rapid fires so we re-select the source once. The controller's
+    // change listener then refreshes the store in place — no remount.
+    this.refreshCoalescer?.schedule();
   }
 
   /**
@@ -353,6 +325,17 @@ class ObsidianGanttBasesView extends GanttBasesView {
     // Future: notify Svelte component of resize if needed
   }
 
+  /**
+   * Cheap signature of the current Bases entries — count + each entry's file
+   * path, joined. Reads ONLY `entry.file.path` (a plain TFile reference), never
+   * `getValue` (the value extraction that re-pokes Bases — #161). Two notifies
+   * with the same signature carry the same matched set, so the refresh can reuse
+   * the controller's cached base tasks instead of re-reading the source.
+   */
+  private computeEntrySignature(): string {
+    return entriesSignature((this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>);
+  }
+
   /** Stateless extractor for grid property-column values (U1). */
   private readonly gridAdapter = new BasesDataAdapter();
 
@@ -369,6 +352,22 @@ class ObsidianGanttBasesView extends GanttBasesView {
       // getOrder unavailable on this Bases version — fall through.
     }
     return this.data?.properties ?? [];
+  }
+
+  /**
+   * The Base's sort descriptor (`config.getSort()`) — the toolbar sort, as
+   * `{ property, direction }[]` (primary first). Drives the default-view
+   * fetched-row interleave (R7/U6). Returns `[]` when no sort is configured or
+   * `getSort()` is unavailable on this Bases version → matched-first fallback.
+   */
+  private getBaseSort(): readonly BasesSortConfig[] {
+    try {
+      const sort = this.config.getSort?.();
+      if (Array.isArray(sort)) return sort;
+    } catch {
+      // getSort unavailable on this Bases version — fall through to no sort.
+    }
+    return [];
   }
 
   /** The Base's display name for a property id, falling back to the id (U2). */
@@ -432,6 +431,45 @@ class ObsidianGanttBasesView extends GanttBasesView {
     return this.config.get('tngantt_showDateIndicators') !== false;
   }
 
+  /** Read the per-view "show toolbar" toggle (plan 002 R2); default off. */
+  private getShowToolbar(): boolean {
+    return readShowToolbar((key) => this.config.get(key));
+  }
+
+  /** Read the per-view max-height in px (plan 003 R1); default 400. */
+  private getMaxHeight(): number {
+    return readMaxHeight((key) => this.config.get(key));
+  }
+
+  /** Read the per-view min-height in px; default/clamped to the ~2-row floor. */
+  private getMinHeight(): number {
+    return readMinHeight((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Expanded relationships mode (companion mode); default inherit. */
+  private getExpandedRelationships() {
+    return readExpandedRelationships((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Hide top-level subtasks toggle (companion mode); default off. */
+  private getHideTopLevelSubtasks(): boolean {
+    return readHideTopLevelSubtasks((key) => this.config.get(key));
+  }
+
+  /** Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. */
+  private getContextOpacity(): number {
+    return readContextOpacity((key) => this.config.get(key));
+  }
+
+  /**
+   * Read the per-view theme mode (plan 002 R4), normalized to
+   * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
+   * getShowDateIndicators(); the toolbar persists the value via setThemeMode().
+   */
+  private getThemeMode(): ThemeMode {
+    return readThemeMode((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view parent/ancestor date-cascade mode; defaults to `ask`.
    * Governs whether a child drag/resize that would change ancestor spans
@@ -469,7 +507,22 @@ class ObsidianGanttBasesView extends GanttBasesView {
           entries: this.data?.data ?? [],
           mappings: this.buildFieldMappings(),
         }),
-        policyConfig: this.buildDatePolicyConfig(),
+        // All per-view controller settings are provider closures → read fresh on
+        // every recompute, so toggling any per-view option applies instantly
+        // (onDataUpdated → refreshSource), no manual refresh/remount needed.
+        policyConfig: () => this.buildDatePolicyConfig(),
+        // hideTopLevel is NOT a companion concern anymore — it's a pure view
+        // display filter (filter-tasks), so the expanded instance set is identical
+        // whether the toggle is on or off (#161: a config toggle can't churn it).
+        companionConfig: () => ({
+          mode: this.getExpandedRelationships(),
+        }),
+        // Default-view safe-partial interleave (plan 002 R7/U6): the controller
+        // positions Show-all fetched rows among their matched siblings by the
+        // Base's primary sort when it maps to a Gantt field. Read fresh each
+        // recompute (provider closure) so a toolbar-sort change reflows without a
+        // remount. getSort() returns [] when no sort is configured → fallback.
+        sortConfig: () => this.getBaseSort(),
       });
 
       await controller.init();
@@ -481,11 +534,45 @@ class ObsidianGanttBasesView extends GanttBasesView {
       }
 
       this.ganttController = controller;
+      // Trailing-debounce for onDataUpdated (#161): closes over this mount's
+      // controller; re-checks isConnected at fire time so a refresh queued just
+      // before teardown is dropped. Recreated per mount, cancelled on unload.
+      this.refreshCoalescer = createCoalescer(() => {
+        if (!this.containerEl?.isConnected) return;
+        // #161 storm fix: a config-only / echo notify carries the SAME Bases
+        // entries (matched set). Re-reading them (controller.refreshSource →
+        // source.getTasks, extracting every entry's values) is what re-pokes Bases
+        // into an endless re-notify storm. Compare a cheap entry signature
+        // (count + paths, no value reads) to the last refresh: unchanged ⇒ tell
+        // the controller to REUSE the cached base tasks (skip the Bases re-read,
+        // breaking the feedback); changed (filter/data) ⇒ a real re-read.
+        const sig = this.computeEntrySignature();
+        // [OGDBG #161] `__OG_DISABLE_REUSE` forces the pre-fix behavior (always
+        // re-read the source) so the storm repro can validate fails-first.
+        const disableReuse = !!(window as unknown as { __OG_DISABLE_REUSE?: boolean }).__OG_DISABLE_REUSE;
+        const reuseTasks = !disableReuse && this.lastEntrySignature !== null && sig === this.lastEntrySignature;
+        this.lastEntrySignature = sig;
+        dlog(`[OGDBG] coalescer fired → refreshSource (reuseTasks=${reuseTasks})`);
+        void (async () => {
+          await this.ganttController?.refreshSource({ reuseTasks });
+          // Always push the latest view-DISPLAY config to the store — even when the
+          // instance snapshot is unchanged. The controller only notifies on a
+          // CHANGED snapshot, so a config-only toggle (e.g. Hide-top, now that it no
+          // longer alters the instance set) would otherwise never reach the view.
+          // `store.set` re-runs the component's filter/display effects; the task
+          // sync sees no diff (NOOP), so this stays cheap and cannot churn (#161).
+          await this.refreshData();
+        })();
+      }, GANTT_REFRESH_DEBOUNCE_MS);
       // Native edit interaction (plan 004): resolves bar clicks to TaskNotes
       // actions (open note / native edit modal / task menu). Holds only `app`.
       const interactions = new TaskNotesInteractions(this.app);
 
       const data = await this.buildGanttData(controller);
+      // Seed the entry signature from the mount-time entries so the FIRST
+      // config-only onDataUpdated already reuses the cached tasks (no re-read,
+      // no storm) instead of paying one full re-read before the gate engages.
+      this.lastEntrySignature = this.computeEntrySignature();
 
       // Re-check after the second await window.
       if (token !== this.mountToken) {
@@ -493,7 +580,7 @@ class ObsidianGanttBasesView extends GanttBasesView {
         return;
       }
 
-      console.log('[Gantt] Mounting (refresh-in-place):', {
+      dlog('[Gantt] Mounting (refresh-in-place):', {
         instanceCount: data.instances.length,
         linkCount: data.links.length,
         write: data.capabilities.write,
@@ -502,15 +589,24 @@ class ObsidianGanttBasesView extends GanttBasesView {
 
       // One reactive store, mounted once; controller changes re-set it in place.
       this.dataStore = writable(data);
+      const tMountStart = performance.now(); // [OGDBG #161]
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
         props: {
           data: this.dataStore,
           app: this.app,
           config: this.config,
+          // Theme toolbar (plan 002 U3/U4): the initial per-view theme mode and
+          // a persist callback closing over config.set so the toolbar never
+          // touches config directly. Toolbar VISIBILITY is NOT passed here — it
+          // flows through the reactive GanttData store (showToolbar) so toggling
+          // the option live shows/hides the toolbar without a remount.
+          themeMode: this.getThemeMode(),
+          onThemeModeChange: (mode: ThemeMode) =>
+            persistThemeMode((key, value) => this.config.set(key, value), mode),
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
-          onMutate: (instanceId: string, patch) => controller.mutate(instanceId, patch),
+          onMutate: (instanceId: string, patch: TaskPatch) => controller.mutate(instanceId, patch),
           // FS dependency authoring (M2): drag-to-create / delete a link route to
           // the controller, which resolves both endpoints → source and writes
           // blockedBy through TaskNotes.
@@ -538,15 +634,20 @@ class ObsidianGanttBasesView extends GanttBasesView {
           // Divider width persistence (plan 002 U3): write the dragged grid-pane
           // width to the standard `tableWidth` so it survives reload. In-session
           // dragging is SVAR's Resizer; this only persists the chosen value.
-          onGridWidthChange: (width: number) => {
-            try {
-              this.config.set('tngantt_tableWidth', Math.round(width));
-            } catch (error) {
-              console.warn('[Gantt] Failed to persist grid width:', error);
-            }
-          },
+          // persistGridWidth skips unchanged writes — the loop guard. Persisting
+          // an unchanged width feeds a refresh loop (config.set → Obsidian
+          // re-runs onDataUpdated → chart refreshes → re-asserts width → …),
+          // which ignites on the command-palette light/dark toggle (flips the
+          // effective theme → remounts → re-execs resize-grid with the
+          // already-persisted width).
+          onGridWidthChange: (width: number) =>
+            persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
         },
       });
+      // [OGDBG #161] synchronous cost of Svelte mount() (SVAR's eager init). If
+      // this is small but the UI still freezes, the cost is SVAR's deferred
+      // (rAF/effect) layout over the instance set, not our mount path.
+      dlog(`[OGDBG] mount() returned in ${Math.round(performance.now() - tMountStart)}ms`);
 
       // Controller snapshot changes (TaskNotes events, source re-selection on a
       // data update / capability flip) refresh the store in place — no remount,
@@ -556,6 +657,23 @@ class ObsidianGanttBasesView extends GanttBasesView {
           void this.refreshData();
         }
       });
+
+      // Post-mount readiness re-check (#161 §11). The initial build above already
+      // ran once, so readinessStatus() now reflects it: if companion mode is active
+      // but the relationship index hasn't resolved matched-set edges yet (the
+      // post-#166 lag state), drive a bounded-backoff re-fetch until it warms. Each
+      // re-check flows through the controller's onChange listener above, so the
+      // healed Show-all rows reach the view via the normal refresh path. Standalone
+      // / already-warm mounts allocate no scheduler. Cancelled on unload/remount.
+      this.readinessOrchestrator = createReadinessOrchestrator({
+        controller,
+        createWindow: () => createReadinessWindow(DEFAULT_READINESS_WINDOW_CONFIG),
+        // Re-checked at fire time: a stale attempt landing during teardown must not
+        // re-fetch against a disposed controller (R6) — mirrors the coalescer's
+        // isConnected + mountToken guards.
+        isAlive: () => !!this.containerEl?.isConnected && token === this.mountToken,
+      });
+      this.readinessOrchestrator.maybeStart();
     } catch (error) {
       console.error('[Gantt] Failed to mount GanttContainer:', error);
       if (token === this.mountToken) {
@@ -584,9 +702,36 @@ class ObsidianGanttBasesView extends GanttBasesView {
       visiblePropIds,
       this.gridAdapter,
     );
+    // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
+    // result, so the matched-only map above leaves their grid cells blank. Fill
+    // their note.*/file.* columns from the metadata cache (formula columns fall
+    // back to empty — R5). Matched rows already in the map are never overwritten.
+    if (visiblePropIds.length > 0) {
+      const seen = new Set(propertyValues.keys());
+      const fetchedMetas: FetchedFileMeta[] = [];
+      for (const inst of instances) {
+        if (seen.has(inst.sourcePath)) continue;
+        seen.add(inst.sourcePath);
+        const file = this.app.vault.getAbstractFileByPath(inst.sourcePath);
+        if (!(file instanceof TFile)) continue;
+        fetchedMetas.push({
+          path: inst.sourcePath,
+          basename: file.basename,
+          extension: file.extension,
+          frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
+        });
+      }
+      for (const [path, record] of buildFetchedEntryProperties(
+        fetchedMetas,
+        visiblePropIds,
+        this.gridAdapter,
+      )) {
+        propertyValues.set(path, record);
+      }
+    }
     const gridColumns = buildGridColumns(
       visiblePropIds,
-      (id) => this.getDisplayName(id),
+      (id) => this.getDisplayName(asPropertyId(id)),
       this.getColumnSize(),
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
@@ -597,6 +742,17 @@ class ObsidianGanttBasesView extends GanttBasesView {
       capabilities: controller.capabilities,
       arrowMode,
       showDateIndicators: this.getShowDateIndicators(),
+      showToolbar: this.getShowToolbar(),
+      // #161: read the SAME config key as before (UI + .base syntax unchanged), but
+      // it now drives a view-level filter-tasks display filter, not the instance set.
+      hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
+      // #161: the show-undated/show-partial toggles flow through the store like
+      // hide-top — a presentation filter over the stable instance set, never a
+      // re-derivation — so a Bases config oscillation can't churn the chart.
+      ...readRowVisibilityOptions((key) => this.config.get(key)),
+      maxHeight: this.getMaxHeight(),
+      minHeight: this.getMinHeight(),
+      contextOpacity: this.getContextOpacity(),
       statusColors,
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
@@ -630,6 +786,11 @@ class ObsidianGanttBasesView extends GanttBasesView {
     // Invalidate any in-flight async mount so it does not resurrect the view.
     this.mountToken++;
 
+    // Cancel the readiness window so a pending re-check can't fire against the
+    // controller we're about to dispose (R6).
+    this.readinessOrchestrator?.cancel();
+    this.readinessOrchestrator = null;
+
     if (this.svelteComponent) {
       try {
         unmount(this.svelteComponent);
@@ -650,6 +811,23 @@ class ObsidianGanttBasesView extends GanttBasesView {
 
     this.dataStore = null;
     this.containerEl.empty();
+  }
+}
+
+/**
+ * Whether the TaskNotes plugin is present with an exposed API. Sync (used at
+ * options-panel build time) — mirrors the `app.plugins.getPlugin('tasknotes')`
+ * resolution in {@link TaskNotesSource}. Companion-only relationship controls
+ * are shown only when this is true.
+ */
+function isTaskNotesPresent(app: Plugin['app']): boolean {
+  try {
+    const plugins = (app as unknown as {
+      plugins?: { getPlugin(id: string): { api?: unknown } | null | undefined };
+    }).plugins;
+    return Boolean(plugins?.getPlugin('tasknotes')?.api);
+  } catch {
+    return false;
   }
 }
 
@@ -677,52 +855,6 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     return () => {};
   }
 
-  // Shared field mapping options for both views
-  const sharedOptions = [
-    {
-      type: 'property' as const,
-      displayName: 'Task Name Property',
-      key: FIELD_MAPPING_KEYS.text,
-      default: '',
-      placeholder: 'Select task name property (defaults to file name)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Start Date Property',
-      key: FIELD_MAPPING_KEYS.start,
-      default: '',
-      placeholder: 'Defaults to TaskNotes Scheduled; or pick a TaskNotes date field',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'End Date Property',
-      key: FIELD_MAPPING_KEYS.end,
-      default: '',
-      placeholder: 'Defaults to TaskNotes Due; or pick a TaskNotes date field',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Progress Property',
-      key: FIELD_MAPPING_KEYS.progress,
-      default: 'note.progress',
-      placeholder: 'Select progress property (0-100)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Parent Property',
-      key: FIELD_MAPPING_KEYS.parent,
-      default: '',
-      placeholder: 'Select parent task property (optional)',
-    },
-    {
-      type: 'property' as const,
-      displayName: 'Status Property',
-      key: FIELD_MAPPING_KEYS.status,
-      default: '',
-      placeholder: 'Select status property (colors bars by TaskNotes status)',
-    },
-  ];
-
   // Register the Gantt chart view type
   const registeredGantt = plugin.registerBasesView(VIEW_TYPE_ID, {
     name: VIEW_NAME,
@@ -730,75 +862,11 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new ObsidianGanttBasesView(controller, containerEl);
     },
-    options: (): ViewOption[] => [
-      ...sharedOptions,
-      {
-        type: 'dropdown',
-        displayName: 'Default Scale',
-        key: 'tngantt_defaultScale',
-        default: 'day',
-        options: {
-          hour: 'Hours',
-          day: 'Days',
-          week: 'Weeks',
-          month: 'Months',
-        },
-      },
-      // R27: how dependency arrows render across duplicated multi-parent
-      // instances. Persisted per-view via config.set/get; read in mountGantt.
-      {
-        type: 'dropdown',
-        displayName: 'Dependency Arrows',
-        key: 'tngantt_dependencyArrowMode',
-        default: 'primary',
-        options: {
-          primary: 'Primary instance only',
-          all: 'All instances',
-        },
-      },
-      // Parent/ancestor date-cascade behavior when a child drag/resize would
-      // change ancestor spans. Read per-view in getCascadeMode(); consumed by
-      // the GanttContainer drag-persistence gate.
-      {
-        type: 'dropdown',
-        displayName: 'Parent date updates',
-        key: 'tngantt_parentDateCascade',
-        default: 'ask',
-        options: {
-          ask: 'Ask before updating parent dates',
-          auto: 'Update parent dates automatically',
-          never: 'Never update parent dates',
-        },
-      },
-      // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
-      // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
-      // controller's date policy + the view's bar-level indicators.
-      {
-        type: 'number',
-        displayName: 'Default task duration (days)',
-        key: 'tngantt_defaultDuration',
-        default: 1,
-        min: 1,
-      },
-      {
-        type: 'boolean',
-        displayName: 'Show tasks with no dates',
-        key: 'tngantt_showUndatedTasks',
-        default: true,
-      },
-      {
-        type: 'boolean',
-        displayName: 'Show tasks with only one date',
-        key: 'tngantt_showPartialDateTasks',
-        default: true,
-      },
-      {
-        type: 'boolean',
-        displayName: 'Show date-status indicators on bars',
-        key: 'tngantt_showDateIndicators',
-        default: true,
-      },
-    ],
+    // Companion-only relationship controls render only when TaskNotes is
+    // present (expansion is companion-only — see plan U1/R6). Presence is
+    // re-checked each time the options panel builds; cheap.
+    options: (_config: BasesViewConfig): BasesAllOptions[] =>
+      ganttViewOptions(isTaskNotesPresent(plugin.app)),
   });
 
   if (registeredGantt) {
@@ -814,7 +882,7 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     factory: (controller: QueryController, containerEl: HTMLElement) => {
       return new GanttTaskListView(controller, containerEl);
     },
-    options: () => sharedOptions,
+    options: (_config: BasesViewConfig): BasesAllOptions[] => taskListViewOptions(),
   });
 
   if (registeredTaskList) {

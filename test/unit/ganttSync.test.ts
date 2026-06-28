@@ -17,10 +17,20 @@ import {
   buildStatusTaskTypes,
   planTaskSync,
   planLinkSync,
+  planReorder,
+  baseSortDescriptor,
   taskStateKey,
+  shouldBulkReseed,
+  structuralOpCount,
+  BULK_RESEED_OP_THRESHOLD,
   DATE_STATUS_TYPE,
+  buildInstanceCueTaskTypes,
+  REPLICATED_TYPE,
+  CONTEXT_TYPE,
   type SvarTask,
   type SvarTaskInputs,
+  type TaskSyncPlan,
+  type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug } from '../../src/bases/statusColor';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
@@ -41,6 +51,8 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isCollapsed: over.isCollapsed ?? false,
     dateStatus: over.dateStatus ?? 'complete',
     status: over.status ?? null,
+    isFetched: over.isFetched ?? false,
+    isTopLevelPlacement: over.isTopLevelPlacement ?? false,
   };
 }
 
@@ -52,6 +64,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
     propertyValues: over.propertyValues,
+    collapsedIds: over.collapsedIds,
   };
 }
 
@@ -74,6 +87,14 @@ describe('buildSvarTasks', () => {
     expect(parent.end).toEqual(end);
     expect(parent.open).toBe(true);
     expect(child.parent).toBe('p');
+  });
+
+  it('seeds a parent open by default but closed when in collapsedIds (U7)', () => {
+    const instances = [inst({ id: 'p' }), inst({ id: 'c', parent: 'p' })];
+    const open = buildSvarTasks(inputs({ instances }));
+    expect(open.find((t) => t.id === 'p')!.open).toBe(true);
+    const closed = buildSvarTasks(inputs({ instances, collapsedIds: new Set(['p']) }));
+    expect(closed.find((t) => t.id === 'p')!.open).toBe(false);
   });
 
   it('applies the status-color class to a parent (parents are ordinary bars)', () => {
@@ -115,6 +136,19 @@ describe('buildSvarTasks', () => {
       inputs({ instances: [inst({ id: 'a', status: 'unmapped' })], statusColors: [] }),
     );
     expect(t.type).toBe('task');
+  });
+
+  it('carries dateStatus onto custom for the view filter predicate (U2)', () => {
+    // The presentation-layer show-undated/show-partial filter reads custom.dateStatus
+    // to decide row visibility (#161), so it must ride each instance onto the task.
+    const [placeholder] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })] }),
+    );
+    expect(placeholder.custom.dateStatus).toBe('placeholder');
+    const [partial] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'b', dateStatus: 'inferred-start' })] }),
+    );
+    expect(partial.custom.dateStatus).toBe('inferred-start');
   });
 
   it('sets showHasDeps only for a non-primary linked instance in primary mode', () => {
@@ -195,6 +229,91 @@ describe('buildStatusTaskTypes', () => {
     expect(buildStatusTaskTypes(colors).map((t) => t.id)).toEqual(
       buildStatusTaskTypes(colors).map((t) => t.id),
     );
+  });
+});
+
+describe('instance cues (U6)', () => {
+  it('marks both bars replicated when a source path appears more than once', () => {
+    // Same note shown under two parents → two instances, distinct ids.
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'p1', sourcePath: 'shared.md' }),
+          inst({ id: 'p2', sourcePath: 'shared.md' }),
+        ],
+      }),
+    );
+    for (const t of tasks) {
+      expect(t.type.split(' ')).toContain(REPLICATED_TYPE);
+      expect(t.custom.isReplicated).toBe(true);
+    }
+  });
+
+  it('carries isTopLevelPlacement onto the SVAR task custom (#161 — drives the Hide-top filter-tasks predicate)', () => {
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'dup', isTopLevelPlacement: true }),
+          inst({ id: 'real', isTopLevelPlacement: false }),
+        ],
+      }),
+    );
+    // The view's filter-tasks predicate reads exactly this flag to hide the
+    // also-top-level duplicate placement while keeping the real nested copy.
+    expect(tasks.find((t) => t.id === 'dup')!.custom.isTopLevelPlacement).toBe(true);
+    expect(tasks.find((t) => t.id === 'real')!.custom.isTopLevelPlacement).toBe(false);
+  });
+
+  it('does not mark a unique source path replicated', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
+    expect(t.type.split(' ')).not.toContain(REPLICATED_TYPE);
+    expect(t.custom.isReplicated).toBe(false);
+  });
+
+  it('marks a fetched (out-of-filter) instance as context', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'f', isFetched: true })] }));
+    expect(t.type.split(' ')).toContain(CONTEXT_TYPE);
+    expect(t.custom.isContext).toBe(true);
+  });
+
+  it('does not mark an in-filter instance as context', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'm', isFetched: false })] }));
+    expect(t.type.split(' ')).not.toContain(CONTEXT_TYPE);
+    expect(t.custom.isContext).toBe(false);
+  });
+
+  it('composes cues after state classes, replicated before context, in registration order', () => {
+    // A date-flagged, status-colored, replicated, context bar — the worst case.
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+        ],
+        statusColors: colors,
+      }),
+    );
+    const expected = `${DATE_STATUS_TYPE} ${statusSlug('wip')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
+    expect(tasks[0]!.type).toBe(expected);
+    // The coupling contract: that exact whole string must be a registered type id,
+    // or SVAR's whole-string match drops every cue/state class to plain "task".
+    const registered = buildInstanceCueTaskTypes(buildStatusTaskTypes(colors).map((t) => t.id)).map(
+      (t) => t.id,
+    );
+    expect(registered).toContain(expected);
+  });
+
+  it('registers cue-only forms and the cross-product with base types', () => {
+    const base = [DATE_STATUS_TYPE];
+    const ids = buildInstanceCueTaskTypes(base).map((t) => t.id);
+    // Cue-only (a plain bar that is replicated/context with no state class).
+    expect(ids).toContain(REPLICATED_TYPE);
+    expect(ids).toContain(CONTEXT_TYPE);
+    expect(ids).toContain(`${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
+    // Crossed with each base id.
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE}`);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
   });
 });
 
@@ -311,6 +430,23 @@ describe('taskStateKey', () => {
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
     expect(taskStateKey(a)).toBe(taskStateKey(b));
   });
+
+  it('is identical regardless of custom.dateStatus (KTD3 diff-safety guard)', () => {
+    // dateStatus rides into custom for the view filter but MUST NOT enter the
+    // task-update fingerprint — otherwise a date-status change would inflate the
+    // SVAR diff (#161). Same content, different dateStatus → same key.
+    const [a] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'complete' })], showDateIndicators: false }),
+    );
+    const [b] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', dateStatus: 'placeholder' })],
+        showDateIndicators: false,
+      }),
+    );
+    expect(a.custom.dateStatus).not.toBe(b.custom.dateStatus);
+    expect(taskStateKey(a)).toBe(taskStateKey(b));
+  });
 });
 
 describe('planLinkSync', () => {
@@ -328,5 +464,162 @@ describe('planLinkSync', () => {
     const prev = new Map([['L1', link('L1')]]);
     const plan = planLinkSync(prev, [link('L1')]);
     expect(plan).toEqual({ deletes: [], adds: [] });
+  });
+});
+
+describe('planReorder', () => {
+  it('chains move-after within a root branch to match the desired order', () => {
+    const moves = planReorder([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    expect(moves).toEqual([
+      { id: 'b', after: 'a' },
+      { id: 'c', after: 'b' },
+    ]);
+  });
+
+  it('reorders each parent branch independently (tree-preserving)', () => {
+    const moves = planReorder([
+      { id: 'P' },
+      { id: 'c1', parent: 'P' },
+      { id: 'c2', parent: 'P' },
+      { id: 'Q' },
+      { id: 'd1', parent: 'Q' },
+    ]);
+    // Root branch [P, Q] → Q after P; P's children c1,c2 → c2 after c1; Q's lone child → no move.
+    expect(moves).toEqual([
+      { id: 'Q', after: 'P' },
+      { id: 'c2', after: 'c1' },
+    ]);
+  });
+
+  it('emits no moves for single-child branches or an empty set', () => {
+    expect(planReorder([])).toEqual([]);
+    expect(planReorder([{ id: 'only' }])).toEqual([]);
+    expect(planReorder([{ id: 'P' }, { id: 'c', parent: 'P' }])).toEqual([]);
+  });
+});
+
+describe('baseSortDescriptor', () => {
+  it('is empty when there is no Base sort', () => {
+    expect(baseSortDescriptor([])).toBe('');
+    expect(baseSortDescriptor(undefined)).toBe('');
+  });
+
+  it('folds the property+direction pairs into a stable string', () => {
+    expect(baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }])).toBe('note.due:ASC');
+    expect(
+      baseSortDescriptor([
+        { property: 'note.due', direction: 'ASC' },
+        { property: 'file.name', direction: 'DESC' },
+      ]),
+    ).toBe('note.due:ASC|file.name:DESC');
+  });
+
+  it('is identical for two getSort() results with the same keys+directions (data-only refresh)', () => {
+    const a = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const b = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    expect(a).toBe(b);
+  });
+
+  it('changes when the direction changes (user re-sorted the Base)', () => {
+    const asc = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const desc = baseSortDescriptor([{ property: 'note.due', direction: 'DESC' }]);
+    expect(asc).not.toBe(desc);
+  });
+
+  it('changes when the sort property changes', () => {
+    const due = baseSortDescriptor([{ property: 'note.due', direction: 'ASC' }]);
+    const name = baseSortDescriptor([{ property: 'file.name', direction: 'ASC' }]);
+    expect(due).not.toBe(name);
+  });
+
+  it('preserves order significance (compound sort is order-sensitive)', () => {
+    const ab = baseSortDescriptor([
+      { property: 'a', direction: 'ASC' },
+      { property: 'b', direction: 'ASC' },
+    ]);
+    const ba = baseSortDescriptor([
+      { property: 'b', direction: 'ASC' },
+      { property: 'a', direction: 'ASC' },
+    ]);
+    expect(ab).not.toBe(ba);
+  });
+});
+
+describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () => {
+  // The decision only reads array lengths, so plans are built with length-accurate
+  // stub arrays (content is irrelevant to the structural-op count under test).
+  const stub = <T>(n: number): T[] => Array.from({ length: n }, (_, i) => ({ id: `x${i}` } as unknown as T));
+  function plan(c: { adds?: number; deletes?: number; moves?: number; updates?: number }): TaskSyncPlan {
+    return {
+      adds: stub<SvarTask>(c.adds ?? 0),
+      deletes: Array.from({ length: c.deletes ?? 0 }, (_, i) => `d${i}`),
+      moves: Array.from({ length: c.moves ?? 0 }, (_, i) => ({ id: `m${i}`, parent: 0 as const })),
+      updates: Array.from({ length: c.updates ?? 0 }, (_, i) => ({ id: `u${i}`, task: { id: `u${i}` } as unknown as SvarTask })),
+    };
+  }
+  function linkPlan(c: { adds?: number; deletes?: number }): LinkSyncPlan {
+    return { adds: stub<RenderLink>(c.adds ?? 0), deletes: Array.from({ length: c.deletes ?? 0 }, (_, i) => `l${i}`) };
+  }
+
+  it('returns false for an empty plan (a NOOP sync is never a reseed)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({}))).toBe(false);
+  });
+
+  it('returns false for a small interactive edit (1 move + 2 updates)', () => {
+    expect(shouldBulkReseed(plan({ moves: 1, updates: 2 }), linkPlan({}))).toBe(false);
+  });
+
+  it('keeps a large field-only refresh incremental (updates are excluded from the count)', () => {
+    // 500 in-place updates, zero structural ops → stays incremental, preserving view state (R2).
+    expect(shouldBulkReseed(plan({ updates: 500 }), linkPlan({}))).toBe(false);
+  });
+
+  it('returns true for a wholesale add of many tasks (search→clear re-expands the tree)', () => {
+    expect(shouldBulkReseed(plan({ adds: 800 }), linkPlan({}))).toBe(true);
+  });
+
+  it('returns true for a wholesale delete of many tasks (search filters to empty)', () => {
+    expect(shouldBulkReseed(plan({ deletes: 800 }), linkPlan({}))).toBe(true);
+  });
+
+  it('counts adds + deletes + moves together for a mixed swap', () => {
+    const justOver = plan({
+      adds: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+      deletes: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+      moves: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+    });
+    expect(shouldBulkReseed(justOver, linkPlan({}))).toBe(true);
+  });
+
+  it('returns false when structural ops EQUAL the threshold (not strictly over)', () => {
+    expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD }), linkPlan({}))).toBe(false);
+  });
+
+  it('returns true when structural ops exceed the threshold by one (strict greater-than)', () => {
+    expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD + 1 }), linkPlan({}))).toBe(true);
+  });
+
+  it('counts link adds + deletes toward the magnitude (0 task ops, many link ops)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD, deletes: 1 }))).toBe(true);
+  });
+
+  it('applies strict greater-than to link ops too (link ops == threshold → false)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD }))).toBe(false);
+  });
+
+  it('ignores updates even when they dwarf a sub-threshold structural count', () => {
+    // 149 structural ops + 10000 updates → still incremental (updates excluded).
+    expect(shouldBulkReseed(plan({ adds: 149, updates: 10000 }), linkPlan({}))).toBe(false);
+  });
+
+  it('honors an explicit threshold override', () => {
+    const small = plan({ adds: 5 });
+    expect(shouldBulkReseed(small, linkPlan({}), 100)).toBe(false);
+    expect(shouldBulkReseed(small, linkPlan({}), 4)).toBe(true);
+  });
+
+  it('structuralOpCount sums task adds+deletes+moves and link adds+deletes, excluding updates', () => {
+    expect(structuralOpCount(plan({}), linkPlan({}))).toBe(0);
+    expect(structuralOpCount(plan({ adds: 3, deletes: 2, moves: 1, updates: 99 }), linkPlan({ adds: 4, deletes: 5 }))).toBe(15);
   });
 });

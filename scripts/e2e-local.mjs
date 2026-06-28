@@ -6,7 +6,7 @@ import path from "node:path";
 // Platform-aware default vault path
 const LOCAL_VAULT =
   process.platform === "win32"
-    ? "C:/Users/renat/OneDrive/@-Notes/Vaults/obsidian-gantt"
+    ? "C:/Users/<you>/obsidian-test-vaults/obsidian-gantt-test-vault"
     : path.join(
         process.env.HOME || "/home/renato",
         "obsidian-test-vaults/obsidian-gantt-test-vault"
@@ -20,8 +20,11 @@ console.log(
   `[local] Using OBSIDIAN_TEST_VAULT=${process.env.OBSIDIAN_TEST_VAULT}`
 );
 
-// Build and install locally
-const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
+// Build and install locally. Use the same Vite build that ships + that CI's
+// e2e job runs, so the local e2e tests the exact artifact users get (single
+// build pipeline — see the build-consolidation brainstorm).
+const viteBin = path.join(process.cwd(), "node_modules", "vite", "bin", "vite.js");
+const build = spawnSync(process.execPath, [viteBin, "build"], {
   stdio: "inherit",
   env: process.env,
   cwd: process.cwd(),
@@ -29,14 +32,8 @@ const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
-const install = spawnSync(process.execPath, ["scripts/install-to-vault.cjs"], {
-  stdio: "inherit",
-  env: process.env,
-  cwd: process.cwd(),
-});
-if (install.status !== 0) {
-  process.exit(install.status ?? 1);
-}
+// The Vite build installs the plugin into OBSIDIAN_TEST_VAULT itself (closeBundle,
+// see scripts/install-to-vault.mjs), so no separate install step is needed here.
 
 // Run WDIO directly via its bin script using local node_modules path
 const wdioBin = path.join(

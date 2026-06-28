@@ -147,4 +147,5 @@ Contrast with the `github-actions` ecosystem in the same file, which keeps its d
 
 - `docs/plans/2026-06-20-004-chore-maximize-sonarqube-scores-plan.md` — the downstream sibling work (maximizing the *scores* once this pipeline existed: honest coverage scoping, cognitive-complexity and smell burndown).
 - `docs/solutions/developer-experience/windows-build-and-e2e-environment-setup.md` — the local (non-CI) build/E2E environment counterpart.
+- [build-provenance-attestation-requires-public-repo.md](build-provenance-attestation-requires-public-repo.md) — the release-pipeline companion that inherits these hardening conventions; its `actions/attest-build-provenance` step is the deliberate exception needing `id-token: write` + `attestations: write`, and it only works on a **public** repo.
 - Source PRs: #113 (CI-based analysis + coverage), #114 (separate-job token isolation), #115 (SHA-pin + Dependabot + permissions), #122 (npm security-only), #137 (`--ignore-scripts` install hardening, §7).

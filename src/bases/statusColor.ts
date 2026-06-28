@@ -51,8 +51,9 @@ function hash36(s: string): string {
 export function statusSlug(value: string): string {
   const readable = value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-') // collapse each run of non-alphanumerics to one dash
+    .replace(/^-/, '') // ...so at most a single leading dash remains to trim
+    .replace(/-$/, ''); // ...and a single trailing one (no backtracking-prone `-+`)
   const suffix = hash36(value);
   return readable
     ? `${STATUS_CLASS_PREFIX}${readable}-${suffix}`

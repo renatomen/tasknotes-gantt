@@ -1,9 +1,21 @@
 <script lang="ts">
   /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
-  import { Gantt, Tooltip, Willow, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  // Willow / WillowDark are SVAR's real theme components: each renders the full
+  // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
+  // context, and guarantees its CSS. We render the one chosen by the effective
+  // theme around the chart (plan 002 U2) so the theme applies completely.
+  import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  import { Fullscreen } from '@svar-ui/svelte-core';
   import DependencyTooltip from './DependencyTooltip.svelte';
+  import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
   import { get } from 'svelte/store';
+  import {
+    isEffectiveDark,
+    isObsidianDark,
+    subscribeObsidianTheme,
+    type ThemeMode,
+  } from './themeResolver';
   import type { TaskPatch } from '../datasource/types';
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
@@ -11,8 +23,13 @@
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
+    buildInstanceCueTaskTypes,
     planTaskSync,
     planLinkSync,
+    planReorder,
+    baseSortDescriptor,
+    shouldBulkReseed,
+    structuralOpCount,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -32,6 +49,26 @@
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
   import { buildZoomConfig } from './zoomConfig';
+  import {
+    resolveHostHeight,
+    DEFAULT_MAX_HEIGHT,
+    GANTT_MIN_HEIGHT,
+    SVAR_CELL_HEIGHT,
+    SVAR_SCALE_HEIGHT,
+  } from './ganttHeight';
+  import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
+  import { toggleCollapseAll } from './collapseState';
+  import { propertyColumnSort } from './columnSort';
+  import { cycleNext, type EphemeralSort } from './sortCycle';
+  import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
+  import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
+  import type { DateStatus } from '../controller/datePolicy';
+  import { dlog } from '../debugLog';
+
+  // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
+  // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
+  // signature can be typed without an inline function-type param.
+  type FullscreenToggleAction = (ev: MouseEvent) => void;
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -41,26 +78,23 @@
     /** Reactive bundle of the dynamic render inputs (see GanttData). */
     data: import('svelte/store').Readable<GanttData>;
     app: import('obsidian').App;
-    config?: import('./register').BasesViewConfig;
+    config?: import('obsidian').BasesViewConfig;
     /**
      * Persist a field patch for a render instance through the controller (U8).
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
      * read-only contexts / older callers — drag persistence is then inert.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
     /**
      * Create a Finish-to-Start dependency from a drawn link (M2/U4): the task
      * behind `predecessorInstanceId` blocks the one behind `dependentInstanceId`.
      * Routed to the controller's `addDependency`. Absent in read-only contexts.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onAddDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
     /**
      * Remove a dependency from a deleted link (M2/U3). Routed to the controller's
      * `removeDependency`. Absent in read-only contexts.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onRemoveDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
     /**
      * Native edit interaction: invoked on a left/double-click of a bar with the
@@ -68,20 +102,17 @@
      * binder (register.ts) routes this to the TaskNotes interaction service
      * (open note / open native edit modal per TaskNotes settings).
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onBarActivate?: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => void;
     /**
      * Native context menu: invoked on right-click of a bar with the resolved
      * note path and the mouse event, routed to TaskNotes' own task menu.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onBarContextMenu?: (path: string, event: MouseEvent) => void;
     /**
      * Persist a column's new width (U5/R8). Invoked on a resize commit with the
      * Bases property id the column maps to (the name column reports its name
      * key, not `text`). The binder writes it to the standard `columnSize` map.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onColumnResize?: (propId: string, width: number) => void;
     /**
      * Persist the grid/timeline divider width (plan 002 U3). Invoked on a
@@ -89,16 +120,28 @@
      * the standard `obsidianGantt.tableWidth`. In-session dragging is SVAR's own
      * Resizer — this only persists the chosen width across reloads.
      */
-    // eslint-disable-next-line no-unused-vars -- type-signature param names
     onGridWidthChange?: (width: number) => void;
+    /**
+     * The initial per-view theme mode (plan 002 U3). Seeds the live `mode`
+     * state; `auto` follows Obsidian, `light`/`dark` pin this chart's theme.
+     */
+    themeMode?: ThemeMode;
+    /**
+     * Persist a chosen theme mode per-view (plan 002 U3). The toolbar calls
+     * this on change; register.ts closes it over `config.set`. Absent callers
+     * keep an in-session-only switch.
+     */
+    onThemeModeChange?: (mode: ThemeMode) => void;
   }
 
-  // `config` remains part of the props contract (register.ts passes it) but the
-  // controller owns the transform, so the view does not read it. `app` is used
-  // to host the parent-date-cascade confirmation modal (U3/U4).
+  // The controller owns the data transform, so the view does not read `config`
+  // for rendering — but it DOES read `config.getSort()` to detect a Base toolbar
+  // sort change while an ephemeral column sort is active (plan 2026-06-22-002,
+  // U4/U5/R6). `app` is used to host the parent-date-cascade confirmation modal.
   let {
     data,
     app,
+    config,
     onMutate,
     onAddDependency,
     onRemoveDependency,
@@ -106,7 +149,75 @@
     onBarContextMenu,
     onColumnResize,
     onGridWidthChange,
+    themeMode = 'auto',
+    onThemeModeChange,
   }: Props = $props();
+
+  // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
+  // Live theme mode (seeded from the per-view prop) + the current Obsidian
+  // dark/light read. `effectiveIsDark` (U1) chooses between SVAR's real
+  // <Willow> / <WillowDark> theme components in the markup — each renders the
+  // full core/grid/gantt theme layers and sets the `wx-theme` context itself.
+  const initialMode: ThemeMode = themeMode;
+  const initialDark = isObsidianDark();
+  let mode = $state<ThemeMode>(initialMode);
+  let obsidianIsDark = $state(initialDark);
+
+  const effectiveIsDark = $derived(isEffectiveDark(mode, obsidianIsDark));
+
+  // While in Auto, follow Obsidian's theme live (R1/R6) — independent of toolbar
+  // visibility. Re-read `isObsidianDark()` on each `css-change` (MutationObserver
+  // fallback inside the helper). Subscribe only in Auto; dispose on mode change
+  // and on unmount. Apply the read THROUGH the guarded setter so a flip reseeds
+  // the SVAR seed props before the {#if} remounts (see maybeReseedForThemeFlip).
+  $effect(() => {
+    if (mode !== 'auto') return;
+    // Sync immediately in case the theme changed since mount/last subscription.
+    applyObsidianDark(isObsidianDark());
+    const dispose = subscribeObsidianTheme(app, () => {
+      applyObsidianDark(isObsidianDark());
+    });
+    return dispose;
+  });
+
+  /**
+   * Toolbar change handler (U3/U4). The parent owns the `mode` write so the
+   * reseed + the flip batch in one synchronous tick before the {#if} re-renders:
+   * reseed the SVAR seeds first (only when the effective theme actually flips),
+   * then flip `mode`, then persist. A no-op change short-circuits.
+   */
+  function handleThemeModeChange(next: ThemeMode): void {
+    if (next === mode) return;
+    maybeReseedForThemeFlip(next, obsidianIsDark);
+    mode = next;
+    onThemeModeChange?.(next);
+  }
+
+  /**
+   * Apply a new Obsidian dark/light read (auto-follow). Reseeds the SVAR seeds
+   * first when the effective theme flips, then flips `obsidianIsDark` — same
+   * synchronous-tick ordering as the toolbar handler.
+   */
+  function applyObsidianDark(nextDark: boolean): void {
+    if (nextDark === obsidianIsDark) return;
+    dlog(`[OGDBG] applyObsidianDark ${obsidianIsDark} -> ${nextDark} (effectiveIsDark may flip → <Gantt> remount)`);
+    maybeReseedForThemeFlip(mode, nextDark);
+    obsidianIsDark = nextDark;
+  }
+
+  /**
+   * Reseed the SVAR seed props from the current data ONLY when the *effective*
+   * theme actually flips. The {#if effectiveIsDark} swap remounts the <Gantt>,
+   * which re-reads the seed props; those are otherwise refreshed only on a
+   * column change, so a theme flip would show stale data without this. Guarded
+   * so it never fires on unrelated mode/dark changes (e.g. auto→light while
+   * already light).
+   */
+  function maybeReseedForThemeFlip(nextMode: ThemeMode, nextDark: boolean): void {
+    if (isEffectiveDark(nextMode, nextDark) !== isEffectiveDark(mode, obsidianIsDark)) {
+      reseedSeedsFromData(get(data));
+    }
+  }
 
   // Dynamic render inputs derived from the reactive store. Keeping the original
   // local names means the rest of the component is unchanged — only the source
@@ -120,6 +231,85 @@
   const statusColors = $derived($data.statusColors ?? []);
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
+  // Toolbar visibility is store-driven (FIX A): reading it from the reactive
+  // data — like showDateIndicators — makes the `tngantt_showToolbar` option a
+  // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
+  // register.getShowToolbar()'s `=== true` default-false read.
+  const showToolbar = $derived($data.showToolbar ?? false);
+
+  // "Hide top-level subtasks" (#161), store-driven like showToolbar. Applied as a
+  // SVAR filter-tasks DISPLAY filter (see the effect below), NOT by changing the
+  // task set — so toggling it (or Bases oscillating the persisted value) hides/
+  // shows the duplicate root rows cheaply, scroll-stable, and can never churn.
+  const hideTopLevel = $derived($data.hideTopLevelSubtasks ?? false);
+
+  // "Show tasks with no dates / only one date" (#161), store-driven like hideTopLevel.
+  // Applied in the SAME composed filter-tasks DISPLAY filter (see applyDisplayFilters),
+  // never by re-derivation — so toggling them (or Bases oscillating the persisted
+  // value) hides/shows rows cheaply, scroll-stable, and can never churn the chart.
+  const showUndated = $derived($data.showUndatedTasks ?? true);
+  const showPartial = $derived($data.showPartialDateTasks ?? true);
+
+  // Heads-up when a date filter is OFF but incomplete-date PARENTS (undated or
+  // partial-date) stay visible because a dated descendant keeps them (SVAR filterTree
+  // semantics, KTD4/R8). Contextual: only present when it actually happens, so
+  // there's no standing noise.
+  const retainedAncestorNotice = $derived(
+    buildRetainedAncestorNotice($data.instances, { hideTopLevel, showUndated, showPartial }),
+  );
+
+  // Per-view max-height cap (plan 003 R1), store-driven like showToolbar so the
+  // option re-fits the host live without a remount. Default 400 (R1).
+  const maxHeight = $derived($data.maxHeight ?? DEFAULT_MAX_HEIGHT);
+  // Per-view min-height floor; clamped to the absolute ~2-row floor in the reader.
+  const minHeight = $derived($data.minHeight ?? GANTT_MIN_HEIGHT);
+
+  // Show-all context-bar opacity (U6). Reactive so the slider re-tints bars live.
+  // Applied below as a CSS custom property the `.og-context` rule reads (driving
+  // a dynamic value through a class-only stylesheet isn't possible otherwise).
+  const contextOpacity = $derived($data.contextOpacity ?? DEFAULT_CONTEXT_OPACITY);
+
+  // Collapse-all / expand-all (U7). Collapsible ids = instance ids referenced as
+  // a parent by some row. The floating toggle collapses all when any is open,
+  // otherwise expands all. `allCollapsed` drives the button's icon/label.
+  const parentInstanceIds = $derived.by(() => {
+    const ids = new Set<string>();
+    for (const inst of $data.instances) if (inst.parent) ids.add(inst.parent);
+    return ids;
+  });
+  const allCollapsed = $derived(
+    parentInstanceIds.size > 0 && [...parentInstanceIds].every((id) => collapsedIds.has(id)),
+  );
+
+  function toggleAllCollapse(): void {
+    const next = toggleCollapseAll(parentInstanceIds, collapsedIds);
+    if (!api) {
+      collapsedIds = next;
+      return;
+    }
+    // Set `syncing` BEFORE mutating collapsedIds: the sync $effect tracks
+    // collapsedIds (via toInputs), so the write schedules it — raising the guard
+    // first ensures any resulting diff treats our open-task execs as echoes.
+    // Apply live via SVAR's own open-task action (tagged so the open-task
+    // intercept skips re-persisting). The reactive seed/diff keeps `open`
+    // consistent on any later reseed; this just reflects the change immediately.
+    syncing = true;
+    collapsedIds = next;
+    try {
+      for (const id of parentInstanceIds) {
+        const shouldClose = next.has(id);
+        const task = api.getTask?.(id);
+        const isOpen = task ? task.open !== false : true;
+        if (shouldClose && isOpen) {
+          api.exec('open-task', { id, mode: false, eventSource: OG_ECHO_SOURCE });
+        } else if (!shouldClose && !isOpen) {
+          api.exec('open-task', { id, mode: true, eventSource: OG_ECHO_SOURCE });
+        }
+      }
+    } finally {
+      syncing = false;
+    }
+  }
 
   // Tags our own programmatic store writes (sibling mirror, revert) so the
   // update-task intercept ignores them and we never re-persist an echo (the
@@ -147,6 +337,13 @@
       rootEl.appendChild(styleEl);
     }
     styleEl.textContent = css;
+  });
+
+  // Drive the Show-all context-bar opacity (U6) as a CSS custom property on the
+  // view root; the `.og-context` rule reads `var(--og-context-opacity)`. Reactive
+  // on the slider value so it re-tints live (rootEl is bound by the time this runs).
+  $effect(() => {
+    rootEl?.style.setProperty('--og-context-opacity', String(contextOpacity));
   });
 
   // Native interaction listeners on the chart root (U2): capture the last
@@ -217,10 +414,25 @@
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,
+      // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
+      // and any reseed all compute `open` from the same source of truth.
+      collapsedIds,
     };
   }
 
   const initialData = get(data);
+  // Collapsed instance ids (U7) — EPHEMERAL session state, not persisted. Drives
+  // the collapse-all toggle's icon/decision and seeds SVAR's `open` via toInputs
+  // so a collapse survives data refreshes/reseeds within the session. Starts
+  // empty (all expanded) on every mount; the user re-adjusts with the toggle or
+  // the row chevrons. Updated by the `open-task` intercept and toggleAllCollapse.
+  let collapsedIds: Set<string> = $state(new Set());
+  // Active ephemeral column sort (plan 2026-06-22-002) — EPHEMERAL session state,
+  // not persisted. `null` = the Base toolbar sort is in effect (the default).
+  // A non-null value means the user clicked a column header to override it; the
+  // floating reset pill (U3) and the asc→desc→clear cycle (U2) drive it back to
+  // null. Recorded by the `sort-tasks` interceptor below.
+  let ephemeralSort: EphemeralSort | null = $state(null);
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
   // avoids a spurious "state referenced locally" warning).
@@ -256,9 +468,14 @@
   // its store (reverting our incremental updates to the seed), so this stays a
   // const. A status value added to TaskNotes config while the view is open won't
   // color until the view is reopened — rare, and acceptable.
+  const statusTaskTypes = buildStatusTaskTypes(initialData.statusColors ?? []);
   const svarTaskTypes = [
     ...defaultTaskTypes,
-    ...buildStatusTaskTypes(initialData.statusColors ?? []),
+    ...statusTaskTypes,
+    // Instance cues (U6) cross the date-status/status combos, so a bar can carry
+    // both a state class and a replicated/context cue and still match a
+    // registered whole `type` string.
+    ...buildInstanceCueTaskTypes(statusTaskTypes.map((t) => t.id)),
   ];
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
@@ -267,6 +484,25 @@
   for (const t of seedTasks0) appliedTasks.set(t.id, t);
   const appliedLinks = new Map<string, RenderLink>();
   for (const l of seedLinks0) appliedLinks.set(l.id, l);
+
+  // Fingerprint of the rendered row ORDER (parent + id sequence). The
+  // incremental diff is keyed by id and cannot reorder existing rows, so a
+  // pure reorder — e.g. a Base toolbar sort change with the same task set —
+  // leaves SVAR in the prior order. We detect an order change and apply it via
+  // `move-task` (mode `after`) inside the syncing block (zoom/scroll survive;
+  // the syncing guard suppresses the echo/select that would otherwise open the
+  // edit modal). Seeded so the first diff after mount is a no-op.
+  function orderFingerprint(tasks: readonly SvarTask[]): string {
+    return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
+  }
+  let appliedOrderKey = orderFingerprint(seedTasks0);
+  // Last-applied Base toolbar sort descriptor (plan 2026-06-22-002, U4/U5, KTD4).
+  // While an ephemeral column sort is active, the sync $effect compares this to
+  // `config.getSort()` to tell a Base re-sort (descriptor changed → clear the
+  // override, R6) from a plain data refresh (unchanged → keep & re-assert, R8).
+  // Tracking the descriptor — not a row-position fingerprint — is the deliberate
+  // fix: adding/removing a row shifts positions without a toolbar-sort change.
+  let appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -293,6 +529,52 @@
     syncToGantt(d);
   });
 
+  /**
+   * Apply ALL row-visibility options (Hide-top ∧ Show-undated ∧ Show-partial) as
+   * ONE composed SVAR `filter-tasks` DISPLAY filter over the stable task array
+   * (#161, U4). The shared {@link shouldHideRow} predicate reads each row's
+   * `custom` (`isTopLevelPlacement` + `dateStatus`). `filter-tasks` recomputes
+   * SVAR's visible set WITHOUT touching the `tasks` array (no add/delete diff) and
+   * preserves scroll/zoom — so a toggle (or a Bases config oscillation) is cheap
+   * and can never churn the chart. When every option is show-everything, clear with
+   * no predicate. `open: false` so it never force-expands collapsed branches.
+   *
+   * The predicate is ALWAYS passed as `filter` (a function), never as a
+   * `{key, value}` column filter — keeping the clear-path semantics intact (KTD4).
+   */
+  function applyDisplayFilters(): void {
+    if (!api?.exec) return;
+    const flags = { hideTopLevel, showUndated, showPartial };
+    if (anyRowFilterActive(flags)) {
+      api.exec('filter-tasks', {
+        filter: (t: { custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } }) =>
+          !shouldHideRow(
+            {
+              isTopLevelPlacement: !!t?.custom?.isTopLevelPlacement,
+              dateStatus: t?.custom?.dateStatus ?? 'complete',
+            },
+            flags,
+          ),
+        open: false,
+      });
+    } else {
+      api.exec('filter-tasks', { open: false });
+    }
+  }
+
+  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle
+  // AND after any data refresh (so newly-added rows are filtered too). Created AFTER
+  // the sync effect so it runs after the diff lands. A display-only change is a
+  // content-NOOP for the sync (the task set is identical), so this is the path that
+  // actually toggles row visibility.
+  $effect(() => {
+    void $data; // re-run after every store update (post-sync)
+    void hideTopLevel; // re-run when any row-visibility toggle flips
+    void showUndated;
+    void showPartial;
+    if (api) applyDisplayFilters();
+  });
+
   function syncToGantt(d: GanttData): void {
     // A column-config change can't be applied incrementally — SVAR has no
     // per-column update action, and a new `columns` reference re-inits the whole
@@ -302,23 +584,83 @@
     // resync the applied maps, and let the single re-init render it. Zoom/scroll
     // reset here — accepted, since this only fires on an actual column change.
     if (d.gridColumnsKey !== appliedColumnsKey) {
+      dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
       reseedForColumnChange(d);
       return;
     }
 
-    const taskPlan = planTaskSync(appliedTasks, buildSvarTasks(toInputs(d)));
+    const next = buildSvarTasks(toInputs(d));
+    const taskPlan = planTaskSync(appliedTasks, next);
     const linkPlan = planLinkSync(appliedLinks, d.links);
+    const orderKey = orderFingerprint(next);
+    // Base toolbar sort descriptor (U4/U5, KTD4). Compared against the last
+    // applied value to drive R6 (Base re-sort clears the ephemeral override) vs
+    // R8 (data-only refresh keeps it).
+    const baseSortKey = baseSortDescriptor(config?.getSort?.());
+    const baseSortChanged = baseSortKey !== appliedBaseSortKey;
 
-    const noop =
+    const contentNoop =
       !taskPlan.moves.length &&
       !taskPlan.updates.length &&
       !taskPlan.deletes.length &&
       !taskPlan.adds.length &&
       !linkPlan.deletes.length &&
       !linkPlan.adds.length;
-    if (noop) return;
+    // Nothing changed at all (content, order, or Base sort) → no work. The Base
+    // sort term keeps an R6 clear from being skipped when a toolbar re-sort
+    // happens to leave the row order identical (e.g. a single-row tree).
+    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) {
+      dlog('[OGDBG] sync NOOP');
+      return;
+    }
+    // #161 U6: a WHOLESALE set replacement (search clear / filter change re-expands
+    // the whole companion tree → hundreds–thousands of add/delete execs) costs a DOM
+    // mutation storm per swing; a burst of those is the ~25s churn. Above the op
+    // threshold, apply the change as ONE virtualized re-init (reuse the column/theme
+    // reseed path) instead of the per-instance diff. Zoom/scroll reset is the correct
+    // trade-off here — the displayed set changed entirely, so prior view state is
+    // meaningless. Small diffs fall through to the incremental path below, which
+    // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
+    if (shouldBulkReseed(taskPlan, linkPlan)) {
+      dlog(
+        `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
+          ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+      );
+      syncing = true;
+      try {
+        // R6 (mirror the incremental path): if the user changed the Base toolbar sort
+        // in the same swing, newest explicit sort wins — drop an active ephemeral sort
+        // first so reseedSeedsFromData doesn't re-assert a now-stale override.
+        if (ephemeralSort && baseSortChanged) {
+          ephemeralSort = null;
+          clearSvarSortArrow();
+        }
+        // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
+        // an active ephemeral sort), then re-assert the persisted divider width (a
+        // store re-init can recompute it). Columns are untouched (no column change).
+        reseedSeedsFromData(d);
+        applyPersistedGridWidth();
+      } finally {
+        syncing = false;
+      }
+      // A reinit CLEARS SVAR's filter-tasks state, and SVAR's own reinit effect can
+      // run AFTER the synchronous `$data` display-filter effect — so that effect's
+      // re-apply would be wiped and hidden rows (Hide-top / Show-undated off) flash
+      // back until the next refresh. Re-assert the active row-visibility filter once
+      // the reseed settles (deferred like the ephemeral-sort / grid-width restores).
+      setTimeout(() => applyDisplayFilters(), 0);
+      return;
+    }
+
+    dlog(
+      `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
+        ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
+        ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
+        ` orderChanged=${orderKey !== appliedOrderKey} baseSortChanged=${baseSortChanged}`,
+    );
 
     syncing = true;
+    const tSyncStart = performance.now(); // [OGDBG #161]
     try {
       // Order: reparent → field updates → remove links → remove tasks (leaf-first)
       // → add tasks (parent-first) → add links (endpoints now exist).
@@ -345,9 +687,126 @@
         api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
         appliedLinks.set(l.id, l);
       }
+      const tAfterExec = performance.now(); // [OGDBG #161]
+      let reorderMoves = 0; // [OGDBG #161]
+      // Reconcile sibling ORDER. Three cases (plan 2026-06-22-002, U4/U5):
+      if (ephemeralSort && !baseSortChanged) {
+        // R8 — an ephemeral column sort is active and the Base toolbar sort is
+        // unchanged (a plain data refresh). Keep the user's sort: re-assert it
+        // over the new row set instead of snapping back to Base order, and SKIP
+        // planReorder. Echo-guarded so it doesn't re-enter the sort-tasks
+        // interceptor (U2). `appliedOrderKey` still advances to the Base order of
+        // `next` below: the display is under ephemeral control, but the later
+        // clear/R6 reorder diffs against this baseline (a stale key would issue
+        // duplicate/missing moves).
+        reassertEphemeralSort();
+      } else {
+        // Default path (no ephemeral sort) OR R6 (the user changed the Base
+        // toolbar sort while a sort was active → newest explicit sort wins: drop
+        // the override and show the new Base order). The id-keyed diff above never
+        // reorders existing rows, so a pure reorder (toolbar sort) or a
+        // position-shifting add needs explicit `move-task` (mode `after`) steps —
+        // these keep each task under its parent so zoom/scroll survive.
+        if (ephemeralSort && baseSortChanged) {
+          ephemeralSort = null;
+          clearSvarSortArrow();
+        }
+        if (orderKey !== appliedOrderKey) {
+          for (const m of planReorder(next)) {
+            reorderMoves += 1;
+            api.exec('move-task', {
+              id: m.id,
+              target: m.after,
+              mode: 'after',
+              eventSource: OG_ECHO_SOURCE,
+            });
+          }
+        }
+      }
+      // Commit the applied order + Base sort descriptor INSIDE the try, after the
+      // moves land. If a move-task exec throws mid-sequence, these are skipped so
+      // the stale keys force the next sync to replay the work (rather than diffing
+      // against state we never finished applying).
+      appliedOrderKey = orderKey;
+      appliedBaseSortKey = baseSortKey;
+      // [OGDBG #161] split timing: exec loop (add/update/delete) vs reorder pass
+      // (planReorder + per-row move-task). A large reorderMoves with a big total
+      // is the O(N²) suspect for the refresh freeze.
+      const now = performance.now();
+      dlog(
+        `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
+          ` (exec=${Math.round(tAfterExec - tSyncStart)}ms reorder=${Math.round(now - tAfterExec)}ms` +
+          ` reorderMoves=${reorderMoves})`,
+      );
     } finally {
       syncing = false;
     }
+  }
+
+  /**
+   * Re-apply the active ephemeral column sort over SVAR's current rows (R8).
+   * Echo-guarded (`OG_ECHO_SOURCE`) so it never re-enters the `sort-tasks`
+   * recording interceptor (U2). A no-op when no ephemeral sort is active or the
+   * api isn't ready. Called from the data-only sync branch (synchronously, inside
+   * the `syncing` block) and, deferred a tick, after a reseed remount (see
+   * `reseedSeedsFromData`).
+   */
+  function reassertEphemeralSort(): void {
+    if (!ephemeralSort || !api?.exec) return;
+    api.exec('sort-tasks', {
+      key: ephemeralSort.column,
+      order: ephemeralSort.direction,
+      eventSource: OG_ECHO_SOURCE,
+    });
+  }
+
+  /**
+   * Clear SVAR's lit column-header sort arrow by nulling its internal `_sort`
+   * state. There is no `sort-tasks` payload that resets `_sort` to null (verified
+   * vs `@svar-ui/gantt-store` 2.7.0), so reach the data store directly — the same
+   * internal-but-reachable class as the gridWidth recompute workaround. Centralised
+   * here so a SVAR upgrade that renames `_sort`/`setState` has a single site to fix.
+   */
+  function clearSvarSortArrow(): void {
+    api?.getStores?.().data?.setState?.({ _sort: null });
+  }
+
+  /**
+   * Restore the Base row order after an ephemeral sort is cleared (plan
+   * 2026-06-22-002, U2 third click + U3 reset button). SVAR's `tree.sort` mutated
+   * the row order in place, so this resets `_sort` (drops the lit header arrow)
+   * then replays the Base-order `move-task` steps so the rows return to the Base
+   * order. Echo-guarded + `syncing`-wrapped so the moves don't re-enter our
+   * interceptors. Does NOT touch `ephemeralSort` — the caller sets it null first
+   * (so the reset pill hides immediately).
+   */
+  function restoreBaseOrder(): void {
+    if (!api?.exec) return;
+    syncing = true;
+    try {
+      clearSvarSortArrow();
+      const next = buildSvarTasks(toInputs(get(data)));
+      for (const m of planReorder(next)) {
+        api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
+      }
+      appliedOrderKey = orderFingerprint(next);
+    } catch {
+      /* a move-task threw mid-restore (e.g. store torn down); the stale
+         appliedOrderKey forces the next sync to replay the full reorder */
+    } finally {
+      syncing = false;
+    }
+  }
+
+  /**
+   * Shared clear path for the floating reset pill (U3): drop the ephemeral sort
+   * and restore the Base order. The third-click cancel (U2) clears inline instead
+   * (it must return falsy to cancel SVAR's toggle), but funnels into the same
+   * `restoreBaseOrder`.
+   */
+  function clearEphemeralSort(): void {
+    ephemeralSort = null;
+    restoreBaseOrder();
   }
 
   /**
@@ -360,6 +819,23 @@
     appliedColumnsKey = d.gridColumnsKey;
     columns = buildSvarColumns(d.gridColumns);
 
+    reseedSeedsFromData(d);
+
+    // The re-init triggers the column recompute (gridWidth → column-sum); re-
+    // assert the user's persisted divider width afterward so a column-config
+    // change doesn't silently reset it.
+    applyPersistedGridWidth();
+  }
+
+  /**
+   * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
+   * resync the applied-state maps so the next incremental diff is a no-op.
+   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
+   * remounts the <Gantt> (the {#if effectiveIsDark} swap), which re-reads these
+   * seeds — without this the post-flip chart would show the stale mount-time
+   * seed instead of the current data.
+   */
+  function reseedSeedsFromData(d: GanttData): void {
     const tasks = buildSvarTasks(toInputs(d));
     initialTasks = tasks;
     initialLinks = d.links;
@@ -368,11 +844,32 @@
     for (const t of tasks) appliedTasks.set(t.id, t);
     appliedLinks.clear();
     for (const l of d.links) appliedLinks.set(l.id, l);
+    // The reseed re-inits SVAR from `tasks` (already in Base order), so the
+    // applied order key tracks it — the next diff won't re-issue reorder moves.
+    // Re-baseline the Base sort descriptor too (symmetry with appliedOrderKey): a
+    // reseed coinciding with a toolbar-sort change must not leave the next sync
+    // comparing against a stale descriptor.
+    appliedOrderKey = orderFingerprint(tasks);
+    appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
 
-    // The re-init triggers the column recompute (gridWidth → column-sum); re-
-    // assert the user's persisted divider width afterward so a column-config
-    // change doesn't silently reset it.
-    applyPersistedGridWidth();
+    // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
+    // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
+    // the store's column recompute settles — deferred a tick like
+    // applyPersistedGridWidth, since a theme-flip reseed remounts <Gantt> (fresh
+    // api/store). Echo-guarded inside reassertEphemeralSort.
+    if (ephemeralSort) {
+      setTimeout(() => {
+        if (!ephemeralSort) return;
+        syncing = true;
+        try {
+          reassertEphemeralSort();
+        } catch {
+          /* exec threw on a torn-down / freshly-remounted store — skip */
+        } finally {
+          syncing = false;
+        }
+      }, 0);
+    }
   }
 
   // Svelte action to set Obsidian/Lucide icons (OG-81)
@@ -418,6 +915,55 @@
 
   let api: GanttAPI = $state();
 
+  // ── Viewport height (plan 003 U2) ───────────────────────────────────────
+  // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
+  // SVAR's own height inputs from its reactive store — the collapse-aware
+  // visible-row count (`_tasks`), the row height (`cellHeight`), and the
+  // scale-header height (`_scales.height`) — and resolve a host height that fits
+  // content up to `maxHeight`, then scrolls (R2/R3/R4). Driving this from the
+  // STORE (not a DOM ResizeObserver) avoids both fighting SVAR's own observer and
+  // the virtualization measure→set fixed-point. Applied as an explicit px height
+  // on the root below.
+  let rowCount = $state(0);
+  let cellH = $state(SVAR_CELL_HEIGHT);
+  let scaleAreaH = $state(SVAR_SCALE_HEIGHT);
+
+  $effect(() => {
+    // Re-subscribe whenever the SVAR api instance changes (e.g. the theme-flip
+    // remount of <Gantt>). Each signal's subscribe fires immediately with the
+    // current value and on every change, and returns a disposer for teardown.
+    if (!api?.getReactiveState) return;
+    const rs = api.getReactiveState();
+    const disposers = [
+      rs._tasks?.subscribe?.((t: unknown) => {
+        rowCount = Array.isArray(t) ? t.length : 0;
+      }),
+      rs.cellHeight?.subscribe?.((v: unknown) => {
+        cellH = typeof v === 'number' && v > 0 ? v : SVAR_CELL_HEIGHT;
+      }),
+      rs._scales?.subscribe?.((s: unknown) => {
+        const h = (s as { height?: unknown } | undefined)?.height;
+        scaleAreaH = typeof h === 'number' && h > 0 ? h : SVAR_SCALE_HEIGHT;
+      }),
+    ];
+    return () => {
+      for (const dispose of disposers) {
+        if (typeof dispose === 'function') dispose();
+      }
+    };
+  });
+
+  // Resolved host height in px (R2/R3). `$derived` memoizes, so the inline style
+  // re-applies only when the value actually changes — the no-op guard is free.
+  const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight, minHeight));
+
+  // Full screen is handled by SVAR's official <Fullscreen> component (svelte-core)
+  // in the markup — it wraps the chart, uses the native browser Fullscreen API,
+  // and handles Esc itself. We pass a custom `toggleButton` snippet so our own
+  // floating lucide button drives it (SVAR's default button uses a wxi-* icon,
+  // which renders blank with fonts disabled). No bespoke overlay/reparent state
+  // here — see https://docs.svar.dev/svelte/gantt/guides/fullscreen/.
+
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
   const idToSourcePath = $derived.by(() => {
@@ -458,6 +1004,13 @@
     width: number;
     align: 'left' | 'center' | 'right';
     resize: boolean;
+    // Header-click sort is ENABLED (plan 2026-06-22-002, reverses R16): the Base
+    // toolbar sort is the DEFAULT, an ephemeral column sort is an override. The
+    // name column uses SVAR's default comparator (sorts by `task.text`); property
+    // columns need an explicit comparator because their value lives in
+    // `task.custom.properties[id]`, not as a flat `task[id]` field — SVAR's default
+    // would read `undefined` and silently no-op (see columnSort.ts).
+    sort: boolean | ((a: Record<string, unknown>, b: Record<string, unknown>) => 1 | -1 | 0);
     // SVAR cell component for property columns; the name column omits it (uses
     // the default cell, which renders the tree + row.text).
     cell?: typeof PropertyCell;
@@ -472,6 +1025,12 @@
         width: c.width,
         align: c.align,
         resize: true,
+        // Name column → SVAR default (task.text); property column → TypedValue-aware
+        // comparator over custom.properties[propId]. Math.sign normalizes to the
+        // 1|-1|0 SVAR's TSortFunction type wants (SVAR negates it for descending).
+        sort: c.isName
+          ? true
+          : (a, b) => Math.sign(propertyColumnSort(c.propId)(a, b)) as 1 | -1 | 0,
       };
       if (!c.isName) col.cell = PropertyCell;
       return col;
@@ -571,6 +1130,9 @@
     }, 0);
   }
 
+  /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
+  let dbgInitCount = 0;
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     api = ganttApi;
@@ -579,16 +1141,10 @@
     // Restore the persisted divider width after the initial column recompute.
     applyPersistedGridWidth();
 
-    // Log the state SVAR received
-    console.log('[GanttContainer] SVAR Gantt initialized');
-    if (api && api.getState) {
-      const state = api.getState();
-      console.log('[GanttContainer] SVAR state:', state);
-      console.log('[GanttContainer] SVAR tasks count:', state?.tasks?.length || 0);
-      if (state?.tasks && state.tasks.length > 0) {
-        console.log('[GanttContainer] First SVAR task:', state.tasks[0]);
-      }
-    }
+    // [OGDBG #161] initGantt fires once per SVAR (re)initialization. Repeated
+    // lines during a config toggle ⇒ a remount/reseed loop, not refresh-in-place.
+    dbgInitCount += 1;
+    dlog(`[OGDBG] initGantt #${dbgInitCount} svarTasks=${api?.getState?.()?.tasks?.length ?? '?'}`);
 
     // Native edit interaction (U2): a bar's left/double-click routes to the
     // TaskNotes interaction service (via onBarActivate) instead of a custom
@@ -598,7 +1154,63 @@
     // Double-click → SVAR fires `show-editor` (no modifier info; we use the
     // last pointer's ctrl/meta). We always return false so SVAR's own editor
     // never opens — editing is fully delegated to TaskNotes.
+    // Ephemeral column sort (plan 2026-06-22-002, reverses R16): a user header
+    // click cycles the column asc → desc → cleared (cycleNext, U2). SVAR's native
+    // header click is an infinite asc↔desc toggle with no "clear" state, so we
+    // drive the cycle off OUR `ephemeralSort` and inject the third (clear) state
+    // ourselves. For asc/desc we let SVAR perform the sort (its `order` matches
+    // the cycle, since both go no-sort→asc→desc); for the clear we CANCEL SVAR's
+    // toggle-back-to-asc (return falsy) and restore the Base order. Echo-guarded
+    // (mirrors the open-task interceptor) so U4/U5's re-asserts can't re-enter.
+    api.intercept(
+      "sort-tasks",
+      (ev: { key?: string; order?: string; eventSource?: string }) => {
+        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        if (typeof ev?.key !== 'string') return true;
+        const nextSort = cycleNext(ephemeralSort, ev.key);
+        if (nextSort === null) {
+          // Third click on the active column → clear. Hide the reset pill now
+          // (synchronous state), and restore the Base order on a deferred tick so
+          // the store finishes cancelling THIS action before we reset `_sort` +
+          // replay the Base-order moves (avoids re-entrancy inside the intercept).
+          // Bail if a new sort started within the tick (a fast re-click) — that
+          // sort now owns the display (mirrors the reseed re-assert's guard).
+          ephemeralSort = null;
+          setTimeout(() => {
+            if (ephemeralSort) return;
+            restoreBaseOrder();
+          }, 0);
+          return false;
+        }
+        ephemeralSort = nextSort;
+        return true;
+      },
+    );
+
+    // Persist user collapse/expand (U7). SVAR fires open-task on a toggle-icon
+    // click — mode=true expands, mode=false collapses. Let it proceed (return
+    // true) and record the change so it survives reload. Ignore our own bulk
+    // collapse-all execs (tagged eventSource) and any event during a reseed.
+    api.intercept(
+      "open-task",
+      (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
+        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        const id = ev?.id != null ? String(ev.id) : null;
+        if (!id || typeof ev.mode !== 'boolean') return true;
+        const next = new Set(collapsedIds);
+        if (ev.mode) next.delete(id);
+        else next.add(id);
+        collapsedIds = next;
+        return true;
+      },
+    );
+
     api.intercept("show-editor", ({ id }: { id: string }) => {
+      // Ignore programmatic selection/editor events emitted while we reseed the
+      // store (add/delete/update during diff-sync) — those are not user clicks.
+      // Without this, a per-view settings change that reseeds the chart would
+      // spuriously open the TaskNotes edit modal. Same guard as update-task.
+      if (syncing) return false;
       if (pendingSingleClick) {
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
@@ -613,6 +1225,12 @@
     // Defer the action so a following double-click can cancel it. Allow SVAR's
     // own selection to proceed (return true) — we only add the native action.
     api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
+      // Ignore programmatic re-selection emitted during a store reseed (a
+      // deleted/re-added selected task makes SVAR fire select-task with
+      // syncing=true). Only genuine user clicks should trigger the native
+      // activate → TaskNotes modal. Fixes the modal popping up on a settings
+      // toggle (which now reseeds the chart for instant apply).
+      if (syncing) return true;
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
         const ctrlOrMeta = ev.toggle === true;
@@ -708,13 +1326,13 @@
       return false;
     });
 
-    // Fix initial scroll position - ensure the grid starts with first column visible
-    // SVAR Gantt sometimes initializes with horizontal scroll that hides the first column
+    // Fix initial scroll position - ensure the grid starts with first column
+    // visible. SVAR Gantt sometimes initializes with horizontal scroll that hides
+    // the first column. Best-effort + silent (the verbose diagnostic dump this
+    // once carried enumerated every `wx-` node — catastrophic under the #161
+    // re-init storm; never reinstate an all-elements console dump here).
     setTimeout(() => {
       try {
-        console.log('[GanttContainer] Attempting to reset grid scroll position...');
-
-        // Try multiple possible selectors for the scrollable grid container
         const selectors = [
           '.og-bases-gantt .wx-grid',
           '.og-bases-gantt .wx-grid-area',
@@ -723,37 +1341,12 @@
           '.og-bases-gantt .wx-grid-body',
           '.og-bases-gantt [data-id="grid"]',
         ];
-
-        let foundScrollable = false;
         for (const selector of selectors) {
-          const element = document.querySelector(selector) as HTMLElement;
-          if (element) {
-            console.log(`[GanttContainer] Found element with selector "${selector}"`, {
-              scrollLeft: element.scrollLeft,
-              scrollWidth: element.scrollWidth,
-              clientWidth: element.clientWidth,
-              overflowX: getComputedStyle(element).overflowX,
-            });
-
-            // Reset scroll if this element has scrollLeft > 0
-            if (element.scrollLeft > 0) {
-              console.log(`[GanttContainer] Resetting scrollLeft from ${element.scrollLeft} to 0`);
-              element.scrollLeft = 0;
-              foundScrollable = true;
-            }
-          }
+          const element = document.querySelector(selector) as HTMLElement | null;
+          if (element && element.scrollLeft > 0) element.scrollLeft = 0;
         }
-
-        if (!foundScrollable) {
-          console.warn('[GanttContainer] Could not find grid element with scroll to reset');
-          // Log all elements with wx- classes for debugging
-          const wxElements = document.querySelectorAll('[class*="wx-"]');
-          console.log('[GanttContainer] Found elements with wx- classes:', Array.from(wxElements).map(el => el.className));
-        } else {
-          console.log('[GanttContainer] Successfully reset grid scroll position');
-        }
-      } catch (error) {
-        console.error('[GanttContainer] Error resetting grid scroll:', error);
+      } catch {
+        /* scroll reset is best-effort */
       }
     }, 200); // Increased delay to ensure DOM is fully ready
   }
@@ -1020,28 +1613,79 @@
   verified by the E2E render spec.
 -->
 
-<div class="og-bases-gantt" bind:this={rootEl}>
-  <Willow fonts={false}>
-    <!-- Read-only banner (R5/R11): shown whenever the active source has no
-         write capability, regardless of which source is active. Copy varies on
-         whether TaskNotes is present (see readOnlyBannerText). -->
-    {#if readOnly}
-      <div class="og-readonly-banner" role="status">
-        <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
-        <span class="og-readonly-text">{readOnlyBannerText}</span>
-      </div>
-    {/if}
+<div
+  class="og-bases-gantt"
+  bind:this={rootEl}
+>
+  <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
+       tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
+       (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
+  {#if showToolbar}
+    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} />
+  {/if}
 
-    <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
-         isn't a writable TaskNotes date field, so it fell back to the default. -->
-    {#if dateMappingNotice}
-      <div class="og-readonly-banner" role="status">
-        <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
-        <span class="og-readonly-text">{dateMappingNotice}</span>
-      </div>
+  <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
+       the full nested core → grid → gantt theme layers, set the load-bearing
+       `wx-theme` context (so the dependency Tooltip's Portal themes correctly),
+       and guarantee their CSS. Chosen reactively by effectiveIsDark; the {#if}
+       only re-renders on an actual theme flip (effectiveIsDark is stable across
+       data updates), and the flip reseeds the chart's data (see
+       maybeReseedForThemeFlip) so the remounted <Gantt> shows current data.
+       fonts={false} omits the font CDN <link> (CSP). -->
+  <!-- The computed host height (plan 003 U2) is applied HERE, on the chart
+       region — NOT the outer container — so the optional toolbar and notice
+       banners add their height ABOVE the chart instead of subtracting from it.
+       Applied to the outer container, chrome shrank the chart below its content
+       height; collapsed to a single root that clipped the only row. This element
+       is the definite-height ancestor SVAR's `height:100%` chain resolves against. -->
+  <div class="og-chart-area" style={`height: ${hostHeightPx}px;`}>
+    {#if effectiveIsDark}
+      <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
+    {:else}
+      <Willow fonts={false}>{@render chartBody()}</Willow>
     {/if}
+  </div>
+</div>
 
-    <div class="gtcell">
+{#snippet chartBody()}
+  <!-- Read-only banner (R5/R11): shown whenever the active source has no
+       write capability, regardless of which source is active. Copy varies on
+       whether TaskNotes is present (see readOnlyBannerText). -->
+  {#if readOnly}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'lock'}></span>
+      <span class="og-readonly-text">{readOnlyBannerText}</span>
+    </div>
+  {/if}
+
+  <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
+       isn't a writable TaskNotes date field, so it fell back to the default. -->
+  {#if dateMappingNotice}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'alert-triangle'}></span>
+      <span class="og-readonly-text">{dateMappingNotice}</span>
+    </div>
+  {/if}
+
+  <!-- Retained incomplete-date-parent notice (#161 U8/R8): a date filter is OFF but
+       some undated/partial-date parents stay visible because a dated child keeps them. -->
+  {#if retainedAncestorNotice}
+    <div class="og-readonly-banner" role="status">
+      <span class="og-readonly-icon" use:lucideIcon={'info'}></span>
+      <span class="og-readonly-text">{retainedAncestorNotice}</span>
+    </div>
+  {/if}
+
+  <div class="gtcell">
+    <!-- Full screen via SVAR's official <Fullscreen> component (plan 003 U3/U4;
+         https://docs.svar.dev/svelte/gantt/guides/fullscreen/): it wraps the
+         chart, uses the native browser Fullscreen API, and exits on Esc itself —
+         no bespoke overlay/reparent/z-index. We pass our own floating lucide
+         button through its `toggleButton` slot (the default uses a wxi-* icon,
+         blank with fonts disabled). The button + zoom controls render inside the
+         fullscreen node, so they stay visible (and the exit affordance works) in
+         full screen. -->
+    <Fullscreen toggleButton={fullscreenToggle}>
       <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
            targeted api.exec actions (diff-sync $effect above) so SVAR never
            re-inits its store and the user's zoom/scroll/selection survive. -->
@@ -1062,7 +1706,44 @@
         />
       </Tooltip>
 
-      <!-- Floating Zoom Controls (OG-81) -->
+    <!-- Floating controls (OG-81 zoom + U7 collapse-all). Two separate pills in a
+         bottom-right stack with a small gap between them — the collapse/expand
+         toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
+    <div class="zoom-controls-stack">
+      <!-- Reset ephemeral column sort (plan 2026-06-22-002, U3/R5). Shown ONLY
+           while an ephemeral sort is active; clicking restores the Base order
+           (same path as the third header click). SVAR's lit column-header arrow
+           is the active-column cue, so no extra banner. Lucide `list-restart`
+           (wxi-* fonts are disabled). -->
+      {#if ephemeralSort}
+        <div class="zoom-controls">
+          <button
+            class="zoom-btn reset-sort"
+            onclick={clearEphemeralSort}
+            aria-label="Reset to Base sort"
+            title="Reset to Base sort"
+          >
+            <span class="zoom-icon" use:lucideIcon={'list-restart'}></span>
+          </button>
+        </div>
+      {/if}
+      <!-- Collapse-all / expand-all (U7). Hidden when the tree has no parents
+           (nothing to collapse). Lucide icons render (wxi-* fonts are disabled). -->
+      {#if parentInstanceIds.size > 0}
+        <div class="zoom-controls">
+          <button
+            class="zoom-btn collapse-all"
+            onclick={toggleAllCollapse}
+            aria-label={allCollapsed ? 'Expand all' : 'Collapse all'}
+            title={allCollapsed ? 'Expand all' : 'Collapse all'}
+          >
+            <span
+              class="zoom-icon"
+              use:lucideIcon={allCollapsed ? 'chevrons-up-down' : 'chevrons-down-up'}
+            ></span>
+          </button>
+        </div>
+      {/if}
       <div class="zoom-controls">
         <button
           class="zoom-btn zoom-in"
@@ -1082,20 +1763,61 @@
         </button>
       </div>
     </div>
+    </Fullscreen>
+  </div>
 
-    <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
-         Left/double-click and right-click on bars route through onBarActivate /
-         onBarContextMenu to the TaskNotes interaction service. -->
-  </Willow>
-</div>
+  <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
+       Left/double-click and right-click on bars route through onBarActivate /
+       onBarContextMenu to the TaskNotes interaction service. -->
+{/snippet}
+
+<!-- Our floating full-screen button, passed to <Fullscreen> via its toggleButton
+     slot. `toggle` enters/exits; `inFull` reflects state (icon + label, R7).
+     Always visible on the chart, independent of the optional theme toolbar (R5). -->
+{#snippet fullscreenToggle(toggle: FullscreenToggleAction, inFull: boolean)}
+  <button
+    class="og-fullscreen-toggle"
+    onclick={toggle}
+    aria-label={inFull ? 'Exit full screen' : 'Full screen'}
+    title={inFull ? 'Exit full screen' : 'Full screen'}
+    aria-pressed={inFull}
+  >
+    <span class="og-fullscreen-icon" use:lucideIcon={inFull ? 'minimize' : 'maximize'}></span>
+  </button>
+{/snippet}
 
 <style>
   .og-bases-gantt {
-    height: 400px;
     width: 100%;
-    min-height: 400px;
+    /* No explicit height here: the computed chart height is applied to
+       `.og-chart-area` (plan 003 U2 / collapse-clip fix), so this outer container
+       sizes to its content — the optional toolbar/banners plus the chart region.
+       Applying the chart height here instead made chrome subtract from the chart,
+       clipping a single collapsed root. Full screen is unaffected: SVAR's
+       <Fullscreen> promotes its own inner node to the native top layer. */
+    /* Column layout so the toolbar stacks above the chart region. */
+    display: flex;
+    flex-direction: column;
     /* Use Obsidian's font stack since we disabled SVAR fonts */
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* Full screen is the native browser Fullscreen API via SVAR's <Fullscreen>
+     component (its `.wx-fullscreen` node is promoted to the top layer at screen
+     size) — no in-plugin overlay/position/z-index needed. The component's
+     `::backdrop` is themed from the inherited --wx-* vars. */
+
+  /* SVAR theme component host: fills the remaining height below the toolbar
+     (flex child, min-height:0 so it can shrink within the flex column rather
+     than overflow). The <Willow>/<WillowDark> render their own
+     `<div class="wx-theme wx-willow-theme" style="height:100%">` inside this. */
+  .og-chart-area {
+    /* Height is set inline (plan 003 U2 / collapse-clip fix): this region owns
+       the computed chart height so the toolbar/banners sit above it rather than
+       eating into it. `flex: none` so the flex column never shrinks it below the
+       explicit height. */
+    flex: none;
+    min-height: 0;
   }
 
   .gtcell {
@@ -1117,14 +1839,23 @@
     touch-action: none;
   }
 
-  /* Floating Zoom Controls - Google Maps style (OG-81) */
-  .zoom-controls {
+  /* Floating controls stack (OG-81 zoom + U7 collapse-all), bottom-right. The
+     `gap` separates the collapse/expand pill from the zoom pill; within each pill
+     the buttons stay flush (so zoom +/− have no gap between them). */
+  .zoom-controls-stack {
     position: absolute;
     bottom: 16px;
     right: 16px;
     display: flex;
     flex-direction: column;
+    gap: 6px;
     z-index: 100;
+  }
+
+  /* Each control pill - Google Maps style (OG-81). */
+  .zoom-controls {
+    display: flex;
+    flex-direction: column;
     border-radius: 4px;
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1162,6 +1893,45 @@
 
   /* Container for Lucide icon (OG-81) */
   .zoom-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+  }
+
+  /* Floating full-screen toggle (plan 003 U4): top-right, clear of the
+     bottom-right zoom controls. Always visible on the chart. */
+  .og-fullscreen-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 4px;
+    background-color: #ffffff;
+    color: #5f6368;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .og-fullscreen-toggle:active {
+    background-color: #e0e0e0;
+  }
+
+  .og-fullscreen-icon {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1302,6 +2072,39 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
   }
 
+  /*
+   * Grid header sort indicator (plan 2026-06-22-002): SVAR renders the active
+   * sort direction as `<i class="wxi-arrow-up|down">` inside the header's
+   * `.wx-sort`, but the wxi icon font is disabled (`fonts={false}`, CSP), so the
+   * glyph is blank — the sort STATE is tracked (aria-sort flips) but there is no
+   * visible cue. Render an inline-SVG chevron masked with the header text colour
+   * (`currentColor`) so the active column + direction read in both light and dark
+   * themes. Mask (not background-image) so it inherits the themed text colour;
+   * Obsidian is Chromium, so `-webkit-mask` alpha masking is reliable.
+   */
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-up),
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-down) {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background-color: currentColor;
+    opacity: 0.8;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-up) {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 15-6-6-6 6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 15-6-6-6 6'/%3E%3C/svg%3E");
+  }
+  .og-bases-gantt :global(.wx-sort .wxi-arrow-down) {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+
   /* OG-82: Hide the decorative spike/arrow pseudo-elements from SVAR Resizer */
   .og-bases-gantt :global(.wx-button-expand-content::before),
   .og-bases-gantt :global(.wx-button-expand-content::after) {
@@ -1326,6 +2129,44 @@
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
+  }
+
+  /*
+   * Instance cues (U6). SVAR emits a registered task type as a bare class on the
+   * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
+   * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no
+   * glyph badges. Both treatments are deliberately subtle and stack (a bar can
+   * be replicated AND context); tune the exact look here.
+   *
+   * Replicated: the same note shown in more than one place. A faint diagonal
+   * hatch overlays every duplicate equally — none is privileged — without
+   * overriding the bar's status colour. The ::after fills the absolutely-
+   * positioned bar and ignores pointer events so drag/click still hit the bar.
+   */
+  .og-bases-gantt :global(.wx-bar.og-replicated)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.3) 0,
+      rgba(255, 255, 255, 0.3) 2px,
+      transparent 2px,
+      transparent 6px
+    );
+  }
+
+  /*
+   * Context: a Show-all descendant that does not itself match the Base filter —
+   * pulled in only to show structure. Render it muted so matched rows stay
+   * visually dominant.
+   */
+  .og-bases-gantt :global(.wx-bar.og-context) {
+    /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
+       matches DEFAULT_CONTEXT_OPACITY. */
+    opacity: var(--og-context-opacity, 0.55);
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

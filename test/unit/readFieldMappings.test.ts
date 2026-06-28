@@ -15,12 +15,12 @@ function getter(values: Record<string, unknown>): (key: string) => unknown {
 }
 
 describe("readFieldMappings", () => {
-  it("falls back to the base defaults when nothing is configured", () => {
+  it("defaults every property to unset (empty) — no hardcoded property names", () => {
     expect(readFieldMappings(getter({}))).toEqual({
       textProperty: "",
       startProperty: "",
       endProperty: "",
-      progressProperty: "note.progress",
+      progressProperty: "",
       parentProperty: "",
       statusProperty: "",
     });
@@ -33,8 +33,8 @@ describe("readFieldMappings", () => {
     });
     expect(mappings.startProperty).toBe("note.start");
     expect(mappings.endProperty).toBe("note.due");
-    // Non-overridden defaults are unchanged.
-    expect(mappings.progressProperty).toBe("note.progress");
+    // Non-overridden properties keep the empty (unset) default.
+    expect(mappings.progressProperty).toBe("");
   });
 
   it("uses configured values over defaults and reads via the tngantt_ keys", () => {

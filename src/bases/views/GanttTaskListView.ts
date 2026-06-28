@@ -8,9 +8,7 @@
  * @module bases/views/GanttTaskListView
  */
 
-import { setIcon } from 'obsidian';
-import { GanttBasesView } from '../GanttBasesView';
-import type { QueryController } from '../register';
+import { setIcon, BasesView, type QueryController } from 'obsidian';
 import { BasesDataAdapter } from '../services/BasesDataAdapter';
 import { readFieldMappings } from '../fieldMappingConfig';
 import { resolveParentLink } from '../parentLink';
@@ -34,7 +32,7 @@ interface GanttTask {
 /**
  * Simple text-based task list view showing hierarchy
  */
-export class GanttTaskListView extends GanttBasesView {
+export class GanttTaskListView extends BasesView {
   readonly type = 'obsidianGanttTaskList';
   private readonly containerEl: HTMLElement;
   private readonly adapter: BasesDataAdapter;
@@ -138,15 +136,12 @@ export class GanttTaskListView extends GanttBasesView {
   /**
    * Get field mappings from view config.
    *
-   * Uses the shared reader (single source of truth for the `tngantt_` keys),
-   * overriding start/end to concrete properties since this view renders dates
-   * directly rather than going through the gantt controller's fallback.
+   * Uses the shared reader (single source of truth for the `tngantt_` keys).
+   * Property-agnostic: reads the user's configured start/end properties with no
+   * hardcoded date-property defaults — an unset field simply yields no date.
    */
   private getFieldMappings(): FieldMappings {
-    return readFieldMappings((key) => this.config?.get(key), {
-      startProperty: 'note.start',
-      endProperty: 'note.due',
-    });
+    return readFieldMappings((key) => this.config?.get(key));
   }
 
   /**

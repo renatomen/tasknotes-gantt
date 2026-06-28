@@ -32,6 +32,10 @@ interface FakeApiOptions {
   ready?: () => Promise<void>;
   tasks?: TaskNotesTaskInfo[];
   dependencies?: Record<string, TaskNotesDependencyEdge[]>;
+  /** When provided, adds `relationships.subtasks`; omitted ⇒ accessor absent. */
+  subtasks?: Record<string, TaskNotesTaskInfo[]>;
+  /** When provided, adds `relationships.parents`; omitted ⇒ accessor absent. */
+  parents?: Record<string, TaskNotesTaskInfo[]>;
   hasWrite?: boolean;
   omitHasCapability?: boolean;
   /** When provided, `api.config()` returns `{ statuses }`; omitted ⇒ no `config`. */
@@ -74,6 +78,12 @@ function makeApi(opts: FakeApiOptions = {}) {
     },
     relationships: {
       dependencies: (path: string) => opts.dependencies?.[path] ?? [],
+      ...(opts.subtasks
+        ? { subtasks: (path: string) => opts.subtasks![path] ?? [] }
+        : {}),
+      ...(opts.parents
+        ? { parents: (path: string) => opts.parents![path] ?? [] }
+        : {}),
     },
     events: {
       on: onSpy,
@@ -641,6 +651,134 @@ describe('TaskNotesSource', () => {
 
       // Act / Assert
       expect(await source!.getDependencies('x.md')).toEqual([]);
+    });
+  });
+
+  describe('relationships — relationship index / parents (plan #161 U1)', () => {
+    it('getRelationshipIndex inverts parents over the task list into childrenByPath + parentsByPath', async () => {
+      // P.md is the parent of child-a + child-b; getRelationshipIndex lists all
+      // tasks, resolves each task's parents, and inverts into children.
+      const { api } = makeApi({
+        tasks: [
+          { path: 'P.md', title: 'Parent' },
+          { path: 'child-a.md', title: 'Child A', scheduled: '2026-01-01', due: '2026-01-05', status: 'open' },
+          { path: 'child-b.md', title: 'Child B' },
+        ],
+        parents: {
+          'child-a.md': [{ path: 'P.md' }],
+          'child-b.md': [{ path: 'P.md' }],
+        },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      const index = await source!.getRelationshipIndex();
+
+      const children = index.childrenByPath.get('P.md') ?? [];
+      expect(children.map((c) => c.path).sort()).toEqual(['child-a.md', 'child-b.md']);
+      // Children are mapped to raw SourceTasks (dates parsed, parents owned by resolver).
+      const childA = children.find((c) => c.path === 'child-a.md')!;
+      expect(childA).toMatchObject({ text: 'Child A', status: 'open', progress: null, parents: [] });
+      expect(childA.start).toBeInstanceOf(Date);
+      expect(childA.end).toBeInstanceOf(Date);
+
+      expect(index.parentsByPath.get('child-a.md')).toEqual(['P.md']);
+      expect(index.parentsByPath.get('child-b.md')).toEqual(['P.md']);
+      // Childless / parentless tasks are absent from the respective maps.
+      expect(index.childrenByPath.has('child-a.md')).toBe(false);
+      expect(index.parentsByPath.has('P.md')).toBe(false);
+    });
+
+    it('getRelationshipIndex records multi-parent children under each parent', async () => {
+      const { api } = makeApi({
+        tasks: [{ path: 'P1.md' }, { path: 'P2.md' }, { path: 'C.md' }],
+        parents: { 'C.md': [{ path: 'P1.md' }, { path: 'P2.md' }] },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      const index = await source!.getRelationshipIndex();
+      expect(index.childrenByPath.get('P1.md')!.map((c) => c.path)).toEqual(['C.md']);
+      expect(index.childrenByPath.get('P2.md')!.map((c) => c.path)).toEqual(['C.md']);
+      expect(index.parentsByPath.get('C.md')).toEqual(['P1.md', 'P2.md']);
+    });
+
+    it('getRelationshipIndex signals NOT-READY (null) when the task list is empty / cold (cache-poisoning guard #161)', async () => {
+      // An empty task list means TaskNotes' metadataCache scan has not warmed
+      // yet (api.tasks.list → getAllTasks scans Obsidian's metadataCache, which
+      // can be cold at view-mount — notably on a warm restart that loads the
+      // persisted cache WITHOUT firing per-file change events, so no task.* event
+      // ever invalidates a stale read). Returning a non-null empty index here
+      // would let the controller cache the cold read and stick Show-all at the
+      // matched-only count forever. null = "not ready, retry next build".
+      const empty = await TaskNotesSource.create(makeApp(makeApi({ tasks: [] }).api));
+      const idx = await empty!.getRelationshipIndex();
+      expect(idx).toBeNull();
+    });
+
+    it('getRelationshipIndex is READY (non-null, empty maps) when ≥1 task exists with no relationships', async () => {
+      // A warm task list with zero parent/child edges is AUTHORITATIVE, not cold:
+      // it returns a non-null index with empty maps so the controller caches it
+      // and never re-runs the full-vault scan. This is the no-relationships-vault
+      // storm guard — the signal distinguishes "cold" (0 tasks) from "genuinely
+      // empty" (≥1 task, no edges), so the latter is not re-fetched on every notify.
+      const { api } = makeApi({ tasks: [{ path: 'a.md' }, { path: 'b.md' }] });
+      const source = await TaskNotesSource.create(makeApp(api));
+      const idx = await source!.getRelationshipIndex();
+      expect(idx).not.toBeNull();
+      expect(idx!.childrenByPath.size).toBe(0);
+      expect(idx!.parentsByPath.size).toBe(0);
+    });
+
+    it('getRelationshipIndex degrades gracefully when parents resolution throws', async () => {
+      const { api } = makeApi({ tasks: [{ path: 'a.md' }], parents: { 'a.md': [] } });
+      api.relationships!.parents = () => {
+        throw new Error('boom');
+      };
+      const source = await TaskNotesSource.create(makeApp(api));
+      const idx = await source!.getRelationshipIndex();
+      // getParents swallows the throw → no parents → empty inversion, no throw.
+      // The task list is non-empty, so the index is still READY (non-null).
+      expect(idx).not.toBeNull();
+      expect(idx!.childrenByPath.size).toBe(0);
+      expect(idx!.parentsByPath.size).toBe(0);
+    });
+
+    it('getParents returns resolved parent paths, filtering junk', async () => {
+      const { api } = makeApi({
+        parents: {
+          'child.md': [{ path: 'p1.md' }, { title: 'no path' } as TaskNotesTaskInfo, { path: 'p2.md' }],
+        },
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+      expect(await source!.getParents('child.md')).toEqual(['p1.md', 'p2.md']);
+    });
+
+    it('getParents returns [] when the accessor is absent', async () => {
+      const source = await TaskNotesSource.create(makeApp(makeApi().api));
+      expect(await source!.getParents('x.md')).toEqual([]);
+    });
+
+    it('getParents returns [] when the accessor throws', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = () => {
+        throw new Error('boom');
+      };
+      const throwing = await TaskNotesSource.create(makeApp(api));
+      expect(await throwing!.getParents('x.md')).toEqual([]);
+    });
+
+    it('getParents returns [] when the accessor returns a non-array', async () => {
+      const { api } = makeApi({ parents: { 'x.md': [] } });
+      api.relationships!.parents = (() => null) as unknown as typeof api.relationships.parents;
+      const bad = await TaskNotesSource.create(makeApp(api));
+      expect(await bad!.getParents('x.md')).toEqual([]);
+    });
+
+    it('subscribes to task.projects.changed for hierarchy freshness', async () => {
+      expect(TASKNOTES_CHANGE_EVENTS).toContain('task.projects.changed');
+      const { api, onSpy } = makeApi();
+      const source = await TaskNotesSource.create(makeApp(api));
+      const off = source!.subscribe(() => {});
+      const names = onSpy.mock.calls.map((c) => c[0]);
+      expect(names).toContain('task.projects.changed');
+      off();
     });
   });
 

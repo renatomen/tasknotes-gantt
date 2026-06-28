@@ -1,0 +1,53 @@
+name: Perf (full-stack)
+
+# The heavy generated-vault full-stack perf spec (Layer 2, #161 perf plan U5/U6)
+# runs on a schedule + on demand — NOT per-PR — to keep PR CI fast (KD5). The
+# fast deterministic Layer-1 gate runs per-PR in ci.yml.
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Least privilege: read the repo only. (No prior-run artifact download yet — the
+# relative-regression trend comparison is inert until a baseline exists, per the
+# plan; adding it later would require `actions: read`.)
+permissions:
+  contents: read
+
+jobs:
+  fullstack-perf:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        # --ignore-scripts: supply-chain hardening (see ci.yml).
+        run: npm ci --ignore-scripts
+      - name: Prepare temp vault path
+        shell: pwsh
+        run: |
+          $vault = "$Env:RUNNER_TEMP\\vault"
+          echo "OBSIDIAN_TEST_VAULT=$vault" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path $vault | Out-Null
+      - name: Build plugin
+        # The Vite build installs the plugin into OBSIDIAN_TEST_VAULT (closeBundle).
+        run: npm run build
+      - name: Run full-stack perf spec (WDIO)
+        # The spec GENERATES the large vault itself (U2 emitter) into a temp dir.
+        # GITHUB_TOKEN authenticates the TaskNotes release download (see ci.yml).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run perf:e2e
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-fullstack-artifacts
+          path: |
+            .wdio-*
+            test-results
+            **/wdio-*.log
+          if-no-files-found: ignore

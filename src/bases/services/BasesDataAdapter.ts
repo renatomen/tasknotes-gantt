@@ -9,7 +9,7 @@
  * @module bases/services/BasesDataAdapter
  */
 
-import type { BasesEntry, BasesPropertyId } from "../register";
+import type { BasesEntryLike } from "./../types/bases-entry";
 
 /**
  * Options for number conversion
@@ -302,7 +302,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract (e.g., "note.start", "file.name")
    * @returns The extracted value or null if empty
    */
-  extractValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
+  extractValue(entry: BasesEntryLike, propertyId: string): unknown {
     // Parse property ID to determine source
     const parts = propertyId.split('.');
     const prefix = parts[0];
@@ -449,7 +449,7 @@ export class BasesDataAdapter {
    * @param textProperty - The property ID for text (empty string = use basename)
    * @returns The text value or file basename
    */
-  extractText(entry: BasesEntry, textProperty: BasesPropertyId): string {
+  extractText(entry: BasesEntryLike, textProperty: string): string {
     // If textProperty is empty string, always use file.basename
     if (textProperty === "") {
       return entry.file.basename;
@@ -476,8 +476,8 @@ export class BasesDataAdapter {
    * @returns The raw status string, or null when unmapped/empty/missing
    */
   extractStatus(
-    entry: BasesEntry,
-    statusProperty: BasesPropertyId | undefined,
+    entry: BasesEntryLike,
+    statusProperty: string | undefined,
   ): string | null {
     if (!statusProperty) {
       return null;
@@ -499,7 +499,7 @@ export class BasesDataAdapter {
    * @param dateProperty - The property ID for the date
    * @returns Date object or null if missing/invalid
    */
-  extractDate(entry: BasesEntry, dateProperty: BasesPropertyId): Date | null {
+  extractDate(entry: BasesEntryLike, dateProperty: string): Date | null {
     const value = this.extractValue(entry, dateProperty);
     const date = this.convertToDate(value);
     // Diagnostic: when a mapped date drives the bar (Bases-scoped views), a
@@ -524,7 +524,7 @@ export class BasesDataAdapter {
    * @param progressProperty - The property ID for progress
    * @returns Progress number (0-100) or null if missing
    */
-  extractProgress(entry: BasesEntry, progressProperty: BasesPropertyId): number | null {
+  extractProgress(entry: BasesEntryLike, progressProperty: string): number | null {
     const value = this.extractValue(entry, progressProperty);
     return this.convertToNumber(value, { min: 0, max: 100 });
   }
@@ -536,7 +536,7 @@ export class BasesDataAdapter {
    * @param propertyId - The property ID to extract
    * @returns Formatted value suitable for display, or null if missing
    */
-  extractPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): string | number | null {
+  extractPropertyValue(entry: BasesEntryLike, propertyId: string): string | number | null {
     const value = this.extractValue(entry, propertyId);
 
     if (value === null || value === undefined) {
@@ -572,7 +572,7 @@ export class BasesDataAdapter {
    * @param parentProperty - The property ID for parent references
    * @returns Array of parent file paths (empty if no parents)
    */
-  extractParents(entry: BasesEntry, parentProperty: BasesPropertyId): string[] {
+  extractParents(entry: BasesEntryLike, parentProperty: string): string[] {
     // Return empty array if parent property not configured
     if (!parentProperty || parentProperty === '') {
       return [];

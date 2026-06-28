@@ -34,16 +34,17 @@ export interface FieldMappingDefaults {
 }
 
 /**
- * Default fallbacks. `startProperty`/`endProperty` default to "unset" (empty):
- * the gantt controller then resolves them to TaskNotes' scheduled/due (or the
- * legacy note.start/note.due). Views that render dates directly (the task-list
- * view) override start/end with concrete properties.
+ * Default fallbacks: every property defaults to "unset" (empty). The plugins are
+ * property-agnostic — they NEVER assume an Obsidian/TaskNotes property name. The
+ * gantt controller resolves start/end from TaskNotes' field config when present
+ * (see `GanttController.applyDateFieldMapping`); otherwise the user maps fields via
+ * the view config. An unset property simply yields no value for that field.
  */
 const BASE_DEFAULTS: FieldMappingDefaults = {
   textProperty: '',
   startProperty: '',
   endProperty: '',
-  progressProperty: 'note.progress',
+  progressProperty: '',
   parentProperty: '',
   statusProperty: '',
 };
@@ -52,8 +53,8 @@ const BASE_DEFAULTS: FieldMappingDefaults = {
  * Read the field mappings from a view config via the canonical `tngantt_` keys.
  *
  * @param get      a `config.get`-style reader (e.g. `(k) => this.config.get(k)`)
- * @param defaults per-view fallback overrides (e.g. the task-list view defaults
- *                 start/end to `note.start`/`note.due` rather than "unset")
+ * @param defaults optional per-view default overrides for unset keys (all default
+ *                 to "unset"/empty — no property name is assumed)
  */
 export function readFieldMappings(
   get: (key: string) => unknown,
