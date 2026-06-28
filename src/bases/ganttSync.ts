@@ -561,3 +561,51 @@ export function planLinkSync(prev: ReadonlyMap<string, RenderLink>, next: Readon
   }
   return { deletes, adds };
 }
+
+/**
+ * Default structural-op threshold above which a sync should BULK-RESEED the SVAR
+ * store instead of applying the diff instance-by-instance (#161 U6).
+ *
+ * Rationale (plan 2026-06-28-002, KTD3): a per-instance `api.exec` diff preserves
+ * SVAR view state (zoom/scroll) and is the right tool for SMALL changes — an
+ * interactive drag is 1–3 structural ops, a row-visibility toggle is 0 (it is a
+ * display filter, not a task-set change). But a wholesale set replacement (search
+ * clear / filter change re-expands the whole companion tree → hundreds–thousands
+ * of adds/deletes) costs ~one DOM mutation storm per swing; a burst of those is the
+ * ~25s #161 churn. Above this count, a single virtualized re-init (reseed) is both
+ * cheaper and correct, and the lost zoom/scroll is meaningless because the displayed
+ * set changed entirely. The value sits well above any realistic interactive edit and
+ * well below a full set swap; it is intentionally one tunable constant.
+ */
+export const BULK_RESEED_OP_THRESHOLD = 150;
+
+/**
+ * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
+ * incrementally (#161 U6). Counts only the STRUCTURAL ops that materialise/remove
+ * rows — task `adds + deletes + moves` plus link `adds + deletes`. In-place field
+ * `updates` are intentionally excluded: a value-only refresh of a stable row set is
+ * cheap incrementally and must keep its view state (so a bulk field refresh of a
+ * large set still stays incremental — plan R2).
+ *
+ * Pure (no SVAR/DOM) so it unit-tests in isolation; the caller (`GanttContainer`)
+ * asks the question and branches.
+ *
+ * @param plan - the task sync plan from {@link planTaskSync}.
+ * @param linkPlan - the link sync plan from {@link planLinkSync}.
+ * @param opts.threshold - override the default {@link BULK_RESEED_OP_THRESHOLD}.
+ * @returns true when the structural op count strictly exceeds the threshold.
+ */
+export function shouldBulkReseed(
+  plan: TaskSyncPlan,
+  linkPlan: LinkSyncPlan,
+  opts: { threshold?: number } = {},
+): boolean {
+  const threshold = opts.threshold ?? BULK_RESEED_OP_THRESHOLD;
+  const structuralOps =
+    plan.adds.length +
+    plan.deletes.length +
+    plan.moves.length +
+    linkPlan.adds.length +
+    linkPlan.deletes.length;
+  return structuralOps > threshold;
+}
