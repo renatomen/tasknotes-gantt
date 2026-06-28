@@ -63,5 +63,15 @@
   },
   "dependencies": {
     "@svar-ui/svelte-gantt": "^2.7.0"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "serialize-javascript": "^7.0.5",
+    "mocha": {
+      "js-yaml": "4.2.0"
+    },
+    "@eslint/eslintrc": {
+      "js-yaml": "4.2.0"
+    }
   }
 }
