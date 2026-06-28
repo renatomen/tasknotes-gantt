@@ -1,12 +1,13 @@
 ---
-title: "gantt-column-sort e2e: intermittent first-mount grid-header race (monitor; re-run, don't chase)"
+title: "gantt-column-sort e2e: intermittent first-mount grid-header race (RESOLVED — gate readiness on the specific clicked header)"
 date: 2026-06-28
+resolved: 2026-06-29
 category: developer-experience
 module: gantt e2e testing / SVAR grid
 problem_type: developer_experience
 component: testing_framework
 severity: low
-status: monitoring
+status: resolved
 applies_when:
   - The CI `e2e` job fails ONLY on `test/specs/gantt-column-sort.e2e.ts`
   - The error is "Column header \"<id>\" did not become clickable" from `sortByColumn` (the 10s header-click waitUntil)
@@ -26,6 +27,30 @@ tags:
   - column-sort
   - first-mount-race
 ---
+
+## Resolution (2026-06-29)
+
+The flake crossed the "~1-in-3 CI runs" merge-tax threshold below (~50% by PR #181),
+so it was fixed for real rather than re-run. Root cause confirmed: `ensureGanttReady`
+gated on **any** `[data-header-id]` cell, which the forced-first name column (`text`)
+satisfies early — but every test clicks the **`note.due` PROPERTY column**, whose
+header arrives on a *later* SVAR store re-init (the property columns are rebuilt when
+the Base's column config settles / a reseed re-inits the store). So readiness passed
+while the column the test was about to click was still absent, and `sortByColumn`
+burned its 10s click budget waiting for it.
+
+**Durable fix** (`test/specs/gantt-column-sort.e2e.ts`): gate `ensureGanttReady` on
+the **specific** clicked header via a new `isColumnHeaderPresent(columnId)` predicate
+that reuses `clickColumnHeader`'s exact stripped-`data-header-id` matcher, so the gate
+and the click can never disagree on "the header exists." The clicked column id is
+hoisted to a `SORT_COLUMN_ID` constant (used by the gate and all click sites), and the
+now-redundant generic `headerReady` field was dropped from `SortState`/`readSortState`.
+This folds the property-column settle lag into `ensureGanttReady`'s 90s budget instead
+of `sortByColumn`'s 10s budget. This is the "wait for the header the consumer actually
+reads" application of [[readiness-signal-keys-on-data-its-consumer-reads]]. Verified
+green across 4 consecutive local runs (20/20). If the residual *post-click* re-render
+window (option 1 below) ever resurfaces, add the click-then-assert-registered retry on
+top of this gate — they are complementary.
 
 ## What
 
