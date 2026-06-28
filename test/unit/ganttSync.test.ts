@@ -20,12 +20,17 @@ import {
   planReorder,
   baseSortDescriptor,
   taskStateKey,
+  shouldBulkReseed,
+  structuralOpCount,
+  BULK_RESEED_OP_THRESHOLD,
   DATE_STATUS_TYPE,
   buildInstanceCueTaskTypes,
   REPLICATED_TYPE,
   CONTEXT_TYPE,
   type SvarTask,
   type SvarTaskInputs,
+  type TaskSyncPlan,
+  type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug } from '../../src/bases/statusColor';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
@@ -537,5 +542,84 @@ describe('baseSortDescriptor', () => {
       { property: 'a', direction: 'ASC' },
     ]);
     expect(ab).not.toBe(ba);
+  });
+});
+
+describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () => {
+  // The decision only reads array lengths, so plans are built with length-accurate
+  // stub arrays (content is irrelevant to the structural-op count under test).
+  const stub = <T>(n: number): T[] => Array.from({ length: n }, (_, i) => ({ id: `x${i}` } as unknown as T));
+  function plan(c: { adds?: number; deletes?: number; moves?: number; updates?: number }): TaskSyncPlan {
+    return {
+      adds: stub<SvarTask>(c.adds ?? 0),
+      deletes: Array.from({ length: c.deletes ?? 0 }, (_, i) => `d${i}`),
+      moves: Array.from({ length: c.moves ?? 0 }, (_, i) => ({ id: `m${i}`, parent: 0 as const })),
+      updates: Array.from({ length: c.updates ?? 0 }, (_, i) => ({ id: `u${i}`, task: { id: `u${i}` } as unknown as SvarTask })),
+    };
+  }
+  function linkPlan(c: { adds?: number; deletes?: number }): LinkSyncPlan {
+    return { adds: stub<RenderLink>(c.adds ?? 0), deletes: Array.from({ length: c.deletes ?? 0 }, (_, i) => `l${i}`) };
+  }
+
+  it('returns false for an empty plan (a NOOP sync is never a reseed)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({}))).toBe(false);
+  });
+
+  it('returns false for a small interactive edit (1 move + 2 updates)', () => {
+    expect(shouldBulkReseed(plan({ moves: 1, updates: 2 }), linkPlan({}))).toBe(false);
+  });
+
+  it('keeps a large field-only refresh incremental (updates are excluded from the count)', () => {
+    // 500 in-place updates, zero structural ops → stays incremental, preserving view state (R2).
+    expect(shouldBulkReseed(plan({ updates: 500 }), linkPlan({}))).toBe(false);
+  });
+
+  it('returns true for a wholesale add of many tasks (search→clear re-expands the tree)', () => {
+    expect(shouldBulkReseed(plan({ adds: 800 }), linkPlan({}))).toBe(true);
+  });
+
+  it('returns true for a wholesale delete of many tasks (search filters to empty)', () => {
+    expect(shouldBulkReseed(plan({ deletes: 800 }), linkPlan({}))).toBe(true);
+  });
+
+  it('counts adds + deletes + moves together for a mixed swap', () => {
+    const justOver = plan({
+      adds: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+      deletes: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+      moves: Math.ceil((BULK_RESEED_OP_THRESHOLD + 1) / 3),
+    });
+    expect(shouldBulkReseed(justOver, linkPlan({}))).toBe(true);
+  });
+
+  it('returns false when structural ops EQUAL the threshold (not strictly over)', () => {
+    expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD }), linkPlan({}))).toBe(false);
+  });
+
+  it('returns true when structural ops exceed the threshold by one (strict greater-than)', () => {
+    expect(shouldBulkReseed(plan({ adds: BULK_RESEED_OP_THRESHOLD + 1 }), linkPlan({}))).toBe(true);
+  });
+
+  it('counts link adds + deletes toward the magnitude (0 task ops, many link ops)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD, deletes: 1 }))).toBe(true);
+  });
+
+  it('applies strict greater-than to link ops too (link ops == threshold → false)', () => {
+    expect(shouldBulkReseed(plan({}), linkPlan({ adds: BULK_RESEED_OP_THRESHOLD }))).toBe(false);
+  });
+
+  it('ignores updates even when they dwarf a sub-threshold structural count', () => {
+    // 149 structural ops + 10000 updates → still incremental (updates excluded).
+    expect(shouldBulkReseed(plan({ adds: 149, updates: 10000 }), linkPlan({}))).toBe(false);
+  });
+
+  it('honors an explicit threshold override', () => {
+    const small = plan({ adds: 5 });
+    expect(shouldBulkReseed(small, linkPlan({}), 100)).toBe(false);
+    expect(shouldBulkReseed(small, linkPlan({}), 4)).toBe(true);
+  });
+
+  it('structuralOpCount sums task adds+deletes+moves and link adds+deletes, excluding updates', () => {
+    expect(structuralOpCount(plan({}), linkPlan({}))).toBe(0);
+    expect(structuralOpCount(plan({ adds: 3, deletes: 2, moves: 1, updates: 99 }), linkPlan({ adds: 4, deletes: 5 }))).toBe(15);
   });
 });

@@ -561,3 +561,51 @@ export function planLinkSync(prev: ReadonlyMap<string, RenderLink>, next: Readon
   }
   return { deletes, adds };
 }
+
+/**
+ * Default structural-op threshold above which a sync should BULK-RESEED the SVAR
+ * store instead of applying the diff instance-by-instance (#161 U6).
+ *
+ * Rationale (plan 2026-06-28-002, KTD3): a per-instance `api.exec` diff preserves
+ * SVAR view state (zoom/scroll) and is the right tool for SMALL changes — an
+ * interactive drag is 1–3 structural ops, a row-visibility toggle is 0 (it is a
+ * display filter, not a task-set change). But a wholesale set replacement (search
+ * clear / filter change re-expands the whole companion tree → hundreds–thousands
+ * of adds/deletes) costs ~one DOM mutation storm per swing; a burst of those is the
+ * ~25s #161 churn. Above this count, a single virtualized re-init (reseed) is both
+ * cheaper and correct, and the lost zoom/scroll is meaningless because the displayed
+ * set changed entirely. The value sits well above any realistic interactive edit and
+ * well below a full set swap; it is intentionally one tunable constant.
+ */
+export const BULK_RESEED_OP_THRESHOLD = 150;
+
+/**
+ * Count the STRUCTURAL ops in a sync diff — task `adds + deletes + moves` plus link
+ * `adds + deletes` (the ops that materialise or remove rows). In-place field
+ * `updates` are EXCLUDED: a value-only refresh of a stable row set is cheap
+ * incrementally and must keep its view state (a bulk field refresh stays incremental).
+ *
+ * Single source of truth for "how big is this diff" — shared by {@link shouldBulkReseed}
+ * (the decision) and the caller's diagnostics, so the two can never diverge on what
+ * counts as a structural op. Pure (no SVAR/DOM) → unit-testable in isolation.
+ */
+export function structuralOpCount(plan: TaskSyncPlan, linkPlan: LinkSyncPlan): number {
+  return plan.adds.length + plan.deletes.length + plan.moves.length + linkPlan.adds.length + linkPlan.deletes.length;
+}
+
+/**
+ * Decide whether a sync's diff is large enough to BULK-RESEED rather than apply
+ * incrementally (#161 U6) — true when {@link structuralOpCount} strictly exceeds the
+ * threshold. The caller (`GanttContainer`) asks the question and branches.
+ *
+ * @param plan - the task sync plan from {@link planTaskSync}.
+ * @param linkPlan - the link sync plan from {@link planLinkSync}.
+ * @param threshold - structural-op threshold; defaults to {@link BULK_RESEED_OP_THRESHOLD}.
+ */
+export function shouldBulkReseed(
+  plan: TaskSyncPlan,
+  linkPlan: LinkSyncPlan,
+  threshold: number = BULK_RESEED_OP_THRESHOLD,
+): boolean {
+  return structuralOpCount(plan, linkPlan) > threshold;
+}

@@ -28,6 +28,8 @@
     planLinkSync,
     planReorder,
     baseSortDescriptor,
+    shouldBulkReseed,
+    structuralOpCount,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -611,6 +613,45 @@
       dlog('[OGDBG] sync NOOP');
       return;
     }
+    // #161 U6: a WHOLESALE set replacement (search clear / filter change re-expands
+    // the whole companion tree → hundreds–thousands of add/delete execs) costs a DOM
+    // mutation storm per swing; a burst of those is the ~25s churn. Above the op
+    // threshold, apply the change as ONE virtualized re-init (reuse the column/theme
+    // reseed path) instead of the per-instance diff. Zoom/scroll reset is the correct
+    // trade-off here — the displayed set changed entirely, so prior view state is
+    // meaningless. Small diffs fall through to the incremental path below, which
+    // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
+    if (shouldBulkReseed(taskPlan, linkPlan)) {
+      dlog(
+        `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
+          ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+      );
+      syncing = true;
+      try {
+        // R6 (mirror the incremental path): if the user changed the Base toolbar sort
+        // in the same swing, newest explicit sort wins — drop an active ephemeral sort
+        // first so reseedSeedsFromData doesn't re-assert a now-stale override.
+        if (ephemeralSort && baseSortChanged) {
+          ephemeralSort = null;
+          clearSvarSortArrow();
+        }
+        // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
+        // an active ephemeral sort), then re-assert the persisted divider width (a
+        // store re-init can recompute it). Columns are untouched (no column change).
+        reseedSeedsFromData(d);
+        applyPersistedGridWidth();
+      } finally {
+        syncing = false;
+      }
+      // A reinit CLEARS SVAR's filter-tasks state, and SVAR's own reinit effect can
+      // run AFTER the synchronous `$data` display-filter effect — so that effect's
+      // re-apply would be wiped and hidden rows (Hide-top / Show-undated off) flash
+      // back until the next refresh. Re-assert the active row-visibility filter once
+      // the reseed settles (deferred like the ephemeral-sort / grid-width restores).
+      setTimeout(() => applyDisplayFilters(), 0);
+      return;
+    }
+
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
