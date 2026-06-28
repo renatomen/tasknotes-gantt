@@ -28,6 +28,7 @@
     planLinkSync,
     planReorder,
     baseSortDescriptor,
+    shouldBulkReseed,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
@@ -611,6 +612,34 @@
       dlog('[OGDBG] sync NOOP');
       return;
     }
+    // #161 U6: a WHOLESALE set replacement (search clear / filter change re-expands
+    // the whole companion tree → hundreds–thousands of add/delete execs) costs a DOM
+    // mutation storm per swing; a burst of those is the ~25s churn. Above the op
+    // threshold, apply the change as ONE virtualized re-init (reuse the column/theme
+    // reseed path) instead of the per-instance diff. Zoom/scroll reset is the correct
+    // trade-off here — the displayed set changed entirely, so prior view state is
+    // meaningless. Small diffs fall through to the incremental path below, which
+    // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
+    if (shouldBulkReseed(taskPlan, linkPlan)) {
+      dlog(
+        `[OGDBG] sync BULK-RESEED ops=${taskPlan.adds.length + taskPlan.deletes.length + taskPlan.moves.length + linkPlan.adds.length + linkPlan.deletes.length}` +
+          ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+      );
+      syncing = true;
+      try {
+        // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
+        // an active ephemeral sort), then re-assert the persisted divider width (a
+        // store re-init can recompute it). Columns are untouched (no column change).
+        // The `applyDisplayFilters` $effect re-runs on this same `$data` update, so the
+        // active row-visibility filter re-applies after the reseed.
+        reseedSeedsFromData(d);
+        applyPersistedGridWidth();
+      } finally {
+        syncing = false;
+      }
+      return;
+    }
+
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
