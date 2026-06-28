@@ -51,6 +51,14 @@ const EXPECTED_INSTANCES: Record<string, number> = {
   "Shared.md": 2,
 };
 
+/**
+ * The single grid PROPERTY column every test in this suite sorts by. Defined once
+ * so the readiness gate (ensureGanttReady) and every click site provably target
+ * the SAME column — a generic "any header" gate let the first test race the
+ * property column's later settle and time out (see ensureGanttReady).
+ */
+const SORT_COLUMN_ID = "note.due";
+
 /** Force the OG Gantt to be the ACTIVE, visible leaf (self-healing vs starter-note steal). */
 async function activateBaseLeaf(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -106,21 +114,12 @@ interface SortState {
   sorted: boolean;
   /** Host (chart region) height in px, for the min-height regression guard. */
   hostHeight: number;
-  /**
-   * Whether at least one grid header cell (`[data-header-id]`) has rendered.
-   * The bars (`.wx-bar`) settle BEFORE the grid header cells on first mount, so a
-   * readiness gate that waits only for bars lets the first test race header
-   * settling — clicking before the sortable header exists. Under CI load that
-   * race exceeds the 10s click-retry budget; gating readiness on the header too
-   * absorbs the lag into ensureGanttReady's larger budget.
-   */
-  headerReady: boolean;
 }
 
 async function readSortState(): Promise<SortState> {
   return browser.execute(() => {
     const root = document.querySelector(".og-bases-gantt");
-    if (!root) return { mounted: false, ids: [], resetPill: false, sorted: false, hostHeight: 0, headerReady: false };
+    if (!root) return { mounted: false, ids: [], resetPill: false, sorted: false, hostHeight: 0 };
     const strip = (id: string): string => (id.startsWith(":") ? id.slice(1) : id);
     const ids = Array.from(root.querySelectorAll(".wx-bar")).map((b) => strip(b.getAttribute("data-id") ?? ""));
     const resetPill = !!root.querySelector(".zoom-btn.reset-sort");
@@ -130,9 +129,33 @@ async function readSortState(): Promise<SortState> {
     const sorted = !!root.querySelector('[aria-sort="ascending"], [aria-sort="descending"]');
     const chart = root.querySelector(".og-chart-area") as HTMLElement | null;
     const hostHeight = chart ? chart.getBoundingClientRect().height : 0;
-    const headerReady = !!root.querySelector("[data-header-id]");
-    return { mounted: true, ids, resetPill, sorted, hostHeight, headerReady };
+    return { mounted: true, ids, resetPill, sorted, hostHeight };
   });
+}
+
+/**
+ * Whether the grid header cell for a SPECIFIC column id is in the DOM. Mirrors
+ * {@link clickColumnHeader}'s matcher exactly (stripped `data-header-id`), without
+ * clicking — so the readiness gate and the click agree on what "the header exists"
+ * means and can never drift apart.
+ *
+ * This is the load-bearing fix for the first-mount flake: the name/hierarchy column
+ * (`text`) is forced first and renders early, but the sortable PROPERTY columns
+ * (e.g. `note.due`) arrive on a LATER SVAR store re-init once the Base's property
+ * config settles. A gate that waits for *any* `[data-header-id]` therefore passes
+ * while the column the test is about to click is still absent — under cold CI load
+ * the click then exhausts its 10s retry budget. Gating on the SPECIFIC column folds
+ * that settle lag into ensureGanttReady's 90s budget instead.
+ */
+async function isColumnHeaderPresent(columnId: string): Promise<boolean> {
+  return browser.execute((id: string) => {
+    const root = document.querySelector(".og-bases-gantt");
+    if (!root) return false;
+    const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+    return Array.from(root.querySelectorAll<HTMLElement>("[data-header-id]")).some(
+      (el) => strip(el.getAttribute("data-header-id") ?? "") === id,
+    );
+  }, columnId);
 }
 
 /**
@@ -157,9 +180,10 @@ async function clickColumnHeader(columnId: string): Promise<boolean> {
 }
 
 /**
- * Click a column header, retrying until the grid header cell is rendered and the
- * click lands. On the first test the bars (.wx-bar) are ready before the grid
- * header cells settle, so a one-shot click can miss; this waits for the header.
+ * Click a column header, retrying until the click lands. `ensureGanttReady` (run
+ * in `beforeEach`) already gates on this exact column's header being present, so
+ * the click normally lands first try; the retry remains only as a thin backstop
+ * for a transient header re-render during a mid-suite column-config reseed.
  */
 async function sortByColumn(columnId: string): Promise<void> {
   await browser.waitUntil(() => clickColumnHeader(columnId), {
@@ -180,7 +204,15 @@ function missingNames(ids: string[]): string[] {
     .map(([name, n]) => `${name} (want ${n}, saw ${instancesOf(ids, name)})`);
 }
 
-/** Wait until the Gantt is active AND fully expanded (all six instances). */
+/**
+ * Wait until the Gantt is active, fully expanded (all six instances), AND the
+ * sortable `note.due` PROPERTY column header has rendered. Gating on the SPECIFIC
+ * column the suite clicks — not just any `[data-header-id]` — is what closes the
+ * first-mount flake: the property column settles on a later store re-init than the
+ * forced-first `text` column, so a generic header gate would let the first test
+ * click before its target header exists (see {@link isColumnHeaderPresent}). This
+ * absorbs that lag into the 90s budget rather than sortByColumn's 10s click budget.
+ */
 async function ensureGanttReady(): Promise<void> {
   let last = "<never polled>";
   try {
@@ -188,13 +220,14 @@ async function ensureGanttReady(): Promise<void> {
       async () => {
         await activateBaseLeaf();
         const state = await readSortState();
-        last = JSON.stringify({ ids: state.ids, headerReady: state.headerReady });
-        // Gate on the grid header too, not just the bars: the header cells settle
-        // after the bars, and the first test clicks a header immediately. Without
-        // this, the click races header settling and times out under CI load.
-        return state.mounted && state.headerReady && missingNames(state.ids).length === 0;
+        const columnReady = await isColumnHeaderPresent(SORT_COLUMN_ID);
+        last = JSON.stringify({ ids: state.ids, columnReady });
+        return state.mounted && columnReady && missingNames(state.ids).length === 0;
       },
-      { timeout: 90000, timeoutMsg: "Companion Gantt did not reach all six expected instances + grid header" },
+      {
+        timeout: 90000,
+        timeoutMsg: `Companion Gantt did not reach all six expected instances + the "${SORT_COLUMN_ID}" grid header`,
+      },
     );
   } catch {
     throw new Error(`Companion Gantt not ready. Last observed: ${last}`);
@@ -282,8 +315,8 @@ describe("Gantt (OG) ephemeral column sort", () => {
     // `note.due` property column → descending → B (2026-03-25) before A
     // (2026-03-20). A reorder here can ONLY happen if the property-column
     // comparator runs (the value lives in custom.properties, not task.note.due).
-    await sortByColumn("note.due"); // first click → ascending (retries until header is ready)
-    await clickColumnHeader("note.due"); // second click → descending
+    await sortByColumn(SORT_COLUMN_ID); // first click → ascending (retries until header is ready)
+    await clickColumnHeader(SORT_COLUMN_ID); // second click → descending
 
     let state: SortState | null = null;
     await browser.waitUntil(
@@ -307,7 +340,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     expect((await readSortState()).resetPill).toBe(false);
 
     // First click → ascending: reset pill appears, header reads as sorted.
-    await sortByColumn("note.due");
+    await sortByColumn(SORT_COLUMN_ID);
     await browser.waitUntil(async () => (await readSortState()).resetPill, {
       timeout: 10000,
       timeoutMsg: "Reset pill did not appear on the first sort click",
@@ -315,14 +348,14 @@ describe("Gantt (OG) ephemeral column sort", () => {
     expect((await readSortState()).sorted).toBe(true);
 
     // Second click → descending: pill still present.
-    await clickColumnHeader("note.due");
+    await clickColumnHeader(SORT_COLUMN_ID);
     await browser.waitUntil(async () => (await readSortState()).resetPill, {
       timeout: 10000,
       timeoutMsg: "Reset pill should remain for the descending state",
     });
 
     // Third click → cleared: pill hidden, sort cue gone, Base order restored (A before B).
-    await clickColumnHeader("note.due");
+    await clickColumnHeader(SORT_COLUMN_ID);
     let state: SortState | null = null;
     await browser.waitUntil(
       async () => {
@@ -341,8 +374,8 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("clears an active sort back to the Base order via the reset pill (R5)", async () => {
     // Sort descending (B before A), then click the reset pill → Base order (A before B).
-    await sortByColumn("note.due");
-    await clickColumnHeader("note.due");
+    await sortByColumn(SORT_COLUMN_ID);
+    await clickColumnHeader(SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
@@ -372,8 +405,8 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("is session-only: reopening the view returns to the Base sort (AE3/R4)", async () => {
     // Sort descending (B before A), then remount the view by reopening the Base.
-    await sortByColumn("note.due");
-    await clickColumnHeader("note.due");
+    await sortByColumn(SORT_COLUMN_ID);
+    await clickColumnHeader(SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
@@ -392,8 +425,8 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("keeps an active sort across a data refresh and stays above min height (AE6/R8)", async () => {
     // Sort descending (B before A).
-    await sortByColumn("note.due");
-    await clickColumnHeader("note.due");
+    await sortByColumn(SORT_COLUMN_ID);
+    await clickColumnHeader(SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
