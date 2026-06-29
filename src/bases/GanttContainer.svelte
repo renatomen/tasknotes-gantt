@@ -1659,8 +1659,10 @@
   // ── Focus on task (search → expand → zoom → scroll → highlight) ──────────
   // Best-effort track of the live zoom-ladder level so focus can step
   // `zoom-scale` toward a target level. Seeded from the configured default and
-  // updated whenever we step zoom (buttons + focus). SVAR stays authoritative
-  // for the actual zoom; the focus loop is guarded so any drift can't hang.
+  // updated whenever we step zoom (buttons + focus). NOTE: SVAR's Ctrl/Cmd+wheel
+  // zoom is NOT tracked here, so this can drift after a wheel-zoom; SVAR stays
+  // authoritative for the actual zoom and the focus loop is guarded so any drift
+  // can't hang (it just lands a level or two off — best-fit is approximate).
   let currentZoomLevel = $state(zoomConfig.level);
 
   /** Step the zoom ladder by `dir` (+1 in / −1 out), centered on `date`. */
@@ -1679,7 +1681,6 @@
       targetId: id,
       chartWidthPx,
       levels: zoomConfig.levels,
-      currentLevel: currentZoomLevel,
       isCollapsed: (iid) => collapsedIds.has(iid),
     });
 

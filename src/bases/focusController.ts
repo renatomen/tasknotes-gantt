@@ -152,9 +152,14 @@ export function estimatePixelsPerDay(level: ZoomLevel): number {
  * Select the most zoomed-in level whose bar still fits within 50 % of the
  * chart width.
  *
- * Level index 0 is the coarsest (year), last index is the finest (hour).
- * Returns the **largest** index where `durationDays * px/day ≤ 0.5 * chartWidthPx`.
- * Falls back to 0 when no level satisfies the constraint.
+ * The ladder is NOT monotonic in px/day by index (a week-based level can be
+ * sparser than the day-based level above it, and the hour level is far denser
+ * than all others), so "most zoomed-in" means the LARGEST px/day — not the
+ * largest index. Among levels whose bar fits within half the chart, returns the
+ * **densest** (biggest bar that still fits). When none fit, returns the sparsest
+ * level (smallest bar, least overflow). Selecting by density also makes a
+ * separate visibility floor unnecessary: the densest fitting level already
+ * maximizes the bar's on-screen size.
  *
  * @param opts.durationDays - duration of the target task in days
  * @param opts.chartWidthPx - full pixel width of the chart viewport
@@ -170,16 +175,24 @@ export function selectZoomLevel(opts: {
   const ppd = opts.pixelsPerDay ?? estimatePixelsPerDay;
   const halfWidth = opts.chartWidthPx * 0.5;
 
-  let bestIndex = 0;
+  let bestIndex = -1;
+  let bestPpd = -Infinity;
+  let sparsestIndex = 0;
+  let sparsestPpd = Infinity;
   for (let i = 0; i < opts.levels.length; i++) {
     const level = opts.levels[i];
     if (level === undefined) continue;
-    const barPx = opts.durationDays * ppd(level);
-    if (barPx <= halfWidth) {
+    const p = ppd(level);
+    if (p < sparsestPpd) {
+      sparsestPpd = p;
+      sparsestIndex = i;
+    }
+    if (opts.durationDays * p <= halfWidth && p > bestPpd) {
+      bestPpd = p;
       bestIndex = i;
     }
   }
-  return bestIndex;
+  return bestIndex !== -1 ? bestIndex : sparsestIndex;
 }
 
 /**
@@ -192,7 +205,6 @@ export function selectZoomLevel(opts: {
  * @param opts.targetId - the instance id to navigate to
  * @param opts.chartWidthPx - chart viewport width in pixels
  * @param opts.levels - the zoom ladder
- * @param opts.currentLevel - current zoom level index (accepted for API symmetry; unused internally)
  * @param opts.isCollapsed - predicate for ancestor expansion check
  * @param opts.pixelsPerDay - optional px/day calculator (injectable for testing)
  */
@@ -201,7 +213,6 @@ export function buildFocusPlan(opts: {
   targetId: string;
   chartWidthPx: number;
   levels: ZoomLevel[];
-  currentLevel: number;
   isCollapsed: (id: string) => boolean;
   pixelsPerDay?: (l: ZoomLevel) => number;
 }): FocusPlan {

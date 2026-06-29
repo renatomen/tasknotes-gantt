@@ -52,7 +52,8 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'focus-task',
       name: 'Focus on task…',
       checkCallback: (checking: boolean) => {
-        const entry = getActiveGanttFocusEntry();
+        const activeContainer = this.app.workspace.activeLeaf?.view?.containerEl ?? null;
+        const entry = getActiveGanttFocusEntry(activeContainer);
         if (!entry) return false;
         if (!checking) entry();
         return true;

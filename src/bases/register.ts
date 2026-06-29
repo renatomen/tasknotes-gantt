@@ -115,23 +115,37 @@ interface GanttEphemeralState {
  * Gantt chart view for Obsidian Bases
  */
 /**
- * Live "focus on task" openers, one per mounted Gantt view. The plugin command
- * ("Gantt: Focus on task…" in main.ts) fires the most-recently-mounted live
- * opener via {@link getActiveGanttFocusEntry}. A view adds its opener on mount
- * and removes it on teardown (Set insertion order → last = most recent).
+ * Live "focus on task" openers, one per mounted Gantt view, keyed by the view's
+ * mount container element. The plugin command ("Gantt: Focus on task…" in
+ * main.ts) resolves the opener for the *active* Gantt leaf via
+ * {@link getActiveGanttFocusEntry}; a view adds its opener on mount and removes
+ * it on teardown. Map insertion order → last = most recently mounted (the
+ * fallback when the active leaf can't be matched to a registered view).
  */
-const liveFocusEntries = new Set<() => void>();
+const liveFocusEntries = new Map<HTMLElement, () => void>();
 
-/** The active Gantt view's focus opener, or null when no Gantt view is mounted. */
-export function getActiveGanttFocusEntry(): (() => void) | null {
+/**
+ * The focus opener for the active Gantt leaf, or null when no Gantt view is
+ * mounted. Given the active leaf's container element, returns the entry whose
+ * mount container is inside it (the Gantt in the focused leaf); falls back to
+ * the most-recently-mounted entry when the active leaf isn't a Gantt view.
+ */
+export function getActiveGanttFocusEntry(
+  activeContainer?: HTMLElement | null,
+): (() => void) | null {
+  if (activeContainer) {
+    for (const [containerEl, entry] of liveFocusEntries) {
+      if (activeContainer.contains(containerEl)) return entry;
+    }
+  }
   let last: (() => void) | null = null;
-  for (const entry of liveFocusEntries) last = entry;
+  for (const entry of liveFocusEntries.values()) last = entry;
   return last;
 }
 
 class ObsidianGanttBasesView extends BasesView {
-  /** This view's published focus opener, tracked so teardown can retract it. */
-  private focusEntry: (() => void) | null = null;
+  /** This view's mount container, used as the focus-entry registry key. */
+  private focusEntryKey: HTMLElement | null = null;
   readonly type = VIEW_TYPE_ID;
   private readonly containerEl: HTMLElement;
   private svelteComponent: ReturnType<typeof mount> | null = null;
@@ -644,11 +658,11 @@ class ObsidianGanttBasesView extends BasesView {
           // clears another live view's entry.
           onFocusEntryReady: (entry: (() => void) | null) => {
             if (entry) {
-              this.focusEntry = entry;
-              liveFocusEntries.add(entry);
-            } else if (this.focusEntry) {
-              liveFocusEntries.delete(this.focusEntry);
-              this.focusEntry = null;
+              this.focusEntryKey = this.containerEl;
+              liveFocusEntries.set(this.containerEl, entry);
+            } else if (this.focusEntryKey) {
+              liveFocusEntries.delete(this.focusEntryKey);
+              this.focusEntryKey = null;
             }
           },
           // Column resize persistence (U8/R8): write the new width back to the

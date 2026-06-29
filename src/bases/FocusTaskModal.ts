@@ -44,7 +44,12 @@ export class FocusTaskModal extends FuzzySuggestModal<FocusInstance> {
     return focusItemText(item);
   }
 
-  /** Two-line suggestion: task name (primary) over the source path (secondary). */
+  /**
+   * Two-line suggestion: task name (primary) over the source path (secondary).
+   * Overriding the default deliberately drops the fuzzy-match highlight spans in
+   * exchange for the name/path layout; matching itself still runs over both
+   * (see {@link getItemText}).
+   */
   renderSuggestion(match: FuzzyMatch<FocusInstance>, el: HTMLElement): void {
     const { item } = match;
     el.createEl('div', { text: item.text, cls: 'og-focus-suggestion-title' });

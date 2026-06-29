@@ -15,6 +15,7 @@ import {
   focusItemText,
 } from '../../src/bases/focusController';
 import type { FocusInstance, ZoomLevel } from '../../src/bases/focusController';
+import { buildZoomConfig } from '../../src/bases/zoomConfig';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -171,6 +172,18 @@ describe('selectZoomLevel', () => {
     expect(barPx).toBeLessThanOrEqual(0.5 * 1000);
   });
 
+  it('picks the densest fitting level on the REAL (non-monotonic) ladder, not the highest index', () => {
+    // The shipped ladder's px/day is non-monotonic by index: L4 (day, rep 55) is
+    // denser than L5 (week+day, rep 42.5), and L6 (hour) is far denser than all.
+    // For a 10-day bar on a 2000px chart (half = 1000), every level except L6
+    // fits; the densest fitting level is L4 (55 px/day > L5's 42.5), NOT the
+    // highest fitting index L5. The old "largest index" rule would wrongly pick 5.
+    const levels = buildZoomConfig('day').levels;
+    const result = selectZoomLevel({ durationDays: 10, chartWidthPx: 2000, levels });
+
+    expect(result).toBe(4);
+  });
+
   it('uses estimatePixelsPerDay when no pixelsPerDay injector provided', () => {
     // Coarsest level (year); durationDays=365, chartWidth=10000 → should be fine
     const levels = [
@@ -197,7 +210,6 @@ describe('buildFocusPlan', () => {
   const baseOpts = {
     levels,
     chartWidthPx: 1000,
-    currentLevel: 1,
     isCollapsed: (_id: string) => false,
   };
 
