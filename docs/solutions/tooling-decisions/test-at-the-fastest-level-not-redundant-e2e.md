@@ -88,3 +88,9 @@ Is the rendering/wiring it depends on already proven by an existing e2e? If yes,
 the e2e is redundant — close the residual as "covered at the right level." If the
 behavior is genuinely only observable end-to-end, add ONE focused e2e; if it's hard
 to drive, treat that as a design signal and test the extracted logic fast instead.
+
+## Related
+
+- `docs/solutions/workflow-issues/bidirectional-issue-housekeeping-and-backlog.md` — sibling
+  residual-work discipline: this doc decides *whether to build* a deferred item (test-pyramid);
+  that one decides *where to park* it (backlog vs. GitHub issue).
