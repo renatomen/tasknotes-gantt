@@ -11,7 +11,10 @@
  */
 
 /** Stub host app. */
-export class App {}
+export class App {
+  /** Marker so the mock isn't an empty class (S2094); the real App has many members. */
+  readonly isMock = true;
+}
 
 /**
  * Stub of Obsidian's generic fuzzy picker. Subclasses override getItems /
@@ -26,5 +29,9 @@ export class FuzzySuggestModal<T> {
   }
   setPlaceholder(text: string): void {
     this.placeholder = text;
+  }
+  /** Subclasses override this; declared here so the generic `T` is load-bearing. */
+  getItems(): T[] {
+    return [];
   }
 }
