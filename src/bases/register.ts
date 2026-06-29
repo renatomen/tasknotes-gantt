@@ -114,7 +114,24 @@ interface GanttEphemeralState {
 /**
  * Gantt chart view for Obsidian Bases
  */
+/**
+ * Live "focus on task" openers, one per mounted Gantt view. The plugin command
+ * ("Gantt: Focus on task…" in main.ts) fires the most-recently-mounted live
+ * opener via {@link getActiveGanttFocusEntry}. A view adds its opener on mount
+ * and removes it on teardown (Set insertion order → last = most recent).
+ */
+const liveFocusEntries = new Set<() => void>();
+
+/** The active Gantt view's focus opener, or null when no Gantt view is mounted. */
+export function getActiveGanttFocusEntry(): (() => void) | null {
+  let last: (() => void) | null = null;
+  for (const entry of liveFocusEntries) last = entry;
+  return last;
+}
+
 class ObsidianGanttBasesView extends BasesView {
+  /** This view's published focus opener, tracked so teardown can retract it. */
+  private focusEntry: (() => void) | null = null;
   readonly type = VIEW_TYPE_ID;
   private readonly containerEl: HTMLElement;
   private svelteComponent: ReturnType<typeof mount> | null = null;
@@ -621,6 +638,19 @@ class ObsidianGanttBasesView extends BasesView {
             interactions.handleActivate(path, opts),
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
+          // Focus-on-task command wiring (R2): the view publishes its opener on
+          // mount and retracts it on teardown, so the plugin command targets the
+          // active Gantt view. Tracked per-view so one view's teardown never
+          // clears another live view's entry.
+          onFocusEntryReady: (entry: (() => void) | null) => {
+            if (entry) {
+              this.focusEntry = entry;
+              liveFocusEntries.add(entry);
+            } else if (this.focusEntry) {
+              liveFocusEntries.delete(this.focusEntry);
+              this.focusEntry = null;
+            }
+          },
           // Column resize persistence (U8/R8): write the new width back to the
           // standard `columnSize` map so it survives reload. Merges into the
           // current map (never clobbers a width the native table view stored).

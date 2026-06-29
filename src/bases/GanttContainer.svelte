@@ -21,6 +21,9 @@
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildStatusStyleRules } from './statusColor';
   import { resolveClickActivation } from './taskNotesInteractions';
+  import { tick } from 'svelte';
+  import { buildFocusPlan } from './focusController';
+  import { FocusTaskModal } from './FocusTaskModal';
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
@@ -133,6 +136,12 @@
      * keep an in-session-only switch.
      */
     onThemeModeChange?: (mode: ThemeMode) => void;
+    /**
+     * Publish (and later retract) this view's "focus on task" entry point so the
+     * plugin command (register.ts → main.ts) can open the focus search for the
+     * active Gantt leaf. Called with the opener on mount and `null` on teardown.
+     */
+    onFocusEntryReady?: (entry: (() => void) | null) => void;
   }
 
   // The controller owns the data transform, so the view does not read `config`
@@ -152,6 +161,7 @@
     onGridWidthChange,
     themeMode = 'auto',
     onThemeModeChange,
+    onFocusEntryReady,
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
@@ -1645,6 +1655,69 @@
   // SVAR, so ordinary data refreshes must never rebuild this configuration or
   // overwrite a zoom level the user selected with the floating controls.
   const zoomConfig = buildZoomConfig(initialData.defaultScale);
+
+  // ── Focus on task (search → expand → zoom → scroll → highlight) ──────────
+  // Best-effort track of the live zoom-ladder level so focus can step
+  // `zoom-scale` toward a target level. Seeded from the configured default and
+  // updated whenever we step zoom (buttons + focus). SVAR stays authoritative
+  // for the actual zoom; the focus loop is guarded so any drift can't hang.
+  let currentZoomLevel = $state(zoomConfig.level);
+
+  /** Step the zoom ladder by `dir` (+1 in / −1 out), centered on `date`. */
+  function stepZoom(dir: 1 | -1, date: Date = new Date()): void {
+    api?.exec('zoom-scale', { dir, date });
+    currentZoomLevel = Math.max(0, Math.min(zoomConfig.levels.length - 1, currentZoomLevel + dir));
+  }
+
+  /** Navigate the chart to reveal and highlight the instance `id` (focus). */
+  async function focusOnInstance(id: string): Promise<void> {
+    if (!api) return;
+    const chartEl = rootEl?.querySelector('.wx-chart') as HTMLElement | null;
+    const chartWidthPx = chartEl?.clientWidth ?? rootEl?.clientWidth ?? 0;
+    const plan = buildFocusPlan({
+      instances,
+      targetId: id,
+      chartWidthPx,
+      levels: zoomConfig.levels,
+      currentLevel: currentZoomLevel,
+      isCollapsed: (iid) => collapsedIds.has(iid),
+    });
+
+    // 1. Expand only the necessary ancestors, root-first (echo-tagged so the
+    //    collapse intercept treats it as our own write — no persist/echo).
+    for (const ancestorId of plan.ancestorsToOpen) {
+      api.exec('open-task', { id: ancestorId, mode: true, eventSource: OG_ECHO_SOURCE });
+    }
+
+    // 2. Best-fit zoom: step the ladder toward the target level, centered on the
+    //    bar. Skipped for date-less/partial tasks (R8 — keep the current zoom).
+    if (plan.fit && plan.targetLevel != null) {
+      const center = plan.centerDate ?? new Date();
+      let guard = zoomConfig.levels.length;
+      while (currentZoomLevel !== plan.targetLevel && guard-- > 0) {
+        stepZoom(currentZoomLevel < plan.targetLevel ? 1 : -1, center);
+      }
+    }
+
+    // 3+4. Let expand/zoom re-layout settle, then scroll the bar into view on
+    //      both axes and highlight it by selecting (non-activating, post-#188).
+    await tick();
+    api.exec('select-task', { id, show: 'xy' });
+    if (plan.centerDate) api.exec('scroll-chart', { date: plan.centerDate });
+  }
+
+  /** Open the fuzzy focus search over the chart's current instances (R1/R3). */
+  function openFocusModal(): void {
+    if (!instances || instances.length === 0) return;
+    new FocusTaskModal(app, instances, (id) => { void focusOnInstance(id); }).open();
+  }
+
+  // Publish the focus opener to the binder (command wiring, R2) on mount; retract
+  // on teardown so the plugin command only fires for a live Gantt view.
+  $effect(() => {
+    onFocusEntryReady?.(openFocusModal);
+    return () => onFocusEntryReady?.(null);
+  });
 </script>
 
 <!--
@@ -1754,6 +1827,19 @@
          bottom-right stack with a small gap between them — the collapse/expand
          toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
     <div class="zoom-controls-stack">
+      <!-- Focus on task (search → expand → zoom → scroll → highlight). Opens a
+           fuzzy search over the chart's tasks; the same opener backs the
+           "Gantt: Focus on task…" command. Lucide `crosshair` (wxi-* disabled). -->
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn og-focus-btn"
+          onclick={openFocusModal}
+          aria-label="Focus on task"
+          title="Focus on task"
+        >
+          <span class="zoom-icon" use:lucideIcon={'crosshair'}></span>
+        </button>
+      </div>
       <!-- Reset ephemeral column sort (plan 2026-06-22-002, U3/R5). Shown ONLY
            while an ephemeral sort is active; clicking restores the Base order
            (same path as the third header click). SVAR's lit column-header arrow
@@ -1791,7 +1877,7 @@
       <div class="zoom-controls">
         <button
           class="zoom-btn zoom-in"
-          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+          onclick={() => stepZoom(1)}
           aria-label="Zoom in"
           title="Zoom in"
         >
@@ -1799,7 +1885,7 @@
         </button>
         <button
           class="zoom-btn zoom-out"
-          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+          onclick={() => stepZoom(-1)}
           aria-label="Zoom out"
           title="Zoom out"
         >

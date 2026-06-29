@@ -1,6 +1,6 @@
 
 import { Plugin, WorkspaceLeaf } from 'obsidian';
-import { registerBasesGantt } from './bases/register';
+import { registerBasesGantt, getActiveGanttFocusEntry } from './bases/register';
 import { ReleaseNotesView, RELEASE_NOTES_VIEW_TYPE } from './release/ReleaseNotesView';
 import { RELEASE_NOTES_BUNDLE } from './releaseNotes';
 import {
@@ -44,6 +44,18 @@ export default class ObsidianGanttPlugin extends Plugin {
       name: 'Show release notes',
       callback: () => {
         void this.activateReleaseNotesView();
+      },
+    });
+    // Focus on a task in the active Gantt view (opens the fuzzy search). Only
+    // available while a Gantt (OG) view is mounted (registers its opener).
+    this.addCommand({
+      id: 'focus-task',
+      name: 'Focus on task…',
+      checkCallback: (checking: boolean) => {
+        const entry = getActiveGanttFocusEntry();
+        if (!entry) return false;
+        if (!checking) entry();
+        return true;
       },
     });
     this.addSettingTab(new GanttSettingTab(this.app, this));
