@@ -66,3 +66,31 @@ export class Setting {
     return this;
   }
 }
+
+// FocusTaskModal (src/bases/FocusTaskModal.ts) extends this; the isolated perf
+// harness imports GanttContainer transitively, so the class must exist at module
+// eval time. (`FuzzyMatch` is a type-only import and needs no runtime export.)
+export class FuzzySuggestModal<T> {
+  app: any;
+  constructor(app?: any) {
+    this.app = app;
+  }
+  setPlaceholder(_text: string): void {
+    /* no-op shim */
+  }
+  getItems(): T[] {
+    return [];
+  }
+  getItemText(_item: T): string {
+    return '';
+  }
+  onChooseItem(_item: T, _evt?: any): void {
+    /* no-op shim */
+  }
+  open(): void {
+    /* no-op shim */
+  }
+  close(): void {
+    /* no-op shim */
+  }
+}
