@@ -21,6 +21,9 @@
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildStatusStyleRules } from './statusColor';
   import { resolveClickActivation } from './taskNotesInteractions';
+  import { tick } from 'svelte';
+  import { buildFocusPlan } from './focusController';
+  import { FocusTaskModal } from './FocusTaskModal';
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
@@ -133,6 +136,12 @@
      * keep an in-session-only switch.
      */
     onThemeModeChange?: (mode: ThemeMode) => void;
+    /**
+     * Publish (and later retract) this view's "focus on task" entry point so the
+     * plugin command (register.ts → main.ts) can open the focus search for the
+     * active Gantt leaf. Called with the opener on mount and `null` on teardown.
+     */
+    onFocusEntryReady?: (entry: (() => void) | null) => void;
   }
 
   // The controller owns the data transform, so the view does not read `config`
@@ -152,6 +161,7 @@
     onGridWidthChange,
     themeMode = 'auto',
     onThemeModeChange,
+    onFocusEntryReady,
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
@@ -1002,6 +1012,10 @@
   // show-editor (double-click) carries no modifier keys, so we read the most
   // recent pointer event's ctrl/meta state, captured on the chart root.
   let lastCtrlMeta = false;
+  // Raised around the programmatic `select-task` that Focus issues so the
+  // select-first interceptor skips scheduling activation — Focus highlights the
+  // target without opening it, even when it was already selected (R9).
+  let suppressSelectActivation = false;
 
   /** Resolve a bar id → source path and invoke the native-activate callback. */
   function activateBar(id: string, kind: 'single' | 'double', ctrlOrMeta: boolean): void {
@@ -1254,6 +1268,16 @@
       // deleted/re-added selected task makes SVAR fire select-task with
       // syncing=true). Only genuine user clicks drive selection/activation.
       if (syncing) return true;
+      // Focus's programmatic select: apply the highlight (return true) but never
+      // schedule activation, so focusing keeps navigation-only even when the
+      // target was already selected (R9). Drop any stale pending single action.
+      if (suppressSelectActivation) {
+        if (pendingSingleClick) {
+          clearTimeout(pendingSingleClick);
+          pendingSingleClick = null;
+        }
+        return true;
+      }
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
         // Select-first gate (R1/R2): the intercept runs BEFORE SVAR applies this
@@ -1645,6 +1669,91 @@
   // SVAR, so ordinary data refreshes must never rebuild this configuration or
   // overwrite a zoom level the user selected with the floating controls.
   const zoomConfig = buildZoomConfig(initialData.defaultScale);
+
+  // ── Focus on task (search → expand → zoom → scroll → highlight) ──────────
+  // Best-effort track of the live zoom-ladder level so focus can step
+  // `zoom-scale` toward a target level. Seeded from the configured default and
+  // updated whenever we step zoom (buttons + focus). NOTE: SVAR's Ctrl/Cmd+wheel
+  // zoom is NOT tracked here, so this can drift after a wheel-zoom; SVAR stays
+  // authoritative for the actual zoom and the focus loop is guarded so any drift
+  // can't hang (it just lands a level or two off — best-fit is approximate).
+  let currentZoomLevel = $state(zoomConfig.level);
+
+  /** Step the zoom ladder by `dir` (+1 in / −1 out), centered on `date`. */
+  function stepZoom(dir: 1 | -1, date: Date = new Date()): void {
+    api?.exec('zoom-scale', { dir, date });
+    currentZoomLevel = Math.max(0, Math.min(zoomConfig.levels.length - 1, currentZoomLevel + dir));
+  }
+
+  /** Navigate the chart to reveal and highlight the instance `id` (focus). */
+  async function focusOnInstance(id: string): Promise<void> {
+    if (!api) return;
+    const chartEl = rootEl?.querySelector('.wx-chart') as HTMLElement | null;
+    const chartWidthPx = chartEl?.clientWidth ?? rootEl?.clientWidth ?? 0;
+    const plan = buildFocusPlan({
+      instances,
+      targetId: id,
+      chartWidthPx,
+      levels: zoomConfig.levels,
+      isCollapsed: (iid) => collapsedIds.has(iid),
+    });
+
+    // 1. Expand only the necessary ancestors, root-first, AND keep our collapse
+    //    state in sync. Mirror toggleAllCollapse: the echo-tagged open-task skips
+    //    the collapse intercept's own collapsedIds update, so we must clear the
+    //    opened ids ourselves — otherwise the next reseed reads a stale
+    //    collapsedIds and re-closes the row (and collapse-all shows wrong state).
+    //    Raise `syncing` first so the resulting diff treats our execs as echoes.
+    if (plan.ancestorsToOpen.length > 0) {
+      syncing = true;
+      const nextCollapsed = new Set(collapsedIds);
+      for (const ancestorId of plan.ancestorsToOpen) nextCollapsed.delete(ancestorId);
+      collapsedIds = nextCollapsed;
+      try {
+        for (const ancestorId of plan.ancestorsToOpen) {
+          api.exec('open-task', { id: ancestorId, mode: true, eventSource: OG_ECHO_SOURCE });
+        }
+      } finally {
+        syncing = false;
+      }
+    }
+
+    // 2. Best-fit zoom: step the ladder toward the target level, centered on the
+    //    bar. Skipped for date-less/partial tasks (R8 — keep the current zoom).
+    if (plan.fit && plan.targetLevel != null) {
+      const center = plan.centerDate ?? new Date();
+      let guard = zoomConfig.levels.length;
+      while (currentZoomLevel !== plan.targetLevel && guard-- > 0) {
+        stepZoom(currentZoomLevel < plan.targetLevel ? 1 : -1, center);
+      }
+    }
+
+    // 3+4. Let expand/zoom re-layout settle, then scroll the bar into view on
+    //      both axes and highlight it by selecting. The select is wrapped so the
+    //      select-first interceptor skips activation — focus stays navigation-only
+    //      even when the target was already selected (R9).
+    await tick();
+    suppressSelectActivation = true;
+    try {
+      api.exec('select-task', { id, show: 'xy' });
+    } finally {
+      suppressSelectActivation = false;
+    }
+    if (plan.centerDate) api.exec('scroll-chart', { date: plan.centerDate });
+  }
+
+  /** Open the fuzzy focus search over the chart's current instances (R1/R3). */
+  function openFocusModal(): void {
+    if (!instances || instances.length === 0) return;
+    new FocusTaskModal(app, instances, (id) => { void focusOnInstance(id); }).open();
+  }
+
+  // Publish the focus opener to the binder (command wiring, R2) on mount; retract
+  // on teardown so the plugin command only fires for a live Gantt view.
+  $effect(() => {
+    onFocusEntryReady?.(openFocusModal);
+    return () => onFocusEntryReady?.(null);
+  });
 </script>
 
 <!--
@@ -1754,6 +1863,19 @@
          bottom-right stack with a small gap between them — the collapse/expand
          toggle is visually distinct from the zoom +/− set, while +/− stay flush. -->
     <div class="zoom-controls-stack">
+      <!-- Focus on task (search → expand → zoom → scroll → highlight). Opens a
+           fuzzy search over the chart's tasks; the same opener backs the
+           "Gantt: Focus on task…" command. Lucide `crosshair` (wxi-* disabled). -->
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn og-focus-btn"
+          onclick={openFocusModal}
+          aria-label="Focus on task"
+          title="Focus on task"
+        >
+          <span class="zoom-icon" use:lucideIcon={'crosshair'}></span>
+        </button>
+      </div>
       <!-- Reset ephemeral column sort (plan 2026-06-22-002, U3/R5). Shown ONLY
            while an ephemeral sort is active; clicking restores the Base order
            (same path as the third header click). SVAR's lit column-header arrow
@@ -1791,7 +1913,7 @@
       <div class="zoom-controls">
         <button
           class="zoom-btn zoom-in"
-          onclick={() => api?.exec("zoom-scale", { dir: 1, date: new Date() })}
+          onclick={() => stepZoom(1)}
           aria-label="Zoom in"
           title="Zoom in"
         >
@@ -1799,7 +1921,7 @@
         </button>
         <button
           class="zoom-btn zoom-out"
-          onclick={() => api?.exec("zoom-scale", { dir: -1, date: new Date() })}
+          onclick={() => stepZoom(-1)}
           aria-label="Zoom out"
           title="Zoom out"
         >

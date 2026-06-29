@@ -32,6 +32,10 @@ const config = {
   testMatch: ["**/*.test.ts"],
   moduleNameMapper: {
     "^(\\.{1,2}/.*)\\.mjs$": "$1",
+    // `obsidian` is provided by the host app at runtime, not as an npm package.
+    // Units that extend an Obsidian class at runtime (e.g. FocusTaskModal) map to
+    // a minimal mock; type-only imports elsewhere are erased and never hit this.
+    "^obsidian$": "<rootDir>/test/__mocks__/obsidian.ts",
   },
   // Coverage (enabled via `--coverage`, i.e. `npm run test:coverage`).
   // V8 provider: the @swc/jest transform replaces Babel, so Babel-based
