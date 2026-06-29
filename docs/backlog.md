@@ -58,6 +58,24 @@ The scorecard-compliance plan made the repo submission-ready; the actual PR to
 `obsidianmd/obsidian-releases` is the separate, still-pending step.
 - Source: `docs/plans/2026-06-20-002-chore-plugin-scorecard-compliance-plan.md`.
 
+### P5b — Focus-on-task (search → reveal) — designed, gated on select-first
+Crosshair button in the floating control stack **+** a "Gantt: Focus on task…" command → native
+Obsidian `FuzzySuggestModal` listing every chart instance (matched **and** extended; search over
+**name + path**, show path as secondary). On pick: **expand only the necessary ancestors** → step
+the **best-fit zoom ladder** so the bar is fully visible and ≤50% of the chart width → **scroll x+y
+into view** → **highlight** (navigation only, no note activation). Date-less/partial tasks
+(milestone, no end, unscheduled) are revealed at the **current** zoom centred on `start`.
+- **Design decisions (agreed 2026-06-29):** best-fit ladder, *not* continuous zoom; highlight-only
+  (no activation); FuzzySuggestModal; dedupe results by source → target the primary instance; entry
+  via floating crosshair **+** command-palette command; Lucide `crosshair` icon (not a `wxi-*` font
+  icon — those render blank here).
+- **Enabling primitive:** `docs/brainstorms/2026-06-29-gantt-bar-click-select-first-requirements.md`
+  — once select-first ships, focus reuses "select = highlight without activation" and drops the
+  earlier activation-suppression workaround.
+- **Pure decision module to plan:** ancestor-chain + best-fit-level selection (`focusController`),
+  unit-testable without SVAR/Obsidian. e2e mirrors `gantt-fullscreen.e2e.ts`.
+- Source: focus-on-task brainstorm session (2026-06-29).
+
 ---
 
 ## Low priority
@@ -112,6 +130,10 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **`columnSize` × overall grid-pane width** (`tableWidth`) / horizontal-scroll interaction — `2026-06-18-001`.
 - **Multi-parent duplicate-bar de-duplication** / hide-top-level-subtasks default decision —
   `2026-06-17-001`, `docs/brainstorms/2026-06-22-gantt-bases-relationship-expansion-and-sorting-requirements.md`.
+- **Multi-select rows** (Ctrl/Cmd-toggle and/or Shift-range) for highlighting several tasks at once —
+  split out of the select-first click change where Ctrl/Cmd was kept as the new-tab modifier; needs
+  a non-conflicting modifier (SVAR has native toggle/range selection) —
+  `docs/brainstorms/2026-06-29-gantt-bar-click-select-first-requirements.md`.
 - **Re-route value extraction through official `getValue()` API** once Bases Value subclasses are exported — `2026-06-21-001`.
 - **Adopt newer Bases capabilities** (formula evaluation, sort config, summary values) — `2026-06-21-001`.
 - **SVAR `onScroll` null-property crashes** — re-file upstream only if seen on normal use (not during freeze/rebuild) — `2026-06-24-001`.

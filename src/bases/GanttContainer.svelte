@@ -20,6 +20,7 @@
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildStatusStyleRules } from './statusColor';
+  import { resolveClickActivation } from './taskNotesInteractions';
   import {
     buildSvarTasks,
     buildStatusTaskTypes,
@@ -350,11 +351,32 @@
   // pointer's ctrl/meta (show-editor carries none), and route a right-click on a
   // bar to the native TaskNotes task menu. Bars carry `data-id` (the instance
   // id); we map it to the source path and invoke onBarContextMenu.
+  //
+  // A native dblclick listener is also registered here so that double-click →
+  // open-note works even when SVAR is in readonly mode (readonly blocks SVAR's
+  // own ondblclick → show-editor path). We fire api.exec("show-editor") directly;
+  // our show-editor intercept (below) catches it and routes to activateBar (R5).
   $effect(() => {
     const el = rootEl;
     if (!el) return;
     const onPointerDown = (e: MouseEvent) => {
       lastCtrlMeta = e.ctrlKey || e.metaKey;
+    };
+    const onDblClick = (e: MouseEvent) => {
+      // When SVAR is NOT in readonly mode its own ondblclick handler fires
+      // show-editor; our show-editor intercept (below) catches that. Only
+      // supplement with a native exec when SVAR's path is blocked by readonly —
+      // prevents a double-fire (and double open-note) in write-capable mode.
+      if (!svarReadonly) return;
+      const target = e.target as HTMLElement | null;
+      const barEl = target?.closest?.('[data-id]') as HTMLElement | null;
+      const rawId = barEl?.getAttribute('data-id');
+      if (!rawId) return;
+      // SVAR 2.6+ encodes string ids with a leading ":" (setID); strip it.
+      const id = rawId.startsWith(':') ? rawId.slice(1) : rawId;
+      // Fire show-editor so our intercept catches it (R5). Returning false from
+      // the intercept prevents SVAR's own inline editor from opening.
+      api?.exec('show-editor', { id });
     };
     const onContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -378,9 +400,11 @@
       onBarContextMenu(path, e);
     };
     el.addEventListener('mousedown', onPointerDown, true);
+    el.addEventListener('dblclick', onDblClick, true);
     el.addEventListener('contextmenu', onContextMenu, true);
     return () => {
       el.removeEventListener('mousedown', onPointerDown, true);
+      el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('contextmenu', onContextMenu, true);
     };
   });
@@ -1215,32 +1239,52 @@
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
       }
-      if (id) {
+      // Double-click runs the configured action regardless of selection (R5).
+      if (id && resolveClickActivation({ kind: 'double' }) === 'activateDouble') {
         activateBar(String(id), 'double', lastCtrlMeta);
       }
       return false;
     });
 
     // Single-click → SVAR fires `select-task` (carries `toggle` = ctrl/meta).
-    // Defer the action so a following double-click can cancel it. Allow SVAR's
-    // own selection to proceed (return true) — we only add the native action.
+    // SVAR applies its own `.wx-selected` highlight when we return true; we add
+    // the select-first gate on top: only an already-selected row activates.
     api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
       // Ignore programmatic re-selection emitted during a store reseed (a
       // deleted/re-added selected task makes SVAR fire select-task with
-      // syncing=true). Only genuine user clicks should trigger the native
-      // activate → TaskNotes modal. Fixes the modal popping up on a settings
-      // toggle (which now reseeds the chart for instant apply).
+      // syncing=true). Only genuine user clicks drive selection/activation.
       if (syncing) return true;
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
-        const ctrlOrMeta = ev.toggle === true;
+        // Select-first gate (R1/R2): the intercept runs BEFORE SVAR applies this
+        // selection, so getState().selected still holds the pre-click set.
+        const selectedBefore = (api.getState()?.selected ?? []).map(String);
+        const wasSelected = selectedBefore.includes(id);
+
+        // Ctrl/Cmd is the new-tab modifier (R7), NOT multi-select (out of scope).
+        // SVAR maps ctrl/meta to `toggle` (add-to-selection); clear it so a
+        // modified click can never leave a lingering multi-selection (AE7). Read
+        // the modifier from the pointer event — the same source the double-click
+        // (show-editor) path uses.
+        const ctrlOrMeta = ev.toggle === true || lastCtrlMeta;
+        if (ev.toggle) ev.toggle = false;
+
+        // Drop any stale deferred action from a previous click.
         if (pendingSingleClick) {
           clearTimeout(pendingSingleClick);
-        }
-        pendingSingleClick = setTimeout(() => {
           pendingSingleClick = null;
-          activateBar(id, 'single', ctrlOrMeta);
-        }, 250);
+        }
+
+        if (resolveClickActivation({ kind: 'single', wasSelected }) === 'activateSingle') {
+          // Second click of an already-selected row → run the configured action,
+          // deferred so a following double-click can cancel it (R4/R6).
+          pendingSingleClick = setTimeout(() => {
+            pendingSingleClick = null;
+            activateBar(id, 'single', ctrlOrMeta);
+          }, 250);
+        }
+        // else: first click of an unselected row → select + highlight only (R1).
+        // We return true so SVAR applies `.wx-selected`; no action is scheduled.
       }
       return true;
     });
