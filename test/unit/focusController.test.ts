@@ -13,6 +13,7 @@ import {
   buildFocusPlan,
   dedupeInstancesBySource,
   focusItemText,
+  pickActiveFocusEntry,
 } from '../../src/bases/focusController';
 import type { FocusInstance, ZoomLevel } from '../../src/bases/focusController';
 import { buildZoomConfig } from '../../src/bases/zoomConfig';
@@ -341,5 +342,54 @@ describe('focusItemText', () => {
 
     expect(result).toContain('My Task');
     expect(result).toContain('folder/task.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickActiveFocusEntry
+// ---------------------------------------------------------------------------
+
+describe('pickActiveFocusEntry', () => {
+  /** A fake container that "contains" exactly the elements in its set. */
+  function container(...owned: object[]): { contains(other: unknown): boolean } {
+    const set = new Set<unknown>(owned);
+    return { contains: (other: unknown) => set.has(other) };
+  }
+
+  it('returns the entry whose container is inside the active leaf', () => {
+    const c1 = {};
+    const c2 = {};
+    const entries = new Map<object, string>([
+      [c1, 'entry-1'],
+      [c2, 'entry-2'],
+    ]);
+    const active = container(c2); // active leaf contains c2
+
+    expect(pickActiveFocusEntry(entries, active)).toBe('entry-2');
+  });
+
+  it('falls back to the most-recently-registered entry when the active leaf matches none', () => {
+    const c1 = {};
+    const c2 = {};
+    const entries = new Map<object, string>([
+      [c1, 'entry-1'],
+      [c2, 'entry-2'],
+    ]);
+    const active = container(); // contains nothing registered
+
+    expect(pickActiveFocusEntry(entries, active)).toBe('entry-2');
+  });
+
+  it('falls back to the last entry when no active container is given', () => {
+    const entries = new Map<object, string>([
+      [{}, 'entry-1'],
+      [{}, 'entry-2'],
+    ]);
+
+    expect(pickActiveFocusEntry(entries, null)).toBe('entry-2');
+  });
+
+  it('returns null when there are no entries', () => {
+    expect(pickActiveFocusEntry(new Map<object, string>(), container())).toBeNull();
   });
 });

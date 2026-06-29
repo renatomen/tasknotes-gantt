@@ -276,3 +276,37 @@ export function dedupeInstancesBySource(instances: FocusInstance[]): FocusInstan
 export function focusItemText(instance: FocusInstance): string {
   return `${instance.text} ${instance.sourcePath}`;
 }
+
+/** Minimal structural element for active-entry resolution (avoids a DOM dependency). */
+export interface ContainerEl {
+  contains(other: unknown): boolean;
+}
+
+/**
+ * Resolve the focus opener for the active leaf (pure).
+ *
+ * Given the registered `[container, entry]` pairs (insertion-ordered) and the
+ * active leaf's container, returns the entry whose registered container is
+ * inside `activeContainer` (the Gantt in the focused leaf). Falls back to the
+ * most-recently-registered entry when the active leaf isn't a Gantt view, and
+ * null when there are no entries.
+ *
+ * @param entries - registered container→opener pairs, insertion order preserved
+ * @param activeContainer - the active leaf's container element, if any
+ */
+export function pickActiveFocusEntry<E>(
+  entries: Iterable<[ContainerEl, E]>,
+  activeContainer: ContainerEl | null | undefined,
+): E | null {
+  let last: E | null = null;
+  let firstMatch: E | null = null;
+  let matched = false;
+  for (const [containerEl, entry] of entries) {
+    last = entry;
+    if (!matched && activeContainer && activeContainer.contains(containerEl)) {
+      firstMatch = entry;
+      matched = true;
+    }
+  }
+  return matched ? firstMatch : last;
+}

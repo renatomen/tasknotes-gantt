@@ -21,6 +21,7 @@ import {
 import { mount, unmount } from 'svelte';
 import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
+import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
 import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
@@ -133,14 +134,7 @@ const liveFocusEntries = new Map<HTMLElement, () => void>();
 export function getActiveGanttFocusEntry(
   activeContainer?: HTMLElement | null,
 ): (() => void) | null {
-  if (activeContainer) {
-    for (const [containerEl, entry] of liveFocusEntries) {
-      if (activeContainer.contains(containerEl)) return entry;
-    }
-  }
-  let last: (() => void) | null = null;
-  for (const entry of liveFocusEntries.values()) last = entry;
-  return last;
+  return pickActiveFocusEntry(liveFocusEntries, activeContainer);
 }
 
 class ObsidianGanttBasesView extends BasesView {
