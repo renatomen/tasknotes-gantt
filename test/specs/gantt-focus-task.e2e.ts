@@ -26,6 +26,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-readonly");
 
+/** The active file path, or null (read inside the Obsidian renderer). */
+async function activeFilePath(): Promise<string | null> {
+  return browser.executeObsidian(({ app }) => app.workspace.getActiveFile()?.path ?? null);
+}
+
+/** Open the focus search and choose the first match for `query`. */
+async function focusViaSearch(query: string): Promise<void> {
+  const focusBtn = await $(".og-bases-gantt .og-focus-btn");
+  await focusBtn.click();
+  const input = await $("input.prompt-input");
+  await input.waitForExist({ timeout: 5000 });
+  await input.setValue(query);
+  await browser.keys("Enter");
+}
+
 async function openBaseAndWaitForBars(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
     // Detach any prior Gantt leaf so there is exactly one `.og-bases-gantt` root
@@ -119,5 +134,24 @@ describe("Gantt (OG) focus on task", () => {
     );
     // No expansion was needed; the Phase B bar is present and selected.
     expect((await $$('.og-bases-gantt .wx-bar[data-id*="Phase B.md"]')).length).toBeGreaterThan(0);
+  });
+
+  it("focusing an already-selected task stays navigation-only — opens nothing (R9)", async () => {
+    const before = await activeFilePath();
+
+    // First focus selects Phase B.
+    await focusViaSearch("Phase B");
+    await browser.waitUntil(
+      async () => (await $$(".og-bases-gantt .wx-selected")).length > 0,
+      { timeout: 5000, timeoutMsg: "first focus did not select Phase B" }
+    );
+
+    // Focus the SAME (now-selected) task again. Without the suppression guard the
+    // select-first path would schedule activation and open the note after 250ms.
+    await focusViaSearch("Phase B");
+    await browser.pause(500); // exceed the 250ms activation window
+
+    // Still on the base — nothing opened.
+    expect(await activeFilePath()).toBe(before);
   });
 });

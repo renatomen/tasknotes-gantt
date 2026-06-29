@@ -1012,6 +1012,10 @@
   // show-editor (double-click) carries no modifier keys, so we read the most
   // recent pointer event's ctrl/meta state, captured on the chart root.
   let lastCtrlMeta = false;
+  // Raised around the programmatic `select-task` that Focus issues so the
+  // select-first interceptor skips scheduling activation — Focus highlights the
+  // target without opening it, even when it was already selected (R9).
+  let suppressSelectActivation = false;
 
   /** Resolve a bar id → source path and invoke the native-activate callback. */
   function activateBar(id: string, kind: 'single' | 'double', ctrlOrMeta: boolean): void {
@@ -1264,6 +1268,16 @@
       // deleted/re-added selected task makes SVAR fire select-task with
       // syncing=true). Only genuine user clicks drive selection/activation.
       if (syncing) return true;
+      // Focus's programmatic select: apply the highlight (return true) but never
+      // schedule activation, so focusing keeps navigation-only even when the
+      // target was already selected (R9). Drop any stale pending single action.
+      if (suppressSelectActivation) {
+        if (pendingSingleClick) {
+          clearTimeout(pendingSingleClick);
+          pendingSingleClick = null;
+        }
+        return true;
+      }
       const id = ev?.id != null ? String(ev.id) : null;
       if (id) {
         // Select-first gate (R1/R2): the intercept runs BEFORE SVAR applies this
@@ -1684,10 +1698,24 @@
       isCollapsed: (iid) => collapsedIds.has(iid),
     });
 
-    // 1. Expand only the necessary ancestors, root-first (echo-tagged so the
-    //    collapse intercept treats it as our own write — no persist/echo).
-    for (const ancestorId of plan.ancestorsToOpen) {
-      api.exec('open-task', { id: ancestorId, mode: true, eventSource: OG_ECHO_SOURCE });
+    // 1. Expand only the necessary ancestors, root-first, AND keep our collapse
+    //    state in sync. Mirror toggleAllCollapse: the echo-tagged open-task skips
+    //    the collapse intercept's own collapsedIds update, so we must clear the
+    //    opened ids ourselves — otherwise the next reseed reads a stale
+    //    collapsedIds and re-closes the row (and collapse-all shows wrong state).
+    //    Raise `syncing` first so the resulting diff treats our execs as echoes.
+    if (plan.ancestorsToOpen.length > 0) {
+      syncing = true;
+      const nextCollapsed = new Set(collapsedIds);
+      for (const ancestorId of plan.ancestorsToOpen) nextCollapsed.delete(ancestorId);
+      collapsedIds = nextCollapsed;
+      try {
+        for (const ancestorId of plan.ancestorsToOpen) {
+          api.exec('open-task', { id: ancestorId, mode: true, eventSource: OG_ECHO_SOURCE });
+        }
+      } finally {
+        syncing = false;
+      }
     }
 
     // 2. Best-fit zoom: step the ladder toward the target level, centered on the
@@ -1701,9 +1729,16 @@
     }
 
     // 3+4. Let expand/zoom re-layout settle, then scroll the bar into view on
-    //      both axes and highlight it by selecting (non-activating, post-#188).
+    //      both axes and highlight it by selecting. The select is wrapped so the
+    //      select-first interceptor skips activation — focus stays navigation-only
+    //      even when the target was already selected (R9).
     await tick();
-    api.exec('select-task', { id, show: 'xy' });
+    suppressSelectActivation = true;
+    try {
+      api.exec('select-task', { id, show: 'xy' });
+    } finally {
+      suppressSelectActivation = false;
+    }
     if (plan.centerDate) api.exec('scroll-chart', { date: plan.centerDate });
   }
 
