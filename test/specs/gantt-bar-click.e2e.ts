@@ -162,6 +162,8 @@ describe("Gantt (OG) bar click — select-first", () => {
       },
       { timeout: 5000, timeoutMsg: "Second click did not open the note" }
     );
+    // Explicit assertion on the resolved state (a note opened on the 2nd click).
+    expect(await activeFilePath()).toMatch(/\.md$/);
   });
 
   it("double-click on an unselected bar opens the note in one gesture (R5)", async () => {
@@ -175,5 +177,7 @@ describe("Gantt (OG) bar click — select-first", () => {
       },
       { timeout: 5000, timeoutMsg: "Double-click did not open the note" }
     );
+    // Explicit assertion on the resolved state (a note opened on double-click).
+    expect(await activeFilePath()).toMatch(/\.md$/);
   });
 });

@@ -108,7 +108,7 @@ export function resolveAncestorsToOpen(
   for (const inst of instances) byId.set(inst.id, inst);
 
   const target = byId.get(targetId);
-  if (!target || target.parent === undefined) return [];
+  if (target?.parent === undefined) return [];
 
   // Walk up the chain, collecting collapsed ancestor ids.
   const collapsed: string[] = [];
@@ -192,7 +192,7 @@ export function selectZoomLevel(opts: {
       bestIndex = i;
     }
   }
-  return bestIndex !== -1 ? bestIndex : sparsestIndex;
+  return bestIndex === -1 ? sparsestIndex : bestIndex;
 }
 
 /**
@@ -303,7 +303,7 @@ export function pickActiveFocusEntry<E>(
   let matched = false;
   for (const [containerEl, entry] of entries) {
     last = entry;
-    if (!matched && activeContainer && activeContainer.contains(containerEl)) {
+    if (!matched && activeContainer?.contains(containerEl)) {
       firstMatch = entry;
       matched = true;
     }
