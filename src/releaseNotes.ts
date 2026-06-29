@@ -8,6 +8,12 @@ export interface ReleaseNoteVersion {
 	isCurrent: boolean;
 }
 
-export const CURRENT_VERSION = "0.0.1";
+export const CURRENT_VERSION = "0.1.0-beta.3";
 export const RELEASE_NOTES_BUNDLE: ReleaseNoteVersion[] = [
+	{
+		version: "0.1.0-beta.3",
+		content: "# TaskNotes Gantt 0.1.0-beta.3\n\n## Added\n\n#### Focus on a specific task\n\n- A new crosshair button in the chart controls — and a \"Gantt: Focus on task…\" command — opens a fuzzy search over every task in the chart (both the tasks matched by your Base and any pulled in through relationships). \n- Pick one and the Gantt brings it into view for you: it expands only the parents needed to reveal it, zooms so the whole bar is visible without filling the chart, scrolls to it on both axes, and highlights it. \n- Tasks without a full date range (milestones, unscheduled) are revealed at the current zoom. This is navigation only — focusing never opens or edits the task. (#189)\n\n![Focus on a task — search for a task, expand its collapsed parent, then zoom, scroll, and highlight it](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/0.1.0-beta.3/docs/releases/assets/0.1.0-beta.3-focus.gif)\n\n\n## Changed\n\n#### Clicking a task bar now selects it first, instead of immediately opening it\n\n- A single click (or tap) on an unselected bar just selects and highlights its row, so you can pick out a task without the edit modal popping up. \n- The configured TaskNotes click action runs when you click an already-selected bar, or on a double-click — `singleClickAction` / `doubleClickAction` are honoured exactly as before. \n- Ctrl/Cmd-click still opens the note in a new tab, and the behaviour works the same on touch (tap to select, tap again or double-tap to open, long-press for the task menu). (#188)\n",
+		date: "2026-06-30",
+		isCurrent: true,
+	}
 ];
