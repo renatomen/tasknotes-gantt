@@ -99,7 +99,7 @@ describe("Gantt (OG) focus on task", () => {
       { timeout: 5000, timeoutMsg: "collapse-all did not hide child bars" }
     );
     // The Task A1 bar is gone while its parent is collapsed.
-    expect((await $$('.og-bases-gantt .wx-bar[data-id*="Task A1.md"]')).length).toBe(0);
+    expect(await $$('.og-bases-gantt .wx-bar[data-id*="Task A1.md"]')).toHaveLength(0);
 
     // Open the focus search and choose Task A1.
     const focusBtn = await $(".og-bases-gantt .og-focus-btn");
