@@ -58,6 +58,29 @@ export function resolveClickIntent(opts: {
   }
 }
 
+/** What a bar click/tap should do: select only, run the single action, or the double action. */
+export type ClickActivation = 'selectOnly' | 'activateSingle' | 'activateDouble';
+
+/**
+ * Decide what a bar click/tap does, given whether the row was already selected
+ * (pre-click) and which gesture it was (pure — no Obsidian/SVAR access).
+ *
+ * Select-first: a single click on an UNSELECTED row only selects + highlights
+ * (`selectOnly`); a single click on an already-SELECTED row runs the configured
+ * single action (`activateSingle`). A double-click always runs the double action
+ * (`activateDouble`), regardless of selection — so `wasSelected` is ignored for
+ * `double`.
+ */
+export function resolveClickActivation(opts: {
+  kind: ClickKind;
+  wasSelected?: boolean;
+}): ClickActivation {
+  if (opts.kind === 'double') {
+    return 'activateDouble';
+  }
+  return opts.wasSelected ? 'activateSingle' : 'selectOnly';
+}
+
 /** Minimal structural slice of the TaskNotes plugin instance + api we consume. */
 interface TaskNotesPlugin {
   api?: {

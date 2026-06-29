@@ -14,6 +14,7 @@ import { describe, it, expect, jest } from '@jest/globals';
 import type { App } from 'obsidian';
 import {
   resolveClickIntent,
+  resolveClickActivation,
   TaskNotesInteractions,
 } from '../../src/bases/taskNotesInteractions';
 
@@ -33,6 +34,26 @@ describe('resolveClickIntent (pure)', () => {
   it('defaults to opening the note for an unset/unknown action', () => {
     expect(resolveClickIntent({ action: undefined, ctrlOrMeta: false })).toBe('openNote');
     expect(resolveClickIntent({ action: 'something-new', ctrlOrMeta: false })).toBe('openNote');
+  });
+});
+
+describe('resolveClickActivation (pure)', () => {
+  it('single-click on an unselected row selects only (no action)', () => {
+    expect(resolveClickActivation({ kind: 'single', wasSelected: false })).toBe('selectOnly');
+  });
+
+  it('single-click on an already-selected row runs the single action', () => {
+    expect(resolveClickActivation({ kind: 'single', wasSelected: true })).toBe('activateSingle');
+  });
+
+  it('defaults to select-only when wasSelected is omitted', () => {
+    expect(resolveClickActivation({ kind: 'single' })).toBe('selectOnly');
+  });
+
+  it('double-click always runs the double action, regardless of selection', () => {
+    expect(resolveClickActivation({ kind: 'double', wasSelected: false })).toBe('activateDouble');
+    expect(resolveClickActivation({ kind: 'double', wasSelected: true })).toBe('activateDouble');
+    expect(resolveClickActivation({ kind: 'double' })).toBe('activateDouble');
   });
 });
 
