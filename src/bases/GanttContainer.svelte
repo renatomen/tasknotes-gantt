@@ -5,7 +5,7 @@
   // context, and guarantees its CSS. We render the one chosen by the effective
   // theme around the chart (plan 002 U2) so the theme applies completely.
   import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
-  import { Fullscreen } from '@svar-ui/svelte-core';
+  import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, setIcon } from 'obsidian';
@@ -69,10 +69,10 @@
   import type { DateStatus } from '../controller/datePolicy';
   import { dlog } from '../debugLog';
 
-  // The toggle handler SVAR's <Fullscreen> passes to our `toggleButton` snippet
-  // (wired as an onclick, so it carries a MouseEvent). Named alias so the snippet
-  // signature can be typed without an inline function-type param.
-  type FullscreenToggleAction = (ev: MouseEvent) => void;
+  // The toggle handler our floating full-screen button invokes (wired as an
+  // onclick; it ignores the event). Named alias so the snippet signature can be
+  // typed without an inline function-type param.
+  type FullscreenToggleAction = () => void;
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -991,12 +991,23 @@
   // re-applies only when the value actually changes — the no-op guard is free.
   const hostHeightPx = $derived(resolveHostHeight(rowCount, cellH, scaleAreaH, maxHeight, minHeight));
 
-  // Full screen is handled by SVAR's official <Fullscreen> component (svelte-core)
-  // in the markup — it wraps the chart, uses the native browser Fullscreen API,
-  // and handles Esc itself. We pass a custom `toggleButton` snippet so our own
-  // floating lucide button drives it (SVAR's default button uses a wxi-* icon,
-  // which renders blank with fonts disabled). No bespoke overlay/reparent state
-  // here — see https://docs.svar.dev/svelte/gantt/guides/fullscreen/.
+  // Full screen is "maximize within Obsidian" (plan 2026-06-30-002): the view
+  // root (`.og-bases-gantt`) is promoted to fill the Obsidian window via the
+  // `.is-maximized` class (CSS below), NOT the native browser Fullscreen API.
+  // The native API promotes a subtree to the browser top layer and paints only
+  // that subtree, hiding Obsidian's popups (Edit Modal, command palette, menus)
+  // which live on `document.body`. Maximizing in Obsidian's own stacking context
+  // — just below `--layer-modal` — lets those popups render above the chart.
+  // The state machine (toggle + Esc-to-exit + teardown) is the injectable
+  // `createMaximizeController` (unit-tested); this component owns only the DOM.
+  let isMaximized = $state(false);
+  let maximizeController: MaximizeController | undefined;
+  $effect(() => {
+    const ctrl = createMaximizeController({ onChange: (v) => { isMaximized = v; } });
+    maximizeController = ctrl;
+    return () => { ctrl.destroy(); maximizeController = undefined; };
+  });
+  const toggleMaximize: FullscreenToggleAction = () => maximizeController?.toggle();
 
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
@@ -1768,6 +1779,7 @@
 
 <div
   class="og-bases-gantt"
+  class:is-maximized={isMaximized}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -1791,7 +1803,10 @@
        Applied to the outer container, chrome shrank the chart below its content
        height; collapsed to a single root that clipped the only row. This element
        is the definite-height ancestor SVAR's `height:100%` chain resolves against. -->
-  <div class="og-chart-area" style={`height: ${hostHeightPx}px;`}>
+  <!-- While maximized the chart fills the window: the inline height switches to
+       100% (a CSS class can't override an inline style), and `.og-bases-gantt
+       .is-maximized` (CSS below) is the fixed full-window container it fills. -->
+  <div class="og-chart-area" style={`height: ${isMaximized ? '100%' : `${hostHeightPx}px`};`}>
     {#if effectiveIsDark}
       <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
     {:else}
@@ -1830,15 +1845,12 @@
   {/if}
 
   <div class="gtcell">
-    <!-- Full screen via SVAR's official <Fullscreen> component (plan 003 U3/U4;
-         https://docs.svar.dev/svelte/gantt/guides/fullscreen/): it wraps the
-         chart, uses the native browser Fullscreen API, and exits on Esc itself —
-         no bespoke overlay/reparent/z-index. We pass our own floating lucide
-         button through its `toggleButton` slot (the default uses a wxi-* icon,
-         blank with fonts disabled). The button + zoom controls render inside the
-         fullscreen node, so they stay visible (and the exit affordance works) in
-         full screen. -->
-    <Fullscreen toggleButton={fullscreenToggle}>
+    <!-- Full screen = "maximize within Obsidian" (plan 2026-06-30-002): the view
+         root carries `.is-maximized` (CSS below) to fill the Obsidian window in
+         Obsidian's own stacking context, so popups (Edit Modal, command palette,
+         menus) render above the chart instead of being hidden behind the native
+         top layer. The floating toggle + zoom controls are children of `.gtcell`
+         (inside the maximized container), so they stay visible while maximized. -->
       <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
            targeted api.exec actions (diff-sync $effect above) so SVAR never
            re-inits its store and the user's zoom/scroll/selection survive. -->
@@ -1929,7 +1941,9 @@
         </button>
       </div>
     </div>
-    </Fullscreen>
+    <!-- Floating full-screen toggle, rendered as a child of `.gtcell` so it stays
+         visible while maximized (it used to be rendered by SVAR's <Fullscreen>). -->
+    {@render fullscreenToggle(toggleMaximize, isMaximized)}
   </div>
 
   <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
@@ -1937,9 +1951,10 @@
        onBarContextMenu to the TaskNotes interaction service. -->
 {/snippet}
 
-<!-- Our floating full-screen button, passed to <Fullscreen> via its toggleButton
-     slot. `toggle` enters/exits; `inFull` reflects state (icon + label, R7).
-     Always visible on the chart, independent of the optional theme toolbar (R5). -->
+<!-- Our floating full-screen button. `toggle` enters/exits maximize; `inFull`
+     reflects state (icon + label, R5). The label stays "Full screen" — the mode
+     is now window-maximize, not OS fullscreen, but the affordance is unchanged.
+     Always visible on the chart, independent of the optional theme toolbar. -->
 {#snippet fullscreenToggle(toggle: FullscreenToggleAction, inFull: boolean)}
   <button
     class="og-fullscreen-toggle"
@@ -1959,8 +1974,9 @@
        `.og-chart-area` (plan 003 U2 / collapse-clip fix), so this outer container
        sizes to its content — the optional toolbar/banners plus the chart region.
        Applying the chart height here instead made chrome subtract from the chart,
-       clipping a single collapsed root. Full screen is unaffected: SVAR's
-       <Fullscreen> promotes its own inner node to the native top layer. */
+       clipping a single collapsed root. (When maximized, the `.is-maximized` rule
+       below makes this container fixed/full-window and `.og-chart-area`'s inline
+       height switches to 100% so the chart fills it.) */
     /* Column layout so the toolbar stacks above the chart region. */
     display: flex;
     flex-direction: column;
@@ -1968,10 +1984,22 @@
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
-  /* Full screen is the native browser Fullscreen API via SVAR's <Fullscreen>
-     component (its `.wx-fullscreen` node is promoted to the top layer at screen
-     size) — no in-plugin overlay/position/z-index needed. The component's
-     `::backdrop` is themed from the inherited --wx-* vars. */
+  /* Maximize within Obsidian (plan 2026-06-30-002): the view root is promoted to
+     fill the Obsidian window in Obsidian's OWN stacking context — NOT the native
+     browser top layer — so Obsidian's popups (Edit Modal, command palette, menus,
+     suggesters, Notices) render above it. The z-index is anchored to Obsidian's
+     `--layer-modal` token and sits just beneath it, so modals/menus/notices/
+     tooltips (all at or above --layer-modal) stay on top and the value tracks any
+     theme override of the modal layer rather than a hardcoded literal. Removing
+     the class fully restores the embedded layout (no residual style). */
+  .og-bases-gantt.is-maximized {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: calc(var(--layer-modal) - 1);
+    background-color: var(--background-primary);
+  }
 
   /* SVAR theme component host: fills the remaining height below the toolbar
      (flex child, min-height:0 so it can shrink within the flex column rather
