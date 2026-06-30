@@ -1892,10 +1892,13 @@
        Applied to the outer container, chrome shrank the chart below its content
        height; collapsed to a single root that clipped the only row. This element
        is the definite-height ancestor SVAR's `height:100%` chain resolves against. -->
-  <!-- While maximized the chart fills the window: the inline height switches to
-       100% (a CSS class can't override an inline style), and `.og-bases-gantt
-       .is-maximized` (CSS below) is the fixed full-window container it fills. -->
-  <div class="og-chart-area" style={`height: ${isMaximized ? '100%' : `${hostHeightPx}px`};`}>
+  <!-- While maximized the chart fills the REMAINING window height: we drop the
+       inline px height (so it doesn't pin the area to a fixed size) and let the
+       `.is-maximized .og-chart-area` flex rule (CSS below) take the space left
+       after the optional toolbar/banners. Using height:100% here would make the
+       area the full viewport AND leave the toolbar stacked above it, overflowing
+       the bottom (timeline + zoom controls pushed off-screen). -->
+  <div class="og-chart-area" style={isMaximized ? '' : `height: ${hostHeightPx}px;`}>
     {#if effectiveIsDark}
       <WillowDark fonts={false}>{@render chartBody()}</WillowDark>
     {:else}
@@ -2103,6 +2106,16 @@
        eating into it. `flex: none` so the flex column never shrinks it below the
        explicit height. */
     flex: none;
+    min-height: 0;
+  }
+
+  /* While maximized the chart area takes the height LEFT after the optional
+     toolbar/banners (not the full viewport), so the toolbar stacked above it
+     can't push the timeline + zoom controls off the bottom. `flex: 1 1 0` in the
+     fixed-height `.is-maximized` column gives it a definite computed height that
+     SVAR's height:100% chain still resolves against. */
+  .og-bases-gantt.is-maximized .og-chart-area {
+    flex: 1 1 0;
     min-height: 0;
   }
 
