@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, MouseEvent, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, setTimeout, clearTimeout, getComputedStyle */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -1002,10 +1002,56 @@
   // `createMaximizeController` (unit-tested); this component owns only the DOM.
   let isMaximized = $state(false);
   let maximizeController: MaximizeController | undefined;
+  // Where the view root sat before maximizing, so exit restores it exactly.
+  let restoreParent: HTMLElement | null = null;
+  let restoreNextSibling: Element | null = null;
+  // Promote the view root to `document.body` while maximized, and restore it on
+  // exit. A plain `position: fixed` overlay is trapped when an Obsidian ancestor
+  // applies `transform`/`contain` (then fixed resolves against that ancestor, so
+  // maximize would fill only the leaf, not the window — caught by the e2e). At
+  // body level, fixed resolves against the viewport and the chart covers the
+  // sidebars/tab bar/ribbon (R1). We move ONLY our own node — never Obsidian's
+  // modal/popover DOM. Restored on exit and on teardown so Svelte unmount and
+  // the Obsidian view both find the node where they expect it.
+  function applyMaximizeDom(max: boolean): void {
+    const el = rootEl;
+    if (!el) return;
+    if (max) {
+      if (restoreParent) return; // already promoted
+      restoreParent = el.parentElement;
+      restoreNextSibling = el.nextElementSibling;
+      document.body.appendChild(el);
+    } else if (restoreParent) {
+      restoreParent.insertBefore(el, restoreNextSibling);
+      restoreParent = null;
+      restoreNextSibling = null;
+    }
+  }
   $effect(() => {
-    const ctrl = createMaximizeController({ onChange: (v) => { isMaximized = v; } });
+    const ctrl = createMaximizeController({
+      onChange: (v) => { isMaximized = v; applyMaximizeDom(v); },
+      // Obsidian-aware Escape policy (injected so the controller stays generic):
+      // when a modal/menu/suggester is open, let IT consume Escape — only exit
+      // maximize when nothing else is up. Prevents one Escape from both closing a
+      // popup AND dropping maximize.
+      registerEscape: (onEscape) => {
+        const handler = (e: KeyboardEvent): void => {
+          if (e.key !== 'Escape') return;
+          if (document.querySelector('.modal-container, .menu, .suggestion-container')) return;
+          onEscape();
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+      },
+    });
     maximizeController = ctrl;
-    return () => { ctrl.destroy(); maximizeController = undefined; };
+    return () => {
+      // Restore the node to its original parent before unmount so neither Svelte
+      // nor the Obsidian view is left removing an orphaned/relocated root.
+      applyMaximizeDom(false);
+      ctrl.destroy();
+      maximizeController = undefined;
+    };
   });
   const toggleMaximize: FullscreenToggleAction = () => maximizeController?.toggle();
 
