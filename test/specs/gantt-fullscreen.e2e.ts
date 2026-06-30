@@ -132,6 +132,32 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
     expect(topmostIsModal).toBe(true);
   });
 
+  it("Esc is ignored by maximize while a popup is open (R4 modal-aware guard)", async () => {
+    const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
+    await toggle.click();
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    await browser.executeObsidian(async ({ app }) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+        .commands.executeCommandById("command-palette:open");
+    });
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length > 0, {
+      timeout: 8000, timeoutMsg: "command palette did not open",
+    });
+
+    // Dispatch Escape while the modal is verified present in the SAME synchronous
+    // step — our capture-phase handler must see the open popup and stand down,
+    // leaving maximize intact. (Driving Escape through WDIO's async command queue
+    // is non-deterministic: the palette can close between commands, removing the
+    // popup our handler keys off of. A synchronous dispatch closes that window.)
+    const outcome = await browser.execute(() => {
+      if (!document.querySelector(".modal-container")) return "no-modal";
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      return document.querySelector(".og-bases-gantt.is-maximized") ? "stayed-maximized" : "dropped";
+    });
+    expect(outcome).toBe("stayed-maximized");
+  });
+
   it("exits maximize on Esc and restores the embedded layout (R4)", async () => {
     const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
     await toggle.click();
@@ -170,5 +196,28 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
       () => !!document.querySelector('.og-bases-gantt .wx-bar[data-e2e-marker="1"]')
     );
     expect(survived).toBe(true);
+  });
+
+  // LAST test: it leaves a different (empty) leaf active. Because the maximized
+  // root lives on document.body, Obsidian's hide-the-inactive-leaf no longer
+  // covers it — so activating another leaf must auto-exit maximize and restore
+  // the node (otherwise the chart would paint over the other tab).
+  it("auto-exits maximize and un-orphans the root when another leaf becomes active", async () => {
+    const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
+    await toggle.click();
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    // Activate a new empty leaf → active-leaf-change fires for a non-Gantt leaf.
+    await browser.executeObsidian(async ({ app }) => {
+      app.workspace.getLeaf(true);
+    });
+    await browser.waitUntil(async () => !(await isMaximized()), {
+      timeout: 8000, timeoutMsg: "maximize did not auto-exit when another leaf became active",
+    });
+    // The root was restored into its leaf, not left orphaned on document.body.
+    const orphanedOnBody = await browser.execute(
+      () => !!document.querySelector("body > .og-bases-gantt")
+    );
+    expect(orphanedOnBody).toBe(false);
   });
 });

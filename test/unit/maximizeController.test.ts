@@ -92,6 +92,26 @@ describe('createMaximizeController (plan 002 U1)', () => {
     expect(esc.hasHandler()).toBe(false);
   });
 
+  it('destroy() while maximized unregisters Escape and freezes state (no further transitions)', () => {
+    const changes: boolean[] = [];
+    const esc = makeFakeEscapeSource();
+    const ctrl = createMaximizeController({
+      onChange: (v) => changes.push(v),
+      registerEscape: esc.register,
+    });
+
+    ctrl.enter();
+    ctrl.destroy(); // teardown while still maximized
+    expect(esc.unregisterCount()).toBe(1);
+    expect(esc.hasHandler()).toBe(false);
+    // State is frozen at destroy; further calls are inert and fire no onChange.
+    expect(ctrl.isMaximized()).toBe(true);
+    ctrl.exit();
+    ctrl.toggle();
+    expect(ctrl.isMaximized()).toBe(true);
+    expect(changes).toEqual([true]);
+  });
+
   it('ignores enter()/toggle() after destroy() and never throws', () => {
     const changes: boolean[] = [];
     const ctrl = createMaximizeController({

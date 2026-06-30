@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, setTimeout, clearTimeout, getComputedStyle */
+  /* global HTMLElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -72,7 +72,14 @@
   // The toggle handler our floating full-screen button invokes (wired as an
   // onclick; it ignores the event). Named alias so the snippet signature can be
   // typed without an inline function-type param.
-  type FullscreenToggleAction = () => void;
+  type MaximizeToggleAction = () => void;
+
+  // Obsidian overlay surfaces that should consume Escape themselves while
+  // maximized — when one is open, our Esc-to-exit handler stands down so a single
+  // Escape closes the popup without also dropping maximize. Named (not inline) so
+  // the policy has one canonical home; extend here if Obsidian adds a layer.
+  const OBSIDIAN_OVERLAY_SELECTOR =
+    '.modal-container, .menu, .suggestion-container, .hover-popover';
 
   // Component props. The dynamic render inputs arrive via a reactive `data`
   // store (refreshed in place by register.ts) so the SVAR instance persists
@@ -1002,7 +1009,11 @@
   // `createMaximizeController` (unit-tested); this component owns only the DOM.
   let isMaximized = $state(false);
   let maximizeController: MaximizeController | undefined;
-  // Where the view root sat before maximizing, so exit restores it exactly.
+  // The node we promoted to `document.body` while maximized, plus where it sat
+  // before, so exit/teardown restores it exactly. We capture the node itself (not
+  // just rootEl) so the teardown restore still works if `bind:this` has already
+  // nulled `rootEl` during unmount.
+  let promotedEl: HTMLElement | null = null;
   let restoreParent: HTMLElement | null = null;
   let restoreNextSibling: Element | null = null;
   // Promote the view root to `document.body` while maximized, and restore it on
@@ -1011,37 +1022,48 @@
   // maximize would fill only the leaf, not the window — caught by the e2e). At
   // body level, fixed resolves against the viewport and the chart covers the
   // sidebars/tab bar/ribbon (R1). We move ONLY our own node — never Obsidian's
-  // modal/popover DOM. Restored on exit and on teardown so Svelte unmount and
-  // the Obsidian view both find the node where they expect it.
+  // modal/popover DOM. On restore we skip re-inserting into a parent that was
+  // detached while maximized (e.g. the leaf was closed) — Svelte's unmount then
+  // removes the node, avoiding an orphan or an insertBefore into a stale parent.
   function applyMaximizeDom(max: boolean): void {
-    const el = rootEl;
-    if (!el) return;
     if (max) {
-      if (restoreParent) return; // already promoted
+      const el = rootEl;
+      if (!el || promotedEl) return; // no node yet, or already promoted
+      promotedEl = el;
       restoreParent = el.parentElement;
       restoreNextSibling = el.nextElementSibling;
       document.body.appendChild(el);
-    } else if (restoreParent) {
-      restoreParent.insertBefore(el, restoreNextSibling);
+    } else {
+      const el = promotedEl;
+      const parent = restoreParent;
+      const next = restoreNextSibling;
+      promotedEl = null;
       restoreParent = null;
       restoreNextSibling = null;
+      if (el && parent && parent.isConnected) {
+        parent.insertBefore(el, next);
+      }
     }
   }
   $effect(() => {
     const ctrl = createMaximizeController({
       onChange: (v) => { isMaximized = v; applyMaximizeDom(v); },
       // Obsidian-aware Escape policy (injected so the controller stays generic):
-      // when a modal/menu/suggester is open, let IT consume Escape — only exit
-      // maximize when nothing else is up. Prevents one Escape from both closing a
-      // popup AND dropping maximize.
+      // when a popup is open, let IT consume Escape — only exit maximize when
+      // Escape would otherwise do nothing. This runs in the CAPTURE phase so it
+      // fires BEFORE Obsidian's own handler closes (and removes) the popup: a
+      // bubble-phase check is racy because `.modal-container` is already gone by
+      // the time we'd look. At capture time the popup is still in the DOM, so the
+      // selector check reliably stands us down and the event proceeds to the
+      // popup's handler — one Escape closes the popup without dropping maximize.
       registerEscape: (onEscape) => {
         const handler = (e: KeyboardEvent): void => {
           if (e.key !== 'Escape') return;
-          if (document.querySelector('.modal-container, .menu, .suggestion-container')) return;
+          if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
           onEscape();
         };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
+        document.addEventListener('keydown', handler, true);
+        return () => document.removeEventListener('keydown', handler, true);
       },
     });
     maximizeController = ctrl;
@@ -1053,7 +1075,28 @@
       maximizeController = undefined;
     };
   });
-  const toggleMaximize: FullscreenToggleAction = () => maximizeController?.toggle();
+  // Auto-exit maximize when our leaf stops being the active one. Because the
+  // maximized root lives on `document.body` (not in the leaf), Obsidian's normal
+  // hide-the-inactive-leaf behavior no longer covers it — without this, switching
+  // tabs would leave the full-window chart painted over a different tab. Exiting
+  // also keeps only one view maximized at a time. Our origin container
+  // (`restoreParent`) stays inside our leaf; if the now-active leaf doesn't
+  // contain it, the active leaf isn't ours.
+  $effect(() => {
+    const ref = app.workspace.on('active-leaf-change', (leaf) => {
+      if (!maximizeController?.isMaximized()) return;
+      const activeContainer = leaf?.view?.containerEl ?? null;
+      // Null/transient leaf changes (Obsidian emits these when a modal opens or
+      // during focus transitions) are NOT a real tab switch — staying maximized
+      // is correct. Only exit when a genuine OTHER leaf became active.
+      if (!activeContainer) return;
+      const owner = restoreParent;
+      if (owner && activeContainer.contains(owner)) return; // still our leaf
+      maximizeController.exit();
+    });
+    return () => app.workspace.offref(ref);
+  });
+  const toggleMaximize: MaximizeToggleAction = () => maximizeController?.toggle();
 
   // Native interaction state (U2). Map render-instance id → source note path so
   // a bar click resolves to the task the native TaskNotes action targets.
@@ -1989,7 +2032,7 @@
     </div>
     <!-- Floating full-screen toggle, rendered as a child of `.gtcell` so it stays
          visible while maximized (it used to be rendered by SVAR's <Fullscreen>). -->
-    {@render fullscreenToggle(toggleMaximize, isMaximized)}
+    {@render maximizeToggle(toggleMaximize, isMaximized)}
   </div>
 
   <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
@@ -2001,7 +2044,7 @@
      reflects state (icon + label, R5). The label stays "Full screen" — the mode
      is now window-maximize, not OS fullscreen, but the affordance is unchanged.
      Always visible on the chart, independent of the optional theme toolbar. -->
-{#snippet fullscreenToggle(toggle: FullscreenToggleAction, inFull: boolean)}
+{#snippet maximizeToggle(toggle: MaximizeToggleAction, inFull: boolean)}
   <button
     class="og-fullscreen-toggle"
     onclick={toggle}
@@ -2043,7 +2086,10 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    z-index: calc(var(--layer-modal) - 1);
+    /* Fallback keeps a valid z-index if a theme leaves --layer-modal unset:
+       calc() over an undefined var is invalid and collapses to `auto`, which (as
+       the last body child) could paint ABOVE modals — the opposite of the goal. */
+    z-index: calc(var(--layer-modal, 100) - 1);
     background-color: var(--background-primary);
   }
 
@@ -2254,14 +2300,6 @@
     width: 100%;
     height: 100%;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3Cpath d='M8 11h6'/%3E%3C/svg%3E");
-  }
-
-  .og-bases-gantt :global(.wx-icon.wxi-fullscreen)::before {
-    content: "";
-    display: block;
-    width: 100%;
-    height: 100%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7V5a2 2 0 0 1 2-2h2'/%3E%3Cpath d='M17 3h2a2 2 0 0 1 2 2v2'/%3E%3Cpath d='M21 17v2a2 2 0 0 1-2 2h-2'/%3E%3Cpath d='M7 21H5a2 2 0 0 1-2-2v-2'/%3E%3C/svg%3E");
   }
 
   /*

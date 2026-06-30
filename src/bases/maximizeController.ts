@@ -28,9 +28,11 @@ export interface MaximizeControllerDeps {
   /** Notified whenever maximized state actually changes (never on a no-op).
    *  The Svelte component re-renders the toggle + flips the container class. */
   onChange: (isMaximized: boolean) => void;
-  /** Escape-key source. Defaults to {@link defaultRegisterEscape} (real
-   *  `document`); the node Jest env passes a fake so it never touches a global. */
-  registerEscape?: RegisterEscape;
+  /** Escape-key source. Required (not defaulted): the only production caller is
+   *  the Svelte component, which injects an Obsidian-aware registrar (it ignores
+   *  Escape while a popup is open). Injecting it also keeps this module DOM-free
+   *  so it unit-tests under the node Jest env without touching `document`. */
+  registerEscape: RegisterEscape;
 }
 
 /** A per-view maximize controller. */
@@ -47,17 +49,6 @@ export interface MaximizeController {
   destroy(): void;
 }
 
-/** Default browser Escape source: a `document` keydown listener filtered to the
- *  Escape key. Only invoked when no `registerEscape` is injected (i.e. in the
- *  live Svelte component, where `document` exists). */
-export const defaultRegisterEscape: RegisterEscape = (onEscape) => {
-  const handler = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') onEscape();
-  };
-  document.addEventListener('keydown', handler);
-  return () => document.removeEventListener('keydown', handler);
-};
-
 /**
  * Create a maximize controller. See {@link MaximizeController}.
  *
@@ -71,7 +62,7 @@ export const defaultRegisterEscape: RegisterEscape = (onEscape) => {
 export function createMaximizeController(
   deps: MaximizeControllerDeps,
 ): MaximizeController {
-  const register = deps.registerEscape ?? defaultRegisterEscape;
+  const register = deps.registerEscape;
   let maximized = false;
   let destroyed = false;
 
