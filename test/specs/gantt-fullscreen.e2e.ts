@@ -5,35 +5,43 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 
 /**
- * Full-screen spec — SVAR's official <Fullscreen> component (svelte-core),
- * adopted per https://docs.svar.dev/svelte/gantt/guides/fullscreen/.
+ * Full-screen spec — "maximize within Obsidian" (plan 2026-06-30-002).
  *
- * Boots the `test/vaults/gantt-viewport` fixture (no theme toolbar) and asserts:
- *   1. The chart is wrapped in the official `.wx-fullscreen` node, and our
- *      floating toggle (passed via the component's `toggleButton` slot) is
- *      visible WITHOUT the theme toolbar (R5).
- *   2. Clicking the toggle enters NATIVE browser fullscreen — `document
- *      .fullscreenElement` becomes the `.wx-fullscreen` node — and the toggle's
- *      label flips to the exit affordance (R6/R7).
- *   3. A marker set on a chart bar survives the enter→exit round-trip, so the
- *      chart is not remounted (R9).
- *   4. Clicking the toggle again exits native fullscreen (R7).
+ * The toggle no longer uses the native browser Fullscreen API (which promoted
+ * the chart to the browser top layer and HID Obsidian's popups). Instead the
+ * view root gets `.is-maximized` — `position: fixed`, full Obsidian window,
+ * z-index anchored just below `--layer-modal` — so Obsidian popups render ABOVE
+ * the maximized chart. This spec asserts:
+ *   1. The chart is NOT wrapped in a native `.wx-fullscreen` node; our floating
+ *      toggle is visible without the theme toolbar (R5).
+ *   2. Clicking the toggle adds `.is-maximized`, fills the window, does NOT enter
+ *      native fullscreen, and flips the toggle label (R1/R5).
+ *   3. While maximized, the command palette (a body-appended modal, the proxy for
+ *      every Obsidian popup) is the topmost element at the viewport centre — i.e.
+ *      it renders above the chart (R2/R7).
+ *   4. Esc and a second toggle click exit maximize and restore the embedded
+ *      layout with no residual styling (R4).
+ *   5. A marker on a chart bar survives an enter→exit cycle — the chart is not
+ *      remounted (R6).
  *
  * SELECTOR NOTE: `.og-bases-gantt` / `.og-fullscreen-toggle` are owned by this
- * plugin; `.wx-fullscreen` is SVAR's <Fullscreen> root and `.wx-bar` its chart
- * bar (verified against @svar-ui/svelte-core + svelte-gantt).
+ * plugin; `.wx-bar` is SVAR's chart bar; `.modal-container` / `.prompt` are
+ * Obsidian's modal host + command-palette surface.
  */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-viewport");
 
-async function fullscreenElementIsChart(): Promise<boolean> {
-  return browser.execute(
-    () => document.fullscreenElement?.classList.contains("wx-fullscreen") ?? false
-  );
+async function isMaximized(): Promise<boolean> {
+  return (await $$(".og-bases-gantt.is-maximized")).length > 0;
 }
 
-describe("Gantt (OG) full-screen (official <Fullscreen> component)", () => {
+/** No native fullscreen element should ever be created by this toggle. */
+async function nativeFullscreenActive(): Promise<boolean> {
+  return browser.execute(() => document.fullscreenElement !== null);
+}
+
+describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-fullscreen-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
@@ -57,40 +65,132 @@ describe("Gantt (OG) full-screen (official <Fullscreen> component)", () => {
   });
 
   afterEach(async () => {
-    // Leave no test in fullscreen (would skew the next one).
-    await browser.execute(() => { if (document.fullscreenElement) void document.exitFullscreen(); });
-    await browser.waitUntil(async () => !(await fullscreenElementIsChart()), { timeout: 5000 }).catch(() => {});
+    // Close any lingering modal first (the command palette has no close button →
+    // Escape; while a modal is open our handler leaves maximize alone), then leave
+    // no test maximized (would skew the next).
+    if ((await $$(".modal-container")).length > 0) {
+      await browser.keys(["Escape"]);
+      await browser.waitUntil(async () => (await $$(".modal-container")).length === 0, { timeout: 5000 }).catch(() => {});
+    }
+    if (await isMaximized()) {
+      await browser.keys(["Escape"]); // no modal now → our handler exits maximize
+      await browser.waitUntil(async () => !(await isMaximized()), { timeout: 5000 }).catch(() => {});
+    }
   });
 
-  it("wraps the chart in the official <Fullscreen> and shows the toggle without the theme toolbar (R5)", async () => {
+  it("does not wrap the chart in a native fullscreen node and shows the toggle without the theme toolbar (R5)", async () => {
     expect(await $$(".og-bases-gantt .og-gantt-toolbar")).toHaveLength(0); // fixture has no toolbar
-    await expect($(".og-bases-gantt .wx-fullscreen")).toBeExisting();
+    expect(await $$(".og-bases-gantt .wx-fullscreen")).toHaveLength(0); // no native <Fullscreen>
     const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
     await expect(toggle).toBeExisting();
     await expect(toggle).toHaveAttribute("aria-label", "Full screen");
   });
 
-  it("enters native fullscreen on toggle and flips the label (R6/R7)", async () => {
+  it("maximizes within Obsidian (fills the window, no native fullscreen) and flips the label (R1/R5)", async () => {
     const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
     await toggle.click();
-    await browser.waitUntil(fullscreenElementIsChart, {
-      timeout: 8000, timeoutMsg: "clicking the toggle did not enter native fullscreen",
+    await browser.waitUntil(isMaximized, {
+      timeout: 8000, timeoutMsg: "clicking the toggle did not add .is-maximized",
     });
-    expect(await fullscreenElementIsChart()).toBe(true);
+    expect(await nativeFullscreenActive()).toBe(false); // window-maximize, not native fullscreen
+
+    // The maximized container fills (≈) the Obsidian window.
+    const fills = await browser.execute(() => {
+      const el = document.querySelector(".og-bases-gantt.is-maximized") as HTMLElement | null;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2;
+    });
+    expect(fills).toBe(true);
     await expect(toggle).toHaveAttribute("aria-label", "Exit full screen");
   });
 
-  it("does not remount the chart across an enter/exit cycle (R9)", async () => {
+  it("renders the command palette ABOVE the maximized chart (R2/R7)", async () => {
+    const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
+    await toggle.click();
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    // Open the command palette — a body-appended modal, the proxy for every
+    // Obsidian popup. With native fullscreen it would have been unpaintable.
+    await browser.executeObsidian(async ({ app }) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+        .commands.executeCommandById("command-palette:open");
+    });
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length > 0, {
+      timeout: 8000, timeoutMsg: "command palette did not open",
+    });
+
+    // The topmost element at the viewport centre belongs to the modal layer, not
+    // the Gantt — direct evidence the popup paints above the maximized chart.
+    const topmostIsModal = await browser.execute(() => {
+      const el = document.elementFromPoint(
+        Math.floor(window.innerWidth / 2),
+        Math.floor(window.innerHeight / 2),
+      );
+      return !!el?.closest(".modal-container");
+    });
+    expect(topmostIsModal).toBe(true);
+  });
+
+  it("Esc is ignored by maximize while a popup is open (R4 modal-aware guard)", async () => {
+    const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
+    await toggle.click();
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    await browser.executeObsidian(async ({ app }) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+        .commands.executeCommandById("command-palette:open");
+    });
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length > 0, {
+      timeout: 8000, timeoutMsg: "command palette did not open",
+    });
+
+    // Dispatch Escape while the modal is verified present in the SAME synchronous
+    // step — our capture-phase handler must see the open popup and stand down,
+    // leaving maximize intact. (Driving Escape through WDIO's async command queue
+    // is non-deterministic: the palette can close between commands, removing the
+    // popup our handler keys off of. A synchronous dispatch closes that window.)
+    const outcome = await browser.execute(() => {
+      if (!document.querySelector(".modal-container")) return "no-modal";
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      return document.querySelector(".og-bases-gantt.is-maximized") ? "stayed-maximized" : "dropped";
+    });
+    expect(outcome).toBe("stayed-maximized");
+  });
+
+  it("exits maximize on Esc and restores the embedded layout (R4)", async () => {
+    const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
+    await toggle.click();
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => !(await isMaximized()), {
+      timeout: 8000, timeoutMsg: "Esc did not exit maximize",
+    });
+    // `.is-maximized` is the ONLY source of the fixed/full-window styling, so its
+    // absence (awaited above) is the no-residual proof. The root no longer fills
+    // the window, and the toggle label is restored.
+    const stillFillsWindow = await browser.execute(() => {
+      const el = document.querySelector(".og-bases-gantt") as HTMLElement | null;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.height >= window.innerHeight - 2;
+    });
+    expect(stillFillsWindow).toBe(false);
+    await expect(toggle).toHaveAttribute("aria-label", "Full screen");
+  });
+
+  it("does not remount the chart across an enter/exit cycle (R6)", async () => {
     await browser.execute(() => {
       const bar = document.querySelector(".og-bases-gantt .wx-bar");
       if (bar) bar.setAttribute("data-e2e-marker", "1");
     });
     const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
     await toggle.click();
-    await browser.waitUntil(fullscreenElementIsChart, { timeout: 8000 });
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
     await toggle.click();
-    await browser.waitUntil(async () => !(await fullscreenElementIsChart()), {
-      timeout: 8000, timeoutMsg: "did not exit native fullscreen",
+    await browser.waitUntil(async () => !(await isMaximized()), {
+      timeout: 8000, timeoutMsg: "did not exit maximize",
     });
     const survived = await browser.execute(
       () => !!document.querySelector('.og-bases-gantt .wx-bar[data-e2e-marker="1"]')
@@ -98,15 +198,26 @@ describe("Gantt (OG) full-screen (official <Fullscreen> component)", () => {
     expect(survived).toBe(true);
   });
 
-  it("exits native fullscreen when the toggle is clicked again (R7)", async () => {
+  // LAST test: it leaves a different (empty) leaf active. Because the maximized
+  // root lives on document.body, Obsidian's hide-the-inactive-leaf no longer
+  // covers it — so activating another leaf must auto-exit maximize and restore
+  // the node (otherwise the chart would paint over the other tab).
+  it("auto-exits maximize and un-orphans the root when another leaf becomes active", async () => {
     const toggle = await $(".og-bases-gantt .og-fullscreen-toggle");
     await toggle.click();
-    await browser.waitUntil(fullscreenElementIsChart, { timeout: 8000 });
-    await toggle.click();
-    await browser.waitUntil(async () => !(await fullscreenElementIsChart()), {
-      timeout: 8000, timeoutMsg: "did not exit native fullscreen on second click",
+    await browser.waitUntil(isMaximized, { timeout: 8000 });
+
+    // Activate a new empty leaf → active-leaf-change fires for a non-Gantt leaf.
+    await browser.executeObsidian(async ({ app }) => {
+      app.workspace.getLeaf(true);
     });
-    expect(await fullscreenElementIsChart()).toBe(false);
-    await expect(toggle).toHaveAttribute("aria-label", "Full screen");
+    await browser.waitUntil(async () => !(await isMaximized()), {
+      timeout: 8000, timeoutMsg: "maximize did not auto-exit when another leaf became active",
+    });
+    // The root was restored into its leaf, not left orphaned on document.body.
+    const orphanedOnBody = await browser.execute(
+      () => !!document.querySelector("body > .og-bases-gantt")
+    );
+    expect(orphanedOnBody).toBe(false);
   });
 });

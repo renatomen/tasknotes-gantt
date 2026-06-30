@@ -25,7 +25,17 @@
 
   // A store so a future test can refresh in place; mounted once here.
   const store = writable(data);
-  const appStub = {} as unknown as App;
+  // Minimal `app` stub. `workspace.on`/`offref` are stubbed because
+  // GanttContainer subscribes to `active-leaf-change` (to auto-exit maximize when
+  // the leaf deactivates); the real workspace always exists in Obsidian, but this
+  // isolated host mounts the component outside a workspace. The listener never
+  // fires here (no events are emitted), so the no-op stub is sufficient.
+  const appStub = {
+    workspace: {
+      on: () => ({}),
+      offref: () => { /* no-op */ },
+    },
+  } as unknown as App;
 
   let hostEl: HTMLElement;
 
