@@ -37,6 +37,7 @@ export default [
         window: "readonly",
         document: "readonly",
         HTMLElement: "readonly",
+        KeyboardEvent: "readonly",
         MutationObserver: "readonly",
         setTimeout: "readonly",
         performance: "readonly",
