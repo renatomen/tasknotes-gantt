@@ -25,7 +25,6 @@
     "perf:isolated": "vitest run --config test/perf/vitest.config.ts",
     "perf:gen": "tsx scripts/perf-gen.mjs",
     "perf:e2e": "wdio run ./test/wdio/wdio.perf.conf.mts",
-    "capture:demo": "wdio run ./test/wdio/wdio.capture.conf.mts",
     "prepare": "husky"
   },
   "devDependencies": {
