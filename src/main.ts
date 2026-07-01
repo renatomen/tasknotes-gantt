@@ -2,7 +2,7 @@
 import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { registerBasesGantt, getActiveGanttFocusEntry } from './bases/register';
 import { ReleaseNotesView, RELEASE_NOTES_VIEW_TYPE } from './release/ReleaseNotesView';
-import { RELEASE_NOTES_BUNDLE } from './releaseNotes';
+import { RELEASE_NOTES_BUNDLE, type ReleaseNoteVersion } from './releaseNotes';
 import {
   DEFAULT_SETTINGS,
   normalizeSettings,
@@ -21,6 +21,37 @@ export default class ObsidianGanttPlugin extends Plugin {
   whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
   private versionCheckTimer: number | null = null;
   private versionChecked = false;
+  /** When set, the registered What's New factory renders this bundle instead of
+   *  the baked-in one. Written only by the __tnGanttTest seam below (one-shot). */
+  private releaseNotesBundleOverride: ReleaseNoteVersion[] | null = null;
+
+  /**
+   * Test-only seam for the WebDriver e2e (namespaced `__tnGanttTest` to match
+   * the `__tnGanttDebug` convention). The `ReleaseNotesView` class is a private
+   * symbol inside the bundled `main.js`, so the spec cannot construct it with a
+   * synthetic bundle directly; it reaches this opener via
+   * `app.plugins.plugins['tasknotes-gantt'].__tnGanttTest`. Renders the What's
+   * New view with a caller-supplied bundle so card DOM can be asserted without a
+   * real version bump. Inert unless explicitly called — carries no user data.
+   */
+  readonly __tnGanttTest = {
+    openReleaseNotesWithBundle: async (bundle: ReleaseNoteVersion[]): Promise<void> => {
+      this.releaseNotesBundleOverride = bundle;
+      try {
+        // Clear any prior release-notes leaf so the harness sees exactly one view
+        // (and one set of cards) to assert against.
+        this.app.workspace.detachLeavesOfType(RELEASE_NOTES_VIEW_TYPE);
+        const leaf = this.app.workspace.getLeaf(true);
+        await leaf.setViewState({ type: RELEASE_NOTES_VIEW_TYPE, active: true });
+        await this.app.workspace.revealLeaf(leaf);
+      } finally {
+        // The factory already constructed the view with the override above; clear
+        // it so it's a one-shot. A later real "Show release notes" then renders
+        // RELEASE_NOTES_BUNDLE, never a stale synthetic bundle.
+        this.releaseNotesBundleOverride = null;
+      }
+    },
+  };
 
   async onload() {
     console.log('Loading TaskNotes Gantt plugin');
@@ -37,7 +68,7 @@ export default class ObsidianGanttPlugin extends Plugin {
     // In-app "What's New": register the view + a command to open it on demand.
     this.registerView(
       RELEASE_NOTES_VIEW_TYPE,
-      (leaf) => new ReleaseNotesView(leaf, RELEASE_NOTES_BUNDLE),
+      (leaf) => new ReleaseNotesView(leaf, this.releaseNotesBundleOverride ?? RELEASE_NOTES_BUNDLE),
     );
     this.addCommand({
       id: 'show-release-notes',

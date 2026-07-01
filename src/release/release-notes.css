@@ -1,0 +1,103 @@
+/*
+ * Styling for the in-app "What's New" view (src/release/ReleaseNotesView.ts).
+ *
+ * Theme-adaptive by design: every color/border resolves from an Obsidian theme
+ * variable so the cards stay legible across light, dark, and community themes
+ * (see docs/conventions/data-formatting.md and the "heavy lines" learning).
+ * No hardcoded colors — the same var() references also re-resolve live when the
+ * user toggles their theme while the view stays mounted.
+ */
+
+.tng-release-notes-body {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.tng-release-intro {
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-4, 1rem);
+}
+
+/* Each release is a bordered, collapsible card. */
+.tng-release-version {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  background-color: var(--background-primary);
+  margin-bottom: var(--size-4-3, 0.75rem);
+  overflow: hidden;
+}
+
+/* Summary row: version + date on the left, chevron pushed to the right. */
+.tng-release-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2, 0.5rem);
+  padding: var(--size-4-3, 0.75rem) var(--size-4-4, 1rem);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+/* Hide the native disclosure triangle; the chevron below replaces it. */
+.tng-release-summary::-webkit-details-marker {
+  display: none;
+}
+.tng-release-summary::marker {
+  content: "";
+}
+
+/* Keep a visible keyboard focus ring after removing the marker (accessibility). */
+.tng-release-summary:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s, 4px);
+}
+
+.tng-release-version-name {
+  font-weight: var(--font-semibold, 600);
+  font-size: var(--font-ui-large, 1.1em);
+  color: var(--text-normal);
+}
+
+.tng-release-version-date {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small, 0.85em);
+}
+
+/* "Current" pill — filled accent, distinct from faded text. */
+.tng-release-version-current {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: var(--radius-s, 4px);
+  padding: 0 var(--size-4-2, 0.5rem);
+  font-size: var(--font-ui-smaller, 0.75em);
+  line-height: 1.6;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Chevron: a corner drawn from borders. Points right when closed, down when open. */
+.tng-release-chevron {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg); /* points right (collapsed) */
+  transition: transform 0.15s ease;
+}
+.tng-release-version[open] .tng-release-chevron {
+  transform: rotate(45deg); /* points down (expanded) */
+}
+
+.tng-release-version-content {
+  padding: 0 var(--size-4-4, 1rem) var(--size-4-3, 0.75rem);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.tng-release-footer {
+  margin-top: var(--size-4-4, 1rem);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small, 0.85em);
+}
