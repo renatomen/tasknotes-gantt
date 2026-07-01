@@ -33,13 +33,28 @@ git tag --list '[0-9]*.[0-9]*.[0-9]*' # bare-semver release tags only
 
 ### 2. Gather the change set + everyone to thank
 
-For commits/PRs merged since the last release tag:
+Scope the change set by **tag ancestry, NOT merge date**. Ask the commit graph what
+is in `HEAD` but not in the last release tag:
 
 ```bash
-gh pr list --state merged --search "merged:>=<last-release-date>" --json number,title,body,author,url
+git log <last-release-tag>..HEAD --oneline          # the exact change set
+git log <last-release-tag>..HEAD --format='%s' \
+  | grep -oiE '#[0-9]+'                              # PR/issue numbers in it
 ```
 
-For each PR, read its body and its **linked issues** to find ALL contributors —
+- **Do NOT use `gh pr list --search "merged:>=<date>"`** — a tag is cut at a
+  point-in-time commit, so PRs merged **the same day** can land on *either* side of
+  it. A date filter both **over-includes** (PRs merged that day but already in the last
+  tag) and can **miss** late-merged work. This is exactly how a prior draft wrongly
+  listed two features that had already shipped. `git log <tag>..HEAD` is the only
+  reliable boundary.
+- **Verify each PR you plan to include** is not already in the last release:
+  `git merge-base --is-ancestor <pr-merge-sha> <last-release-tag>` → exit 0 means it
+  **is** in the tag (exclude it); non-zero means it is new (include it).
+- This repo **squash-merges**, so each release commit subject carries its `(#N)`; map
+  those numbers to PRs with `gh pr view <n>` below.
+
+For each PR in that set, read its body and its **linked issues** to find ALL contributors —
 not just the code author:
 
 ```bash

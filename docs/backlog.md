@@ -76,6 +76,17 @@ into view** → **highlight** (navigation only, no note activation). Date-less/p
   unit-testable without SVAR/Obsidian. e2e mirrors `gantt-fullscreen.e2e.ts`.
 - Source: focus-on-task brainstorm session (2026-06-29).
 
+### Visual assets — capture for shipped features
+These features shipped without a convention-compliant `docs/media/` asset; capture each via
+`/tng-demo` against its e2e fixture and drop the pinned `![]()` into the release notes for the
+version each shipped in. No Obsidian-recording tier is wired into ce-demo-reel yet (P1-adjacent) —
+needs an interactive WDIO capture session. Convention: `docs/conventions/visual-assets.md`.
+- **Visual assets — capture for select-first task-bar click (0.1.0-beta.3)** — first click highlights,
+  second click / double-click opens. Fixture: `test/specs/gantt-bar-click.e2e.ts`. Source: PR #188.
+- **Visual assets — capture for focus-on-task (0.1.0-beta.3)** — crosshair → fuzzy search → expand →
+  zoom → scroll → highlight. Fixture: `test/specs/gantt-focus-task.e2e.ts`. Source: PR #189.
+  (The earlier #189 PR GIF was catbox-hosted, which the convention now bans.)
+
 ---
 
 ## Low priority
