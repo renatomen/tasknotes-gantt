@@ -26,4 +26,10 @@ describe("formatReleaseDate", () => {
     expect(formatReleaseDate("2026-00-10")).toBe("");
     expect(formatReleaseDate("2026-02-30")).toBe("");
   });
+
+  it("rejects a day that overflows a 30-day month", () => {
+    expect(formatReleaseDate("2026-04-31")).toBe(""); // April has 30 days
+    expect(formatReleaseDate("2026-09-31")).toBe(""); // September has 30 days
+    expect(formatReleaseDate("2026-04-30")).toBe("April 30, 2026"); // valid boundary
+  });
 });
