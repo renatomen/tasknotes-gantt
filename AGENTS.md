@@ -45,3 +45,5 @@ npx skills add svar-widgets/skills --skill svar-svelte
 **Git** — Conventional commits, atomic, **branch first (never commit to `main` unprompted)**, **squash-merge** PRs behind green CI, and **no AI attribution** on commits/PRs/issues. Commit/push when the work calls for it or the maintainer asks. → [git-workflow.md](docs/conventions/git-workflow.md)
 
 **Refactoring & documentation** — Test-covered, incremental, separate commits; JSDoc public APIs and explain *why*. → [refactoring.md](docs/conventions/refactoring.md), [documentation.md](docs/conventions/documentation.md)
+
+**Visual assets** — UI-change images/GIFs live in `docs/media/`, feature-named, referenced by pinned `raw.githubusercontent` markdown URLs (never catbox, never raw HTML). Stage demos with the in-Obsidian maximize + base-theme config via WDIO. → [visual-assets.md](docs/conventions/visual-assets.md)
