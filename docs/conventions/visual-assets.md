@@ -63,56 +63,44 @@ with judgment:
 - **Side panels: closed** by default. Open a panel only when it is relevant to
   what is being shown.
 - **Theme:** choose light or dark by relevance; capture **both** when the feature
-  looks materially different across them. Set the base theme via Obsidian's config
-  (`obsidian` = dark, `moonstone` = light) and assert `document.body` carries
-  `theme-dark` / `theme-light`. Do **not** use `wdio-obsidian-service`'s
-  `setTheme()` — it selects a *community* theme, not the light/dark base scheme.
-- **Vault & data — fixture-only, never private.** Capture against a disposable
-  in-repo fixture vault (`test/vaults/*`), never the live `OBSIDIAN_TEST_VAULT` or
-  any real vault. The capture harness (`test/wdio/wdio.capture.conf.mts`) has **no
-  code path to a real vault** — its initial vault is a dedicated disposable dir and
-  the spec `reloadObsidian`s onto a temp copy of a committed fixture — so **no
-  private information can ever flow into a demo**. Fixtures hold synthetic,
-  committed data.
+  looks materially different across them.
+- **Vault & data — fixture-only, never private.** Generate demos against a committed
+  in-repo fixture vault (`test/vaults/*`), never the live `OBSIDIAN_TEST_VAULT` or any
+  real vault — so **no private information can ever flow into a demo**. Fixtures hold
+  synthetic, committed data.
 - **Recycle an e2e scenario.** The e2e specs (`test/specs/*.e2e.ts`) already stage
   user-relevant scenarios with synthetic fixtures. Prefer replaying an existing
   scenario + its `test/vaults/*` fixture as the demo rather than inventing a setup;
   the same fixture that proves a behavior can illustrate it.
 - **Stable rendering:** anchor the fixture's task dates so a Gantt (which positions
-  bars relative to "today") renders consistently. Window sizing is best-effort —
-  the Obsidian/Electron WebDriver may not support resizing, so captures use the
-  launched window size; re-records are reviewed, not pixel-diffed.
+  bars relative to "today") renders consistently. Re-records are reviewed, not
+  pixel-diffed.
 
 ## Static image vs GIF vs none
 
 Per change, the director records which of these applies:
 
 - **Animated GIF** — motion or interaction (drag, zoom, expand/collapse,
-  multi-step flows). Capture by driving Obsidian via WDIO and recording the window
-  with an external recorder — WDIO captures stills only.
-- **Static image** — a discrete before/after or a new surface. Capture with the
-  WDIO helper (`npm run capture:demo`), which stages Obsidian and calls
-  `browser.saveScreenshot()`.
+  multi-step flows). The default for showing a feature in action.
+- **Static image** — a discrete before/after or a new surface where motion adds
+  nothing.
 - **None** — no observable UI change (internal refactor, config, docs-only).
   Record the decision; no asset is required.
 
+Generation is automated by **`/tng-demo`**, which uses `ce-demo-reel` to drive Obsidian
+against a fixture and lands the output into `docs/media/` via
+`scripts/addVisualAsset.mjs`.
+
 ## Capturing at PR time
 
-Capture the asset while building the feature, when the scenario is fresh:
+For a UI-affecting change, generate the demo while building it — run **`/tng-demo`**,
+which:
 
-1. **Stage and capture** per the demo-director checklist above — `npm run
-   capture:demo` for a static image, or record a GIF while driving Obsidian for
-   motion. `ce-demo-reel` may be used as the recording engine, but its output is
-   redirected into `docs/media/` — **never uploaded to catbox**. (The skill itself
-   is not edited; it lives in the plugin cache and is non-durable.)
-2. **Commit** the asset under `docs/media/` on the feature branch.
-3. **Embed it in the PR body** as a markdown image pinned to the branch or the
-   commit SHA (no release tag exists yet):
+1. **Generates** each asset with `ce-demo-reel` driving Obsidian against a committed
+   fixture (never a real vault, never catbox), applying the house staging above.
+2. **Lands** it into `docs/media/` via `scripts/addVisualAsset.mjs` (branch/SHA-pinned).
+3. **Inserts** the pinned markdown `![]()` into the matching PR-body section.
 
-       ![alt](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/<branch-or-sha>/docs/media/<feature>.gif)
-
-At release time the same committed file is reused, re-pinned to the release tag.
-
-`/tng-release` reuses a feature's committed `docs/media/` asset in the notes, re-pinned
-to the release tag, and prompts the maintainer (parking a reminder in
-`docs/backlog.md`) when a UI-affecting change shipped without one.
+Commit the asset(s) with the change. At release time `/tng-release` reuses the same
+committed file, re-pinned to the tag, and parks a reminder in `docs/backlog.md` when a
+UI-affecting change shipped without one.
