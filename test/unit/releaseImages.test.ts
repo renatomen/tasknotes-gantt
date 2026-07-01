@@ -25,6 +25,16 @@ describe("findInvalidImageRef", () => {
     expect(findInvalidImageRef(`![x](${url})`)).toMatchObject({ reason: "mutable-ref" });
   });
 
+  it("rejects a branch-pinned ref in release notes (must be a tag/SHA)", () => {
+    const branch = "https://raw.githubusercontent.com/renatomen/tasknotes-gantt/feat/foo/docs/media/x.gif";
+    expect(findInvalidImageRef(`![x](${branch})`)).toMatchObject({ reason: "branch-ref" });
+  });
+
+  it("accepts a SHA-pinned ref in release notes", () => {
+    const sha = "https://raw.githubusercontent.com/renatomen/tasknotes-gantt/a1b2c3d4e5/docs/media/x.gif";
+    expect(findInvalidImageRef(`![x](${sha})`)).toBeNull();
+  });
+
   it("rejects a foreign host (catbox)", () => {
     expect(findInvalidImageRef("![x](https://files.catbox.moe/a.gif)")).toMatchObject({
       reason: "foreign-host",

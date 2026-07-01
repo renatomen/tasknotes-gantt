@@ -99,3 +99,19 @@ export function classifyImageUrl(url) {
 export function isValidAssetUrl(url) {
   return classifyImageUrl(url).ok;
 }
+
+/** A release-tag ref (`X.Y.Z` / `X.Y.Z-beta.1`). */
+const RELEASE_TAG_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+/** A commit SHA (short or full). */
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+/**
+ * Whether a ref is appropriate for a **release note** — an immutable release tag or
+ * a commit SHA. Branch refs (e.g. `feat/foo`) are fine for a PR body but must NOT
+ * appear in release notes, where the convention requires tag-pinning.
+ * @param {string} ref
+ * @returns {boolean}
+ */
+export function isReleaseRef(ref) {
+  return typeof ref === "string" && (RELEASE_TAG_RE.test(ref) || SHA_RE.test(ref));
+}

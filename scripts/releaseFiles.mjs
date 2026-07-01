@@ -21,7 +21,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { classifyImageUrl, parseRawAssetUrl } from "./visualAssets.mjs";
+import { classifyImageUrl, parseRawAssetUrl, isReleaseRef } from "./visualAssets.mjs";
 
 /** Matches a per-version notes filename, e.g. `1.2.0.md` or `1.2.0-beta.1.md`. */
 export const RELEASE_FILE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?\.md$/;
@@ -138,8 +138,9 @@ function stripCode(content) {
 
 /**
  * Find the first markdown image whose URL violates the visual-assets convention
- * (relative path, foreign host, or a mutable/unpinned ref). Ignores fenced and
- * inline code. Returns the offending `{url, reason}` or null when all clean.
+ * for a **release note**: a relative path, foreign host, a mutable/unpinned ref,
+ * or a branch ref (release notes must pin to the release tag or a SHA, never a
+ * branch). Ignores fenced and inline code. Returns `{url, reason}` or null.
  * @param {string} content
  * @returns {{url:string, reason:string}|null}
  */
@@ -150,6 +151,8 @@ export function findInvalidImageRef(content) {
   while ((m = IMAGE_RE.exec(text)) !== null) {
     const c = classifyImageUrl(m[1]);
     if (!c.ok) return { url: m[1], reason: c.reason };
+    // Release notes must pin to an immutable tag/SHA, not a branch.
+    if (!isReleaseRef(c.ref)) return { url: m[1], reason: "branch-ref" };
   }
   return null;
 }

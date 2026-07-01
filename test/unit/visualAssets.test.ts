@@ -4,6 +4,7 @@ import {
   parseRawAssetUrl,
   classifyImageUrl,
   isValidAssetUrl,
+  isReleaseRef,
 } from "../../scripts/visualAssets.mjs";
 
 describe("assetPath", () => {
@@ -117,5 +118,20 @@ describe("classifyImageUrl / isValidAssetUrl", () => {
       repoPath: "docs/media/focus-on-task.gif",
       ref: "0.1.0",
     });
+  });
+});
+
+describe("isReleaseRef", () => {
+  it("accepts release tags and commit SHAs", () => {
+    expect(isReleaseRef("0.1.0")).toBe(true);
+    expect(isReleaseRef("0.1.0-beta.3")).toBe(true);
+    expect(isReleaseRef("a1b2c3d")).toBe(true);
+    expect(isReleaseRef("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")).toBe(true);
+  });
+
+  it("rejects branch refs (fine for PRs, not release notes)", () => {
+    expect(isReleaseRef("feat/release-visual-assets")).toBe(false);
+    expect(isReleaseRef("main")).toBe(false);
+    expect(isReleaseRef("")).toBe(false);
   });
 });
