@@ -7,8 +7,8 @@ import fs from "node:fs";
  * WDIO config for the DEMO-CAPTURE job (visual-assets convention, U4). Same
  * Obsidian + TaskNotes 4.11.0 download + vault plumbing as the base
  * `wdio.conf.mts`, but runs ONLY the `*.capture.ts` spec(s) under
- * `test/wdio/capture/`, which the base config's `../specs/**/*.e2e.ts` glob never
- * matches — so capture stays out of the per-PR suite and never gates CI (it
+ * `test/wdio/capture/`, which the base config's e2e spec glob (under `../specs`)
+ * never matches — so capture stays out of the per-PR suite and never gates CI (it
  * writes screenshots, it does not assert product behavior). Kept self-contained
  * (not an import of the base) to avoid `.mts`→`.mjs` specifier-resolution
  * fragility under the WDIO TS loader, mirroring `wdio.perf.conf.mts`.

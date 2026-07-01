@@ -127,8 +127,15 @@ export async function captureDemo({
   }
   await bootFixture(fixture);
   // Size the window AFTER the reload — reloadObsidian recreates the window, which
-  // would drop a size set beforehand.
-  await browser.setWindowSize(viewport.width, viewport.height);
+  // would drop a size set beforehand. Best-effort: the Obsidian/Electron
+  // WebDriver may not implement window/rect (Browser.getWindowForTarget), in
+  // which case the launched window size is used — maximize still fills it and
+  // re-records are reviewed, not pixel-diffed.
+  try {
+    await browser.setWindowSize(viewport.width, viewport.height);
+  } catch {
+    /* window resizing unsupported in this WebDriver — keep the launched size */
+  }
   await enableBases();
   await openBase(base);
   await browser.waitUntil(async () => (await $$(GANTT_BARS)).length > 0, {

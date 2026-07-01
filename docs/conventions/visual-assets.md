@@ -68,9 +68,10 @@ with judgment:
   `theme-dark` / `theme-light`. Do **not** use `wdio-obsidian-service`'s
   `setTheme()` — it selects a *community* theme, not the light/dark base scheme.
 - **Vault:** stage against a disposable in-repo fixture vault (`test/vaults/*`),
-  never the live `OBSIDIAN_TEST_VAULT`. Fix the window/viewport size and anchor the
-  fixture's task dates so a Gantt (which positions bars relative to "today")
-  renders stably.
+  never the live `OBSIDIAN_TEST_VAULT`. Anchor the fixture's task dates so a Gantt
+  (which positions bars relative to "today") renders stably. Window sizing is
+  best-effort — the Obsidian/Electron WebDriver may not support resizing, so
+  captures use the launched window size; re-records are reviewed, not pixel-diffed.
 
 ## Static image vs GIF vs none
 
