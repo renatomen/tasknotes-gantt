@@ -8,6 +8,12 @@ export interface ReleaseNoteVersion {
 	isCurrent: boolean;
 }
 
-export const CURRENT_VERSION = "0.0.1";
+export const CURRENT_VERSION = "0.1.0-beta.4";
 export const RELEASE_NOTES_BUNDLE: ReleaseNoteVersion[] = [
+	{
+		version: "0.1.0-beta.4",
+		content: "# TaskNotes Gantt 0.1.0-beta.4\n\n## Fixed\n\n- **Full screen no longer hides Obsidian popups.** (#191)\n  - Previously, opening the Gantt in full screen pushed Obsidian's own popups behind it — double-clicking a bar to open the TaskNotes edit modal appeared to do nothing, and the command palette and context menus were unreachable without un-maximizing first. Full screen now maximizes the view *within* Obsidian, so the edit modal, command palette, context menus, and hover previews all layer above the chart as expected. The \"Full screen\" label and icon are unchanged.\n  - ![Full screen maximizes within Obsidian; the command palette stays visible above the maximized chart](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/0.1.0-beta.4/docs/media/fullscreen-popup-visibility.gif)\n",
+		date: "2026-07-01",
+		isCurrent: true,
+	}
 ];
