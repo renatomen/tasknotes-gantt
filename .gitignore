@@ -22,6 +22,11 @@ Thumbs.db
 # Local-only e2e probes (point at private vaults; never commit)
 test/specs/_local-*
 
+# Riffrec product-feedback raw media & extracted frames — local-only by default
+# (the markdown analysis/requirements artifacts alongside them ARE committed).
+docs/brainstorms/riffrec-feedback/**/raw/
+docs/brainstorms/riffrec-feedback/**/frames/
+
 # #161 U6 "vault as code" DATA artifacts — derived from a private vault (real
 # frontmatter; TaskNotes secrets are redacted, but structure stays private until a
 # commit/privacy decision). The GENERATOR (scripts/vault-as-code.mjs) is committed;
