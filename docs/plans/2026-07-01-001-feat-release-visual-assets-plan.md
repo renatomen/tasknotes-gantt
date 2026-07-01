@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 date: 2026-07-01
 type: feat
 origin: docs/brainstorms/2026-07-01-release-visual-assets-requirements.md
