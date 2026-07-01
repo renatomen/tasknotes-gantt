@@ -1,11 +1,34 @@
 ---
-status: completed
+status: active
 date: 2026-07-01
 type: feat
 origin: docs/brainstorms/2026-07-01-release-visual-assets-requirements.md
 ---
 
-# feat: Release & PR visual-assets convention and `/release` wiring
+# feat: Release & PR visual-assets convention + automated demo generation
+
+## Revision (2026-07-01) — corrected capture model
+
+The first cut treated demo *capture* as something to build (a WDIO static-screenshot
+helper, U4) and **deferred animated GIFs**. That was backwards: the maintainer already
+generates fully-automated demo GIFs with **`ce-demo-reel`** (which drives the app,
+including Obsidian, and records — no hand-staging), and animated GIFs are the primary
+want. This revision corrects the model:
+
+- **Drop U4** (the WDIO static-capture helper): redundant with, and less capable than,
+  ce-demo-reel; a competing automation path.
+- **`ce-demo-reel` is the demo engine** — automated, fixture-only, drives real Obsidian.
+  The repo owns only the *convention*, the *validator*, a thin *landing* step, and a
+  *judgment-driven orchestration skill*. Animated GIF generation is **in scope** (via
+  ce-demo-reel), not deferred.
+- **Add a `/tng-demo` skill** (U9): text-driven, judgment-based visual generation — the
+  default pipeline step for PRs and releases.
+- **Add `scripts/addVisualAsset.mjs`** (U8): the deterministic bridge that lands any
+  produced artifact into `docs/media/` with the convention name + pinned URL.
+- **Command-naming convention** (U7): project-local commands get a **`tng-`** prefix so
+  they're distinguishable from external plugin commands. `/release` → `/tng-release`.
+
+U1–U3 and U6 already shipped (PR #193) and stay. U5 becomes the `/tng-release` wiring.
 
 ## Summary
 
@@ -88,8 +111,34 @@ Traceability back to the origin requirements doc (R/F/AE IDs preserved).
   catbox, so the asset exists for later reuse. → U6
 - R15. The PR body embeds the asset by its commit/branch-pinned raw URL. → U6, U2
 
-**Flows:** F1 (PR-time capture) → U4, U6; F2 (release drafting, asset present) →
-U5; F3 (release drafting, asset missing) → U5.
+### Automated demo generation (revision)
+
+- R16. `ce-demo-reel` is the demo engine — it generates demos automatically against
+  **fixtures only** (never a real vault), driving real Obsidian. The repo does not
+  build a competing capturer. → U9 (U4 dropped)
+- R17. A `/tng-demo` skill is the **default** visual step for PRs and releases, and
+  **exercises judgment**: not every change earns a demo (docs/refactor/config →
+  none); it decides per case whether visuals are warranted and of what kind. → U9
+- R18. The skill is **text-driven**: given the user-facing text (PR description or
+  release notes), it decides what images/animations each section needs to illustrate
+  what is being communicated. → U9
+- R19. When a change has multiple things to show, the skill produces **either one
+  combined demo or several short section-scoped assets**, whichever best illustrates
+  the notes. → U9
+- R20. House staging preferences are known and applied without restating: window
+  **maximized**, **side panels closed** by default, sensible theme. → U9 (convention U1)
+- R21. A produced artifact is landed deterministically into `docs/media/` with the
+  convention name + pinned URL by a reusable step. → U8
+
+### Command naming (revision)
+
+- R22. Project-local commands carry a **`tng-`** prefix (distinguishing them from
+  external plugin commands): `/release` → `/tng-release`; the new skill is
+  `/tng-demo`. Operational docs are updated; historical brainstorms/plans are left
+  as dated snapshots. → U7
+
+**Flows:** F1 (PR-time capture) → U8, U9; F2 (release drafting, asset present) →
+U5; F3 (release drafting, asset missing) → U5, U9.
 
 ---
 
@@ -319,7 +368,14 @@ package.json                        # U4 — add a `capture:demo` script
 - **Verification:** `npm test` green; deliberately breaking a fixture URL fails the
   build with an actionable message.
 
-### U4. Static-image WDIO capture helper
+### U4. Static-image WDIO capture helper — REMOVED (revision 2026-07-01)
+
+> **Dropped.** Redundant with `ce-demo-reel` (which is automated, drives Obsidian,
+> and does GIFs) and less capable (static-only). Its files
+> (`test/wdio/wdio.capture.conf.mts`, `test/wdio/captureDemo.mjs`,
+> `test/wdio/capture/demo.capture.ts`, the `capture:demo` script, and the eslint
+> carve-out) are removed from the branch. Demo generation is owned by U9 (`/tng-demo`)
+> using ce-demo-reel; landing by U8. The original spec is kept below for provenance.
 
 - **Goal:** A runnable capture path that stages real Obsidian and writes a
   deterministic static screenshot into `docs/media/`, separate from the functional
@@ -416,19 +472,90 @@ package.json                        # U4 — add a `capture:demo` script
   without touching catbox, and the resulting URL passes U3 when later reused in
   release notes.
 
+### U7. Command-naming convention (`tng-` prefix)
+
+- **Goal:** Make project-local commands distinguishable from external plugin
+  commands by prefixing them `tng-`; rename `/release` → `/tng-release`.
+- **Requirements:** R22.
+- **Dependencies:** none.
+- **Files:** rename `.claude/commands/release.md` → `.claude/commands/tng-release.md`
+  (git mv); update operational references in `docs/RELEASING.md`, `CONTRIBUTING.md`,
+  `docs/releases/unreleased.md`, `docs/conventions/visual-assets.md`. **Leave
+  historical brainstorms/plans untouched** — they are dated snapshots.
+- **Approach:** `git mv` to preserve history; update the command's own description
+  and any self-references; the `tng-` prefix is documented as the convention for
+  future project commands (a line in `CONTRIBUTING.md` or `AGENTS.md`).
+- **Patterns to follow:** existing `tngantt_` / `tng-` namespacing in `src/`.
+- **Test scenarios:** Test expectation: none — command/docs rename.
+- **Verification:** `/tng-release` resolves and drafts as before; operational docs
+  reference the new name; historical docs unchanged; `git log --follow` traces the
+  rename.
+
+### U8. `addVisualAsset` landing script
+
+- **Goal:** A deterministic, reusable bridge that lands any produced artifact (a
+  ce-demo-reel GIF, a recording, a screenshot) into `docs/media/` under the
+  convention name and prints the pinned markdown reference.
+- **Requirements:** R21, R4, R15.
+- **Dependencies:** U2.
+- **Files:** `scripts/addVisualAsset.mjs` (create), `test/unit/addVisualAsset.test.ts`
+  (create).
+- **Approach:** CLI `node scripts/addVisualAsset.mjs <source> <feature-slug>
+  [--theme dark|light] [--ref <tag|branch|sha>] [--ext <ext>]`. Copies the source to
+  `assetPath(slug, { theme, ext })` (ext inferred from the source when omitted) and
+  prints `![<slug>](<rawUrl>)` via U2's `rawUrl`. When `--ref` is omitted, default to
+  the current git branch (best-effort, for PR context) and say so. Keep arg→path/url
+  logic pure and tested; the file copy + git-branch read are the thin I/O shell.
+- **Patterns to follow:** `scripts/*.mjs` ESM + CLI-guard style; reuse
+  `scripts/visualAssets.mjs`.
+- **Test scenarios:**
+  - `(slug, {ext:"gif"})` → `docs/media/<slug>.gif`; theme suffix applied.
+  - ext inferred from a `.gif`/`.png` source when `--ext` omitted.
+  - pinned URL matches `rawUrl(path, ref)` for a given ref.
+  - rejects a missing source file and an empty/invalid slug.
+- **Verification:** running it on a sample file writes the expected `docs/media/`
+  path and prints a URL that passes U3's validator.
+
+### U9. `/tng-demo` skill — judgment-driven, text-driven demo generation
+
+- **Goal:** The default visual step for PRs and releases: decide whether/what to
+  demo, generate it automatically via ce-demo-reel against fixtures, land it in the
+  repo, and reference it in the right section of the notes.
+- **Requirements:** R16, R17, R18, R19, R20; F1, F3; AE2, AE3.
+- **Dependencies:** U1 (convention + house staging), U8 (landing), U2.
+- **Files:** `.claude/commands/tng-demo.md` (create).
+- **Approach:** An agent command encoding the flow: **(1) judgment gate** — is a
+  visual warranted, and of what kind? Docs/refactor/config → none; UI/UX-affecting →
+  yes. **(2) Text-driven plan** — read the PR description / release notes, and per
+  user-facing section decide GIF (motion), screenshot (state), or none, and whether
+  to produce one combined asset or several short section-scoped ones. **(3) Generate**
+  each via `ce-demo-reel`, targeting Obsidian against a **fixture** (`test/vaults/*`;
+  reuse an existing e2e scenario/fixture where it fits), applying house staging
+  (maximized, panels closed, theme), **save-local — never catbox**. **(4) Land** each
+  via U8 → `docs/media/` + pinned URL (PR → branch/SHA, release → tag). **(5) Insert**
+  the pinned `![]()` into the matching section. Wired as **default**: `/tng-release`
+  invokes it after drafting notes; the commit/PR flow invokes it for UI-affecting
+  changes.
+- **Patterns to follow:** the `ce-demo-reel` skill (engine + save-local destination);
+  the demo-director checklist in `docs/conventions/visual-assets.md`; the `/tng-release`
+  step structure.
+- **Test scenarios:** Test expectation: none — agent-guidance command. Mechanical
+  guarantees (URL form, asset presence, no raw HTML) are enforced by U3; naming/URL by
+  U8's tests.
+- **Verification:** on a UI-affecting PR, `/tng-demo` produces committed
+  fixture-based assets referenced in the right sections; on a docs-only change it
+  produces none; output is in `docs/media/`, never catbox, never a real vault.
+
 ---
 
 ## Scope Boundaries
 
 ### Deferred for later
-- Committed, reproducible per-demo director scripts (deterministic WDIO demo specs
-  that re-record identically). This plan ships a *generic* staging helper (U4), not
-  per-demo scripts. (see origin: Scope Boundaries)
+- Committed, reproducible per-demo scripts that re-record identically. `/tng-demo`
+  (U9) plans and generates each time via judgment; a deterministic re-record harness
+  is out of scope. (see origin: Scope Boundaries)
 
 ### Deferred to Follow-Up Work
-- Automated GIF recording. WDIO only captures stills; motion capture remains a
-  guided external-recorder step. A future unit could wrap an ffmpeg/headless
-  recorder around the WDIO staging, but it is not in this plan.
 - Relocating the aged-out beta.3 asset into the tracked `docs/media/` pool. Its
   release note has left the bundle window and its raw URL is tag-pinned, so it
   renders independent of HEAD; restoring it into the tracked tree is optional

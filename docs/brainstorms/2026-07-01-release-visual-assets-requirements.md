@@ -216,3 +216,35 @@ Deferred to planning:
 - Capture engine and its catbox default: the `ce-demo-reel` skill
   (compound-engineering plugin) and its `references/upload-and-approval.md`.
 - Existing conventions home: [docs/conventions/](docs/conventions/).
+
+---
+
+## Revision — automated demo generation & command naming (2026-07-01)
+
+Clarified after the first implementation pass. The original doc under-specified the
+*capture* side and framed it as static-or-guided; the maintainer's actual intent:
+
+- **`ce-demo-reel` is the demo engine, and it's already automated.** It drives the
+  app (including Obsidian) and records — no hand-staging. Animated GIFs (the primary
+  want) come from it. The repo must **not** build a competing capturer; it owns the
+  convention, the validator, a thin landing step, and an orchestration skill.
+- **Fully automated, end-to-end, demo included.** Shipping a PR/release should
+  generate the visuals automatically as a **default pipeline step** — the maintainer
+  never re-instructs "use ce-demo-reel, not catbox."
+- **Judgment, not prescription.** Not every PR earns a demo. The step decides per case
+  whether visuals are warranted and what kind (GIF / screenshot / none).
+- **Text-driven.** After the user-facing text exists (PR description or release
+  notes), the step decides *what images/animations each section needs to illustrate
+  what's being communicated* — producing **one combined demo or several short
+  section-scoped assets**, whichever best fits the notes.
+- **House style is known.** Maximized, side panels closed by default, sensible theme —
+  applied without restating.
+- **Fixtures only.** Demos are generated against committed fixtures, never a real
+  vault — privacy by construction. (This is how it was done before.)
+- **Command naming.** Project-local commands get a **`tng-`** prefix (matching the
+  existing `tngantt_` / `tng-` code namespace) so they're distinguishable from
+  external plugin commands: `/release` → `/tng-release`; the new skill is `/tng-demo`.
+
+**Superseded:** the WDIO static-capture helper (a bespoke, static-only, competing
+capturer) is dropped. See the plan's Revision section for the reshaped units (U4
+removed; U7 naming, U8 landing script, U9 `/tng-demo` skill added).
