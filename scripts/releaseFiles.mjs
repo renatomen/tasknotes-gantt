@@ -21,6 +21,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { classifyImageUrl, parseRawAssetUrl } from "./visualAssets.mjs";
 
 /** Matches a per-version notes filename, e.g. `1.2.0.md` or `1.2.0-beta.1.md`. */
 export const RELEASE_FILE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?\.md$/;
@@ -125,10 +126,63 @@ export function findRawHtml(content) {
   return null;
 }
 
+/** A markdown image reference `![alt](url)`, capturing the URL (no whitespace). */
+const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+
+/** Strip fenced and inline code so image syntax inside them is ignored. */
+function stripCode(content) {
+  return content.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+}
+
+/**
+ * Find the first markdown image whose URL violates the visual-assets convention
+ * (relative path, foreign host, or a mutable/unpinned ref). Ignores fenced and
+ * inline code. Returns the offending `{url, reason}` or null when all clean.
+ * @param {string} content
+ * @returns {{url:string, reason:string}|null}
+ */
+export function findInvalidImageRef(content) {
+  const text = stripCode(content);
+  IMAGE_RE.lastIndex = 0;
+  let m;
+  while ((m = IMAGE_RE.exec(text)) !== null) {
+    const c = classifyImageUrl(m[1]);
+    if (!c.ok) return { url: m[1], reason: c.reason };
+  }
+  return null;
+}
+
+/**
+ * Find the first markdown image referencing a committed repo asset (docs/media/
+ * or the legacy docs/releases/assets/) whose path is absent per `exists`. Matches
+ * by the repo-relative path parsed OUT of the raw URL, so a tag-pinned reference
+ * is checked against the current tree rather than its ref. Ignores fenced/inline
+ * code and non-repo images. Returns `{url, repoPath}` or null.
+ * @param {string} content
+ * @param {(repoPath:string)=>boolean} exists
+ * @returns {{url:string, repoPath:string}|null}
+ */
+export function findMissingAssetRefs(content, exists) {
+  const text = stripCode(content);
+  IMAGE_RE.lastIndex = 0;
+  let m;
+  while ((m = IMAGE_RE.exec(text)) !== null) {
+    const parsed = parseRawAssetUrl(m[1]);
+    if (parsed && !exists(parsed.repoPath)) return { url: m[1], repoPath: parsed.repoPath };
+  }
+  return null;
+}
+
 /**
  * Discover and read every per-version notes file under `releasesDir`.
  * Excludes `unreleased.md`. Throws if a file is missing its `release-date`
- * comment or contains raw HTML.
+ * comment, contains raw HTML, references an image by an invalid URL, or points
+ * at a committed asset that is absent at HEAD.
+ *
+ * The asset-presence guard only covers notes files still present under
+ * `releasesDir` — once a version ages out of the window and its file is removed,
+ * its image references are no longer parsed here (see
+ * `docs/conventions/visual-assets.md`).
  * @param {string} releasesDir
  * @returns {Array<{version:string, parsed:ReturnType<typeof parseVersion>, date:string, content:string}>}
  */
@@ -154,6 +208,22 @@ export function readReleaseEntries(releasesDir) {
       throw new Error(
         `docs/releases/${file} contains raw HTML (${offending}). Release notes are ` +
           `rendered in-app; strip HTML before committing (see /release).`,
+      );
+    }
+    const badImage = findInvalidImageRef(raw);
+    if (badImage) {
+      throw new Error(
+        `docs/releases/${file} references an image by ${badImage.reason} URL (${badImage.url}). ` +
+          `Use an absolute, tag-pinned raw.githubusercontent markdown URL under docs/media/ ` +
+          `(see docs/conventions/visual-assets.md).`,
+      );
+    }
+    const missing = findMissingAssetRefs(raw, (repoPath) => fs.existsSync(repoPath));
+    if (missing) {
+      throw new Error(
+        `docs/releases/${file} references ${missing.repoPath}, which is not present at HEAD. ` +
+          `Committed assets are permanent — restore the file or fix the reference ` +
+          `(see docs/conventions/visual-assets.md).`,
       );
     }
     entries.push({ version, parsed, date, content: stripDateComment(raw) });
