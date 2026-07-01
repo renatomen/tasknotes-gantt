@@ -121,6 +121,14 @@ describe("readReleaseEntries", () => {
       expect(versions).toContain(v);
     }
   });
+
+  it("keeps the beta.3 focus GIF referenced (tag-pinned) in its note", () => {
+    const realDir = join(process.cwd(), "docs", "releases");
+    const beta3 = readReleaseEntries(realDir).find((e) => e.version === "0.1.0-beta.3");
+    // Regression: the image was dropped once when the asset was pruned from HEAD;
+    // it is restored + tag-pinned so it renders when the release is shown.
+    expect(beta3?.content).toContain("0.1.0-beta.3/docs/releases/assets/0.1.0-beta.3-focus.gif");
+  });
 });
 
 describe("selectBundle", () => {
