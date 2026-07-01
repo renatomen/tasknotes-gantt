@@ -35,6 +35,15 @@ describe("findInvalidImageRef", () => {
     const content = "```md\n![x](docs/media/x.gif)\n```\n";
     expect(findInvalidImageRef(content)).toBeNull();
   });
+
+  it("still validates an image whose alt text contains brackets", () => {
+    // A valid URL with bracketed alt text passes...
+    expect(findInvalidImageRef(`![arr[0] view](${TAG_URL})`)).toBeNull();
+    // ...and a bad one is not silently skipped because of the brackets.
+    expect(findInvalidImageRef("![arr[0] view](docs/media/x.gif)")).toMatchObject({
+      reason: "relative",
+    });
+  });
 });
 
 describe("findMissingAssetRefs", () => {

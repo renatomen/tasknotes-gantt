@@ -52,6 +52,15 @@ describe("parseRawAssetUrl", () => {
     expect(parseRawAssetUrl(url)).toEqual({ ref: "feat/vis", repoPath: "docs/media/x.png" });
   });
 
+  it("anchors on the file's asset dir even if the ref itself contains /docs/media/", () => {
+    const url =
+      "https://raw.githubusercontent.com/renatomen/tasknotes-gantt/feature/docs/media/x/docs/media/y.gif";
+    expect(parseRawAssetUrl(url)).toEqual({
+      ref: "feature/docs/media/x",
+      repoPath: "docs/media/y.gif",
+    });
+  });
+
   it("recognizes the legacy docs/releases/assets path root", () => {
     const url =
       "https://raw.githubusercontent.com/renatomen/tasknotes-gantt/0.1.0-beta.3/docs/releases/assets/0.1.0-beta.3-focus.gif";

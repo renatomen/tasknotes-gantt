@@ -57,7 +57,10 @@ export function parseRawAssetUrl(url) {
   if (typeof url !== "string" || !url.startsWith(prefix)) return null;
   const afterRepo = url.slice(prefix.length); // "<ref>/<assetDir>/<file>"
   for (const dir of ASSET_DIRS) {
-    const idx = afterRepo.indexOf(`/${dir}`);
+    // lastIndexOf: the asset dir is the FILE's directory, so anchor on the last
+    // occurrence — a branch ref that itself contains "/docs/media/" must not
+    // shadow the real split point.
+    const idx = afterRepo.lastIndexOf(`/${dir}`);
     if (idx > 0) {
       return { ref: afterRepo.slice(0, idx), repoPath: afterRepo.slice(idx + 1) };
     }

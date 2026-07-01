@@ -111,9 +111,7 @@ export function stripDateComment(content) {
  * @returns {string|null}
  */
 export function findRawHtml(content) {
-  const withoutCode = content
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`]*`/g, "");
+  const withoutCode = stripCode(content);
   const tagRe = /<\/?[a-zA-Z][^>]*>/g;
   let m;
   while ((m = tagRe.exec(withoutCode)) !== null) {
@@ -126,10 +124,14 @@ export function findRawHtml(content) {
   return null;
 }
 
-/** A markdown image reference `![alt](url)`, capturing the URL (no whitespace). */
-const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+/**
+ * A markdown image reference `![alt](url)`, capturing the URL (no whitespace).
+ * Alt text is matched lazily (`.*?`, no `s` flag → stays on one line) so brackets
+ * inside alt text like `![arr[0]](url)` don't truncate the match.
+ */
+const IMAGE_RE = /!\[.*?\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
-/** Strip fenced and inline code so image syntax inside them is ignored. */
+/** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
   return content.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
 }
