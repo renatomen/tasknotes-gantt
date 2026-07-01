@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import type { ReleaseNoteVersion } from "../../src/releaseNotes";
 
 /**
  * The in-app "What's New" view in real Obsidian.
@@ -26,14 +27,12 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-readonly");
 
 const VIEW_TYPE = "tasknotes-gantt-release-notes";
 
-type FixtureRelease = { version: string; content: string; date: string | null; isCurrent: boolean };
-
-async function seedBundle(bundle: FixtureRelease[]): Promise<void> {
+async function seedBundle(bundle: ReleaseNoteVersion[]): Promise<void> {
   await browser.executeObsidian(async ({ app }, b) => {
     const plugin = (app as unknown as {
-      plugins: { plugins: Record<string, { __test?: { openReleaseNotesWithBundle: (x: unknown) => Promise<void> } }> };
+      plugins: { plugins: Record<string, { __tnGanttTest?: { openReleaseNotesWithBundle: (x: unknown) => Promise<void> } }> };
     }).plugins.plugins["tasknotes-gantt"];
-    await plugin.__test!.openReleaseNotesWithBundle(b);
+    await plugin.__tnGanttTest!.openReleaseNotesWithBundle(b);
   }, bundle);
 }
 
@@ -80,7 +79,7 @@ describe("What's New view", () => {
   });
 
   describe("redesigned cards (seeded bundle)", () => {
-    const FIXTURE_BUNDLE: FixtureRelease[] = [
+    const FIXTURE_BUNDLE: ReleaseNoteVersion[] = [
       { version: "9.9.9", content: "# 9.9.9\n\n## Added\n\n- newest thing\n", date: "2026-07-01", isCurrent: true },
       { version: "9.9.8", content: "# 9.9.8\n\n## Fixed\n\n- a fix\n", date: "2026-06-23", isCurrent: false },
       { version: "9.9.7", content: "# 9.9.7\n\n- oldest thing\n", date: "2026-06-01", isCurrent: false },
@@ -122,6 +121,23 @@ describe("What's New view", () => {
       // AE3: scroll-to-bottom reachable — the last card is the earliest bundle entry.
       const cards = await $$(".tng-release-version");
       expect(await cards[cards.length - 1].$(".tng-release-version-name").getText()).toBe("9.9.7");
+    });
+  });
+
+  describe("release with no date (seeded bundle)", () => {
+    before(async () => {
+      await seedBundle([{ version: "1.0.0", content: "# 1.0.0\n\n- something\n", date: null, isCurrent: true }]);
+      await browser.waitUntil(async () => (await $$(".tng-release-version")).length === 1, {
+        timeout: 30000,
+        timeoutMsg: "single release card never rendered",
+      });
+    });
+
+    it("omits the date span when the release has no date", async () => {
+      // Covers the `if (formattedDate)` false branch: a null date renders no span.
+      const card = (await $$(".tng-release-version"))[0];
+      expect(await card.$(".tng-release-version-name").getText()).toBe("1.0.0");
+      expect(await card.$(".tng-release-version-date").isExisting()).toBe(false);
     });
   });
 });
