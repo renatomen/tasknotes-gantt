@@ -133,4 +133,21 @@ export default [
       },
     },
   },
+  // Test helper modules (.mjs) — node context plus the browser globals available
+  // inside WDIO executeObsidian/execute callbacks (e.g. captureDemo.mjs).
+  {
+    files: ["test/**/*.{js,mjs,cjs}"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        Buffer: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        URL: "readonly",
+        window: "readonly",
+        document: "readonly",
+      },
+    },
+  },
 ];
