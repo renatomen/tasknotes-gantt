@@ -8,6 +8,8 @@ origin: docs/brainstorms/2026-06-21-gantt-viewport-sizing-requirements.md
 
 # feat: Gantt viewport sizing — configurable max-height + full-screen toggle
 
+> **Note — the full-screen portion is superseded (historical record; body unchanged).** The full-screen mechanism went CSS-in-place (this plan) → SVAR `<Fullscreen>` (native API, PR #150) → **maximize-within-Obsidian** (PR #191). The current approach and the reasons are captured in [docs/solutions/architecture-patterns/obsidian-plugin-fullscreen-maximize-not-native.md](../solutions/architecture-patterns/obsidian-plugin-fullscreen-maximize-not-native.md). The max-height/viewport-sizing portion of this plan still reflects current behavior.
+
 ## Summary
 
 Replace the Gantt's fixed `400px` height with a **per-view max-height** that fits the chart to its content (scrolling only when content exceeds the cap), and add an **always-visible full-screen toggle** that expands the chart to fill the Obsidian window. Both must preserve the chart's no-remount state (zoom/scroll/data). Origin: [docs/brainstorms/2026-06-21-gantt-viewport-sizing-requirements.md](docs/brainstorms/2026-06-21-gantt-viewport-sizing-requirements.md).
