@@ -21,6 +21,7 @@ Version-control conventions for this repo.
 - Open a PR for review; require **passing CI** (build, unit, e2e) before merge.
 - **Squash-merge** to keep `main` history linear and one-commit-per-change.
 - Delete the branch after merge; sync local `main`.
+- For UI-affecting changes, capture a demo image/GIF into `docs/media/` and embed it in the PR body by a branch- or SHA-pinned `raw.githubusercontent` URL — never catbox. → [visual-assets.md](visual-assets.md)
 
 ## CI/CD
 

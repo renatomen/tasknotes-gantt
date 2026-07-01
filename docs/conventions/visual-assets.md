@@ -85,6 +85,23 @@ Per change, the director records which of these applies:
 - **None** — no observable UI change (internal refactor, config, docs-only).
   Record the decision; no asset is required.
 
+## Capturing at PR time
+
+Capture the asset while building the feature, when the scenario is fresh:
+
+1. **Stage and capture** per the demo-director checklist above — `npm run
+   capture:demo` for a static image, or record a GIF while driving Obsidian for
+   motion. `ce-demo-reel` may be used as the recording engine, but its output is
+   redirected into `docs/media/` — **never uploaded to catbox**. (The skill itself
+   is not edited; it lives in the plugin cache and is non-durable.)
+2. **Commit** the asset under `docs/media/` on the feature branch.
+3. **Embed it in the PR body** as a markdown image pinned to the branch or the
+   commit SHA (no release tag exists yet):
+
+       ![alt](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/<branch-or-sha>/docs/media/<feature>.gif)
+
+At release time the same committed file is reused, re-pinned to the release tag.
+
 `/release` reuses a feature's committed `docs/media/` asset in the notes, re-pinned
 to the release tag, and prompts the maintainer (parking a reminder in
 `docs/backlog.md`) when a UI-affecting change shipped without one.
