@@ -74,11 +74,18 @@ important part — see [Why notes go to `main` first](#why-notes-go-to-main-firs
 /tng-release beta       # drafts docs/releases/X.Y.Z-beta.N.md (+ /tng-demo assets)
 git checkout -b docs/release-X.Y.Z-beta.N-notes origin/main
 git add docs/releases/X.Y.Z-beta.N.md docs/media/<assets>
+node scripts/update-release-index.mjs   # refresh docs/releases.md so main's public index isn't
+git add docs/releases.md                 # stale (index only — reads manifest.json, never writes it)
 git commit -m "docs(release): X.Y.Z-beta.N notes"
 git push -u origin docs/release-X.Y.Z-beta.N-notes
 gh pr create --base main --fill      # NO manifest change → the clean-manifest guard passes
 # review + squash-merge to main
 ```
+
+> The `npm version` in Step 2 regenerates `docs/releases.md` too, but on the
+> never-merged `release/*` branch — so the index must be refreshed **here** to keep
+> `main`'s public [release index](releases.md) current for every beta. Because
+> `manifest.json` is untouched, this stays a clean-manifest notes PR.
 
 **Step 2 — cut the beta from `main` (manifest bump + tag only).**
 

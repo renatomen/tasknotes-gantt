@@ -58,9 +58,11 @@ regenerates from). Throwing both onto a dead-end branch throws away the thing th
 
 **1. Land the notes on `main` first, via a normal PR with no manifest change.** Commit
 `docs/releases/X.Y.Z-beta.N.md` plus its `docs/media/*` assets to a docs branch and PR it to `main`.
-It carries no version bump, so it sails past the clean-manifest guard. Now `main` permanently
-accumulates the complete release-notes history, and every future bundle regeneration sees everything —
-**no backfill is ever needed again.**
+In the same PR, run `node scripts/update-release-index.mjs` and stage `docs/releases.md` so `main`'s
+public release index isn't left stale — that script only rewrites the index and reads `manifest.json`
+read-only, so the PR stays manifest-clean. It carries no version bump, so it sails past the
+clean-manifest guard. Now `main` permanently accumulates the complete release-notes history, and every
+future bundle regeneration sees everything — **no backfill is ever needed again.**
 
 **2. Cut the beta from `main` on a branch that does only the `npm version` bump + tag.** That
 `release/*` branch is still never merged (correct — the `-beta` manifest must stay off `main`), but it
