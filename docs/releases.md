@@ -4,7 +4,11 @@ Release notes for TaskNotes Gantt, one file per version. Each entry lists what c
 
 ## Releases
 
-_No releases yet._
+### Early versions (0.x) (current)
+
+- [0.1.0-beta.3](releases/0.1.0-beta.3.md)
+- [0.1.0-beta.2](releases/0.1.0-beta.2.md)
+- [0.1.0-beta.1](releases/0.1.0-beta.1.md)
 
 ## Getting updates
 

@@ -110,6 +110,17 @@ describe("readReleaseEntries", () => {
   it("returns an empty array for a missing directory", () => {
     expect(readReleaseEntries(join(tmpdir(), "does-not-exist-xyz"))).toEqual([]);
   });
+
+  it("parses the repo's real release notes (backfilled betas pass the gates)", () => {
+    const realDir = join(process.cwd(), "docs", "releases");
+    const versions = readReleaseEntries(realDir).map((e) => e.version);
+    // The backfilled beta notes must be present and gate-clean (no throw above).
+    // They are out of the version window on main (manifest 0.0.1) but become
+    // in-window once a 0.1.x release is cut; the parse gates apply regardless.
+    for (const v of ["0.1.0-beta.1", "0.1.0-beta.2", "0.1.0-beta.3"]) {
+      expect(versions).toContain(v);
+    }
+  });
 });
 
 describe("selectBundle", () => {
@@ -131,6 +142,25 @@ describe("selectBundle", () => {
     expect(bundled.map((b) => b.version)).toEqual(["1.2.1", "1.2.0", "1.1.5"]);
     expect(bundled.find((b) => b.version === "1.2.1")!.isCurrent).toBe(true);
     expect(bundled.find((b) => b.version === "1.2.0")!.isCurrent).toBe(false);
+  });
+
+  it("bundles the full 0.1.0-beta.1..4 history newest-first with isCurrent on beta.4", () => {
+    // Regression for the backfill: all four betas are in the same minor window,
+    // so the in-app history reaches back to beta.1 (see docs/releases/0.1.0-beta.*.md).
+    const entries = entriesFrom({
+      "0.1.0-beta.4.md": notes("2026-07-01"),
+      "0.1.0-beta.3.md": notes("2026-06-30"),
+      "0.1.0-beta.2.md": notes("2026-06-28"),
+      "0.1.0-beta.1.md": notes("2026-06-23"),
+    });
+    const bundled = selectBundle({ currentVersion: "0.1.0-beta.4", entries });
+    expect(bundled.map((b) => b.version)).toEqual([
+      "0.1.0-beta.4",
+      "0.1.0-beta.3",
+      "0.1.0-beta.2",
+      "0.1.0-beta.1",
+    ]);
+    expect(bundled.filter((b) => b.isCurrent).map((b) => b.version)).toEqual(["0.1.0-beta.4"]);
   });
 
   it("breaks an equal-date tie by semver (stable above its prerelease), OS-independent", () => {
