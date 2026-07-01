@@ -67,11 +67,21 @@ with judgment:
   (`obsidian` = dark, `moonstone` = light) and assert `document.body` carries
   `theme-dark` / `theme-light`. Do **not** use `wdio-obsidian-service`'s
   `setTheme()` — it selects a *community* theme, not the light/dark base scheme.
-- **Vault:** stage against a disposable in-repo fixture vault (`test/vaults/*`),
-  never the live `OBSIDIAN_TEST_VAULT`. Anchor the fixture's task dates so a Gantt
-  (which positions bars relative to "today") renders stably. Window sizing is
-  best-effort — the Obsidian/Electron WebDriver may not support resizing, so
-  captures use the launched window size; re-records are reviewed, not pixel-diffed.
+- **Vault & data — fixture-only, never private.** Capture against a disposable
+  in-repo fixture vault (`test/vaults/*`), never the live `OBSIDIAN_TEST_VAULT` or
+  any real vault. The capture harness (`test/wdio/wdio.capture.conf.mts`) has **no
+  code path to a real vault** — its initial vault is a dedicated disposable dir and
+  the spec `reloadObsidian`s onto a temp copy of a committed fixture — so **no
+  private information can ever flow into a demo**. Fixtures hold synthetic,
+  committed data.
+- **Recycle an e2e scenario.** The e2e specs (`test/specs/*.e2e.ts`) already stage
+  user-relevant scenarios with synthetic fixtures. Prefer replaying an existing
+  scenario + its `test/vaults/*` fixture as the demo rather than inventing a setup;
+  the same fixture that proves a behavior can illustrate it.
+- **Stable rendering:** anchor the fixture's task dates so a Gantt (which positions
+  bars relative to "today") renders consistently. Window sizing is best-effort —
+  the Obsidian/Electron WebDriver may not support resizing, so captures use the
+  launched window size; re-records are reviewed, not pixel-diffed.
 
 ## Static image vs GIF vs none
 

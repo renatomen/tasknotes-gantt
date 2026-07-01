@@ -13,16 +13,22 @@ import fs from "node:fs";
  * (not an import of the base) to avoid `.mts`→`.mjs` specifier-resolution
  * fragility under the WDIO TS loader, mirroring `wdio.perf.conf.mts`.
  *
+ * PRIVACY: demos are fixture-only. Unlike the base/perf configs, this config does
+ * NOT read `OBSIDIAN_TEST_VAULT` — the initial vault is a dedicated, disposable,
+ * gitignored dir (`.wdio-capture-vault`), and the capture spec immediately copies
+ * an in-repo `test/vaults/*` fixture to a temp dir and `reloadObsidian`s onto it.
+ * There is deliberately no code path by which a real or private vault can be
+ * opened or leak into a captured image.
+ *
  * Run: `npm run capture:demo`.
  */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pluginRoot = process.env.PLUGIN_DIR || path.resolve(__dirname, "../../");
-const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
-const vaultPath = process.env.OBSIDIAN_TEST_VAULT || defaultVault;
+const captureVault = path.resolve(__dirname, "../../.wdio-capture-vault");
 
 try {
-  fs.mkdirSync(vaultPath, { recursive: true });
+  fs.mkdirSync(captureVault, { recursive: true });
 } catch {
   /* noop */
 }
@@ -42,7 +48,7 @@ export const config: Options.Testrunner = {
           path.resolve(pluginRoot, "dist"),
           { repo: "callumalpass/tasknotes", version: "4.11.0" },
         ],
-        vault: vaultPath,
+        vault: captureVault,
       },
     },
   ],
