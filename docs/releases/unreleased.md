@@ -3,7 +3,7 @@
 
 <!--
 
-This is the working draft for the next release. `/release` drafts it from the
+This is the working draft for the next release. `/tng-release` drafts it from the
 PRs merged since the last release tag (and their linked issues); the maintainer
 reviews and edits it, then `npm version X.Y.Z` copies it to
 `docs/releases/X.Y.Z.md` and bundles it into the plugin.
@@ -15,7 +15,7 @@ bundle generator (scripts/generate-release-notes-import.mjs) reads:
 
     <!-- release-date: 2026-06-23 -->
 
-(ISO `YYYY-MM-DD`. While drafting, leave it as `UNRELEASED`; `/release` sets the
+(ISO `YYYY-MM-DD`. While drafting, leave it as `UNRELEASED`; `/tng-release` sets the
 real date when cutting the version. The comment is invisible in the rendered
 GitHub release body and the in-app "What's New" view.)
 

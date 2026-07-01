@@ -13,11 +13,12 @@
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { compareVersions, parseVersion, readReleaseEntries } from "./releaseFiles.mjs";
+import { REPO_URL } from "./repoInfo.mjs";
 
 const RELEASES_DIR = "docs/releases";
 const OUT_PATH = "docs/releases.md";
 const MANIFEST_PATH = "manifest.json";
-const ISSUES_URL = "https://github.com/renatomen/tasknotes-gantt/issues";
+const ISSUES_URL = `${REPO_URL}/issues`;
 
 /**
  * Build the `docs/releases.md` markdown from the discovered entries.
