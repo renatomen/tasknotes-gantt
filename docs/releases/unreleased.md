@@ -29,6 +29,19 @@ any that are empty:
     **Fixed**      for any bug fixes.
     **Security**   in case of vulnerabilities.
 
+STRUCTURE (parent bullet = heading; details + notes as sub-bullets)
+
+Each change is a parent bullet holding ONLY a short bold summary (plus its
+`(#N)` reference) — it reads like a heading. Put the explanation, and every
+other note (thanks, caveats, links), on its own indented sub-bullet beneath it.
+Do NOT continue the details on the parent line.
+
+DO NOT hard-wrap prose. Write each bullet's text as a SINGLE continuous line and
+let the renderer wrap it — the in-app "What's New" view turns a mid-sentence
+newline in the source into a visible line break, which looks broken. (This file's
+own instructional comment wraps for editing convenience; the release bullets must
+not.)
+
 ATTRIBUTION (write for users, and thank everyone — not just code authors)
 
 Acknowledge ALL contributors to each change: the person who wrote the code, AND
@@ -41,12 +54,12 @@ Reference related GitHub issues/PRs inline as `(#123)` or `(#12, #34)` (the
 in-app view turns these into clickable links). Add relevant doc or website
 links where they help the reader.
 
-EXAMPLE
+EXAMPLE (parent = one-line heading; details/thanks as single-line sub-bullets)
 
     ## Fixed
 
-    - (#42) Fixed the grid header sort arrow rendering as a blank square when the
-      icon font is disabled.
+    - **Grid header sort arrow no longer renders as a blank square.** (#42)
+      - The arrow used an icon-font glyph that is invisible when the font is disabled; it now draws with an inline SVG that renders regardless of font settings.
       - Thanks to @someuser for reporting and @anotheruser for confirming the fix.
 
 -->
