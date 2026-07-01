@@ -119,6 +119,11 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   `docs/plans/2026-06-29-001-fix-gantt-column-sort-e2e-flake-plan.md`.
 - CI `--check` index guard for release-index staleness. Source:
   `docs/plans/2026-06-23-001-feat-community-release-pipeline-plan.md`.
+- Generate the in-app "What's New" bundle from release **tags** instead of the working tree, so the
+  bundle is correct regardless of which notes files a branch happens to carry (the tags are the
+  immutable source of truth). Would make the notes-to-`main`-first discipline belt-and-suspenders
+  rather than load-bearing. Source:
+  `docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md`.
 
 ---
 
