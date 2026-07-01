@@ -22,6 +22,11 @@ There are **two approval beats**:
 
 ## Cut a stable release
 
+A stable `npm version X.Y.Z` sets a **clean** `X.Y.Z` manifest, which *is* allowed on
+`main` — so a stable's notes and version bump land on `main` directly (commit below, or
+via a PR to `main`). No throwaway branch, and the notes persist on `main` by
+construction. Only **betas** need the notes-to-`main`-first split described below.
+
 ```bash
 # 1. Draft the notes, then review & edit docs/releases/X.Y.Z.md
 #    (the /tng-release command writes it; check the date line, thanks, and links).
@@ -58,29 +63,76 @@ users who update see the in-app "What's New" view once.
 
 ## Cut a beta (for BRAT testers)
 
-Betas are published **prereleases** (no `manifest-beta.json`):
+Betas are published **prereleases** (no `manifest-beta.json`). A beta is cut in **two
+steps**: the **notes land on `main` first** (a normal PR, no version bump), then the
+**manifest bump + tag** happen on a throwaway `release/*` branch. This split is the
+important part — see [Why notes go to `main` first](#why-notes-go-to-main-first).
+
+**Step 1 — land the notes on `main` (PR, no manifest change).**
 
 ```bash
-/tng-release beta
-git add docs/releases/X.Y.Z-beta.N.md
+/tng-release beta       # drafts docs/releases/X.Y.Z-beta.N.md (+ /tng-demo assets)
+git checkout -b docs/release-X.Y.Z-beta.N-notes origin/main
+git add docs/releases/X.Y.Z-beta.N.md docs/media/<assets>
+node scripts/update-release-index.mjs   # refresh docs/releases.md so main's public index isn't
+git add docs/releases.md                 # stale (index only — reads manifest.json, never writes it)
 git commit -m "docs(release): X.Y.Z-beta.N notes"
-npm version X.Y.Z-beta.N      # manifest only — versions.json stays clean (store map)
-git push --follow-tags
+git push -u origin docs/release-X.Y.Z-beta.N-notes
+gh pr create --base main --fill      # NO manifest change → the clean-manifest guard passes
+# review + squash-merge to main
+```
+
+> The `npm version` in Step 2 regenerates `docs/releases.md` too, but on the
+> never-merged `release/*` branch — so the index must be refreshed **here** to keep
+> `main`'s public [release index](releases.md) current for every beta. Because
+> `manifest.json` is untouched, this stays a clean-manifest notes PR.
+
+**Step 2 — cut the beta from `main` (manifest bump + tag only).**
+
+```bash
+git fetch origin main
+git checkout -b release/X.Y.Z-beta.N origin/main   # main now carries the notes
+npm version X.Y.Z-beta.N      # manifest only — versions.json stays clean (store map).
+                              # Regenerates the in-app bundle from ALL notes now on main;
+                              # watch the "bundled: …" line to confirm no version is missing.
+git push --follow-tags -u origin release/X.Y.Z-beta.N
 # CI opens a draft PRERELEASE; verify provenance, then publish as a prerelease:
+gh release download X.Y.Z-beta.N --dir /tmp/X.Y.Z-beta.N
+gh attestation verify /tmp/X.Y.Z-beta.N/main.js --repo renatomen/tasknotes-gantt
 gh release edit X.Y.Z-beta.N --draft=false --prerelease
 ```
+
+The `release/*` branch exists only to keep the `-beta` manifest off `main`; it is
+**never merged**. Delete it after publishing.
 
 Testers receive it via [BRAT](https://github.com/TfTHacker/obsidian42-brat) once
 they've added `renatomen/tasknotes-gantt`. Plugin Update Tracker hides prereleases
 from non-beta users by default.
 
-### Two things to know about betas
+### Why notes go to `main` first
+
+`npm version` regenerates the in-app "What's New" bundle from the `docs/releases/*.md`
+files **present on the branch being cut**. If a release's notes live only on that
+release's own (never-merged) `release/*` branch, the **next** beta — cut fresh from
+`main` — can't see them and silently drops that version from the history. This bit
+`0.1.0-beta.5`, which omitted `beta.4` until it was recovered from the tag mid-release.
+Landing notes on `main` first makes `main` the single place all history accumulates, so
+every regeneration is complete and **no backfill is ever needed**. The one thing that
+legitimately must stay off `main` — the `-beta` manifest string — is the *only* thing
+the throwaway branch carries. Full rationale:
+[docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md](solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md).
+
+### Three things to know about betas
 
 - **manifest-on-`main` invariant.** A `-beta` version in `manifest.json` must never
-  land on `main` — it is the store-facing version. Cut betas on a **branch** (or
-  otherwise ensure `main`'s `manifest.json` stays a clean `X.Y.Z`); the stable
-  `npm version X.Y.Z` is what updates the store-facing manifest. CI enforces this:
-  `ci.yml` fails a PR whose `manifest.json` version carries a prerelease suffix.
+  land on `main` — it is the store-facing version. That is the *whole* reason for the
+  Step 2 `release/*` branch; the stable `npm version X.Y.Z` is what updates the
+  store-facing manifest. CI enforces this: `ci.yml` fails a PR whose `manifest.json`
+  version carries a prerelease suffix.
+- **Never branch feature work off a `release/*` branch.** Those branches sit ahead of
+  `main` with a `-beta` manifest; a feature based on one inherits that manifest and
+  **fails CI's clean-manifest guard** (this is what happened to PR #196 → #197). Always
+  branch features from `main`.
 - **Beta → stable upgrade gap.** A tester on `X.Y.Z-beta.N` will **not**
   auto-upgrade to the stable `X.Y.Z` (semver-wise `X.Y.Z-beta.N` < `X.Y.Z`, but
   Obsidian's updater won't re-flag it). Tell testers to re-check in BRAT after the

@@ -121,3 +121,13 @@ Present the drafted file path, the suggested version, and the attribution list.
 **Do not** run `npm version`, commit, tag, or publish — the maintainer reviews and
 edits the file, then follows [docs/RELEASING.md](../../docs/RELEASING.md) to cut the
 release. No AI attribution on any commit/PR/issue.
+
+**Where the drafted notes go:** the notes file + its `docs/media/` assets land on
+`main` **first**, via a normal PR with **no manifest change** (so CI's clean-manifest
+guard passes). For a **beta**, the `npm version` manifest bump + tag then happen on a
+separate throwaway `release/*` branch cut from `main` — never on the notes PR, and never
+mixed into feature work. This keeps `main`'s release-notes history complete so the next
+release's in-app "What's New" bundle regenerates without gaps (a beta cut from `main`
+can only bundle the notes present on `main`). See
+[docs/RELEASING.md](../../docs/RELEASING.md) and
+[docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md](../../docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md).
