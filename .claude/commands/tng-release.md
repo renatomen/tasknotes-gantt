@@ -2,7 +2,7 @@
 description: Draft the next release's notes (docs/releases/X.Y.Z.md) from merged PRs + linked issues, for maintainer review. Drafting only — never tags or publishes.
 ---
 
-# /release — draft release notes
+# /tng-release — draft release notes
 
 Draft the next version's release notes for **TaskNotes Gantt** and stop for the
 maintainer to review. This command **only drafts a file**; it never bumps the
@@ -76,7 +76,7 @@ view, so a picture of a new or changed UI carries more than prose.
   relative path, never a catbox URL. The bundle generator rejects raw HTML and the
   image validator rejects unpinned/relative/foreign URLs; either fails the build.
 
-`/release` stays **draft-only**: any capture produces files for the maintainer to
+`/tng-release` stays **draft-only**: any capture produces files for the maintainer to
 review and commit as part of the normal release procedure — the command never
 tags, commits, or publishes.
 

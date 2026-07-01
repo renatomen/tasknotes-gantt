@@ -113,6 +113,6 @@ Capture the asset while building the feature, when the scenario is fresh:
 
 At release time the same committed file is reused, re-pinned to the release tag.
 
-`/release` reuses a feature's committed `docs/media/` asset in the notes, re-pinned
+`/tng-release` reuses a feature's committed `docs/media/` asset in the notes, re-pinned
 to the release tag, and prompts the maintainer (parking a reminder in
 `docs/backlog.md`) when a UI-affecting change shipped without one.

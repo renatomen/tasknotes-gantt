@@ -24,8 +24,8 @@ There are **two approval beats**:
 
 ```bash
 # 1. Draft the notes, then review & edit docs/releases/X.Y.Z.md
-#    (the /release command writes it; check the date line, thanks, and links).
-/release stable
+#    (the /tng-release command writes it; check the date line, thanks, and links).
+/tng-release stable
 
 # 2. Commit the reviewed notes file (npm version needs a clean tree).
 git add docs/releases/X.Y.Z.md
@@ -61,7 +61,7 @@ users who update see the in-app "What's New" view once.
 Betas are published **prereleases** (no `manifest-beta.json`):
 
 ```bash
-/release beta
+/tng-release beta
 git add docs/releases/X.Y.Z-beta.N.md
 git commit -m "docs(release): X.Y.Z-beta.N notes"
 npm version X.Y.Z-beta.N      # manifest only — versions.json stays clean (store map)

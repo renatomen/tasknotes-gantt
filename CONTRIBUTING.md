@@ -47,7 +47,7 @@ The e2e suite downloads Obsidian and the TaskNotes release through `wdio-obsidia
 
 Releases are cut by the maintainer. Release notes live one file per version under
 `docs/releases/` (see [`docs/releases/unreleased.md`](docs/releases/unreleased.md)
-for the format), are drafted by the `/release` command, and feed the GitHub release
+for the format), are drafted by the `/tng-release` command, and feed the GitHub release
 body, the in-app "What's New" view, and the [`docs/releases.md`](docs/releases.md)
 index. The full procedure (beta → prod, the review/publish gate) is in
 [`docs/RELEASING.md`](docs/RELEASING.md).
