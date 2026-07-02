@@ -25,7 +25,6 @@ import {
   resolveTreatmentClass,
   resolveIconSpec,
   treatmentClassRegistry,
-  type BarColorMode,
   type BarColorSource,
   type BarIconSource,
   type IconSpec,
@@ -81,9 +80,12 @@ export interface SvarTaskInputs {
   statusColors: StatusColor[];
   /** Priority→color palette (U4). Empty unless the companion exposes one. */
   priorityColors?: PriorityColor[];
-  /** Per-view bar color mode (default `fill`). */
-  barColorMode?: BarColorMode;
-  /** Per-view color source (default `default` = no plugin coloring). */
+  /**
+   * Per-view color source (default `default` = no plugin coloring). Note: the
+   * color *mode* (fill/strip) is not read here — it only shapes the generated
+   * stylesheet ({@link buildTreatmentStyle}), not the per-bar class — so it is
+   * intentionally absent from these inputs.
+   */
   barColorSource?: BarColorSource;
   /** Per-view icon source (default `none`). */
   barIcon?: BarIconSource;

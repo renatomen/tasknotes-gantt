@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global HTMLElement */
   // SVAR `taskTemplate` component: renders a bar's content — the task text, plus
   // an optional neutral icon chip (status/priority) seated left of the text. It
   // reproduces SVAR's default `.wx-content` verbatim (so the date-status CSS
@@ -9,7 +8,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  import { setIcon } from 'obsidian';
+  import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
 
   // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
@@ -24,23 +23,12 @@
   let { data }: Props = $props();
 
   const spec = $derived(data?.custom?.barIcon ?? null);
-
-  /** Svelte action: render a Lucide/registered icon into the node via Obsidian. */
-  function icon(node: HTMLElement, name: string) {
-    setIcon(node, name);
-    return {
-      update(next: string) {
-        node.replaceChildren();
-        setIcon(node, next);
-      },
-    };
-  }
 </script>
 
 <div class="wx-content">
   {#if spec}
     {#if spec.iconName}
-      <span class="og-bar-chip" style="color: {spec.color}" use:icon={spec.iconName}></span>
+      <span class="og-bar-chip" style="color: {spec.color}" use:lucideIcon={spec.iconName}></span>
     {:else}
       <span class="og-bar-chip"
         ><span class="og-bar-dot" style="background-color: {spec.color}"></span></span

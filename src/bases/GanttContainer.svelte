@@ -8,7 +8,7 @@
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
-  import { Notice, setIcon } from 'obsidian';
+  import { Notice } from 'obsidian';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -20,6 +20,7 @@
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildTreatmentStyle } from './barTreatment';
+  import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
   import { tick } from 'svelte';
@@ -470,7 +471,6 @@
       links: d.links,
       statusColors: d.statusColors ?? [],
       priorityColors: d.priorityColors ?? [],
-      barColorMode: d.barColorMode ?? 'fill',
       barColorSource: d.barColorSource ?? 'default',
       barIcon: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
@@ -936,17 +936,6 @@
         }
       }, 0);
     }
-  }
-
-  // Svelte action to set Obsidian/Lucide icons (OG-81)
-  function lucideIcon(node: HTMLElement, iconName: string) {
-    setIcon(node, iconName);
-    return {
-      update(newIconName: string) {
-        node.empty();
-        setIcon(node, newIconName);
-      }
-    };
   }
 
   // The slice of SVAR's `update-task` event payload the drag/resize persistence

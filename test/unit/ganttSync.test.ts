@@ -66,7 +66,6 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     // Default to the status source so the pre-existing status-class assertions
     // (which pass statusColors without a source) keep their meaning; the new
     // per-source tests below override this explicitly.
-    barColorMode: over.barColorMode,
     barColorSource: over.barColorSource ?? 'status',
     barIcon: over.barIcon,
     showDateIndicators: over.showDateIndicators ?? true,

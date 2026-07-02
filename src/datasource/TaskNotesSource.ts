@@ -519,32 +519,44 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Shared palette reader: guard that `raw` is an array, keep only entries with a
+   * string `value` + `color`, and build each result via `mapEntry`. Pure and
+   * non-throwing; the public wrappers own the try/catch around the (possibly
+   * throwing) accessor call. Optional-icon spread is applied by each wrapper.
+   */
+  private mapPalette<E extends { value?: string | null; color?: string | null }, T>(
+    raw: E[] | null | undefined,
+    mapEntry: (entry: E & { value: string; color: string }) => T,
+  ): T[] {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const out: T[] = [];
+    for (const e of raw) {
+      if (e && typeof e.value === 'string' && typeof e.color === 'string') {
+        out.push(mapEntry(e as E & { value: string; color: string }));
+      }
+    }
+    return out;
+  }
+
+  /**
    * Read TaskNotes' configured custom-status palette as {@link StatusColor}s.
    *
    * Sources `api.catalog.statuses()` (preferred) or `api.model.config().statuses`
-   * — each `{ value, label, color, isCompleted }` — keeping only entries with a
-   * usable value + color. Guarded: a missing/throwing accessor or an unexpected
-   * shape yields `[]`, so the view renders no status colors rather than failing.
+   * — each `{ value, label, color, isCompleted, icon? }` — keeping only entries
+   * with a usable value + color. Guarded: a missing/throwing accessor or an
+   * unexpected shape yields `[]`, so the view renders no status colors.
    */
   public async getStatusColors(): Promise<StatusColor[]> {
     try {
-      const raw =
-        this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
-      if (!Array.isArray(raw)) {
-        return [];
-      }
-      const colors: StatusColor[] = [];
-      for (const s of raw) {
-        if (s && typeof s.value === 'string' && typeof s.color === 'string') {
-          colors.push({
-            value: s.value,
-            color: s.color,
-            isCompleted: s.isCompleted === true,
-            ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
-          });
-        }
-      }
-      return colors;
+      const raw = this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
+      return this.mapPalette(raw, (s) => ({
+        value: s.value,
+        color: s.color,
+        isCompleted: s.isCompleted === true,
+        ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
+      }));
     } catch {
       return [];
     }
@@ -553,30 +565,18 @@ export class TaskNotesSource implements DataSource {
   /**
    * Read TaskNotes' configured custom-priority palette as {@link PriorityColor}s.
    *
-   * Mirrors {@link TaskNotesSource.getStatusColors}: sources
-   * `api.catalog.priorities()` (preferred) or `api.model.config().priorities`
-   * (fallback) — each `{ value, label, color, icon? }` — keeping only entries
-   * with a usable value + color and carrying an optional `icon`. Guarded: a
-   * missing/throwing accessor or unexpected shape yields `[]`.
+   * Mirrors {@link TaskNotesSource.getStatusColors} (no `isCompleted` — priorities
+   * carry a sort `weight`): sources `api.catalog.priorities()` (preferred) or
+   * `api.model.config().priorities` (fallback). Guarded → `[]` on any failure.
    */
   public async getPriorityColors(): Promise<PriorityColor[]> {
     try {
-      const raw =
-        this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
-      if (!Array.isArray(raw)) {
-        return [];
-      }
-      const colors: PriorityColor[] = [];
-      for (const p of raw) {
-        if (p && typeof p.value === 'string' && typeof p.color === 'string') {
-          colors.push({
-            value: p.value,
-            color: p.color,
-            ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
-          });
-        }
-      }
-      return colors;
+      const raw = this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
+      return this.mapPalette(raw, (p) => ({
+        value: p.value,
+        color: p.color,
+        ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
+      }));
     } catch {
       return [];
     }
