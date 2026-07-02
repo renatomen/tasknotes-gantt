@@ -117,6 +117,17 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - Generalize the per-column readiness helper into shared e2e harness utils if other specs hit the
   property-column-header race. Source:
   `docs/plans/2026-06-29-001-fix-gantt-column-sort-e2e-flake-plan.md`.
+- **Harden `gantt-bar-treatments.e2e.ts` theme-accent flake.** The spec `"injects theme rules driven
+  by the theme's own accent (interactive-accent)"` intermittently fails: `activeTreatmentCss()` is
+  read before the theme-source view has fully mounted (log shows `WebDriverError: No tab group found`
+  mount hiccups), so the injected stylesheet lacks `var(--interactive-accent)` and the assertion
+  fails. Confirmed a flake — passed on a plain CI re-run with **zero** code changes (PR #204,
+  2026-07-02), and the unit test for the identical assertion (`barTreatment.test.ts`) is stable. Same
+  mount/readiness-timing family as the column-sort and dependency e2e flakes, both fixed with a
+  **specific-element readiness gate** — mirror that here: wait for the theme treatment rule (e.g. a
+  `.wx-bar` accent rule in the injected `<style data-og-status>`) to be present before reading the
+  CSS, instead of reading eagerly. Refs: `docs/solutions/integration-issues/svar-gantt-injected-css-scoped-specificity.md`,
+  memory `gantt-column-sort-e2e-flake-worsening`, `dependency-e2e-flake`.
 - CI `--check` index guard for release-index staleness. Source:
   `docs/plans/2026-06-23-001-feat-community-release-pipeline-plan.md`.
 - Generate the in-app "What's New" bundle from release **tags** instead of the working tree, so the
