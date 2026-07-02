@@ -48,6 +48,7 @@ function toSourceTask(task: GraphTask): SourceTask {
     end: task.due,
     progress: null,
     status: task.status,
+    priority: null,
     parents: task.parents,
   };
 }

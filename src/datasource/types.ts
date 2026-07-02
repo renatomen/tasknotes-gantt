@@ -33,6 +33,8 @@ export interface SourceTask {
   progress: number | null;
   /** Status string, or `null` when unset. */
   status: string | null;
+  /** Priority string, or `null` when unset. */
+  priority: string | null;
   /** Resolved vault paths of this task's parents (same namespace as `path`). */
   parents: string[];
 }
@@ -69,6 +71,31 @@ export interface StatusColor {
   color: string;
   /** Whether this status represents completion. */
   isCompleted: boolean;
+  /**
+   * Optional icon name (as accepted by Obsidian's `setIcon` — Lucide or any
+   * plugin-registered icon). Absent when the status has no configured icon, in
+   * which case the view falls back to a colored dot (mirroring TaskNotes).
+   */
+  icon?: string;
+}
+
+/**
+ * A priority value paired with its configured display color, sourced from the
+ * backing system's priority configuration (e.g. TaskNotes custom priorities).
+ * The view colors a bar by its task's priority. `value` matches
+ * {@link SourceTask.priority}. Unlike {@link StatusColor} there is no
+ * `isCompleted` (priorities carry a sort `weight` instead, not consumed here).
+ */
+export interface PriorityColor {
+  /** The priority value (matches `SourceTask.priority`). */
+  value: string;
+  /** The configured color (a CSS color string, typically hex). */
+  color: string;
+  /**
+   * Optional icon name (as accepted by Obsidian's `setIcon`). Absent when the
+   * priority has no configured icon (colored-dot fallback).
+   */
+  icon?: string;
 }
 
 /**
@@ -173,6 +200,14 @@ export interface DataSource {
    * controller and view treat its absence as "no status colors".
    */
   getStatusColors?(): Promise<StatusColor[]>;
+
+  /**
+   * The priority→color palette the backing system has configured (e.g. TaskNotes
+   * custom priorities), or `[]`. Present only on sources that expose one; the
+   * controller and view treat its absence as "no priority colors". Mirrors
+   * {@link DataSource.getStatusColors}.
+   */
+  getPriorityColors?(): Promise<PriorityColor[]>;
 
   /**
    * The backing system's configured date-field surface ({@link FieldConfig}) —

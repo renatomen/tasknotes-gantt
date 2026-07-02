@@ -42,6 +42,7 @@ import type {
   DependencyRelType,
   FieldConfig,
   MutationContext,
+  PriorityColor,
   SourceDependency,
   SourceTask,
   StatusColor,
@@ -102,6 +103,8 @@ export interface TaskNotesTaskInfo {
   title?: string | null;
   /** Status string. */
   status?: string | null;
+  /** Priority string. */
+  priority?: string | null;
   /** Scheduled date (start), as a `Date` or ISO/`yyyy-MM-dd` string. */
   scheduled?: Date | string | null;
   /** Due date (end), as a `Date` or ISO/`yyyy-MM-dd` string. */
@@ -120,6 +123,24 @@ export interface TaskNotesStatusConfig {
   color?: string | null;
   /** Whether this status represents completion. */
   isCompleted?: boolean | null;
+  /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
+  icon?: string | null;
+}
+
+/**
+ * A TaskNotes custom-priority definition (the slice consumed for bar coloring).
+ * Priorities carry a sort `weight` rather than an `isCompleted` flag; only
+ * `value`/`color`/`icon` are consumed here.
+ */
+export interface TaskNotesPriorityConfig {
+  /** The priority value (matches a task's `priority`). */
+  value?: string | null;
+  /** Display label. */
+  label?: string | null;
+  /** Configured color (CSS color string, typically hex). */
+  color?: string | null;
+  /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
+  icon?: string | null;
 }
 
 /**
@@ -208,7 +229,10 @@ export interface TaskNotesApi {
    * value/label/color/isCompleted. Both guarded/optional (shape varies by
    * TaskNotes version).
    */
-  catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
+  catalog?: {
+    statuses?(): TaskNotesStatusConfig[] | null | undefined;
+    priorities?(): TaskNotesPriorityConfig[] | null | undefined;
+  };
   /**
    * `model.config()` (getModelConfig) carries the configured field surface:
    * `fieldMapping` (logical field → frontmatter property name, incl.
@@ -222,6 +246,8 @@ export interface TaskNotesApi {
 /** The slice of TaskNotes' `model.config()` this source reads. */
 export interface TaskNotesModelConfig {
   statuses?: TaskNotesStatusConfig[];
+  /** Configured custom priorities (fallback path for the priority palette). */
+  priorities?: TaskNotesPriorityConfig[];
   /** Logical field → frontmatter property name (incl. `scheduled`, `due`). */
   fieldMapping?: Record<string, string> | null;
   /** Custom user fields. */
@@ -514,6 +540,39 @@ export class TaskNotesSource implements DataSource {
             value: s.value,
             color: s.color,
             isCompleted: s.isCompleted === true,
+            ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
+          });
+        }
+      }
+      return colors;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read TaskNotes' configured custom-priority palette as {@link PriorityColor}s.
+   *
+   * Mirrors {@link TaskNotesSource.getStatusColors}: sources
+   * `api.catalog.priorities()` (preferred) or `api.model.config().priorities`
+   * (fallback) — each `{ value, label, color, icon? }` — keeping only entries
+   * with a usable value + color and carrying an optional `icon`. Guarded: a
+   * missing/throwing accessor or unexpected shape yields `[]`.
+   */
+  public async getPriorityColors(): Promise<PriorityColor[]> {
+    try {
+      const raw =
+        this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      const colors: PriorityColor[] = [];
+      for (const p of raw) {
+        if (p && typeof p.value === 'string' && typeof p.color === 'string') {
+          colors.push({
+            value: p.value,
+            color: p.color,
+            ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
           });
         }
       }
@@ -788,6 +847,7 @@ export class TaskNotesSource implements DataSource {
       // derived/read-only in milestone 1).
       progress: null,
       status: task.status ?? null,
+      priority: task.priority ?? null,
       // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
       // exposes no parent/project relationship resolvable to note paths, so
       // parents stay empty in milestone 1. Revisit when a TaskNotes

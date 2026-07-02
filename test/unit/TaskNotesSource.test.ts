@@ -39,7 +39,9 @@ interface FakeApiOptions {
   hasWrite?: boolean;
   omitHasCapability?: boolean;
   /** When provided, `api.config()` returns `{ statuses }`; omitted ⇒ no `config`. */
-  statuses?: Array<{ value?: string; label?: string; color?: string; isCompleted?: boolean }>;
+  statuses?: Array<{ value?: string; label?: string; color?: string; isCompleted?: boolean; icon?: string }>;
+  /** When provided, `api.catalog.priorities()` returns these; omitted ⇒ absent. */
+  priorities?: Array<{ value?: string; label?: string; color?: string; icon?: string }>;
 }
 
 /**
@@ -96,8 +98,11 @@ function makeApi(opts: FakeApiOptions = {}) {
       cap === 'tasks.write' ? opts.hasWrite === true : false;
   }
 
-  if (opts.statuses !== undefined) {
-    api.catalog = { statuses: () => opts.statuses };
+  if (opts.statuses !== undefined || opts.priorities !== undefined) {
+    api.catalog = {
+      ...(opts.statuses !== undefined ? { statuses: () => opts.statuses } : {}),
+      ...(opts.priorities !== undefined ? { priorities: () => opts.priorities } : {}),
+    };
   }
 
   return { api, onSpy, offSpy, updateSpy, deleteSpy, handlers };
@@ -264,6 +269,87 @@ describe('TaskNotesSource — getStatusColors', () => {
     };
     const source = await TaskNotesSource.create(makeApp(api));
     expect(await source!.getStatusColors()).toEqual([]);
+  });
+
+  it('carries an icon when the status config has one, omits it otherwise', async () => {
+    const source = await makeSource({
+      statuses: [
+        { value: 'todo', color: '#fff', icon: 'circle' },
+        { value: 'done', color: '#0f0', isCompleted: true },
+      ],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      { value: 'todo', color: '#fff', isCompleted: false, icon: 'circle' },
+      { value: 'done', color: '#0f0', isCompleted: true },
+    ]);
+  });
+});
+
+describe('TaskNotesSource — getPriorityColors', () => {
+  async function makeSource(opts: FakeApiOptions): Promise<TaskNotesSource> {
+    const { api } = makeApi(opts);
+    const source = await TaskNotesSource.create(makeApp(api));
+    if (!source) throw new Error('expected a source');
+    return source;
+  }
+
+  it('maps catalog.priorities() to PriorityColor[], keeping value+color', async () => {
+    const source = await makeSource({
+      priorities: [
+        { value: 'high', label: 'High', color: '#ff0000' },
+        { value: 'low', label: 'Low', color: '#00aaff' },
+      ],
+    });
+
+    expect(await source.getPriorityColors()).toEqual([
+      { value: 'high', color: '#ff0000' },
+      { value: 'low', color: '#00aaff' },
+    ]);
+  });
+
+  it('carries an icon when the priority config has one', async () => {
+    const source = await makeSource({
+      priorities: [{ value: 'high', color: '#f00', icon: 'flag' }, { value: 'mid', color: '#fa0' }],
+    });
+
+    expect(await source.getPriorityColors()).toEqual([
+      { value: 'high', color: '#f00', icon: 'flag' },
+      { value: 'mid', color: '#fa0' },
+    ]);
+  });
+
+  it('drops entries missing a value or a color', async () => {
+    const source = await makeSource({
+      priorities: [{ value: 'ok', color: '#fff' }, { value: 'no-color' }, { color: '#000' }],
+    });
+
+    expect(await source.getPriorityColors()).toEqual([{ value: 'ok', color: '#fff' }]);
+  });
+
+  it('falls back to model.config().priorities when catalog is absent', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => ({ priorities: [{ value: 'high', color: '#abc' }] }),
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getPriorityColors()).toEqual([{ value: 'high', color: '#abc' }]);
+  });
+
+  it('returns [] when no priority source is exposed', async () => {
+    const source = await makeSource({});
+    expect(await source.getPriorityColors()).toEqual([]);
+  });
+
+  it('returns [] when the priority accessor throws', async () => {
+    const { api } = makeApi({});
+    api.catalog = {
+      priorities: () => {
+        throw new Error('boom');
+      },
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getPriorityColors()).toEqual([]);
   });
 });
 
@@ -475,6 +561,21 @@ describe('TaskNotesSource', () => {
       expect(task.status).toBe('in-progress');
       // No confirmed parent/project edge in this unit.
       expect(task.parents).toEqual([]);
+    });
+
+    it('maps priority (and null when unset)', async () => {
+      const { api } = makeApi({
+        tasks: [
+          { path: 'a.md', title: 'A', priority: 'high' },
+          { path: 'b.md', title: 'B' },
+        ],
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      const [a, b] = await source!.getTasks();
+
+      expect(a.priority).toBe('high');
+      expect(b.priority).toBeNull();
     });
 
     it('parses date strings into raw Date values', async () => {

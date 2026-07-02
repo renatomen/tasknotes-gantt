@@ -92,6 +92,8 @@ export interface RenderInstance {
   dateStatus: DateStatus;
   /** Raw task status string (drives status coloring); `null` when unset. */
   status: string | null;
+  /** Raw task priority string (drives priority coloring); `null` when unset. */
+  priority: string | null;
   /**
    * `true` when the source task is a Show-all fetched descendant (outside the
    * matched set) — drives the view's "context" cue (origin R18). `false` for
@@ -487,6 +489,7 @@ function makeInstance(
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
     status: task.status,
+    priority: task.priority,
     isFetched: task.isFetched ?? false,
     isTopLevelPlacement,
   };
