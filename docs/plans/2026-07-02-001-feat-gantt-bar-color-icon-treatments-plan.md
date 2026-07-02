@@ -1,7 +1,7 @@
 ---
 title: "feat: Per-view Gantt bar color mode/source + icon treatments"
 type: feat
-status: active
+status: completed
 date: 2026-07-02
 origin: docs/brainstorms/2026-07-02-gantt-bar-color-icon-treatments-requirements.md
 ---
