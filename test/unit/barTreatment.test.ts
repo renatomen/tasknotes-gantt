@@ -109,6 +109,7 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; }`);
     expect(css).toContain('background-color: #00d26a !important;');
     expect(css).not.toContain('#123456'); // Unused: not present
+    expect(css).not.toContain('padding-left'); // no strip in fill mode → no extra inset
   });
 
   it('strip/status: emits ::before accent rules, not background fills', () => {
@@ -122,6 +123,8 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('width: 6px;');
     expect(css).toContain('background-color: #f8312f;');
     expect(css).not.toContain('!important');
+    // Strip mode widens the content inset so the chip/text clears the strip.
+    expect(css).toContain('.og-bases-gantt .wx-bar .wx-content { padding-left: 14px; }');
   });
 
   it('fill/priority and strip/priority key on the priority palette', () => {
