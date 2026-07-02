@@ -88,10 +88,10 @@ describe('treatmentClassRegistry', () => {
     expect(reg).toContain(prioritySlug('low'));
   });
 
-  it('omits palette values with an unsafe color', () => {
+  it('omits palette values with an unsafe color (status and priority)', () => {
     const reg = treatmentClassRegistry({
       status: [{ value: 'Evil', color: 'red; } body {', isCompleted: false }],
-      priority: [],
+      priority: [{ value: 'BadPrio', color: 'blue; } body {' }],
     });
     expect(reg).toEqual([PARENT_ROLE_CLASS]);
   });
@@ -198,5 +198,13 @@ describe('resolveIconSpec', () => {
 
   it('returns null when the icon source is none', () => {
     expect(resolveIconSpec('none', inst('11🟥Active = Now', 'high'), palettes)).toBeNull();
+  });
+
+  it('falls back to currentColor for an unsafe palette color (CSS-injection guard)', () => {
+    const hostile: Palettes = {
+      status: [{ value: 'evil', color: 'red;position:fixed;inset:0;z-index:99999', isCompleted: false }],
+      priority: [],
+    };
+    expect(resolveIconSpec('status', inst('evil'), hostile)).toEqual({ color: 'currentColor' });
   });
 });

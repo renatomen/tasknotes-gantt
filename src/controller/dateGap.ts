@@ -8,7 +8,7 @@
  * formatter reuses for display.
  *
  * Dependency-free (no Obsidian/SVAR/Svelte). Mirrors the pure-helper style of
- * {@link ../bases/cascadeGate} and {@link ../bases/statusColor}.
+ * {@link ../bases/cascadeGate} and {@link ../bases/barTreatment}.
  *
  * @module controller/dateGap
  */

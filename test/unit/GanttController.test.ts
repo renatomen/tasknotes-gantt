@@ -946,6 +946,43 @@ describe('GanttController — getStatusColors', () => {
   });
 });
 
+describe('GanttController — getPriorityColors', () => {
+  it('returns the active source priority-color palette', async () => {
+    const colors = [{ value: 'high', color: '#ff0000' }];
+    const src = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getPriorityColors: async () => colors,
+    } as unknown as DataSource;
+    const controller = new GanttController({
+      app: fakeApp,
+      basesInput: basesInputStub,
+      deps: { createTaskNotesSource: async () => src, createBasesSource: () => new FakeSource({}) },
+    });
+
+    await controller.init();
+    expect(await controller.getPriorityColors()).toEqual(colors);
+  });
+
+  it('returns [] when the active source exposes no priority colors', async () => {
+    const controller = makeController({
+      createTaskNotesSource: async () => new FakeSource({ tasks: [] }),
+      createBasesSource: () => new FakeSource({}),
+    });
+    await controller.init();
+    expect(await controller.getPriorityColors()).toEqual([]);
+  });
+
+  it('returns [] before init (no active source)', async () => {
+    const controller = makeController({
+      createTaskNotesSource: async () => new FakeSource({}),
+      createBasesSource: () => new FakeSource({}),
+    });
+    expect(await controller.getPriorityColors()).toEqual([]);
+  });
+});
+
 /** Flush pending microtasks so a fire-and-forget recompute can settle. */
 async function flushAsync(): Promise<void> {
   // A macrotask boundary drains all pending microtasks first, so this settles

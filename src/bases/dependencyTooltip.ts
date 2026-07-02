@@ -6,7 +6,7 @@
  * as `custom.incomingDeps`; this module turns that into display text.
  *
  * Dependency-free (no Obsidian/SVAR/Svelte). Mirrors the pure-helper style of
- * {@link ./cascadeGate} and {@link ./statusColor}.
+ * {@link ./cascadeGate} and {@link ./barTreatment}.
  *
  * @module bases/dependencyTooltip
  */

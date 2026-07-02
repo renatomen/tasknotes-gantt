@@ -12,7 +12,7 @@
  * This module is dependency-free (no Obsidian, no Svelte, no SVAR) so the
  * SVAR-task shaping and the diff planning are unit-testable in isolation.
  * `GanttContainer.svelte` owns the SVAR `api` and simply executes the planned
- * ops. Mirrors the pure-module style of {@link ./statusColor} and
+ * ops. Mirrors the pure-module style of {@link ./barTreatment} and
  * {@link ./datePolicyConfig}.
  *
  * @module bases/ganttSync
