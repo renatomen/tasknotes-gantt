@@ -475,6 +475,11 @@
       barIconSource: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
+      // Read on the stable instance set so the replicated cue counts only VISIBLE
+      // instances: when on, the display-filtered alsoTopLevel twin is excluded from
+      // the count (#161). Toggling this re-runs buildSvarTasks via the $data → sync
+      // path and diffs update-only, so the hatch flips live without churning.
+      hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
       propertyValues: d.propertyValues,
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.

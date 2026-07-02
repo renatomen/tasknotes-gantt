@@ -70,6 +70,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     barIconSource: over.barIconSource,
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
+    hideTopLevelSubtasks: over.hideTopLevelSubtasks ?? false,
     propertyValues: over.propertyValues,
     collapsedIds: over.collapsedIds,
   };
@@ -362,6 +363,85 @@ describe('instance cues (U6)', () => {
     expect(t.custom.isReplicated).toBe(false);
   });
 
+  // Replicated counts only VISIBLE instances: the always-emitted `alsoTopLevel`
+  // duplicate top-level placement must not inflate the count when Hide-top is
+  // suppressing it (else a single-parent note shown once is wrongly hatched).
+  it('does NOT mark a single-parent note replicated when Hide-top hides its top-level twin', () => {
+    const sourcePath = 'child.md';
+    const tasks = buildSvarTasks(
+      inputs({
+        hideTopLevelSubtasks: true,
+        instances: [
+          inst({ id: 'child#parent-p', sourcePath, isTopLevelPlacement: false }),
+          inst({ id: 'child', sourcePath, isTopLevelPlacement: true }),
+        ],
+      }),
+    );
+    const nested = tasks.find((t) => t.id === 'child#parent-p')!;
+    expect(nested.custom.isReplicated).toBe(false);
+    expect(nested.type.split(' ')).not.toContain(REPLICATED_TYPE);
+  });
+
+  it('DOES mark the same note replicated when Hide-top is off (root + nested both visible)', () => {
+    const sourcePath = 'child.md';
+    const tasks = buildSvarTasks(
+      inputs({
+        hideTopLevelSubtasks: false,
+        instances: [
+          inst({ id: 'child#parent-p', sourcePath, isTopLevelPlacement: false }),
+          inst({ id: 'child', sourcePath, isTopLevelPlacement: true }),
+        ],
+      }),
+    );
+    for (const t of tasks) {
+      expect(t.custom.isReplicated).toBe(true);
+      expect(t.type.split(' ')).toContain(REPLICATED_TYPE);
+    }
+  });
+
+  it('still marks a genuine multi-parent note replicated under Hide-top (both nested copies count)', () => {
+    // Two nested placements (isTopLevelPlacement=false) plus the alsoTopLevel twin;
+    // Hide-top suppresses only the twin, leaving 2 visible → replicated.
+    const sourcePath = 'multi.md';
+    const tasks = buildSvarTasks(
+      inputs({
+        hideTopLevelSubtasks: true,
+        instances: [
+          inst({ id: 'multi#parent-a', sourcePath, isTopLevelPlacement: false }),
+          inst({ id: 'multi#parent-b', sourcePath, isTopLevelPlacement: false }),
+          inst({ id: 'multi', sourcePath, isTopLevelPlacement: true }),
+        ],
+      }),
+    );
+    const nested = tasks.filter((t) => t.id !== 'multi');
+    for (const t of nested) {
+      expect(t.custom.isReplicated).toBe(true);
+    }
+  });
+
+  it('does not mark a fan-out-collapsed source (single instance) replicated', () => {
+    const [t] = buildSvarTasks(
+      inputs({ hideTopLevelSubtasks: true, instances: [inst({ id: 'x', isCollapsed: true })] }),
+    );
+    expect(t.custom.isReplicated).toBe(false);
+  });
+
+  it('treats a missing hideTopLevelSubtasks as hide-off (buildSvarTasks default counts the twin)', () => {
+    const sourcePath = 'child.md';
+    // Omit hideTopLevelSubtasks entirely to exercise the `= false` destructure default.
+    const tasks = buildSvarTasks({
+      instances: [
+        inst({ id: 'child#parent-p', sourcePath, isTopLevelPlacement: false }),
+        inst({ id: 'child', sourcePath, isTopLevelPlacement: true }),
+      ],
+      links: [],
+      statusColors: [],
+      showDateIndicators: true,
+      arrowMode: 'primary',
+    });
+    expect(tasks.every((t) => t.custom.isReplicated)).toBe(true);
+  });
+
   it('marks a fetched (out-of-filter) instance as context', () => {
     const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'f', isFetched: true })] }));
     expect(t.type.split(' ')).toContain(CONTEXT_TYPE);
@@ -423,6 +503,24 @@ describe('planTaskSync', () => {
     expect(plan.updates.map((u) => u.id)).toEqual(['a']);
     expect(plan.adds).toHaveLength(0);
     expect(plan.deletes).toHaveLength(0);
+  });
+
+  // U2 guardrail (#161): flipping "Hide top-level subtasks" changes only the
+  // replicated cue (a task `type`), never row membership — so the live re-sync on
+  // the toggle is update-only, preserving scroll/zoom and never churning.
+  it('flipping Hide-top yields an update-only plan (no add/delete/move) — churn-safe', () => {
+    const sourcePath = 'child.md';
+    const instances = [
+      inst({ id: 'child#parent-p', sourcePath, isTopLevelPlacement: false }),
+      inst({ id: 'child', sourcePath, isTopLevelPlacement: true }),
+    ];
+    const hideOff = buildSvarTasks(inputs({ instances, hideTopLevelSubtasks: false }));
+    const hideOn = buildSvarTasks(inputs({ instances, hideTopLevelSubtasks: true }));
+    const plan = planTaskSync(mapOf(hideOff), hideOn);
+    expect(plan.updates.length).toBeGreaterThan(0);
+    expect(plan.adds).toHaveLength(0);
+    expect(plan.deletes).toHaveLength(0);
+    expect(plan.moves).toHaveLength(0);
   });
 
   it('orders adds parent-first even when next lists the child before the parent', () => {
