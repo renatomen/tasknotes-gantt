@@ -2509,8 +2509,10 @@
     width: 20px;
     height: 20px;
     border-radius: 5px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
+    /* Always a light-gray chip regardless of light/dark theme, so the glyph/ring
+       stays isolated and readable on any bar colour. Fixed (not a theme var). */
+    background: #e9e9ec;
+    border: 1px solid rgba(0, 0, 0, 0.15);
   }
   /* No-icon status → hollow ring (TaskNotes 2px, 50%); border-color set inline. */
   .og-bases-gantt :global(.og-bar-ring) {
