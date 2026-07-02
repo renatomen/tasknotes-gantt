@@ -19,6 +19,9 @@ bundle generator (scripts/generate-release-notes-import.mjs) reads:
 real date when cutting the version. The comment is invisible in the rendered
 GitHub release body and the in-app "What's New" view.)
 
+NOTE (working draft): the sections below are drafted during implementation; the
+maintainer edits/reorders and `/tng-release` finalizes attribution + date.
+
 Then the title heading, then Keep-a-Changelog sections in this order, omitting
 any that are empty:
 
@@ -63,3 +66,13 @@ EXAMPLE (parent = one-line heading; details/thanks as single-line sub-bullets)
       - Thanks to @someuser for reporting and @anotheruser for confirming the fix.
 
 -->
+
+## Added
+
+- **Per-view control over bar colors and icons.** Each Gantt view now has three independent options: Bar color mode (Fill or a left-edge Strip), Bar color source (Default, By status, By priority, or Obsidian theme), and a Task icon (None, Status, or Priority) shown as a chip on the bar.
+  - By status / By priority use the colors and icons configured in TaskNotes; Obsidian theme adapts the bars to whatever theme you're using (accent-tinted parents and children) and re-tints instantly when you switch themes. By status / By priority need the TaskNotes companion; without it they fall back to Default.
+  - For a colorblind-accessible view, pair a color source with the matching Task icon — color alone is not distinguishable for everyone.
+
+## Changed
+
+- **Bar coloring is now opt-in per view.** Previously bars were always filled by their TaskNotes status color; the new default is neutral bars. To restore the old look, set a view's Bar color source to "By status" (mode "Fill").

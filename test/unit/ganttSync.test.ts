@@ -6,7 +6,7 @@
  * the view). Covers:
  * - buildSvarTasks: parent→summary/open, leaf type composition (date-status flag
  *   + status-color class), custom metadata (showHasDeps by arrow mode).
- * - buildStatusTaskTypes: stable palette-derived superset (flag, slug, composed).
+ * - buildTreatmentTaskTypes: stable palette-derived superset (flag, treatment class, composed).
  * - planTaskSync: change detection, parent-first adds, leaf-first deletes, moves.
  * - planLinkSync: add/delete by id.
  */
@@ -14,7 +14,6 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   buildSvarTasks,
-  buildStatusTaskTypes,
   buildTreatmentTaskTypes,
   planTaskSync,
   planLinkSync,
@@ -270,30 +269,6 @@ describe('buildSvarTasks', () => {
   });
 });
 
-describe('buildStatusTaskTypes', () => {
-  it('always registers the date-status flag type', () => {
-    const ids = buildStatusTaskTypes([]).map((t) => t.id);
-    expect(ids).toContain(DATE_STATUS_TYPE);
-  });
-
-  it('registers slug and composed forms for each colored status', () => {
-    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
-    const ids = buildStatusTaskTypes(colors).map((t) => t.id);
-    expect(ids).toContain(statusSlug('wip'));
-    expect(ids).toContain(`${DATE_STATUS_TYPE} ${statusSlug('wip')}`);
-  });
-
-  it('is stable (same ids) regardless of which tasks are present — palette-derived', () => {
-    const colors: StatusColor[] = [
-      { value: 'a', color: '#111', isCompleted: false },
-      { value: 'b', color: '#222', isCompleted: true },
-    ];
-    expect(buildStatusTaskTypes(colors).map((t) => t.id)).toEqual(
-      buildStatusTaskTypes(colors).map((t) => t.id),
-    );
-  });
-});
-
 describe('buildTreatmentTaskTypes', () => {
   const palettes = {
     status: [{ value: 'wip', color: '#abc', isCompleted: false }] as StatusColor[],
@@ -397,9 +372,9 @@ describe('instance cues (U6)', () => {
     expect(tasks[0]!.type).toBe(expected);
     // The coupling contract: that exact whole string must be a registered type id,
     // or SVAR's whole-string match drops every cue/state class to plain "task".
-    const registered = buildInstanceCueTaskTypes(buildStatusTaskTypes(colors).map((t) => t.id)).map(
-      (t) => t.id,
-    );
+    const registered = buildInstanceCueTaskTypes(
+      buildTreatmentTaskTypes({ status: colors, priority: [] }).map((t) => t.id),
+    ).map((t) => t.id);
     expect(registered).toContain(expected);
   });
 

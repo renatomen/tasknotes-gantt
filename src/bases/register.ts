@@ -59,6 +59,9 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readBarColorMode,
+  readBarColorSource,
+  readBarIcon,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -486,6 +489,21 @@ class ObsidianGanttBasesView extends BasesView {
     return readContextOpacity((key) => this.config.get(key));
   }
 
+  /** Read the per-view bar color mode (U5); default `fill`. */
+  private getBarColorMode() {
+    return readBarColorMode((key) => this.config.get(key));
+  }
+
+  /** Read the per-view bar color source (U5); default `default`. */
+  private getBarColorSource() {
+    return readBarColorSource((key) => this.config.get(key));
+  }
+
+  /** Read the per-view task-icon source (U5); default `none`. */
+  private getBarIcon() {
+    return readBarIcon((key) => this.config.get(key));
+  }
+
   /**
    * Read the per-view theme mode (plan 002 R4), normalized to
    * `auto`|`light`|`dark` (default `auto`). Mirrors getArrowMode() /
@@ -727,10 +745,11 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors] = await Promise.all([
+    const [instances, links, statusColors, priorityColors] = await Promise.all([
       controller.getInstances(),
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
+      controller.getPriorityColors(),
     ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
@@ -792,6 +811,10 @@ class ObsidianGanttBasesView extends BasesView {
       minHeight: this.getMinHeight(),
       contextOpacity: this.getContextOpacity(),
       statusColors,
+      priorityColors,
+      barColorMode: this.getBarColorMode(),
+      barColorSource: this.getBarColorSource(),
+      barIcon: this.getBarIcon(),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),

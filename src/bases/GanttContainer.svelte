@@ -19,14 +19,15 @@
   import type { TaskPatch } from '../datasource/types';
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
-  import { buildStatusStyleRules } from './statusColor';
+  import { buildTreatmentStyle } from './barTreatment';
+  import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
   import { tick } from 'svelte';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
     buildSvarTasks,
-    buildStatusTaskTypes,
+    buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
     planTaskSync,
     planLinkSync,
@@ -247,6 +248,13 @@
   const instances = $derived($data.instances);
   const capabilities = $derived($data.capabilities);
   const statusColors = $derived($data.statusColors ?? []);
+  // Bar color/icon treatments (U5/U7), store-driven so the options are LIVE
+  // toggles (no remount) — same treatment as showDateIndicators/showToolbar.
+  // These feed the generated treatment stylesheet; the icon source flows through
+  // toInputs → buildSvarTasks (per-task), so it needs no standalone derived here.
+  const priorityColors = $derived($data.priorityColors ?? []);
+  const barColorMode = $derived($data.barColorMode ?? 'fill');
+  const barColorSource = $derived($data.barColorSource ?? 'default');
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
@@ -337,16 +345,25 @@
   // still reverts the optimistic move within this window.
   const MUTATION_TIMEOUT_MS = 10000;
 
-  // Generated stylesheet coloring each present status' bar by its configured
-  // TaskNotes color (scoped under .og-bases-gantt). Injected via a managed
-  // style element (see the $effect below) — a literal style tag in markup would
-  // be compiled away as component CSS and cannot carry this dynamic content.
-  const statusStyleCss = $derived(buildStatusStyleRules(instances, statusColors));
+  // Generated stylesheet applying the per-view color treatment (fill/strip by
+  // status/priority, or theme CSS-variable rules) scoped under .og-bases-gantt.
+  // Injected via a managed style element (see the $effect below) — a literal
+  // style tag in markup would be compiled away as component CSS and cannot carry
+  // this dynamic content. Reactive on mode/source/palettes/instances so the
+  // options re-color live without a remount.
+  const treatmentStyleCss = $derived(
+    buildTreatmentStyle({
+      mode: barColorMode,
+      source: barColorSource,
+      palettes: { status: statusColors, priority: priorityColors },
+      instances,
+    }),
+  );
 
-  // The view root, used to host the generated status-color stylesheet.
+  // The view root, used to host the generated treatment stylesheet.
   let rootEl: HTMLElement | undefined = $state();
   $effect(() => {
-    const css = statusStyleCss;
+    const css = treatmentStyleCss;
     if (!rootEl) return;
     let styleEl = rootEl.querySelector('style[data-og-status]') as HTMLStyleElement | null;
     if (!styleEl) {
@@ -452,6 +469,10 @@
       instances: d.instances,
       links: d.links,
       statusColors: d.statusColors ?? [],
+      priorityColors: d.priorityColors ?? [],
+      barColorMode: d.barColorMode ?? 'fill',
+      barColorSource: d.barColorSource ?? 'default',
+      barIcon: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,
@@ -503,20 +524,24 @@
   // what we re-assert after a column recompute.
   let lastGridWidth: number | undefined = initialGridWidth;
 
-  // Registered custom task-type superset (date-status flag + status-color
-  // classes), derived from the status palette rather than the present tasks.
-  // FIXED at mount and never reassigned: changing any prop SVAR reads re-inits
-  // its store (reverting our incremental updates to the seed), so this stays a
-  // const. A status value added to TaskNotes config while the view is open won't
-  // color until the view is reopened — rare, and acceptable.
-  const statusTaskTypes = buildStatusTaskTypes(initialData.statusColors ?? []);
+  // Registered custom task-type superset (date-status flag + every color-treatment
+  // class), derived from BOTH palettes (status + priority) plus the og-parent theme
+  // role — not the present tasks or the active source. FIXED at mount and never
+  // reassigned: changing any prop SVAR reads re-inits its store (reverting our
+  // incremental updates to the seed), so this stays a const. Registering both
+  // palettes lets the color-source option switch live (status↔priority↔theme)
+  // without re-registering; a palette *content* change needs a reopen — rare.
+  const treatmentTaskTypes = buildTreatmentTaskTypes({
+    status: initialData.statusColors ?? [],
+    priority: initialData.priorityColors ?? [],
+  });
   const svarTaskTypes = [
     ...defaultTaskTypes,
-    ...statusTaskTypes,
-    // Instance cues (U6) cross the date-status/status combos, so a bar can carry
-    // both a state class and a replicated/context cue and still match a
+    ...treatmentTaskTypes,
+    // Instance cues (U6) cross the date-status/treatment combos, so a bar can
+    // carry both a treatment class and a replicated/context cue and still match a
     // registered whole `type` string.
-    ...buildInstanceCueTaskTypes(statusTaskTypes.map((t) => t.id)),
+    ...buildInstanceCueTaskTypes(treatmentTaskTypes.map((t) => t.id)),
   ];
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
@@ -1951,10 +1976,16 @@
            dependent task's tooltip is the surface. Falls back to the task name
            for tasks with no dependencies. -->
       <Tooltip {api} content={DependencyTooltip}>
+        <!-- taskTemplate renders the bar's content (text + optional icon chip via
+             BarContent). Passed as a STABLE prop set once at mount — SVAR's
+             reinitStore does not read taskTemplate, so this never re-inits the
+             store. When barIcon is 'none' BarContent renders a pristine
+             `.wx-content` (no chip), so the default path is visually unchanged. -->
         <Gantt
           init={initGantt}
           tasks={initialTasks}
           taskTypes={svarTaskTypes}
+          taskTemplate={BarContent}
           links={initialLinks}
           {columns}
           gridWidth={initialGridWidth}
@@ -2458,6 +2489,34 @@
     /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
        matches DEFAULT_CONTEXT_OPACITY. */
     opacity: var(--og-context-opacity, 0.55);
+  }
+
+  /* Bar icon chip (U7): a neutral rounded chip BarContent renders inline before
+     the task text, holding a status/priority glyph (setIcon) or a colored dot.
+     The strip (strip color mode) is a generated `.wx-bar.<slug>::before` rule
+     (see barTreatment) — it needs no static CSS here. `flex: 0 0 auto` keeps the
+     chip from shrinking, so on a narrow bar the text truncates first, not the chip. */
+  .og-bases-gantt :global(.og-bar-chip) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    vertical-align: middle;
+    border-radius: 4px;
+    background: var(--background-modifier-hover);
+    overflow: hidden;
+  }
+  .og-bases-gantt :global(.og-bar-chip svg) {
+    width: 12px;
+    height: 12px;
+  }
+  .og-bases-gantt :global(.og-bar-dot) {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

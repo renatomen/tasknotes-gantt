@@ -25,7 +25,6 @@ import {
   resolveTreatmentClass,
   resolveIconSpec,
   treatmentClassRegistry,
-  statusSlug,
   type BarColorMode,
   type BarColorSource,
   type BarIconSource,
@@ -310,29 +309,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 }
 
 /**
- * Build the *stable superset* of custom SVAR task types the bars may use,
- * derived from the status palette (not the present tasks) so the registered set
- * is constant across data refreshes — a changing `taskTypes` reference would
- * re-init the store and reset the view. Returns the custom ids only; the caller
- * concatenates SVAR's `defaultTaskTypes`.
- *
- * For each colored status value V the bar `type` can be `slug(V)` or
- * `"datestatus-flagged slug(V)"` (composed), plus `datestatus-flagged` alone, so
- * all three forms are registered.
- */
-export function buildStatusTaskTypes(colors: ReadonlyArray<StatusColor>): Array<{ id: string; label: string }> {
-  const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const { value } of colors) {
-    const s = statusSlug(value);
-    ids.add(s);
-    ids.add(`${DATE_STATUS_TYPE} ${s}`);
-  }
-  return [...ids].map((id) => ({ id, label: id }));
-}
-
-/**
- * The stable superset of base task types across ALL color sources (U4) — the
- * generalization of {@link buildStatusTaskTypes}. Registers the date-status flag
+ * The stable superset of base task types across ALL color sources (U4). Registers
+ * the date-status flag
  * plus, for every treatment class the palettes can produce (status slugs,
  * priority slugs, and the `og-parent` theme role), the class alone and composed
  * with the date-status flag. Derived from the palettes (not the present tasks),
@@ -356,8 +334,8 @@ export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string;
  * must be registered: each cue suffix alone (a plain bar that is replicated
  * and/or context), and each `${base} ${suffix}` (a date-status/status bar that is
  * also replicated/context). `baseTypeIds` is the output of
- * {@link buildStatusTaskTypes} (date-status + status combos); pass it so the
- * cross-product covers a bar carrying both a state class and a cue.
+ * {@link buildTreatmentTaskTypes} (date-status + treatment combos); pass it so the
+ * cross-product covers a bar carrying both a treatment class and a cue.
  *
  * Derived from the static palette (not the present tasks), so the set is stable
  * across refreshes — a changing `taskTypes` reference would re-init SVAR's store.
