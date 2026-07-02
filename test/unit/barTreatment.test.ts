@@ -123,6 +123,7 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}::before`);
     expect(css).toContain('width: 6px;');
     expect(css).toContain('background-color: #f8312f;');
+    expect(css).toContain('z-index: 1;'); // above SVAR's progress fill, below .wx-content
     expect(css).toContain('border-top-left-radius:'); // conforms to the bar's rounded left corner
     expect(css).not.toContain('#f8312f !important'); // strip accent is not a !important fill
     // Strip mode widens the content inset so the chip/text clears the strip.
@@ -140,17 +141,36 @@ describe('buildTreatmentStyle', () => {
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
 
-  it('theme/fill: emits parent + child adaptive --color-* role rules with no palette', () => {
+  it('theme/fill: uses the theme accent (child) + a tonal-shifted accent (parent), not fixed hues', () => {
     const css = buildTreatmentStyle({ mode: 'fill', source: 'theme', palettes: { status: [], priority: [] }, instances: [] });
-    expect(css).toContain('background-color: var(--color-blue) !important;'); // child
-    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: var(--color-green) !important;`); // parent
+    expect(css).toContain('background-color: var(--interactive-accent) !important;'); // child = raw theme accent
+    expect(css).toContain(
+      `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%) !important;`,
+    ); // parent = more-contrasting tone of the SAME accent
+    expect(css).not.toContain('--color-'); // never a fixed named-palette hue
   });
 
   it('theme/strip: emits a neutral body + --color-* ::before rules', () => {
     const css = buildTreatmentStyle({ mode: 'strip', source: 'theme', palettes, instances: [] });
     // Body is mixed a bit off the background so it stays visible in low-contrast themes.
     expect(css).toContain('background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
-    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS}::before { background-color: var(--color-green); }`);
+    expect(css).toContain(
+      `.wx-bar.${PARENT_ROLE_CLASS}::before { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%); }`,
+    );
+    // Progress shifts the neutral body, not the accent strip.
+    expect(css).toContain('.wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }');
+    expect(css).not.toContain('.wx-progress-percent { background-color: color-mix(in srgb, var(--interactive-accent)');
+  });
+
+  it('default/strip: parent body is a higher-contrast neutral than the child body (hierarchy cue)', () => {
+    const css = buildTreatmentStyle({ mode: 'strip', source: 'default', palettes, instances: [] });
+    // Child/base neutral body (16% toward text)...
+    expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
+    // ...and a more prominent parent body override (30%), contrast-only (no opacity).
+    expect(css).toContain(
+      `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }`,
+    );
+    expect(css).not.toContain('opacity');
   });
 
   it('default/fill: emits fixed green-parent / blue-child role rules (no palette)', () => {
@@ -158,6 +178,31 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('background-color: #1f6feb !important;'); // child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (green)
     expect(css).not.toContain('#f8312f'); // does not consult the status palette
+  });
+
+  it('fill mode: progress is a contrasting shift of the bar fill accent (not SVAR blue)', () => {
+    const fill = buildTreatmentStyle({ mode: 'fill', source: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+    expect(fill).toContain(
+      `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
+    );
+  });
+
+  it('strip mode: progress shifts the NEUTRAL bar body, not the strip accent', () => {
+    const strip = buildTreatmentStyle({ mode: 'strip', source: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+    // Progress is a tonal shift of the shared neutral body...
+    expect(strip).toContain(
+      '.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }',
+    );
+    // ...never the strip accent color extended rightward.
+    expect(strip).not.toContain('color-mix(in srgb, #f8312f');
+  });
+
+  it('default/fill: progress follows the role colors (contrasted child + parent)', () => {
+    const css = buildTreatmentStyle({ mode: 'fill', source: 'default', palettes, instances: [] });
+    expect(css).toContain('.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }');
+    expect(css).toContain(
+      `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }`,
+    );
   });
 
   it('degrades to empty when the source palette is empty', () => {
