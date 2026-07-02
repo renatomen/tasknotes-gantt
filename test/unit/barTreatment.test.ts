@@ -106,8 +106,9 @@ describe('buildTreatmentStyle', () => {
       palettes,
       instances: [inst('11🟥Active = Now'), inst('41🟩Done = Recent')],
     });
-    expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; }`);
+    expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important;`);
     expect(css).toContain('background-color: #00d26a !important;');
+    expect(css).toContain('text-shadow:'); // readable label on the fill
     expect(css).not.toContain('#123456'); // Unused: not present
     expect(css).not.toContain('padding-left'); // no strip in fill mode → no extra inset
   });
@@ -130,7 +131,7 @@ describe('buildTreatmentStyle', () => {
 
   it('fill/priority and strip/priority key on the priority palette', () => {
     const fill = buildTreatmentStyle({ mode: 'fill', source: 'priority', palettes, instances: [inst(null, 'high')] });
-    expect(fill).toContain(`.wx-bar.${prioritySlug('high')} { background-color: #ff0000 !important; }`);
+    expect(fill).toContain(`.wx-bar.${prioritySlug('high')} { background-color: #ff0000 !important;`);
     const strip = buildTreatmentStyle({ mode: 'strip', source: 'priority', palettes, instances: [inst(null, 'high')] });
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
