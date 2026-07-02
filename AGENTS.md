@@ -35,7 +35,7 @@ npx skills add svar-widgets/skills --skill svar-svelte
 
 **TypeScript** — `strict` on, no `any`, interfaces for complex objects, barrel exports. Type Obsidian API interactions properly. → [typescript.md](docs/conventions/typescript.md)
 
-**Architecture** — Modular, low-coupling, dependency injection over globals. **Data adapters extract raw values; views format for display.** → [architecture.md](docs/conventions/architecture.md), [data-formatting.md](docs/conventions/data-formatting.md)
+**Architecture** — Modular, low-coupling, dependency injection over globals. **Data adapters extract raw values; views format for display.** New to the `src/` tree? Start with the [source topology map](docs/architecture/overview.md). → [architecture.md](docs/conventions/architecture.md), [data-formatting.md](docs/conventions/data-formatting.md)
 
 **Naming** — Code as communication: intention-revealing names, verb-based function names, no cryptic abbreviations, named constants over magic values. → [naming.md](docs/conventions/naming.md)
 
