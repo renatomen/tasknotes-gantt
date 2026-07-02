@@ -15,6 +15,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildSvarTasks,
   buildStatusTaskTypes,
+  buildTreatmentTaskTypes,
   planTaskSync,
   planLinkSync,
   planReorder,
@@ -32,9 +33,9 @@ import {
   type TaskSyncPlan,
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
-import { statusSlug } from '../../src/bases/statusColor';
+import { statusSlug, prioritySlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
-import type { StatusColor } from '../../src/datasource/types';
+import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
 
 /** Minimal RenderInstance factory with sane defaults. */
@@ -51,6 +52,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isCollapsed: over.isCollapsed ?? false,
     dateStatus: over.dateStatus ?? 'complete',
     status: over.status ?? null,
+    priority: over.priority ?? null,
     isFetched: over.isFetched ?? false,
     isTopLevelPlacement: over.isTopLevelPlacement ?? false,
   };
@@ -61,6 +63,13 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     instances: over.instances ?? [],
     links: over.links ?? [],
     statusColors: over.statusColors ?? [],
+    priorityColors: over.priorityColors,
+    // Default to the status source so the pre-existing status-class assertions
+    // (which pass statusColors without a source) keep their meaning; the new
+    // per-source tests below override this explicitly.
+    barColorMode: over.barColorMode,
+    barColorSource: over.barColorSource ?? 'status',
+    barIcon: over.barIcon,
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
     propertyValues: over.propertyValues,
@@ -136,6 +145,59 @@ describe('buildSvarTasks', () => {
       inputs({ instances: [inst({ id: 'a', status: 'unmapped' })], statusColors: [] }),
     );
     expect(t.type).toBe('task');
+  });
+
+  it('applies the priority slug for source=priority', () => {
+    const priorityColors: PriorityColor[] = [{ value: 'high', color: '#f00' }];
+    const [t] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', priority: 'high' })],
+        barColorSource: 'priority',
+        priorityColors,
+      }),
+    );
+    expect(t.type).toBe(prioritySlug('high'));
+  });
+
+  it('applies og-parent to a parent (not a child) for source=theme', () => {
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'p' }), inst({ id: 'c', parent: 'p' })],
+        barColorSource: 'theme',
+      }),
+    );
+    expect(tasks.find((t) => t.id === 'p')!.type).toContain(PARENT_ROLE_CLASS);
+    expect(tasks.find((t) => t.id === 'c')!.type).not.toContain(PARENT_ROLE_CLASS);
+  });
+
+  it('adds no treatment class for source=default even with a status color', () => {
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const [t] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barColorSource: 'default' }),
+    );
+    expect(t.type).toBe('task');
+  });
+
+  it('attaches custom.barIcon from the icon source, null when none', () => {
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false, icon: 'circle' }];
+    const withIcon = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'status' }),
+    )[0];
+    expect(withIcon.custom.barIcon).toEqual({ iconName: 'circle', color: '#abc' });
+
+    const noIcon = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'none' }),
+    )[0];
+    expect(noIcon.custom.barIcon).toBeNull();
+  });
+
+  it('taskStateKey changes when the icon source toggles (re-sync guard)', () => {
+    const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false, icon: 'circle' }];
+    const keyOf = (barIcon: 'none' | 'status') =>
+      taskStateKey(
+        buildSvarTasks(inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon }))[0],
+      );
+    expect(keyOf('none')).not.toBe(keyOf('status'));
   });
 
   it('carries dateStatus onto custom for the view filter predicate (U2)', () => {
@@ -229,6 +291,43 @@ describe('buildStatusTaskTypes', () => {
     expect(buildStatusTaskTypes(colors).map((t) => t.id)).toEqual(
       buildStatusTaskTypes(colors).map((t) => t.id),
     );
+  });
+});
+
+describe('buildTreatmentTaskTypes', () => {
+  const palettes = {
+    status: [{ value: 'wip', color: '#abc', isCompleted: false }] as StatusColor[],
+    priority: [{ value: 'high', color: '#f00' }] as PriorityColor[],
+  };
+
+  it('registers date-status, og-parent, and status+priority slugs (alone and composed)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    expect(ids).toContain(DATE_STATUS_TYPE);
+    expect(ids).toContain(PARENT_ROLE_CLASS);
+    expect(ids).toContain(statusSlug('wip'));
+    expect(ids).toContain(prioritySlug('high'));
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${prioritySlug('high')}`);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`);
+  });
+
+  it('covers every composed form a priority + cue bar can produce (whole-string contract)', () => {
+    // A date-flagged, priority-colored, replicated, context bar — worst case.
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
+        ],
+        barColorSource: 'priority',
+        priorityColors: palettes.priority,
+      }),
+    );
+    const expected = `${DATE_STATUS_TYPE} ${prioritySlug('high')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
+    expect(tasks[0]!.type).toBe(expected);
+    const registered = buildInstanceCueTaskTypes(buildTreatmentTaskTypes(palettes).map((t) => t.id)).map(
+      (t) => t.id,
+    );
+    expect(registered).toContain(expected);
   });
 });
 
