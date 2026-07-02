@@ -6,9 +6,27 @@
  * an identical signature and the view reuses cached tasks.
  */
 
-import { entriesSignature, type SignatureEntry } from '../../src/bases/entrySignature';
+import { entriesSignature, frontmatterSignatureKeys, type SignatureEntry } from '../../src/bases/entrySignature';
 
 const e = (path?: string): SignatureEntry => ({ file: path === undefined ? {} : { path } });
+
+describe('frontmatterSignatureKeys', () => {
+  it('strips the note. (dot) prefix from mapped properties', () => {
+    expect(frontmatterSignatureKeys(['note.status', 'note.priority'])).toEqual(['status', 'priority']);
+  });
+
+  it('strips the note: (colon) prefix form too', () => {
+    expect(frontmatterSignatureKeys(['note:status', 'note:due'])).toEqual(['status', 'due']);
+  });
+
+  it('excludes non-frontmatter mappings (formula/file/computed) and empty entries', () => {
+    expect(frontmatterSignatureKeys(['formula.x', 'file.name', '', undefined, 'note.ok'])).toEqual(['ok']);
+  });
+
+  it('returns an empty list when no field is frontmatter-backed (→ path-only signature)', () => {
+    expect(frontmatterSignatureKeys(['formula.a', undefined])).toEqual([]);
+  });
+});
 
 describe('entriesSignature', () => {
   it('encodes the entry count for an empty set', () => {

@@ -27,6 +27,7 @@ const MAPPINGS: FieldMappings = {
   progressProperty: 'note:progress',
   parentProperty: 'note:parent',
   statusProperty: 'note:status',
+  priorityProperty: 'note:priority',
 };
 
 /**
@@ -134,6 +135,32 @@ describe('BasesSource', () => {
 
       // Assert
       expect(task.status).toBe('11🟥Active = Now');
+    });
+
+    it('extracts priority from the mapped priority property', async () => {
+      // Arrange — priority reads through its OWN mapping, not the status property
+      // (guards a copy-paste regression that reuses statusProperty).
+      const entry = makeEntry('tasks/p.md', 'p', { 'note:status': 'active', 'note:priority': 'high' });
+      const source = new BasesSource(app, [entry], MAPPINGS);
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.priority).toBe('high');
+      expect(task.status).toBe('active');
+    });
+
+    it('yields null priority when priorityProperty is unmapped', async () => {
+      // Arrange - priorityProperty '' short-circuits even when a value is present
+      const entry = makeEntry('tasks/p.md', 'p', { 'note:priority': 'ignored' });
+      const source = new BasesSource(app, [entry], { ...MAPPINGS, priorityProperty: '' });
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.priority).toBeNull();
     });
 
     it('yields null status when statusProperty is unmapped', async () => {

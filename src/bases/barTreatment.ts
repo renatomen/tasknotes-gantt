@@ -43,6 +43,9 @@ export const PRIORITY_CLASS_PREFIX = 'og-prio-';
 /** Role class marking a parent bar in the role-based (`default`/`theme`) sources. */
 export const PARENT_ROLE_CLASS = 'og-parent';
 
+/** The plugin-scoped base bar selector every generated rule is anchored to. */
+const BAR_SELECTOR = '.og-bases-gantt .wx-bar';
+
 /** Width of the left accent strip in `strip` mode (matches the layout study). */
 export const STRIP_WIDTH_PX = 6;
 
@@ -54,14 +57,33 @@ export const STRIP_WIDTH_PX = 6;
 export const STRIP_CONTENT_PADDING_PX = STRIP_WIDTH_PX + 4;
 
 /**
+ * A neutral tone `pct`% of the way from the editor background toward `--text-normal`.
+ * Guarantees a fixed perceptual delta from the background in ANY theme (theme surface
+ * vars like `--background-secondary` collapse onto `--background-primary` in
+ * low-contrast themes), so neutral bar bodies/outlines/progress stay visible.
+ */
+function mixNeutral(pct: number): string {
+  return `color-mix(in srgb, var(--text-normal) ${pct}%, var(--background-primary))`;
+}
+
+/**
+ * `color` shifted `pct`% toward `--text-normal`: a DARKER tone in light themes and a
+ * LIGHTER tone in dark themes, keeping the hue. Used for the progress band and the
+ * theme parent tone (more contrast without introducing a foreign hue).
+ */
+function shiftToward(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color}, var(--text-normal) ${pct}%)`;
+}
+
+/**
  * Role colors for the two "hierarchy" sources. Parents and children get two
- * equally-saturated, distinct hues (never a pale tint of each other — opacity is
- * reserved for the Show-all "context" cue). `default` is a fixed, theme-independent
- * green/blue (SVAR-style); `theme` uses Obsidian's built-in, theme-adaptive accent
- * palette so it harmonizes with any theme.
+ * distinct, equally-saturated treatments (never a pale tint of each other — opacity
+ * is reserved for the Show-all "context" cue). `default` is a fixed, theme-independent
+ * green/blue (SVAR-style).
  */
 const DEFAULT_PARENT_COLOR = '#2ea043';
 const DEFAULT_CHILD_COLOR = '#1f6feb';
+
 /**
  * `theme` role colors: the theme's OWN accent (`--interactive-accent` — the hue the
  * user sets in Appearance → Accent color, or the active theme overrides), so the
@@ -73,7 +95,7 @@ const DEFAULT_CHILD_COLOR = '#1f6feb';
  */
 const THEME_ACCENT = 'var(--interactive-accent)';
 const THEME_PARENT_TONE_SHIFT_PCT = 30;
-const THEME_PARENT_COLOR = `color-mix(in srgb, ${THEME_ACCENT}, var(--text-normal) ${THEME_PARENT_TONE_SHIFT_PCT}%)`;
+const THEME_PARENT_COLOR = shiftToward(THEME_ACCENT, THEME_PARENT_TONE_SHIFT_PCT);
 const THEME_CHILD_COLOR = THEME_ACCENT;
 
 /**
@@ -86,16 +108,15 @@ const FILL_TEXT_SHADOW = '0 1px 2px rgba(0, 0, 0, 0.5)';
 
 /**
  * STRIP-mode body: a neutral surface that is GUARANTEED to read against the
- * editor/chart background in any theme. Theme surface vars (`--background-secondary`)
- * and the faint divider border (`--background-modifier-border`) are nearly identical
- * to `--background-primary` in low-contrast themes (e.g. Obsidian default, light and
- * dark), so the bar vanished. Deriving BOTH the body fill and the outline as a mix
- * toward `--text-normal` guarantees a fixed perceptual delta from the background in
- * any theme: a soft fill plus a clearly visible edge define the bar as a distinct
+ * editor/chart background in any theme. Deriving BOTH the body fill and the outline
+ * as a mix toward `--text-normal` guarantees a fixed perceptual delta from the
+ * background: a soft fill plus a clearly visible edge define the bar as a distinct
  * pill. Text is the theme's normal text color (the accent lives in the left strip).
  */
-const STRIP_BODY_COLOR = 'color-mix(in srgb, var(--text-normal) 16%, var(--background-primary))';
-const STRIP_BORDER_COLOR = 'color-mix(in srgb, var(--text-normal) 38%, var(--background-primary))';
+const STRIP_BODY_MIX_PCT = 16;
+const STRIP_BORDER_MIX_PCT = 38;
+const STRIP_BODY_COLOR = mixNeutral(STRIP_BODY_MIX_PCT);
+const STRIP_BORDER_COLOR = mixNeutral(STRIP_BORDER_MIX_PCT);
 const STRIP_TEXT_COLOR = 'var(--text-normal)';
 
 /**
@@ -105,18 +126,58 @@ const STRIP_TEXT_COLOR = 'var(--text-normal)';
  * Gantt convention for summary rows. Differentiation is by contrast/lightness
  * ONLY (no opacity), and orthogonal to the left strip accent.
  */
-const STRIP_PARENT_BODY_COLOR = 'color-mix(in srgb, var(--text-normal) 30%, var(--background-primary))';
+const STRIP_PARENT_BODY_MIX_PCT = 30;
+const STRIP_PARENT_BODY_COLOR = mixNeutral(STRIP_PARENT_BODY_MIX_PCT);
 
 /**
- * Safe CSS color guard: hex (`#rgb`…`#rrggbbaa`), an `rgb()/hsl()` functional
- * form, or a bare keyword. Prevents a malformed palette value from breaking out
- * of the generated rule. Anything else is skipped (bar stays uncolored).
+ * Progress fill for STRIP-mode bars: a contrasting shift of the NEUTRAL bar body
+ * (not the left strip). The completed portion reads as a brighter band (dark themes)
+ * / darker band (light themes) of the SAME neutral bar — a tonal shift of the bar's
+ * color, never an extension of the strip accent.
  */
-export const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s/]+\))$/i;
+const NEUTRAL_PROGRESS_MIX_PCT = 45;
+const NEUTRAL_PROGRESS_COLOR = mixNeutral(NEUTRAL_PROGRESS_MIX_PCT);
 
-/** Whether a palette color is safe to splice into a generated CSS rule. */
+/**
+ * Progress-fill color for FILL-mode bars: a more contrasting tonal shift of the
+ * bar's OWN accent, so the completed portion reads as a darker/lighter band of the
+ * same hue instead of SVAR's fixed blue (`--wx-gantt-task-fill-color`).
+ */
+const PROGRESS_CONTRAST_PCT = 30;
+function progressColor(accent: string): string {
+  return shiftToward(accent, PROGRESS_CONTRAST_PCT);
+}
+
+/**
+ * Safe CSS color guard: hex (`#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa`), an `rgb()/hsl()`
+ * functional form, or a bare named keyword. Prevents a malformed palette value from
+ * breaking out of the generated rule; anything else is skipped (bar stays uncolored).
+ * The hex branch admits ONLY the four valid digit counts (3/4/6/8) so an invalid
+ * length that would silently drop the whole declaration cannot pass.
+ */
+export const SAFE_COLOR = /^(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s/]+\))$/i;
+
+/**
+ * CSS-wide keywords that pass the bare-`[a-z]+` branch of {@link SAFE_COLOR} but do
+ * NOT produce a visible fill — a `transparent`/`inherit`/`currentColor` palette color
+ * would render an invisible bar with floating text, indistinguishable from a render
+ * bug. Rejected so such a value degrades to the uncolored (SVAR default) bar instead.
+ */
+const UNSAFE_COLOR_KEYWORDS = new Set([
+  'transparent',
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
+  'revert-layer',
+  'currentcolor',
+  'none',
+]);
+
+/** Whether a palette color is safe AND visible to splice into a generated CSS rule. */
 export function isSafeColor(color: string | null | undefined): boolean {
-  return !!color && SAFE_COLOR.test(color);
+  if (!color) return false;
+  return SAFE_COLOR.test(color) && !UNSAFE_COLOR_KEYWORDS.has(color.trim().toLowerCase());
 }
 
 /** The status/priority palettes, bundled so per-instance resolvers take ≤4 args. */
@@ -159,10 +220,10 @@ function hash36(s: string): string {
 }
 
 /**
- * Memo of computed slugs, keyed by `prefix\0value`. A status/priority value
- * repeats across many bars, so memoizing turns the per-bar regex+hash work into
- * once-per-distinct-value (bounded by the vault's palette). Deterministic, so the
- * cache never needs invalidation.
+ * Memo of computed slugs, keyed by `prefix\0value` (a NUL delimiter that cannot
+ * appear in a prefix). A status/priority value repeats across many bars, so
+ * memoizing turns the per-bar regex+hash work into once-per-distinct-value (bounded
+ * by the vault's palette). Deterministic, so the cache never needs invalidation.
  */
 const slugCache = new Map<string, string>();
 
@@ -172,7 +233,7 @@ const slugCache = new Map<string, string>();
  * appended so two distinct values never collide even if their readable parts do.
  */
 function slug(prefix: string, value: string): string {
-  const key = `${prefix} ${value}`;
+  const key = `${prefix}\0${value}`;
   const cached = slugCache.get(key);
   if (cached !== undefined) return cached;
   const readable = value
@@ -262,8 +323,8 @@ export interface TreatmentStyleInput {
  * Build the deduped, scoped stylesheet for the active mode + source.
  *
  * - `default`: fixed green-parent / blue-child role rules (theme-independent).
- * - `theme`: the same role rules using Obsidian's adaptive `--color-*` palette
- *   (late-bound, so a theme flip re-tints live). No palette needed.
+ * - `theme`: the same role rules driven by the theme's own `--interactive-accent`
+ *   (late-bound, so a theme/accent change re-tints live). No palette needed.
  * - `status`/`priority`: one rule per present palette value with a safe color —
  *   a `background-color` fill (`mode='fill'`) or a `::before` left strip
  *   (`mode='strip'`). Fill is `!important` so it wins over the date-status flag's
@@ -274,31 +335,17 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   if (source === 'default') return buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return buildRoleStyle(mode, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
 
-  const palette: ReadonlyArray<{ value: string; color: string }> =
-    source === 'status' ? palettes.status : palettes.priority;
-  const slugOf = source === 'status' ? statusSlug : prioritySlug;
+  const isStatus = source === 'status';
+  const palette: ReadonlyArray<{ value: string; color: string }> = isStatus ? palettes.status : palettes.priority;
+  const slugOf = isStatus ? statusSlug : prioritySlug;
 
   const present = new Set<string>();
   for (const inst of instances) {
-    const v = source === 'status' ? inst.status : inst.priority;
+    const v = isStatus ? inst.status : inst.priority;
     if (v) present.add(v);
   }
 
-  const emitted = new Set<string>();
-  const rules: string[] = [];
-  for (const { value, color } of palette) {
-    if (!present.has(value) || emitted.has(value)) continue;
-    if (!isSafeColor(color)) continue;
-    emitted.add(value);
-    const sel = `.og-bases-gantt .wx-bar.${slugOf(value)}`;
-    if (mode === 'strip') {
-      rules.push(`${sel}${stripRule(color)}`);
-    } else {
-      rules.push(`${sel} { background-color: ${color} !important; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`);
-      // Fill mode: the bar body IS the accent, so progress is a contrasting shift of it.
-      rules.push(progressFillRule(sel, progressColor(color)));
-    }
-  }
+  const rules = buildValueRules(mode, palette, present, slugOf);
   if (rules.length === 0) return '';
   // Strip mode: neutralize EVERY bar body to a theme surface with readable text +
   // a visible outline (the accent is the left strip), and widen the content inset
@@ -307,11 +354,48 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   if (mode === 'strip') {
     rules.unshift(
       stripBodyRule(),
-      progressFillRule('.og-bases-gantt .wx-bar', NEUTRAL_PROGRESS_COLOR),
+      progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
       stripContentPadRule(),
     );
   }
   return rules.join('\n');
+}
+
+/**
+ * One rule (fill) or two (fill body + progress) per present, safe palette value,
+ * deduped. Extracted from {@link buildTreatmentStyle} so that function stays a thin
+ * dispatch + assembly shell (keeps its branch count low).
+ */
+function buildValueRules(
+  mode: BarColorMode,
+  palette: ReadonlyArray<{ value: string; color: string }>,
+  present: ReadonlySet<string>,
+  slugOf: (value: string) => string,
+): string[] {
+  const emitted = new Set<string>();
+  const rules: string[] = [];
+  for (const { value, color } of palette) {
+    if (!present.has(value) || emitted.has(value) || !isSafeColor(color)) continue;
+    emitted.add(value);
+    const sel = `${BAR_SELECTOR}.${slugOf(value)}`;
+    if (mode === 'strip') {
+      rules.push(`${sel}${stripRule(color)}`);
+    } else {
+      // Fill mode: the bar body IS the accent, so progress is a contrasting shift of it.
+      rules.push(fillBodyRule(sel, color));
+      rules.push(progressFillRule(sel, progressColor(color)));
+    }
+  }
+  return rules;
+}
+
+/**
+ * A saturated FILL body rule for `selector`: the accent background plus the legible
+ * white-with-shadow label treatment. `!important` so it wins over the date-status
+ * flag's own `!important` background (coexistence).
+ */
+function fillBodyRule(selector: string, color: string): string {
+  return `${selector} { background-color: ${color} !important; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
 }
 
 /**
@@ -340,7 +424,7 @@ function stripRule(color: string): string {
  * Svelte's hash class and thus higher specificity than this injected stylesheet.
  */
 function stripContentPadRule(): string {
-  return `.og-bases-gantt .wx-bar .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
+  return `${BAR_SELECTOR} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
 }
 
 /**
@@ -353,32 +437,11 @@ function stripContentPadRule(): string {
  */
 function stripBodyRule(): string {
   return (
-    `.og-bases-gantt .wx-bar { background-color: ${STRIP_BODY_COLOR} !important; ` +
+    `${BAR_SELECTOR} { background-color: ${STRIP_BODY_COLOR} !important; ` +
     `color: ${STRIP_TEXT_COLOR} !important; ` +
     `border: 1px solid ${STRIP_BORDER_COLOR} !important; }`
   );
 }
-
-/**
- * Progress-fill color: a more contrasting tonal shift of the bar's OWN accent,
- * mixed 30% toward `--text-normal` so the completed portion reads as a DARKER band
- * in light themes and a LIGHTER band in dark themes — the standard "shade-on-light
- * / tint-on-dark" progress treatment. Keeping the hue ties the fill to the bar
- * instead of SVAR's fixed blue (`--wx-gantt-task-fill-color`).
- */
-const PROGRESS_CONTRAST_PCT = 30;
-function progressColor(accent: string): string {
-  return `color-mix(in srgb, ${accent}, var(--text-normal) ${PROGRESS_CONTRAST_PCT}%)`;
-}
-
-/**
- * Progress fill for STRIP-mode bars: a contrasting shift of the NEUTRAL bar body
- * (not the left strip). The body is `--text-normal` mixed ~16% into the background;
- * the progress mixes ~45% so the completed portion reads as a brighter band (dark
- * themes) / darker band (light themes) of the SAME neutral bar — a tonal shift of
- * the bar's color, never an extension of the strip accent.
- */
-const NEUTRAL_PROGRESS_COLOR = 'color-mix(in srgb, var(--text-normal) 45%, var(--background-primary))';
 
 /**
  * Override SVAR's fixed progress-fill (`.wx-progress-percent`) for a bar selector.
@@ -390,32 +453,31 @@ function progressFillRule(selector: string, fillColor: string): string {
 }
 
 /**
- * Role-based rules (parent vs child) for the `default`/`theme` sources: two
- * equally-saturated hues, not a tint of one another. In `fill` the child hue is
- * the base `.wx-bar` fill and the parent hue overrides on `.og-parent`; in `strip`
- * the body stays neutral (see {@link stripBodyRule}) and the hues drive the
- * `::before` accent strip.
+ * Role-based rules (parent vs child) for the `default`/`theme` sources. In `fill`
+ * the child hue is the base `.wx-bar` fill and the parent hue overrides on
+ * `.og-parent`; in `strip` the body stays neutral (see {@link stripBodyRule}), the
+ * parent body gets a higher-contrast neutral, and the hues drive the `::before`
+ * accent strip.
  */
 function buildRoleStyle(mode: BarColorMode, parentColor: string, childColor: string): string {
-  const bar = '.og-bases-gantt .wx-bar';
-  const parentSel = `${bar}.${PARENT_ROLE_CLASS}`;
+  const parentSel = `${BAR_SELECTOR}.${PARENT_ROLE_CLASS}`;
   if (mode === 'strip') {
     return [
       stripBodyRule(),
       // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
       // contrast-only). More specific than stripBodyRule() so it wins for parents.
       `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
-      `${bar}${stripRule(childColor)}`,
+      `${BAR_SELECTOR}${stripRule(childColor)}`,
       `${parentSel}::before { background-color: ${parentColor}; }`,
       // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
-      progressFillRule(bar, NEUTRAL_PROGRESS_COLOR),
+      progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
       stripContentPadRule(),
     ].join('\n');
   }
   return [
-    `${bar} { background-color: ${childColor} !important; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`,
+    fillBodyRule(BAR_SELECTOR, childColor),
     `${parentSel} { background-color: ${parentColor} !important; }`,
-    progressFillRule(bar, progressColor(childColor)),
+    progressFillRule(BAR_SELECTOR, progressColor(childColor)),
     progressFillRule(parentSel, progressColor(parentColor)),
   ].join('\n');
 }

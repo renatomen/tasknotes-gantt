@@ -13,6 +13,7 @@ import {
   treatmentClassRegistry,
   buildTreatmentStyle,
   resolveIconSpec,
+  isSafeColor,
   PARENT_ROLE_CLASS,
   STATUS_CLASS_PREFIX,
   PRIORITY_CLASS_PREFIX,
@@ -32,6 +33,32 @@ const priorityColors: PriorityColor[] = [
 const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
 const inst = (status: string | null, priority: string | null = null) => ({ status, priority });
+
+describe('isSafeColor', () => {
+  it('accepts valid hex (3/4/6/8), rgb()/hsl() forms, and named colors', () => {
+    for (const c of ['#fff', '#ffff', '#ff8800', '#ff8800cc', 'red', 'rebeccapurple', 'rgb(1, 2, 3)', 'rgba(1,2,3,0.5)', 'hsl(1, 2%, 3%)']) {
+      expect(isSafeColor(c)).toBe(true);
+    }
+  });
+
+  it('rejects invalid hex lengths (5/7) that would silently drop the declaration', () => {
+    expect(isSafeColor('#12345')).toBe(false);
+    expect(isSafeColor('#1234567')).toBe(false);
+  });
+
+  it('rejects CSS-wide keywords that render an invisible bar', () => {
+    for (const c of ['transparent', 'inherit', 'currentColor', 'initial', 'unset', 'revert', 'none']) {
+      expect(isSafeColor(c)).toBe(false);
+    }
+  });
+
+  it('rejects injection payloads, a trailing-newline bypass, and empty values', () => {
+    // The `$` anchor is end-of-string (no `m` flag), so a trailing newline does NOT slip through.
+    for (const c of ['red; } body {', '#fff}.x{}', 'rgb(0,0,0);x:1', 'red\n', 'url(x)', '', null, undefined]) {
+      expect(isSafeColor(c as string)).toBe(false);
+    }
+  });
+});
 
 describe('slugs', () => {
   it('use distinct prefixes for status vs priority', () => {
@@ -230,6 +257,16 @@ describe('buildTreatmentStyle', () => {
     });
     expect(css).toBe('');
   });
+
+  it('drops a CSS-keyword color (transparent) that would render an invisible bar', () => {
+    const css = buildTreatmentStyle({
+      mode: 'fill',
+      source: 'status',
+      palettes: { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] },
+      instances: [inst('x')],
+    });
+    expect(css).toBe('');
+  });
 });
 
 describe('resolveIconSpec', () => {
@@ -265,5 +302,10 @@ describe('resolveIconSpec', () => {
       priority: [],
     };
     expect(resolveIconSpec('status', inst('evil'), hostile)).toEqual({ kind: 'status', color: 'currentColor' });
+  });
+
+  it('falls back to currentColor for a CSS-keyword color (transparent)', () => {
+    const p: Palettes = { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] };
+    expect(resolveIconSpec('status', inst('x'), p)).toEqual({ kind: 'status', color: 'currentColor' });
   });
 });

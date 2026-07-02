@@ -87,8 +87,9 @@ export interface SvarTaskInputs {
    * intentionally absent from these inputs.
    */
   barColorSource?: BarColorSource;
-  /** Per-view icon source (default `none`). */
-  barIcon?: BarIconSource;
+  /** Per-view icon source (default `none`). Named `...Source` to disambiguate from
+   * the resolved {@link SvarTask.custom.barIcon} ({@link IconSpec}) it produces. */
+  barIconSource?: BarIconSource;
   showDateIndicators: boolean;
   arrowMode: LinkRewriteMode;
   /**
@@ -185,7 +186,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     statusColors,
     priorityColors = [],
     barColorSource = 'default',
-    barIcon = 'none',
+    barIconSource = 'none',
     showDateIndicators,
     arrowMode,
     propertyValues,
@@ -295,7 +296,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
         // The icon-chip spec for the active icon source (U4); `null` when no chip.
-        barIcon: resolveIconSpec(barIcon, inst, palettes),
+        barIcon: resolveIconSpec(barIconSource, inst, palettes),
         // Grid property-column values for this task (by source path); the grid
         // cell reads these. `{}` when no columns are configured.
         properties: propertyValues?.get(inst.sourcePath) ?? {},

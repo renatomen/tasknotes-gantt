@@ -465,25 +465,26 @@ export class BasesDataAdapter {
   }
 
   /**
-   * Extract a status string from entry (no basename fallback).
+   * Extract a raw optional string from a mapped property (no basename fallback).
    *
-   * Unlike extractText, an unmapped/empty/missing status yields null rather than
-   * the file basename — status is optional and drives bar coloring only when
-   * genuinely present.
+   * Unlike extractText, an unmapped/empty/missing property yields null rather than
+   * the file basename — the caller's field (status, priority, …) is optional and
+   * drives its treatment only when genuinely present. Named generically because it
+   * backs more than one field (status AND priority); do not re-specialize it.
    *
    * @param entry - The BasesEntry to extract from
-   * @param statusProperty - The property ID for status ("" / undefined = none)
-   * @returns The raw status string, or null when unmapped/empty/missing
+   * @param property - The property ID to read ("" / undefined = none)
+   * @returns The raw string value, or null when unmapped/empty/missing
    */
-  extractStatus(
+  extractOptionalString(
     entry: BasesEntryLike,
-    statusProperty: string | undefined,
+    property: string | undefined,
   ): string | null {
-    if (!statusProperty) {
+    if (!property) {
       return null;
     }
 
-    const value = this.extractValue(entry, statusProperty);
+    const value = this.extractValue(entry, property);
 
     if (value === null || value === undefined || value === "") {
       return null;

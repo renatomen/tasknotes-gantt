@@ -366,10 +366,10 @@
   $effect(() => {
     const css = treatmentStyleCss;
     if (!rootEl) return;
-    let styleEl = rootEl.querySelector('style[data-og-status]') as HTMLStyleElement | null;
+    let styleEl = rootEl.querySelector('style[data-og-treatment]') as HTMLStyleElement | null;
     if (!styleEl) {
       styleEl = document.createElement('style');
-      styleEl.setAttribute('data-og-status', '');
+      styleEl.setAttribute('data-og-treatment', '');
       rootEl.appendChild(styleEl);
     }
     styleEl.textContent = css;
@@ -472,7 +472,7 @@
       statusColors: d.statusColors ?? [],
       priorityColors: d.priorityColors ?? [],
       barColorSource: d.barColorSource ?? 'default',
-      barIcon: d.barIcon ?? 'none',
+      barIconSource: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,

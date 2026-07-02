@@ -86,7 +86,7 @@ describe("Gantt (OG) bar treatments", () => {
 
     it("injects the fixed green/blue role rules", async () => {
       const css = await browser.executeObsidian(() => {
-        const style = document.querySelector(".og-bases-gantt style[data-og-status]");
+        const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
         return style?.textContent ?? "";
       });
       expect(css).toContain("#1f6feb"); // child (blue)
@@ -104,13 +104,16 @@ describe("Gantt (OG) bar treatments", () => {
       expect(parents.length).toBeGreaterThan(0);
     });
 
-    it("injects theme rules referencing Obsidian's adaptive color palette", async () => {
+    it("injects theme rules driven by the theme's own accent (interactive-accent)", async () => {
       const css = await browser.executeObsidian(() => {
-        const style = document.querySelector(".og-bases-gantt style[data-og-status]");
+        const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
         return style?.textContent ?? "";
       });
-      expect(css).toContain("var(--color-green)");
-      expect(css).toContain("var(--color-blue)");
+      // Theme source = the user's accent hue in two tones (raw child + shifted parent),
+      // never a fixed named palette color. Mirrors the barTreatment.test.ts theme cases.
+      expect(css).toContain("var(--interactive-accent)");
+      expect(css).toContain("color-mix(in srgb, var(--interactive-accent)");
+      expect(css).not.toContain("--color-");
     });
   });
 });

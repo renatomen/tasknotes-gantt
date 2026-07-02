@@ -67,7 +67,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     // (which pass statusColors without a source) keep their meaning; the new
     // per-source tests below override this explicitly.
     barColorSource: over.barColorSource ?? 'status',
-    barIcon: over.barIcon,
+    barIconSource: over.barIconSource,
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
     propertyValues: over.propertyValues,
@@ -185,21 +185,21 @@ describe('buildSvarTasks', () => {
   it('attaches custom.barIcon from the icon source, null when none', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false, icon: 'circle' }];
     const withIcon = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'status' }),
+      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIconSource: 'status' }),
     )[0];
     expect(withIcon.custom.barIcon).toEqual({ kind: 'status', iconName: 'circle', color: '#abc' });
 
     const noIcon = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'none' }),
+      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIconSource: 'none' }),
     )[0];
     expect(noIcon.custom.barIcon).toBeNull();
   });
 
   it('taskStateKey changes when the icon source toggles (re-sync guard)', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false, icon: 'circle' }];
-    const keyOf = (barIcon: 'none' | 'status') =>
+    const keyOf = (barIconSource: 'none' | 'status') =>
       taskStateKey(
-        buildSvarTasks(inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon }))[0],
+        buildSvarTasks(inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIconSource }))[0],
       );
     expect(keyOf('none')).not.toBe(keyOf('status'));
   });

@@ -90,7 +90,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { entriesSignature } from './entrySignature';
+import { entriesSignature, frontmatterSignatureKeys } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -369,16 +369,14 @@ class ObsidianGanttBasesView extends BasesView {
   private computeEntrySignature(): string {
     const entries = (this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>;
     const m = this.buildFieldMappings();
-    const fmKeys = [
+    const fmKeys = frontmatterSignatureKeys([
       m.startProperty,
       m.endProperty,
       m.progressProperty,
       m.statusProperty,
       m.priorityProperty,
       m.parentProperty,
-    ]
-      .filter((p): p is string => !!p && p.startsWith('note.'))
-      .map((p) => p.slice('note.'.length));
+    ]);
     if (fmKeys.length === 0) {
       return entriesSignature(entries);
     }
@@ -389,7 +387,10 @@ class ObsidianGanttBasesView extends BasesView {
       const file = app.vault.getAbstractFileByPath(path);
       const fm = file instanceof TFile ? app.metadataCache.getFileCache(file)?.frontmatter : null;
       if (!fm) return '';
-      return fmKeys.map((k) => String(fm[k] ?? '')).join('');
+      // JSON-encode each value so adjacent fields can't concatenate into a collision
+      // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
+      // (not flattened to "[object Object]").
+      return fmKeys.map((k) => JSON.stringify(fm[k] ?? '')).join('');
     });
   }
 

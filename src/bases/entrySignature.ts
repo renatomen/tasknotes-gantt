@@ -26,6 +26,30 @@ export interface SignatureEntry {
 }
 
 /**
+ * The bare frontmatter keys whose values drive an instance's rendering: the
+ * `note.*` field-mapping values with their `note.` / `note:` prefix stripped. The
+ * value-sensitive signature reads these from the metadata cache, so a live edit to
+ * one flips the signature and refreshes the bars.
+ *
+ * Only frontmatter-backed (`note.` / `note:`) mappings qualify — a mapping to a
+ * `formula.*` / `file.*` / computed property has no frontmatter key and its edits
+ * cannot be observed via the metadata cache, so it is intentionally excluded (the
+ * signature then degrades to path-only for that field). Pure and Obsidian-free so
+ * the prefix/strip logic is unit-testable in isolation.
+ */
+export function frontmatterSignatureKeys(
+  mappingValues: ReadonlyArray<string | undefined>,
+): string[] {
+  const keys: string[] = [];
+  for (const property of mappingValues) {
+    if (!property) continue;
+    if (property.startsWith('note.')) keys.push(property.slice('note.'.length));
+    else if (property.startsWith('note:')) keys.push(property.slice('note:'.length));
+  }
+  return keys;
+}
+
+/**
  * Fingerprint of a matched entry set: the entry count followed by each entry's
  * `file.path` (missing paths → empty segment), joined by `|`. When `valueOf` is
  * supplied, each entry also contributes its value string (after `~`), so a value
