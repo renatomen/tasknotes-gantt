@@ -22,6 +22,8 @@ export interface FieldMappings {
   parentProperty?: string;
   /** Property ID for task status (empty string / unset = no status) */
   statusProperty?: string;
+  /** Property ID for task priority (empty string / unset = no priority) */
+  priorityProperty?: string;
 }
 
 /**

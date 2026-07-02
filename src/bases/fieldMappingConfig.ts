@@ -21,6 +21,7 @@ export const FIELD_MAPPING_KEYS = {
   progress: 'tngantt_progressProperty',
   parent: 'tngantt_parentProperty',
   status: 'tngantt_statusProperty',
+  priority: 'tngantt_priorityProperty',
 } as const;
 
 /** Per-view fallback values used when a mapping key is unset. */
@@ -31,6 +32,7 @@ export interface FieldMappingDefaults {
   progressProperty: string;
   parentProperty: string;
   statusProperty: string;
+  priorityProperty: string;
 }
 
 /**
@@ -47,6 +49,7 @@ const BASE_DEFAULTS: FieldMappingDefaults = {
   progressProperty: '',
   parentProperty: '',
   statusProperty: '',
+  priorityProperty: '',
 };
 
 /**
@@ -68,5 +71,6 @@ export function readFieldMappings(
     progressProperty: (get(FIELD_MAPPING_KEYS.progress) as string) || d.progressProperty,
     parentProperty: (get(FIELD_MAPPING_KEYS.parent) as string) || d.parentProperty,
     statusProperty: (get(FIELD_MAPPING_KEYS.status) as string) || d.statusProperty,
+    priorityProperty: (get(FIELD_MAPPING_KEYS.priority) as string) || d.priorityProperty,
   };
 }

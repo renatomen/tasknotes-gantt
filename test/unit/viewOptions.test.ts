@@ -161,6 +161,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.progress,
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
+      FIELD_MAPPING_KEYS.priority,
     ]);
   });
 
@@ -172,11 +173,11 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 7 dropdowns + 4 sliders + 5 toggles.
+    // 7 shared property options (incl. priority) + 7 dropdowns + 4 sliders + 5 toggles.
     // Dropdowns: expanded-relationships, default-scale, dependency-arrows,
     // bar-color-mode, bar-color-source, bar-icon, parent-date-cascade.
     // Sliders: default-duration, min-height, max-height, companion context opacity.
-    expect(options).toHaveLength(22);
+    expect(options).toHaveLength(23);
   });
 
   it("models the min-height input as a slider defaulting to the ~2-row floor", () => {
@@ -208,8 +209,8 @@ describe("ganttViewOptions", () => {
 describe("taskListViewOptions", () => {
   const options = taskListViewOptions();
 
-  it("returns exactly the six shared field-mapping property options", () => {
-    expect(options).toHaveLength(6);
+  it("returns exactly the seven shared field-mapping property options", () => {
+    expect(options).toHaveLength(7);
     expect(options.every((o) => o.type === "property")).toBe(true);
     expect(options.map((o) => ("key" in o ? o.key : undefined))).toEqual([
       FIELD_MAPPING_KEYS.text,
@@ -218,6 +219,7 @@ describe("taskListViewOptions", () => {
       FIELD_MAPPING_KEYS.progress,
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
+      FIELD_MAPPING_KEYS.priority,
     ]);
   });
 

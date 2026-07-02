@@ -65,6 +65,13 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
       default: '',
       placeholder: 'Select status property (colors bars by TaskNotes status)',
     },
+    {
+      type: 'property' as const,
+      displayName: 'Priority Property',
+      key: FIELD_MAPPING_KEYS.priority,
+      default: '',
+      placeholder: 'Select priority property (colors bars by TaskNotes priority)',
+    },
   ];
 }
 

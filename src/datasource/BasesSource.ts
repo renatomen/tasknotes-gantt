@@ -83,10 +83,11 @@ export class BasesSource implements DataSource {
       end: this.adapter.extractDate(entry, this.mappings.endProperty),
       progress: this.adapter.extractProgress(entry, this.mappings.progressProperty),
       status: this.adapter.extractStatus(entry, this.mappings.statusProperty),
-      // Priority coloring is companion-only (needs the TaskNotes palette); the
-      // standalone Bases source exposes no priority value or palette, so By-Priority
-      // degrades to `default`. `null` here keeps the SourceTask shape complete.
-      priority: null,
+      // Priority value comes from the mapped Base property (extractStatus is a
+      // generic optional-string extractor). The color palette still comes from the
+      // TaskNotes companion (getPriorityColors); a value with no palette entry
+      // simply gets no color. Unmapped → null.
+      priority: this.adapter.extractStatus(entry, this.mappings.priorityProperty),
       parents: this.resolveParents(entry),
     };
   }
