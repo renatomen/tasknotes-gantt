@@ -354,14 +354,43 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /**
-   * Cheap signature of the current Bases entries — count + each entry's file
-   * path, joined. Reads ONLY `entry.file.path` (a plain TFile reference), never
-   * `getValue` (the value extraction that re-pokes Bases — #161). Two notifies
-   * with the same signature carry the same matched set, so the refresh can reuse
-   * the controller's cached base tasks instead of re-reading the source.
+   * Signature of the current Bases entries — count + each entry's file path, plus
+   * the values of the instance-driving `note.*` fields (dates/progress/status/
+   * priority/parent) read from Obsidian's metadata cache. `reuseTasks` reuses the
+   * controller's cached tasks when this is unchanged, so:
+   *  - a config-only / echo notify (same files, same values) reuses → no #161 storm;
+   *  - a genuine field edit (e.g. status/priority via the context menu) flips the
+   *    signature → the source re-reads → the bars' color/icon refresh in place.
+   *
+   * The value read is cache-safe: it uses `metadataCache` frontmatter directly and
+   * NEVER `entry.getValue` (the extraction that re-pokes the #161 storm). `file.*`
+   * fields need no value read — a rename changes the path, already in the signature.
    */
   private computeEntrySignature(): string {
-    return entriesSignature((this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>);
+    const entries = (this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>;
+    const m = this.buildFieldMappings();
+    const fmKeys = [
+      m.startProperty,
+      m.endProperty,
+      m.progressProperty,
+      m.statusProperty,
+      m.priorityProperty,
+      m.parentProperty,
+    ]
+      .filter((p): p is string => !!p && p.startsWith('note.'))
+      .map((p) => p.slice('note.'.length));
+    if (fmKeys.length === 0) {
+      return entriesSignature(entries);
+    }
+    const app = this.app;
+    return entriesSignature(entries, (e) => {
+      const path = e.file?.path;
+      if (!path) return '';
+      const file = app.vault.getAbstractFileByPath(path);
+      const fm = file instanceof TFile ? app.metadataCache.getFileCache(file)?.frontmatter : null;
+      if (!fm) return '';
+      return fmKeys.map((k) => String(fm[k] ?? '')).join('');
+    });
   }
 
   /** Stateless extractor for grid property-column values (U1). */

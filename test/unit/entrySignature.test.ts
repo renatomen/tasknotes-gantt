@@ -37,4 +37,28 @@ describe('entriesSignature', () => {
   it('treats a missing file.path as an empty segment (never throws)', () => {
     expect(entriesSignature([e(undefined), e('b.md')])).toBe('2||b.md');
   });
+
+  describe('value-sensitive signature (reuseTasks value gate)', () => {
+    const values = new Map<string, string>([
+      ['a.md', 'todo'],
+      ['b.md', 'high'],
+    ]);
+    const valueOf = (entry: { file?: { path?: string } }) =>
+      values.get(entry.file?.path ?? '') ?? '';
+
+    it('appends each entry value after a ~ so identical values reuse', () => {
+      const before = entriesSignature([e('a.md'), e('b.md')], valueOf);
+      const again = entriesSignature([e('a.md'), e('b.md')], valueOf);
+      expect(before).toBe(again);
+      expect(before).toContain('~todo');
+      expect(before).toContain('~high');
+    });
+
+    it('changes when an entry value changes (bar treatment must refresh)', () => {
+      const before = entriesSignature([e('a.md'), e('b.md')], valueOf);
+      values.set('a.md', 'done'); // simulate a status edit
+      const after = entriesSignature([e('a.md'), e('b.md')], valueOf);
+      expect(after).not.toBe(before);
+    });
+  });
 });
