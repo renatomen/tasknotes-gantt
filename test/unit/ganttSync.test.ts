@@ -204,6 +204,19 @@ describe('buildSvarTasks', () => {
     expect(keyOf('none')).not.toBe(keyOf('status'));
   });
 
+  it('taskStateKey changes when the icon kind flips with same color + no glyph (ring vs dot)', () => {
+    // A status ring and a priority dot that share a color and have NO glyph differ
+    // ONLY by kind; the fingerprint must still change so the toggle re-syncs.
+    const statusColors: StatusColor[] = [{ value: 'v', color: '#abc', isCompleted: false }];
+    const priorityColors: PriorityColor[] = [{ value: 'v', color: '#abc' }];
+    const instance = inst({ id: 'a', status: 'v', priority: 'v' });
+    const keyFor = (barIconSource: 'status' | 'priority') =>
+      taskStateKey(
+        buildSvarTasks(inputs({ instances: [instance], statusColors, priorityColors, barIconSource }))[0],
+      );
+    expect(keyFor('status')).not.toBe(keyFor('priority'));
+  });
+
   it('carries dateStatus onto custom for the view filter predicate (U2)', () => {
     // The presentation-layer show-undated/show-partial filter reads custom.dateStatus
     // to decide row visibility (#161), so it must ride each instance onto the task.

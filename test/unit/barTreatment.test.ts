@@ -105,6 +105,13 @@ describe('resolveTreatmentClass', () => {
     expect(resolveTreatmentClass('default', inst('x'), true, palettes)).toBe(PARENT_ROLE_CLASS);
     expect(resolveTreatmentClass('default', inst('x'), false, palettes)).toBeNull();
   });
+
+  it('degrades status/priority with an EMPTY palette to the default role (og-parent for parents)', () => {
+    const empty: Palettes = { status: [], priority: [] };
+    expect(resolveTreatmentClass('status', inst('x'), true, empty)).toBe(PARENT_ROLE_CLASS);
+    expect(resolveTreatmentClass('status', inst('x'), false, empty)).toBeNull();
+    expect(resolveTreatmentClass('priority', inst(null, 'x'), true, empty)).toBe(PARENT_ROLE_CLASS);
+  });
 });
 
 describe('treatmentClassRegistry', () => {
@@ -232,10 +239,11 @@ describe('buildTreatmentStyle', () => {
     );
   });
 
-  it('degrades to empty when the source palette is empty', () => {
-    expect(
-      buildTreatmentStyle({ mode: 'fill', source: 'status', palettes: { status: [], priority: [] }, instances: [inst('x')] }),
-    ).toBe('');
+  it('degrades to the Default role style when the source palette is empty (standalone)', () => {
+    // No TaskNotes palette → By Status/Priority behaves like Default (R15/F3), not blank.
+    const css = buildTreatmentStyle({ mode: 'fill', source: 'status', palettes: { status: [], priority: [] }, instances: [inst('x')] });
+    expect(css).toContain('background-color: #1f6feb !important;'); // child (default blue)
+    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (default green)
   });
 
   it('dedupes a value present on multiple instances', () => {

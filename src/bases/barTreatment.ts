@@ -263,6 +263,20 @@ function hasSafeColor(palette: ReadonlyArray<{ value: string; color: string }>, 
 }
 
 /**
+ * The color source actually applied. `status`/`priority` require a palette; when it
+ * is EMPTY (standalone / no TaskNotes companion) they degrade to `default` so bars
+ * still get the hierarchy treatment instead of rendering as plain SVAR bars (R15/F3).
+ * An absent VALUE within a NON-empty palette is a per-bar miss, not a whole-view
+ * degrade — so this keys only on palette emptiness. Both {@link resolveTreatmentClass}
+ * and {@link buildTreatmentStyle} route through it so the class and the stylesheet agree.
+ */
+function effectiveSource(source: BarColorSource, palettes: Palettes): BarColorSource {
+  if (source === 'status' && palettes.status.length === 0) return 'default';
+  if (source === 'priority' && palettes.priority.length === 0) return 'default';
+  return source;
+}
+
+/**
  * The treatment class a bar carries for the active color source, or `null` when
  * the bar takes no plugin class (SVAR/theme default content).
  *
@@ -281,7 +295,7 @@ export function resolveTreatmentClass(
   isParent: boolean,
   palettes: Palettes,
 ): string | null {
-  switch (source) {
+  switch (effectiveSource(source, palettes)) {
     case 'status':
       return instance.status && hasSafeColor(palettes.status, instance.status)
         ? statusSlug(instance.status)
@@ -331,7 +345,9 @@ export interface TreatmentStyleInput {
  *   own `!important` background (coexistence).
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
-  const { mode, source, palettes, instances } = input;
+  const { mode, palettes, instances } = input;
+  // Empty status/priority palette (standalone) degrades to the Default role style.
+  const source = effectiveSource(input.source, palettes);
   if (source === 'default') return buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return buildRoleStyle(mode, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
 

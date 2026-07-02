@@ -383,9 +383,13 @@ export function taskStateKey(t: SvarTask): string {
   ]);
 }
 
-/** Deterministic fingerprint of a task's icon-chip spec (`''` when no chip). */
+/**
+ * Deterministic fingerprint of a task's icon-chip spec (`''` when no chip). Folds
+ * `kind` so a Status↔Priority toggle re-syncs even when the two values share a color
+ * and neither has a glyph (status ring vs priority dot differ only by `kind`).
+ */
 function barIconKey(icon: IconSpec | null): string {
-  return icon ? `${icon.iconName ?? ''}:${icon.color}` : '';
+  return icon ? `${icon.kind}:${icon.iconName ?? ''}:${icon.color}` : '';
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */
