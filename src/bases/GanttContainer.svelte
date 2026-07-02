@@ -2520,7 +2520,7 @@
     width: 13px;
     height: 13px;
     border-radius: 50%;
-    border: 2px solid currentColor;
+    border: 3px solid currentColor;
   }
   /* No-icon priority → filled dot (TaskNotes); background set inline. */
   .og-bases-gantt :global(.og-bar-dot) {
