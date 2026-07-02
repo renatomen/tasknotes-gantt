@@ -93,6 +93,16 @@ export interface SvarTaskInputs {
   showDateIndicators: boolean;
   arrowMode: LinkRewriteMode;
   /**
+   * Per-view "Hide top-level subtasks" toggle (#161), read here so the
+   * replicated cue counts only VISIBLE instances. When on, the `alsoTopLevel`
+   * duplicate top-level placement is display-filtered out of the chart, so it
+   * must NOT count toward replication — else a note shown once is miscounted as
+   * shown twice and wrongly hatched. Defaults to `false` (hide-off: the twin is
+   * a real second visible placement and counts). Read on the same stable instance
+   * set the row-visibility filter (`rowVisibility.ts`) operates over.
+   */
+  hideTopLevelSubtasks?: boolean;
+  /**
    * Per-task type-tagged values for the grid's visible property columns, keyed
    * by source path (U1/U4). Looked up per instance and attached to the SVAR
    * task's `custom.properties` so {@link import('./PropertyCell.svelte')} can
@@ -189,6 +199,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     barIconSource = 'none',
     showDateIndicators,
     arrowMode,
+    hideTopLevelSubtasks = false,
     propertyValues,
     collapsedIds,
   } = input;
@@ -202,16 +213,24 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 
   // The primary (first-in-order) instance id for each source path.
   const primaryBySource = new Map<string, string>();
-  // How many instances each source path produced — >1 means the note is shown in
-  // multiple places, which drives the uniform `og-replicated` cue (U6). Counting
-  // the *displayed* instances (not parent count) catches every replication path:
-  // multi-parent membership, an `alsoTopLevel` root plus its nested copy, etc.
+  // How many VISIBLE instances each source path has — >1 means the note is shown
+  // in more than one place, which drives the uniform `og-replicated` cue (U6).
+  // "Visible" excludes the `alsoTopLevel` duplicate top-level placement WHEN
+  // "Hide top-level subtasks" is suppressing it: that twin is always present in the
+  // stable instance set (#161 decoupling), but display-filtered out of the chart,
+  // so counting it would wrongly hatch a note shown exactly once. Multi-parent
+  // nested copies (isTopLevelPlacement=false) always count; with hide-top OFF the
+  // twin is a real second visible placement and counts too. Collapse/scroll never
+  // remove an instance, and date filters hide all copies of a note together — so
+  // Hide-top is the only display state that can split a note's visible count.
   const countBySource = new Map<string, number>();
   for (const inst of instances) {
     if (!primaryBySource.has(inst.sourcePath)) {
       primaryBySource.set(inst.sourcePath, inst.id);
     }
-    countBySource.set(inst.sourcePath, (countBySource.get(inst.sourcePath) ?? 0) + 1);
+    if (!(hideTopLevelSubtasks && inst.isTopLevelPlacement)) {
+      countBySource.set(inst.sourcePath, (countBySource.get(inst.sourcePath) ?? 0) + 1);
+    }
   }
 
   // Source paths that participate in any dependency link (either endpoint),
