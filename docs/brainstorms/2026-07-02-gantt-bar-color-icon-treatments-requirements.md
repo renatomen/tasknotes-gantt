@@ -21,6 +21,27 @@ status/priority icon is shown, via **three independent** per-view settings:
 This generalizes today's always-on "status fill" (U5) into an opt-in, configurable system,
 and adds priority as a first-class coloring/icon dimension.
 
+## Post-implementation amendments (2026-07-03)
+
+Three decisions changed during implementation; the original wording below (notably R7, R11,
+R15, F3/F4, and every "neutral / pristine bar" phrasing) predates them and should be read
+through these corrections:
+
+1. **`Default` source is a fixed, theme-independent hierarchy fill** — green parent (`#2ea043`)
+   / blue child (`#1f6feb`), SVAR-style — **not** pristine/uncolored bars. Read "neutral bar"
+   mentions below as "the Default hierarchy fill." (This is why upgraded views are no longer
+   visually neutral on the `default`/`default`/`none` defaults.)
+2. **An empty status/priority palette degrades to that Default fill** (green/blue + the
+   `og-parent` role class), not to pristine bars — implemented via a shared `effectiveSource()`
+   so the generated stylesheet and the per-bar class agree.
+3. **`Obsidian Theme` source uses the accent in one hue, two tones** (supersedes R11): child =
+   raw `var(--interactive-accent)`, parent = `color-mix(in srgb, var(--interactive-accent),
+   var(--text-normal) 30%)` (a more-contrasting tone) — not a `28%` tint of the accent.
+   Strip-mode neutral bodies/outlines/progress derive from `color-mix(... var(--text-normal)
+   N% , var(--background-primary))` (theme primitives), not `--background-secondary`, so they
+   survive low-contrast themes. See
+   [`docs/solutions/integration-issues/svar-gantt-injected-css-scoped-specificity.md`](../solutions/integration-issues/svar-gantt-injected-css-scoped-specificity.md).
+
 ## Problem Frame
 
 Today, bars are **always** filled by TaskNotes status color whenever a status has a
@@ -105,7 +126,10 @@ and no hand-rolling of behavior SVAR provides natively.
 - R6. `source = theme`: bars take colors derived from Obsidian theme CSS variables (R11), with
   distinct parent and child roles, re-tinting live when the Obsidian theme changes (no
   re-render required — variables are late-bound).
-- R7. `source = default`: no plugin coloring; bars render in the SVAR/theme default (pristine).
+- R7. `source = default`: a fixed, theme-independent **hierarchy fill** — green parent
+  (`#2ea043`) / blue child (`#1f6feb`), SVAR-style — applied via the `og-parent` role class.
+  *(Amended 2026-07-03 — see Post-implementation amendments. Originally specified as
+  pristine/no-coloring; changed to a green/blue hierarchy during implementation.)*
 - R8. Coloring is emitted as a generated, scoped stylesheet (the existing `<style data-og-*>`
   injection) with one rule per present value — declarative and virtualization-safe; no
   per-bar inline styles or components for the color path. Fill uses `background-color`; strip
