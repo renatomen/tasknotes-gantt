@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gantt bar treatments — proposed high-fidelity mockup (v2)</title>
+<style>
+  :root {
+    --background-primary: #ffffff;
+    --background-secondary: #f2f3f5;
+    --background-modifier-border: rgba(0,0,0,0.15);   /* neutral chip border (light) */
+    --text-normal: #1f2328;
+    --text-on-accent: #ffffff;
+    --interactive-accent: #7c5cff;
+    /* Obsidian's built-in, theme-adaptive accent palette (every theme defines these). */
+    --color-green: #2ea043;
+    --color-blue: #1f6feb;
+    --color-red: #e5484d;
+    --color-orange: #e8912d;
+    --border: #d7dae0;
+  }
+  .dark {
+    --background-primary: #1e1e1e;
+    --background-secondary: #2a2a2a;
+    --background-modifier-border: rgba(255,255,255,0.22); /* neutral chip border (dark) */
+    --text-normal: #dcddde;
+    --text-on-accent: #ffffff;
+    --interactive-accent: #a390ff;
+    --color-green: #3fb950;
+    --color-blue: #4c8dff;
+    --color-red: #ff6169;
+    --color-orange: #f0a850;
+    --border: #3a3a3a;
+  }
+
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #faf9f5; color: #1f2328; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7280; margin: 0 0 28px; }
+  h2 { font-size: 15px; margin: 30px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: #374151; }
+  .note { color: #6b7280; font-size: 13px; margin: 2px 0 14px; }
+  code { background:#eef0f3; padding:1px 5px; border-radius:4px; font-size:12px; }
+
+  .panel { background: var(--background-primary); border: 1px solid var(--border); border-radius: 10px; padding: 22px 20px; margin-bottom: 14px; }
+  .panel .label { font-size: 12px; color: #9aa0ac; margin-bottom: 14px; letter-spacing:.03em; }
+
+  .row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 14px; margin: 10px 0; }
+  .rowlabel { font-size: 12px; color: #9aa0ac; text-align: right; }
+  .track { position: relative; }
+
+  /* .bar == SVAR .wx-bar. Strip is a 6px ::before. Content is a left-aligned
+     flex row, padded clear of the strip. */
+  .bar {
+    position: relative; height: 32px; border-radius: 6px;
+    display: flex; align-items: center;
+    padding: 0 12px 0 14px;     /* left pad clears the 6px strip + gap */
+    gap: 8px; overflow: hidden;
+    color: var(--text-on-accent); font-weight: 600;
+    box-shadow: 0 1px 0 rgba(0,0,0,.04); width: var(--w, 320px);
+  }
+  .bar.strip { background: var(--background-secondary); color: var(--text-normal); }
+  .bar.strip::before { content:""; position:absolute; left:0; top:0; bottom:0; width:6px; background: var(--accent, var(--color-blue)); }  /* (A) 6px */
+  .bar.fill { background: var(--accent, var(--color-blue)); }
+  .bar .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }  /* (E) left, after chip */
+
+  /* ── Chip: a NEUTRAL rounded-square box (subtle neutral border, works on
+     light + dark). It always isolates its contents from the bar colour. ── */
+  .chip {
+    flex: 0 0 auto;
+    width: 22px; height: 22px;
+    border-radius: 5px;                                  /* rounded SQUARE, not a circle */
+    background: var(--background-primary);               /* neutral paper isolates content */
+    border: 1px solid var(--background-modifier-border); /* neutral border, theme-adaptive */
+    display: inline-flex; align-items: center; justify-content: center;
+    box-sizing: border-box;
+  }
+  /* no-icon status → hollow RING inside the box (2px ring = status colour, TaskNotes 50% dot) */
+  .chip .ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ring, var(--color-blue)); box-sizing: border-box; }
+  /* no-icon priority → 12px FILLED dot inside the box (TaskNotes exact) */
+  .chip .pdot { width: 12px; height: 12px; border-radius: 50%; background: var(--ring, var(--color-orange)); }
+  /* icon → glyph inside the box, tinted the status/priority colour */
+  .chip svg { width: 14px; height: 14px; stroke: var(--ring, var(--color-blue)); stroke-width: 2.25; fill: none; }
+  .chip .emoji { font-size: 13px; line-height: 1; }
+
+  .specimens { display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start; }
+  .spec { display:flex; flex-direction:column; align-items:center; gap:10px; font-size:11px; color:#6b7280; text-align:center; width:130px; }
+  .spec .big { transform: scale(2); transform-origin:center; margin: 14px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Gantt bar treatments — proposed mockup (v2)</h1>
+  <p class="sub">Revised: the chip is a neutral rounded-square box; the ring (no icon) or glyph (icon) sits inside it. Disposable reference for approval.</p>
+
+  <h2>(C) Chip = neutral rounded box · contents specimens</h2>
+  <p class="note">One consistent neutral box (rounded square, subtle theme-adaptive border). No icon → the status <b>ring</b> / priority <b>dot</b> sits inside (TaskNotes geometry: 14px 2px ring, 12px filled dot). Icon → the glyph sits inside, tinted the status/priority colour. The box isolates its contents from any bar colour, so the ring keeps the status colour in every mode.</p>
+  <div class="panel">
+    <div class="specimens">
+      <div class="spec"><span class="chip big" style="--ring: var(--color-green);"><span class="ring"></span></span>Status ring<br/>(no icon)</div>
+      <div class="spec"><span class="chip big" style="--ring: var(--color-green);"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>Status + glyph</div>
+      <div class="spec"><span class="chip big" style="--ring: var(--color-orange);"><span class="emoji">🔥</span></span>Emoji in box</div>
+      <div class="spec"><span class="chip big" style="--ring: var(--color-orange);"><span class="pdot"></span></span>Priority dot<br/>(no icon)</div>
+      <div class="spec"><span class="chip big" style="--ring: var(--color-orange);"><svg viewBox="0 0 24 24"><path d="M4 21V4h11l-2 4 2 4H6"/></svg></span>Priority + glyph</div>
+    </div>
+  </div>
+  <div class="panel dark" style="background:var(--background-primary);">
+    <div class="label">same specimens on dark (neutral border adapts)</div>
+    <div class="specimens">
+      <div class="spec" style="color:#8a8f98;"><span class="chip big" style="--ring: var(--color-green);"><span class="ring"></span></span>Status ring</div>
+      <div class="spec" style="color:#8a8f98;"><span class="chip big" style="--ring: var(--color-green);"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>Status + glyph</div>
+      <div class="spec" style="color:#8a8f98;"><span class="chip big" style="--ring: var(--color-orange);"><span class="emoji">🔥</span></span>Emoji in box</div>
+      <div class="spec" style="color:#8a8f98;"><span class="chip big" style="--ring: var(--color-orange);"><span class="pdot"></span></span>Priority dot</div>
+    </div>
+  </div>
+
+  <h2>Bar anatomy — (A) 6px strip · (B) box padded clear · (E) text after box</h2>
+  <div class="panel">
+    <div class="row"><div class="rowlabel">strip + box</div><div class="track">
+      <div class="bar strip" style="--accent: var(--color-green); --ring: var(--color-green); --w: 420px;">
+        <span class="chip"><span class="ring"></span></span>
+        <span class="text">Design — 6px strip, neutral box + ring, left text</span></div></div></div>
+  </div>
+
+  <h2>Fill / Strip × By status</h2>
+  <div class="panel">
+    <div class="row"><div class="rowlabel">Fill</div><div class="track">
+      <div class="bar fill" style="--accent: var(--color-green); --ring: var(--color-green); --w: 300px;">
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>
+        <span class="text">In progress</span></div></div></div>
+    <div class="row"><div class="rowlabel">Strip</div><div class="track">
+      <div class="bar strip" style="--accent: var(--color-green); --ring: var(--color-green); --w: 260px;">
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>
+        <span class="text">In progress</span></div></div></div>
+    <p class="note">The neutral box isolates the glyph/ring even when the fill is the same colour — no white-ring special-case needed.</p>
+  </div>
+
+  <h2>(F) Default mode — green parent / blue children (saturated, no tint)</h2>
+  <div class="panel">
+    <div class="row"><div class="rowlabel">parent</div><div class="track">
+      <div class="bar fill" style="--accent: var(--color-green); --w: 460px;"><span class="text">Project A</span></div></div></div>
+    <div class="row"><div class="rowlabel">child</div><div class="track" style="padding-left:26px;">
+      <div class="bar fill" style="--accent: var(--color-blue); --w: 230px;"><span class="text">Design</span></div></div></div>
+    <div class="row"><div class="rowlabel">child</div><div class="track" style="padding-left:26px;">
+      <div class="bar fill" style="--accent: var(--color-blue); --w: 200px;"><span class="text">Build</span></div></div></div>
+  </div>
+
+  <h2>(F) Obsidian Theme mode — two adaptive saturated colours (light + dark)</h2>
+  <div class="panel">
+    <div class="row"><div class="rowlabel">parent</div><div class="track">
+      <div class="bar fill" style="--accent: var(--color-green); --w: 460px;"><span class="text">Project A</span></div></div></div>
+    <div class="row"><div class="rowlabel">child</div><div class="track" style="padding-left:26px;">
+      <div class="bar fill" style="--accent: var(--color-blue); --w: 230px;"><span class="text">Design</span></div></div></div>
+  </div>
+  <div class="panel dark" style="background: var(--background-primary); color: var(--text-normal);">
+    <div class="label">dark theme</div>
+    <div class="row"><div class="rowlabel" style="color:#8a8f98;">parent</div><div class="track">
+      <div class="bar fill" style="--accent: var(--color-green); --w: 460px;"><span class="text">Project A</span></div></div></div>
+    <div class="row"><div class="rowlabel" style="color:#8a8f98;">child</div><div class="track" style="padding-left:26px;">
+      <div class="bar fill" style="--accent: var(--color-blue); --w: 230px;"><span class="text">Design</span></div></div></div>
+  </div>
+
+  <h2>Combined — Strip × By status × status icon</h2>
+  <div class="panel">
+    <div class="row"><div class="rowlabel">parent</div><div class="track">
+      <div class="bar strip" style="--accent: var(--color-blue); --ring: var(--color-blue); --w: 480px;">
+        <span class="chip"><span class="ring"></span></span>
+        <span class="text">Project A</span></div></div></div>
+    <div class="row"><div class="rowlabel">child</div><div class="track" style="padding-left:26px;">
+      <div class="bar strip" style="--accent: var(--color-green); --ring: var(--color-green); --w: 240px;">
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>
+        <span class="text">Design</span></div></div></div>
+  </div>
+</div>
+</body>
+</html>

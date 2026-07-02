@@ -168,12 +168,18 @@ describe('buildSvarTasks', () => {
     expect(tasks.find((t) => t.id === 'c')!.type).not.toContain(PARENT_ROLE_CLASS);
   });
 
-  it('adds no treatment class for source=default even with a status color', () => {
+  it('source=default applies og-parent to a parent, nothing to a leaf (role coloring)', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
-    const [t] = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barColorSource: 'default' }),
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'p', status: 'wip' }), inst({ id: 'c', parent: 'p' })],
+        statusColors: colors,
+        barColorSource: 'default',
+      }),
     );
-    expect(t.type).toBe('task');
+    // Role coloring keys off hierarchy, not the status palette.
+    expect(tasks.find((t) => t.id === 'p')!.type).toContain(PARENT_ROLE_CLASS);
+    expect(tasks.find((t) => t.id === 'c')!.type).toBe('task');
   });
 
   it('attaches custom.barIcon from the icon source, null when none', () => {
@@ -181,7 +187,7 @@ describe('buildSvarTasks', () => {
     const withIcon = buildSvarTasks(
       inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'status' }),
     )[0];
-    expect(withIcon.custom.barIcon).toEqual({ iconName: 'circle', color: '#abc' });
+    expect(withIcon.custom.barIcon).toEqual({ kind: 'status', iconName: 'circle', color: '#abc' });
 
     const noIcon = buildSvarTasks(
       inputs({ instances: [inst({ id: 'a', status: 'wip' })], statusColors: colors, barIcon: 'none' }),

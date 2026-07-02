@@ -2480,32 +2480,59 @@
     opacity: var(--og-context-opacity, 0.55);
   }
 
-  /* Bar icon chip (U7): a neutral rounded chip BarContent renders inline before
-     the task text, holding a status/priority glyph (setIcon) or a colored dot.
-     The strip (strip color mode) is a generated `.wx-bar.<slug>::before` rule
-     (see barTreatment) — it needs no static CSS here. `flex: 0 0 auto` keeps the
-     chip from shrinking, so on a narrow bar the text truncates first, not the chip. */
+  /* Bar content layout (U7): BarContent renders `.wx-content` as a left-aligned
+     flex row — the icon chip (if any) then the task text. `padding-left` clears
+     the 6px strip so the chip never overlaps it (strip color mode draws a
+     generated `.wx-bar.<slug>::before` accent — see barTreatment). */
+  .og-bases-gantt :global(.wx-bar .wx-content) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 8px;
+  }
+  .og-bases-gantt :global(.og-bar-text) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Icon chip: a NEUTRAL rounded-square box with a subtle theme-adaptive border.
+     It isolates its contents (status ring / priority dot / glyph) from the bar
+     colour in every mode. `flex: 0 0 auto` keeps it from shrinking, so on a narrow
+     bar the text truncates first, not the chip. */
   .og-bases-gantt :global(.og-bar-chip) {
-    display: inline-flex;
     flex: 0 0 auto;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    margin-right: 4px;
-    vertical-align: middle;
-    border-radius: 4px;
-    background: var(--background-modifier-hover);
-    overflow: hidden;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
   }
-  .og-bases-gantt :global(.og-bar-chip svg) {
-    width: 12px;
-    height: 12px;
-  }
-  .og-bases-gantt :global(.og-bar-dot) {
-    width: 8px;
-    height: 8px;
+  /* No-icon status → hollow ring (TaskNotes 2px, 50%); border-color set inline. */
+  .og-bases-gantt :global(.og-bar-ring) {
+    box-sizing: border-box;
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
+    border: 2px solid currentColor;
+  }
+  /* No-icon priority → filled dot (TaskNotes); background set inline. */
+  .og-bases-gantt :global(.og-bar-dot) {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  /* Icon glyph (setIcon SVG), tinted via the inline `color`. */
+  .og-bases-gantt :global(.og-bar-glyph) {
+    display: inline-flex;
+  }
+  .og-bases-gantt :global(.og-bar-glyph svg) {
+    width: 13px;
+    height: 13px;
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

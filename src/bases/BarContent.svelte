@@ -27,12 +27,14 @@
 
 <div class="wx-content">
   {#if spec}
-    {#if spec.iconName}
-      <span class="og-bar-chip" style="color: {spec.color}" use:lucideIcon={spec.iconName}></span>
-    {:else}
-      <span class="og-bar-chip"
-        ><span class="og-bar-dot" style="background-color: {spec.color}"></span></span
-      >
-    {/if}
-  {/if}{data.text ?? ''}
+    <span class="og-bar-chip">
+      {#if spec.iconName}
+        <span class="og-bar-glyph" style="color: {spec.color}" use:lucideIcon={spec.iconName}></span>
+      {:else if spec.kind === 'priority'}
+        <span class="og-bar-dot" style="background-color: {spec.color}"></span>
+      {:else}
+        <span class="og-bar-ring" style="border-color: {spec.color}"></span>
+      {/if}
+    </span>
+  {/if}<span class="og-bar-text">{data.text ?? ''}</span>
 </div>

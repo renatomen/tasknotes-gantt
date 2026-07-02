@@ -62,30 +62,35 @@ describe("Gantt (OG) bar treatments", () => {
     await browser.reloadObsidian({ vault: tmpVault, plugins: ["tasknotes-gantt"] });
   });
 
-  describe("default (Default / Default / None)", () => {
+  describe("default source (green parent / blue children)", () => {
     before(async () => {
       await openBase("Gantt.base");
     });
 
-    it("renders pristine bars: no treatment class and no icon chip", async () => {
+    it("marks the parent bar with og-parent and shows no icon chip (icon None)", async () => {
       const bars = await $$(".og-bases-gantt .wx-bar");
       expect(bars.length).toBeGreaterThan(0);
 
-      const treated = await $$(
-        '.og-bases-gantt .wx-bar[class*="og-status-"], .og-bases-gantt .wx-bar[class*="og-prio-"], .og-bases-gantt .wx-bar.og-parent',
-      );
-      expect(treated).toHaveLength(0);
+      const parents = await $$(".og-bases-gantt .wx-bar.og-parent");
+      expect(parents.length).toBeGreaterThan(0);
 
+      // No palette-value classes (default is role-based, not status/priority) and
+      // no chip (Task icon defaults to None).
+      const valueClassed = await $$(
+        '.og-bases-gantt .wx-bar[class*="og-status-"], .og-bases-gantt .wx-bar[class*="og-prio-"]',
+      );
+      expect(valueClassed).toHaveLength(0);
       const chips = await $$(".og-bases-gantt .og-bar-chip");
       expect(chips).toHaveLength(0);
     });
 
-    it("injects no treatment rules under the default source", async () => {
-      const ruleCount = await browser.executeObsidian(() => {
-        const styles = Array.from(document.querySelectorAll(".og-bases-gantt style[data-og-status]"));
-        return styles.reduce((n, s) => n + (s.textContent?.trim() ? 1 : 0), 0);
+    it("injects the fixed green/blue role rules", async () => {
+      const css = await browser.executeObsidian(() => {
+        const style = document.querySelector(".og-bases-gantt style[data-og-status]");
+        return style?.textContent ?? "";
       });
-      expect(ruleCount).toBe(0);
+      expect(css).toContain("#1f6feb"); // child (blue)
+      expect(css).toContain("#2ea043"); // parent (green)
     });
   });
 
@@ -99,12 +104,13 @@ describe("Gantt (OG) bar treatments", () => {
       expect(parents.length).toBeGreaterThan(0);
     });
 
-    it("injects theme rules referencing Obsidian CSS variables", async () => {
+    it("injects theme rules referencing Obsidian's adaptive color palette", async () => {
       const css = await browser.executeObsidian(() => {
         const style = document.querySelector(".og-bases-gantt style[data-og-status]");
         return style?.textContent ?? "";
       });
-      expect(css).toContain("--interactive-accent");
+      expect(css).toContain("var(--color-green)");
+      expect(css).toContain("var(--color-blue)");
     });
   });
 });

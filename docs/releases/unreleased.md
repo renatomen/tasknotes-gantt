@@ -69,10 +69,11 @@ EXAMPLE (parent = one-line heading; details/thanks as single-line sub-bullets)
 
 ## Added
 
-- **Per-view control over bar colors and icons.** Each Gantt view now has three independent options: Bar color mode (Fill or a left-edge Strip), Bar color source (Default, By status, By priority, or Obsidian theme), and a Task icon (None, Status, or Priority) shown as a chip on the bar.
-  - By status / By priority use the colors and icons configured in TaskNotes; Obsidian theme adapts the bars to whatever theme you're using (accent-tinted parents and children) and re-tints instantly when you switch themes. By status / By priority need the TaskNotes companion; without it they fall back to Default.
+- **Per-view control over bar colors and icons.** Each Gantt view now has three independent options: Bar color mode (Fill or a left-edge Strip), Bar color source (Default, By status, By priority, or Obsidian theme), and a Task icon (None, Status, or Priority) shown in a neutral chip on the bar.
+  - Default colors the hierarchy — green parents, blue children. By status / By priority use the colors and icons configured in TaskNotes. Obsidian theme adapts the bars to your current theme (two harmonious accent colors for parents vs children) and re-tints instantly when you switch themes. By status / By priority need the TaskNotes companion; without it they fall back to Default.
+  - The Task icon chip reuses TaskNotes' own status ring / priority dot styling, and shows a colored dot when a value has no configured icon.
   - For a colorblind-accessible view, pair a color source with the matching Task icon — color alone is not distinguishable for everyone.
 
 ## Changed
 
-- **Bar coloring is now opt-in per view.** Previously bars were always filled by their TaskNotes status color; the new default is neutral bars. To restore the old look, set a view's Bar color source to "By status" (mode "Fill").
+- **Bars now color the hierarchy by default (green parents, blue children) instead of by TaskNotes status.** To color by status again, set a view's Bar color source to "By status" (mode "Fill").

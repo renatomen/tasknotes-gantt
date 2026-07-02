@@ -74,8 +74,9 @@ describe('resolveTreatmentClass', () => {
     expect(resolveTreatmentClass('theme', inst('x'), false, palettes)).toBeNull();
   });
 
-  it('returns null for source=default', () => {
-    expect(resolveTreatmentClass('default', inst('11🟥Active = Now', 'high'), true, palettes)).toBeNull();
+  it('returns og-parent for a parent and null for a child in default/theme (role sources)', () => {
+    expect(resolveTreatmentClass('default', inst('x'), true, palettes)).toBe(PARENT_ROLE_CLASS);
+    expect(resolveTreatmentClass('default', inst('x'), false, palettes)).toBeNull();
   });
 });
 
@@ -118,7 +119,7 @@ describe('buildTreatmentStyle', () => {
       instances: [inst('11🟥Active = Now')],
     });
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}::before`);
-    expect(css).toContain('width: 3px;');
+    expect(css).toContain('width: 6px;');
     expect(css).toContain('background-color: #f8312f;');
     expect(css).not.toContain('!important');
   });
@@ -130,21 +131,23 @@ describe('buildTreatmentStyle', () => {
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
 
-  it('theme/fill: emits parent + child variable rules with no palette', () => {
+  it('theme/fill: emits parent + child adaptive --color-* role rules with no palette', () => {
     const css = buildTreatmentStyle({ mode: 'fill', source: 'theme', palettes: { status: [], priority: [] }, instances: [] });
-    expect(css).toContain('var(--interactive-accent)');
-    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS}`);
-    expect(css).toContain('color-mix(in srgb, var(--interactive-accent) 28%, var(--background-primary))');
+    expect(css).toContain('background-color: var(--color-blue) !important;'); // child
+    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: var(--color-green) !important;`); // parent
   });
 
-  it('theme/strip: emits a neutral body + accent ::before rules', () => {
+  it('theme/strip: emits a neutral body + --color-* ::before rules', () => {
     const css = buildTreatmentStyle({ mode: 'strip', source: 'theme', palettes, instances: [] });
     expect(css).toContain('background-color: var(--background-secondary) !important;');
-    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS}::before`);
+    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS}::before { background-color: var(--color-green); }`);
   });
 
-  it('default: emits nothing', () => {
-    expect(buildTreatmentStyle({ mode: 'fill', source: 'default', palettes, instances: [inst('11🟥Active = Now')] })).toBe('');
+  it('default/fill: emits fixed green-parent / blue-child role rules (no palette)', () => {
+    const css = buildTreatmentStyle({ mode: 'fill', source: 'default', palettes, instances: [inst('11🟥Active = Now')] });
+    expect(css).toContain('background-color: #1f6feb !important;'); // child (blue)
+    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (green)
+    expect(css).not.toContain('#f8312f'); // does not consult the status palette
   });
 
   it('degrades to empty when the source palette is empty', () => {
@@ -175,20 +178,21 @@ describe('buildTreatmentStyle', () => {
 });
 
 describe('resolveIconSpec', () => {
-  it('returns glyph + color when the status config has an icon', () => {
+  it('returns kind + glyph + color when the status config has an icon', () => {
     expect(resolveIconSpec('status', inst('11🟥Active = Now'), palettes)).toEqual({
+      kind: 'status',
       iconName: 'circle',
       color: '#f8312f',
     });
   });
 
-  it('returns color-only (dot) when the value has no configured icon', () => {
-    expect(resolveIconSpec('status', inst('41🟩Done = Recent'), palettes)).toEqual({ color: '#00d26a' });
-    expect(resolveIconSpec('priority', inst(null, 'low'), palettes)).toEqual({ color: '#00aaff' });
+  it('returns kind + color (no icon → ring/dot) when the value has no configured icon', () => {
+    expect(resolveIconSpec('status', inst('41🟩Done = Recent'), palettes)).toEqual({ kind: 'status', color: '#00d26a' });
+    expect(resolveIconSpec('priority', inst(null, 'low'), palettes)).toEqual({ kind: 'priority', color: '#00aaff' });
   });
 
-  it('returns priority glyph for source=priority', () => {
-    expect(resolveIconSpec('priority', inst(null, 'high'), palettes)).toEqual({ iconName: 'flag', color: '#ff0000' });
+  it('returns priority kind + glyph for source=priority', () => {
+    expect(resolveIconSpec('priority', inst(null, 'high'), palettes)).toEqual({ kind: 'priority', iconName: 'flag', color: '#ff0000' });
   });
 
   it('returns null when the value is absent from the palette', () => {
@@ -205,6 +209,6 @@ describe('resolveIconSpec', () => {
       status: [{ value: 'evil', color: 'red;position:fixed;inset:0;z-index:99999', isCompleted: false }],
       priority: [],
     };
-    expect(resolveIconSpec('status', inst('evil'), hostile)).toEqual({ color: 'currentColor' });
+    expect(resolveIconSpec('status', inst('evil'), hostile)).toEqual({ kind: 'status', color: 'currentColor' });
   });
 });
