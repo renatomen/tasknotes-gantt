@@ -127,6 +127,9 @@ describe('buildTreatmentStyle', () => {
     expect(css).not.toContain('#f8312f !important'); // strip accent is not a !important fill
     // Strip mode widens the content inset so the chip/text clears the strip.
     expect(css).toContain('.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }');
+    // Strip body: readable text (!important beats SVAR's scoped white) + a visible outline.
+    expect(css).toContain('color: var(--text-normal) !important');
+    expect(css).toContain('border: 1px solid var(--background-modifier-border) !important');
   });
 
   it('fill/priority and strip/priority key on the priority palette', () => {
