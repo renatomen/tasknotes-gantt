@@ -49,6 +49,8 @@ The cue must mean: **"this note is on screen more than once."** Concretely, hatc
 | R4 | Single parent, Hide-top **off** (root + nested both shown) | 2 | **hatch** |
 | R5 | Genuine root (no displayed parent, one instance) | 1 | no hatch |
 
+> **"Collapsed" disambiguation (R2).** R2 refers to the **fan-out *guard*** — a note with >50 parents reduced to a single `isCollapsed` instance by [InstanceExpansion.ts](src/controller/InstanceExpansion.ts) — which genuinely leaves **1 instance in the array**. It is **not** the parent fold/expand chevron (SVAR `open`/`collapsedIds`): folding a parent hides descendant rows visually but leaves every instance in the array, so it **never** changes the count. A multi-parent note with a folded parent is still the R1 case (count 2 → hatched). Scroll and viewport likewise never affect the count. "Visible" here means *present in the matched + Show-all-extended instance set*, not *currently painted*.
+
 ---
 
 ## Key Technical Decisions
