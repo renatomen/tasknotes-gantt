@@ -2528,9 +2528,12 @@
     height: 11px;
     border-radius: 50%;
   }
-  /* Icon glyph (setIcon SVG), tinted via the inline `color`. */
+  /* Icon glyph (setIcon SVG): a fixed soft near-black in both themes (the chip is
+     always light gray), rather than tinted per status — cleaner, higher contrast.
+     Lucide icons stroke with currentColor, so setting `color` recolors the glyph. */
   .og-bases-gantt :global(.og-bar-glyph) {
     display: inline-flex;
+    color: #2b2b2b;
   }
   .og-bases-gantt :global(.og-bar-glyph svg) {
     width: 13px;

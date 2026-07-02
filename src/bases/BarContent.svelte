@@ -29,7 +29,7 @@
   {#if spec}
     <span class="og-bar-chip">
       {#if spec.iconName}
-        <span class="og-bar-glyph" style="color: {spec.color}" use:lucideIcon={spec.iconName}></span>
+        <span class="og-bar-glyph" use:lucideIcon={spec.iconName}></span>
       {:else if spec.kind === 'priority'}
         <span class="og-bar-dot" style="background-color: {spec.color}"></span>
       {:else}
