@@ -15,6 +15,7 @@
 import type { BasesAllOptions } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
+import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
 
 /**
  * The shared field-mapping property options consumed by both the Gantt view
@@ -161,6 +162,33 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
         all: 'All instances',
       },
     },
+    // Bar color/icon treatments (per-view). Three independent dropdowns; read in
+    // getBarColorMode/getBarColorSource/getBarIcon and consumed by the view's
+    // barTreatment resolver + generated stylesheet + icon chip. Options are
+    // Record<string,string> value→label maps (an array renders "[object Object]").
+    {
+      type: 'dropdown',
+      displayName: 'Bar color mode',
+      key: 'tngantt_barColorMode',
+      default: 'fill',
+      options: { fill: 'Fill', strip: 'Strip' },
+    },
+    {
+      type: 'dropdown',
+      displayName: 'Bar color source',
+      key: 'tngantt_barColorSource',
+      default: 'default',
+      // By status / By priority need the TaskNotes companion palette; they degrade
+      // to Default in standalone (Bases-only) mode rather than being hidden.
+      options: { default: 'Default', status: 'By status', priority: 'By priority', theme: 'Obsidian theme' },
+    },
+    {
+      type: 'dropdown',
+      displayName: 'Task icon',
+      key: 'tngantt_barIcon',
+      default: 'none',
+      options: { none: 'None', status: 'Status', priority: 'Priority' },
+    },
     // Parent/ancestor date-cascade behavior when a child drag/resize would
     // change ancestor spans. Read per-view in getCascadeMode(); consumed by
     // the GanttContainer drag-persistence gate.
@@ -259,6 +287,40 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+/**
+ * Read the per-view bar color mode (U5), defaulting to `fill`. Any value other
+ * than the explicit `strip` maps to `fill`. Pure (no Obsidian/DOM); mirrors
+ * {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readBarColorMode(get: (key: string) => unknown): BarColorMode {
+  return get('tngantt_barColorMode') === 'strip' ? 'strip' : 'fill';
+}
+
+/**
+ * Read the per-view bar color source (U5), defaulting to `default`. Recognizes
+ * `status`/`priority`/`theme`; everything else (including junk) maps to
+ * `default`. Pure (no Obsidian/DOM).
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readBarColorSource(get: (key: string) => unknown): BarColorSource {
+  const raw = get('tngantt_barColorSource');
+  return raw === 'status' || raw === 'priority' || raw === 'theme' ? raw : 'default';
+}
+
+/**
+ * Read the per-view task-icon source (U5), defaulting to `none`. Recognizes
+ * `status`/`priority`; everything else maps to `none`. Pure (no Obsidian/DOM).
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readBarIcon(get: (key: string) => unknown): BarIconSource {
+  const raw = get('tngantt_barIcon');
+  return raw === 'status' || raw === 'priority' ? raw : 'none';
 }
 
 /**
