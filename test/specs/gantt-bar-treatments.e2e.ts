@@ -54,6 +54,23 @@ async function openBase(baseFile: string): Promise<void> {
   );
 }
 
+/**
+ * The injected treatment stylesheet text for the ACTIVE view. `openBase` opens each
+ * base in its own split leaf without closing the prior one, so a document-wide query
+ * could read a previously-opened view's `<style>`; scope to the active leaf's
+ * container so we always read the base under test.
+ */
+async function activeTreatmentCss(): Promise<string> {
+  return browser.executeObsidian(({ app }) => {
+    const leaf = app.workspace.activeLeaf as unknown as {
+      view?: { containerEl?: { querySelector(sel: string): { textContent?: string | null } | null } };
+    } | null;
+    const root = leaf?.view?.containerEl ?? document;
+    const style = root.querySelector(".og-bases-gantt style[data-og-treatment]");
+    return style?.textContent ?? "";
+  });
+}
+
 describe("Gantt (OG) bar treatments", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-bar-treatments-e2e");
@@ -85,10 +102,7 @@ describe("Gantt (OG) bar treatments", () => {
     });
 
     it("injects the fixed green/blue role rules", async () => {
-      const css = await browser.executeObsidian(() => {
-        const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
-        return style?.textContent ?? "";
-      });
+      const css = await activeTreatmentCss();
       expect(css).toContain("#1f6feb"); // child (blue)
       expect(css).toContain("#2ea043"); // parent (green)
     });
@@ -105,10 +119,7 @@ describe("Gantt (OG) bar treatments", () => {
     });
 
     it("injects theme rules driven by the theme's own accent (interactive-accent)", async () => {
-      const css = await browser.executeObsidian(() => {
-        const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
-        return style?.textContent ?? "";
-      });
+      const css = await activeTreatmentCss();
       // Theme source = the user's accent hue in two tones (raw child + shifted parent),
       // never a fixed named palette color. Mirrors the barTreatment.test.ts theme cases.
       expect(css).toContain("var(--interactive-accent)");
