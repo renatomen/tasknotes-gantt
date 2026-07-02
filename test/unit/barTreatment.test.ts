@@ -127,9 +127,10 @@ describe('buildTreatmentStyle', () => {
     expect(css).not.toContain('#f8312f !important'); // strip accent is not a !important fill
     // Strip mode widens the content inset so the chip/text clears the strip.
     expect(css).toContain('.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }');
-    // Strip body: readable text (!important beats SVAR's scoped white) + a visible outline.
+    // Strip body: readable text (!important beats SVAR's scoped white) + a visible,
+    // theme-independent outline (color-mix guarantees a delta in low-contrast themes).
     expect(css).toContain('color: var(--text-normal) !important');
-    expect(css).toContain('border: 1px solid var(--background-modifier-border) !important');
+    expect(css).toContain('border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important');
   });
 
   it('fill/priority and strip/priority key on the priority palette', () => {
@@ -147,7 +148,8 @@ describe('buildTreatmentStyle', () => {
 
   it('theme/strip: emits a neutral body + --color-* ::before rules', () => {
     const css = buildTreatmentStyle({ mode: 'strip', source: 'theme', palettes, instances: [] });
-    expect(css).toContain('background-color: var(--background-secondary) !important;');
+    // Body is mixed a bit off the background so it stays visible in low-contrast themes.
+    expect(css).toContain('background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS}::before { background-color: var(--color-green); }`);
   });
 
