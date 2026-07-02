@@ -395,41 +395,41 @@ describe("BasesDataAdapter", () => {
     });
   });
 
-  describe("extractStatus", () => {
-    it("should extract the raw status string", () => {
+  describe("extractOptionalString", () => {
+    it("should extract the raw string value", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "11🟥Active = Now" }),
       };
 
-      expect(adapter.extractStatus(mockEntry, "note:status")).toBe("11🟥Active = Now");
+      expect(adapter.extractOptionalString(mockEntry, "note:status")).toBe("11🟥Active = Now");
     });
 
-    it("should return null when statusProperty is undefined", () => {
+    it("should return null when the property is undefined", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "ignored" }),
       };
 
-      expect(adapter.extractStatus(mockEntry, undefined)).toBeNull();
+      expect(adapter.extractOptionalString(mockEntry, undefined)).toBeNull();
     });
 
-    it("should return null when statusProperty is empty", () => {
+    it("should return null when the property is empty", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({ data: "ignored" }),
       };
 
-      expect(adapter.extractStatus(mockEntry, "")).toBeNull();
+      expect(adapter.extractOptionalString(mockEntry, "")).toBeNull();
     });
 
-    it("should return null when the status value is missing (no basename fallback)", () => {
+    it("should return null when the value is missing (no basename fallback)", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => null,
       };
 
-      expect(adapter.extractStatus(mockEntry, "note:missing")).toBeNull();
+      expect(adapter.extractOptionalString(mockEntry, "note:missing")).toBeNull();
     });
   });
 

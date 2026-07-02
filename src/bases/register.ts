@@ -59,6 +59,9 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readBarColorMode,
+  readBarColorSource,
+  readBarIcon,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -87,7 +90,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { entriesSignature } from './entrySignature';
+import { entriesSignature, frontmatterSignatureKeys } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -351,14 +354,44 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /**
-   * Cheap signature of the current Bases entries — count + each entry's file
-   * path, joined. Reads ONLY `entry.file.path` (a plain TFile reference), never
-   * `getValue` (the value extraction that re-pokes Bases — #161). Two notifies
-   * with the same signature carry the same matched set, so the refresh can reuse
-   * the controller's cached base tasks instead of re-reading the source.
+   * Signature of the current Bases entries — count + each entry's file path, plus
+   * the values of the instance-driving `note.*` fields (dates/progress/status/
+   * priority/parent) read from Obsidian's metadata cache. `reuseTasks` reuses the
+   * controller's cached tasks when this is unchanged, so:
+   *  - a config-only / echo notify (same files, same values) reuses → no #161 storm;
+   *  - a genuine field edit (e.g. status/priority via the context menu) flips the
+   *    signature → the source re-reads → the bars' color/icon refresh in place.
+   *
+   * The value read is cache-safe: it uses `metadataCache` frontmatter directly and
+   * NEVER `entry.getValue` (the extraction that re-pokes the #161 storm). `file.*`
+   * fields need no value read — a rename changes the path, already in the signature.
    */
   private computeEntrySignature(): string {
-    return entriesSignature((this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>);
+    const entries = (this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>;
+    const m = this.buildFieldMappings();
+    const fmKeys = frontmatterSignatureKeys([
+      m.startProperty,
+      m.endProperty,
+      m.progressProperty,
+      m.statusProperty,
+      m.priorityProperty,
+      m.parentProperty,
+    ]);
+    if (fmKeys.length === 0) {
+      return entriesSignature(entries);
+    }
+    const app = this.app;
+    return entriesSignature(entries, (e) => {
+      const path = e.file?.path;
+      if (!path) return '';
+      const file = app.vault.getAbstractFileByPath(path);
+      const fm = file instanceof TFile ? app.metadataCache.getFileCache(file)?.frontmatter : null;
+      if (!fm) return '';
+      // JSON-encode each value so adjacent fields can't concatenate into a collision
+      // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
+      // (not flattened to "[object Object]").
+      return fmKeys.map((k) => JSON.stringify(fm[k] ?? '')).join('');
+    });
   }
 
   /** Stateless extractor for grid property-column values (U1). */
@@ -484,6 +517,21 @@ class ObsidianGanttBasesView extends BasesView {
   /** Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. */
   private getContextOpacity(): number {
     return readContextOpacity((key) => this.config.get(key));
+  }
+
+  /** Read the per-view bar color mode (U5); default `fill`. */
+  private getBarColorMode() {
+    return readBarColorMode((key) => this.config.get(key));
+  }
+
+  /** Read the per-view bar color source (U5); default `default`. */
+  private getBarColorSource() {
+    return readBarColorSource((key) => this.config.get(key));
+  }
+
+  /** Read the per-view task-icon source (U5); default `none`. */
+  private getBarIcon() {
+    return readBarIcon((key) => this.config.get(key));
   }
 
   /**
@@ -727,10 +775,11 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors] = await Promise.all([
+    const [instances, links, statusColors, priorityColors] = await Promise.all([
       controller.getInstances(),
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
+      controller.getPriorityColors(),
     ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
@@ -792,6 +841,10 @@ class ObsidianGanttBasesView extends BasesView {
       minHeight: this.getMinHeight(),
       contextOpacity: this.getContextOpacity(),
       statusColors,
+      priorityColors,
+      barColorMode: this.getBarColorMode(),
+      barColorSource: this.getBarColorSource(),
+      barIcon: this.getBarIcon(),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),

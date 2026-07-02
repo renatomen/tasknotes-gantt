@@ -16,7 +16,8 @@ import type {
   RenderLink,
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
-import type { StatusColor } from '../../datasource/types';
+import type { PriorityColor, StatusColor } from '../../datasource/types';
+import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
 import type { TypedValue } from '../propertyValues';
 import type { GridColumn } from '../gridColumns';
@@ -84,6 +85,16 @@ export interface GanttData {
   contextOpacity: number;
   /** Status→color palette (TaskNotes). */
   statusColors: StatusColor[];
+  /** Priority→color palette (TaskNotes); `[]` when the companion exposes none (U4). */
+  priorityColors: PriorityColor[];
+  /**
+   * Per-view bar color mode/source and task-icon source (U5). Flow through the
+   * reactive data path (not mount props) so changing an option re-renders the
+   * bars live without a remount — same treatment as {@link showDateIndicators}.
+   */
+  barColorMode: BarColorMode;
+  barColorSource: BarColorSource;
+  barIcon: BarIconSource;
   /** Invalid date-mapping notice, when a start/end mapping fell back. */
   dateMappingNotice?: string;
   /** Whether TaskNotes is present (distinguishes read-only banner copy). */

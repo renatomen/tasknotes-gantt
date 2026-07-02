@@ -8,7 +8,7 @@
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
-  import { Notice, setIcon } from 'obsidian';
+  import { Notice } from 'obsidian';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -19,14 +19,16 @@
   import type { TaskPatch } from '../datasource/types';
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
-  import { buildStatusStyleRules } from './statusColor';
+  import { buildTreatmentStyle } from './barTreatment';
+  import { lucideIcon } from './lucideIconAction';
+  import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
   import { tick } from 'svelte';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
     buildSvarTasks,
-    buildStatusTaskTypes,
+    buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
     planTaskSync,
     planLinkSync,
@@ -247,6 +249,13 @@
   const instances = $derived($data.instances);
   const capabilities = $derived($data.capabilities);
   const statusColors = $derived($data.statusColors ?? []);
+  // Bar color/icon treatments (U5/U7), store-driven so the options are LIVE
+  // toggles (no remount) — same treatment as showDateIndicators/showToolbar.
+  // These feed the generated treatment stylesheet; the icon source flows through
+  // toInputs → buildSvarTasks (per-task), so it needs no standalone derived here.
+  const priorityColors = $derived($data.priorityColors ?? []);
+  const barColorMode = $derived($data.barColorMode ?? 'fill');
+  const barColorSource = $derived($data.barColorSource ?? 'default');
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
@@ -337,21 +346,30 @@
   // still reverts the optimistic move within this window.
   const MUTATION_TIMEOUT_MS = 10000;
 
-  // Generated stylesheet coloring each present status' bar by its configured
-  // TaskNotes color (scoped under .og-bases-gantt). Injected via a managed
-  // style element (see the $effect below) — a literal style tag in markup would
-  // be compiled away as component CSS and cannot carry this dynamic content.
-  const statusStyleCss = $derived(buildStatusStyleRules(instances, statusColors));
+  // Generated stylesheet applying the per-view color treatment (fill/strip by
+  // status/priority, or theme CSS-variable rules) scoped under .og-bases-gantt.
+  // Injected via a managed style element (see the $effect below) — a literal
+  // style tag in markup would be compiled away as component CSS and cannot carry
+  // this dynamic content. Reactive on mode/source/palettes/instances so the
+  // options re-color live without a remount.
+  const treatmentStyleCss = $derived(
+    buildTreatmentStyle({
+      mode: barColorMode,
+      source: barColorSource,
+      palettes: { status: statusColors, priority: priorityColors },
+      instances,
+    }),
+  );
 
-  // The view root, used to host the generated status-color stylesheet.
+  // The view root, used to host the generated treatment stylesheet.
   let rootEl: HTMLElement | undefined = $state();
   $effect(() => {
-    const css = statusStyleCss;
+    const css = treatmentStyleCss;
     if (!rootEl) return;
-    let styleEl = rootEl.querySelector('style[data-og-status]') as HTMLStyleElement | null;
+    let styleEl = rootEl.querySelector('style[data-og-treatment]') as HTMLStyleElement | null;
     if (!styleEl) {
       styleEl = document.createElement('style');
-      styleEl.setAttribute('data-og-status', '');
+      styleEl.setAttribute('data-og-treatment', '');
       rootEl.appendChild(styleEl);
     }
     styleEl.textContent = css;
@@ -452,6 +470,9 @@
       instances: d.instances,
       links: d.links,
       statusColors: d.statusColors ?? [],
+      priorityColors: d.priorityColors ?? [],
+      barColorSource: d.barColorSource ?? 'default',
+      barIconSource: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
       propertyValues: d.propertyValues,
@@ -503,20 +524,24 @@
   // what we re-assert after a column recompute.
   let lastGridWidth: number | undefined = initialGridWidth;
 
-  // Registered custom task-type superset (date-status flag + status-color
-  // classes), derived from the status palette rather than the present tasks.
-  // FIXED at mount and never reassigned: changing any prop SVAR reads re-inits
-  // its store (reverting our incremental updates to the seed), so this stays a
-  // const. A status value added to TaskNotes config while the view is open won't
-  // color until the view is reopened — rare, and acceptable.
-  const statusTaskTypes = buildStatusTaskTypes(initialData.statusColors ?? []);
+  // Registered custom task-type superset (date-status flag + every color-treatment
+  // class), derived from BOTH palettes (status + priority) plus the og-parent theme
+  // role — not the present tasks or the active source. FIXED at mount and never
+  // reassigned: changing any prop SVAR reads re-inits its store (reverting our
+  // incremental updates to the seed), so this stays a const. Registering both
+  // palettes lets the color-source option switch live (status↔priority↔theme)
+  // without re-registering; a palette *content* change needs a reopen — rare.
+  const treatmentTaskTypes = buildTreatmentTaskTypes({
+    status: initialData.statusColors ?? [],
+    priority: initialData.priorityColors ?? [],
+  });
   const svarTaskTypes = [
     ...defaultTaskTypes,
-    ...statusTaskTypes,
-    // Instance cues (U6) cross the date-status/status combos, so a bar can carry
-    // both a state class and a replicated/context cue and still match a
+    ...treatmentTaskTypes,
+    // Instance cues (U6) cross the date-status/treatment combos, so a bar can
+    // carry both a treatment class and a replicated/context cue and still match a
     // registered whole `type` string.
-    ...buildInstanceCueTaskTypes(statusTaskTypes.map((t) => t.id)),
+    ...buildInstanceCueTaskTypes(treatmentTaskTypes.map((t) => t.id)),
   ];
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
@@ -911,17 +936,6 @@
         }
       }, 0);
     }
-  }
-
-  // Svelte action to set Obsidian/Lucide icons (OG-81)
-  function lucideIcon(node: HTMLElement, iconName: string) {
-    setIcon(node, iconName);
-    return {
-      update(newIconName: string) {
-        node.empty();
-        setIcon(node, newIconName);
-      }
-    };
   }
 
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
@@ -1951,10 +1965,16 @@
            dependent task's tooltip is the surface. Falls back to the task name
            for tasks with no dependencies. -->
       <Tooltip {api} content={DependencyTooltip}>
+        <!-- taskTemplate renders the bar's content (text + optional icon chip via
+             BarContent). Passed as a STABLE prop set once at mount — SVAR's
+             reinitStore does not read taskTemplate, so this never re-inits the
+             store. When barIcon is 'none' BarContent renders a pristine
+             `.wx-content` (no chip), so the default path is visually unchanged. -->
         <Gantt
           init={initGantt}
           tasks={initialTasks}
           taskTypes={svarTaskTypes}
+          taskTemplate={BarContent}
           links={initialLinks}
           {columns}
           gridWidth={initialGridWidth}
@@ -2458,6 +2478,66 @@
     /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
        matches DEFAULT_CONTEXT_OPACITY. */
     opacity: var(--og-context-opacity, 0.55);
+  }
+
+  /* Bar content layout (U7): BarContent renders `.wx-content` as a left-aligned
+     flex row — the icon chip (if any) then the task text. `padding-left` clears
+     the 6px strip so the chip never overlaps it (strip color mode draws a
+     generated `.wx-bar.<slug>::before` accent — see barTreatment). */
+  .og-bases-gantt :global(.wx-bar .wx-content) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 8px;
+  }
+  .og-bases-gantt :global(.og-bar-text) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Icon chip: a NEUTRAL rounded-square box with a subtle theme-adaptive border.
+     It isolates its contents (status ring / priority dot / glyph) from the bar
+     colour in every mode. `flex: 0 0 auto` keeps it from shrinking, so on a narrow
+     bar the text truncates first, not the chip. */
+  .og-bases-gantt :global(.og-bar-chip) {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    /* Always a light-gray chip regardless of light/dark theme, so the glyph/ring
+       stays isolated and readable on any bar colour. Fixed (not a theme var). */
+    background: #e9e9ec;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  /* No-icon status → hollow ring (TaskNotes 2px, 50%); border-color set inline. */
+  .og-bases-gantt :global(.og-bar-ring) {
+    box-sizing: border-box;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 3px solid currentColor;
+  }
+  /* No-icon priority → filled dot (TaskNotes); background set inline. */
+  .og-bases-gantt :global(.og-bar-dot) {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  /* Icon glyph (setIcon SVG): a fixed soft near-black in both themes (the chip is
+     always light gray), rather than tinted per status — cleaner, higher contrast.
+     Lucide icons stroke with currentColor, so setting `color` recolors the glyph. */
+  .og-bases-gantt :global(.og-bar-glyph) {
+    display: inline-flex;
+    color: #2b2b2b;
+  }
+  .og-bases-gantt :global(.og-bar-glyph svg) {
+    width: 13px;
+    height: 13px;
   }
 
   /* SVAR expand/collapse toggle icons - ensure visibility */

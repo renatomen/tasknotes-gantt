@@ -11,6 +11,7 @@ export type {
   SourceDependency,
   DependencyRelType,
   StatusColor,
+  PriorityColor,
   TaskPatch,
   MutationContext,
   FieldConfig,

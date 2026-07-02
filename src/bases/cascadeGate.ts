@@ -16,7 +16,7 @@
  *   it, so an alternate parent of a carried-along child is covered too.
  *
  * Dependency-free (no Obsidian/Svelte/SVAR). Mirrors {@link ./ganttSync} and
- * {@link ./statusColor}.
+ * {@link ./barTreatment}.
  *
  * @module bases/cascadeGate
  */

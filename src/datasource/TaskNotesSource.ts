@@ -42,6 +42,7 @@ import type {
   DependencyRelType,
   FieldConfig,
   MutationContext,
+  PriorityColor,
   SourceDependency,
   SourceTask,
   StatusColor,
@@ -102,6 +103,8 @@ export interface TaskNotesTaskInfo {
   title?: string | null;
   /** Status string. */
   status?: string | null;
+  /** Priority string. */
+  priority?: string | null;
   /** Scheduled date (start), as a `Date` or ISO/`yyyy-MM-dd` string. */
   scheduled?: Date | string | null;
   /** Due date (end), as a `Date` or ISO/`yyyy-MM-dd` string. */
@@ -120,6 +123,24 @@ export interface TaskNotesStatusConfig {
   color?: string | null;
   /** Whether this status represents completion. */
   isCompleted?: boolean | null;
+  /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
+  icon?: string | null;
+}
+
+/**
+ * A TaskNotes custom-priority definition (the slice consumed for bar coloring).
+ * Priorities carry a sort `weight` rather than an `isCompleted` flag; only
+ * `value`/`color`/`icon` are consumed here.
+ */
+export interface TaskNotesPriorityConfig {
+  /** The priority value (matches a task's `priority`). */
+  value?: string | null;
+  /** Display label. */
+  label?: string | null;
+  /** Configured color (CSS color string, typically hex). */
+  color?: string | null;
+  /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
+  icon?: string | null;
 }
 
 /**
@@ -208,7 +229,10 @@ export interface TaskNotesApi {
    * value/label/color/isCompleted. Both guarded/optional (shape varies by
    * TaskNotes version).
    */
-  catalog?: { statuses?(): TaskNotesStatusConfig[] | null | undefined };
+  catalog?: {
+    statuses?(): TaskNotesStatusConfig[] | null | undefined;
+    priorities?(): TaskNotesPriorityConfig[] | null | undefined;
+  };
   /**
    * `model.config()` (getModelConfig) carries the configured field surface:
    * `fieldMapping` (logical field → frontmatter property name, incl.
@@ -222,6 +246,8 @@ export interface TaskNotesApi {
 /** The slice of TaskNotes' `model.config()` this source reads. */
 export interface TaskNotesModelConfig {
   statuses?: TaskNotesStatusConfig[];
+  /** Configured custom priorities (fallback path for the priority palette). */
+  priorities?: TaskNotesPriorityConfig[];
   /** Logical field → frontmatter property name (incl. `scheduled`, `due`). */
   fieldMapping?: Record<string, string> | null;
   /** Custom user fields. */
@@ -493,31 +519,64 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Shared palette reader: guard that `raw` is an array, keep only entries with a
+   * string `value` + `color`, and build each result via `mapEntry`. Pure and
+   * non-throwing; the public wrappers own the try/catch around the (possibly
+   * throwing) accessor call. Optional-icon spread is applied by each wrapper.
+   */
+  private mapPalette<E extends { value?: string | null; color?: string | null }, T>(
+    raw: E[] | null | undefined,
+    mapEntry: (entry: E & { value: string; color: string }) => T,
+  ): T[] {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const out: T[] = [];
+    for (const e of raw) {
+      if (e && typeof e.value === 'string' && typeof e.color === 'string') {
+        out.push(mapEntry(e as E & { value: string; color: string }));
+      }
+    }
+    return out;
+  }
+
+  /**
    * Read TaskNotes' configured custom-status palette as {@link StatusColor}s.
    *
    * Sources `api.catalog.statuses()` (preferred) or `api.model.config().statuses`
-   * — each `{ value, label, color, isCompleted }` — keeping only entries with a
-   * usable value + color. Guarded: a missing/throwing accessor or an unexpected
-   * shape yields `[]`, so the view renders no status colors rather than failing.
+   * — each `{ value, label, color, isCompleted, icon? }` — keeping only entries
+   * with a usable value + color. Guarded: a missing/throwing accessor or an
+   * unexpected shape yields `[]`, so the view renders no status colors.
    */
   public async getStatusColors(): Promise<StatusColor[]> {
     try {
-      const raw =
-        this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
-      if (!Array.isArray(raw)) {
-        return [];
-      }
-      const colors: StatusColor[] = [];
-      for (const s of raw) {
-        if (s && typeof s.value === 'string' && typeof s.color === 'string') {
-          colors.push({
-            value: s.value,
-            color: s.color,
-            isCompleted: s.isCompleted === true,
-          });
-        }
-      }
-      return colors;
+      const raw = this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
+      return this.mapPalette(raw, (s) => ({
+        value: s.value,
+        color: s.color,
+        isCompleted: s.isCompleted === true,
+        ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read TaskNotes' configured custom-priority palette as {@link PriorityColor}s.
+   *
+   * Mirrors {@link TaskNotesSource.getStatusColors} (no `isCompleted` — priorities
+   * carry a sort `weight`): sources `api.catalog.priorities()` (preferred) or
+   * `api.model.config().priorities` (fallback). Guarded → `[]` on any failure.
+   */
+  public async getPriorityColors(): Promise<PriorityColor[]> {
+    try {
+      const raw = this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
+      return this.mapPalette(raw, (p) => ({
+        value: p.value,
+        color: p.color,
+        ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
+      }));
     } catch {
       return [];
     }
@@ -788,6 +847,7 @@ export class TaskNotesSource implements DataSource {
       // derived/read-only in milestone 1).
       progress: null,
       status: task.status ?? null,
+      priority: task.priority ?? null,
       // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
       // exposes no parent/project relationship resolvable to note paths, so
       // parents stay empty in milestone 1. Revisit when a TaskNotes

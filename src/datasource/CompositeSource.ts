@@ -35,6 +35,7 @@ import type {
   DependencyRelType,
   FieldConfig,
   MutationContext,
+  PriorityColor,
   SourceDependency,
   SourceTask,
   StatusColor,
@@ -108,6 +109,15 @@ export class CompositeSource implements DataSource {
    */
   public getStatusColors(): Promise<StatusColor[]> {
     return this.enrichment?.getStatusColors?.() ?? Promise.resolve([]);
+  }
+
+  /**
+   * Priority→color palette comes from the enrichment (TaskNotes). With no
+   * enrichment, or an enrichment that exposes no palette, this yields `[]` —
+   * the view then applies no priority colors. Mirrors {@link getStatusColors}.
+   */
+  public getPriorityColors(): Promise<PriorityColor[]> {
+    return this.enrichment?.getPriorityColors?.() ?? Promise.resolve([]);
   }
 
   /**

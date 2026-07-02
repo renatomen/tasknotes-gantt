@@ -70,6 +70,7 @@ import {
   type DateWriteTarget,
   type FieldConfig,
   type MutationContext,
+  type PriorityColor,
   type SourceDependency,
   type SourceTask,
   type StatusColor,
@@ -625,6 +626,15 @@ export class GanttController {
    */
   public async getStatusColors(): Promise<StatusColor[]> {
     return (await this.activeSource?.getStatusColors?.()) ?? [];
+  }
+
+  /**
+   * The active source's priority→color palette (TaskNotes), or `[]` when the
+   * source exposes none or before {@link init}. The view reads this to color
+   * bars by priority. Source-agnostic, mirroring {@link getStatusColors}.
+   */
+  public async getPriorityColors(): Promise<PriorityColor[]> {
+    return (await this.activeSource?.getPriorityColors?.()) ?? [];
   }
 
   /**

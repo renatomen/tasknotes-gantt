@@ -12,7 +12,7 @@
  * This module is dependency-free (no Obsidian, no Svelte, no SVAR) so the
  * SVAR-task shaping and the diff planning are unit-testable in isolation.
  * `GanttContainer.svelte` owns the SVAR `api` and simply executes the planned
- * ops. Mirrors the pure-module style of {@link ./statusColor} and
+ * ops. Mirrors the pure-module style of {@link ./barTreatment} and
  * {@link ./datePolicyConfig}.
  *
  * @module bases/ganttSync
@@ -20,8 +20,16 @@
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { DateStatus } from '../controller/datePolicy';
-import type { StatusColor } from '../datasource/types';
-import { statusSlug } from './statusColor';
+import type { PriorityColor, StatusColor } from '../datasource/types';
+import {
+  resolveTreatmentClass,
+  resolveIconSpec,
+  treatmentClassRegistry,
+  type BarColorSource,
+  type BarIconSource,
+  type IconSpec,
+  type Palettes,
+} from './barTreatment';
 import type { TypedValue } from './propertyValues';
 import { formatPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
@@ -70,6 +78,18 @@ export interface SvarTaskInputs {
   instances: RenderInstance[];
   links: RenderLink[];
   statusColors: StatusColor[];
+  /** Priority→color palette (U4). Empty unless the companion exposes one. */
+  priorityColors?: PriorityColor[];
+  /**
+   * Per-view color source (default `default` = no plugin coloring). Note: the
+   * color *mode* (fill/strip) is not read here — it only shapes the generated
+   * stylesheet ({@link buildTreatmentStyle}), not the per-bar class — so it is
+   * intentionally absent from these inputs.
+   */
+  barColorSource?: BarColorSource;
+  /** Per-view icon source (default `none`). Named `...Source` to disambiguate from
+   * the resolved {@link SvarTask.custom.barIcon} ({@link IconSpec}) it produces. */
+  barIconSource?: BarIconSource;
   showDateIndicators: boolean;
   arrowMode: LinkRewriteMode;
   /**
@@ -131,6 +151,13 @@ export interface SvarTask {
     dateStatus: DateStatus;
     showHasDeps: boolean;
     /**
+     * The resolved icon-chip spec for this bar (U4), or `null` when no chip
+     * renders (icon source `none`, or the value is absent from the palette).
+     * Read by the `BarContent` template. Folded into {@link taskStateKey} so an
+     * icon change re-issues the SVAR `update-task`.
+     */
+    barIcon: IconSpec | null;
+    /**
      * Type-tagged values for the grid's visible property columns, keyed by
      * Bases property id. Read by the grid's PropertyCell. `{}` when no columns
      * are configured or the task's values weren't resolved.
@@ -153,8 +180,19 @@ export interface SvarTask {
  * `$derived` in the component verbatim, so rendering is unchanged.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
-  const { instances, links, statusColors, showDateIndicators, arrowMode, propertyValues, collapsedIds } =
-    input;
+  const {
+    instances,
+    links,
+    statusColors,
+    priorityColors = [],
+    barColorSource = 'default',
+    barIconSource = 'none',
+    showDateIndicators,
+    arrowMode,
+    propertyValues,
+    collapsedIds,
+  } = input;
+  const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
   // Which instance ids are referenced as a parent → mark them summary/open.
   const parentIds = new Set<string>();
@@ -200,9 +238,6 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     incomingByTargetId.set(link.target, list);
   }
 
-  // Status values that have a configured color are eligible for a status class.
-  const coloredStatuses = new Set(statusColors.map((c) => c.value));
-
   return instances.map((inst) => {
     const isParent = parentIds.has(inst.id);
     const isPrimary = primaryBySource.get(inst.sourcePath) === inst.id;
@@ -221,17 +256,18 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // `type`.
     //
     // Compose the bar's `type` from its state classes (date-status flag + the
-    // status-color class when configured). SVAR's taskTypeCss emits each
-    // space-joined, registered type id as bare classes.
+    // color-treatment class for the active source). SVAR's taskTypeCss emits each
+    // space-joined, registered type id as bare classes. A bar carries at most one
+    // treatment class (status slug / priority slug / og-parent theme role), in the
+    // fixed position between the date-status flag and the instance cues.
     const flagged = showDateIndicators && inst.dateStatus !== 'complete';
     const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
     const isContext = inst.isFetched;
     let type = 'task';
     const classes: string[] = [];
     if (flagged) classes.push(DATE_STATUS_TYPE);
-    if (inst.status && coloredStatuses.has(inst.status)) {
-      classes.push(statusSlug(inst.status));
-    }
+    const treatmentClass = resolveTreatmentClass(barColorSource, inst, isParent, palettes);
+    if (treatmentClass) classes.push(treatmentClass);
     // Instance cues come AFTER the state classes, replicated before context. This
     // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
     // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
@@ -259,6 +295,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
+        // The icon-chip spec for the active icon source (U4); `null` when no chip.
+        barIcon: resolveIconSpec(barIconSource, inst, palettes),
         // Grid property-column values for this task (by source path); the grid
         // cell reads these. `{}` when no columns are configured.
         properties: propertyValues?.get(inst.sourcePath) ?? {},
@@ -274,22 +312,21 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 }
 
 /**
- * Build the *stable superset* of custom SVAR task types the bars may use,
- * derived from the status palette (not the present tasks) so the registered set
- * is constant across data refreshes — a changing `taskTypes` reference would
- * re-init the store and reset the view. Returns the custom ids only; the caller
- * concatenates SVAR's `defaultTaskTypes`.
- *
- * For each colored status value V the bar `type` can be `slug(V)` or
- * `"datestatus-flagged slug(V)"` (composed), plus `datestatus-flagged` alone, so
- * all three forms are registered.
+ * The stable superset of base task types across ALL color sources (U4). Registers
+ * the date-status flag
+ * plus, for every treatment class the palettes can produce (status slugs,
+ * priority slugs, and the `og-parent` theme role), the class alone and composed
+ * with the date-status flag. Derived from the palettes (not the present tasks),
+ * so the set is constant across data refreshes AND across a live source switch —
+ * any of `status`/`priority`/`theme` works without re-registering (which would
+ * re-init SVAR's store). The caller feeds this to {@link buildInstanceCueTaskTypes}
+ * so the cue cross-product covers a bar carrying both a treatment class and a cue.
  */
-export function buildStatusTaskTypes(colors: ReadonlyArray<StatusColor>): Array<{ id: string; label: string }> {
+export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
   const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const { value } of colors) {
-    const s = statusSlug(value);
-    ids.add(s);
-    ids.add(`${DATE_STATUS_TYPE} ${s}`);
+  for (const c of treatmentClassRegistry(palettes)) {
+    ids.add(c);
+    ids.add(`${DATE_STATUS_TYPE} ${c}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
 }
@@ -300,8 +337,8 @@ export function buildStatusTaskTypes(colors: ReadonlyArray<StatusColor>): Array<
  * must be registered: each cue suffix alone (a plain bar that is replicated
  * and/or context), and each `${base} ${suffix}` (a date-status/status bar that is
  * also replicated/context). `baseTypeIds` is the output of
- * {@link buildStatusTaskTypes} (date-status + status combos); pass it so the
- * cross-product covers a bar carrying both a state class and a cue.
+ * {@link buildTreatmentTaskTypes} (date-status + treatment combos); pass it so the
+ * cross-product covers a bar carrying both a treatment class and a cue.
  *
  * Derived from the static palette (not the present tasks), so the set is stable
  * across refreshes — a changing `taskTypes` reference would re-init SVAR's store.
@@ -330,6 +367,9 @@ export function taskStateKey(t: SvarTask): string {
     t.custom.showHasDeps,
     t.custom.isVirtual,
     t.custom.isCollapsed,
+    // Icon-chip spec (U4): fold so toggling the icon source or a config icon
+    // change re-issues the task (the chip would otherwise go stale).
+    barIconKey(t.custom.barIcon),
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *formatted* strings, not the raw values: a raw
     // Date/ISO-string/wrapper serializes non-deterministically and would make
@@ -341,6 +381,15 @@ export function taskStateKey(t: SvarTask): string {
     // stale — the task-side analogue of the gap-in-link-id fix, KTD6).
     incomingDepsKey(t.custom.incomingDeps),
   ]);
+}
+
+/**
+ * Deterministic fingerprint of a task's icon-chip spec (`''` when no chip). Folds
+ * `kind` so a Status↔Priority toggle re-syncs even when the two values share a color
+ * and neither has a glyph (status ring vs priority dot differ only by `kind`).
+ */
+function barIconKey(icon: IconSpec | null): string {
+  return icon ? `${icon.kind}:${icon.iconName ?? ''}:${icon.color}` : '';
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */

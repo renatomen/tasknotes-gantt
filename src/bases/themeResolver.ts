@@ -11,7 +11,7 @@
  *    thin, side-effecting reads of the live document/workspace. Injectable into
  *    the view so its behavior is testable without a live Obsidian.
  *
- * Mirrors the pure-logic-in-a-tested-module style of `statusColor.ts` /
+ * Mirrors the pure-logic-in-a-tested-module style of `barTreatment.ts` /
  * `datePolicyConfig.ts`.
  *
  * @module bases/themeResolver

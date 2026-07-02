@@ -82,7 +82,11 @@ export class BasesSource implements DataSource {
       start: this.adapter.extractDate(entry, this.mappings.startProperty),
       end: this.adapter.extractDate(entry, this.mappings.endProperty),
       progress: this.adapter.extractProgress(entry, this.mappings.progressProperty),
-      status: this.adapter.extractStatus(entry, this.mappings.statusProperty),
+      status: this.adapter.extractOptionalString(entry, this.mappings.statusProperty),
+      // Priority value comes from the mapped Base property. The color palette still
+      // comes from the TaskNotes companion (getPriorityColors); a value with no
+      // palette entry simply gets no color. Unmapped → null.
+      priority: this.adapter.extractOptionalString(entry, this.mappings.priorityProperty),
       parents: this.resolveParents(entry),
     };
   }

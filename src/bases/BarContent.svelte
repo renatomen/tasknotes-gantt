@@ -1,0 +1,40 @@
+<script lang="ts">
+  // SVAR `taskTemplate` component: renders a bar's content — the task text, plus
+  // an optional neutral icon chip (status/priority) seated left of the text. It
+  // reproduces SVAR's default `.wx-content` verbatim (so the date-status CSS
+  // hooks and text styling are preserved) and adds the chip only when the icon
+  // spec is present. When `custom.barIcon` is null (icon source `none`, or the
+  // value is absent from the palette) it renders exactly the pristine content.
+  //
+  // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
+  // reinitStore does not read taskTemplate, so this never re-inits the store.
+  import { lucideIcon } from './lucideIconAction';
+  import type { IconSpec } from './barTreatment';
+
+  // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
+  // three so the assignment typechecks, but we only read `data`. Fields are
+  // optional/loose so SVAR's ITask is assignable to `data`. `data.custom.barIcon`
+  // is the resolved icon spec attached by ganttSync.buildSvarTasks.
+  interface Props {
+    data: { text?: string; custom?: { barIcon?: IconSpec | null } };
+    api?: unknown;
+    onaction?: (ev: { action: string; data: Record<string, unknown> }) => void;
+  }
+  let { data }: Props = $props();
+
+  const spec = $derived(data?.custom?.barIcon ?? null);
+</script>
+
+<div class="wx-content">
+  {#if spec}
+    <span class="og-bar-chip">
+      {#if spec.iconName}
+        <span class="og-bar-glyph" use:lucideIcon={spec.iconName}></span>
+      {:else if spec.kind === 'priority'}
+        <span class="og-bar-dot" style="background-color: {spec.color}"></span>
+      {:else}
+        <span class="og-bar-ring" style="border-color: {spec.color}"></span>
+      {/if}
+    </span>
+  {/if}<span class="og-bar-text">{data.text ?? ''}</span>
+</div>

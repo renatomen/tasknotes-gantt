@@ -14,6 +14,9 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readBarColorMode,
+  readBarColorSource,
+  readBarIcon,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
@@ -158,6 +161,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.progress,
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
+      FIELD_MAPPING_KEYS.priority,
     ]);
   });
 
@@ -169,9 +173,11 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 6 shared property options + 4 dropdowns + 4 sliders + 5 toggles.
+    // 7 shared property options (incl. priority) + 7 dropdowns + 4 sliders + 5 toggles.
+    // Dropdowns: expanded-relationships, default-scale, dependency-arrows,
+    // bar-color-mode, bar-color-source, bar-icon, parent-date-cascade.
     // Sliders: default-duration, min-height, max-height, companion context opacity.
-    expect(options).toHaveLength(19);
+    expect(options).toHaveLength(23);
   });
 
   it("models the min-height input as a slider defaulting to the ~2-row floor", () => {
@@ -203,8 +209,8 @@ describe("ganttViewOptions", () => {
 describe("taskListViewOptions", () => {
   const options = taskListViewOptions();
 
-  it("returns exactly the six shared field-mapping property options", () => {
-    expect(options).toHaveLength(6);
+  it("returns exactly the seven shared field-mapping property options", () => {
+    expect(options).toHaveLength(7);
     expect(options.every((o) => o.type === "property")).toBe(true);
     expect(options.map((o) => ("key" in o ? o.key : undefined))).toEqual([
       FIELD_MAPPING_KEYS.text,
@@ -213,6 +219,7 @@ describe("taskListViewOptions", () => {
       FIELD_MAPPING_KEYS.progress,
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
+      FIELD_MAPPING_KEYS.priority,
     ]);
   });
 
@@ -344,5 +351,52 @@ describe("readContextOpacity", () => {
     expect(readContextOpacity(() => "abc")).toBe(DEFAULT_CONTEXT_OPACITY);
     expect(readContextOpacity(() => null)).toBe(DEFAULT_CONTEXT_OPACITY);
     expect(readContextOpacity(() => Infinity)).toBe(DEFAULT_CONTEXT_OPACITY);
+  });
+});
+
+describe("bar treatment options (U5)", () => {
+  it("defines the three dropdowns with Record<string,string> option maps", () => {
+    const opts = ganttViewOptions();
+    for (const [key, def] of [
+      ["tngantt_barColorMode", "fill"],
+      ["tngantt_barColorSource", "default"],
+      ["tngantt_barIcon", "none"],
+    ] as const) {
+      const opt = byKey(opts, key) as { type: string; default: unknown; options: unknown };
+      expect(opt.type).toBe("dropdown");
+      expect(opt.default).toBe(def);
+      // A Record map, not an array (an array renders "[object Object]").
+      expect(Array.isArray(opt.options)).toBe(false);
+      expect(typeof opt.options).toBe("object");
+    }
+  });
+});
+
+describe("readBarColorMode", () => {
+  it("defaults to fill; only 'strip' selects strip", () => {
+    expect(readBarColorMode(() => undefined)).toBe("fill");
+    expect(readBarColorMode(() => "strip")).toBe("strip");
+    expect(readBarColorMode(() => "fill")).toBe("fill");
+    expect(readBarColorMode(() => "junk")).toBe("fill");
+  });
+});
+
+describe("readBarColorSource", () => {
+  it("defaults to default; recognizes status/priority/theme only", () => {
+    expect(readBarColorSource(() => undefined)).toBe("default");
+    expect(readBarColorSource(() => "status")).toBe("status");
+    expect(readBarColorSource(() => "priority")).toBe("priority");
+    expect(readBarColorSource(() => "theme")).toBe("theme");
+    expect(readBarColorSource(() => "junk")).toBe("default");
+  });
+});
+
+describe("readBarIcon", () => {
+  it("defaults to none; recognizes status/priority only", () => {
+    expect(readBarIcon(() => undefined)).toBe("none");
+    expect(readBarIcon(() => "status")).toBe("status");
+    expect(readBarIcon(() => "priority")).toBe("priority");
+    expect(readBarIcon(() => "theme")).toBe("none");
+    expect(readBarIcon(() => "junk")).toBe("none");
   });
 });

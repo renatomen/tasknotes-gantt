@@ -301,3 +301,29 @@ describe('CompositeSource — status colors', () => {
     expect(await composite.getStatusColors()).toEqual([]);
   });
 });
+
+describe('CompositeSource — priority colors', () => {
+  const colors = [{ value: 'high', color: '#f00' }];
+
+  it('delegates getPriorityColors to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getPriorityColors: async () => colors,
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getPriorityColors()).toEqual(colors);
+  });
+
+  it('returns [] when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getPriorityColors()).toEqual([]);
+  });
+
+  it('returns [] when the enrichment exposes no getPriorityColors', async () => {
+    const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
+    expect(await composite.getPriorityColors()).toEqual([]);
+  });
+});

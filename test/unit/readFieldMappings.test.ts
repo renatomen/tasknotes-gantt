@@ -23,6 +23,7 @@ describe("readFieldMappings", () => {
       progressProperty: "",
       parentProperty: "",
       statusProperty: "",
+      priorityProperty: "",
     });
   });
 
@@ -46,6 +47,7 @@ describe("readFieldMappings", () => {
         [FIELD_MAPPING_KEYS.progress]: "note.pct",
         [FIELD_MAPPING_KEYS.parent]: "note.in",
         [FIELD_MAPPING_KEYS.status]: "note.status",
+        [FIELD_MAPPING_KEYS.priority]: "note.priority",
       }),
       // Overrides must NOT win when a value is actually configured.
       { startProperty: "note.start" },
@@ -57,6 +59,7 @@ describe("readFieldMappings", () => {
       progressProperty: "note.pct",
       parentProperty: "note.in",
       statusProperty: "note.status",
+      priorityProperty: "note.priority",
     });
   });
 
