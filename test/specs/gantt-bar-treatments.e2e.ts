@@ -71,6 +71,28 @@ async function activeTreatmentCss(): Promise<string> {
   });
 }
 
+/**
+ * Read the active view's treatment stylesheet, waiting until it contains `mustContain`.
+ *
+ * `openBase` waits only for `.wx-bar` bars to render, but the treatment `<style>` is
+ * injected by a SEPARATE reactive `$effect` that runs after mount — so an eager read
+ * can catch the stylesheet empty/pre-injection (the flaky race: bars present ≠ CSS
+ * injected, widened by the theme view opening in a second split leaf). Gate the read
+ * on the specific expected token instead of reading once — same readiness-gate pattern
+ * as the column-sort / dependency e2e flake fixes.
+ */
+async function waitForTreatmentCss(mustContain: string): Promise<string> {
+  let css = "";
+  await browser.waitUntil(
+    async () => {
+      css = await activeTreatmentCss();
+      return css.includes(mustContain);
+    },
+    { timeout: 15000, timeoutMsg: `treatment CSS never contained "${mustContain}"` },
+  );
+  return css;
+}
+
 describe("Gantt (OG) bar treatments", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-bar-treatments-e2e");
@@ -102,7 +124,7 @@ describe("Gantt (OG) bar treatments", () => {
     });
 
     it("injects the fixed green/blue role rules", async () => {
-      const css = await activeTreatmentCss();
+      const css = await waitForTreatmentCss("#1f6feb"); // wait for injection, then assert
       expect(css).toContain("#1f6feb"); // child (blue)
       expect(css).toContain("#2ea043"); // parent (green)
     });
@@ -119,7 +141,7 @@ describe("Gantt (OG) bar treatments", () => {
     });
 
     it("injects theme rules driven by the theme's own accent (interactive-accent)", async () => {
-      const css = await activeTreatmentCss();
+      const css = await waitForTreatmentCss("var(--interactive-accent)"); // wait for injection
       // Theme source = the user's accent hue in two tones (raw child + shifted parent),
       // never a fixed named palette color. Mirrors the barTreatment.test.ts theme cases.
       expect(css).toContain("var(--interactive-accent)");
