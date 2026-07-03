@@ -2358,34 +2358,75 @@
     background-position: center;
   }
 
-  /* OG-82: Grid collapse/expand arrow icons for SVAR Resizer */
-  /* These icons are used by SVAR's built-in Resizer component for panel toggle */
-  .og-bases-gantt :global(.wxi-menu-left) {
+  /* OG-82: Grid collapse/expand arrow icons for SVAR Resizer.
+   *
+   * SCOPED to `.wx-button-expand-content` — the Resizer's own container
+   * ([Resizer.svelte]). Both the panel-collapse arrows AND the grid tree
+   * expand/collapse toggle use the same `wxi-menu-right` class, so an unscoped
+   * `.wxi-menu-right` selector would leak these rules onto the COLLAPSED tree
+   * toggle (`<i class="wx-toggle-icon wxi-menu-right">`); scoping keeps the tree
+   * toggle on its own themed `::before` path (see the `.wx-toggle-icon` /
+   * `.wxi-menu-*::before` rules below).
+   *
+   * THEME-ADAPTIVE colour: the arrow sits on a chip painted
+   * `background-color: var(--wx-gantt-border-color)`, which is light (#e6e6e6) in
+   * Willow but dark (#384047) in WillowDark. A hardcoded gray stroke read fine on
+   * the light chip but was ~1.74:1 (near-invisible) on the dark one. Stroke with
+   * `currentColor` driven by `var(--text-normal)` (theme-adaptive: near-white in
+   * dark, near-black in light; accent on hover) so the arrow reads clearly against
+   * the chip in both — the same treatment as the tree toggle. */
+  /* The chevron is painted on `::before` via an alpha MASK filled with
+   * `background-color: currentColor` — NOT a `background-image` data-URI, whose
+   * `currentColor` would paint black instead of inheriting `color`. The element
+   * keeps SVAR's own chip background. `color` (below) drives the fill. */
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-left) {
     display: inline-block;
     width: 20px;
     height: 20px;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
+    color: var(--text-normal);
+  }
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-left::before) {
+    content: "";
+    display: block;
+    width: 20px;
+    height: 20px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
   }
 
-  .og-bases-gantt :global(.wxi-menu-left:hover) {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
-  }
-
-  .og-bases-gantt :global(.wxi-menu-right) {
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-right) {
     display: inline-block;
     width: 20px;
     height: 20px;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
+    color: var(--text-normal);
+  }
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-right::before) {
+    content: "";
+    display: block;
+    width: 20px;
+    height: 20px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
   }
 
-  .og-bases-gantt :global(.wxi-menu-right:hover) {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  /* Hover recolours via currentColor — the ::before mask fill follows `color`. */
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-left:hover),
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-right:hover) {
+    color: var(--interactive-accent);
   }
 
   /*
@@ -2550,7 +2591,11 @@
     display: inline-block !important;
     width: 16px !important;
     height: 16px !important;
-    color: var(--text-muted) !important;
+    /* Obsidian's primary text colour — theme-adaptive (near-white #dadada in dark,
+     * near-black in light), so the chevron reads clearly against the chart
+     * background in both. (--text-muted / SVAR's #9fa1ae both sit too dark on the
+     * WillowDark surface.) Hover lifts to the theme accent. */
+    color: var(--text-normal) !important;
     opacity: 1 !important;
     visibility: visible !important;
     font-size: 16px !important;
@@ -2558,7 +2603,18 @@
   }
 
   .og-bases-gantt :global(.wx-toggle-icon:hover) {
-    color: var(--text-normal) !important;
+    color: var(--interactive-accent) !important;
+  }
+
+  /* Align leaf rows with parent rows. SVAR sizes BOTH the toggle-icon (parents)
+   * and the toggle-placeholder (leaves) at var(--wx-icon-size) = 20px, keeping
+   * their text aligned. The plugin narrows `.wx-toggle-icon` to 16px above but
+   * leaves the placeholder at 20px, so leaf text sat 4px RIGHT of parent text
+   * (i.e. parents looked shifted left). Match the placeholder to the 16px box. */
+  .og-bases-gantt :global(.wx-toggle-placeholder) {
+    width: 16px !important;
+    min-width: 16px !important;
+    flex: 0 0 16px !important;
   }
 
   /* Ensure SVAR icon fonts are loaded and visible */
@@ -2570,9 +2626,16 @@
     line-height: 16px !important;
   }
 
-  /* Inject offline-friendly Lucide chevron icons using inline SVG */
-  .og-bases-gantt :global(.wxi-menu-down),
-  .og-bases-gantt :global(.wxi-menu-right) {
+  /* Inject offline-friendly Lucide chevron icons using inline SVG.
+   *
+   * SCOPED to `.wx-toggle-icon` — the grid tree toggle's own class. SVAR reuses
+   * `wxi-menu-right` for the Resizer's panel arrow too (`.wx-button-expand-content
+   * .wxi-menu-right`), so an unscoped `.wxi-menu-right::before` here leaks a SECOND
+   * chevron onto the Resizer arrow (which already draws its own) — a duplicate
+   * glyph. Scoping to `.wx-toggle-icon` keeps these tree-only, mirroring the
+   * Resizer rules' scoping above. */
+  .og-bases-gantt :global(.wx-toggle-icon.wxi-menu-down),
+  .og-bases-gantt :global(.wx-toggle-icon.wxi-menu-right) {
     display: inline-block !important;
     width: 16px !important;
     height: 16px !important;
@@ -2580,31 +2643,44 @@
     visibility: visible !important;
   }
 
-  /* Lucide chevron-down icon as inline SVG data URI */
-  .og-bases-gantt :global(.wxi-menu-down::before) {
+  /* Lucide chevron-down, MASKED so the glyph takes the element's themed colour.
+   * `currentColor` inside a `background-image` data-URI does NOT inherit the host
+   * `color` (it paints black); an alpha `-webkit-mask` + `background-color:
+   * currentColor` does. See the `.wx-sort` arrows for the same technique. */
+  .og-bases-gantt :global(.wx-toggle-icon.wxi-menu-down::before) {
     content: '' !important;
     display: inline-block !important;
     width: 16px !important;
     height: 16px !important;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
-    background-size: contain !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
-    opacity: 0.7 !important;
+    background-color: currentColor !important;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+    -webkit-mask-size: contain !important;
+    mask-size: contain !important;
+    -webkit-mask-repeat: no-repeat !important;
+    mask-repeat: no-repeat !important;
+    -webkit-mask-position: center !important;
+    mask-position: center !important;
+    opacity: 1 !important;
     visibility: visible !important;
   }
 
-  /* Lucide chevron-right icon as inline SVG data URI */
-  .og-bases-gantt :global(.wxi-menu-right::before) {
+  /* Lucide chevron-right, MASKED (see chevron-down above). */
+  .og-bases-gantt :global(.wx-toggle-icon.wxi-menu-right::before) {
     content: '' !important;
     display: inline-block !important;
     width: 16px !important;
     height: 16px !important;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") !important;
-    background-size: contain !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
-    opacity: 0.7 !important;
+    background-color: currentColor !important;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") !important;
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") !important;
+    -webkit-mask-size: contain !important;
+    mask-size: contain !important;
+    -webkit-mask-repeat: no-repeat !important;
+    mask-repeat: no-repeat !important;
+    -webkit-mask-position: center !important;
+    mask-position: center !important;
+    opacity: 1 !important;
     visibility: visible !important;
   }
 
