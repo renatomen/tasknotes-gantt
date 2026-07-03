@@ -2358,9 +2358,18 @@
     background-position: center;
   }
 
-  /* OG-82: Grid collapse/expand arrow icons for SVAR Resizer */
-  /* These icons are used by SVAR's built-in Resizer component for panel toggle */
-  .og-bases-gantt :global(.wxi-menu-left) {
+  /* OG-82: Grid collapse/expand arrow icons for SVAR Resizer.
+   *
+   * SCOPED to `.wx-button-expand-content` — the Resizer's own container
+   * ([Resizer.svelte]). Both the panel-collapse arrows AND the grid tree
+   * expand/collapse toggle use the same `wxi-menu-right` class, so an unscoped
+   * `.wxi-menu-right` selector leaks this hardcoded gray (`%235f6368`) chevron
+   * onto the COLLAPSED tree toggle (`<i class="wx-toggle-icon wxi-menu-right">`),
+   * making it low-contrast in dark mode and mismatched with the expanded toggle
+   * (which is `wxi-menu-down`, untouched here). Scoping keeps the tree toggle on
+   * its themed `::before` path — see the `.wx-toggle-icon` / `.wxi-menu-*::before`
+   * rules below. */
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-left) {
     display: inline-block;
     width: 20px;
     height: 20px;
@@ -2370,11 +2379,11 @@
     background-position: center;
   }
 
-  .og-bases-gantt :global(.wxi-menu-left:hover) {
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-left:hover) {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
   }
 
-  .og-bases-gantt :global(.wxi-menu-right) {
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-right) {
     display: inline-block;
     width: 20px;
     height: 20px;
@@ -2384,7 +2393,7 @@
     background-position: center;
   }
 
-  .og-bases-gantt :global(.wxi-menu-right:hover) {
+  .og-bases-gantt :global(.wx-button-expand-content .wxi-menu-right:hover) {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
   }
 
