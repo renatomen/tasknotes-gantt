@@ -32,6 +32,10 @@
         <span class="og-bar-glyph" use:lucideIcon={spec.iconName}></span>
       {:else if spec.kind === 'priority'}
         <span class="og-bar-dot" style="background-color: {spec.color}"></span>
+      {:else if spec.completed}
+        <!-- Completed status → filled disc (TaskNotes fills the status dot for a
+             completed status); a non-completed status is a hollow ring below. -->
+        <span class="og-bar-disc" style="background-color: {spec.color}"></span>
       {:else}
         <span class="og-bar-ring" style="border-color: {spec.color}"></span>
       {/if}

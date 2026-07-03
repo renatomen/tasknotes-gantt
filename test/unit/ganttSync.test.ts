@@ -218,6 +218,23 @@ describe('buildSvarTasks', () => {
     expect(keyFor('status')).not.toBe(keyFor('priority'));
   });
 
+  it('taskStateKey changes when a no-icon status flips completed (ring vs filled disc)', () => {
+    // A completed and a non-completed no-icon status share value + color and differ
+    // ONLY by the completed flag (ring vs filled disc); the fingerprint must change
+    // so the completion transition re-syncs the chip.
+    const keyFor = (isCompleted: boolean) =>
+      taskStateKey(
+        buildSvarTasks(
+          inputs({
+            instances: [inst({ id: 'a', status: 'v' })],
+            statusColors: [{ value: 'v', color: '#abc', isCompleted }],
+            barIconSource: 'status',
+          }),
+        )[0],
+      );
+    expect(keyFor(false)).not.toBe(keyFor(true));
+  });
+
   it('carries dateStatus onto custom for the view filter predicate (U2)', () => {
     // The presentation-layer show-undated/show-partial filter reads custom.dateStatus
     // to decide row visibility (#161), so it must ride each instance onto the task.

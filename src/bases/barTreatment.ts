@@ -200,7 +200,7 @@ export interface TreatmentInstance {
 
 /**
  * The resolved icon-chip content for a bar. `kind` selects the no-icon shape
- * (status → hollow ring, priority → filled dot, matching TaskNotes' geometry);
+ * (status → ring/disc, priority → filled dot, matching TaskNotes' geometry);
  * `iconName` (when present) renders a glyph instead. `color` is the ring/dot/glyph
  * color, already guarded (an unsafe palette color falls back to `currentColor`).
  */
@@ -211,6 +211,14 @@ export interface IconSpec {
   iconName?: string;
   /** Ring border / dot fill / glyph color (guarded; `currentColor` when unsafe). */
   color: string;
+  /**
+   * True only for a `status` whose config is flagged completed. Selects the
+   * filled-disc no-icon shape (TaskNotes fills the status dot for completed
+   * statuses; a hollow ring otherwise). Absent (never `false`) for
+   * non-completed statuses and all priorities. Set regardless of `iconName` so
+   * a completion flip re-fingerprints the chip even for icon statuses.
+   */
+  completed?: true;
 }
 
 /**
@@ -509,7 +517,9 @@ function buildRoleStyle(mode: BarColorMode, parentColor: string, childColor: str
  * which shows an indicator only when a config exists).
  *
  * `iconName` is present only when the value's config carries an icon; otherwise
- * the caller renders the no-icon shape for `kind` (status → ring, priority → dot).
+ * the caller renders the no-icon shape for `kind` (status → ring/disc, priority
+ * → dot). For a completed status the no-icon shape is a filled disc — see
+ * {@link IconSpec.completed}.
  */
 export function resolveIconSpec(
   iconSource: BarIconSource,
@@ -519,7 +529,7 @@ export function resolveIconSpec(
   if (iconSource === 'none') return null;
   const value = iconSource === 'status' ? instance.status : instance.priority;
   if (!value) return null;
-  const palette: ReadonlyArray<{ value: string; color: string; icon?: string }> =
+  const palette: ReadonlyArray<{ value: string; color: string; icon?: string; isCompleted?: boolean }> =
     iconSource === 'status' ? palettes.status : palettes.priority;
   const entry = palette.find((p) => p.value === value);
   if (!entry?.color) return null;
@@ -529,5 +539,13 @@ export function resolveIconSpec(
   // unsafe/malformed palette color falls back to `currentColor` (the bar's text
   // color) rather than being interpolated verbatim.
   const color = isSafeColor(entry.color) ? entry.color : 'currentColor';
-  return { kind: iconSource, color, ...(entry.icon ? { iconName: entry.icon } : {}) };
+  // `completed` only exists on the status palette (StatusColor); priorities have
+  // no completion concept, so this is always false for them.
+  const completed = iconSource === 'status' && entry.isCompleted === true;
+  return {
+    kind: iconSource,
+    color,
+    ...(entry.icon ? { iconName: entry.icon } : {}),
+    ...(completed ? { completed: true } : {}),
+  };
 }

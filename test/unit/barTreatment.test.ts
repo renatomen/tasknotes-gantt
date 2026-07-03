@@ -287,8 +287,37 @@ describe('resolveIconSpec', () => {
   });
 
   it('returns kind + color (no icon → ring/dot) when the value has no configured icon', () => {
-    expect(resolveIconSpec('status', inst('41🟩Done = Recent'), palettes)).toEqual({ kind: 'status', color: '#00d26a' });
     expect(resolveIconSpec('priority', inst(null, 'low'), palettes)).toEqual({ kind: 'priority', color: '#00aaff' });
+  });
+
+  it('marks a completed no-icon status as completed (filled disc, mirroring TaskNotes)', () => {
+    expect(resolveIconSpec('status', inst('41🟩Done = Recent'), palettes)).toEqual({
+      kind: 'status',
+      color: '#00d26a',
+      completed: true,
+    });
+  });
+
+  it('does not mark a non-completed no-icon status as completed (hollow ring)', () => {
+    // 'Unused' has isCompleted:false; the completed key is absent, not false.
+    expect(resolveIconSpec('status', inst('Unused'), palettes)).toEqual({ kind: 'status', color: '#123456' });
+  });
+
+  it('never marks a priority chip as completed (priorities have no completion concept)', () => {
+    expect(resolveIconSpec('priority', inst(null, 'low'), palettes)).not.toHaveProperty('completed');
+  });
+
+  it('attaches completed to a completed status even when it has an icon (glyph still renders)', () => {
+    const p: Palettes = {
+      status: [{ value: 'done', color: '#00d26a', isCompleted: true, icon: 'check' }],
+      priority: [],
+    };
+    expect(resolveIconSpec('status', inst('done'), p)).toEqual({
+      kind: 'status',
+      iconName: 'check',
+      color: '#00d26a',
+      completed: true,
+    });
   });
 
   it('returns priority kind + glyph for source=priority', () => {

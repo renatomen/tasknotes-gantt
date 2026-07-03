@@ -405,10 +405,12 @@ export function taskStateKey(t: SvarTask): string {
 /**
  * Deterministic fingerprint of a task's icon-chip spec (`''` when no chip). Folds
  * `kind` so a Status↔Priority toggle re-syncs even when the two values share a color
- * and neither has a glyph (status ring vs priority dot differ only by `kind`).
+ * and neither has a glyph (status ring vs priority dot differ only by `kind`), and
+ * `completed` so a status flipping completion re-syncs (hollow ring vs filled disc
+ * differ only by that flag).
  */
 function barIconKey(icon: IconSpec | null): string {
-  return icon ? `${icon.kind}:${icon.iconName ?? ''}:${icon.color}` : '';
+  return icon ? `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${icon.completed ? 'c' : ''}` : '';
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */
