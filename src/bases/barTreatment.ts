@@ -155,7 +155,13 @@ function progressColor(accent: string): string {
  * The hex branch admits ONLY the four valid digit counts (3/4/6/8) so an invalid
  * length that would silently drop the whole declaration cannot pass.
  */
-export const SAFE_COLOR = /^(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s/]+\))$/i;
+const SAFE_COLOR_HEX = '#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})';
+const SAFE_COLOR_NAMED = '[a-z]+';
+const SAFE_COLOR_FUNC = '(?:rgb|hsl)a?\\([0-9.,%\\s/]+\\)';
+export const SAFE_COLOR = new RegExp(
+  `^(?:${SAFE_COLOR_HEX}|${SAFE_COLOR_NAMED}|${SAFE_COLOR_FUNC})$`,
+  'i',
+);
 
 /**
  * CSS-wide keywords that pass the bare-`[a-z]+` branch of {@link SAFE_COLOR} but do
@@ -398,8 +404,7 @@ function buildValueRules(
       rules.push(`${sel}${stripRule(color)}`);
     } else {
       // Fill mode: the bar body IS the accent, so progress is a contrasting shift of it.
-      rules.push(fillBodyRule(sel, color));
-      rules.push(progressFillRule(sel, progressColor(color)));
+      rules.push(fillBodyRule(sel, color), progressFillRule(sel, progressColor(color)));
     }
   }
   return rules;
@@ -517,7 +522,7 @@ export function resolveIconSpec(
   const palette: ReadonlyArray<{ value: string; color: string; icon?: string }> =
     iconSource === 'status' ? palettes.status : palettes.priority;
   const entry = palette.find((p) => p.value === value);
-  if (!entry || !entry.color) return null;
+  if (!entry?.color) return null;
   // Guard the chip color the same as the CSS-rule paths. BarContent renders it
   // as `style="color: <color>"`; Svelte escapes the attribute (no HTML breakout)
   // but does NOT stop CSS-declaration injection via `;` inside the value, so an

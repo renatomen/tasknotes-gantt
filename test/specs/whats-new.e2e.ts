@@ -75,7 +75,7 @@ describe("What's New view", () => {
       timeout: 10000,
       timeoutMsg: "empty-state fallback never rendered",
     });
-    expect((await $$(".tng-release-version")).length).toBe(0);
+    expect(await $$(".tng-release-version")).toHaveLength(0);
   });
 
   describe("redesigned cards (seeded bundle)", () => {
@@ -106,9 +106,9 @@ describe("What's New view", () => {
       const cards = await $$(".tng-release-version");
       // AE1: current card has the pill; current + first-prior expanded; the rest collapsed.
       expect(await cards[0].$(".tng-release-version-current").isExisting()).toBe(true);
-      expect(await cards[0].getAttribute("open")).not.toBe(null);
-      expect(await cards[1].getAttribute("open")).not.toBe(null);
-      expect(await cards[2].getAttribute("open")).toBe(null);
+      expect(await cards[0].getAttribute("open")).not.toBeNull();
+      expect(await cards[1].getAttribute("open")).not.toBeNull();
+      expect(await cards[2].getAttribute("open")).toBeNull();
     });
 
     it("shows the human-formatted date, not the ISO string", async () => {
