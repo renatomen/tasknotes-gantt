@@ -2568,6 +2568,15 @@
     border-radius: 50%;
     border: 3px solid currentColor;
   }
+  /* No-icon COMPLETED status → filled disc (TaskNotes fills the status dot for a
+     completed status). Same 13px footprint as the ring, so the status visibly
+     "fills in" on completion; background set inline. */
+  .og-bases-gantt :global(.og-bar-disc) {
+    box-sizing: border-box;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+  }
   /* No-icon priority → filled dot (TaskNotes); background set inline. */
   .og-bases-gantt :global(.og-bar-dot) {
     width: 11px;
