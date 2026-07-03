@@ -44,8 +44,10 @@ interface ChevronStyles {
   collapsedElem: string;
   /** Element-level `background-image` for the expanded (`wxi-menu-down`) glyph. */
   expandedElem: string;
-  /** `::before` `background-image` for the collapsed glyph (the themed chevron). */
-  collapsedBefore: string;
+  /** `::before` `mask-image` for the collapsed glyph (the masked chevron shape). */
+  collapsedMask: string;
+  /** `::before` `background-color` for the collapsed glyph — the ACTUAL painted fill. */
+  collapsedFill: string;
 }
 
 /**
@@ -67,14 +69,17 @@ async function readChevronStyles(): Promise<ChevronStyles | null> {
     };
     const right = make("right");
     const down = make("down");
+    const rb = window.getComputedStyle(right, "::before");
     const styles: {
       collapsedElem: string;
       expandedElem: string;
-      collapsedBefore: string;
+      collapsedMask: string;
+      collapsedFill: string;
     } = {
       collapsedElem: window.getComputedStyle(right).backgroundImage,
       expandedElem: window.getComputedStyle(down).backgroundImage,
-      collapsedBefore: window.getComputedStyle(right, "::before").backgroundImage,
+      collapsedMask: rb.maskImage || (rb as unknown as { webkitMaskImage?: string }).webkitMaskImage || "none",
+      collapsedFill: rb.backgroundColor,
     };
     right.remove();
     down.remove();
@@ -119,8 +124,38 @@ describe("Gantt (OG) collapse chevron — contrast/theme parity", () => {
     // sets an element-level background (both paint via `::before`).
     expect(styles!.collapsedElem).toBe(styles!.expandedElem);
 
-    // Guard against "fixed by hiding the glyph": the collapsed chevron must still
-    // paint its themed inline-SVG chevron via `::before`.
-    expect(styles!.collapsedBefore).toContain("data:image/svg+xml");
+    // The collapsed chevron must still paint a glyph — now via an alpha mask…
+    expect(styles!.collapsedMask).toContain("data:image/svg+xml");
+
+    // …filled with the themed colour. `background-color` is the ACTUAL painted
+    // fill: it must resolve to a real, non-transparent colour, guaranteeing the
+    // glyph is visible (currentColor in a background-image data-URI would paint
+    // black instead — the dark-mode regression this guards against).
+    expect(styles!.collapsedFill).toMatch(/^rgb/);
+    expect(styles!.collapsedFill).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  it("sizes the leaf placeholder to the same box as the parent toggle (row text aligns)", async () => {
+    // Parent rows render `.wx-toggle-icon`; leaf rows render `.wx-toggle-placeholder`
+    // in its place. If the two boxes differ in width, the text after them (and thus
+    // whole rows) misaligns — parents looked shifted left because the plugin narrows
+    // the toggle to 16px while SVAR left the placeholder at var(--wx-icon-size)=20px.
+    // Both must resolve to the same width.
+    const widths = await browser.execute(() => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return null;
+      const mk = (cls: string): number => {
+        const i = document.createElement("i");
+        i.className = cls;
+        i.setAttribute("data-og-probe", "1");
+        root.appendChild(i);
+        const w = window.getComputedStyle(i).width;
+        i.remove();
+        return parseFloat(w);
+      };
+      return { toggle: mk("wx-toggle-icon wxi-menu-down"), placeholder: mk("wx-toggle-placeholder") };
+    });
+    expect(widths).not.toBeNull();
+    expect(widths!.placeholder).toBe(widths!.toggle);
   });
 });
