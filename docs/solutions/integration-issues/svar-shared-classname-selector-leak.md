@@ -39,7 +39,7 @@ SVAR Svelte Gantt reuses the same icon class name across unrelated components. A
 ## What Didn't Work
 
 - **Reading the two tree-toggle rules in isolation.** `.wxi-menu-down::before` and `.wxi-menu-right::before` are symmetric (same technique, only the SVG path differs), so the CSS *looked* like it should render both chevrons identically. The asymmetry was invisible until the search was widened to *every* rule matching `wxi-menu-right`.
-- **Theorizing about `currentColor` in a data-URI `background-image`.** Time went into whether `stroke='currentColor'` inside a background-image SVG themes or resolves to black. It was a red herring: the reported fact that the *expanded* chevron renders correctly in dark mode already proves the themed `::before` path works — so the only thing that could differ was an *extra* rule on the collapsed state.
+- **Theorizing about `currentColor` in a data-URI `background-image`.** Time went into whether `stroke='currentColor'` inside a background-image SVG themes or resolves to black. For *this* bug it was a red herring — the operative root cause was the selector leak — so chasing it didn't help here. **Correction (PR #207):** that theory was actually *true*. `currentColor` inside a `background-image` data-URI does NOT inherit the host `color`; it paints black. The "expanded chevron already themes" reasoning was mistaken (it too was black). Fixing the black-in-dark-mode glyphs later required switching the paint mechanism to a CSS `mask` — see [`svar-gantt-datauri-currentcolor-glyph-invisible.md`](svar-gantt-datauri-currentcolor-glyph-invisible.md).
 
 ## Solution
 
