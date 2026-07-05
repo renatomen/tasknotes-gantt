@@ -26,6 +26,15 @@ export function setIcon(_parent: any, _iconId: string): void {}
 
 export class App {}
 
+/**
+ * Runtime stub for `TFile`. The controller's progress resolver (`noteProgress`)
+ * does `instanceof TFile`, so the isolated perf host — which imports the
+ * controller — needs a constructible `TFile` at eval time.
+ */
+export class TFile {
+  path = '';
+}
+
 export class Component {
   load(): void {}
   onload(): void {}

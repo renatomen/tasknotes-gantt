@@ -146,8 +146,18 @@ function relationshipOptions(): BasesAllOptions[] {
  * @param companionAvailable - whether TaskNotes is present. When false, the
  *   companion-only relationship controls are omitted (expansion has no effect in
  *   standalone mode, so the controls would be inert — hide them instead).
+ * @param hasProgressProperty - whether a Progress Property is configured. Drives
+ *   the Progress-mode dropdown's SHOWN default so it matches what
+ *   {@link readProgressMode} resolves for an unset mode: `property` when a
+ *   property is mapped (don't silently switch an existing view to computed),
+ *   else `tasknotes`. Aligning the shown default with the resolved default keeps
+ *   the two in sync AND makes an explicit selection a non-default value that
+ *   Bases persists.
  */
-export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
+export function ganttViewOptions(
+  companionAvailable = true,
+  hasProgressProperty = false,
+): BasesAllOptions[] {
   return [
     ...sharedFieldMappingOptions(),
     ...(companionAvailable ? relationshipOptions() : []),
@@ -155,6 +165,8 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
     // checklist progress (read-only); `property` reads/persists the Progress
     // Property. Omitted in standalone mode — with no TaskNotes there is no
     // computed source, so readProgressMode() resolves to `property` there.
+    // The default MATCHES readProgressMode's unset resolution (property when a
+    // property is mapped, else tasknotes) so the shown mode == the applied mode.
     // Record<string,string> value→label map (an array renders "[object Object]").
     ...(companionAvailable
       ? [
@@ -162,7 +174,7 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
             type: 'dropdown' as const,
             displayName: 'Progress mode',
             key: 'tngantt_progressMode',
-            default: 'tasknotes',
+            default: hasProgressProperty ? 'property' : 'tasknotes',
             options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
           },
         ]
@@ -353,36 +365,35 @@ export function readBarIcon(get: (key: string) => unknown): BarIconSource {
 }
 
 /**
- * Read the per-view Progress mode (R1–R3). An explicit `property` always wins;
- * an explicit `tasknotes` wins only when the companion source is available
- * (standalone has no computed source, so it coalesces to `property`). When unset
- * or junk, the default MATCHES the dropdown's declared default — `tasknotes` when
- * the companion is present, `property` when standalone (where the TaskNotes
- * option isn't offered).
+ * Read the per-view Progress mode (R1–R3). An explicit `property` always wins; an
+ * explicit `tasknotes` wins only when the companion source is available
+ * (standalone has no computed source, so it coalesces to `property`).
  *
- * The unset-default deliberately does NOT switch to `property` just because a
- * Progress Property is configured: Bases doesn't persist an option left at its
- * default, so a conditional reader-default would read as `property` while the
- * dropdown still showed "TaskNotes Progress" — the mode the user sees would
- * disagree with the mode applied, and a checklist note would render nothing
- * because the (often empty) property was read instead. Property is therefore an
- * explicit choice, never a silent fallback; in `tasknotes` mode the Progress
- * Property is ignored entirely. Pure (no Obsidian/DOM); mirrors {@link readBarColorSource}.
+ * When unset or junk, the default preserves existing views: `property` when a
+ * Progress Property is already configured (or when standalone, where the
+ * TaskNotes option isn't offered), otherwise `tasknotes` for a fresh companion
+ * view. {@link ganttViewOptions} aligns the dropdown's SHOWN default to this same
+ * rule, so the mode the user sees always equals the mode applied — and an
+ * explicit selection differs from the shown default and therefore persists
+ * (Bases doesn't store an option left at its default). In `tasknotes` mode the
+ * Progress Property is ignored. Pure (no Obsidian/DOM); mirrors {@link readBarColorSource}.
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
- * @param ctx - `companionAvailable` (TaskNotes present), which gates the
- *   TaskNotes source and the companion default (R3).
+ * @param ctx - `companionAvailable` (TaskNotes present) gates the TaskNotes
+ *   source (R3); `hasProgressProperty` (a Progress Property is mapped) drives the
+ *   unset default so an existing property view isn't silently switched to computed.
  */
 export function readProgressMode(
   get: (key: string) => unknown,
-  ctx: { companionAvailable: boolean },
+  ctx: { companionAvailable: boolean; hasProgressProperty: boolean },
 ): ProgressMode {
   const raw = get('tngantt_progressMode');
   if (raw === 'property') return 'property';
   if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
-  // Unset/junk (or `tasknotes` requested in standalone): default to the mode the
-  // dropdown shows — `tasknotes` with the companion, `property` standalone.
-  return ctx.companionAvailable ? 'tasknotes' : 'property';
+  // Unset/junk (or `tasknotes` in standalone): preserve existing behavior — a
+  // configured property (or standalone) → `property`; a fresh companion view → `tasknotes`.
+  if (!ctx.companionAvailable || ctx.hasProgressProperty) return 'property';
+  return 'tasknotes';
 }
 
 /**

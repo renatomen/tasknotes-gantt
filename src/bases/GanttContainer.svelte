@@ -1453,12 +1453,21 @@
         const before = instances.find((i) => i.id === id);
         // Progress-handle drag (U6): in Property mode, persist the new percentage
         // on release. TaskNotes mode hides the handle (progressReadonly), so this
-        // only fires in Property mode. A progress gesture leaves dates unchanged,
-        // so handle it here and skip the reschedule path (avoids a redundant
-        // date write).
-        const newProgress = ev.task?.progress;
+        // only fires in Property mode.
+        //
+        // Identify a progress gesture by the SVAR payload SHAPE, not just a
+        // changed progress value: the progress marker emits `task: { progress }`
+        // with NO start/end, whereas a date drag/resize emits `task: { start, end }`
+        // (and SVAR may echo the task's current `progress: 0` for a blank-progress
+        // task). Keying only on `progress !== before` would then misread a date
+        // drag as a progress write — writing 0 to the property and dropping the
+        // date edit. Requiring progress present AND start/end absent avoids that.
+        const t = ev.task ?? {};
+        const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
+        const newProgress = t.progress;
         if (
           !progressReadonly &&
+          isProgressGesture &&
           typeof newProgress === 'number' &&
           newProgress !== (before?.progress ?? undefined)
         ) {

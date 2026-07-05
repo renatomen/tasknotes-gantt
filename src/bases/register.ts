@@ -491,12 +491,13 @@ class ObsidianGanttBasesView extends BasesView {
     const base = readFieldMappings(get);
     // Resolve the Progress mode (R1–R3) and thread it onto the mappings so
     // BasesSource reads the right source (U3) and computeEntrySignature folds in
-    // the right change-detection state (U4). Companion presence gates the
-    // TaskNotes source and the companion default; the resolved mode matches the
-    // dropdown so a configured Progress Property never silently overrides a
-    // TaskNotes selection (it's ignored in tasknotes mode).
+    // the right change-detection state (U4). An unset mode preserves an existing
+    // view: a configured Progress Property defaults to `property` (not silently
+    // switched to computed); a fresh companion view defaults to `tasknotes`. The
+    // dropdown's shown default is aligned to this (see the options callback).
     const progressMode = readProgressMode(get, {
       companionAvailable: isTaskNotesPresent(this.app),
+      hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
     });
     return { ...base, progressMode };
   }
@@ -998,9 +999,14 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     },
     // Companion-only relationship controls render only when TaskNotes is
     // present (expansion is companion-only — see plan U1/R6). Presence is
-    // re-checked each time the options panel builds; cheap.
-    options: (_config: BasesViewConfig): BasesAllOptions[] =>
-      ganttViewOptions(isTaskNotesPresent(plugin.app)),
+    // re-checked each time the options panel builds; cheap. The current
+    // Progress Property drives the Progress-mode dropdown's shown default so it
+    // matches readProgressMode's unset resolution (property when one is mapped).
+    options: (config: BasesViewConfig): BasesAllOptions[] => {
+      const hasProgressProperty =
+        (readFieldMappings((key) => config.get(key)).progressProperty ?? '').trim() !== '';
+      return ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty);
+    },
   });
 
   if (registeredGantt) {
