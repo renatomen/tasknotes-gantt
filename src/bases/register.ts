@@ -92,6 +92,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
 import { entriesSignature, frontmatterSignatureKeys } from './entrySignature';
+import { checklistCompletionSignature } from './checklistProgress';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -378,7 +379,13 @@ class ObsidianGanttBasesView extends BasesView {
       m.priorityProperty,
       m.parentProperty,
     ]);
-    if (fmKeys.length === 0) {
+    // In TaskNotes progress mode the bar value comes from the note's checklist
+    // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
+    // fingerprint into the signature (U4/R5). Without it a checklist tick changes
+    // no frontmatter key, the signature wouldn't flip, and reuseTasks would skip
+    // the re-read, leaving the bar stale.
+    const tasknotesProgress = m.progressMode === 'tasknotes';
+    if (fmKeys.length === 0 && !tasknotesProgress) {
       return entriesSignature(entries);
     }
     const app = this.app;
@@ -386,12 +393,18 @@ class ObsidianGanttBasesView extends BasesView {
       const path = e.file?.path;
       if (!path) return '';
       const file = app.vault.getAbstractFileByPath(path);
-      const fm = file instanceof TFile ? app.metadataCache.getFileCache(file)?.frontmatter : null;
-      if (!fm) return '';
+      if (!(file instanceof TFile)) return '';
+      const cache = app.metadataCache.getFileCache(file);
+      const fm = cache?.frontmatter ?? null;
+      if (!fm && !tasknotesProgress) return '';
       // JSON-encode each value so adjacent fields can't concatenate into a collision
       // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
       // (not flattened to "[object Object]").
-      return fmKeys.map((k) => JSON.stringify(fm[k] ?? '')).join('');
+      const fmPart = fmKeys.length
+        ? fmKeys.map((k) => JSON.stringify(fm?.[k] ?? '')).join('')
+        : '';
+      const clPart = tasknotesProgress ? checklistCompletionSignature(cache?.listItems) : '';
+      return fmPart + clPart;
     });
   }
 

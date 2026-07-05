@@ -19,6 +19,7 @@
 import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
+import { checklistProgressPercent } from '../bases/checklistProgress';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -108,25 +109,7 @@ export class BasesSource implements DataSource {
    */
   private computeChecklistProgress(entry: BasesEntry): number | null {
     const cache = this.app.metadataCache.getFileCache(entry.file);
-    const listItems = cache?.listItems;
-    if (!Array.isArray(listItems) || listItems.length === 0) {
-      return null;
-    }
-
-    let total = 0;
-    let completed = 0;
-    for (const item of listItems) {
-      // Only checklist items (`item.task` is the char inside the brackets);
-      // plain bullets have no `task`. Nested items (`parent >= 0`) are excluded —
-      // top-level only, matching TaskNotes' calculateChecklistProgress.
-      if (!item || typeof item.task !== 'string') continue;
-      if (typeof item.parent === 'number' && item.parent >= 0) continue;
-      total += 1;
-      if (item.task.toLowerCase() === 'x') completed += 1;
-    }
-
-    if (total === 0) return null;
-    return Math.round((completed / total) * 100);
+    return checklistProgressPercent(cache?.listItems);
   }
 
   /**
