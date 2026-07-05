@@ -492,11 +492,11 @@ class ObsidianGanttBasesView extends BasesView {
     // Resolve the Progress mode (R1–R3) and thread it onto the mappings so
     // BasesSource reads the right source (U3) and computeEntrySignature folds in
     // the right change-detection state (U4). Companion presence gates the
-    // TaskNotes source; a configured Progress Property drives the R2 migration
-    // default.
+    // TaskNotes source and the companion default; the resolved mode matches the
+    // dropdown so a configured Progress Property never silently overrides a
+    // TaskNotes selection (it's ignored in tasknotes mode).
     const progressMode = readProgressMode(get, {
       companionAvailable: isTaskNotesPresent(this.app),
-      hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
     });
     return { ...base, progressMode };
   }

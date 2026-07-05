@@ -422,49 +422,36 @@ describe("readBarIcon", () => {
 describe("readProgressMode", () => {
   const unset = () => undefined;
 
-  it("defaults a new companion view (no property configured) to tasknotes (R2)", () => {
-    expect(
-      readProgressMode(unset, { companionAvailable: true, hasProgressProperty: false }),
-    ).toBe("tasknotes");
+  it("defaults a companion view to tasknotes when unset (matches the dropdown default, R2)", () => {
+    expect(readProgressMode(unset, { companionAvailable: true })).toBe("tasknotes");
   });
 
-  it("defaults to property when a Progress Property is already configured (R2 migration)", () => {
-    expect(
-      readProgressMode(unset, { companionAvailable: true, hasProgressProperty: true }),
-    ).toBe("property");
+  it("keeps the companion default at tasknotes even when a Progress Property is configured", () => {
+    // The property must NOT silently override a shown-as-TaskNotes selection —
+    // it's ignored in tasknotes mode and only applies when explicitly chosen.
+    // (config.get is unset here regardless of whether a property is mapped.)
+    expect(readProgressMode(unset, { companionAvailable: true })).toBe("tasknotes");
   });
 
-  it("defaults to property in standalone mode even with no property configured (R3)", () => {
-    expect(
-      readProgressMode(unset, { companionAvailable: false, hasProgressProperty: false }),
-    ).toBe("property");
+  it("defaults to property in standalone mode (the TaskNotes option isn't offered, R3)", () => {
+    expect(readProgressMode(unset, { companionAvailable: false })).toBe("property");
   });
 
   it("honors an explicit stored mode when the source is available", () => {
     const property = (k: string) => ({ tngantt_progressMode: "property" })[k];
     const tasknotes = (k: string) => ({ tngantt_progressMode: "tasknotes" })[k];
-    expect(
-      readProgressMode(property, { companionAvailable: true, hasProgressProperty: false }),
-    ).toBe("property");
-    expect(
-      readProgressMode(tasknotes, { companionAvailable: true, hasProgressProperty: true }),
-    ).toBe("tasknotes");
+    expect(readProgressMode(property, { companionAvailable: true })).toBe("property");
+    expect(readProgressMode(tasknotes, { companionAvailable: true })).toBe("tasknotes");
   });
 
   it("coalesces an explicit tasknotes selection to property when standalone (R3)", () => {
     const tasknotes = (k: string) => ({ tngantt_progressMode: "tasknotes" })[k];
-    expect(
-      readProgressMode(tasknotes, { companionAvailable: false, hasProgressProperty: false }),
-    ).toBe("property");
+    expect(readProgressMode(tasknotes, { companionAvailable: false })).toBe("property");
   });
 
-  it("treats junk as unset and applies the migration default", () => {
+  it("treats junk as unset and applies the dropdown default", () => {
     const junk = () => "nonsense";
-    expect(
-      readProgressMode(junk, { companionAvailable: true, hasProgressProperty: false }),
-    ).toBe("tasknotes");
-    expect(
-      readProgressMode(junk, { companionAvailable: true, hasProgressProperty: true }),
-    ).toBe("property");
+    expect(readProgressMode(junk, { companionAvailable: true })).toBe("tasknotes");
+    expect(readProgressMode(junk, { companionAvailable: false })).toBe("property");
   });
 });

@@ -353,28 +353,36 @@ export function readBarIcon(get: (key: string) => unknown): BarIconSource {
 }
 
 /**
- * Read the per-view Progress mode, resolving the migration-aware default (R1–R3).
- * An explicit `property` always wins; an explicit `tasknotes` wins only when the
- * companion source is available (standalone has no computed source, so it
- * coalesces to `property`). When unset — or on junk — the default resolves to
- * `property` if standalone or if a Progress Property is already configured
- * (preserving existing behavior), otherwise `tasknotes`. Pure (no Obsidian/DOM);
- * mirrors {@link readBarColorSource}.
+ * Read the per-view Progress mode (R1–R3). An explicit `property` always wins;
+ * an explicit `tasknotes` wins only when the companion source is available
+ * (standalone has no computed source, so it coalesces to `property`). When unset
+ * or junk, the default MATCHES the dropdown's declared default — `tasknotes` when
+ * the companion is present, `property` when standalone (where the TaskNotes
+ * option isn't offered).
+ *
+ * The unset-default deliberately does NOT switch to `property` just because a
+ * Progress Property is configured: Bases doesn't persist an option left at its
+ * default, so a conditional reader-default would read as `property` while the
+ * dropdown still showed "TaskNotes Progress" — the mode the user sees would
+ * disagree with the mode applied, and a checklist note would render nothing
+ * because the (often empty) property was read instead. Property is therefore an
+ * explicit choice, never a silent fallback; in `tasknotes` mode the Progress
+ * Property is ignored entirely. Pure (no Obsidian/DOM); mirrors {@link readBarColorSource}.
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
- * @param ctx - `companionAvailable` (TaskNotes present) and `hasProgressProperty`
- *   (a Progress Property is configured), which drive R3 and the R2 migration default.
+ * @param ctx - `companionAvailable` (TaskNotes present), which gates the
+ *   TaskNotes source and the companion default (R3).
  */
 export function readProgressMode(
   get: (key: string) => unknown,
-  ctx: { companionAvailable: boolean; hasProgressProperty: boolean },
+  ctx: { companionAvailable: boolean },
 ): ProgressMode {
   const raw = get('tngantt_progressMode');
   if (raw === 'property') return 'property';
   if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
-  // Unset, junk, or `tasknotes` requested in standalone → migration default.
-  if (!ctx.companionAvailable || ctx.hasProgressProperty) return 'property';
-  return 'tasknotes';
+  // Unset/junk (or `tasknotes` requested in standalone): default to the mode the
+  // dropdown shows — `tasknotes` with the companion, `property` standalone.
+  return ctx.companionAvailable ? 'tasknotes' : 'property';
 }
 
 /**
