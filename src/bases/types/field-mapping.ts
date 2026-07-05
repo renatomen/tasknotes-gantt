@@ -7,6 +7,14 @@
  */
 
 /**
+ * The two Progress-mode sources. `tasknotes` mirrors TaskNotes' computed
+ * checklist progress (read-only); `property` reads/persists a numeric 0–100
+ * property. Defined here (the leaf types module) so both `FieldMappings` below
+ * and `viewOptions` reference one definition without an import cycle.
+ */
+export type ProgressMode = 'tasknotes' | 'property';
+
+/**
  * Configuration for mapping Obsidian properties to Gantt task fields
  */
 export interface FieldMappings {
@@ -30,7 +38,7 @@ export interface FieldMappings {
    * `progressProperty`. Absent = legacy `property` behavior. Resolved per view by
    * `readProgressMode` and threaded here so `BasesSource` reads the right source.
    */
-  progressMode?: 'tasknotes' | 'property';
+  progressMode?: ProgressMode;
 }
 
 /**

@@ -245,6 +245,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
   function makeBasesScoped(opts: {
     startProperty?: string;
     endProperty?: string;
+    progressProperty?: string;
+    progressMode?: 'tasknotes' | 'property';
     fieldConfig?: FieldConfig | null;
   }) {
     const base = new WritableFakeSource({ write: false, tasks: [task({ path: 'child.md' })] });
@@ -259,6 +261,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
         mappings: {
           startProperty: opts.startProperty,
           endProperty: opts.endProperty,
+          progressProperty: opts.progressProperty,
+          progressMode: opts.progressMode,
         } as FieldMappings,
       }),
       deps: {
@@ -327,6 +331,34 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
 
     expect(getBaseMappings()?.startProperty).toBe('note.start');
     expect(controller.getDateMappingInfo().startInvalid).toBe(false);
+  });
+
+  it('resolves a Property-mode progress drag to a bared progressWrite key (U6/R10)', async () => {
+    const { controller, enrichment } = makeBasesScoped({
+      progressMode: 'property',
+      progressProperty: 'note.percent', // prefixed Bases id → bared to `percent`
+    });
+    await controller.init();
+
+    await controller.mutate('child.md', { progress: 80 });
+
+    expect(enrichment.mutateCalls).toHaveLength(1);
+    // The prefix is stripped so the write lands on the bare frontmatter key.
+    expect(enrichment.mutateCalls[0]!.patch.progressWrite).toEqual({ key: 'percent' });
+    expect(enrichment.mutateCalls[0]!.patch.progress).toBe(80);
+  });
+
+  it('does NOT resolve a progressWrite target in TaskNotes mode (computed/read-only)', async () => {
+    const { controller, enrichment } = makeBasesScoped({
+      progressMode: 'tasknotes',
+      progressProperty: 'note.percent',
+    });
+    await controller.init();
+
+    await controller.mutate('child.md', { progress: 80 });
+
+    // No target resolved → the bare progress carries through and the source drops it.
+    expect(enrichment.mutateCalls[0]!.patch.progressWrite).toBeUndefined();
   });
 
   it('forces read-only (no writes) when there is no field config; date props pass through unchanged (no hardcoded fallback) (R-F)', async () => {

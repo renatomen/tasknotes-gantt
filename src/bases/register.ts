@@ -400,11 +400,13 @@ class ObsidianGanttBasesView extends BasesView {
       // JSON-encode each value so adjacent fields can't concatenate into a collision
       // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
       // (not flattened to "[object Object]").
-      const fmPart = fmKeys.length
+      const frontmatterPart = fmKeys.length
         ? fmKeys.map((k) => JSON.stringify(fm?.[k] ?? '')).join('')
         : '';
-      const clPart = tasknotesProgress ? checklistCompletionSignature(cache?.listItems) : '';
-      return fmPart + clPart;
+      const checklistPart = tasknotesProgress
+        ? checklistCompletionSignature(cache?.listItems)
+        : '';
+      return frontmatterPart + checklistPart;
     });
   }
 
@@ -497,6 +499,20 @@ class ObsidianGanttBasesView extends BasesView {
       hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
     });
     return { ...base, progressMode };
+  }
+
+  /**
+   * Whether the bar's progress handle is read-only/hidden (U5/R7). The handle is
+   * editable ONLY in Property mode with a mapped Progress Property — the sole
+   * configuration where a drag has a resolved write target. Hiding it in
+   * TaskNotes mode (computed) AND in Property mode with no mapped property means
+   * a drag can never silently no-op (the controller would drop a write with no
+   * target and the persist would resolve as if saved). Goes through a dedicated
+   * accessor like the sibling flags (getBarColorMode, etc.).
+   */
+  private getProgressReadonly(): boolean {
+    const m = this.buildFieldMappings();
+    return m.progressMode !== 'property' || (m.progressProperty ?? '').trim() === '';
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
@@ -870,9 +886,9 @@ class ObsidianGanttBasesView extends BasesView {
       barColorMode: this.getBarColorMode(),
       barColorSource: this.getBarColorSource(),
       barIcon: this.getBarIcon(),
-      // TaskNotes progress mode → read-only bar: the view hides the drag handle
-      // (U5/R7). Resolved from the same mapping the read path uses.
-      progressReadonly: this.buildFieldMappings().progressMode === 'tasknotes',
+      // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
+      // mode and in Property mode with no mapped property (nowhere to persist).
+      progressReadonly: this.getProgressReadonly(),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),

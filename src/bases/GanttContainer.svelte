@@ -1462,7 +1462,8 @@
           typeof newProgress === 'number' &&
           newProgress !== (before?.progress ?? undefined)
         ) {
-          setTimeout(() => void persistProgress(id, newProgress), 0);
+          const beforeProgress = before?.progress ?? 0;
+          setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
           return true;
         }
         // Capture pre-drag dates synchronously (instances is still the pre-drag
@@ -1570,16 +1571,26 @@
    * debounce. On failure, revert the bar's progress to the pre-drag value and
    * notify. The controller resolves the write target and the source clamps/rounds.
    */
-  async function persistProgress(instanceId: string, progress: number): Promise<void> {
+  async function persistProgress(
+    instanceId: string,
+    progress: number,
+    beforeProgress: number,
+  ): Promise<void> {
     if (!onMutate || !api) return;
-    const before = instances.find((i) => i.id === instanceId)?.progress ?? 0;
+    // `beforeProgress` is captured synchronously in the intercept (pre-drag),
+    // like persistReschedule's activeDrag capture — so a data refresh landing
+    // before this deferred callback can't skew the revert baseline.
+    // Progress is deliberately NOT mirrored onto multi-parent sibling rows the
+    // way persistReschedule mirrors dates: the source write triggers a refresh
+    // that reconciles every instance, and interim progress divergence is a
+    // transient visual-only effect (dates diverging mid-drag is far more jarring).
     try {
       await withTimeout(onMutate(instanceId, { progress }), MUTATION_TIMEOUT_MS);
     } catch (err) {
       console.error('[GanttContainer] progress persist failed:', err);
       api.exec('update-task', {
         id: instanceId,
-        task: { progress: before },
+        task: { progress: beforeProgress },
         eventSource: OG_ECHO_SOURCE,
       });
       new Notice("Couldn't save progress — check TaskNotes is running.");

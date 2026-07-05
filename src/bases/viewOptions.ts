@@ -16,6 +16,7 @@ import type { BasesAllOptions } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
+import type { ProgressMode } from './types/field-mapping';
 
 /**
  * The shared field-mapping property options consumed by both the Gantt view
@@ -78,13 +79,10 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
 /** The two allowed values of the "Expanded relationships" setting. */
 export type ExpandedRelationships = 'inherit' | 'show-all';
 
-/**
- * The two Progress-mode sources. `tasknotes` mirrors TaskNotes' computed
- * checklist progress (read-only); `property` reads/persists a numeric 0–100
- * property. Companion-only: the `tasknotes` option is offered only when
- * TaskNotes is present (see {@link readProgressMode} + {@link ganttViewOptions}).
- */
-export type ProgressMode = 'tasknotes' | 'property';
+// `ProgressMode` is defined in the leaf types module (`./types/field-mapping`)
+// to avoid an import cycle; imported above and re-exported here so existing
+// `viewOptions` consumers keep importing it from the same place.
+export type { ProgressMode };
 
 /**
  * Default opacity (fraction 0–1) for Show-all *context* bars (U6) — descendants

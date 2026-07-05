@@ -939,7 +939,7 @@ function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   // written — that guards TaskNotes progress mode (read-only/computed) and any
   // no-target caller. The value is coalesced to an integer 0–100 (R9). Written to
   // the top-level frontmatter key, matching the custom user-field write path.
-  if (patch.progressWrite && patch.progress !== undefined && patch.progress !== null) {
+  if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
     updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
   }
 
