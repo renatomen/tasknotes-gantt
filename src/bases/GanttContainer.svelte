@@ -1451,6 +1451,20 @@
       if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
         const before = instances.find((i) => i.id === id);
+        // Progress-handle drag (U6): in Property mode, persist the new percentage
+        // on release. TaskNotes mode hides the handle (progressReadonly), so this
+        // only fires in Property mode. A progress gesture leaves dates unchanged,
+        // so handle it here and skip the reschedule path (avoids a redundant
+        // date write).
+        const newProgress = ev.task?.progress;
+        if (
+          !progressReadonly &&
+          typeof newProgress === 'number' &&
+          newProgress !== (before?.progress ?? undefined)
+        ) {
+          setTimeout(() => void persistProgress(id, newProgress), 0);
+          return true;
+        }
         // Capture pre-drag dates synchronously (instances is still the pre-drag
         // snapshot now) for the subtree-shift delta.
         activeDrag = {
@@ -1550,6 +1564,28 @@
    * On failure (or timeout) every mirrored row — and the dragged row — reverts
    * to its pre-drag dates and a Notice is shown.
    */
+  /**
+   * Persist a Property-mode progress-handle drag (U6). Fires on release only (the
+   * intercept discards `inProgress` frames), so one gesture = one write — no
+   * debounce. On failure, revert the bar's progress to the pre-drag value and
+   * notify. The controller resolves the write target and the source clamps/rounds.
+   */
+  async function persistProgress(instanceId: string, progress: number): Promise<void> {
+    if (!onMutate || !api) return;
+    const before = instances.find((i) => i.id === instanceId)?.progress ?? 0;
+    try {
+      await withTimeout(onMutate(instanceId, { progress }), MUTATION_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[GanttContainer] progress persist failed:', err);
+      api.exec('update-task', {
+        id: instanceId,
+        task: { progress: before },
+        eventSource: OG_ECHO_SOURCE,
+      });
+      new Notice("Couldn't save progress — check TaskNotes is running.");
+    }
+  }
+
   async function persistReschedule(instanceId: string): Promise<void> {
     if (!onMutate || !api) return;
 

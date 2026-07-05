@@ -934,9 +934,21 @@ function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   if (patch.status !== undefined) {
     updates.status = patch.status;
   }
-  // `patch.progress` is intentionally not written (milestone 1, R17).
+  // Progress persistence (U6): write only when a resolved `progressWrite` target
+  // is present AND a value is supplied. A bare `progress` with no target is never
+  // written — that guards TaskNotes progress mode (read-only/computed) and any
+  // no-target caller. The value is coalesced to an integer 0–100 (R9). Written to
+  // the top-level frontmatter key, matching the custom user-field write path.
+  if (patch.progressWrite && patch.progress !== undefined && patch.progress !== null) {
+    updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  }
 
   return updates;
+}
+
+/** Coalesce a progress value to an integer percentage in [0, 100] (R9). */
+function clampProgressPercent(value: number): number {
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 /**

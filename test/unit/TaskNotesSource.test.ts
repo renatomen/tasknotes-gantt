@@ -972,16 +972,70 @@ describe('TaskNotesSource', () => {
       expect(updateSpy).toHaveBeenCalledWith('t.md', { scheduled: null }, undefined);
     });
 
-    it('mutate() does NOT persist progress in milestone 1 (deferred)', async () => {
+    it('mutate() does NOT persist a bare progress value with no resolved write target (safety)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act — progress with no progressWrite target (e.g. tasknotes mode / no property)
+      await source!.mutate('t.md', { progress: 50, status: 'doing' });
+
+      // Assert — progress is dropped; only status is written.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() persists a resolved progress write to the mapped property, clamped and rounded (U6/R9/R10)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act — above-range value; write target resolved to the bare frontmatter key
+      await source!.mutate('t.md', { progress: 117, progressWrite: { key: 'progress' } });
+
+      // Assert — coalesced to 100 and written to the property key
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { progress: 100 }, undefined);
+    });
+
+    it('mutate() coalesces a below-range progress to 0 and rounds fractional values', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert — below 0 → 0
+      await source!.mutate('t.md', { progress: -5, progressWrite: { key: 'pct' } });
+      expect(updateSpy).toHaveBeenLastCalledWith('t.md', { pct: 0 }, undefined);
+
+      // fractional → nearest integer
+      await source!.mutate('t.md', { progress: 62.4, progressWrite: { key: 'pct' } });
+      expect(updateSpy).toHaveBeenLastCalledWith('t.md', { pct: 62 }, undefined);
+    });
+
+    it('mutate() writes nothing for progress when the value is absent even if a target is present', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act — target but no value (should not write the key)
+      await source!.mutate('t.md', { progressWrite: { key: 'progress' }, status: 'doing' });
+
+      // Assert — only status; no progress key
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() does not let a progress write clobber other patched fields', async () => {
       // Arrange
       const { api, updateSpy } = makeApi({ hasWrite: true });
       const source = await TaskNotesSource.create(makeApp(api));
 
       // Act
-      await source!.mutate('t.md', { progress: 50, status: 'doing' });
+      await source!.mutate('t.md', {
+        progress: 40,
+        progressWrite: { key: 'progress' },
+        status: 'doing',
+      });
 
-      // Assert — progress is dropped; only status is written.
-      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+      // Assert — both the progress key and status are written
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { progress: 40, status: 'doing' }, undefined);
     });
 
     it('mutate() propagates a write failure (so the controller can revert + Notice)', async () => {

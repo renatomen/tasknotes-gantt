@@ -467,6 +467,12 @@ export class GanttController {
    */
   private startWriteTarget: DateWriteTarget | null = null;
   private endWriteTarget: DateWriteTarget | null = null;
+  /**
+   * The bare frontmatter key a Property-mode progress drag persists to (U6), or
+   * `null` in TaskNotes mode / when no Progress Property is mapped. Resolved in
+   * {@link selectSource} from the effective mappings.
+   */
+  private progressWriteTarget: string | null = null;
   /** Validity/read-prop info for the resolved date mapping (for surfaces). */
   private dateMappingInfo: DateMappingInfo | null = null;
 
@@ -699,7 +705,7 @@ export class GanttController {
    * the patch passes through and the source applies its canonical mapping.
    */
   private toTargetedPatch(patch: TaskPatch): TaskPatch {
-    if (!this.startWriteTarget && !this.endWriteTarget) {
+    if (!this.startWriteTarget && !this.endWriteTarget && !this.progressWriteTarget) {
       return patch;
     }
     const dateWrites: DateWrite[] = patch.dateWrites ? [...patch.dateWrites] : [];
@@ -711,6 +717,12 @@ export class GanttController {
     if (patch.end !== undefined && this.endWriteTarget) {
       dateWrites.push({ target: this.endWriteTarget, value: patch.end ?? null });
       delete rest.end;
+    }
+    // Resolve a Property-mode progress drag to its frontmatter key (U6); the
+    // source clamps/rounds the carried `progress` value. Without a target the
+    // bare progress is left in the patch and the source drops it (safety).
+    if (patch.progress !== undefined && this.progressWriteTarget) {
+      rest.progressWrite = { key: this.progressWriteTarget };
     }
     if (dateWrites.length > 0) {
       rest.dateWrites = dateWrites;
@@ -883,6 +895,7 @@ export class GanttController {
     // Reset resolved date targets; the bases-scoped branch repopulates them.
     this.startWriteTarget = null;
     this.endWriteTarget = null;
+    this.progressWriteTarget = null;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -908,6 +921,14 @@ export class GanttController {
       // interleave (buildSnapshot) inverts them to decide which Gantt field a Base
       // sort property corresponds to (never a hardcoded property name).
       this.effectiveMappings = effectiveMappings;
+      // Property-mode progress persistence target (U6): the bare frontmatter key
+      // to write a progress drag to. Null in TaskNotes mode (computed/read-only)
+      // or when no Progress Property is mapped. Bared like start/end so the write
+      // lands on `progress`, not `note.progress`.
+      this.progressWriteTarget =
+        effectiveMappings.progressMode !== 'tasknotes' && effectiveMappings.progressProperty
+          ? bareProperty(effectiveMappings.progressProperty) ?? null
+          : null;
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
       // Force read-only when we have no resolvable field config: without write
       // targets, a date edit would fall through to canonical scheduled/due and
