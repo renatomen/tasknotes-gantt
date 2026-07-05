@@ -16,7 +16,7 @@ import type { BasesAllOptions } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
-import type { ProgressMode } from './types/field-mapping';
+import type { FieldMappings, ProgressMode } from './types/field-mapping';
 
 /**
  * The shared field-mapping property options consumed by both the Gantt view
@@ -383,6 +383,18 @@ export function readProgressMode(
   // Unset/junk (or `tasknotes` requested in standalone): default to the mode the
   // dropdown shows — `tasknotes` with the companion, `property` standalone.
   return ctx.companionAvailable ? 'tasknotes' : 'property';
+}
+
+/**
+ * Whether the bar's progress handle is read-only/hidden (U5/R7). The handle is
+ * editable ONLY in Property mode with a mapped Progress Property — the sole
+ * configuration with a resolved write target. It's read-only in TaskNotes mode
+ * (computed) and in Property mode with no mapped property, where a drag would
+ * silently no-op (nowhere to persist). Pure; the view wraps it via
+ * `register.getProgressReadonly()`.
+ */
+export function isProgressReadonly(mappings: FieldMappings): boolean {
+  return mappings.progressMode !== 'property' || (mappings.progressProperty ?? '').trim() === '';
 }
 
 /**

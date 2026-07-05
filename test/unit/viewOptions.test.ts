@@ -18,9 +18,11 @@ import {
   readBarColorSource,
   readBarIcon,
   readProgressMode,
+  isProgressReadonly,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
+import type { FieldMappings } from "../../src/bases/types/field-mapping";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
 
 /** Find a single option by its `key` within an option array. */
@@ -453,5 +455,27 @@ describe("readProgressMode", () => {
     const junk = () => "nonsense";
     expect(readProgressMode(junk, { companionAvailable: true })).toBe("tasknotes");
     expect(readProgressMode(junk, { companionAvailable: false })).toBe("property");
+  });
+});
+
+describe("isProgressReadonly", () => {
+  const mappings = (over: Partial<FieldMappings>): FieldMappings =>
+    ({ textProperty: "", startProperty: "", endProperty: "", progressProperty: "", ...over } as FieldMappings);
+
+  it("is editable only in property mode with a mapped Progress Property", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "note.pct" }))).toBe(false);
+  });
+
+  it("is read-only in tasknotes mode (computed) even with a property mapped", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "tasknotes", progressProperty: "note.pct" }))).toBe(true);
+  });
+
+  it("is read-only in property mode with no mapped property (a drag would no-op)", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "" }))).toBe(true);
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "   " }))).toBe(true);
+  });
+
+  it("is read-only when the mode is unset", () => {
+    expect(isProgressReadonly(mappings({ progressProperty: "note.pct" }))).toBe(true);
   });
 });

@@ -6,7 +6,13 @@
  * an identical signature and the view reuses cached tasks.
  */
 
-import { entriesSignature, frontmatterSignatureKeys, type SignatureEntry } from '../../src/bases/entrySignature';
+import {
+  entriesSignature,
+  frontmatterSignatureKeys,
+  progressModeSignatureTag,
+  entryValueSignature,
+  type SignatureEntry,
+} from '../../src/bases/entrySignature';
 
 const e = (path?: string): SignatureEntry => ({ file: path === undefined ? {} : { path } });
 
@@ -78,5 +84,55 @@ describe('entriesSignature', () => {
       const after = entriesSignature([e('a.md'), e('b.md')], valueOf);
       expect(after).not.toBe(before);
     });
+  });
+});
+
+describe('progressModeSignatureTag', () => {
+  it('tags the resolved Progress mode, defaulting an absent mode to property', () => {
+    expect(progressModeSignatureTag('tasknotes')).toBe('pm:tasknotes|');
+    expect(progressModeSignatureTag('property')).toBe('pm:property|');
+    expect(progressModeSignatureTag(undefined)).toBe('pm:property|');
+  });
+
+  it('differs across modes so a mode switch always flips the signature', () => {
+    expect(progressModeSignatureTag('property')).not.toBe(progressModeSignatureTag('tasknotes'));
+  });
+});
+
+describe('entryValueSignature', () => {
+  const topLevel = (task: string) => ({ task, parent: -1 });
+
+  it('joins the mapped frontmatter values in property mode', () => {
+    const sig = entryValueSignature(['status', 'pct'], { status: 'open', pct: 40 }, undefined, false);
+    expect(sig).toContain('"open"');
+    expect(sig).toContain('40');
+  });
+
+  it('appends the checklist fingerprint in tasknotes mode', () => {
+    const withChecklist = entryValueSignature([], null, [topLevel('x'), topLevel(' ')], true);
+    const noChecklist = entryValueSignature([], null, [], true);
+    expect(withChecklist).toBe('1/2');
+    expect(noChecklist).toBe('');
+  });
+
+  it('is IDENTICAL across modes for a checklist-less note (why the mode tag is required)', () => {
+    // A note with no checklist contributes an empty checklist fingerprint, and the
+    // same frontmatter value is read in both modes — so entryValueSignature alone
+    // can't distinguish the modes. progressModeSignatureTag is what forces the
+    // re-read on a mode switch.
+    const fm = { pct: 35 };
+    const property = entryValueSignature(['pct'], fm, [], false);
+    const tasknotes = entryValueSignature(['pct'], fm, [], true);
+    expect(property).toBe(tasknotes);
+  });
+
+  it('changes when a checklist item is toggled (live refresh, R5)', () => {
+    const before = entryValueSignature([], null, [topLevel('x'), topLevel(' '), topLevel(' ')], true);
+    const after = entryValueSignature([], null, [topLevel('x'), topLevel('x'), topLevel(' ')], true);
+    expect(after).not.toBe(before);
+  });
+
+  it('returns empty for an entry with no frontmatter in property mode', () => {
+    expect(entryValueSignature(['pct'], null, undefined, false)).toBe('');
   });
 });

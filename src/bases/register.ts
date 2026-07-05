@@ -63,6 +63,7 @@ import {
   readBarColorSource,
   readBarIcon,
   readProgressMode,
+  isProgressReadonly,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -91,8 +92,12 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { entriesSignature, frontmatterSignatureKeys } from './entrySignature';
-import { checklistCompletionSignature } from './checklistProgress';
+import {
+  entriesSignature,
+  frontmatterSignatureKeys,
+  progressModeSignatureTag,
+  entryValueSignature,
+} from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -385,28 +390,23 @@ class ObsidianGanttBasesView extends BasesView {
     // no frontmatter key, the signature wouldn't flip, and reuseTasks would skip
     // the re-read, leaving the bar stale.
     const tasknotesProgress = m.progressMode === 'tasknotes';
+    // Fold the resolved Progress mode into the signature so a mode switch always
+    // forces a re-read. Without it, a note with no checklist has an identical
+    // signature in both modes (its empty checklist fingerprint contributes
+    // nothing and the mapped property value is read in both), so its bar keeps
+    // the stale value until a manual refresh.
+    const modeTag = progressModeSignatureTag(m.progressMode);
     if (fmKeys.length === 0 && !tasknotesProgress) {
-      return entriesSignature(entries);
+      return modeTag + entriesSignature(entries);
     }
     const app = this.app;
-    return entriesSignature(entries, (e) => {
+    return modeTag + entriesSignature(entries, (e) => {
       const path = e.file?.path;
       if (!path) return '';
       const file = app.vault.getAbstractFileByPath(path);
       if (!(file instanceof TFile)) return '';
       const cache = app.metadataCache.getFileCache(file);
-      const fm = cache?.frontmatter ?? null;
-      if (!fm && !tasknotesProgress) return '';
-      // JSON-encode each value so adjacent fields can't concatenate into a collision
-      // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
-      // (not flattened to "[object Object]").
-      const frontmatterPart = fmKeys.length
-        ? fmKeys.map((k) => JSON.stringify(fm?.[k] ?? '')).join('')
-        : '';
-      const checklistPart = tasknotesProgress
-        ? checklistCompletionSignature(cache?.listItems)
-        : '';
-      return frontmatterPart + checklistPart;
+      return entryValueSignature(fmKeys, cache?.frontmatter ?? null, cache?.listItems, tasknotesProgress);
     });
   }
 
@@ -511,8 +511,7 @@ class ObsidianGanttBasesView extends BasesView {
    * accessor like the sibling flags (getBarColorMode, etc.).
    */
   private getProgressReadonly(): boolean {
-    const m = this.buildFieldMappings();
-    return m.progressMode !== 'property' || (m.progressProperty ?? '').trim() === '';
+    return isProgressReadonly(this.buildFieldMappings());
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */

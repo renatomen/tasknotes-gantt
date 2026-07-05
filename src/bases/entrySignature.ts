@@ -20,9 +20,50 @@
  * @module bases/entrySignature
  */
 
+import { checklistCompletionSignature, type ChecklistItemLike } from './checklistProgress';
+import type { ProgressMode } from './types/field-mapping';
+
 /** Minimal entry shape the signature reads (a subset of a Bases entry). */
 export interface SignatureEntry {
   file?: { path?: string };
+}
+
+/**
+ * A signature prefix carrying the resolved Progress mode, so a mode switch always
+ * flips the whole signature and forces a re-read. Without it, a note with no
+ * checklist has an identical per-entry value in both modes (empty checklist
+ * fingerprint, same mapped property value), so its bar would keep the stale value
+ * until a manual refresh. Pure.
+ */
+export function progressModeSignatureTag(mode: ProgressMode | undefined): string {
+  return `pm:${mode ?? 'property'}|`;
+}
+
+/**
+ * The per-entry value string folded into the signature: the JSON-encoded
+ * frontmatter values for the mapped fields, plus (in TaskNotes progress mode) the
+ * note's checklist-completion fingerprint. Returns `''` for an entry with no
+ * frontmatter in a non-TaskNotes context (nothing observable to fingerprint).
+ * Values are ``-joined so adjacent fields can't collide, and JSON-encoded so
+ * array/object edits stay observable. Pure (the caller reads the cache).
+ *
+ * @param fmKeys - bare frontmatter keys to fingerprint (from {@link frontmatterSignatureKeys}).
+ * @param frontmatter - the note's cached frontmatter, or null when absent.
+ * @param listItems - the note's cached list items (checklist source), or undefined.
+ * @param tasknotesProgress - whether Progress mode is `tasknotes` (folds the checklist fingerprint).
+ */
+export function entryValueSignature(
+  fmKeys: readonly string[],
+  frontmatter: Record<string, unknown> | null | undefined,
+  listItems: ReadonlyArray<ChecklistItemLike> | null | undefined,
+  tasknotesProgress: boolean,
+): string {
+  if (!frontmatter && !tasknotesProgress) return '';
+  const frontmatterPart = fmKeys.length
+    ? fmKeys.map((k) => JSON.stringify(frontmatter?.[k] ?? '')).join('')
+    : '';
+  const checklistPart = tasknotesProgress ? checklistCompletionSignature(listItems) : '';
+  return frontmatterPart + checklistPart;
 }
 
 /**
