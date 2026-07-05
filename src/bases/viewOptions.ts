@@ -79,6 +79,14 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
 export type ExpandedRelationships = 'inherit' | 'show-all';
 
 /**
+ * The two Progress-mode sources. `tasknotes` mirrors TaskNotes' computed
+ * checklist progress (read-only); `property` reads/persists a numeric 0–100
+ * property. Companion-only: the `tasknotes` option is offered only when
+ * TaskNotes is present (see {@link readProgressMode} + {@link ganttViewOptions}).
+ */
+export type ProgressMode = 'tasknotes' | 'property';
+
+/**
  * Default opacity (fraction 0–1) for Show-all *context* bars (U6) — descendants
  * pulled in for structure that don't match the Base filter. Used as the slider's
  * default (as a percentage) and as the fallback in {@link readContextOpacity} and
@@ -145,6 +153,22 @@ export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
   return [
     ...sharedFieldMappingOptions(),
     ...(companionAvailable ? relationshipOptions() : []),
+    // Progress source (companion-only). `tasknotes` mirrors TaskNotes' computed
+    // checklist progress (read-only); `property` reads/persists the Progress
+    // Property. Omitted in standalone mode — with no TaskNotes there is no
+    // computed source, so readProgressMode() resolves to `property` there.
+    // Record<string,string> value→label map (an array renders "[object Object]").
+    ...(companionAvailable
+      ? [
+          {
+            type: 'dropdown' as const,
+            displayName: 'Progress mode',
+            key: 'tngantt_progressMode',
+            default: 'tasknotes',
+            options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
+          },
+        ]
+      : []),
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -328,6 +352,31 @@ export function readBarColorSource(get: (key: string) => unknown): BarColorSourc
 export function readBarIcon(get: (key: string) => unknown): BarIconSource {
   const raw = get('tngantt_barIcon');
   return raw === 'status' || raw === 'priority' ? raw : 'none';
+}
+
+/**
+ * Read the per-view Progress mode, resolving the migration-aware default (R1–R3).
+ * An explicit `property` always wins; an explicit `tasknotes` wins only when the
+ * companion source is available (standalone has no computed source, so it
+ * coalesces to `property`). When unset — or on junk — the default resolves to
+ * `property` if standalone or if a Progress Property is already configured
+ * (preserving existing behavior), otherwise `tasknotes`. Pure (no Obsidian/DOM);
+ * mirrors {@link readBarColorSource}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ * @param ctx - `companionAvailable` (TaskNotes present) and `hasProgressProperty`
+ *   (a Progress Property is configured), which drive R3 and the R2 migration default.
+ */
+export function readProgressMode(
+  get: (key: string) => unknown,
+  ctx: { companionAvailable: boolean; hasProgressProperty: boolean },
+): ProgressMode {
+  const raw = get('tngantt_progressMode');
+  if (raw === 'property') return 'property';
+  if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
+  // Unset, junk, or `tasknotes` requested in standalone → migration default.
+  if (!ctx.companionAvailable || ctx.hasProgressProperty) return 'property';
+  return 'tasknotes';
 }
 
 /**
