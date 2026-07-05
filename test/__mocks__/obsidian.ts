@@ -17,6 +17,15 @@ export class App {
 }
 
 /**
+ * Stub of Obsidian's `TFile` so runtime `instanceof TFile` checks (e.g.
+ * `resolveNoteProgress`, `computeEntrySignature`) can be exercised in unit tests:
+ * a test's fake file must be a real instance of this class to pass the guard.
+ */
+export class TFile {
+  path = '';
+}
+
+/**
  * Stub of Obsidian's generic fuzzy picker. Subclasses override getItems /
  * getItemText / renderSuggestion / onChooseItem; this base only needs to be
  * constructible and to accept the wiring the subclass calls in its constructor.

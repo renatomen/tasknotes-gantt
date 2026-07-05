@@ -76,6 +76,7 @@ import {
   type StatusColor,
   type TaskPatch,
 } from '../datasource';
+import { resolveNoteProgress } from '../datasource/noteProgress';
 import {
   expandInstances,
   ExpansionResult,
@@ -929,6 +930,20 @@ export class GanttController {
         effectiveMappings.progressMode !== 'tasknotes' && effectiveMappings.progressProperty
           ? bareProperty(effectiveMappings.progressProperty) ?? null
           : null;
+      // Companion-fetched tasks (relationship-expanded descendants that aren't
+      // matched Base entries) come from the enrichment (TaskNotesSource), which
+      // has no Bases entry to read progress from. Install a mode-aware resolver so
+      // they read progress from the note by path — checklist compute (tasknotes)
+      // or the frontmatter Progress Property (property) — mirroring what
+      // BasesSource reads for matched entries. Without this they render 0.
+      const app = this.app;
+      const progressMode = effectiveMappings.progressMode;
+      const progressKey = this.progressWriteTarget;
+      (
+        enrichment as {
+          setProgressResolver?: (fn: ((path: string) => number | null) | null) => void;
+        } | null
+      )?.setProgressResolver?.((path) => resolveNoteProgress(app, path, progressMode, progressKey));
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
       // Force read-only when we have no resolvable field config: without write
       // targets, a date edit would fall through to canonical scheduled/due and

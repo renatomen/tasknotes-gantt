@@ -563,6 +563,18 @@ describe('TaskNotesSource', () => {
       expect(task.parents).toEqual([]);
     });
 
+    it('resolves companion-fetched progress via the installed resolver', async () => {
+      // Companion-expanded tasks have no Bases entry; the controller installs a
+      // path-keyed, mode-aware resolver so their progress renders (not 0).
+      const { api } = makeApi({ tasks: [{ path: 'tasks/b.md', title: 'B' }] });
+      const source = await TaskNotesSource.create(makeApp(api));
+      source!.setProgressResolver((path) => (path === 'tasks/b.md' ? 45 : null));
+
+      const [task] = await source!.getTasks();
+
+      expect(task.progress).toBe(45);
+    });
+
     it('maps priority (and null when unset)', async () => {
       const { api } = makeApi({
         tasks: [

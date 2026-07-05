@@ -308,10 +308,29 @@ export class TaskNotesSource implements DataSource {
   private readonly app: App;
   private readonly api: TaskNotesApi;
 
+  /**
+   * Resolves a companion-fetched task's progress (0–100) from its note path,
+   * mode-aware. Set by the controller each recompute (it knows the resolved
+   * Progress mode + property key). `null` → no resolver (e.g. tasknotes-first
+   * strategy), so progress stays `null`. Without this, relationship-expanded
+   * tasks that aren't matched Base entries render 0 progress (they never touch
+   * BasesSource's read path).
+   */
+  private progressResolver: ((path: string) => number | null) | null = null;
+
   private constructor(app: App, api: TaskNotesApi) {
     this.app = app;
     this.api = api;
     this.capabilities = { write: this.supportsWrite() };
+  }
+
+  /**
+   * Install (or clear) the progress resolver used by {@link toSourceTask} for
+   * companion-fetched tasks. Idempotent; the controller re-sets it per recompute
+   * so a Progress-mode/property change applies without re-creating the source.
+   */
+  public setProgressResolver(resolver: ((path: string) => number | null) | null): void {
+    this.progressResolver = resolver;
   }
 
   /**
@@ -842,10 +861,11 @@ export class TaskNotesSource implements DataSource {
       text: task.title ?? '',
       start: this.toDate(task.scheduled),
       end: this.toDate(task.due),
-      // TaskNotes has no native numeric progress field; progress is derived
-      // from status in the view layer, never stored here (KTD: progress is
-      // derived/read-only in milestone 1).
-      progress: null,
+      // Companion-fetched tasks have no Bases entry, so progress is resolved from
+      // the note by path (checklist compute or frontmatter property, mode-aware)
+      // via the controller-installed resolver. `null` when no resolver is set
+      // (e.g. tasknotes-first strategy) — TaskNotes has no native progress field.
+      progress: this.progressResolver ? this.progressResolver(task.path) : null,
       status: task.status ?? null,
       priority: task.priority ?? null,
       // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
