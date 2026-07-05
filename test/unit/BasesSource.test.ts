@@ -327,4 +327,110 @@ describe('BasesSource', () => {
       expect(await source.getDependencies('anything.md')).toEqual([]);
     });
   });
+
+  describe('checklist progress (TaskNotes mode, U3)', () => {
+    const TN_MAPPINGS: FieldMappings = { ...MAPPINGS, progressMode: 'tasknotes' };
+
+    /** An App whose metadataCache.getFileCache returns listItems keyed by path. */
+    function makeCacheApp(caches: Record<string, unknown[]>): App {
+      return {
+        metadataCache: {
+          getFileCache: (file: { path: string }) =>
+            file && caches[file.path] ? { listItems: caches[file.path] } : {},
+          getFirstLinkpathDest: () => null,
+        },
+        vault: { getAbstractFileByPath: () => null },
+      } as unknown as App;
+    }
+
+    it('computes the percentage from completed/total top-level checklist items (R4)', async () => {
+      // Arrange — 2 of 4 top-level checklist items complete
+      const cacheApp = makeCacheApp({
+        'tasks/a.md': [
+          { task: 'x', parent: -1 },
+          { task: 'x', parent: -1 },
+          { task: ' ', parent: -1 },
+          { task: ' ', parent: -1 },
+        ],
+      });
+      const entry = makeEntry('tasks/a.md', 'a', {});
+      const source = new BasesSource(cacheApp, [entry], TN_MAPPINGS);
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.progress).toBe(50);
+    });
+
+    it('yields null when the note has no checklist items (R6)', async () => {
+      // Arrange — a note with no list items, and a note with a non-task bullet only
+      const cacheApp = makeCacheApp({
+        'tasks/none.md': [],
+        'tasks/bullet.md': [{ parent: -1 }], // plain bullet, no `task` marker
+      });
+      const source = new BasesSource(
+        cacheApp,
+        [makeEntry('tasks/none.md', 'none', {}), makeEntry('tasks/bullet.md', 'bullet', {})],
+        TN_MAPPINGS,
+      );
+
+      // Act
+      const [none, bullet] = await source.getTasks();
+
+      // Assert — null (→ bar renders 0 via ganttSync `?? 0`)
+      expect(none.progress).toBeNull();
+      expect(bullet.progress).toBeNull();
+    });
+
+    it('excludes nested checklist items from the count', async () => {
+      // Arrange — one nested completed item (parent >= 0) must NOT count
+      const cacheApp = makeCacheApp({
+        'tasks/n.md': [
+          { task: 'x', parent: -1 }, // top-level, complete
+          { task: 'x', parent: 0 }, // nested under line 0 — excluded
+          { task: ' ', parent: -1 }, // top-level, incomplete
+        ],
+      });
+      const source = new BasesSource(cacheApp, [makeEntry('tasks/n.md', 'n', {})], TN_MAPPINGS);
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert — 1 of 2 top-level → 50 (nested `x` ignored)
+      expect(task.progress).toBe(50);
+    });
+
+    it('counts x/X as complete and other markers as incomplete', async () => {
+      // Arrange
+      const cacheApp = makeCacheApp({
+        'tasks/m.md': [
+          { task: 'X', parent: -1 }, // complete (uppercase)
+          { task: '/', parent: -1 }, // in-progress marker — counts, not complete
+          { task: ' ', parent: -1 }, // incomplete
+        ],
+      });
+      const source = new BasesSource(cacheApp, [makeEntry('tasks/m.md', 'm', {})], TN_MAPPINGS);
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert — 1 of 3 complete → 33
+      expect(task.progress).toBe(33);
+    });
+
+    it('reads the Progress Property (not the checklist) in property mode (R8)', async () => {
+      // Arrange — property mode: the checklist would compute 100, but the mapped
+      // property value (30) must win because the compute path is not taken.
+      const cacheApp = makeCacheApp({ 'tasks/p.md': [{ task: 'x', parent: -1 }] });
+      const entry = makeEntry('tasks/p.md', 'p', { 'note:progress': 30 });
+      const source = new BasesSource(cacheApp, [entry], { ...MAPPINGS, progressMode: 'property' });
+
+      // Act
+      const [task] = await source.getTasks();
+
+      // Assert
+      expect(task.progress).toBe(30);
+    });
+  });
 });

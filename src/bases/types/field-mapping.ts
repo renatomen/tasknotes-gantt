@@ -24,6 +24,13 @@ export interface FieldMappings {
   statusProperty?: string;
   /** Property ID for task priority (empty string / unset = no priority) */
   priorityProperty?: string;
+  /**
+   * Progress source (see `viewOptions.ProgressMode`). `tasknotes` computes the
+   * bar's progress from the note's checklist (read-only); `property` reads the
+   * `progressProperty`. Absent = legacy `property` behavior. Resolved per view by
+   * `readProgressMode` and threaded here so `BasesSource` reads the right source.
+   */
+  progressMode?: 'tasknotes' | 'property';
 }
 
 /**

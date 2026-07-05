@@ -62,6 +62,7 @@ import {
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
+  readProgressMode,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -471,7 +472,18 @@ class ObsidianGanttBasesView extends BasesView {
    * legacy note.start/note.due (see GanttController.applyDateFieldMapping).
    */
   private buildFieldMappings(): FieldMappings {
-    return readFieldMappings((key) => this.config.get(key));
+    const get = (key: string) => this.config.get(key);
+    const base = readFieldMappings(get);
+    // Resolve the Progress mode (R1–R3) and thread it onto the mappings so
+    // BasesSource reads the right source (U3) and computeEntrySignature folds in
+    // the right change-detection state (U4). Companion presence gates the
+    // TaskNotes source; a configured Progress Property drives the R2 migration
+    // default.
+    const progressMode = readProgressMode(get, {
+      companionAvailable: isTaskNotesPresent(this.app),
+      hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
+    });
+    return { ...base, progressMode };
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
