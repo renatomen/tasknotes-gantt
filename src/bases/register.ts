@@ -870,6 +870,9 @@ class ObsidianGanttBasesView extends BasesView {
       barColorMode: this.getBarColorMode(),
       barColorSource: this.getBarColorSource(),
       barIcon: this.getBarIcon(),
+      // TaskNotes progress mode → read-only bar: the view hides the drag handle
+      // (U5/R7). Resolved from the same mapping the read path uses.
+      progressReadonly: this.buildFieldMappings().progressMode === 'tasknotes',
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),

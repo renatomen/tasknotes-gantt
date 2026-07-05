@@ -95,6 +95,14 @@ export interface GanttData {
   barColorMode: BarColorMode;
   barColorSource: BarColorSource;
   barIcon: BarIconSource;
+  /**
+   * Whether the bar's progress is read-only (TaskNotes progress mode, U5/R7).
+   * Flows through the reactive data path like {@link barColorMode} so switching
+   * Progress mode hides/shows the drag handle live without a remount. The view
+   * toggles a root class that hides `.wx-progress-marker`; date drag is
+   * unaffected. `false` in property mode (the handle persists on release).
+   */
+  progressReadonly: boolean;
   /** Invalid date-mapping notice, when a start/end mapping fell back. */
   dateMappingNotice?: string;
   /** Whether TaskNotes is present (distinguishes read-only banner copy). */

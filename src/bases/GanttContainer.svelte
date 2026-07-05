@@ -256,6 +256,9 @@
   const priorityColors = $derived($data.priorityColors ?? []);
   const barColorMode = $derived($data.barColorMode ?? 'fill');
   const barColorSource = $derived($data.barColorSource ?? 'default');
+  // U5/R7: TaskNotes progress mode is read-only — hide the bar's progress drag
+  // handle (scoped CSS below). Date drag/resize is unaffected.
+  const progressReadonly = $derived($data.progressReadonly ?? false);
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
@@ -1888,6 +1891,7 @@
 <div
   class="og-bases-gantt"
   class:is-maximized={isMaximized}
+  class:og-progress-readonly={progressReadonly}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -2486,6 +2490,21 @@
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
+  }
+
+  /*
+   * U5/R7: TaskNotes progress mode is a read-only computed value, so hide the
+   * bar's progress drag handle (`.wx-progress-marker`) and make the progress
+   * region non-interactive. Date drag/resize (a different handle) is unaffected.
+   * Scoped to the `.og-progress-readonly` root class the view toggles from
+   * GanttData.progressReadonly — property mode leaves the handle draggable.
+   */
+  .og-bases-gantt.og-progress-readonly :global(.wx-progress-marker) {
+    display: none !important;
+  }
+
+  .og-bases-gantt.og-progress-readonly :global(.wx-progress-wrapper) {
+    pointer-events: none;
   }
 
   /*
