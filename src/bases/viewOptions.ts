@@ -16,6 +16,7 @@ import type { BasesAllOptions } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
+import type { FieldMappings, ProgressMode } from './types/field-mapping';
 
 /**
  * The shared field-mapping property options consumed by both the Gantt view
@@ -77,6 +78,11 @@ function sharedFieldMappingOptions(): BasesAllOptions[] {
 
 /** The two allowed values of the "Expanded relationships" setting. */
 export type ExpandedRelationships = 'inherit' | 'show-all';
+
+// `ProgressMode` is defined in the leaf types module (`./types/field-mapping`)
+// to avoid an import cycle; imported above and re-exported here so existing
+// `viewOptions` consumers keep importing it from the same place.
+export type { ProgressMode };
 
 /**
  * Default opacity (fraction 0–1) for Show-all *context* bars (U6) — descendants
@@ -140,11 +146,39 @@ function relationshipOptions(): BasesAllOptions[] {
  * @param companionAvailable - whether TaskNotes is present. When false, the
  *   companion-only relationship controls are omitted (expansion has no effect in
  *   standalone mode, so the controls would be inert — hide them instead).
+ * @param hasProgressProperty - whether a Progress Property is configured. Drives
+ *   the Progress-mode dropdown's SHOWN default so it matches what
+ *   {@link readProgressMode} resolves for an unset mode: `property` when a
+ *   property is mapped (don't silently switch an existing view to computed),
+ *   else `tasknotes`. Aligning the shown default with the resolved default keeps
+ *   the two in sync AND makes an explicit selection a non-default value that
+ *   Bases persists.
  */
-export function ganttViewOptions(companionAvailable = true): BasesAllOptions[] {
+export function ganttViewOptions(
+  companionAvailable = true,
+  hasProgressProperty = false,
+): BasesAllOptions[] {
   return [
     ...sharedFieldMappingOptions(),
     ...(companionAvailable ? relationshipOptions() : []),
+    // Progress source (companion-only). `tasknotes` mirrors TaskNotes' computed
+    // checklist progress (read-only); `property` reads/persists the Progress
+    // Property. Omitted in standalone mode — with no TaskNotes there is no
+    // computed source, so readProgressMode() resolves to `property` there.
+    // The default MATCHES readProgressMode's unset resolution (property when a
+    // property is mapped, else tasknotes) so the shown mode == the applied mode.
+    // Record<string,string> value→label map (an array renders "[object Object]").
+    ...(companionAvailable
+      ? [
+          {
+            type: 'dropdown' as const,
+            displayName: 'Progress mode',
+            key: 'tngantt_progressMode',
+            default: hasProgressProperty ? 'property' : 'tasknotes',
+            options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
+          },
+        ]
+      : []),
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -328,6 +362,50 @@ export function readBarColorSource(get: (key: string) => unknown): BarColorSourc
 export function readBarIcon(get: (key: string) => unknown): BarIconSource {
   const raw = get('tngantt_barIcon');
   return raw === 'status' || raw === 'priority' ? raw : 'none';
+}
+
+/**
+ * Read the per-view Progress mode (R1–R3). An explicit `property` always wins; an
+ * explicit `tasknotes` wins only when the companion source is available
+ * (standalone has no computed source, so it coalesces to `property`).
+ *
+ * When unset or junk, the default preserves existing views: `property` when a
+ * Progress Property is already configured (or when standalone, where the
+ * TaskNotes option isn't offered), otherwise `tasknotes` for a fresh companion
+ * view. {@link ganttViewOptions} aligns the dropdown's SHOWN default to this same
+ * rule, so the mode the user sees always equals the mode applied — and an
+ * explicit selection differs from the shown default and therefore persists
+ * (Bases doesn't store an option left at its default). In `tasknotes` mode the
+ * Progress Property is ignored. Pure (no Obsidian/DOM); mirrors {@link readBarColorSource}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ * @param ctx - `companionAvailable` (TaskNotes present) gates the TaskNotes
+ *   source (R3); `hasProgressProperty` (a Progress Property is mapped) drives the
+ *   unset default so an existing property view isn't silently switched to computed.
+ */
+export function readProgressMode(
+  get: (key: string) => unknown,
+  ctx: { companionAvailable: boolean; hasProgressProperty: boolean },
+): ProgressMode {
+  const raw = get('tngantt_progressMode');
+  if (raw === 'property') return 'property';
+  if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
+  // Unset/junk (or `tasknotes` in standalone): preserve existing behavior — a
+  // configured property (or standalone) → `property`; a fresh companion view → `tasknotes`.
+  if (!ctx.companionAvailable || ctx.hasProgressProperty) return 'property';
+  return 'tasknotes';
+}
+
+/**
+ * Whether the bar's progress handle is read-only/hidden (U5/R7). The handle is
+ * editable ONLY in Property mode with a mapped Progress Property — the sole
+ * configuration with a resolved write target. It's read-only in TaskNotes mode
+ * (computed) and in Property mode with no mapped property, where a drag would
+ * silently no-op (nowhere to persist). Pure; the view wraps it via
+ * `register.getProgressReadonly()`.
+ */
+export function isProgressReadonly(mappings: FieldMappings): boolean {
+  return mappings.progressMode !== 'property' || (mappings.progressProperty ?? '').trim() === '';
 }
 
 /**

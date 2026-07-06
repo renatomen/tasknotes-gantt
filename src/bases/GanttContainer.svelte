@@ -256,6 +256,9 @@
   const priorityColors = $derived($data.priorityColors ?? []);
   const barColorMode = $derived($data.barColorMode ?? 'fill');
   const barColorSource = $derived($data.barColorSource ?? 'default');
+  // U5/R7: TaskNotes progress mode is read-only — hide the bar's progress drag
+  // handle (scoped CSS below). Date drag/resize is unaffected.
+  const progressReadonly = $derived($data.progressReadonly ?? false);
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
@@ -1448,6 +1451,30 @@
       if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
         const before = instances.find((i) => i.id === id);
+        // Progress-handle drag (U6): in Property mode, persist the new percentage
+        // on release. TaskNotes mode hides the handle (progressReadonly), so this
+        // only fires in Property mode.
+        //
+        // Identify a progress gesture by the SVAR payload SHAPE, not just a
+        // changed progress value: the progress marker emits `task: { progress }`
+        // with NO start/end, whereas a date drag/resize emits `task: { start, end }`
+        // (and SVAR may echo the task's current `progress: 0` for a blank-progress
+        // task). Keying only on `progress !== before` would then misread a date
+        // drag as a progress write — writing 0 to the property and dropping the
+        // date edit. Requiring progress present AND start/end absent avoids that.
+        const t = ev.task ?? {};
+        const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
+        const newProgress = t.progress;
+        if (
+          !progressReadonly &&
+          isProgressGesture &&
+          typeof newProgress === 'number' &&
+          newProgress !== (before?.progress ?? undefined)
+        ) {
+          const beforeProgress = before?.progress ?? 0;
+          setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
+          return true;
+        }
         // Capture pre-drag dates synchronously (instances is still the pre-drag
         // snapshot now) for the subtree-shift delta.
         activeDrag = {
@@ -1547,6 +1574,38 @@
    * On failure (or timeout) every mirrored row — and the dragged row — reverts
    * to its pre-drag dates and a Notice is shown.
    */
+  /**
+   * Persist a Property-mode progress-handle drag (U6). Fires on release only (the
+   * intercept discards `inProgress` frames), so one gesture = one write — no
+   * debounce. On failure, revert the bar's progress to the pre-drag value and
+   * notify. The controller resolves the write target and the source clamps/rounds.
+   */
+  async function persistProgress(
+    instanceId: string,
+    progress: number,
+    beforeProgress: number,
+  ): Promise<void> {
+    if (!onMutate || !api) return;
+    // `beforeProgress` is captured synchronously in the intercept (pre-drag),
+    // like persistReschedule's activeDrag capture — so a data refresh landing
+    // before this deferred callback can't skew the revert baseline.
+    // Progress is deliberately NOT mirrored onto multi-parent sibling rows the
+    // way persistReschedule mirrors dates: the source write triggers a refresh
+    // that reconciles every instance, and interim progress divergence is a
+    // transient visual-only effect (dates diverging mid-drag is far more jarring).
+    try {
+      await withTimeout(onMutate(instanceId, { progress }), MUTATION_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[GanttContainer] progress persist failed:', err);
+      api.exec('update-task', {
+        id: instanceId,
+        task: { progress: beforeProgress },
+        eventSource: OG_ECHO_SOURCE,
+      });
+      new Notice("Couldn't save progress — check TaskNotes is running.");
+    }
+  }
+
   async function persistReschedule(instanceId: string): Promise<void> {
     if (!onMutate || !api) return;
 
@@ -1888,6 +1947,7 @@
 <div
   class="og-bases-gantt"
   class:is-maximized={isMaximized}
+  class:og-progress-readonly={progressReadonly}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -2486,6 +2546,21 @@
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
     background-color: #c0392b !important;
+  }
+
+  /*
+   * U5/R7: TaskNotes progress mode is a read-only computed value, so hide the
+   * bar's progress drag handle (`.wx-progress-marker`) and make the progress
+   * region non-interactive. Date drag/resize (a different handle) is unaffected.
+   * Scoped to the `.og-progress-readonly` root class the view toggles from
+   * GanttData.progressReadonly — property mode leaves the handle draggable.
+   */
+  .og-bases-gantt.og-progress-readonly :global(.wx-progress-marker) {
+    display: none !important;
+  }
+
+  .og-bases-gantt.og-progress-readonly :global(.wx-progress-wrapper) {
+    pointer-events: none;
   }
 
   /*

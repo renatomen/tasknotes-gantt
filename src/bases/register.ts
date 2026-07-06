@@ -62,6 +62,8 @@ import {
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
+  readProgressMode,
+  isProgressReadonly,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -90,7 +92,12 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { entriesSignature, frontmatterSignatureKeys } from './entrySignature';
+import {
+  entriesSignature,
+  frontmatterSignatureKeys,
+  progressModeSignatureTag,
+  entryValueSignature,
+} from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -377,20 +384,29 @@ class ObsidianGanttBasesView extends BasesView {
       m.priorityProperty,
       m.parentProperty,
     ]);
-    if (fmKeys.length === 0) {
-      return entriesSignature(entries);
+    // In TaskNotes progress mode the bar value comes from the note's checklist
+    // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
+    // fingerprint into the signature (U4/R5). Without it a checklist tick changes
+    // no frontmatter key, the signature wouldn't flip, and reuseTasks would skip
+    // the re-read, leaving the bar stale.
+    const tasknotesProgress = m.progressMode === 'tasknotes';
+    // Fold the resolved Progress mode into the signature so a mode switch always
+    // forces a re-read. Without it, a note with no checklist has an identical
+    // signature in both modes (its empty checklist fingerprint contributes
+    // nothing and the mapped property value is read in both), so its bar keeps
+    // the stale value until a manual refresh.
+    const modeTag = progressModeSignatureTag(m.progressMode);
+    if (fmKeys.length === 0 && !tasknotesProgress) {
+      return modeTag + entriesSignature(entries);
     }
     const app = this.app;
-    return entriesSignature(entries, (e) => {
+    return modeTag + entriesSignature(entries, (e) => {
       const path = e.file?.path;
       if (!path) return '';
       const file = app.vault.getAbstractFileByPath(path);
-      const fm = file instanceof TFile ? app.metadataCache.getFileCache(file)?.frontmatter : null;
-      if (!fm) return '';
-      // JSON-encode each value so adjacent fields can't concatenate into a collision
-      // (e.g. "in"+"progress" vs "inprogress") and array/object edits stay observable
-      // (not flattened to "[object Object]").
-      return fmKeys.map((k) => JSON.stringify(fm[k] ?? '')).join('');
+      if (!(file instanceof TFile)) return '';
+      const cache = app.metadataCache.getFileCache(file);
+      return entryValueSignature(fmKeys, cache?.frontmatter ?? null, cache?.listItems, tasknotesProgress);
     });
   }
 
@@ -471,7 +487,32 @@ class ObsidianGanttBasesView extends BasesView {
    * legacy note.start/note.due (see GanttController.applyDateFieldMapping).
    */
   private buildFieldMappings(): FieldMappings {
-    return readFieldMappings((key) => this.config.get(key));
+    const get = (key: string) => this.config.get(key);
+    const base = readFieldMappings(get);
+    // Resolve the Progress mode (R1–R3) and thread it onto the mappings so
+    // BasesSource reads the right source (U3) and computeEntrySignature folds in
+    // the right change-detection state (U4). An unset mode preserves an existing
+    // view: a configured Progress Property defaults to `property` (not silently
+    // switched to computed); a fresh companion view defaults to `tasknotes`. The
+    // dropdown's shown default is aligned to this (see the options callback).
+    const progressMode = readProgressMode(get, {
+      companionAvailable: isTaskNotesPresent(this.app),
+      hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
+    });
+    return { ...base, progressMode };
+  }
+
+  /**
+   * Whether the bar's progress handle is read-only/hidden (U5/R7). The handle is
+   * editable ONLY in Property mode with a mapped Progress Property — the sole
+   * configuration where a drag has a resolved write target. Hiding it in
+   * TaskNotes mode (computed) AND in Property mode with no mapped property means
+   * a drag can never silently no-op (the controller would drop a write with no
+   * target and the persist would resolve as if saved). Goes through a dedicated
+   * accessor like the sibling flags (getBarColorMode, etc.).
+   */
+  private getProgressReadonly(): boolean {
+    return isProgressReadonly(this.buildFieldMappings());
   }
 
   /** Read the per-view dependency-arrow mode (R27), defaulting to `primary`. */
@@ -845,6 +886,9 @@ class ObsidianGanttBasesView extends BasesView {
       barColorMode: this.getBarColorMode(),
       barColorSource: this.getBarColorSource(),
       barIcon: this.getBarIcon(),
+      // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
+      // mode and in Property mode with no mapped property (nowhere to persist).
+      progressReadonly: this.getProgressReadonly(),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
@@ -955,9 +999,14 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     },
     // Companion-only relationship controls render only when TaskNotes is
     // present (expansion is companion-only — see plan U1/R6). Presence is
-    // re-checked each time the options panel builds; cheap.
-    options: (_config: BasesViewConfig): BasesAllOptions[] =>
-      ganttViewOptions(isTaskNotesPresent(plugin.app)),
+    // re-checked each time the options panel builds; cheap. The current
+    // Progress Property drives the Progress-mode dropdown's shown default so it
+    // matches readProgressMode's unset resolution (property when one is mapped).
+    options: (config: BasesViewConfig): BasesAllOptions[] => {
+      const hasProgressProperty =
+        (readFieldMappings((key) => config.get(key)).progressProperty ?? '').trim() !== '';
+      return ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty);
+    },
   });
 
   if (registeredGantt) {

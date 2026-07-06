@@ -17,9 +17,12 @@ import {
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
+  readProgressMode,
+  isProgressReadonly,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
+import type { FieldMappings } from "../../src/bases/types/field-mapping";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
 
 /** Find a single option by its `key` within an option array. */
@@ -114,6 +117,9 @@ describe("ganttViewOptions", () => {
     expect(keys).not.toContain("tngantt_expandedRelationships");
     expect(keys).not.toContain("tngantt_hideTopLevelSubtasks");
     expect(keys).not.toContain("tngantt_contextOpacity");
+    // Progress mode is companion-gated too: standalone has no TaskNotes Progress
+    // source, so the dropdown is omitted (readProgressMode resolves to property).
+    expect(keys).not.toContain("tngantt_progressMode");
     // Non-companion controls remain.
     expect(keys).toContain("tngantt_showToolbar");
     expect(keys).toContain("tngantt_defaultScale");
@@ -173,11 +179,33 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // 7 shared property options (incl. priority) + 7 dropdowns + 4 sliders + 5 toggles.
-    // Dropdowns: expanded-relationships, default-scale, dependency-arrows,
-    // bar-color-mode, bar-color-source, bar-icon, parent-date-cascade.
+    // 7 shared property options (incl. priority) + 8 dropdowns + 4 sliders + 5 toggles.
+    // Dropdowns: expanded-relationships, progress-mode, default-scale,
+    // dependency-arrows, bar-color-mode, bar-color-source, bar-icon,
+    // parent-date-cascade.
     // Sliders: default-duration, min-height, max-height, companion context opacity.
-    expect(options).toHaveLength(23);
+    expect(options).toHaveLength(24);
+  });
+
+  it("exposes the companion-only Progress mode dropdown, defaulting to TaskNotes when no property is mapped", () => {
+    const dropdown = byKey(options, "tngantt_progressMode");
+    expect(dropdown.type).toBe("dropdown");
+    expect(dropdown).toMatchObject({
+      type: "dropdown",
+      displayName: "Progress mode",
+      key: "tngantt_progressMode",
+      default: "tasknotes",
+      // Record<string,string>, not an array (an array renders "[object Object]").
+      options: { tasknotes: "TaskNotes Progress", property: "Property" },
+    });
+  });
+
+  it("shows the Progress mode dropdown defaulting to Property when a Progress Property is mapped", () => {
+    // The shown default matches readProgressMode's unset resolution so the mode
+    // the user sees equals the mode applied (and an explicit TaskNotes choice,
+    // differing from this default, persists).
+    const withProperty = ganttViewOptions(true, true);
+    expect(byKey(withProperty, "tngantt_progressMode")).toMatchObject({ default: "property" });
   });
 
   it("models the min-height input as a slider defaulting to the ~2-row floor", () => {
@@ -398,5 +426,81 @@ describe("readBarIcon", () => {
     expect(readBarIcon(() => "priority")).toBe("priority");
     expect(readBarIcon(() => "theme")).toBe("none");
     expect(readBarIcon(() => "junk")).toBe("none");
+  });
+});
+
+describe("readProgressMode", () => {
+  const unset = () => undefined;
+
+  it("defaults a fresh companion view (no property) to tasknotes when unset (R2)", () => {
+    expect(
+      readProgressMode(unset, { companionAvailable: true, hasProgressProperty: false }),
+    ).toBe("tasknotes");
+  });
+
+  it("defaults to property when a Progress Property is configured (preserve existing views)", () => {
+    // An existing view with a mapped property must NOT silently switch to computed
+    // checklist progress on upgrade — the unset default resolves to property.
+    expect(
+      readProgressMode(unset, { companionAvailable: true, hasProgressProperty: true }),
+    ).toBe("property");
+  });
+
+  it("defaults to property in standalone mode (the TaskNotes option isn't offered, R3)", () => {
+    expect(
+      readProgressMode(unset, { companionAvailable: false, hasProgressProperty: false }),
+    ).toBe("property");
+  });
+
+  it("honors an explicit stored mode when the source is available (explicit tasknotes wins over a mapped property)", () => {
+    const property = (k: string) => ({ tngantt_progressMode: "property" })[k];
+    const tasknotes = (k: string) => ({ tngantt_progressMode: "tasknotes" })[k];
+    expect(
+      readProgressMode(property, { companionAvailable: true, hasProgressProperty: false }),
+    ).toBe("property");
+    // The key case: a view WITH a property that explicitly selects TaskNotes
+    // reads the checklist and ignores the property.
+    expect(
+      readProgressMode(tasknotes, { companionAvailable: true, hasProgressProperty: true }),
+    ).toBe("tasknotes");
+  });
+
+  it("coalesces an explicit tasknotes selection to property when standalone (R3)", () => {
+    const tasknotes = (k: string) => ({ tngantt_progressMode: "tasknotes" })[k];
+    expect(
+      readProgressMode(tasknotes, { companionAvailable: false, hasProgressProperty: false }),
+    ).toBe("property");
+  });
+
+  it("treats junk as unset and applies the migration default", () => {
+    const junk = () => "nonsense";
+    expect(
+      readProgressMode(junk, { companionAvailable: true, hasProgressProperty: false }),
+    ).toBe("tasknotes");
+    expect(
+      readProgressMode(junk, { companionAvailable: true, hasProgressProperty: true }),
+    ).toBe("property");
+  });
+});
+
+describe("isProgressReadonly", () => {
+  const mappings = (over: Partial<FieldMappings>): FieldMappings =>
+    ({ textProperty: "", startProperty: "", endProperty: "", progressProperty: "", ...over } as FieldMappings);
+
+  it("is editable only in property mode with a mapped Progress Property", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "note.pct" }))).toBe(false);
+  });
+
+  it("is read-only in tasknotes mode (computed) even with a property mapped", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "tasknotes", progressProperty: "note.pct" }))).toBe(true);
+  });
+
+  it("is read-only in property mode with no mapped property (a drag would no-op)", () => {
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "" }))).toBe(true);
+    expect(isProgressReadonly(mappings({ progressMode: "property", progressProperty: "   " }))).toBe(true);
+  });
+
+  it("is read-only when the mode is unset", () => {
+    expect(isProgressReadonly(mappings({ progressProperty: "note.pct" }))).toBe(true);
   });
 });

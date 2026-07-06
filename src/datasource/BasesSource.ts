@@ -19,6 +19,7 @@
 import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
+import { checklistProgressPercent } from '../bases/checklistProgress';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -81,7 +82,10 @@ export class BasesSource implements DataSource {
       text: this.adapter.extractText(entry, this.mappings.textProperty),
       start: this.adapter.extractDate(entry, this.mappings.startProperty),
       end: this.adapter.extractDate(entry, this.mappings.endProperty),
-      progress: this.adapter.extractProgress(entry, this.mappings.progressProperty),
+      progress:
+        this.mappings.progressMode === 'tasknotes'
+          ? this.computeChecklistProgress(entry)
+          : this.adapter.extractProgress(entry, this.mappings.progressProperty),
       status: this.adapter.extractOptionalString(entry, this.mappings.statusProperty),
       // Priority value comes from the mapped Base property. The color palette still
       // comes from the TaskNotes companion (getPriorityColors); a value with no
@@ -89,6 +93,23 @@ export class BasesSource implements DataSource {
       priority: this.adapter.extractOptionalString(entry, this.mappings.priorityProperty),
       parents: this.resolveParents(entry),
     };
+  }
+
+  /**
+   * Compute the note's checklist progress (0–100), mirroring the value TaskNotes
+   * shows on its task card: `round(completed / total * 100)` over **top-level**
+   * markdown checklist items (`- [ ]` / `- [x]`), excluding nested items. Returns
+   * `null` when the note has no checklist items (→ the bar renders 0 via
+   * `ganttSync`'s `progress ?? 0`).
+   *
+   * Read cache-safely from `metadataCache.getFileCache(...).listItems` — the same
+   * source data TaskNotes uses — with no `entry.getValue` call (which would re-poke
+   * the #161 refresh storm). Lives here rather than on `BasesDataAdapter` because
+   * that adapter is constructed without an `App`/`metadataCache` (KTD1).
+   */
+  private computeChecklistProgress(entry: BasesEntry): number | null {
+    const cache = this.app.metadataCache.getFileCache(entry.file);
+    return checklistProgressPercent(cache?.listItems);
   }
 
   /**

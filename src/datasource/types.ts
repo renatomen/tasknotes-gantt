@@ -156,6 +156,14 @@ export interface TaskPatch {
   status?: string;
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
   dateWrites?: DateWrite[];
+  /**
+   * Resolved progress write target (U6): the bare frontmatter key to persist
+   * `progress` under, in Property mode. The controller resolves it from the
+   * mapped `progressProperty` (prefix stripped). A bare `progress` value with no
+   * `progressWrite` is NOT written — the write only lands when a target is
+   * resolved (so TaskNotes mode / no-target callers never persist progress).
+   */
+  progressWrite?: { key: string };
 }
 
 /**
