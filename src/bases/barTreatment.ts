@@ -157,7 +157,7 @@ function progressColor(accent: string): string {
  */
 const SAFE_COLOR_HEX = '#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})';
 const SAFE_COLOR_NAMED = '[a-z]+';
-const SAFE_COLOR_FUNC = '(?:rgb|hsl)a?\\([0-9.,%\\s/]+\\)';
+const SAFE_COLOR_FUNC = String.raw`(?:rgb|hsl)a?\([0-9.,%\s/]+\)`;
 export const SAFE_COLOR = new RegExp(
   `^(?:${SAFE_COLOR_HEX}|${SAFE_COLOR_NAMED}|${SAFE_COLOR_FUNC})$`,
   'i',
