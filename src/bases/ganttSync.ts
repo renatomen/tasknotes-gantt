@@ -410,7 +410,9 @@ export function taskStateKey(t: SvarTask): string {
  * differ only by that flag).
  */
 function barIconKey(icon: IconSpec | null): string {
-  return icon ? `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${icon.completed ? 'c' : ''}` : '';
+  if (!icon) return '';
+  const completedFlag = icon.completed ? 'c' : '';
+  return `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${completedFlag}`;
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */
