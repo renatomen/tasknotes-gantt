@@ -31,6 +31,13 @@ jobs:
             echo "::error::manifest.json version '$VERSION' is not a clean release version (X.Y.Z). A prerelease manifest must not merge to main."
             exit 1
           fi
+      - name: Assert the release index is up to date
+        # docs/releases.md is generated from docs/releases/*.md. A notes PR that
+        # adds a version file but forgets to refresh the index leaves the public
+        # release index on main stale (RELEASING.md Step 1) — a recurring slip.
+        # Mechanical guard, per "enforce always-X with a mechanism, not memory":
+        # regenerate locally with `node scripts/update-release-index.mjs`.
+        run: node scripts/update-release-index.mjs --check
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

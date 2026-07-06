@@ -109,6 +109,22 @@ Follow the template and rules in
   the notes are rendered in-app; the generator will reject raw HTML outside code
   fences. Convert any needed markup to plain markdown.
 
+### 4b. Refresh the release index (REQUIRED — same PR)
+
+Right after writing the notes file, regenerate the public index so it isn't left
+stale (a recurring slip — the later `npm version` regenerates it, but on the
+never-merged `release/*` branch, so it must be refreshed on `main` here):
+
+```bash
+node scripts/update-release-index.mjs   # updates docs/releases.md (reads manifest, never writes it)
+node scripts/update-release-index.mjs --check   # must exit 0 before opening the PR
+```
+
+Stage `docs/releases.md` alongside the new notes file in the same PR. CI enforces
+this — the `build` job runs `update-release-index.mjs --check` and fails a PR whose
+index is out of date (see `.github/workflows/ci.yml`), per "enforce always-X with a
+mechanism, not memory". So the `--check` above must pass locally first.
+
 ### 5. Compute the suggested next version
 
 From the change set, suggest a semver bump from the last release (breaking → major,
