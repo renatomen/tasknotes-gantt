@@ -22,6 +22,9 @@ Thumbs.db
 # Local-only e2e probes (point at private vaults; never commit)
 test/specs/_local-*
 
+# Demo-capture scratch output (approved images are moved into docs/media/)
+.demo-out/
+
 # Riffrec product-feedback raw media & extracted frames — local-only by default
 # (the markdown analysis/requirements artifacts alongside them ARE committed).
 docs/brainstorms/riffrec-feedback/**/raw/
