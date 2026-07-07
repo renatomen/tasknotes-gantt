@@ -32,7 +32,8 @@ The e2e suite downloads Obsidian and the TaskNotes release through `wdio-obsidia
 ## Conventions
 
 - **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, …). Commit scopes are optional (e.g. `feat(gantt): …`).
-- A **pre-commit hook** (Husky) runs `npm run lint && npm run typecheck`; both must pass. Do not bypass it with `--no-verify`.
+- A **pre-commit hook** (Husky) runs `npm run lint && npm run typecheck` and blocks volatile references in new source comments; all must pass. Do not bypass it with `--no-verify`.
+- **Comments are rare.** Default to none — a comment that explains *what/how* the code works is a smell; make the code self-explanatory instead. Keep a comment only for a *why/caveat* the code can't express (JSDoc on public APIs is fine), and never cite volatile references (plan/issue IDs, `file:line`, `see docs/…`) in a comment — they rot. See [documentation.md](docs/conventions/documentation.md).
 - Changes that alter behavior should come with unit and/or e2e tests.
 - Follow the existing code style and the patterns in neighboring files.
 
