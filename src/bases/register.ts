@@ -35,8 +35,8 @@ import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
-import { buildGridColumns, gridColumnsKey, mergeColumnSize } from './gridColumns';
-import { persistGridWidth } from './gridWidthPersist';
+import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
+import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
 import {
@@ -357,7 +357,10 @@ class ObsidianGanttBasesView extends BasesView {
    * Called when view is resized - required by Bases view contract
    */
   public onResize(): void {
-    // Future: notify Svelte component of resize if needed
+    // Re-assert the persisted divider width on reveal/reattach (Bug B): SVAR can
+    // reset the grid to column-sum on reattach without a column change. No-op
+    // until the component registers; idempotent (see the divider-width plan).
+    this.reassertGridWidth?.();
   }
 
   /**
@@ -469,14 +472,20 @@ class ObsidianGanttBasesView extends BasesView {
     return out;
   }
 
+  /** Name-column width from the last build; the divider-width fallback when unset (R4). */
+  private lastFirstColumnWidth = DEFAULT_NAME_WIDTH;
+
+  /** Component-registered re-assert of the persisted width (Bug B); null while unmounted. */
+  private reassertGridWidth: (() => void) | null = null;
+
   /**
-   * The persisted grid/timeline divider width (`tableWidth`), or undefined when
-   * unset/invalid (→ SVAR's default grid width). Standard `obsidianGantt`
-   * namespaced key (plan 002 U3).
+   * The effective divider width to seed (px): the persisted `tngantt_tableWidth`
+   * coerced+clamped, else the first-column fallback (R3/R4). Backs both the mount
+   * seed and the persist loop-guard's `currentPersisted` — same value in both so
+   * a re-asserted fallback is a no-op write, not a spurious pin (see the plan's KTD2).
    */
-  private getTableWidth(): number | undefined {
-    const raw = this.config.get('tngantt_tableWidth');
-    return typeof raw === 'number' && raw > 0 ? raw : undefined;
+  private getTableWidth(): number {
+    return resolveInitialGridWidth(this.config.get('tngantt_tableWidth'), this.lastFirstColumnWidth);
   }
 
   /**
@@ -769,6 +778,11 @@ class ObsidianGanttBasesView extends BasesView {
           // already-persisted width).
           onGridWidthChange: (width: number) =>
             persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
+          // Re-assert hook (Bug B): the component publishes a width-restore
+          // callback that onResize() invokes on reveal/reattach. Null on teardown.
+          onReassertGridWidthReady: (reassert: (() => void) | null) => {
+            this.reassertGridWidth = reassert;
+          },
         },
       });
       // [OGDBG #161] synchronous cost of Svelte mount() (SVAR's eager init). If
@@ -864,6 +878,8 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
+    // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
+    this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {
       instances,
       links,
@@ -934,6 +950,8 @@ class ObsidianGanttBasesView extends BasesView {
       }
       this.svelteComponent = null;
     }
+    // Drop the re-assert bridge (Bug B) so onResize can't call a dead component.
+    this.reassertGridWidth = null;
 
     if (this.ganttController) {
       try {

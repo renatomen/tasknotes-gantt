@@ -12,6 +12,7 @@ import {
   buildGridColumns,
   gridColumnsKey,
   mergeColumnSize,
+  firstColumnWidth,
   DEFAULT_NAME_WIDTH,
   DEFAULT_COLUMN_WIDTH,
 } from '../../src/bases/gridColumns';
@@ -105,5 +106,21 @@ describe('mergeColumnSize', () => {
   it('overwrites an existing entry and preserves the others (no clobber)', () => {
     const merged = mergeColumnSize({ 'file.name': 320, 'note.status': 140 }, 'note.status', 200);
     expect(merged).toEqual({ 'file.name': 320, 'note.status': 200 });
+  });
+});
+
+describe('firstColumnWidth', () => {
+  it('returns the name column width from columnSize when set (the R4 fallback source)', () => {
+    const cols = buildGridColumns(['file.name'], displayName, { 'file.name': 300 }, 'file.name');
+    expect(firstColumnWidth(cols)).toBe(300);
+  });
+
+  it('returns DEFAULT_NAME_WIDTH when the name column is unsized', () => {
+    const cols = buildGridColumns(['file.name'], displayName, undefined, 'file.name');
+    expect(firstColumnWidth(cols)).toBe(DEFAULT_NAME_WIDTH);
+  });
+
+  it('falls back to DEFAULT_NAME_WIDTH for an empty column set', () => {
+    expect(firstColumnWidth([])).toBe(DEFAULT_NAME_WIDTH);
   });
 });

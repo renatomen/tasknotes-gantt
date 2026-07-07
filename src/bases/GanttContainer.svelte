@@ -151,6 +151,15 @@
      * active Gantt leaf. Called with the opener on mount and `null` on teardown.
      */
     onFocusEntryReady?: (entry: (() => void) | null) => void;
+    /**
+     * Register a callback the host calls to re-assert the persisted divider width
+     * when the view is revealed/reattached (Obsidian's `onResize`). SVAR can
+     * recompute the grid pane to the column-sum width on reattach WITHOUT a column
+     * change (e.g. returning to this tab), which the mount/reseed re-assert path
+     * doesn't catch — so the host re-triggers the re-assert here. Passed `null` on
+     * teardown.
+     */
+    onReassertGridWidthReady?: (reassert: (() => void) | null) => void;
   }
 
   // The controller owns the data transform, so the view does not read `config`
@@ -171,6 +180,7 @@
     themeMode = 'auto',
     onThemeModeChange,
     onFocusEntryReady,
+    onReassertGridWidthReady,
   }: Props = $props();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
@@ -531,6 +541,11 @@
   // The last width we know about (mount-persisted, then updated on each drag) —
   // what we re-assert after a column recompute.
   let lastGridWidth: number | undefined = initialGridWidth;
+  // The effective width last applied to SVAR, tracked so a settings-panel edit
+  // of "Table width (px)" (which changes only `d.gridWidth` — tasks/columns
+  // unchanged, so syncToGantt takes the content-NOOP path) still re-asserts the
+  // new width live instead of waiting for a resize/reseed/remount.
+  let appliedGridWidth: number | undefined = initialGridWidth;
 
   // Registered custom task-type superset (date-status flag + every color-treatment
   // class), derived from BOTH palettes (status + priority) plus the og-parent theme
@@ -659,8 +674,18 @@
     // reset here — accepted, since this only fires on an actual column change.
     if (d.gridColumnsKey !== appliedColumnsKey) {
       dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+      appliedGridWidth = d.gridWidth; // reseed re-asserts the width itself
       reseedForColumnChange(d);
       return;
+    }
+
+    // Apply a divider width changed via the settings panel (the "Table width
+    // (px)" option) even when nothing else changed — that refresh otherwise
+    // takes the content-NOOP path below and the new width would not show until
+    // a resize/reseed. Re-assert reads the fresh effective width from the store.
+    if (d.gridWidth !== appliedGridWidth) {
+      appliedGridWidth = d.gridWidth;
+      applyPersistedGridWidth();
     }
 
     const next = buildSvarTasks(toInputs(d));
@@ -1274,13 +1299,23 @@
 
   /**
    * Re-assert the persisted grid width after the column recompute (which forces
-   * gridWidth = column-sum at mount/reseed). Deferred so it runs after that
-   * recompute settles; `resize-grid` doesn't re-trigger the recompute (it keys
-   * on columns/displayMode), so the value sticks until the next column change.
+   * gridWidth = column-sum at mount/reseed) and on reveal/reattach (Bug B).
+   * Deferred so it runs after that recompute settles; `resize-grid` doesn't
+   * re-trigger the recompute (it keys on columns/displayMode), so the value
+   * sticks until the next column change.
+   *
+   * Re-assert the CURRENT effective width from the data store — register
+   * recomputes it every refresh (the persisted value, or the fresh first-column
+   * fallback) and it equals the persist guard's `currentPersisted`, so a
+   * re-assert is always an unchanged (no-op) write. Using the stale mount-time
+   * `lastGridWidth` instead would let an unset view whose name column was later
+   * resized re-assert — and, via the persist listener, write back — the old
+   * fallback, pinning an auto view to a stale width. `lastGridWidth` remains the
+   * fallback only until the first data value arrives.
    */
   function applyPersistedGridWidth(): void {
-    if (lastGridWidth == null || !api?.exec) return;
-    const width = lastGridWidth;
+    const width = get(data)?.gridWidth ?? lastGridWidth;
+    if (width == null || !api?.exec) return;
     setTimeout(() => {
       try {
         api?.exec?.('resize-grid', { width });
@@ -1932,6 +1967,15 @@
     onFocusEntryReady?.(openFocusModal);
     return () => onFocusEntryReady?.(null);
   });
+
+  // Expose the divider re-assert so the host can restore it on reveal/reattach
+  // (register.onResize → Bug B). applyPersistedGridWidth re-asserts lastGridWidth
+  // via a deferred resize-grid exec, and is idempotent (the persist loop-guard
+  // skips an unchanged width), so calling it on resize never feeds a write loop.
+  $effect(() => {
+    onReassertGridWidthReady?.(applyPersistedGridWidth);
+    return () => onReassertGridWidthReady?.(null);
+  });
 </script>
 
 <!--
@@ -2234,6 +2278,19 @@
     flex-direction: column;
     gap: 6px;
     z-index: 100;
+  }
+
+  /* U5 — resizer chevron occlusion. SVAR's grid Resizer is z-index:10
+     (Resizer.svelte), below this floating control stack (z-index:100), so when
+     the divider sits near the right edge its expand/collapse chevron paints
+     BEHIND the controls and can't be grabbed. Lift the resizer just above the
+     controls so the chevron stays reachable. Trade-off: where the divider
+     overlaps the stack the thin resizer bar sits on top — acceptable since the
+     bar is a few px and the chevron is the interactive target. The three-class
+     selector (.og-bases-gantt + .wx-resizer.wx-resizer-x) outranks SVAR's scoped
+     .wx-resizer rule so no !important is needed. */
+  .og-bases-gantt :global(.wx-resizer.wx-resizer-x) {
+    z-index: 101;
   }
 
   /* Each control pill - Google Maps style (OG-81). */

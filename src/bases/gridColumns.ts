@@ -132,6 +132,16 @@ export function gridColumnsKey(columns: readonly GridColumn[]): string {
 }
 
 /**
+ * The first (name) column's resolved width — the divider-width fallback when the
+ * `tngantt_tableWidth` setting is unset (R4). The name column is always first
+ * ({@link buildGridColumns}); its width is `columnSize[nameProp]` or
+ * {@link DEFAULT_NAME_WIDTH}. Falls back to the default for an empty column set.
+ */
+export function firstColumnWidth(columns: readonly GridColumn[]): number {
+  return columns[0]?.width ?? DEFAULT_NAME_WIDTH;
+}
+
+/**
  * Merge a resized column's width into the standard `columnSize` map (U5),
  * returning a new map. The width is rounded to an integer pixel; other entries
  * are preserved so a resize never clobbers another column's stored width.

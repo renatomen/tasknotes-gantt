@@ -105,6 +105,17 @@ describe("ganttViewOptions", () => {
     });
   });
 
+  it("exposes the divider width as a text control in the Appearance group with a placeholder", () => {
+    const tableWidth = byKey(options, "tngantt_tableWidth");
+    expect(tableWidth.type).toBe("text");
+    expect(tableWidth).toMatchObject({ key: "tngantt_tableWidth", default: "" });
+    // Placeholder communicates the first-column-fallback auto behavior when unset.
+    expect((tableWidth as { placeholder?: string }).placeholder).toBeTruthy();
+    const appearance = groupsOf(options).find((g) => g.displayName === "Appearance");
+    expect(appearance).toBeDefined();
+    expect(appearance!.items.some((o) => "key" in o && o.key === "tngantt_tableWidth")).toBe(true);
+  });
+
   it("exposes the Expanded relationships dropdown defaulting to inherit, with a Record choice map", () => {
     const dropdown = byKey(options, "tngantt_expandedRelationships");
     expect(dropdown.type).toBe("dropdown");
@@ -206,8 +217,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 6 Fields + 2 Progress + 3 Relationships
-    // + 6 Timeline + 7 Appearance = 24 (7 property + 8 dropdowns + 4 sliders + 5 toggles).
-    expect(flattenLeaves(options)).toHaveLength(24);
+    // + 6 Timeline + 8 Appearance = 25 (7 property + 8 dropdowns + 4 sliders + 5 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(25);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -259,6 +270,7 @@ describe("ganttViewOptions", () => {
       "tngantt_showToolbar",
       "tngantt_minHeight",
       "tngantt_maxHeight",
+      "tngantt_tableWidth",
     ]);
   });
 
