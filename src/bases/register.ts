@@ -35,7 +35,7 @@ import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
-import { buildGridColumns, gridColumnsKey, mergeColumnSize, DEFAULT_NAME_WIDTH } from './gridColumns';
+import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
@@ -357,11 +357,9 @@ class ObsidianGanttBasesView extends BasesView {
    * Called when view is resized - required by Bases view contract
    */
   public onResize(): void {
-    // On reveal/reattach (e.g. returning to this tab), SVAR can recompute the
-    // grid pane to the column-sum width without a column change, so the divider
-    // drifts to "show all columns" even though the persisted value is intact
-    // (Bug B). Re-assert the persisted/effective width. No-op until the component
-    // registers its re-assert; idempotent (the persist loop-guard skips unchanged).
+    // Re-assert the persisted divider width on reveal/reattach (Bug B): SVAR can
+    // reset the grid to column-sum on reattach without a column change. No-op
+    // until the component registers; idempotent (see the divider-width plan).
     this.reassertGridWidth?.();
   }
 
@@ -474,38 +472,17 @@ class ObsidianGanttBasesView extends BasesView {
     return out;
   }
 
-  /**
-   * The name (first) column's resolved width from the last built grid columns,
-   * used as the divider-width fallback when `tngantt_tableWidth` is unset (R4).
-   * Refreshed in `buildGanttData` so both the mount seed and the drag-time
-   * loop-guard read (see {@link getTableWidth}) resolve against the current name
-   * column width. Defaults to {@link DEFAULT_NAME_WIDTH} before the first build.
-   */
+  /** Name-column width from the last build; the divider-width fallback when unset (R4). */
   private lastFirstColumnWidth = DEFAULT_NAME_WIDTH;
 
-  /**
-   * Re-assert the persisted divider width, registered by the mounted component
-   * and invoked from {@link onResize} when the view is revealed/reattached
-   * (Bug B). Null while unmounted.
-   */
+  /** Component-registered re-assert of the persisted width (Bug B); null while unmounted. */
   private reassertGridWidth: (() => void) | null = null;
 
   /**
-   * The EFFECTIVE grid/timeline divider width to seed (px): the persisted
-   * `tngantt_tableWidth` when set (a number from the drag path or a numeric
-   * string from the Bases `text` control, coerced and clamped to the plugin
-   * minimum), else the first (name) column's width (R3/R4). Always resolves to a
-   * number — the fallback is applied here, not deferred to SVAR's column-sum
-   * default.
-   *
-   * This single effective read backs BOTH the mount seed (`gridWidth`) and the
-   * persist loop-guard's `currentPersisted` (see `onGridWidthChange`). Using the
-   * same effective value in both places is deliberate: restore re-asserts the
-   * seed via `api.exec('resize-grid')`, which re-fires the persist listener, so
-   * the guard must compare against the effective (fallback-aware) value or a
-   * re-asserted fallback would be written back — silently converting an unset
-   * view into one pinned at the fallback (the KTD2 hazard). A genuine divider
-   * drag reports a different width and still persists normally.
+   * The effective divider width to seed (px): the persisted `tngantt_tableWidth`
+   * coerced+clamped, else the first-column fallback (R3/R4). Backs both the mount
+   * seed and the persist loop-guard's `currentPersisted` — same value in both so
+   * a re-asserted fallback is a no-op write, not a spurious pin (see the plan's KTD2).
    */
   private getTableWidth(): number {
     return resolveInitialGridWidth(this.config.get('tngantt_tableWidth'), this.lastFirstColumnWidth);
@@ -801,10 +778,8 @@ class ObsidianGanttBasesView extends BasesView {
           // already-persisted width).
           onGridWidthChange: (width: number) =>
             persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
-          // Re-assert hook (Bug B): the component registers a callback that
-          // restores the persisted divider width; onResize() calls it when the
-          // view is revealed/reattached (SVAR can reset the grid to column-sum on
-          // reattach without a column change). Retracted (null) on teardown.
+          // Re-assert hook (Bug B): the component publishes a width-restore
+          // callback that onResize() invokes on reveal/reattach. Null on teardown.
           onReassertGridWidthReady: (reassert: (() => void) | null) => {
             this.reassertGridWidth = reassert;
           },
@@ -903,10 +878,8 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
-    // Cache the name column's resolved width as the unset-divider fallback (R4);
-    // the name column is always first. Read by getTableWidth() for the seed here
-    // and for the drag-time loop-guard comparison.
-    this.lastFirstColumnWidth = gridColumns[0]?.width ?? DEFAULT_NAME_WIDTH;
+    // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
+    this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {
       instances,
       links,
@@ -977,9 +950,7 @@ class ObsidianGanttBasesView extends BasesView {
       }
       this.svelteComponent = null;
     }
-    // Drop the re-assert bridge (Bug B) so onResize can't call into a dead
-    // component. The component's $effect cleanup also nulls it on normal unmount;
-    // this covers a forced unmount where that cleanup didn't run.
+    // Drop the re-assert bridge (Bug B) so onResize can't call a dead component.
     this.reassertGridWidth = null;
 
     if (this.ganttController) {
