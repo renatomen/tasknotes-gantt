@@ -541,6 +541,11 @@
   // The last width we know about (mount-persisted, then updated on each drag) —
   // what we re-assert after a column recompute.
   let lastGridWidth: number | undefined = initialGridWidth;
+  // The effective width last applied to SVAR, tracked so a settings-panel edit
+  // of "Table width (px)" (which changes only `d.gridWidth` — tasks/columns
+  // unchanged, so syncToGantt takes the content-NOOP path) still re-asserts the
+  // new width live instead of waiting for a resize/reseed/remount.
+  let appliedGridWidth: number | undefined = initialGridWidth;
 
   // Registered custom task-type superset (date-status flag + every color-treatment
   // class), derived from BOTH palettes (status + priority) plus the og-parent theme
@@ -669,8 +674,18 @@
     // reset here — accepted, since this only fires on an actual column change.
     if (d.gridColumnsKey !== appliedColumnsKey) {
       dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+      appliedGridWidth = d.gridWidth; // reseed re-asserts the width itself
       reseedForColumnChange(d);
       return;
+    }
+
+    // Apply a divider width changed via the settings panel (the "Table width
+    // (px)" option) even when nothing else changed — that refresh otherwise
+    // takes the content-NOOP path below and the new width would not show until
+    // a resize/reseed. Re-assert reads the fresh effective width from the store.
+    if (d.gridWidth !== appliedGridWidth) {
+      appliedGridWidth = d.gridWidth;
+      applyPersistedGridWidth();
     }
 
     const next = buildSvarTasks(toInputs(d));
