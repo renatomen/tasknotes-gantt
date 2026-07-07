@@ -1,10 +1,12 @@
 /**
  * Bases view-options builders for the Gantt and TaskList views.
  *
- * Extracted verbatim from the inline `options:` arrows in `register.ts` so the
- * option arrays can be unit-tested. These are pure functions with no arguments
- * (the old builders ignored their `_config` parameter) and zero behavior
- * change: same keys, types, labels, defaults, and `min` values.
+ * Originally extracted verbatim from the inline `options:` arrows in
+ * `register.ts` so the option arrays can be unit-tested. The Gantt options are
+ * now organized into five collapsible `BasesOptionGroup` sections (Fields,
+ * Progress, Relationships, Timeline, Appearance) rather than a flat list;
+ * config keys, defaults, and `min` values are unchanged (the opacity slider's
+ * label was renamed — see `relationshipOptions` — but its key was not).
  *
  * Note on control types: the official Bases options union (1.13+) has no
  * `number` or `boolean` control, so a numeric input is modeled as `slider` and
@@ -12,17 +14,19 @@
  *
  * @module bases/viewOptions
  */
-import type { BasesAllOptions } from 'obsidian';
+import type { BasesAllOptions, BasesOptions, BasesOptionGroup } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
 import type { FieldMappings, ProgressMode } from './types/field-mapping';
 
 /**
- * The shared field-mapping property options consumed by both the Gantt view
- * (spread into its option set) and the TaskList view (used directly).
+ * The shared field-mapping property options. The Gantt view splits these across
+ * its Fields group (six mappings) and Progress group (Progress Property); the
+ * TaskList view wraps all seven as-is in a single Fields group. Kept as a flat
+ * leaf array so each view composes its own grouping.
  */
-function sharedFieldMappingOptions(): BasesAllOptions[] {
+function sharedFieldMappingOptions(): BasesOptions[] {
   return [
     {
       type: 'property' as const,
@@ -85,25 +89,28 @@ export type ExpandedRelationships = 'inherit' | 'show-all';
 export type { ProgressMode };
 
 /**
- * Default opacity (fraction 0–1) for Show-all *context* bars (U6) — descendants
- * pulled in for structure that don't match the Base filter. Used as the slider's
- * default (as a percentage) and as the fallback in {@link readContextOpacity} and
- * the view. Context bars are companion-only, so the slider lives in
- * {@link relationshipOptions}.
+ * Default opacity (fraction 0–1) for Show-all *expanded items* (U6) —
+ * out-of-filter descendants pulled in for context. ("Context bars" is the
+ * internal/legacy name for the same concept; the UI label is "Expanded items
+ * opacity (%)".) Used as the slider's default (as a percentage) and as the
+ * fallback in {@link readContextOpacity} and the view. Expanded items are
+ * companion-only, so the slider lives in {@link relationshipOptions}.
  */
 export const DEFAULT_CONTEXT_OPACITY = 0.55;
 
-/** Minimum context-bar opacity (fraction) — keep context bars faintly visible. */
+/** Minimum expanded-items opacity (fraction) — keep them faintly visible. */
 const MIN_CONTEXT_OPACITY = 0.1;
 
 /**
- * Companion-only relationship controls (Expanded relationships + Hide top-level
- * subtasks). Grouped together and rendered ONLY when TaskNotes is present —
- * expansion is companion-only, so in standalone mode these are omitted rather
- * than shown inert. Labels match TaskNotes' exact strings for cross-plugin
- * recognizability.
+ * The Relationships-section controls (Expanded relationships + Expanded items
+ * opacity + Hide top-level subtasks). Companion-only: rendered ONLY when
+ * TaskNotes is present — expansion has no effect in standalone mode, so these
+ * are omitted rather than shown inert. Order is deliberate: the opacity slider
+ * sits directly after "Expanded relationships" because it tunes the expanded
+ * (out-of-filter context) items. Labels match TaskNotes' exact strings for
+ * cross-plugin recognizability.
  */
-function relationshipOptions(): BasesAllOptions[] {
+function relationshipOptions(): BasesOptions[] {
   return [
     {
       type: 'dropdown',
@@ -116,69 +123,65 @@ function relationshipOptions(): BasesAllOptions[] {
         'show-all': 'Show all',
       },
     },
-    {
-      type: 'toggle',
-      displayName: 'Hide top-level subtasks',
-      key: 'tngantt_hideTopLevelSubtasks',
-      default: false,
-    },
-    // U6 cue tuning: how prominent Show-all *context* bars (out-of-filter
-    // descendants) are. Stored as a percentage; read as a 0–1 fraction in
-    // readContextOpacity() and applied as a CSS custom property. Number → slider
-    // (the official options union has no 'number' control). `max`/`step` are
-    // required for a usable Obsidian slider (see the max-height note below).
+    // U6 cue tuning: how prominent Show-all *expanded* items (out-of-filter
+    // descendants pulled in for context) are. Stored as a percentage; read as a
+    // 0–1 fraction in readContextOpacity() and applied as a CSS custom property.
+    // Number → slider (the official options union has no 'number' control).
+    // `max`/`step` are required for a usable Obsidian slider (see the max-height
+    // note below). Key stays `tngantt_contextOpacity` (label-only rename) so
+    // existing views keep their saved value.
     {
       type: 'slider',
-      displayName: 'Context bar opacity (%)',
+      displayName: 'Expanded items opacity (%)',
       key: 'tngantt_contextOpacity',
       default: Math.round(DEFAULT_CONTEXT_OPACITY * 100),
       min: Math.round(MIN_CONTEXT_OPACITY * 100),
       max: 100,
       step: 5,
     },
+    {
+      type: 'toggle',
+      displayName: 'Hide top-level subtasks',
+      key: 'tngantt_hideTopLevelSubtasks',
+      default: false,
+    },
   ];
 }
 
 /**
- * The Gantt chart view's Bases view options: the shared field-mapping property
- * options followed by the Gantt-specific dropdowns, slider, and toggles.
- *
- * @param companionAvailable - whether TaskNotes is present. When false, the
- *   companion-only relationship controls are omitted (expansion has no effect in
- *   standalone mode, so the controls would be inert — hide them instead).
- * @param hasProgressProperty - whether a Progress Property is configured. Drives
- *   the Progress-mode dropdown's SHOWN default so it matches what
- *   {@link readProgressMode} resolves for an unset mode: `property` when a
- *   property is mapped (don't silently switch an existing view to computed),
- *   else `tasknotes`. Aligning the shown default with the resolved default keeps
- *   the two in sync AND makes an explicit selection a non-default value that
- *   Bases persists.
+ * Wrap leaf options in a collapsible Bases option group. Groups hold leaf
+ * controls only (one level of nesting — no sub-sections), so `items` is typed
+ * `BasesOptions[]`, not `BasesAllOptions[]`.
  */
-export function ganttViewOptions(
-  companionAvailable = true,
-  hasProgressProperty = false,
-): BasesAllOptions[] {
+function group(displayName: string, items: BasesOptions[]): BasesOptionGroup<BasesOptions> {
+  return { type: 'group', displayName, items };
+}
+
+/**
+ * The Progress-mode dropdown (companion-only). `tasknotes` mirrors TaskNotes'
+ * computed checklist progress (read-only); `property` reads/persists the
+ * Progress Property. The default MATCHES {@link readProgressMode}'s unset
+ * resolution (property when a property is mapped, else tasknotes) so the shown
+ * mode == the applied mode, and an explicit selection differs from the default
+ * and therefore persists. Record<string,string> value→label map.
+ */
+function progressModeOption(hasProgressProperty: boolean): BasesOptions {
+  return {
+    type: 'dropdown',
+    displayName: 'Progress mode',
+    key: 'tngantt_progressMode',
+    default: hasProgressProperty ? 'property' : 'tasknotes',
+    options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
+  };
+}
+
+/**
+ * Timeline-section controls: scale, task duration, dependency arrows, parent
+ * date cascade, and the two task-visibility toggles (folded in from the former
+ * standalone "Task visibility" group).
+ */
+function timelineOptions(): BasesOptions[] {
   return [
-    ...sharedFieldMappingOptions(),
-    ...(companionAvailable ? relationshipOptions() : []),
-    // Progress source (companion-only). `tasknotes` mirrors TaskNotes' computed
-    // checklist progress (read-only); `property` reads/persists the Progress
-    // Property. Omitted in standalone mode — with no TaskNotes there is no
-    // computed source, so readProgressMode() resolves to `property` there.
-    // The default MATCHES readProgressMode's unset resolution (property when a
-    // property is mapped, else tasknotes) so the shown mode == the applied mode.
-    // Record<string,string> value→label map (an array renders "[object Object]").
-    ...(companionAvailable
-      ? [
-          {
-            type: 'dropdown' as const,
-            displayName: 'Progress mode',
-            key: 'tngantt_progressMode',
-            default: hasProgressProperty ? 'property' : 'tasknotes',
-            options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
-          },
-        ]
-      : []),
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -190,6 +193,15 @@ export function ganttViewOptions(
         week: 'Weeks',
         month: 'Months',
       },
+    },
+    // Number → slider (the official Bases options union has no 'number' control;
+    // 'slider' is the closest numeric input). Behavior-equivalent.
+    {
+      type: 'slider',
+      displayName: 'Default task duration (days)',
+      key: 'tngantt_defaultDuration',
+      default: 1,
+      min: 1,
     },
     // R27: how dependency arrows render across duplicated multi-parent
     // instances. Persisted per-view via config.set/get; read in mountGantt.
@@ -203,10 +215,47 @@ export function ganttViewOptions(
         all: 'All instances',
       },
     },
-    // Bar color/icon treatments (per-view). Three independent dropdowns; read in
-    // getBarColorMode/getBarColorSource/getBarIcon and consumed by the view's
-    // barTreatment resolver + generated stylesheet + icon chip. Options are
-    // Record<string,string> value→label maps (an array renders "[object Object]").
+    // Parent/ancestor date-cascade behavior when a child drag/resize would
+    // change ancestor spans. Read per-view in getCascadeMode(); consumed by
+    // the GanttContainer drag-persistence gate.
+    {
+      type: 'dropdown',
+      displayName: 'Parent date updates',
+      key: 'tngantt_parentDateCascade',
+      default: 'ask',
+      options: {
+        ask: 'Ask before updating parent dates',
+        auto: 'Update parent dates automatically',
+        never: 'Never update parent dates',
+      },
+    },
+    // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
+    // buildDatePolicyConfig(). Boolean → toggle (no 'boolean' control).
+    {
+      type: 'toggle',
+      displayName: 'Show tasks with no dates',
+      key: 'tngantt_showUndatedTasks',
+      default: true,
+    },
+    {
+      type: 'toggle',
+      displayName: 'Show tasks with only one date',
+      key: 'tngantt_showPartialDateTasks',
+      default: true,
+    },
+  ];
+}
+
+/**
+ * Appearance-section controls: bar color mode/source, task icon, date-status
+ * indicators, and the layout controls (toolbar visibility + min/max height,
+ * folded in from the former standalone "Layout" group).
+ */
+function appearanceOptions(): BasesOptions[] {
+  return [
+    // Bar color/icon treatments (per-view). Read in getBarColorMode/
+    // getBarColorSource/getBarIcon and consumed by the view's barTreatment
+    // resolver + generated stylesheet + icon chip. Record<string,string> maps.
     {
       type: 'dropdown',
       displayName: 'Bar color mode',
@@ -229,45 +278,6 @@ export function ganttViewOptions(
       key: 'tngantt_barIcon',
       default: 'none',
       options: { none: 'None', status: 'Status', priority: 'Priority' },
-    },
-    // Parent/ancestor date-cascade behavior when a child drag/resize would
-    // change ancestor spans. Read per-view in getCascadeMode(); consumed by
-    // the GanttContainer drag-persistence gate.
-    {
-      type: 'dropdown',
-      displayName: 'Parent date updates',
-      key: 'tngantt_parentDateCascade',
-      default: 'ask',
-      options: {
-        ask: 'Ask before updating parent dates',
-        auto: 'Update parent dates automatically',
-        never: 'Never update parent dates',
-      },
-    },
-    // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
-    // buildDatePolicyConfig()/getShowDateIndicators(); consumed by the
-    // controller's date policy + the view's bar-level indicators.
-    // Number → slider (the official Bases options union has no 'number'
-    // control; 'slider' is the closest numeric input). Behavior-equivalent.
-    {
-      type: 'slider',
-      displayName: 'Default task duration (days)',
-      key: 'tngantt_defaultDuration',
-      default: 1,
-      min: 1,
-    },
-    // Boolean → toggle (the official options union has no 'boolean' control).
-    {
-      type: 'toggle',
-      displayName: 'Show tasks with no dates',
-      key: 'tngantt_showUndatedTasks',
-      default: true,
-    },
-    {
-      type: 'toggle',
-      displayName: 'Show tasks with only one date',
-      key: 'tngantt_showPartialDateTasks',
-      default: true,
     },
     {
       type: 'toggle',
@@ -316,6 +326,52 @@ export function ganttViewOptions(
       step: 10,
     },
   ];
+}
+
+/**
+ * The Gantt chart view's Bases view options, organized into five collapsible
+ * sections (native `BasesOptionGroup` containers): Fields, Progress,
+ * Relationships, Timeline, Appearance.
+ *
+ * Progress Property is always shown (standalone Gantt still maps it to drive
+ * progress bars); it moves out of Fields into the Progress section so it sits
+ * beside Progress mode. Progress mode and the whole Relationships section are
+ * companion-only — built only when TaskNotes is present, mirroring the prior
+ * conditional-omission behavior (a standalone user sees no inert companion
+ * controls). Groups declare no expand state — Bases owns that.
+ *
+ * @param companionAvailable - whether TaskNotes is present. When false, the
+ *   Relationships section and the Progress-mode control are omitted.
+ * @param hasProgressProperty - whether a Progress Property is configured. Drives
+ *   the Progress-mode dropdown's SHOWN default so it matches what
+ *   {@link readProgressMode} resolves for an unset mode: `property` when a
+ *   property is mapped (don't silently switch an existing view to computed),
+ *   else `tasknotes`.
+ */
+export function ganttViewOptions(
+  companionAvailable = true,
+  hasProgressProperty = false,
+): BasesAllOptions[] {
+  const mappings = sharedFieldMappingOptions();
+  const fieldsItems = mappings.filter((o) => o.key !== FIELD_MAPPING_KEYS.progress);
+  const progressPropertyOption = mappings.find((o) => o.key === FIELD_MAPPING_KEYS.progress);
+
+  // Progress Property is always shown; Progress mode is companion-only.
+  const progressItems: BasesOptions[] = progressPropertyOption ? [progressPropertyOption] : [];
+  if (companionAvailable) {
+    progressItems.push(progressModeOption(hasProgressProperty));
+  }
+
+  const groups: BasesAllOptions[] = [
+    group('Fields', fieldsItems),
+    group('Progress', progressItems),
+  ];
+  if (companionAvailable) {
+    groups.push(group('Relationships', relationshipOptions()));
+  }
+  groups.push(group('Timeline', timelineOptions()));
+  groups.push(group('Appearance', appearanceOptions()));
+  return groups;
 }
 
 /**
@@ -473,9 +529,9 @@ export function readHideTopLevelSubtasks(get: (key: string) => unknown): boolean
 }
 
 /**
- * Read the per-view Show-all context-bar opacity (U6) as a 0–1 fraction. The
+ * Read the per-view Show-all expanded-items opacity (U6) as a 0–1 fraction. The
  * slider stores a percentage; this converts and clamps to
- * `[MIN_CONTEXT_OPACITY, 1]` so context bars never fully vanish or exceed 1. A
+ * `[MIN_CONTEXT_OPACITY, 1]` so expanded items never fully vanish or exceed 1. A
  * non-numeric/non-finite stored value falls back to {@link DEFAULT_CONTEXT_OPACITY}.
  * Pure (no Obsidian/DOM); mirrors {@link readMaxHeight}.
  *
@@ -493,8 +549,10 @@ export function readContextOpacity(get: (key: string) => unknown): number {
 
 /**
  * The TaskList view's Bases view options: the shared field-mapping property
- * options only.
+ * options wrapped in a single collapsible "Fields" group. Progress Property
+ * stays here (the TaskList view has no Progress mode), so this view is one
+ * Fields group over all seven mappings.
  */
 export function taskListViewOptions(): BasesAllOptions[] {
-  return sharedFieldMappingOptions();
+  return [group('Fields', sharedFieldMappingOptions())];
 }
