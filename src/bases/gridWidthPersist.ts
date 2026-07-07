@@ -19,6 +19,49 @@
 const TABLE_WIDTH_KEY = 'tngantt_tableWidth';
 
 /**
+ * Plugin-chosen minimum divider width (px). SVAR enforces no bounds of its own —
+ * `resize-grid` is an unbounded `setState({gridWidth})` and `Resizer.svelte` only
+ * carries a `rightThreshold` collapse point of 50 (a display-mode threshold, not
+ * a width floor). We adopt that same 50 as the guardrail floor for a
+ * user-entered/stored width so the grid can't be driven to an unusable sliver.
+ */
+export const MIN_TABLE_WIDTH = 50;
+
+/**
+ * Resolve the effective divider width to seed at mount from the (possibly unset)
+ * persisted value, falling back to the first (name) column's width when unset.
+ *
+ * A stored value may be a number (the drag path writes a rounded number) or a
+ * numeric string (the Bases `text` control writes a string). Coerce, and if it
+ * is finite and positive, clamp it up to {@link MIN_TABLE_WIDTH} and round.
+ * Otherwise — blank, non-numeric, zero, or negative — return `firstColumnWidth`
+ * unchanged (the fallback mirrors the name column whatever its size; it is NOT
+ * clamped to the divider minimum). Pure (no Obsidian/DOM) so it unit-tests in
+ * isolation; `register`'s `getTableWidth` supplies `firstColumnWidth` from the
+ * built grid columns (`this.lastFirstColumnWidth`).
+ *
+ * This is the SEED read only. It must NOT be reused as the persist loop-guard's
+ * `currentPersisted` (see {@link persistGridWidth} / {@link nextPersistableWidth}):
+ * routing the fallback there would make an unset view look "set to the fallback"
+ * and defeat the unchanged-write guard.
+ *
+ * @param rawPersisted - the stored `tngantt_tableWidth` value (number | string | unset).
+ * @param firstColumnWidth - the name column's resolved width (columnSize or default).
+ * @param min - the guardrail floor; defaults to {@link MIN_TABLE_WIDTH}.
+ */
+export function resolveInitialGridWidth(
+  rawPersisted: unknown,
+  firstColumnWidth: number,
+  min: number = MIN_TABLE_WIDTH,
+): number {
+  const coerced = Number(rawPersisted);
+  if (Number.isFinite(coerced) && coerced > 0) {
+    return Math.max(min, Math.round(coerced));
+  }
+  return firstColumnWidth;
+}
+
+/**
  * The width to persist for a `resize-grid` commit, or `null` when the write
  * should be skipped because the value is unchanged (the loop-breaking no-op).
  *
@@ -53,7 +96,11 @@ export function persistGridWidth(
   const next = nextPersistableWidth(rawWidth, currentPersisted);
   if (next === null) return;
   try {
-    set(TABLE_WIDTH_KEY, next);
+    // Persist as a STRING: the key is surfaced as a Bases `text` option, whose
+    // input binds a string. Writing a number leaves the option unable to bind it
+    // and Bases clears it to empty — so a divider drag would wipe the setting.
+    // The reader (resolveInitialGridWidth) Number()-coerces, so a string round-trips.
+    set(TABLE_WIDTH_KEY, String(next));
   } catch (error) {
     console.warn('[Gantt] Failed to persist grid width:', error);
   }

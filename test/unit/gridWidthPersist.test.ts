@@ -5,7 +5,12 @@
  * guard returns null (skip) when the rounded width equals the stored value.
  */
 import { describe, expect, it, jest } from "@jest/globals";
-import { nextPersistableWidth, persistGridWidth } from "../../src/bases/gridWidthPersist";
+import {
+  nextPersistableWidth,
+  persistGridWidth,
+  resolveInitialGridWidth,
+  MIN_TABLE_WIDTH,
+} from "../../src/bases/gridWidthPersist";
 
 describe("nextPersistableWidth", () => {
   it("returns null (skip) when the rounded width is unchanged — breaks the loop", () => {
@@ -25,10 +30,12 @@ describe("nextPersistableWidth", () => {
 });
 
 describe("persistGridWidth", () => {
-  it("writes the rounded width under tngantt_tableWidth when it changed", () => {
+  it("writes the rounded width as a STRING under tngantt_tableWidth when it changed", () => {
     const set = jest.fn();
     persistGridWidth(set, 300, 360);
-    expect(set).toHaveBeenCalledWith("tngantt_tableWidth", 360);
+    // String, not number: the key is a Bases `text` option; a number write is
+    // dropped by Bases (clearing the setting on a divider drag). See persistGridWidth.
+    expect(set).toHaveBeenCalledWith("tngantt_tableWidth", "360");
   });
 
   it("does NOT write when the width is unchanged (loop guard)", () => {
@@ -45,5 +52,39 @@ describe("persistGridWidth", () => {
     expect(() => persistGridWidth(set, 300, 360)).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+describe("resolveInitialGridWidth", () => {
+  const FIRST_COL = 240; // the name column's resolved width (columnSize or default)
+
+  it("returns a stored numeric width, rounded", () => {
+    expect(resolveInitialGridWidth(300, FIRST_COL)).toBe(300);
+    expect(resolveInitialGridWidth(300.4, FIRST_COL)).toBe(300);
+  });
+
+  it("coerces a numeric string (the text-control write path)", () => {
+    expect(resolveInitialGridWidth("360", FIRST_COL)).toBe(360);
+  });
+
+  it("clamps a value below the plugin minimum up to MIN_TABLE_WIDTH", () => {
+    expect(resolveInitialGridWidth(10, FIRST_COL)).toBe(MIN_TABLE_WIDTH);
+    expect(resolveInitialGridWidth("10", FIRST_COL)).toBe(MIN_TABLE_WIDTH);
+  });
+
+  it("falls back to the first-column width when unset, blank, non-numeric, or non-positive", () => {
+    expect(resolveInitialGridWidth(undefined, FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth(null, FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth("", FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth("abc", FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth("300px", FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth(0, FIRST_COL)).toBe(FIRST_COL);
+    expect(resolveInitialGridWidth(-5, FIRST_COL)).toBe(FIRST_COL);
+  });
+
+  it("passes the first-column width through even when it is itself below the minimum", () => {
+    // The fallback is the name column's real width; it is not clamped to the
+    // divider minimum (an unset view mirrors the column, whatever its size).
+    expect(resolveInitialGridWidth(undefined, 30)).toBe(30);
   });
 });

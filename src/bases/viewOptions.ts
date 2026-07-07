@@ -325,6 +325,20 @@ function appearanceOptions(): BasesOptions[] {
       max: 2000,
       step: 10,
     },
+    // Grid/timeline divider width in px. Modeled as `text` (not `slider`): SVAR
+    // enforces no divider bounds, so a slider would bake in an arbitrary max, and
+    // precise numeric entry beats a coarse slider for a value the user also sets
+    // by dragging the divider. Empty default → the placeholder shows and the
+    // effective width falls back to the first (name) column's width. Coercion,
+    // the plugin-minimum clamp, and the fallback all live in the read path
+    // (resolveInitialGridWidth); the drag path writes a number to the same key.
+    {
+      type: 'text',
+      displayName: 'Table width (px)',
+      key: 'tngantt_tableWidth',
+      default: '',
+      placeholder: 'Auto (first column width) — or a pixel width',
+    },
   ];
 }
 
