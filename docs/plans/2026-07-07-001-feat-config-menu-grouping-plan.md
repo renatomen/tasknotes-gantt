@@ -15,7 +15,7 @@ execution: code
 
 - **Objective:** Make the Gantt Bases view config menu navigable by organizing its ~24 flat settings into five collapsible sections, with a targeted rename/reorder of the opacity slider and a regrouping of the progress controls.
 - **Product authority:** Maintainer (renatomen).
-- **Open blockers:** None. One item is deferred to implementation: whether Bases renders option groups expanded by default (A1, gating R6) — resolved by U4's real-Obsidian check, not during planning.
+- **Open blockers:** None. A1 (group expand-state) is resolved: real Obsidian renders the groups collapsed by default and exposes no control, so R6's "expanded" intent is not achievable and collapsed-on-open is the accepted shipped behavior.
 
 ---
 
@@ -56,7 +56,7 @@ The Gantt view exposes roughly two dozen per-view settings as a single flat list
   - **Relationships** (companion-only) — Expanded relationships, Expanded items opacity (%), Hide top-level subtasks.
   - **Timeline** — Default Scale, Default task duration (days), Dependency Arrows, Parent date updates, Show tasks with no dates, Show tasks with only one date.
   - **Appearance** — Bar color mode, Bar color source, Task icon, Show date-status indicators on bars, Show toolbar, Min height (px), Max height (px).
-- R6. All five sections render expanded when the config menu opens. (Achievable only if Bases renders groups expanded by default — see A1.)
+- R6. Section expand/collapse state on open is whatever Bases renders. Confirmed in real Obsidian: groups open collapsed and the API exposes no initial-state control, so "expanded by default" is not achievable; collapsed-on-open is accepted (see A1).
 - R7. The Relationships section and the Progress-mode control are hidden when TaskNotes is absent; the Progress section itself and Progress Property remain, since standalone views still map a progress property to drive progress bars. This preserves today's behavior where a standalone user sees no inert companion controls.
 
 ### Scope Boundaries
@@ -68,7 +68,7 @@ The Gantt view exposes roughly two dozen per-view settings as a single flat list
 
 ### Dependencies / Assumptions
 
-- A1. Bases renders option groups expanded by default. The `BasesOptionGroup` type exposes no initial-state field, so if Bases defaults groups to collapsed, R6 is not achievable without a hack and would be dropped.
+- A1. RESOLVED — Bases renders option groups **collapsed** by default. The `BasesOptionGroup` type exposes no initial-state field and there is no API control, so the "expanded by default" intent in R6 is dropped; collapsed-on-open is the accepted shipped behavior (confirmed in real Obsidian, see `docs/media/view-settings-groups-light.png`).
 - A2. The field-mapping options are shared with the `obsidianGanttTaskList` view via a single shared options builder. Wrapping them in a Fields group and relocating Progress Property affects both views, and both config readers must stay in sync — this view has a prior reader-drift bug (see [tasklist-view-tngantt-config-keys.md](docs/solutions/integration-issues/tasklist-view-tngantt-config-keys.md)).
 - A3. The build already targets an Obsidian version with native option groups (`BasesOptionGroup`, since 1.10.0) and the `shouldHide` predicate (since 1.10.2); `minAppVersion` is 1.10.0 and the plugin builds against 1.13.1.
 
@@ -79,9 +79,9 @@ The Gantt view exposes roughly two dozen per-view settings as a single flat list
 - Progress Property in the TaskList view stays in that view's Fields group; only the Gantt view splits it into a Progress section (KTD3).
 - Companion gating uses the existing conditional-construction pattern, not `shouldHide` (KTD4).
 
-**Deferred to implementation**
+**Resolved during implementation**
 
-- Empirical verification of A1 (default expand/collapse state of native option groups) — resolved by the Verification Contract's real-Obsidian check, not by planning.
+- A1 (default expand/collapse state of native option groups): confirmed collapsed-by-default in real Obsidian, no API control — accepted (see A1, R6).
 
 ### Sources / Research
 
