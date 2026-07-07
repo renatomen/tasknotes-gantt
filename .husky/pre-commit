@@ -1,1 +1,22 @@
-npm run lint && npm run typecheck
+npm run lint && npm run typecheck || exit 1
+
+# Volatile-reference guard (narrow, mechanical): block NEW src/ comment lines that
+# cite things which rot -- plan/decision IDs (KTD#/AE#), docs/ paths, file:line
+# citations, or "see <file>.md". Semantic comment quality (rare, why-only) is a
+# review-time judgment, deliberately NOT enforced here. See docs/conventions/documentation.md.
+# Bypass (only if truly intentional): git commit --no-verify
+# `|| true`: grep exits non-zero when nothing matches (the common pass case), which
+# would abort the hook under husky's `set -e`.
+volatile=$(git diff --cached -U0 --diff-filter=AM -- src \
+  | grep -E '^\+' | grep -vE '^\+\+\+' \
+  | grep -E '(//|/\*|<!--|^\+[[:space:]]*\*)' \
+  | grep -nE 'KTD[0-9]|(^|[^A-Za-z])AE[0-9]|docs/(plans|brainstorms|solutions|ideation)|\.(ts|tsx|js|mjs|svelte|css):[0-9]+|[Ss]ee [^ ]*\.md' || true)
+
+if [ -n "$volatile" ]; then
+  echo "pre-commit: new src/ comments contain volatile references that will rot:" >&2
+  printf '  %s\n' "$volatile" >&2
+  echo "Make the comment self-contained or drop it (see docs/conventions/documentation.md). Bypass: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0
