@@ -25,11 +25,30 @@ import {
 import type { FieldMappings } from "../../src/bases/types/field-mapping";
 import { FIELD_MAPPING_KEYS } from "../../src/bases/fieldMappingConfig";
 
-/** Find a single option by its `key` within an option array. */
+/** Flatten one level of option groups into their leaf options (groups don't nest — `BasesOptionGroup<BasesOptions>`). */
+function flattenLeaves(options: BasesAllOptions[]): BasesAllOptions[] {
+  return options.flatMap((o) => (o.type === "group" ? o.items : [o]));
+}
+
+/** Find a single leaf option by its `key`, searching inside groups. */
 function byKey(options: BasesAllOptions[], key: string): BasesAllOptions {
-  const match = options.filter((o) => "key" in o && o.key === key);
+  const match = flattenLeaves(options).filter((o) => "key" in o && o.key === key);
   expect(match).toHaveLength(1);
   return match[0];
+}
+
+/** Minimal shape of a Bases option group, for group-structure assertions. */
+interface OptionGroupLike {
+  displayName: string;
+  items: BasesAllOptions[];
+}
+
+/** The top-level groups in display order; asserts every entry is a group. */
+function groupsOf(options: BasesAllOptions[]): OptionGroupLike[] {
+  return options.map((o) => {
+    expect(o.type).toBe("group");
+    return o as OptionGroupLike;
+  });
 }
 
 describe("ganttViewOptions", () => {
@@ -113,13 +132,18 @@ describe("ganttViewOptions", () => {
 
   it("omits the companion-only controls in standalone mode (never present-but-inert)", () => {
     const standalone = ganttViewOptions(false);
-    const keys = standalone.map((o) => ("key" in o ? o.key : undefined));
+    const keys = flattenLeaves(standalone).map((o) => ("key" in o ? o.key : undefined));
+    // The Relationships section and Progress mode are companion-only (R7).
     expect(keys).not.toContain("tngantt_expandedRelationships");
     expect(keys).not.toContain("tngantt_hideTopLevelSubtasks");
     expect(keys).not.toContain("tngantt_contextOpacity");
-    // Progress mode is companion-gated too: standalone has no TaskNotes Progress
-    // source, so the dropdown is omitted (readProgressMode resolves to property).
     expect(keys).not.toContain("tngantt_progressMode");
+    // The whole Relationships group is dropped, not just its items.
+    expect(
+      standalone.map((g) => ("displayName" in g ? g.displayName : undefined)),
+    ).not.toContain("Relationships");
+    // Progress Property stays — standalone still maps it to drive progress bars (R7).
+    expect(keys).toContain(FIELD_MAPPING_KEYS.progress);
     // Non-companion controls remain.
     expect(keys).toContain("tngantt_showToolbar");
     expect(keys).toContain("tngantt_defaultScale");
@@ -157,34 +181,85 @@ describe("ganttViewOptions", () => {
   });
 
   it("includes the shared field-mapping property options", () => {
-    const propertyKeys = options
+    const propertyKeys = flattenLeaves(options)
       .filter((o) => o.type === "property")
       .map((o) => ("key" in o ? o.key : undefined));
+    // Progress Property now lives in the Progress group (after the six Fields
+    // mappings), so it flattens after the others.
     expect(propertyKeys).toEqual([
       FIELD_MAPPING_KEYS.text,
       FIELD_MAPPING_KEYS.start,
       FIELD_MAPPING_KEYS.end,
-      FIELD_MAPPING_KEYS.progress,
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
+      FIELD_MAPPING_KEYS.progress,
     ]);
   });
 
   it("never uses the forbidden 'number' or 'boolean' control types", () => {
-    for (const option of options) {
+    for (const option of flattenLeaves(options)) {
       expect(option.type).not.toBe("number");
       expect(option.type).not.toBe("boolean");
     }
   });
 
   it("has the expected total option count", () => {
-    // 7 shared property options (incl. priority) + 8 dropdowns + 4 sliders + 5 toggles.
-    // Dropdowns: expanded-relationships, progress-mode, default-scale,
-    // dependency-arrows, bar-color-mode, bar-color-source, bar-icon,
-    // parent-date-cascade.
-    // Sliders: default-duration, min-height, max-height, companion context opacity.
-    expect(options).toHaveLength(24);
+    // Five groups; flattened leaves = 6 Fields + 2 Progress + 3 Relationships
+    // + 6 Timeline + 7 Appearance = 24 (7 property + 8 dropdowns + 4 sliders + 5 toggles).
+    expect(flattenLeaves(options)).toHaveLength(24);
+  });
+
+  it("organizes options into five collapsible sections in order (R4)", () => {
+    const groups = groupsOf(options);
+    expect(groups.map((g) => g.displayName)).toEqual([
+      "Fields",
+      "Progress",
+      "Relationships",
+      "Timeline",
+      "Appearance",
+    ]);
+  });
+
+  it("places each option in its section, in the specified order (R2, R3, R5)", () => {
+    const groups = groupsOf(options);
+    const keysIn = (name: string) =>
+      groups
+        .find((g) => g.displayName === name)!
+        .items.map((o) => ("key" in o ? o.key : undefined));
+    expect(keysIn("Fields")).toEqual([
+      FIELD_MAPPING_KEYS.text,
+      FIELD_MAPPING_KEYS.start,
+      FIELD_MAPPING_KEYS.end,
+      FIELD_MAPPING_KEYS.parent,
+      FIELD_MAPPING_KEYS.status,
+      FIELD_MAPPING_KEYS.priority,
+    ]);
+    // R3: Progress mode immediately follows Progress Property.
+    expect(keysIn("Progress")).toEqual([FIELD_MAPPING_KEYS.progress, "tngantt_progressMode"]);
+    // R2: the opacity slider sits between Expanded relationships and Hide top-level subtasks.
+    expect(keysIn("Relationships")).toEqual([
+      "tngantt_expandedRelationships",
+      "tngantt_contextOpacity",
+      "tngantt_hideTopLevelSubtasks",
+    ]);
+    expect(keysIn("Timeline")).toEqual([
+      "tngantt_defaultScale",
+      "tngantt_defaultDuration",
+      "tngantt_dependencyArrowMode",
+      "tngantt_parentDateCascade",
+      "tngantt_showUndatedTasks",
+      "tngantt_showPartialDateTasks",
+    ]);
+    expect(keysIn("Appearance")).toEqual([
+      "tngantt_barColorMode",
+      "tngantt_barColorSource",
+      "tngantt_barIcon",
+      "tngantt_showDateIndicators",
+      "tngantt_showToolbar",
+      "tngantt_minHeight",
+      "tngantt_maxHeight",
+    ]);
   });
 
   it("exposes the companion-only Progress mode dropdown, defaulting to TaskNotes when no property is mapped", () => {
@@ -221,10 +296,12 @@ describe("ganttViewOptions", () => {
     expect((minHeight as { default: number }).default).toBe(112);
   });
 
-  it("models the companion-only context-bar opacity as a slider (U6)", () => {
+  it("models the companion-only expanded-items opacity as a renamed slider (U1/U6)", () => {
     const opacity = byKey(options, "tngantt_contextOpacity");
     expect(opacity).toMatchObject({
       type: "slider",
+      // Renamed label (U1); the config key is unchanged so saved views persist.
+      displayName: "Expanded items opacity (%)",
       key: "tngantt_contextOpacity",
       default: 55,
       min: 10,
@@ -237,10 +314,13 @@ describe("ganttViewOptions", () => {
 describe("taskListViewOptions", () => {
   const options = taskListViewOptions();
 
-  it("returns exactly the seven shared field-mapping property options", () => {
-    expect(options).toHaveLength(7);
-    expect(options.every((o) => o.type === "property")).toBe(true);
-    expect(options.map((o) => ("key" in o ? o.key : undefined))).toEqual([
+  it("wraps the seven shared field-mapping property options in one Fields group", () => {
+    expect(options).toHaveLength(1);
+    const fields = groupsOf(options)[0];
+    expect(fields.displayName).toBe("Fields");
+    expect(fields.items.every((o) => o.type === "property")).toBe(true);
+    // TaskList keeps Progress Property in Fields (it has no Progress mode).
+    expect(fields.items.map((o) => ("key" in o ? o.key : undefined))).toEqual([
       FIELD_MAPPING_KEYS.text,
       FIELD_MAPPING_KEYS.start,
       FIELD_MAPPING_KEYS.end,
