@@ -206,9 +206,9 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
-      FIELD_MAPPING_KEYS.progress,
-      // Time Estimate property lives in the Timeline group (after Progress).
+      // Time Estimate property lives in the Fields group (before the Progress group).
       FIELD_MAPPING_KEYS.timeEstimate,
+      FIELD_MAPPING_KEYS.progress,
     ]);
   });
 
@@ -220,8 +220,8 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // Five groups; flattened leaves = 6 Fields + 2 Progress + 3 Relationships
-    // + 8 Timeline + 8 Appearance = 27 (8 property + 9 dropdowns + 4 sliders + 5 toggles + 1 text).
+    // Five groups; flattened leaves = 8 Fields + 2 Progress + 3 Relationships
+    // + 6 Timeline + 8 Appearance = 27 (8 property + 9 dropdowns + 4 sliders + 5 toggles + 1 text).
     expect(flattenLeaves(options)).toHaveLength(27);
   });
 
@@ -242,6 +242,8 @@ describe("ganttViewOptions", () => {
       groups
         .find((g) => g.displayName === name)!
         .items.map((o) => ("key" in o ? o.key : undefined));
+    // Time Estimate property + companion-only write mode sit in Fields, after the
+    // six base mappings.
     expect(keysIn("Fields")).toEqual([
       FIELD_MAPPING_KEYS.text,
       FIELD_MAPPING_KEYS.start,
@@ -249,6 +251,8 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
+      FIELD_MAPPING_KEYS.timeEstimate,
+      "tngantt_timeEstimateMode",
     ]);
     // R3: Progress mode immediately follows Progress Property.
     expect(keysIn("Progress")).toEqual([FIELD_MAPPING_KEYS.progress, "tngantt_progressMode"]);
@@ -261,8 +265,6 @@ describe("ganttViewOptions", () => {
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
       "tngantt_defaultDuration",
-      FIELD_MAPPING_KEYS.timeEstimate,
-      "tngantt_timeEstimateMode",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
       "tngantt_showUndatedTasks",

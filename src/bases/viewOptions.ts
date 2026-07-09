@@ -195,18 +195,29 @@ function timeEstimateModeOption(): BasesOptions {
 }
 
 /**
- * Timeline-section controls: scale, task duration, the Time Estimate mapping +
- * write mode, dependency arrows, parent date cascade, and the two
- * task-visibility toggles (folded in from the former standalone "Task
- * visibility" group).
- *
- * @param companionAvailable - when false, the companion-only "Time Estimate
- *   Update" write-mode dropdown is omitted (writes never fire standalone). The
- *   "Time Estimate" property itself is always shown — it drives read-inference
- *   in standalone mode too.
+ * The "Time Estimate" property picker. Sits in the Fields group beside the other
+ * property mappings. Always shown: the estimate (minutes) drives date inference
+ * where a date is missing and is the write target in Property mode; standalone
+ * mode reads it for inference too. When empty in TaskNotes-field mode it resolves
+ * to TaskNotes' configured timeEstimate property (R2/R6).
  */
-function timelineOptions(companionAvailable: boolean): BasesOptions[] {
-  const items: BasesOptions[] = [
+function timeEstimatePropertyOption(): BasesOptions {
+  return {
+    type: 'property' as const,
+    displayName: 'Time Estimate Property',
+    key: FIELD_MAPPING_KEYS.timeEstimate,
+    default: '',
+    placeholder: 'Minutes; drives bar length when a date is missing. Empty = TaskNotes field',
+  };
+}
+
+/**
+ * Timeline-section controls: scale, task duration, dependency arrows, parent
+ * date cascade, and the two task-visibility toggles (folded in from the former
+ * standalone "Task visibility" group).
+ */
+function timelineOptions(): BasesOptions[] {
+  return [
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -228,19 +239,6 @@ function timelineOptions(companionAvailable: boolean): BasesOptions[] {
       default: 1,
       min: 1,
     },
-    // Time Estimate (minutes) → drives date inference where a date is missing
-    // (R5–R11) and is the write target in Property mode. Always shown: it feeds
-    // read-inference in standalone mode too. When empty in TaskNotes-field mode,
-    // it resolves to TaskNotes' configured timeEstimate property (R2/R6).
-    {
-      type: 'property' as const,
-      displayName: 'Time Estimate Property',
-      key: FIELD_MAPPING_KEYS.timeEstimate,
-      default: '',
-      placeholder: 'Minutes; drives bar length when a date is missing. Empty = TaskNotes field',
-    },
-    // Companion-only: write-back mode for a resized bar (see timeEstimateModeOption).
-    ...(companionAvailable ? [timeEstimateModeOption()] : []),
     // R27: how dependency arrows render across duplicated multi-parent
     // instances. Persisted per-view via config.set/get; read in mountGantt.
     {
@@ -282,7 +280,6 @@ function timelineOptions(companionAvailable: boolean): BasesOptions[] {
       default: true,
     },
   ];
-  return items;
 }
 
 /**
@@ -409,6 +406,14 @@ export function ganttViewOptions(
   const fieldsItems = mappings.filter((o) => o.key !== FIELD_MAPPING_KEYS.progress);
   const progressPropertyOption = mappings.find((o) => o.key === FIELD_MAPPING_KEYS.progress);
 
+  // Time Estimate mapping sits in Fields beside the other property pickers. The
+  // property is always shown; the "Time Estimate Update" write mode is
+  // companion-only (a write never fires standalone, so the control would be inert).
+  fieldsItems.push(timeEstimatePropertyOption());
+  if (companionAvailable) {
+    fieldsItems.push(timeEstimateModeOption());
+  }
+
   // Progress Property is always shown; Progress mode is companion-only.
   const progressItems: BasesOptions[] = progressPropertyOption ? [progressPropertyOption] : [];
   if (companionAvailable) {
@@ -422,7 +427,7 @@ export function ganttViewOptions(
   if (companionAvailable) {
     groups.push(group('Relationships', relationshipOptions()));
   }
-  groups.push(group('Timeline', timelineOptions(companionAvailable)));
+  groups.push(group('Timeline', timelineOptions()));
   groups.push(group('Appearance', appearanceOptions()));
   return groups;
 }
