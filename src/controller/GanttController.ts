@@ -715,7 +715,12 @@ export class GanttController {
    * the patch passes through and the source applies its canonical mapping.
    */
   private toTargetedPatch(patch: TaskPatch): TaskPatch {
-    if (!this.startWriteTarget && !this.endWriteTarget && !this.progressWriteTarget) {
+    if (
+      !this.startWriteTarget &&
+      !this.endWriteTarget &&
+      !this.progressWriteTarget &&
+      !this.estimateWriteTarget
+    ) {
       return patch;
     }
     const dateWrites: DateWrite[] = patch.dateWrites ? [...patch.dateWrites] : [];
@@ -733,6 +738,12 @@ export class GanttController {
     // bare progress is left in the patch and the source drops it (safety).
     if (patch.progress !== undefined && this.progressWriteTarget) {
       rest.progressWrite = { key: this.progressWriteTarget };
+    }
+    // Resolve a resize's estimate to its write target (Property key or TaskNotes
+    // field); the source rounds the carried `estimate`. Without a target the bare
+    // estimate is left in the patch and the source drops it (dont-update safety).
+    if (patch.estimate !== undefined && this.estimateWriteTarget) {
+      rest.estimateWrite = this.estimateWriteTarget;
     }
     if (dateWrites.length > 0) {
       rest.dateWrites = dateWrites;

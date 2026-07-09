@@ -950,7 +950,7 @@ export class TaskNotesSource implements DataSource {
  * when both are present the direct fields win (applied last), matching the
  * original ordering.
  */
-function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
+export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   const updates: Record<string, unknown> = {};
 
   // Resolved date targets (the bases-scoped path, U8b): each routes to its
@@ -982,6 +982,19 @@ function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   // the top-level frontmatter key, matching the custom user-field write path.
   if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
     updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  }
+  // Time Estimate persistence (U6): write only when a resolved `estimateWrite`
+  // target is present AND a value is supplied — a bare `estimate` with no target
+  // is never written (guards `dont-update` mode). The value is a rounded,
+  // non-negative integer (minutes). `tasknotesField` writes through TaskNotes'
+  // canonical `timeEstimate`; `property` writes the resolved frontmatter key.
+  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
+    const minutes = Math.max(0, Math.round(patch.estimate));
+    if (patch.estimateWrite.kind === 'tasknotesField') {
+      updates.timeEstimate = minutes;
+    } else {
+      updates[patch.estimateWrite.key] = minutes;
+    }
   }
 
   return updates;

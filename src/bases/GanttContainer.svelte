@@ -69,6 +69,7 @@
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
   import type { DateStatus } from '../controller/datePolicy';
+  import { spanDaysToMinutes, inclusiveDaySpan } from '../controller/durationConversion';
   import { dlog } from '../debugLog';
 
   // The toggle handler our floating full-screen button invokes (wired as an
@@ -269,6 +270,9 @@
   // U5/R7: TaskNotes progress mode is read-only — hide the bar's progress drag
   // handle (scoped CSS below). Date drag/resize is unaffected.
   const progressReadonly = $derived($data.progressReadonly ?? false);
+  // Whether a resize should also persist the Time Estimate (write mode). Gated
+  // again by `readOnly` at the write site so standalone never writes.
+  const timeEstimateWriteEnabled = $derived($data.timeEstimateWriteEnabled ?? false);
   const dateMappingNotice = $derived($data.dateMappingNotice);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
@@ -1675,8 +1679,17 @@
       }
     }
 
+    // In a write-enabled Time Estimate mode, persist the new span as the estimate
+    // (minutes) alongside the dates — one commit writes start + end + estimate.
+    // Gated by `readOnly` so a standalone timeline never writes. The estimate is
+    // NOT mirrored onto sibling rows (it isn't a rendered bar property).
+    const patch: TaskPatch = { start: newStart, end: newEnd };
+    if (timeEstimateWriteEnabled && !readOnly) {
+      patch.estimate = spanDaysToMinutes(inclusiveDaySpan(newStart, newEnd));
+    }
+
     try {
-      await withTimeout(onMutate(instanceId, { start: newStart, end: newEnd }), MUTATION_TIMEOUT_MS);
+      await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.

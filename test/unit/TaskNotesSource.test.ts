@@ -20,6 +20,7 @@ import { describe, it, expect, jest } from '@jest/globals';
 import {
   TaskNotesSource,
   TASKNOTES_CHANGE_EVENTS,
+  buildTaskUpdates,
   type TaskNotesApi,
   type TaskNotesDependencyEdge,
   type TaskNotesTaskInfo,
@@ -1216,5 +1217,33 @@ describe('TaskNotesSource', () => {
       // Act / Assert — the bridge swallows the consumer error
       expect(() => updated!.fn()).not.toThrow();
     });
+  });
+});
+
+describe('buildTaskUpdates — time estimate write (U6)', () => {
+  it('writes the estimate to a Property-mode frontmatter key (R15)', () => {
+    const updates = buildTaskUpdates({ estimate: 4320, estimateWrite: { kind: 'property', key: 'estimate' } });
+    expect(updates.estimate).toBe(4320);
+  });
+
+  it('writes the estimate to TaskNotes canonical timeEstimate field (R15)', () => {
+    const updates = buildTaskUpdates({ estimate: 4320, estimateWrite: { kind: 'tasknotesField' } });
+    expect(updates.timeEstimate).toBe(4320);
+  });
+
+  it('rounds a fractional estimate to a non-negative integer', () => {
+    const updates = buildTaskUpdates({ estimate: 62.4, estimateWrite: { kind: 'tasknotesField' } });
+    expect(updates.timeEstimate).toBe(62);
+  });
+
+  it('never writes the estimate without a resolved target (dont-update safety, R13)', () => {
+    const updates = buildTaskUpdates({ estimate: 4320 });
+    expect(updates.timeEstimate).toBeUndefined();
+    expect(Object.keys(updates)).toHaveLength(0);
+  });
+
+  it('writes only the estimate — no other fields — for a bare estimate patch', () => {
+    const updates = buildTaskUpdates({ estimate: 1440, estimateWrite: { kind: 'property', key: 'est' } });
+    expect(updates).toEqual({ est: 1440 });
   });
 });
