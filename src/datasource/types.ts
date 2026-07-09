@@ -31,6 +31,12 @@ export interface SourceTask {
   end: Date | null;
   /** Progress percentage 0–100, or `null` when unknown. */
   progress: number | null;
+  /**
+   * Time Estimate in minutes, or `null`/absent when unset. Drives per-task date
+   * inference (a missing date is filled from this duration). Absent is treated
+   * as "no estimate" — inference falls back to the view's Default duration.
+   */
+  estimate?: number | null;
   /** Status string, or `null` when unset. */
   status: string | null;
   /** Priority string, or `null` when unset. */
@@ -124,6 +130,13 @@ export interface FieldConfig {
   scheduledProp: string | null;
   dueProp: string | null;
   dateFields: CustomDateField[];
+  /**
+   * The frontmatter property name TaskNotes is configured to use for its
+   * `timeEstimate` field (minutes), or `null` when unconfigured. Used as the
+   * read/write target for the Time Estimate feature when the view's "Time
+   * Estimate" property is left empty (R2/R6).
+   */
+  timeEstimateProp: string | null;
 }
 
 /**
@@ -143,6 +156,16 @@ export interface DateWrite {
 }
 
 /**
+ * Where a Time Estimate value should be persisted (U6). `tasknotesField` writes
+ * through TaskNotes' own canonical `timeEstimate` field (TaskNotes routes it to
+ * its configured property); `property` writes the resolved bare frontmatter key
+ * directly. The controller resolves which target applies from the write mode.
+ */
+export type EstimateWriteTarget =
+  | { kind: 'tasknotesField' }
+  | { kind: 'property'; key: string };
+
+/**
  * A patch of mutable task fields for the write path. `dateWrites` carry resolved
  * date targets (the controller resolves start/end → targets via {@link FieldConfig});
  * `text`/`status` are written verbatim. `start`/`end`/`progress` remain for
@@ -152,6 +175,8 @@ export interface TaskPatch {
   start?: Date | null;
   end?: Date | null;
   progress?: number | null;
+  /** Time Estimate in minutes to persist (U6); paired with {@link estimateWrite}. */
+  estimate?: number;
   text?: string;
   status?: string;
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
@@ -164,6 +189,14 @@ export interface TaskPatch {
    * resolved (so TaskNotes mode / no-target callers never persist progress).
    */
   progressWrite?: { key: string };
+  /**
+   * Resolved Time Estimate write target (U6). The controller resolves it from the
+   * write mode: `tasknotesField` (TaskNotes-field mode) or `property` with a bare
+   * key (Property mode). A bare `estimate` value with no `estimateWrite` is NOT
+   * written — the write only lands when a target is resolved (so `dont-update`
+   * mode and no-target callers never persist the estimate).
+   */
+  estimateWrite?: EstimateWriteTarget;
 }
 
 /**

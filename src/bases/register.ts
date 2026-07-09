@@ -63,7 +63,9 @@ import {
   readBarColorSource,
   readBarIcon,
   readProgressMode,
+  readTimeEstimateMode,
   isProgressReadonly,
+  isTimeEstimateWriteEnabled,
   taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
@@ -386,6 +388,13 @@ class ObsidianGanttBasesView extends BasesView {
       m.statusProperty,
       m.priorityProperty,
       m.parentProperty,
+      // The Time Estimate drives the bar span, so a matched entry's estimate edit
+      // must flip the signature and force a re-read — otherwise reuseTasks would
+      // skip it and the bar stays stale. Fold the controller's RESOLVED read key
+      // (view property, else TaskNotes' configured field) rather than the raw view
+      // mapping, so an edit to the TaskNotes-field fallback is observed too. Falls
+      // back to the raw mapping before the controller has resolved (first mount).
+      this.ganttController?.getEstimateReadKey() ?? m.timeEstimateProperty,
     ]);
     // In TaskNotes progress mode the bar value comes from the note's checklist
     // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
@@ -504,11 +513,16 @@ class ObsidianGanttBasesView extends BasesView {
     // view: a configured Progress Property defaults to `property` (not silently
     // switched to computed); a fresh companion view defaults to `tasknotes`. The
     // dropdown's shown default is aligned to this (see the options callback).
+    const companionAvailable = isTaskNotesPresent(this.app);
     const progressMode = readProgressMode(get, {
-      companionAvailable: isTaskNotesPresent(this.app),
+      companionAvailable,
       hasProgressProperty: (base.progressProperty ?? '').trim() !== '',
     });
-    return { ...base, progressMode };
+    // Resolve the Time Estimate write mode (R1–R3), companion-gated. The estimate
+    // is always READ for inference regardless of mode (R5/R6); the mode only gates
+    // whether a resize writes it back. Default `dont-update`.
+    const timeEstimateMode = readTimeEstimateMode(get, { companionAvailable });
+    return { ...base, progressMode, timeEstimateMode };
   }
 
   /**
@@ -905,6 +919,9 @@ class ObsidianGanttBasesView extends BasesView {
       // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
       // mode and in Property mode with no mapped property (nowhere to persist).
       progressReadonly: this.getProgressReadonly(),
+      // Whether a resize should write the Time Estimate back (U6/R13–R15). The
+      // container additionally gates on read-only (standalone never writes, R17).
+      timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),

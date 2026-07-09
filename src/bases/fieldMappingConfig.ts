@@ -22,6 +22,7 @@ export const FIELD_MAPPING_KEYS = {
   parent: 'tngantt_parentProperty',
   status: 'tngantt_statusProperty',
   priority: 'tngantt_priorityProperty',
+  timeEstimate: 'tngantt_timeEstimateProperty',
 } as const;
 
 /** Per-view fallback values used when a mapping key is unset. */
@@ -33,6 +34,7 @@ export interface FieldMappingDefaults {
   parentProperty: string;
   statusProperty: string;
   priorityProperty: string;
+  timeEstimateProperty: string;
 }
 
 /**
@@ -50,6 +52,7 @@ const BASE_DEFAULTS: FieldMappingDefaults = {
   parentProperty: '',
   statusProperty: '',
   priorityProperty: '',
+  timeEstimateProperty: '',
 };
 
 /**
@@ -72,5 +75,6 @@ export function readFieldMappings(
     parentProperty: (get(FIELD_MAPPING_KEYS.parent) as string) || d.parentProperty,
     statusProperty: (get(FIELD_MAPPING_KEYS.status) as string) || d.statusProperty,
     priorityProperty: (get(FIELD_MAPPING_KEYS.priority) as string) || d.priorityProperty,
+    timeEstimateProperty: (get(FIELD_MAPPING_KEYS.timeEstimate) as string) || d.timeEstimateProperty,
   };
 }

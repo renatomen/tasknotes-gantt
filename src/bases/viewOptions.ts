@@ -18,7 +18,7 @@ import type { BasesAllOptions, BasesOptions, BasesOptionGroup } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
-import type { FieldMappings, ProgressMode } from './types/field-mapping';
+import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 
 /**
  * The shared field-mapping property options. The Gantt view splits these across
@@ -83,10 +83,11 @@ function sharedFieldMappingOptions(): BasesOptions[] {
 /** The two allowed values of the "Expanded relationships" setting. */
 export type ExpandedRelationships = 'inherit' | 'show-all';
 
-// `ProgressMode` is defined in the leaf types module (`./types/field-mapping`)
-// to avoid an import cycle; imported above and re-exported here so existing
-// `viewOptions` consumers keep importing it from the same place.
-export type { ProgressMode };
+// `ProgressMode` / `TimeEstimateMode` are defined in the leaf types module
+// (`./types/field-mapping`) to avoid an import cycle; imported above and
+// re-exported here so existing `viewOptions` consumers keep importing them from
+// the same place.
+export type { ProgressMode, TimeEstimateMode };
 
 /**
  * Default opacity (fraction 0–1) for Show-all *expanded items* (U6) —
@@ -172,6 +173,41 @@ function progressModeOption(hasProgressProperty: boolean): BasesOptions {
     key: 'tngantt_progressMode',
     default: hasProgressProperty ? 'property' : 'tasknotes',
     options: { tasknotes: 'TaskNotes Progress', property: 'Property' },
+  };
+}
+
+/**
+ * The Time-Estimate write-mode dropdown (companion-only). `dont-update` (the
+ * default) never writes the estimate on a resize; `tasknotes` writes it through
+ * TaskNotes' own `timeEstimate` field; `property` writes it to the mapped "Time
+ * Estimate" property. Reading the estimate to drive date inference is always on,
+ * regardless of this mode (R5/R6). Companion-only because a write never fires
+ * standalone, so a mode control there would be inert. Record<string,string> map.
+ */
+function timeEstimateModeOption(): BasesOptions {
+  return {
+    type: 'dropdown',
+    displayName: 'Time Estimate Update',
+    key: 'tngantt_timeEstimateMode',
+    default: 'dont-update',
+    options: { 'dont-update': "Don't update", tasknotes: 'TaskNotes field', property: 'Property' },
+  };
+}
+
+/**
+ * The "Time Estimate" property picker. Sits in the Fields group beside the other
+ * property mappings. Always shown: the estimate (minutes) drives date inference
+ * where a date is missing and is the write target in Property mode; standalone
+ * mode reads it for inference too. When empty in TaskNotes-field mode it resolves
+ * to TaskNotes' configured timeEstimate property (R2/R6).
+ */
+function timeEstimatePropertyOption(): BasesOptions {
+  return {
+    type: 'property' as const,
+    displayName: 'Time Estimate Property',
+    key: FIELD_MAPPING_KEYS.timeEstimate,
+    default: '',
+    placeholder: 'Minutes; drives bar length when a date is missing. Empty = TaskNotes field',
   };
 }
 
@@ -370,6 +406,14 @@ export function ganttViewOptions(
   const fieldsItems = mappings.filter((o) => o.key !== FIELD_MAPPING_KEYS.progress);
   const progressPropertyOption = mappings.find((o) => o.key === FIELD_MAPPING_KEYS.progress);
 
+  // Time Estimate mapping sits in Fields beside the other property pickers. The
+  // property is always shown; the "Time Estimate Update" write mode is
+  // companion-only (a write never fires standalone, so the control would be inert).
+  fieldsItems.push(timeEstimatePropertyOption());
+  if (companionAvailable) {
+    fieldsItems.push(timeEstimateModeOption());
+  }
+
   // Progress Property is always shown; Progress mode is companion-only.
   const progressItems: BasesOptions[] = progressPropertyOption ? [progressPropertyOption] : [];
   if (companionAvailable) {
@@ -467,6 +511,29 @@ export function readProgressMode(
 }
 
 /**
+ * Read the per-view Time Estimate write mode (R1–R3), defaulting to
+ * `dont-update`. An explicit `property` always wins; an explicit `tasknotes`
+ * wins only when the companion is available (the TaskNotes-field write target is
+ * unreachable standalone, so it coalesces to `dont-update`). Unset or junk →
+ * `dont-update` (the R1 default). The mode gates only writes — reading the
+ * estimate for inference is independent of it (R5/R6). Pure (no Obsidian/DOM);
+ * mirrors {@link readProgressMode}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ * @param ctx - `companionAvailable` (TaskNotes present) gates the TaskNotes-field
+ *   write mode (R3).
+ */
+export function readTimeEstimateMode(
+  get: (key: string) => unknown,
+  ctx: { companionAvailable: boolean },
+): TimeEstimateMode {
+  const raw = get('tngantt_timeEstimateMode');
+  if (raw === 'property') return 'property';
+  if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
+  return 'dont-update';
+}
+
+/**
  * Whether the bar's progress handle is read-only/hidden (U5/R7). The handle is
  * editable ONLY in Property mode with a mapped Progress Property — the sole
  * configuration with a resolved write target. It's read-only in TaskNotes mode
@@ -476,6 +543,22 @@ export function readProgressMode(
  */
 export function isProgressReadonly(mappings: FieldMappings): boolean {
   return mappings.progressMode !== 'property' || (mappings.progressProperty ?? '').trim() === '';
+}
+
+/**
+ * Whether a resize should write the Time Estimate back (U6/R13–R15). True in
+ * `tasknotes` mode (which `readTimeEstimateMode` only returns with the companion
+ * present) and in `property` mode with a mapped "Time Estimate" property. False
+ * in `dont-update` (the default) and in `property` mode with no property (nowhere
+ * to write). Standalone read-only is enforced separately by the source/container,
+ * so this stays a pure mode+property predicate. Pure; mirrors
+ * {@link isProgressReadonly}.
+ */
+export function isTimeEstimateWriteEnabled(mappings: FieldMappings): boolean {
+  const mode = mappings.timeEstimateMode ?? 'dont-update';
+  if (mode === 'tasknotes') return true;
+  if (mode === 'property') return (mappings.timeEstimateProperty ?? '').trim() !== '';
+  return false;
 }
 
 /**

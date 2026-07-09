@@ -103,6 +103,15 @@ export interface GanttData {
    * unaffected. `false` in property mode (the handle persists on release).
    */
   progressReadonly: boolean;
+  /**
+   * Whether a bar resize should write the Time Estimate back (U6/R13–R15). True
+   * in a write-enabled mode (`TaskNotes field` / `Property` with a mapped
+   * property); `false` in `Don't update`. Flows through the reactive data path
+   * like {@link progressReadonly} so switching the mode takes effect without a
+   * remount. The container additionally gates the write on read-only, so a
+   * standalone timeline never writes regardless of this flag (R17).
+   */
+  timeEstimateWriteEnabled: boolean;
   /** Invalid date-mapping notice, when a start/end mapping fell back. */
   dateMappingNotice?: string;
   /** Whether TaskNotes is present (distinguishes read-only banner copy). */

@@ -318,6 +318,13 @@ export class TaskNotesSource implements DataSource {
    */
   private progressResolver: ((path: string) => number | null) | null = null;
 
+  /**
+   * Resolves a companion-fetched task's Time Estimate (minutes) by note path,
+   * installed by the controller (mirrors {@link progressResolver}). `null` when
+   * unset (no estimate for expanded tasks).
+   */
+  private estimateResolver: ((path: string) => number | null) | null = null;
+
   private constructor(app: App, api: TaskNotesApi) {
     this.app = app;
     this.api = api;
@@ -331,6 +338,15 @@ export class TaskNotesSource implements DataSource {
    */
   public setProgressResolver(resolver: ((path: string) => number | null) | null): void {
     this.progressResolver = resolver;
+  }
+
+  /**
+   * Install (or clear) the estimate resolver used by {@link toSourceTask} for
+   * companion-fetched tasks (U4). Idempotent; the controller re-sets it per
+   * recompute so a mode/property change applies without re-creating the source.
+   */
+  public setEstimateResolver(resolver: ((path: string) => number | null) | null): void {
+    this.estimateResolver = resolver;
   }
 
   /**
@@ -642,6 +658,8 @@ export class TaskNotesSource implements DataSource {
           typeof fieldMapping.scheduled === 'string' ? fieldMapping.scheduled : null,
         dueProp: typeof fieldMapping.due === 'string' ? fieldMapping.due : null,
         dateFields,
+        timeEstimateProp:
+          typeof fieldMapping.timeEstimate === 'string' ? fieldMapping.timeEstimate : null,
       };
     } catch {
       return null;
@@ -866,6 +884,9 @@ export class TaskNotesSource implements DataSource {
       // via the controller-installed resolver. `null` when no resolver is set
       // (e.g. tasknotes-first strategy) — TaskNotes has no native progress field.
       progress: this.progressResolver ? this.progressResolver(task.path) : null,
+      // Companion-fetched tasks have no Bases entry; the estimate is resolved from
+      // the note's frontmatter by path via the controller-installed resolver (U4).
+      estimate: this.estimateResolver ? this.estimateResolver(task.path) : null,
       status: task.status ?? null,
       priority: task.priority ?? null,
       // Limitation (multi-parent): TaskNotes' confirmed surface (2026-06-16)
@@ -929,7 +950,7 @@ export class TaskNotesSource implements DataSource {
  * when both are present the direct fields win (applied last), matching the
  * original ordering.
  */
-function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
+export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   const updates: Record<string, unknown> = {};
 
   // Resolved date targets (the bases-scoped path, U8b): each routes to its
@@ -961,6 +982,19 @@ function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   // the top-level frontmatter key, matching the custom user-field write path.
   if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
     updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  }
+  // Time Estimate persistence (U6): write only when a resolved `estimateWrite`
+  // target is present AND a value is supplied — a bare `estimate` with no target
+  // is never written (guards `dont-update` mode). The value is a rounded,
+  // non-negative integer (minutes). `tasknotesField` writes through TaskNotes'
+  // canonical `timeEstimate`; `property` writes the resolved frontmatter key.
+  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
+    const minutes = Math.max(0, Math.round(patch.estimate));
+    if (patch.estimateWrite.kind === 'tasknotesField') {
+      updates.timeEstimate = minutes;
+    } else {
+      updates[patch.estimateWrite.key] = minutes;
+    }
   }
 
   return updates;

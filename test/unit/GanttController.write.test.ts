@@ -247,6 +247,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     endProperty?: string;
     progressProperty?: string;
     progressMode?: 'tasknotes' | 'property';
+    timeEstimateProperty?: string;
+    timeEstimateMode?: 'dont-update' | 'tasknotes' | 'property';
     fieldConfig?: FieldConfig | null;
   }) {
     const base = new WritableFakeSource({ write: false, tasks: [task({ path: 'child.md' })] });
@@ -263,6 +265,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
           endProperty: opts.endProperty,
           progressProperty: opts.progressProperty,
           progressMode: opts.progressMode,
+          timeEstimateProperty: opts.timeEstimateProperty,
+          timeEstimateMode: opts.timeEstimateMode,
         } as FieldMappings,
       }),
       deps: {
@@ -359,6 +363,57 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
 
     // No target resolved → the bare progress carries through and the source drops it.
     expect(enrichment.mutateCalls[0]!.patch.progressWrite).toBeUndefined();
+  });
+
+  it('resolves a Property-mode estimate write to a bared property key (U6/R15)', async () => {
+    const { controller, enrichment } = makeBasesScoped({
+      timeEstimateMode: 'property',
+      timeEstimateProperty: 'note.estimate', // prefixed Bases id → bared to `estimate`
+    });
+    await controller.init();
+
+    await controller.mutate('child.md', { estimate: 4320 });
+
+    expect(enrichment.mutateCalls[0]!.patch.estimateWrite).toEqual({ kind: 'property', key: 'estimate' });
+    expect(enrichment.mutateCalls[0]!.patch.estimate).toBe(4320);
+  });
+
+  it('resolves a TaskNotes-field estimate write to the canonical field (U6/R15)', async () => {
+    const { controller, enrichment } = makeBasesScoped({ timeEstimateMode: 'tasknotes' });
+    await controller.init();
+
+    await controller.mutate('child.md', { estimate: 4320 });
+
+    expect(enrichment.mutateCalls[0]!.patch.estimateWrite).toEqual({ kind: 'tasknotesField' });
+  });
+
+  it('does NOT resolve an estimate write target in dont-update mode (R13)', async () => {
+    const { controller, enrichment } = makeBasesScoped({
+      timeEstimateMode: 'dont-update',
+      timeEstimateProperty: 'note.estimate',
+    });
+    await controller.init();
+
+    await controller.mutate('child.md', { estimate: 4320 });
+
+    // No target → the bare estimate carries through and the source drops it.
+    expect(enrichment.mutateCalls[0]!.patch.estimateWrite).toBeUndefined();
+  });
+
+  it('exposes the explicit view property as the resolved estimate read key', async () => {
+    const { controller } = makeBasesScoped({ timeEstimateProperty: 'note.myestimate' });
+    await controller.init();
+    expect(controller.getEstimateReadKey()).toBe('note.myestimate');
+  });
+
+  it('resolves the estimate read key to TaskNotes field when the view property is empty', async () => {
+    // The stale-refresh fix: with no view property, the read key must fall back to
+    // TaskNotes' configured timeEstimate field so an edit there flips the signature.
+    const { controller } = makeBasesScoped({
+      fieldConfig: { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [], timeEstimateProp: 'estimate' },
+    });
+    await controller.init();
+    expect(controller.getEstimateReadKey()).toBe('note.estimate');
   });
 
   it('forces read-only (no writes) when there is no field config; date props pass through unchanged (no hardcoded fallback) (R-F)', async () => {
