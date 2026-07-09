@@ -18,7 +18,7 @@ import type { BasesAllOptions, BasesOptions, BasesOptionGroup } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
-import type { FieldMappings, ProgressMode } from './types/field-mapping';
+import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 
 /**
  * The shared field-mapping property options. The Gantt view splits these across
@@ -83,10 +83,11 @@ function sharedFieldMappingOptions(): BasesOptions[] {
 /** The two allowed values of the "Expanded relationships" setting. */
 export type ExpandedRelationships = 'inherit' | 'show-all';
 
-// `ProgressMode` is defined in the leaf types module (`./types/field-mapping`)
-// to avoid an import cycle; imported above and re-exported here so existing
-// `viewOptions` consumers keep importing it from the same place.
-export type { ProgressMode };
+// `ProgressMode` / `TimeEstimateMode` are defined in the leaf types module
+// (`./types/field-mapping`) to avoid an import cycle; imported above and
+// re-exported here so existing `viewOptions` consumers keep importing them from
+// the same place.
+export type { ProgressMode, TimeEstimateMode };
 
 /**
  * Default opacity (fraction 0–1) for Show-all *expanded items* (U6) —
@@ -176,12 +177,36 @@ function progressModeOption(hasProgressProperty: boolean): BasesOptions {
 }
 
 /**
- * Timeline-section controls: scale, task duration, dependency arrows, parent
- * date cascade, and the two task-visibility toggles (folded in from the former
- * standalone "Task visibility" group).
+ * The Time-Estimate write-mode dropdown (companion-only). `dont-update` (the
+ * default) never writes the estimate on a resize; `tasknotes` writes it through
+ * TaskNotes' own `timeEstimate` field; `property` writes it to the mapped "Time
+ * Estimate" property. Reading the estimate to drive date inference is always on,
+ * regardless of this mode (R5/R6). Companion-only because a write never fires
+ * standalone, so a mode control there would be inert. Record<string,string> map.
  */
-function timelineOptions(): BasesOptions[] {
-  return [
+function timeEstimateModeOption(): BasesOptions {
+  return {
+    type: 'dropdown',
+    displayName: 'Time Estimate Update',
+    key: 'tngantt_timeEstimateMode',
+    default: 'dont-update',
+    options: { 'dont-update': "Don't update", tasknotes: 'TaskNotes field', property: 'Property' },
+  };
+}
+
+/**
+ * Timeline-section controls: scale, task duration, the Time Estimate mapping +
+ * write mode, dependency arrows, parent date cascade, and the two
+ * task-visibility toggles (folded in from the former standalone "Task
+ * visibility" group).
+ *
+ * @param companionAvailable - when false, the companion-only "Time Estimate
+ *   Update" write-mode dropdown is omitted (writes never fire standalone). The
+ *   "Time Estimate" property itself is always shown — it drives read-inference
+ *   in standalone mode too.
+ */
+function timelineOptions(companionAvailable: boolean): BasesOptions[] {
+  const items: BasesOptions[] = [
     {
       type: 'dropdown',
       displayName: 'Default Scale',
@@ -203,6 +228,19 @@ function timelineOptions(): BasesOptions[] {
       default: 1,
       min: 1,
     },
+    // Time Estimate (minutes) → drives date inference where a date is missing
+    // (R5–R11) and is the write target in Property mode. Always shown: it feeds
+    // read-inference in standalone mode too. When empty in TaskNotes-field mode,
+    // it resolves to TaskNotes' configured timeEstimate property (R2/R6).
+    {
+      type: 'property' as const,
+      displayName: 'Time Estimate Property',
+      key: FIELD_MAPPING_KEYS.timeEstimate,
+      default: '',
+      placeholder: 'Minutes; drives bar length when a date is missing. Empty = TaskNotes field',
+    },
+    // Companion-only: write-back mode for a resized bar (see timeEstimateModeOption).
+    ...(companionAvailable ? [timeEstimateModeOption()] : []),
     // R27: how dependency arrows render across duplicated multi-parent
     // instances. Persisted per-view via config.set/get; read in mountGantt.
     {
@@ -244,6 +282,7 @@ function timelineOptions(): BasesOptions[] {
       default: true,
     },
   ];
+  return items;
 }
 
 /**
@@ -383,7 +422,7 @@ export function ganttViewOptions(
   if (companionAvailable) {
     groups.push(group('Relationships', relationshipOptions()));
   }
-  groups.push(group('Timeline', timelineOptions()));
+  groups.push(group('Timeline', timelineOptions(companionAvailable)));
   groups.push(group('Appearance', appearanceOptions()));
   return groups;
 }
@@ -464,6 +503,29 @@ export function readProgressMode(
   // configured property (or standalone) → `property`; a fresh companion view → `tasknotes`.
   if (!ctx.companionAvailable || ctx.hasProgressProperty) return 'property';
   return 'tasknotes';
+}
+
+/**
+ * Read the per-view Time Estimate write mode (R1–R3), defaulting to
+ * `dont-update`. An explicit `property` always wins; an explicit `tasknotes`
+ * wins only when the companion is available (the TaskNotes-field write target is
+ * unreachable standalone, so it coalesces to `dont-update`). Unset or junk →
+ * `dont-update` (the R1 default). The mode gates only writes — reading the
+ * estimate for inference is independent of it (R5/R6). Pure (no Obsidian/DOM);
+ * mirrors {@link readProgressMode}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ * @param ctx - `companionAvailable` (TaskNotes present) gates the TaskNotes-field
+ *   write mode (R3).
+ */
+export function readTimeEstimateMode(
+  get: (key: string) => unknown,
+  ctx: { companionAvailable: boolean },
+): TimeEstimateMode {
+  const raw = get('tngantt_timeEstimateMode');
+  if (raw === 'property') return 'property';
+  if (raw === 'tasknotes' && ctx.companionAvailable) return 'tasknotes';
+  return 'dont-update';
 }
 
 /**

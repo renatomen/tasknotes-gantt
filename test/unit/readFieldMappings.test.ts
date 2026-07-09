@@ -24,6 +24,7 @@ describe("readFieldMappings", () => {
       parentProperty: "",
       statusProperty: "",
       priorityProperty: "",
+      timeEstimateProperty: "",
     });
   });
 
@@ -60,6 +61,7 @@ describe("readFieldMappings", () => {
       parentProperty: "note.in",
       statusProperty: "note.status",
       priorityProperty: "note.priority",
+      timeEstimateProperty: "",
     });
   });
 

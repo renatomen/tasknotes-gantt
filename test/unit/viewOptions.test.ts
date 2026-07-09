@@ -18,6 +18,7 @@ import {
   readBarColorSource,
   readBarIcon,
   readProgressMode,
+  readTimeEstimateMode,
   isProgressReadonly,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
@@ -205,6 +206,8 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
       FIELD_MAPPING_KEYS.progress,
+      // Time Estimate property lives in the Timeline group (after Progress).
+      FIELD_MAPPING_KEYS.timeEstimate,
     ]);
   });
 
@@ -217,8 +220,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 6 Fields + 2 Progress + 3 Relationships
-    // + 6 Timeline + 8 Appearance = 25 (7 property + 8 dropdowns + 4 sliders + 5 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(25);
+    // + 8 Timeline + 8 Appearance = 27 (8 property + 9 dropdowns + 4 sliders + 5 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(27);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -257,6 +260,8 @@ describe("ganttViewOptions", () => {
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
       "tngantt_defaultDuration",
+      FIELD_MAPPING_KEYS.timeEstimate,
+      "tngantt_timeEstimateMode",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
       "tngantt_showUndatedTasks",
@@ -572,6 +577,58 @@ describe("readProgressMode", () => {
     expect(
       readProgressMode(junk, { companionAvailable: true, hasProgressProperty: true }),
     ).toBe("property");
+  });
+});
+
+describe("time estimate options (U2)", () => {
+  it("always shows the Time Estimate property, in both companion and standalone modes", () => {
+    const companion = byKey(ganttViewOptions(true, false), FIELD_MAPPING_KEYS.timeEstimate);
+    const standalone = byKey(ganttViewOptions(false), FIELD_MAPPING_KEYS.timeEstimate);
+    expect("type" in companion && companion.type).toBe("property");
+    expect("type" in standalone && standalone.type).toBe("property");
+  });
+
+  it("offers the Time Estimate Update mode (all three values) only with the companion (R1, R3)", () => {
+    const mode = byKey(ganttViewOptions(true, false), "tngantt_timeEstimateMode");
+    expect("type" in mode && mode.type).toBe("dropdown");
+    expect("options" in mode && mode.options).toEqual({
+      "dont-update": "Don't update",
+      tasknotes: "TaskNotes field",
+      property: "Property",
+    });
+    expect("default" in mode && mode.default).toBe("dont-update");
+
+    const standaloneMatches = flattenLeaves(ganttViewOptions(false)).filter(
+      (o) => "key" in o && o.key === "tngantt_timeEstimateMode",
+    );
+    expect(standaloneMatches).toHaveLength(0);
+  });
+});
+
+describe("readTimeEstimateMode", () => {
+  const unset = () => undefined;
+
+  it("defaults to dont-update when unset (R1)", () => {
+    expect(readTimeEstimateMode(unset, { companionAvailable: true })).toBe("dont-update");
+    expect(readTimeEstimateMode(unset, { companionAvailable: false })).toBe("dont-update");
+  });
+
+  it("honors an explicit property mode", () => {
+    const property = (k: string) => ({ tngantt_timeEstimateMode: "property" })[k];
+    expect(readTimeEstimateMode(property, { companionAvailable: true })).toBe("property");
+    // Property mode reads/writes a mapped property, so it is valid even standalone
+    // (the write is separately gated read-only in standalone by the source).
+    expect(readTimeEstimateMode(property, { companionAvailable: false })).toBe("property");
+  });
+
+  it("honors tasknotes only with the companion, else coalesces to dont-update (R3)", () => {
+    const tasknotes = (k: string) => ({ tngantt_timeEstimateMode: "tasknotes" })[k];
+    expect(readTimeEstimateMode(tasknotes, { companionAvailable: true })).toBe("tasknotes");
+    expect(readTimeEstimateMode(tasknotes, { companionAvailable: false })).toBe("dont-update");
+  });
+
+  it("treats junk as unset (dont-update)", () => {
+    expect(readTimeEstimateMode(() => "nonsense", { companionAvailable: true })).toBe("dont-update");
   });
 });
 
