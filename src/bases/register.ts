@@ -390,9 +390,11 @@ class ObsidianGanttBasesView extends BasesView {
       m.parentProperty,
       // The Time Estimate drives the bar span, so a matched entry's estimate edit
       // must flip the signature and force a re-read — otherwise reuseTasks would
-      // skip it and the bar stays stale. Read resolution is mode-independent, so no
-      // mode tag is needed.
-      m.timeEstimateProperty,
+      // skip it and the bar stays stale. Fold the controller's RESOLVED read key
+      // (view property, else TaskNotes' configured field) rather than the raw view
+      // mapping, so an edit to the TaskNotes-field fallback is observed too. Falls
+      // back to the raw mapping before the controller has resolved (first mount).
+      this.ganttController?.getEstimateReadKey() ?? m.timeEstimateProperty,
     ]);
     // In TaskNotes progress mode the bar value comes from the note's checklist
     // (metadata-cache listItems), not frontmatter — so fold a checklist-completion

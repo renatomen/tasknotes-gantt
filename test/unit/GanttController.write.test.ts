@@ -400,6 +400,22 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(enrichment.mutateCalls[0]!.patch.estimateWrite).toBeUndefined();
   });
 
+  it('exposes the explicit view property as the resolved estimate read key', async () => {
+    const { controller } = makeBasesScoped({ timeEstimateProperty: 'note.myestimate' });
+    await controller.init();
+    expect(controller.getEstimateReadKey()).toBe('note.myestimate');
+  });
+
+  it('resolves the estimate read key to TaskNotes field when the view property is empty', async () => {
+    // The stale-refresh fix: with no view property, the read key must fall back to
+    // TaskNotes' configured timeEstimate field so an edit there flips the signature.
+    const { controller } = makeBasesScoped({
+      fieldConfig: { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [], timeEstimateProp: 'estimate' },
+    });
+    await controller.init();
+    expect(controller.getEstimateReadKey()).toBe('note.estimate');
+  });
+
   it('forces read-only (no writes) when there is no field config; date props pass through unchanged (no hardcoded fallback) (R-F)', async () => {
     const { controller, enrichment, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
     await controller.init();

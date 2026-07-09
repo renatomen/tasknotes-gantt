@@ -483,6 +483,13 @@ export class GanttController {
    * effective mappings + field config.
    */
   private estimateWriteTarget: EstimateWriteTarget | null = null;
+  /**
+   * The resolved effective Time Estimate READ key (note-prefixed), or `null`: the
+   * view "Time Estimate" property if set, else TaskNotes' configured field. The
+   * view folds this into its entry-refresh signature so an estimate edit on the
+   * resolved source (incl. the TaskNotes-field fallback) re-renders the bar.
+   */
+  private estimateReadKey: string | null = null;
   /** Validity/read-prop info for the resolved date mapping (for surfaces). */
   private dateMappingInfo: DateMappingInfo | null = null;
 
@@ -918,6 +925,7 @@ export class GanttController {
     this.endWriteTarget = null;
     this.progressWriteTarget = null;
     this.estimateWriteTarget = null;
+    this.estimateReadKey = null;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -976,6 +984,11 @@ export class GanttController {
           : fieldConfig?.timeEstimateProp
             ? toNoteProperty(fieldConfig.timeEstimateProp)
             : null;
+      // Expose the resolved key so the view folds it (not just the raw view
+      // mapping) into the entry-refresh signature — otherwise a TaskNotes-field
+      // estimate edit on a matched note leaves the signature unchanged and the
+      // inferred bar stays stale until another field changes.
+      this.estimateReadKey = estimateReadKey;
       // Write target (R14/R15), gated by the write mode. `tasknotes` writes through
       // TaskNotes' canonical field (companion only); `property` writes the bared
       // view property. `dont-update` / no property → no target (no write).
@@ -1141,6 +1154,16 @@ export class GanttController {
         endReadProp: null,
       }
     );
+  }
+
+  /**
+   * The resolved effective Time Estimate read key (note-prefixed), or `null`
+   * before {@link init} / when no estimate source is resolvable. The view folds
+   * this into its entry-refresh signature so an estimate edit — including the
+   * TaskNotes-field fallback when the view property is empty — re-renders the bar.
+   */
+  public getEstimateReadKey(): string | null {
+    return this.estimateReadKey;
   }
 
   /**
