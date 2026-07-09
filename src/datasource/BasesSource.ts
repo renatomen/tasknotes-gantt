@@ -20,6 +20,8 @@ import type { App, BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import { checklistProgressPercent } from '../bases/checklistProgress';
+import { bareProperty } from './dateFieldMapping';
+import { coerceEstimateMinutes } from './noteEstimate';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -86,6 +88,7 @@ export class BasesSource implements DataSource {
         this.mappings.progressMode === 'tasknotes'
           ? this.computeChecklistProgress(entry)
           : this.adapter.extractProgress(entry, this.mappings.progressProperty),
+      estimate: this.extractEstimateMinutes(entry),
       status: this.adapter.extractOptionalString(entry, this.mappings.statusProperty),
       // Priority value comes from the mapped Base property. The color palette still
       // comes from the TaskNotes companion (getPriorityColors); a value with no
@@ -110,6 +113,22 @@ export class BasesSource implements DataSource {
   private computeChecklistProgress(entry: BasesEntry): number | null {
     const cache = this.app.metadataCache.getFileCache(entry.file);
     return checklistProgressPercent(cache?.listItems);
+  }
+
+  /**
+   * Read the note's Time Estimate (minutes) from its frontmatter, or `null`
+   * (U4/R4). `mappings.timeEstimateProperty` is the effective read key resolved by
+   * the controller (the view "Time Estimate" property, else TaskNotes' configured
+   * `timeEstimate` field, note-prefixed). Read cache-safely from frontmatter (no
+   * `entry.getValue`), mirroring {@link computeChecklistProgress}; a non-frontmatter
+   * (`formula.*`) mapping bares to `undefined` and yields `null` (falls back to the
+   * Default duration).
+   */
+  private extractEstimateMinutes(entry: BasesEntry): number | null {
+    const bareKey = bareProperty(this.mappings.timeEstimateProperty);
+    if (!bareKey) return null;
+    const cache = this.app.metadataCache.getFileCache(entry.file);
+    return coerceEstimateMinutes(cache?.frontmatter?.[bareKey]);
   }
 
   /**

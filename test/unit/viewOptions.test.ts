@@ -20,6 +20,7 @@ import {
   readProgressMode,
   readTimeEstimateMode,
   isProgressReadonly,
+  isTimeEstimateWriteEnabled,
   taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
@@ -629,6 +630,28 @@ describe("readTimeEstimateMode", () => {
 
   it("treats junk as unset (dont-update)", () => {
     expect(readTimeEstimateMode(() => "nonsense", { companionAvailable: true })).toBe("dont-update");
+  });
+});
+
+describe("isTimeEstimateWriteEnabled (U3/R13-R15)", () => {
+  const mappings = (over: Partial<FieldMappings>): FieldMappings =>
+    ({ textProperty: "", startProperty: "", endProperty: "", progressProperty: "", ...over } as FieldMappings);
+
+  it("is disabled in dont-update mode (the default) and when the mode is unset (R13)", () => {
+    expect(isTimeEstimateWriteEnabled(mappings({ timeEstimateMode: "dont-update" }))).toBe(false);
+    expect(isTimeEstimateWriteEnabled(mappings({}))).toBe(false);
+  });
+
+  it("is enabled in tasknotes mode (companion-gated upstream by the reader)", () => {
+    expect(isTimeEstimateWriteEnabled(mappings({ timeEstimateMode: "tasknotes" }))).toBe(true);
+  });
+
+  it("is enabled in property mode only with a mapped Time Estimate property", () => {
+    expect(
+      isTimeEstimateWriteEnabled(mappings({ timeEstimateMode: "property", timeEstimateProperty: "note.est" })),
+    ).toBe(true);
+    expect(isTimeEstimateWriteEnabled(mappings({ timeEstimateMode: "property", timeEstimateProperty: "" }))).toBe(false);
+    expect(isTimeEstimateWriteEnabled(mappings({ timeEstimateMode: "property" }))).toBe(false);
   });
 });
 

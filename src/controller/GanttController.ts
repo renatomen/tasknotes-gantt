@@ -68,6 +68,7 @@ import {
   type DataSourceCapabilities,
   type DateWrite,
   type DateWriteTarget,
+  type EstimateWriteTarget,
   type FieldConfig,
   type MutationContext,
   type PriorityColor,
@@ -77,6 +78,7 @@ import {
   type TaskPatch,
 } from '../datasource';
 import { resolveNoteProgress } from '../datasource/noteProgress';
+import { resolveNoteEstimate } from '../datasource/noteEstimate';
 import {
   expandInstances,
   ExpansionResult,
@@ -474,6 +476,12 @@ export class GanttController {
    * {@link selectSource} from the effective mappings.
    */
   private progressWriteTarget: string | null = null;
+  /**
+   * The resolved Time Estimate write target (U6), or `null` in `dont-update` mode
+   * / when no target is mapped. Resolved in {@link selectSource} from the
+   * effective mappings + field config.
+   */
+  private estimateWriteTarget: EstimateWriteTarget | null = null;
   /** Validity/read-prop info for the resolved date mapping (for surfaces). */
   private dateMappingInfo: DateMappingInfo | null = null;
 
@@ -897,6 +905,7 @@ export class GanttController {
     this.startWriteTarget = null;
     this.endWriteTarget = null;
     this.progressWriteTarget = null;
+    this.estimateWriteTarget = null;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -944,6 +953,33 @@ export class GanttController {
           setProgressResolver?: (fn: ((path: string) => number | null) | null) => void;
         } | null
       )?.setProgressResolver?.((path) => resolveNoteProgress(app, path, progressMode, progressKey));
+      // Time Estimate (U3/U4/U6). Read is mode-independent (R6): the view "Time
+      // Estimate" property if set, else — with companion — TaskNotes' configured
+      // timeEstimate field (note-prefixed). BasesSource reads matched entries from
+      // this effective key; the resolver below reads companion-expanded tasks by
+      // path from the same (bared) key.
+      const estimateReadKey =
+        (effectiveMappings.timeEstimateProperty ?? '').trim() !== ''
+          ? effectiveMappings.timeEstimateProperty!
+          : fieldConfig?.timeEstimateProp
+            ? toNoteProperty(fieldConfig.timeEstimateProp)
+            : null;
+      // Write target (R14/R15), gated by the write mode. `tasknotes` writes through
+      // TaskNotes' canonical field (companion only); `property` writes the bared
+      // view property. `dont-update` / no property → no target (no write).
+      this.estimateWriteTarget = this.resolveEstimateWriteTarget(effectiveMappings, fieldConfig);
+      // Companion-expanded tasks read the estimate from the note by path, mirroring
+      // the progress resolver. Bare the effective read key to a frontmatter key.
+      const estimateBareKey = bareProperty(estimateReadKey ?? undefined) ?? null;
+      (
+        enrichment as {
+          setEstimateResolver?: (fn: ((path: string) => number | null) | null) => void;
+        } | null
+      )?.setEstimateResolver?.((path) => resolveNoteEstimate(app, path, estimateBareKey));
+      // BasesSource reads matched entries from the effective key (overwrite the raw
+      // view value; in property mode they are equal, so the write target above is
+      // unaffected).
+      effectiveMappings.timeEstimateProperty = estimateReadKey ?? '';
       const base = this.createBasesSource(this.app, entries, effectiveMappings);
       // Force read-only when we have no resolvable field config: without write
       // targets, a date edit would fall through to canonical scheduled/due and
@@ -961,6 +997,29 @@ export class GanttController {
     const { entries, mappings } = this.basesInput();
     // Apply the same legacy read defaults the bases-scoped no-config path uses.
     return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
+  }
+
+  /**
+   * Resolve the Time Estimate write target from the write mode (U6/R14/R15).
+   * `tasknotes` → TaskNotes' canonical field, but only with a resolvable field
+   * config (companion present); `property` → the bared "Time Estimate" property,
+   * but only when one is mapped; `dont-update` (or an unmapped property) → `null`
+   * (no write). Uses the RAW view property, so it must be called before the
+   * effective read key overwrites `timeEstimateProperty`.
+   */
+  private resolveEstimateWriteTarget(
+    mappings: FieldMappings,
+    fieldConfig: FieldConfig | null,
+  ): EstimateWriteTarget | null {
+    const mode = mappings.timeEstimateMode ?? 'dont-update';
+    if (mode === 'tasknotes') {
+      return fieldConfig ? { kind: 'tasknotesField' } : null;
+    }
+    if (mode === 'property') {
+      const key = bareProperty(mappings.timeEstimateProperty);
+      return key ? { kind: 'property', key } : null;
+    }
+    return null;
   }
 
   /**

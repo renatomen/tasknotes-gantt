@@ -541,6 +541,22 @@ export function isProgressReadonly(mappings: FieldMappings): boolean {
 }
 
 /**
+ * Whether a resize should write the Time Estimate back (U6/R13–R15). True in
+ * `tasknotes` mode (which `readTimeEstimateMode` only returns with the companion
+ * present) and in `property` mode with a mapped "Time Estimate" property. False
+ * in `dont-update` (the default) and in `property` mode with no property (nowhere
+ * to write). Standalone read-only is enforced separately by the source/container,
+ * so this stays a pure mode+property predicate. Pure; mirrors
+ * {@link isProgressReadonly}.
+ */
+export function isTimeEstimateWriteEnabled(mappings: FieldMappings): boolean {
+  const mode = mappings.timeEstimateMode ?? 'dont-update';
+  if (mode === 'tasknotes') return true;
+  if (mode === 'property') return (mappings.timeEstimateProperty ?? '').trim() !== '';
+  return false;
+}
+
+/**
  * Read the per-view max-height in px (plan 003 R1), defaulting to
  * {@link DEFAULT_MAX_HEIGHT}. A non-positive, non-finite, or non-numeric stored
  * value falls back to the default. Pure (no Obsidian/DOM): the caller passes the

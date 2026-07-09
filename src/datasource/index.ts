@@ -18,6 +18,7 @@ export type {
   CustomDateField,
   DateWriteTarget,
   DateWrite,
+  EstimateWriteTarget,
 } from './types';
 
 export {
