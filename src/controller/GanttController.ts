@@ -89,6 +89,7 @@ import {
   type SourceLink,
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
+import { minutesToSpanDays } from './durationConversion';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
@@ -1396,9 +1397,14 @@ export class GanttController {
 
     const resolved: ExpandableTask[] = [];
     for (const task of rawTasks) {
+      // The task's Time Estimate (minutes → whole days) overrides the per-view
+      // default duration; a task with no usable estimate keeps the default. The
+      // duration only fills a MISSING date — a fully-dated task uses its dates
+      // as-is, so a stored estimate that disagrees is ignored (dates win).
+      const duration = task.estimate != null ? minutesToSpanDays(task.estimate) : defaultDuration;
       const { start, end, dateStatus } = applyDatePolicy(
         { start: task.start, end: task.end },
-        { defaultDuration, today },
+        { defaultDuration: duration, today },
       );
       resolved.push({ ...task, start, end, dateStatus });
     }

@@ -667,6 +667,71 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(byPath.get('start.md')?.dateStatus).toBe('inferred-end');
   });
 
+  // U5: a task's Time Estimate (minutes) overrides the per-view default duration
+  // when inferring a missing date; a fully-dated task ignores it (dates win).
+  it('infers the end from a start + estimate (2880 min → 2-day bar), overriding default duration', async () => {
+    // dur1 = single-day default; the 2-day estimate must win over it.
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'start.md', start: new Date(2026, 7, 1), estimate: 2880 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-end');
+    // duration=2 → inclusive span [Aug 1, Aug 2].
+    expect(inst?.start?.getDate()).toBe(1);
+    expect(inst?.end?.getDate()).toBe(2);
+    expect(inst?.end?.getMonth()).toBe(7);
+  });
+
+  it('infers the start from a due + estimate (2880 min), running back from the deadline', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'due.md', end: new Date(2026, 7, 10), estimate: 2880 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-start');
+    // duration=2 → [Aug 9, Aug 10].
+    expect(inst?.start?.getDate()).toBe(9);
+    expect(inst?.end?.getDate()).toBe(10);
+  });
+
+  it('places a dateless task with a sub-day estimate as a one-day placeholder at today', async () => {
+    const controller = makeControllerWith(dur1, [task({ path: 'est.md', estimate: 120 })]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('placeholder');
+    // ceil(120/1440)=1 → single-day bar at FIXED_TODAY (2026-06-17).
+    expect(inst?.start?.getMonth()).toBe(5);
+    expect(inst?.start?.getDate()).toBe(17);
+    expect(inst?.end?.getDate()).toBe(17);
+  });
+
+  it('ignores the estimate for a fully-dated task (dates win)', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'both.md', start: new Date(2026, 7, 1), end: new Date(2026, 7, 20), estimate: 120 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    expect(inst?.start?.getDate()).toBe(1);
+    expect(inst?.end?.getDate()).toBe(20);
+  });
+
+  it('falls back to the default duration when a task has no usable estimate', async () => {
+    const dur3: DatePolicyConfig = { defaultDuration: 3 };
+    const controller = makeControllerWith(dur3, [task({ path: 'start.md', start: new Date(2026, 7, 1) })]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    // No estimate → default duration 3 → inclusive span [Aug 1, Aug 3].
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(3);
+  });
+
   it('derivation includes every task regardless of date completeness (R1)', async () => {
     const controller = makeControllerWith(dur1, [
       task({ path: 'dateless.md' }),
