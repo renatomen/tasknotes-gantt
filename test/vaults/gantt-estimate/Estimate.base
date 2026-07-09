@@ -1,0 +1,15 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt Time Estimate"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_timeEstimateProperty: note.estimate
+    tngantt_defaultDuration: 1
+    tngantt_showUndatedTasks: true
+    tngantt_showPartialDateTasks: true
+    tngantt_showDateIndicators: true
+    order:
+      - file.name
