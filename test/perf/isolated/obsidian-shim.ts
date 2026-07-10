@@ -43,6 +43,21 @@ export class Component {
   registerEvent(): void {}
 }
 
+/**
+ * Runtime stub for `MarkdownRenderer`. `PropertyCell.svelte` imports it at module
+ * scope for markdown grid cells; the isolated perf host mounts with empty
+ * `cellRenders`, so `render` is never invoked — the export only needs to exist.
+ */
+export class MarkdownRenderer {
+  static async render(
+    _app: any,
+    _markdown: string,
+    _el: any,
+    _sourcePath: string,
+    _component: any,
+  ): Promise<void> {}
+}
+
 export class Modal {
   app: any;
   containerEl: any;

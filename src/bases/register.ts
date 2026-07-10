@@ -34,7 +34,11 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { buildEntryProperties, buildFetchedEntryProperties, type FetchedFileMeta } from './propertyValues';
+import { type FetchedFileMeta } from './propertyValues';
+import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
+import { resolveCellRenderType } from './cellRenderType';
+import { getObsidianPropertyWidget } from './obsidianPropertyType';
+import { resolveUserFieldTypes } from './taskNotesFieldTypes';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
@@ -853,15 +857,25 @@ class ObsidianGanttBasesView extends BasesView {
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
     const visiblePropIds = this.getVisiblePropertyIds();
-    const propertyValues = buildEntryProperties(
+    // Resolve each column's render type once: TaskNotes custom field -> Obsidian
+    // widget -> Bases value shape. Drives markdown-vs-conventional cell rendering.
+    const userFieldTypes = resolveUserFieldTypes(this.app);
+    const resolveRenderType: ResolveRenderType = (propId, valueKind) =>
+      resolveCellRenderType(propId, {
+        taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
+        obsidianWidget: (name) => getObsidianPropertyWidget(this.app, name),
+        valueKind,
+      });
+    const { cellRenders, propertyValues } = buildCellData(
       this.data?.data ?? [],
       visiblePropIds,
       this.gridAdapter,
+      resolveRenderType,
     );
     // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
-    // result, so the matched-only map above leaves their grid cells blank. Fill
+    // result, so the matched-only maps above leave their grid cells blank. Fill
     // their note.*/file.* columns from the metadata cache (formula columns fall
-    // back to empty — R5). Matched rows already in the map are never overwritten.
+    // back to empty). Matched rows already in the maps are never overwritten.
     if (visiblePropIds.length > 0) {
       const seen = new Set(propertyValues.keys());
       const fetchedMetas: FetchedFileMeta[] = [];
@@ -877,13 +891,14 @@ class ObsidianGanttBasesView extends BasesView {
           frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
         });
       }
-      for (const [path, record] of buildFetchedEntryProperties(
+      const fetched = buildFetchedCellData(
         fetchedMetas,
         visiblePropIds,
         this.gridAdapter,
-      )) {
-        propertyValues.set(path, record);
-      }
+        resolveRenderType,
+      );
+      for (const [path, record] of fetched.cellRenders) cellRenders.set(path, record);
+      for (const [path, record] of fetched.propertyValues) propertyValues.set(path, record);
     }
     const gridColumns = buildGridColumns(
       visiblePropIds,
@@ -926,6 +941,7 @@ class ObsidianGanttBasesView extends BasesView {
       cascadeMode: this.getCascadeMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
+      cellRenders,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),

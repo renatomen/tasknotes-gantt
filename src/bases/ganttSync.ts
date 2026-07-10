@@ -31,6 +31,7 @@ import {
   type Palettes,
 } from './barTreatment';
 import type { TypedValue } from './propertyValues';
+import { cellRenderKey, type CellRender } from './cellRender';
 import { formatPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 
@@ -110,6 +111,12 @@ export interface SvarTaskInputs {
    */
   propertyValues?: Map<string, Record<string, TypedValue>>;
   /**
+   * Per-task render descriptors for the grid's visible property columns, keyed
+   * by source path. Attached to `custom.cellRenders` so the grid cell can render
+   * markdown (wikilinks, tag pills) or plain text. Omitted in pure-task contexts.
+   */
+  cellRenders?: Map<string, Record<string, CellRender>>;
+  /**
    * Instance ids the user has collapsed (U7). A parent in this set seeds with
    * `open: false`. Threaded through here — not re-asserted only via `api.exec` —
    * so the seed, the id-keyed diff, and any full reseed (column/theme) all agree
@@ -174,6 +181,12 @@ export interface SvarTask {
      */
     properties?: Record<string, TypedValue>;
     /**
+     * Per-column render descriptors keyed by Bases property id. Read by the grid's
+     * PropertyCell to render markdown (wikilinks, tag pills) or plain text. `{}`
+     * when no columns are configured or the task's values weren't resolved.
+     */
+    cellRenders?: Record<string, CellRender>;
+    /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.
      * SVAR's tooltip receives the task, not the link, so the per-task summary
@@ -201,6 +214,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     arrowMode,
     hideTopLevelSubtasks = false,
     propertyValues,
+    cellRenders,
     collapsedIds,
   } = input;
   const palettes: Palettes = { status: statusColors, priority: priorityColors };
@@ -319,6 +333,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         // Grid property-column values for this task (by source path); the grid
         // cell reads these. `{}` when no columns are configured.
         properties: propertyValues?.get(inst.sourcePath) ?? {},
+        // Per-column render descriptors (markdown source / text) for the grid cell.
+        cellRenders: cellRenders?.get(inst.sourcePath) ?? {},
         // Incoming dependency edges for the tooltip (U3). `[]` when none.
         incomingDeps: incomingByTargetId.get(inst.id) ?? [],
       },
@@ -395,6 +411,10 @@ export function taskStateKey(t: SvarTask): string {
     // every refresh look like a change (re-render storm). The formatted output
     // is stable, so a cell refreshes on an external edit without churn.
     propertiesKey(t.custom.properties),
+    // Rendered cell descriptors: fold the markdown source / text so an external
+    // edit that changes what the cell renders (e.g. a wikilink target) re-issues
+    // the task even when the formatted display text is unchanged.
+    cellRendersKey(t.custom.cellRenders),
     // Incoming dependency edges feed the tooltip; fold them so an external
     // reltype/gap edit re-issues the task (the tooltip would otherwise go
     // stale — the task-side analogue of the gap-in-link-id fix, KTD6).
@@ -426,6 +446,15 @@ function propertiesKey(properties: Record<string, TypedValue> | undefined): stri
   return Object.keys(properties)
     .sort((a, b) => a.localeCompare(b))
     .map((k) => `${k}=${formatPropertyValue(properties[k])}`)
+    .join('|');
+}
+
+/** Deterministic fingerprint of a task's rendered cell descriptors. */
+function cellRendersKey(renders: Record<string, CellRender> | undefined): string {
+  if (!renders) return '';
+  return Object.keys(renders)
+    .sort((a, b) => a.localeCompare(b))
+    .map((k) => `${k}=${cellRenderKey(renders[k])}`)
     .join('|');
 }
 
