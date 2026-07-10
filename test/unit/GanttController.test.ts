@@ -201,6 +201,29 @@ describe('GanttController — source selection', () => {
   });
 });
 
+describe('GanttController — managed paths', () => {
+  it('caches getManagedPaths across calls until the enrichment changes', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const managedSpy = jest.fn(async () => new Set(['a.md']));
+    (tn as unknown as { getManagedPaths: () => Promise<ReadonlySet<string>> }).getManagedPaths =
+      managedSpy;
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({ tasks: [] }),
+    });
+    await controller.init();
+
+    // Act — two reads without any TaskNotes data change in between.
+    const first = await controller.getManagedPaths();
+    const second = await controller.getManagedPaths();
+
+    // Assert — one source hit; echo/config refreshes must not re-list tasks.
+    expect(first).toEqual(new Set(['a.md']));
+    expect(second).toBe(first);
+    expect(managedSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('GanttController — reactive re-selection', () => {
   it('upgrades Bases → TaskNotes when TaskNotes becomes available after init', async () => {
     const tn = new FakeSource({ write: true, tasks: [task({ path: 'tn.md' })] });
