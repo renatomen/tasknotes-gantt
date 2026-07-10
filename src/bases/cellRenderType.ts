@@ -55,30 +55,34 @@ const WIDGET_MARKDOWN_TYPES: ReadonlySet<string> = new Set(['text', 'multitext',
 /** Value kinds that render as markdown when neither TaskNotes nor the widget map decides. */
 const MARKDOWN_VALUE_KINDS: ReadonlySet<TypedValueKind> = new Set(['text', 'list', 'link']);
 
-/** Strip a Bases property-id prefix (`note.`/`file.`/`formula.`) to the bare property name. */
-function stripPrefix(propId: string): string {
-  const dot = propId.indexOf('.');
-  return dot === -1 ? propId : propId.slice(dot + 1);
-}
-
 /**
  * Resolve how the column identified by `propId` should render, applying the
  * TaskNotes → widget → value-shape precedence.
+ *
+ * TaskNotes custom fields and Obsidian widget types are frontmatter-property
+ * concepts, so they are consulted only for `note.*` (or unprefixed) columns. A
+ * `file.*`/`formula.*` (computed) column resolves purely by its value shape —
+ * otherwise a bare-name collision with a frontmatter property (e.g.
+ * `formula.assignee` vs a frontmatter `assignee`) would force the wrong renderer.
  */
 export function resolveCellRenderType(propId: string, deps: RenderTypeDeps): CellRenderType {
-  const name = stripPrefix(propId);
+  const dot = propId.indexOf('.');
+  const prefix = dot === -1 ? '' : propId.slice(0, dot);
+  const name = dot === -1 ? propId : propId.slice(dot + 1);
 
-  const taskNotes = deps.taskNotesFieldType(name);
-  if (taskNotes) {
-    const display = TASKNOTES_MARKDOWN_TYPES.has(taskNotes.type) ? 'markdown' : 'conventional';
-    return { display, tags: false, fieldMeta: taskNotes };
-  }
+  if (prefix === '' || prefix === 'note') {
+    const taskNotes = deps.taskNotesFieldType(name);
+    if (taskNotes) {
+      const display = TASKNOTES_MARKDOWN_TYPES.has(taskNotes.type) ? 'markdown' : 'conventional';
+      return { display, tags: false, fieldMeta: taskNotes };
+    }
 
-  const widget = deps.obsidianWidget(name);
-  if (widget) {
-    if (widget === 'tags') return { display: 'markdown', tags: true };
-    if (WIDGET_MARKDOWN_TYPES.has(widget)) return { display: 'markdown', tags: false };
-    return { display: 'conventional', tags: false };
+    const widget = deps.obsidianWidget(name);
+    if (widget) {
+      if (widget === 'tags') return { display: 'markdown', tags: true };
+      if (WIDGET_MARKDOWN_TYPES.has(widget)) return { display: 'markdown', tags: false };
+      return { display: 'conventional', tags: false };
+    }
   }
 
   return MARKDOWN_VALUE_KINDS.has(deps.valueKind)

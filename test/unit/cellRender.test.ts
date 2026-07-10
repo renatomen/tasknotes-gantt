@@ -52,6 +52,14 @@ describe('buildCellRender', () => {
     });
   });
 
+  it('wraps bare link paths in a list, leaving wikilinks and plain text untouched', () => {
+    const raw = ['folder/A.md', '[[B]]', 'plain text'];
+    expect(buildCellRender(raw, classifyTypedValue(raw), MD)).toEqual({
+      mode: 'markdown',
+      source: '[[folder/A.md]], [[B]], plain text',
+    });
+  });
+
   it('degrades an empty markdown source to an empty text cell', () => {
     expect(buildCellRender('', classifyTypedValue(''), MD)).toEqual({ mode: 'text', text: '' });
   });

@@ -91,6 +91,27 @@ describe('resolveCellRenderType — value-shape fallback', () => {
   });
 });
 
+describe('resolveCellRenderType — non-frontmatter columns', () => {
+  it('ignores TaskNotes/widget for a formula.* column that name-collides with a frontmatter field', () => {
+    const result = resolveCellRenderType('formula.assignee', {
+      taskNotesFieldType: () => ({ type: 'text' }),
+      obsidianWidget: () => 'tags',
+      valueKind: 'number',
+    });
+    // Value shape wins — a computed number must not inherit the frontmatter renderer.
+    expect(result).toEqual({ display: 'conventional', tags: false });
+  });
+
+  it('ignores TaskNotes/widget for a file.* column, resolving by value shape', () => {
+    const result = resolveCellRenderType('file.name', {
+      taskNotesFieldType: () => ({ type: 'text' }),
+      obsidianWidget: () => 'tags',
+      valueKind: 'link',
+    });
+    expect(result).toEqual({ display: 'markdown', tags: false });
+  });
+});
+
 describe('resolveCellRenderType — key handling', () => {
   it('strips the property-id prefix before lookup (note.assignee -> assignee)', () => {
     const seen: string[] = [];
