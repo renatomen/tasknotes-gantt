@@ -110,6 +110,9 @@ export function resolvePropertyPatch(
   if (key === bareProperty(mappings.statusProperty)) {
     return { status: asStringPatchValue(value, propertyId) };
   }
+  if (key === bareProperty(mappings.priorityProperty)) {
+    return { priority: asStringPatchValue(value, propertyId) };
+  }
   if (key === bareProperty(mappings.progressProperty)) {
     if (!options.progressWritable) {
       throw new Error(

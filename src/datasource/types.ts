@@ -179,6 +179,7 @@ export interface TaskPatch {
   estimate?: number;
   text?: string;
   status?: string;
+  priority?: string;
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
   dateWrites?: DateWrite[];
   /**

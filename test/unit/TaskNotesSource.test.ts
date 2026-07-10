@@ -982,6 +982,18 @@ describe('TaskNotesSource', () => {
       );
     });
 
+    it('mutate() maps a priority patch to canonical updates.priority', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { priority: 'high' });
+
+      // Assert — canonical key; TaskNotes maps it to the configured property.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { priority: 'high' }, undefined);
+    });
+
     it('mutate() forwards an explicit null date to clear the field', async () => {
       // Arrange
       const { api, updateSpy } = makeApi({ hasWrite: true });

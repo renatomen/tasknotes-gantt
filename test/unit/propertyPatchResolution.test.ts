@@ -61,6 +61,17 @@ describe('resolvePropertyPatch — mapped branches', () => {
     expect(out).toEqual({ status: 'done' });
   });
 
+  it('routes the mapped priority property to a priority patch, ahead of canonical refusal', () => {
+    const out = resolvePropertyPatch('note.priority', 'high', makeOptions({ priorityProperty: 'note.priority' }));
+    expect(out).toEqual({ priority: 'high' });
+  });
+
+  it('rejects a non-string value on the mapped priority property', () => {
+    expect(() =>
+      resolvePropertyPatch('note.priority', 3, makeOptions({ priorityProperty: 'note.priority' })),
+    ).toThrow(TypeError);
+  });
+
   it('routes the mapped progress property to a progress patch when writable', () => {
     const out = resolvePropertyPatch('note.percent', 80, makeOptions({ progressProperty: 'note.percent' }, { progressWritable: true }));
     expect(out).toEqual({ progress: 80 });

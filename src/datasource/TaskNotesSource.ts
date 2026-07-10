@@ -985,6 +985,9 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   if (patch.status !== undefined) {
     updates.status = patch.status;
   }
+  if (patch.priority !== undefined) {
+    updates.priority = patch.priority;
+  }
   // Progress persistence (U6): write only when a resolved `progressWrite` target
   // is present AND a value is supplied. A bare `progress` with no target is never
   // written — that guards TaskNotes progress mode (read-only/computed) and any
