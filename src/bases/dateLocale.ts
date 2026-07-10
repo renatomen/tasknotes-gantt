@@ -34,10 +34,16 @@ function formatterFor(locale: string): Intl.DateTimeFormat | null {
   let formatter = formattersByLocale.get(locale);
   if (formatter === undefined) {
     try {
+      // Gregorian + Latin digits pinned: a locale's Intl defaults may use
+      // another calendar (th-TH: Buddhist year 2569) or digit system (ar-EG),
+      // which would break the typed-input round-trip against stored Gregorian
+      // dates. Order and separators stay locale-shaped.
       formatter = new Intl.DateTimeFormat(locale, {
         year: 'numeric',
         month: 'numeric',
         day: 'numeric',
+        calendar: 'gregory',
+        numberingSystem: 'latn',
       });
     } catch {
       formatter = null;

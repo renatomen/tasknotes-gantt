@@ -340,6 +340,26 @@ describe('resolveCellEditCommit — choice kinds', () => {
     expect(resolveCellEditCommit('choice-status', 'open', text('open'))).toEqual({ action: 'noop' });
   });
 
+  it('recovers the exact configured value from a bridge-coerced number', () => {
+    // "01" rides the richselect bridge as the number 1 — the commit must
+    // restore the catalog's exact string, not String(1).
+    expect(
+      resolveCellEditCommit('choice-status', 1, text('open'), { choiceValues: ['01', 'open'] }),
+    ).toEqual({ action: 'commit', value: '01' });
+  });
+
+  it('rejects a coerced number matching several configured values (ambiguous)', () => {
+    expect(
+      resolveCellEditCommit('choice-status', 1, text('open'), { choiceValues: ['1', '01'] }),
+    ).toEqual({ action: 'reject', reason: 'This field needs one of the configured values.' });
+  });
+
+  it('rejects a coerced number matching no configured value', () => {
+    expect(
+      resolveCellEditCommit('choice-status', 9, text('open'), { choiceValues: ['open', 'done'] }),
+    ).toEqual({ action: 'reject', reason: 'This field needs one of the configured values.' });
+  });
+
   it('stringifies a bridge-coerced numeric option id (a numeric status value)', () => {
     expect(resolveCellEditCommit('choice-status', 2, text('1'))).toEqual({
       action: 'commit',

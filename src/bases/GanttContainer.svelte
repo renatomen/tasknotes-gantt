@@ -1915,7 +1915,15 @@
     if (!persist || !kind) return false;
     const properties = storedPropertiesOf(instanceId);
     const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
-    const outcome = resolveCellEditCommit(kind, rawValue, stored);
+    // Choice commits carry the configured value strings so a bridge-coerced
+    // numeric-looking pick ("01" arriving as 1) recovers the exact catalog value.
+    const choiceValues =
+      kind === 'choice-status'
+        ? ($data.choiceOptions?.status ?? []).map((o) => o.value)
+        : kind === 'choice-priority'
+          ? ($data.choiceOptions?.priority ?? []).map((o) => o.value)
+          : undefined;
+    const outcome = resolveCellEditCommit(kind, rawValue, stored, { choiceValues });
     if (outcome.action === 'noop') return false;
     if (outcome.action === 'reject') {
       new Notice(`Couldn't save — ${outcome.reason}`);

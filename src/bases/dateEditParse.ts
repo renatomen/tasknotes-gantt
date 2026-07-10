@@ -53,10 +53,15 @@ function patternFor(locale: string): LocaleDatePattern | null {
 function buildPattern(locale: string): LocaleDatePattern | null {
   let parts: Intl.DateTimeFormatPart[];
   try {
+    // Gregorian + Latin digits pinned, matching the display formatter — the
+    // pattern must describe what the cell actually shows, not the locale's
+    // default calendar/digit system.
     parts = new Intl.DateTimeFormat(locale, {
       year: 'numeric',
       month: 'numeric',
       day: 'numeric',
+      calendar: 'gregory',
+      numberingSystem: 'latn',
     }).formatToParts(new Date(2033, 10, 25));
   } catch {
     return null;

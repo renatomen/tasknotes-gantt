@@ -225,6 +225,7 @@ export function resolveCellEditCommit(
   kind: ShippedEditorKind,
   raw: unknown,
   stored: TypedValue,
+  opts?: { choiceValues?: readonly string[] },
 ): CellEditCommit {
   if (raw === '' || raw === null || raw === undefined) {
     return stored.kind === 'empty' ? NOOP : COMMIT_NULL;
@@ -240,7 +241,7 @@ export function resolveCellEditCommit(
       return commitDate(raw, stored);
     case 'choice-status':
     case 'choice-priority':
-      return commitChoice(raw, stored);
+      return commitChoice(raw, stored, opts?.choiceValues);
     // Single-value suggest fields commit whatever the editor produced (typed
     // free text or a picked `[[wikilink]]` string) with text semantics; the
     // list-shaped suggest commits never reach here (direct path).
@@ -254,18 +255,35 @@ export function resolveCellEditCommit(
 // STRING. The bridge's `v *= 1` coercion turns a numeric-looking value into a
 // number, so a finite number casts back to its string form; anything else is a
 // stray value that must not reach the write path.
-function commitChoice(raw: unknown, stored: TypedValue): CellEditCommit {
+function commitChoice(
+  raw: unknown,
+  stored: TypedValue,
+  choiceValues?: readonly string[],
+): CellEditCommit {
   const value =
     typeof raw === 'string'
       ? raw
       : typeof raw === 'number' && Number.isFinite(raw)
-        ? String(raw)
+        ? recoverConfiguredValue(raw, choiceValues)
         : null;
   if (value === null) {
     return { action: 'reject', reason: 'This field needs one of the configured values.' };
   }
   if (value === storedStringForm(stored)) return NOOP;
   return { action: 'commit', value };
+}
+
+/**
+ * Recover the configured option value from a bridge-coerced number: `01` or
+ * `1.0` arrive as `1`, and persisting `String(1)` would no longer match the
+ * TaskNotes catalog. Exactly one numeric-equal configured value wins; zero or
+ * several (ambiguous) reject via `null`. Without a catalog the plain string
+ * form stands (numeric-looking values then round-trip only when canonical).
+ */
+function recoverConfiguredValue(raw: number, choiceValues?: readonly string[]): string | null {
+  if (!choiceValues) return String(raw);
+  const matches = choiceValues.filter((v) => Number(v) === raw);
+  return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
 // Caveat shared by the number and text casts below: SVAR's bridge coerces a

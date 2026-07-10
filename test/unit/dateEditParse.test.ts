@@ -77,6 +77,22 @@ describe('parseDateForLocale — en-CA (ISO-like year-first)', () => {
   });
 });
 
+describe('parseDateForLocale — non-Gregorian / non-Latin locale defaults', () => {
+  it('pins th-TH to Gregorian years so typed-as-displayed round-trips', () => {
+    // th-TH's Intl default is the Buddhist calendar (2026 → 2569); the editor
+    // surface is pinned Gregorian, so display and parse agree on 2026.
+    const displayed = formatDateForLocale(new Date(2026, 2, 20), 'th-TH');
+    expect(displayed).toContain('2026');
+    expectDay(parseDateForLocale(displayed, 'th-TH'), 2026, 3, 20);
+  });
+
+  it('pins ar-EG to Latin digits so display parses back', () => {
+    const displayed = formatDateForLocale(new Date(2026, 2, 20), 'ar-EG');
+    expect(displayed).toMatch(/2026/);
+    expectDay(parseDateForLocale(displayed, 'ar-EG'), 2026, 3, 20);
+  });
+});
+
 describe('parseDateForLocale — non-conforming input', () => {
   it.each(['', '   ', 'banana', '20.3', '20.3.2026.5', '3//2026', '1e3.3.2026'])(
     'rejects %j (de-DE)',
