@@ -24,7 +24,12 @@
  * @module bases/cascadeGate
  */
 
-import { classifyTypedValue, type TypedValue } from './propertyValues';
+import {
+  classifyTypedValue,
+  EMPTY_TYPED_VALUE,
+  listsEqual,
+  type TypedValue,
+} from './propertyValues';
 
 /** Per-view cascade behavior. */
 export type CascadeMode = 'ask' | 'auto' | 'never';
@@ -340,8 +345,6 @@ export type CellEditClass =
 /** An `update-task` event class with the cell-edit gestures folded in. */
 export type UpdateGesture = { kind: UpdateEventClass } | CellEditClass;
 
-const EMPTY_TYPED_VALUE: TypedValue = { kind: 'empty', value: null };
-
 /**
  * SVAR's grid bridge coerces a numeric-looking edited string to a number before
  * emitting, so a committed `"2026"` arrives as `2026` while the stored value
@@ -349,10 +352,6 @@ const EMPTY_TYPED_VALUE: TypedValue = { kind: 'empty', value: null };
  */
 function numberMatchesText(a: TypedValue, b: TypedValue): boolean {
   return a.kind === 'number' && b.kind === 'text' && String(a.value) === b.value;
-}
-
-function listsEqual(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((item, i) => item === b[i]);
 }
 
 /**

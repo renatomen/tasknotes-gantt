@@ -3,19 +3,27 @@
  *
  * Verifies the pure commit resolver that sits between SVAR's update-cell bridge
  * (which coerces numeric strings / true / [] via `v *= 1`) and
- * `controller.mutateProperty`: every cast, reject (AE6), and noop path per
- * shipped editor kind, plus the editor seed values (what the column getter
- * hands the opening editor) and the flat-baseline restore values.
+ * `controller.mutateProperty`: every cast, reject, and noop path per shipped
+ * editor kind, plus the editor seed values (what the column getter hands the
+ * opening editor), the flat-baseline restore/alignment values, and the
+ * editor-attachment helpers the grid columns are built from.
  */
 
 import { describe, it, expect } from '@jest/globals';
 import {
   BOOLEAN_EDITOR_OPTIONS,
+  editorAttachedColumnIds,
   editorSeedValue,
   resolveCellEditCommit,
+  rowEditorConfig,
   shippedEditorKind,
+  shippedEditorKinds,
   storedFlatValue,
+  svarEditorConfigFor,
+  withAlignedFlatKeys,
 } from '../../src/bases/cellEditCommit';
+import type { CellEditorDescriptor } from '../../src/bases/cellEditability';
+import { classifyCellEdit } from '../../src/bases/cascadeGate';
 import type { TypedValue } from '../../src/bases/propertyValues';
 
 const empty: TypedValue = { kind: 'empty', value: null };
@@ -32,7 +40,7 @@ describe('shippedEditorKind', () => {
     expect(shippedEditorKind('list')).toBe('list');
   });
 
-  it('defers date, choice, and suggest kinds to later units', () => {
+  it('resolves no shipped editor for date, choice, and suggest kinds', () => {
     expect(shippedEditorKind('date')).toBeNull();
     expect(shippedEditorKind('choice-status')).toBeNull();
     expect(shippedEditorKind('choice-priority')).toBeNull();
@@ -40,7 +48,7 @@ describe('shippedEditorKind', () => {
   });
 });
 
-describe('resolveCellEditCommit — number kind (AE6)', () => {
+describe('resolveCellEditCommit — number kind', () => {
   it('commits a finite number', () => {
     expect(resolveCellEditCommit('number', 42, num(3))).toEqual({ action: 'commit', value: 42 });
   });
@@ -49,7 +57,7 @@ describe('resolveCellEditCommit — number kind (AE6)', () => {
     expect(resolveCellEditCommit('number', '7.5', num(3))).toEqual({ action: 'commit', value: 7.5 });
   });
 
-  it('rejects non-numeric text (AE6)', () => {
+  it('rejects non-numeric text', () => {
     const outcome = resolveCellEditCommit('number', 'abc', num(3));
     expect(outcome.action).toBe('reject');
   });
@@ -128,6 +136,35 @@ describe('resolveCellEditCommit — list kind', () => {
 
   it('treats re-committing the stored items as a noop', () => {
     expect(resolveCellEditCommit('list', 'a, b', list(['a', 'b']))).toEqual({ action: 'noop' });
+  });
+
+  it('treats re-committing the seeded string of an item containing a comma as a noop', () => {
+    // A frontmatter [[Doe, John]] classifies to the display item 'Doe, John';
+    // the editor seeds that string. Re-committing it unchanged must not split
+    // it into two entries (the no-change-corrupts case).
+    expect(resolveCellEditCommit('list', 'Doe, John', list(['Doe, John']))).toEqual({
+      action: 'noop',
+    });
+  });
+
+  it('treats re-committing a seeded wikilink item as a noop', () => {
+    expect(
+      resolveCellEditCommit('list', '[[Doe, John]]', list(['[[Doe, John]]'])),
+    ).toEqual({ action: 'noop' });
+  });
+
+  it('keeps [[...]] entries whole when splitting', () => {
+    expect(resolveCellEditCommit('list', '[[Doe, John]], other', list(['x']))).toEqual({
+      action: 'commit',
+      value: ['[[Doe, John]]', 'other'],
+    });
+  });
+
+  it('splits an unbalanced [[ as plain text', () => {
+    expect(resolveCellEditCommit('list', '[[Doe, John', list(['x']))).toEqual({
+      action: 'commit',
+      value: ['[[Doe', 'John'],
+    });
   });
 
   it('treats clearing an already-empty value as a noop', () => {
@@ -223,6 +260,137 @@ describe('storedFlatValue', () => {
   it('restores a date as its Date instance', () => {
     const d = new Date(2026, 5, 17);
     expect(storedFlatValue({ kind: 'date', value: d })).toBe(d);
+  });
+});
+
+describe('withAlignedFlatKeys', () => {
+  const columnIds = ['note.priority', 'note.points'];
+
+  it('sets each editor-attached column key to the stored flat value', () => {
+    const task = {
+      id: 't1',
+      custom: { properties: { 'note.priority': text('high'), 'note.points': num(3) } },
+    };
+    const aligned = withAlignedFlatKeys(task, columnIds) as Record<string, unknown>;
+    expect(aligned['note.priority']).toBe('high');
+    expect(aligned['note.points']).toBe(3);
+  });
+
+  it('returns the task unchanged when no columns carry editors', () => {
+    const task = { id: 't1', custom: { properties: {} } };
+    expect(withAlignedFlatKeys(task, [])).toBe(task);
+  });
+
+  it('flat-key-aligns an absent stored value to the empty string', () => {
+    const task = { id: 't1', custom: { properties: {} } };
+    const aligned = withAlignedFlatKeys(task, columnIds) as Record<string, unknown>;
+    expect(aligned['note.priority']).toBe('');
+  });
+
+  it('heals a stale committed flat key so a later commit cannot write it back over an external edit', () => {
+    // An earlier inline edit left the flat key 'note.priority' = 'high' on the
+    // SVAR store row (the grid bridge copies the whole row, so committed flat
+    // keys persist).
+    const staleStoreRow = {
+      id: 't1',
+      'note.priority': 'high',
+      custom: { properties: { 'note.priority': text('high'), 'note.points': num(3) } },
+    };
+    // An external edit changes the note to 'low'; the refresh's diff-sync
+    // update carries fresh custom.properties.
+    const freshProperties = { 'note.priority': text('low'), 'note.points': num(3) };
+    const updatePayload = { id: 't1', custom: { properties: freshProperties } };
+
+    // WITHOUT alignment, SVAR's shallow-spread apply keeps the stale flat key;
+    // a later no-change commit on note.points (the bridge copies the whole
+    // row) then single-diffs on the STALE key — attributing the edit to
+    // note.priority with the OLD value, which would overwrite the external
+    // edit. This is the failure mode being prevented.
+    const unalignedRow = { ...staleStoreRow, ...updatePayload };
+    expect(classifyCellEdit({ ...unalignedRow, 'note.points': 3 }, columnIds, freshProperties)).toEqual({
+      kind: 'cell-edit',
+      columnId: 'note.priority',
+      value: 'high',
+    });
+
+    // WITH the update payload aligned, the spread refreshes the flat key too:
+    // the same commit classifies as a noop — no write, external edit intact.
+    const alignedRow = { ...staleStoreRow, ...withAlignedFlatKeys(updatePayload, columnIds) };
+    expect(classifyCellEdit({ ...alignedRow, 'note.points': 3 }, columnIds, freshProperties)).toEqual({
+      kind: 'cell-edit-noop',
+    });
+  });
+});
+
+describe('shippedEditorKinds', () => {
+  it('keeps only descriptors whose kind has a shipped editor', () => {
+    const descriptors = new Map<string, CellEditorDescriptor>([
+      ['note.effort', { kind: 'text' }],
+      ['note.points', { kind: 'number' }],
+      ['note.done', { kind: 'boolean' }],
+      ['note.tags', { kind: 'list' }],
+      ['note.due', { kind: 'date' }],
+      ['note.status', { kind: 'choice-status' }],
+      ['note.owner', { kind: 'suggest' }],
+    ]);
+    expect([...shippedEditorKinds(descriptors)]).toEqual([
+      ['note.effort', 'text'],
+      ['note.points', 'number'],
+      ['note.done', 'boolean'],
+      ['note.tags', 'list'],
+    ]);
+  });
+
+  it('yields an empty map for absent descriptors', () => {
+    expect(shippedEditorKinds(undefined).size).toBe(0);
+  });
+});
+
+describe('editorAttachedColumnIds', () => {
+  it('attaches only non-name columns whose kind has a shipped editor', () => {
+    const columns = [
+      { id: 'text', isName: true },
+      { id: 'note.effort', isName: false },
+      { id: 'formula.label', isName: false },
+      { id: 'note.points', isName: false },
+    ];
+    const kinds = new Map<string, 'text' | 'number'>([
+      ['text', 'text'],
+      ['note.effort', 'text'],
+      ['note.points', 'number'],
+    ]);
+    expect(editorAttachedColumnIds(columns, kinds)).toEqual(['note.effort', 'note.points']);
+  });
+});
+
+describe('svarEditorConfigFor', () => {
+  it("maps boolean to a richselect with 'true'/'false' string option ids", () => {
+    const config = svarEditorConfigFor('boolean');
+    expect(config).toEqual({
+      type: 'richselect',
+      config: { options: [{ id: 'true', label: 'true' }, { id: 'false', label: 'false' }] },
+    });
+  });
+
+  it('maps text, number, and list to the text editor', () => {
+    expect(svarEditorConfigFor('text')).toBe('text');
+    expect(svarEditorConfigFor('number')).toBe('text');
+    expect(svarEditorConfigFor('list')).toBe('text');
+  });
+});
+
+describe('rowEditorConfig', () => {
+  it('returns null for a row that is not editable', () => {
+    expect(rowEditorConfig({ id: 't1', custom: { editable: false } }, 'text')).toBeNull();
+    expect(rowEditorConfig(undefined, 'text')).toBeNull();
+  });
+
+  it('returns null when the column resolved no shipped kind', () => {
+    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, undefined)).toBeNull();
+  });
+
+  it('returns the kind config for an editable row', () => {
+    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text')).toBe('text');
   });
 });
 

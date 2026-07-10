@@ -662,6 +662,16 @@ export class GanttController {
   }
 
   /**
+   * The active source's task-identified note paths (TaskNotes computes task
+   * identification per the user's tag/property configuration), or an empty set.
+   * The view reads this for per-row inline editability. Source-agnostic,
+   * mirroring {@link getStatusColors}.
+   */
+  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+    return (await this.activeSource?.getManagedPaths?.()) ?? new Set();
+  }
+
+  /**
    * Subscribe to snapshot changes. The listener fires whenever a recompute
    * produces a snapshot that differs (value-inequality) from the previous one —
    * source change events and reactive re-selection both flow through here.

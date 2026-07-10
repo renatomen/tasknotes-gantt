@@ -40,7 +40,6 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
-import { resolveManagedTaskPaths } from './taskNotesManagedPaths';
 import { resolveCellEditor, type CellEditorDescriptor } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
@@ -857,11 +856,12 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors, priorityColors] = await Promise.all([
+    const [instances, links, statusColors, priorityColors, managedPaths] = await Promise.all([
       controller.getInstances(),
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
       controller.getPriorityColors(),
+      controller.getManagedPaths(),
     ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
@@ -913,12 +913,6 @@ class ObsidianGanttBasesView extends BasesView {
       this.getColumnSize(),
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
-    );
-    // Per-row editability: the source paths TaskNotes manages (the same
-    // tasks.get truth the write path's row gate enforces), one pass per build.
-    const managedPaths = await resolveManagedTaskPaths(
-      this.app,
-      instances.map((inst) => inst.sourcePath),
     );
     // Per-column inline editors (inline cell editing): resolve each grid
     // column's editor descriptor against the same mappings + writability the

@@ -295,6 +295,25 @@ describe('CompositeSource — status colors', () => {
     const composite = new CompositeSource(new FakeSource([]), null);
     expect(await composite.getStatusColors()).toEqual([]);
   });
+});
+
+describe('CompositeSource — managed paths', () => {
+  it('delegates getManagedPaths to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getManagedPaths: async () => new Set(['tasks/a.md']),
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getManagedPaths()).toEqual(new Set(['tasks/a.md']));
+  });
+
+  it('returns an empty set when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getManagedPaths()).toEqual(new Set());
+  });
 
   it('returns [] when the enrichment exposes no getStatusColors', async () => {
     const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));

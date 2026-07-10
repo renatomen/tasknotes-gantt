@@ -18,9 +18,8 @@
  */
 
 import type { FieldMappings } from '../bases/types/field-mapping';
-import { bareProperty } from '../datasource/dateFieldMapping';
+import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
-import { toYmd } from '../datasource/TaskNotesSource';
 
 /** The resolved write context {@link resolvePropertyPatch} decides against. */
 export interface PropertyPatchOptions {

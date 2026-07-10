@@ -6,7 +6,7 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 
 /**
- * Inline cell-edit spec (cell editability, U5).
+ * Inline cell-edit spec (cell editability).
  *
  * Boots Obsidian against the `test/vaults/gantt-edit` fixture with BOTH
  * tasknotes-gantt and TaskNotes enabled, registers two TaskNotes user fields
@@ -14,14 +14,14 @@ import { fileURLToPath } from "node:url";
  * reads live plugin settings, so no committed third-party data.json is
  * needed), opens the base, and asserts the editor attachment + commit/revert
  * behavior end-to-end against real Obsidian + SVAR:
- *   - (AE3) a row TaskNotes does NOT manage (no `#task` tag) never opens an
+ *   - a row TaskNotes does NOT manage (no `#task` tag) never opens an
  *     inline editor, and carries no editable cue;
- *   - (AE4) a formula column never opens an inline editor (the double-click
+ *   - a formula column never opens an inline editor (the double-click
  *     falls through to the preserved TaskNotes-activation path);
- *   - (happy) a text-field cell on the managed row opens SVAR's inline editor
+ *   - a text-field cell on the managed row opens SVAR's inline editor
  *     on double-click; typing a new value + Enter persists it to frontmatter
  *     and the cell re-renders the new value;
- *   - (AE6) committing non-numeric text into the number-field cell writes
+ *   - committing non-numeric text into the number-field cell writes
  *     nothing (frontmatter unchanged) and the cell keeps showing the stored
  *     value.
  *
@@ -288,14 +288,14 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(state.cells[`${PLAIN_ROW}|${EFFORT_COL}`]?.editable).toBe(false);
   });
 
-  it("never opens an editor on a row TaskNotes does not manage (AE3)", async () => {
+  it("never opens an editor on a row TaskNotes does not manage", async () => {
     expect(await doubleClickCell(PLAIN_ROW, EFFORT_COL)).toBe(true);
     // Poll-negative: give a would-be editor time to appear, then assert absence.
     await browser.pause(750);
     expect((await readEditState()).editorOpen).toBe(false);
   });
 
-  it("never opens an editor on a formula column (AE4)", async () => {
+  it("never opens an editor on a formula column", async () => {
     expect(await doubleClickCell(TASK_ROW, FORMULA_COL)).toBe(true);
     await browser.pause(750);
     expect((await readEditState()).editorOpen).toBe(false);
@@ -336,7 +336,7 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
-  it("rejects non-numeric text in the number cell without writing (AE6)", async () => {
+  it("rejects non-numeric text in the number cell without writing", async () => {
     const before = await frontmatterValue(TASK_ROW, "points");
     expect(before).toBe(3);
 

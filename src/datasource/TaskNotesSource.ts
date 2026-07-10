@@ -34,6 +34,7 @@
 
 import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
+import { toYmd } from './dateFieldMapping';
 import type {
   CustomDateField,
   DataSource,
@@ -425,6 +426,32 @@ export class TaskNotesSource implements DataSource {
       return tasks.map((task) => this.toSourceTask(task));
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * The note paths TaskNotes identifies as tasks. Identification is
+   * user-configurable (task tag OR a chosen property+value) and computed by
+   * TaskNotes — this consumes `api.tasks.list()` verbatim, never inferring
+   * taskness from tags or frontmatter. Empty set on any failure.
+   */
+  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+    try {
+      if (!this.api.tasks || typeof this.api.tasks.list !== 'function') {
+        return new Set();
+      }
+      const tasks = await this.api.tasks.list();
+      if (!Array.isArray(tasks)) {
+        return new Set();
+      }
+      const paths = new Set<string>();
+      for (const task of tasks) {
+        const path = (task as { path?: unknown }).path;
+        if (typeof path === 'string' && path !== '') paths.add(path);
+      }
+      return paths;
+    } catch {
+      return new Set();
     }
   }
 
@@ -1043,21 +1070,4 @@ function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): voi
   } else {
     updates[write.target.key] = value;
   }
-}
-
-/**
- * Format a `Date` as a `yyyy-MM-dd` calendar string using its **local**
- * components.
- *
- * The write path receives day-snapped, local-midnight `Date`s (from a SVAR drag
- * commit or a `yyyy-MM-dd` date input parsed locally). Using UTC here would
- * shift the day by one for users west of UTC, so local Y/M/D is the correct
- * basis — TaskNotes stores `scheduled`/`due` as calendar dates. Exported so the
- * controller's property-patch resolution serializes fieldWrite dates the same way.
- */
-export function toYmd(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }

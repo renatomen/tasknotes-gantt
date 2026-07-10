@@ -121,6 +121,15 @@ export class CompositeSource implements DataSource {
   }
 
   /**
+   * Task-identified note paths come from the enrichment (TaskNotes computes
+   * task identification per the user's tag/property configuration). With no
+   * enrichment nothing is managed. Mirrors {@link getStatusColors}.
+   */
+  public getManagedPaths(): Promise<ReadonlySet<string>> {
+    return this.enrichment?.getManagedPaths?.() ?? Promise.resolve(new Set());
+  }
+
+  /**
    * The TaskNotes field-config (scheduled/due property names + custom date
    * fields) comes from the enrichment. Yields `null` when there is no
    * enrichment or it exposes none — the view then has no field mapping to

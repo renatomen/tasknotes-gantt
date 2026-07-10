@@ -58,14 +58,23 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
-    BOOLEAN_EDITOR_OPTIONS,
+    editorAttachedColumnIds,
     editorSeedValue,
     resolveCellEditCommit,
-    shippedEditorKind,
+    rowEditorConfig,
+    shippedEditorKinds,
     storedFlatValue,
-    type ShippedEditorKind,
+    withAlignedFlatKeys,
+    type SvarEditorConfig,
+    type SvarRowLike,
   } from './cellEditCommit';
-  import { classifyTypedValue, type TypedValue } from './propertyValues';
+  import {
+    classifyTypedValue,
+    EMPTY_TYPED_VALUE,
+    type TypedValue,
+  } from './propertyValues';
+  import { formatPropertyValue } from './propertyFormat';
+  import type { CellRender } from './cellRender';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
@@ -552,10 +561,19 @@
   // floating reset pill (U3) and the asc→desc→clear cycle (U2) drive it back to
   // null. Recorded by the `sort-tasks` interceptor below.
   let ephemeralSort: EphemeralSort | null = $state(null);
+  // The mount-time editor-attach set, used for the seed's flat-key alignment
+  // and the applied-attach baseline before the $derived live sets exist.
+  const initialEditorColumnIds = editorAttachedColumnIds(
+    initialData.gridColumns,
+    shippedEditorKinds(initialData.cellEditors),
+  );
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
-  // avoids a spurious "state referenced locally" warning).
-  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData));
+  // avoids a spurious "state referenced locally" warning). Seeds carry aligned
+  // flat editor keys, like every diff-sync update (see withAlignedFlatKeys).
+  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData)).map((t) =>
+    withAlignedFlatKeys(t, initialEditorColumnIds),
+  );
   const seedLinks0: RenderLink[] = initialData.links;
   // Seed props handed to `<Gantt>`. Reassigned ONLY on a column-config change
   // (which intentionally re-inits the SVAR store, resetting zoom/scroll); a
@@ -808,7 +826,16 @@
         api.exec('move-task', { id: m.id, target: m.parent, mode: 'child', eventSource: OG_ECHO_SOURCE });
       }
       for (const u of taskPlan.updates) {
-        api.exec('update-task', { id: u.id, task: u.task, eventSource: OG_ECHO_SOURCE });
+        // Re-assert the flat editor keys with every update: SVAR applies the
+        // payload as a shallow spread, so a flat key committed by an earlier
+        // inline edit would otherwise go stale against the refreshed
+        // custom.properties — and a later commit on another column would
+        // misattribute the edit to the stale key and write the old value back.
+        api.exec('update-task', {
+          id: u.id,
+          task: withAlignedFlatKeys(u.task, cellEditColumnIds),
+          eventSource: OG_ECHO_SOURCE,
+        });
         appliedTasks.set(u.id, u.task);
       }
       for (const id of linkPlan.deletes) {
@@ -976,7 +1003,11 @@
    * seed instead of the current data.
    */
   function reseedSeedsFromData(d: GanttData): void {
-    const tasks = buildSvarTasks(toInputs(d));
+    // Aligned flat editor keys, like the incremental update path — a reseed
+    // must leave every row's flat keys matching its stored values too.
+    const tasks = buildSvarTasks(toInputs(d)).map((t) =>
+      withAlignedFlatKeys(t, cellEditColumnIds),
+    );
     initialTasks = tasks;
     initialLinks = d.links;
 
@@ -1252,29 +1283,6 @@
     getter?: (row?: SvarRowLike) => unknown;
   }
 
-  /** The slice of a SVAR grid row the editor gate/getter read. */
-  interface SvarRowLike {
-    id?: string | number;
-    custom?: { editable?: boolean; properties?: Record<string, TypedValue> };
-  }
-
-  /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
-  type SvarEditorConfig =
-    | string
-    | { type: string; config: { options: Array<{ id: string; label: string }> } };
-
-  /** Filter resolved editor descriptors down to the kinds this unit ships. */
-  function shippedEditorKinds(
-    cellEditors: ReadonlyMap<string, import('./cellEditability').CellEditorDescriptor> | undefined,
-  ): Map<string, ShippedEditorKind> {
-    const kinds = new Map<string, ShippedEditorKind>();
-    for (const [columnId, descriptor] of cellEditors ?? []) {
-      const kind = shippedEditorKind(descriptor.kind);
-      if (kind) kinds.set(columnId, kind);
-    }
-    return kinds;
-  }
-
   // Live per-column shipped editor kinds, from the assembly pass's resolved
   // descriptors. Consulted at editor-open/seed time (not only column-build
   // time) so an editability change reaches already-built columns.
@@ -1283,13 +1291,6 @@
   // Editor-attached column ids in grid display order (name column excluded) —
   // the id set `classifyUpdateGesture` diffs a committed task copy against.
   const cellEditColumnIds = $derived(editorAttachedColumnIds($data.gridColumns, editorKindByColumn));
-
-  function editorAttachedColumnIds(
-    descriptors: readonly GridColumn[],
-    kinds: ReadonlyMap<string, ShippedEditorKind>,
-  ): string[] {
-    return descriptors.filter((c) => !c.isName && kinds.has(c.id)).map((c) => c.id);
-  }
 
   // Rows with an in-flight cell-edit write: the editor gate returns null for
   // them, so a second edit can't race the pending persistence/revert.
@@ -1300,13 +1301,6 @@
   // the cell's $derived tracks changes.
   setContext(GRID_EDITABLE_COLUMNS_CONTEXT_KEY, () => new Set(editorKindByColumn.keys()));
 
-  /** The SVAR editor config for a shipped kind (text-input based except boolean). */
-  function svarEditorConfigFor(kind: ShippedEditorKind): SvarEditorConfig {
-    return kind === 'boolean'
-      ? { type: 'richselect', config: { options: [...BOOLEAN_EDITOR_OPTIONS] } }
-      : 'text';
-  }
-
   /**
    * The per-row editor gate for an editor-attached column: only a
    * TaskNotes-managed row (`custom.editable`) in a write-capable view with no
@@ -1314,10 +1308,9 @@
    */
   function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
     if (readOnly || !onMutateProperty) return null;
-    if (!row?.custom?.editable) return null;
-    if (row.id != null && pendingCellEdits.has(String(row.id))) return null;
-    const kind = editorKindByColumn.get(columnId);
-    if (!kind) return null;
+    if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
+    const config = rowEditorConfig(row, editorKindByColumn.get(columnId));
+    if (!config) return null;
     // An editor is opening: cancel any deferred single-click activation. On an
     // already-selected row the double-click's first click schedules one, and
     // the show-editor intercept that normally cancels it never fires for an
@@ -1327,7 +1320,7 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return svarEditorConfigFor(kind);
+    return config;
   }
 
   /** Turn config-derived descriptors into SVAR columns (fresh objects). */
@@ -1368,10 +1361,7 @@
   // decided at column-build time, so an editability change with an unchanged
   // column config (e.g. a newly registered TaskNotes field) also needs a column
   // reseed — otherwise the new editor never attaches (or a dead one lingers).
-  let appliedEditorAttachKey = editorAttachedColumnIds(
-    initialData.gridColumns,
-    shippedEditorKinds(initialData.cellEditors),
-  ).join('|');
+  let appliedEditorAttachKey = initialEditorColumnIds.join('|');
 
   // NOTE: there is intentionally no toolbar. The only items it ever held were
   // Zoom In/Out, which are redundant with the floating +/- controls at the
@@ -1648,9 +1638,11 @@
       if (gesture.kind === 'cell-edit-noop') return false;
       // More than one flat key diffs (a stale committed key over an externally
       // changed note): writing either could clobber the external change, so
-      // block the apply and re-align the row's flat keys with the stored truth.
+      // block the apply, re-align the row's flat keys with the stored truth,
+      // and tell the user the silently-dropped edit needs a retry.
       if (gesture.kind === 'cell-edit-ambiguous') {
         if (ev.id != null) reseedRowFlatKeys(String(ev.id));
+        new Notice("Couldn't save — the row changed externally; try again.");
         return false;
       }
       const cls = gesture.kind;
@@ -1812,8 +1804,6 @@
     }
   }
 
-  const EMPTY_TYPED_VALUE: TypedValue = { kind: 'empty', value: null };
-
   /**
    * The row's stored TypedValue record, read from the live SVAR task. This is
    * the SAME shared per-source record `buildSvarTasks` attached (and the diff
@@ -1826,6 +1816,19 @@
       return api?.getTask?.(String(id))?.custom?.properties as
         | Record<string, TypedValue>
         | undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The row's render-descriptor record (same shared-record semantics as
+   * {@link storedPropertiesOf}) — advanced optimistically on a cell-edit commit
+   * so the cell shows the committed value before the refresh confirms it.
+   */
+  function cellRendersOf(id: string): Record<string, CellRender> | undefined {
+    try {
+      return api?.getTask?.(id)?.custom?.cellRenders as Record<string, CellRender> | undefined;
     } catch {
       return undefined;
     }
@@ -1851,15 +1854,37 @@
       new Notice(`Couldn't save — ${outcome.reason}`);
       return false;
     }
-    if (properties) properties[columnId] = classifyTypedValue(outcome.value);
+    const typed = classifyTypedValue(outcome.value);
+    if (properties) properties[columnId] = typed;
+    // Optimistic display: the cell renders custom.cellRenders[columnId].text,
+    // not the flat key SVAR just applied — advance it (text mode; a markdown
+    // descriptor is refreshed by the confirming data pass) so the committed
+    // value shows immediately. Rolled back with the baseline on failure.
+    const renders = cellRendersOf(instanceId);
+    const previousRender = renders?.[columnId];
+    if (renders) {
+      renders[columnId] = { mode: 'text', text: formatPropertyValue(typed, initialData.dateLocale) };
+    }
     pendingCellEdits.add(instanceId);
-    void persistCellEdit(persist, { instanceId, columnId, value: outcome.value, previous: stored });
+    void persistCellEdit(persist, {
+      instanceId,
+      columnId,
+      value: outcome.value,
+      previous: stored,
+      previousRender,
+    });
     return true;
   }
 
   async function persistCellEdit(
     persist: (instanceId: string, propertyId: string, value: unknown) => Promise<void>,
-    edit: { instanceId: string; columnId: string; value: unknown; previous: TypedValue },
+    edit: {
+      instanceId: string;
+      columnId: string;
+      value: unknown;
+      previous: TypedValue;
+      previousRender: CellRender | undefined;
+    },
   ): Promise<void> {
     try {
       await withTimeout(persist(edit.instanceId, edit.columnId, edit.value), MUTATION_TIMEOUT_MS);
@@ -1867,6 +1892,14 @@
       console.error('[GanttContainer] cell-edit persist failed:', err);
       const properties = storedPropertiesOf(edit.instanceId);
       if (properties) properties[edit.columnId] = edit.previous;
+      const renders = cellRendersOf(edit.instanceId);
+      if (renders) {
+        if (edit.previousRender) {
+          renders[edit.columnId] = edit.previousRender;
+        } else {
+          delete renders[edit.columnId];
+        }
+      }
       api?.exec('update-task', {
         id: edit.instanceId,
         task: { [edit.columnId]: storedFlatValue(edit.previous) },

@@ -8,4 +8,4 @@ points: 7
 # Plain Note
 
 A dated note WITHOUT the task tag — TaskNotes does not manage it, so its row
-must never open an inline editor (AE3).
+must never open an inline editor.
