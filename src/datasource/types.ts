@@ -104,6 +104,23 @@ export interface PriorityColor {
   icon?: string;
 }
 
+/** The restricted-choice roles a backing system configures value sets for. */
+export type ChoiceRole = 'status' | 'priority';
+
+/**
+ * One selectable value of a restricted-choice field (e.g. a TaskNotes custom
+ * status), sourced from the backing system's configuration. `value` is what is
+ * stored/persisted (matches {@link SourceTask.status}/{@link SourceTask.priority});
+ * `label` is the human-readable form for pickers. Unlike {@link StatusColor}
+ * this carries no color — it feeds editors, not bar styling.
+ */
+export interface ChoiceOption {
+  /** The stored value string. */
+  value: string;
+  /** Display label (falls back to the value when unconfigured). */
+  label: string;
+}
+
 /**
  * A custom (user-defined) date field exposed by the backing system, addressable
  * by its frontmatter `key`. `id` is the system's internal field id (some write
@@ -260,6 +277,14 @@ export interface DataSource {
    * {@link DataSource.getStatusColors}.
    */
   getPriorityColors?(): Promise<PriorityColor[]>;
+
+  /**
+   * The configured value set for a restricted-choice role (statuses/priorities),
+   * or `[]`. Present only on sources that expose one (TaskNotes reads the same
+   * catalog its palettes come from); the view then offers pickers restricted to
+   * these values. Mirrors {@link DataSource.getStatusColors}.
+   */
+  getChoiceOptions?(role: ChoiceRole): Promise<ChoiceOption[]>;
 
   /**
    * The note paths the backing system identifies as tasks (e.g. TaskNotes,

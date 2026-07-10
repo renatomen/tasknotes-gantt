@@ -36,6 +36,8 @@ import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
 import { toYmd } from './dateFieldMapping';
 import type {
+  ChoiceOption,
+  ChoiceRole,
   CustomDateField,
   DataSource,
   DataSourceCapabilities,
@@ -639,6 +641,41 @@ export class TaskNotesSource implements DataSource {
         color: p.color,
         ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
       }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read TaskNotes' configured value set for a restricted-choice role as
+   * {@link ChoiceOption}s — the SAME catalog the color palettes come from
+   * (`api.catalog.statuses()`/`priorities()`, `model.config()` fallback), but
+   * keeping every entry with a usable `value` (a color is not required to be
+   * pickable) and carrying the display `label` (value fallback). Guarded → `[]`
+   * on any failure, so pickers degrade to "no editor offered".
+   */
+  public async getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+    try {
+      const raw =
+        role === 'status'
+          ? this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses
+          : this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      const options: ChoiceOption[] = [];
+      for (const entry of raw) {
+        if (entry && typeof entry.value === 'string' && entry.value.length > 0) {
+          options.push({
+            value: entry.value,
+            label:
+              typeof entry.label === 'string' && entry.label.length > 0
+                ? entry.label
+                : entry.value,
+          });
+        }
+      }
+      return options;
     } catch {
       return [];
     }

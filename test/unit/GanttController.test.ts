@@ -224,6 +224,34 @@ describe('GanttController — managed paths', () => {
   });
 });
 
+describe('GanttController — choice options', () => {
+  it('caches getChoiceOptions per role across calls until the enrichment changes', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const optionsSpy = jest.fn(async (role: string) =>
+      role === 'status' ? [{ value: 'open', label: 'Open' }] : [{ value: 'high', label: 'High' }],
+    );
+    (tn as unknown as { getChoiceOptions: typeof optionsSpy }).getChoiceOptions = optionsSpy;
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({ tasks: [] }),
+    });
+    await controller.init();
+
+    // Act — repeated reads per role without a TaskNotes data change in between.
+    const status1 = await controller.getChoiceOptions('status');
+    const status2 = await controller.getChoiceOptions('status');
+    const priority1 = await controller.getChoiceOptions('priority');
+    const priority2 = await controller.getChoiceOptions('priority');
+
+    // Assert — one source hit per role; echo/config refreshes reuse the cache.
+    expect(status1).toEqual([{ value: 'open', label: 'Open' }]);
+    expect(status2).toBe(status1);
+    expect(priority1).toEqual([{ value: 'high', label: 'High' }]);
+    expect(priority2).toBe(priority1);
+    expect(optionsSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('GanttController — reactive re-selection', () => {
   it('upgrades Bases → TaskNotes when TaskNotes becomes available after init', async () => {
     const tn = new FakeSource({ write: true, tasks: [task({ path: 'tn.md' })] });

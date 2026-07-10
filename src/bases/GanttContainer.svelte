@@ -8,7 +8,7 @@
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
-  import { Notice } from 'obsidian';
+  import { Notice, TFile } from 'obsidian';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -58,16 +58,26 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
+    choiceEditorOptions,
+    counterpartDate,
+    dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedValue,
+    OG_SUGGEST_EDITOR_TYPE,
     resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
     storedFlatValue,
+    suggestColumns,
+    violatesDateOrder,
     withAlignedFlatKeys,
+    type SuggestEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
   } from './cellEditCommit';
+  import { appendListEntry, resolveSuggestionFetcher } from './taskNotesSuggest';
+  import { bareProperty } from '../datasource/dateFieldMapping';
+  import { ensureInlineEditorsRegistered } from './inlineEditors';
   import {
     classifyTypedValue,
     EMPTY_TYPED_VALUE,
@@ -220,6 +230,10 @@
   // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
   // passes cells only { api, row, column, onaction }, so a prop can't reach them.
   setContext(GRID_APP_CONTEXT_KEY, app);
+
+  // The custom inline editors (locale-aware date editor) must be registered in
+  // SVAR's grid editor registry before any column referencing their type opens.
+  ensureInlineEditorsRegistered();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
   // Live theme mode (seeded from the per-view prop) + the current Obsidian
@@ -1292,6 +1306,19 @@
   // the id set `classifyUpdateGesture` diffs a committed task copy against.
   const cellEditColumnIds = $derived(editorAttachedColumnIds($data.gridColumns, editorKindByColumn));
 
+  // The mapped start/end date columns (by role), from the same resolved
+  // descriptors. Keys the cross-field start≤end check on a date-cell commit.
+  const dateRoleByColumn = $derived(dateRoleColumns($data.cellEditors));
+
+  // Live richselect option sets for the choice columns, from the TaskNotes
+  // catalog threaded through the data store — an empty set offers no picker.
+  const statusEditorOptions = $derived(choiceEditorOptions($data.choiceOptions?.status ?? []));
+  const priorityEditorOptions = $derived(choiceEditorOptions($data.choiceOptions?.priority ?? []));
+
+  // The suggest columns' channels (autosuggest filter + list shape), from the
+  // same resolved descriptors as the editor kinds.
+  const suggestChannelByColumn = $derived(suggestColumns($data.cellEditors));
+
   // Rows with an in-flight cell-edit write: the editor gate returns null for
   // them, so a second edit can't race the pending persistence/revert.
   const pendingCellEdits = new Set<string>();
@@ -1309,7 +1336,18 @@
   function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
     if (readOnly || !onMutateProperty) return null;
     if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
-    const config = rowEditorConfig(row, editorKindByColumn.get(columnId));
+    const kind = editorKindByColumn.get(columnId);
+    const suggestChannel = suggestChannelByColumn.get(columnId);
+    const config = rowEditorConfig(row, kind, {
+      dateLocale: initialData.dateLocale,
+      choiceOptions:
+        kind === 'choice-status'
+          ? statusEditorOptions
+          : kind === 'choice-priority'
+            ? priorityEditorOptions
+            : undefined,
+      suggest: suggestChannel ? { columnId, ...suggestChannel } : undefined,
+    });
     if (!config) return null;
     // An editor is opening: cancel any deferred single-click activation. On an
     // already-selected row the double-click's first click schedules one, and
@@ -1320,7 +1358,36 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return config;
+    return withSuggestWiring(config, row);
+  }
+
+  /**
+   * Attach the per-open view callbacks to a suggest editor config: the
+   * TaskNotes suggestion fetcher (re-probed per open — absent means the editor
+   * renders its degraded free-text state) and, for a list-shaped column, the
+   * direct commit closure over this row (list commits never ride the bridge).
+   */
+  function withSuggestWiring(
+    config: SvarEditorConfig,
+    row: SvarRowLike | undefined,
+  ): SvarEditorConfig {
+    if (typeof config === 'string' || config.type !== OG_SUGGEST_EDITOR_TYPE) return config;
+    const channel = config.config as SuggestEditorConfig;
+    const rowId = row?.id != null ? String(row.id) : null;
+    const fetcher = resolveSuggestionFetcher(app, channel.autosuggestFilter);
+    return {
+      type: OG_SUGGEST_EDITOR_TYPE,
+      config: {
+        ...channel,
+        ...(fetcher ? { fetchSuggestions: fetcher } : {}),
+        ...(channel.isList && rowId
+          ? {
+              commitListEntry: (entry: string) =>
+                handleSuggestListCommit(rowId, channel.columnId, entry),
+            }
+          : {}),
+      },
+    };
   }
 
   /** Turn config-derived descriptors into SVAR columns (fresh objects). */
@@ -1848,13 +1915,59 @@
     if (!persist || !kind) return false;
     const properties = storedPropertiesOf(instanceId);
     const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
-    const outcome = resolveCellEditCommit(kind, rawValue, stored);
+    // Choice commits carry the configured value strings so a bridge-coerced
+    // numeric-looking pick ("01" arriving as 1) recovers the exact catalog value.
+    const choiceValues =
+      kind === 'choice-status'
+        ? ($data.choiceOptions?.status ?? []).map((o) => o.value)
+        : kind === 'choice-priority'
+          ? ($data.choiceOptions?.priority ?? []).map((o) => o.value)
+          : undefined;
+    const outcome = resolveCellEditCommit(kind, rawValue, stored, { choiceValues });
     if (outcome.action === 'noop') return false;
     if (outcome.action === 'reject') {
       new Notice(`Couldn't save — ${outcome.reason}`);
       return false;
     }
-    const typed = classifyTypedValue(outcome.value);
+    // Cross-field date order: a mapped start (end) commit must not pass the
+    // row's real end (start). Single-edge semantics otherwise — one field
+    // write, no reshuffle of the counterpart, no subtree cascade.
+    const dateRole = outcome.value instanceof Date ? dateRoleByColumn.get(columnId) : undefined;
+    if (dateRole) {
+      const row = instances.find((i) => i.id === instanceId);
+      if (violatesDateOrder(dateRole, outcome.value as Date, counterpartDate(row, dateRole))) {
+        new Notice(
+          dateRole === 'start'
+            ? "Couldn't save — the start date must not be after the end date."
+            : "Couldn't save — the end date must not be before the start date.",
+        );
+        return false;
+      }
+    }
+    applyAndPersistCellEdit(instanceId, columnId, outcome.value);
+    return true;
+  }
+
+  /**
+   * The shared optimistic-apply + persist tail of a cell edit — used by both
+   * the bridge-classified commits above and the suggest editor's direct list
+   * commits. Advances the stored baseline and the rendered cell text
+   * synchronously (rolled back with a failed write), marks the row pending,
+   * and persists through the controller. `refreshRow` additionally re-execs
+   * the row's flat key (echo-tagged) so SVAR re-renders when no store apply
+   * preceded the call — the direct path, which returns `false` to the bridge.
+   */
+  function applyAndPersistCellEdit(
+    instanceId: string,
+    columnId: string,
+    value: unknown,
+    opts: { refreshRow?: boolean } = {},
+  ): void {
+    const persist = onMutateProperty;
+    if (!persist) return;
+    const properties = storedPropertiesOf(instanceId);
+    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
+    const typed = classifyTypedValue(value);
     if (properties) properties[columnId] = typed;
     // Optimistic display: the cell renders custom.cellRenders[columnId].text,
     // not the flat key SVAR just applied — advance it (text mode; a markdown
@@ -1866,14 +1979,38 @@
       renders[columnId] = { mode: 'text', text: formatPropertyValue(typed, initialData.dateLocale) };
     }
     pendingCellEdits.add(instanceId);
-    void persistCellEdit(persist, {
-      instanceId,
-      columnId,
-      value: outcome.value,
-      previous: stored,
-      previousRender,
-    });
-    return true;
+    if (opts.refreshRow) {
+      api?.exec('update-task', {
+        id: instanceId,
+        task: { [columnId]: storedFlatValue(typed) },
+        eventSource: OG_ECHO_SOURCE,
+      });
+    }
+    void persistCellEdit(persist, { instanceId, columnId, value, previous: stored, previousRender });
+  }
+
+  /**
+   * Direct commit for a LIST-shaped suggest column: append the picked/typed
+   * entry to the note's RAW stored list and persist via the shared cell-edit
+   * pipeline, bypassing the grid bridge. The raw frontmatter is read at commit
+   * time because the grid's TypedValues carry only display forms — rebuilding
+   * the list from them would strip the existing entries' wikilink brackets.
+   */
+  function handleSuggestListCommit(instanceId: string, columnId: string, entry: string): void {
+    if (pendingCellEdits.has(instanceId)) return;
+    const next = appendListEntry(rawStoredValueOf(instanceId, columnId), entry);
+    if (!next) return;
+    applyAndPersistCellEdit(instanceId, columnId, next, { refreshRow: true });
+  }
+
+  /** The RAW frontmatter value behind a row's note property (entries verbatim). */
+  function rawStoredValueOf(instanceId: string, columnId: string): unknown {
+    const key = bareProperty(columnId);
+    const sourcePath = instances.find((i) => i.id === instanceId)?.sourcePath;
+    if (!key || !sourcePath) return undefined;
+    const file = app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return undefined;
+    return app.metadataCache.getFileCache(file)?.frontmatter?.[key];
   }
 
   async function persistCellEdit(

@@ -38,6 +38,19 @@ export interface CellEditorDescriptor {
   kind: CellEditorKind;
   /** TaskNotes `FileFilterConfig` scoping a `suggest` editor; opaque here. */
   autosuggestFilter?: unknown;
+  /**
+   * Whether a `suggest` column's underlying field is list-shaped. List commits
+   * APPEND an entry through the direct write path (never the grid bridge, whose
+   * display-form diffing cannot represent wikilink lists); single-value commits
+   * ride the bridge with text semantics.
+   */
+  isList?: boolean;
+  /**
+   * Which mapped date role a `date` column carries. Only the mapped start/end
+   * columns have one — it keys the cross-field start≤end validation; a custom
+   * TaskNotes date field is order-free and carries none.
+   */
+  dateRole?: 'start' | 'end';
 }
 
 /** Injected lookups + writability the editor resolution decides against. */
@@ -67,8 +80,11 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
   if (!key) return null;
 
   const { mappings } = deps;
-  if (key === bareProperty(mappings.startProperty) || key === bareProperty(mappings.endProperty)) {
-    return { kind: 'date' };
+  if (key === bareProperty(mappings.startProperty)) {
+    return { kind: 'date', dateRole: 'start' };
+  }
+  if (key === bareProperty(mappings.endProperty)) {
+    return { kind: 'date', dateRole: 'end' };
   }
   if (key === bareProperty(mappings.statusProperty)) return { kind: 'choice-status' };
   if (key === bareProperty(mappings.priorityProperty)) return { kind: 'choice-priority' };
@@ -96,7 +112,11 @@ function editorForUserField(field: TaskNotesFieldMeta): CellEditorDescriptor {
     case 'list':
     case 'text':
       if (field.autosuggestFilter) {
-        return { kind: 'suggest', autosuggestFilter: field.autosuggestFilter };
+        return {
+          kind: 'suggest',
+          autosuggestFilter: field.autosuggestFilter,
+          isList: field.type === 'list',
+        };
       }
       return { kind: field.type };
     default:

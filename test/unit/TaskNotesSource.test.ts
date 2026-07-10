@@ -354,6 +354,83 @@ describe('TaskNotesSource — getPriorityColors', () => {
   });
 });
 
+describe('TaskNotesSource — getChoiceOptions', () => {
+  async function makeSource(opts: FakeApiOptions): Promise<TaskNotesSource> {
+    const { api } = makeApi(opts);
+    const source = await TaskNotesSource.create(makeApp(api));
+    if (!source) throw new Error('expected a source');
+    return source;
+  }
+
+  it('maps catalog.statuses() to {value, label} options for the status role', async () => {
+    const source = await makeSource({
+      statuses: [
+        { value: 'open', label: 'Open', color: '#fff' },
+        { value: 'done', label: 'Done', color: '#0f0', isCompleted: true },
+      ],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([
+      { value: 'open', label: 'Open' },
+      { value: 'done', label: 'Done' },
+    ]);
+  });
+
+  it('maps catalog.priorities() for the priority role', async () => {
+    const source = await makeSource({
+      priorities: [{ value: 'high', label: 'High', color: '#f00' }],
+    });
+
+    expect(await source.getChoiceOptions('priority')).toEqual([{ value: 'high', label: 'High' }]);
+  });
+
+  it('keeps a colorless entry (options need only a value) and falls back label → value', async () => {
+    const source = await makeSource({
+      statuses: [{ value: 'waiting' }, { value: 'done', label: '' }],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([
+      { value: 'waiting', label: 'waiting' },
+      { value: 'done', label: 'done' },
+    ]);
+  });
+
+  it('drops entries with no usable value', async () => {
+    const source = await makeSource({
+      statuses: [{ label: 'ghost', color: '#000' }, { value: 'ok' }],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([{ value: 'ok', label: 'ok' }]);
+  });
+
+  it('falls back to model.config() when catalog is absent', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => ({
+        statuses: [{ value: 'X', color: '#abc' }],
+        priorities: [{ value: 'urgent', label: 'Urgent' }],
+      }),
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getChoiceOptions('status')).toEqual([{ value: 'X', label: 'X' }]);
+    expect(await source!.getChoiceOptions('priority')).toEqual([{ value: 'urgent', label: 'Urgent' }]);
+  });
+
+  it('returns [] when no catalog is exposed or the accessor throws', async () => {
+    const bare = await makeSource({});
+    expect(await bare.getChoiceOptions('status')).toEqual([]);
+
+    const { api } = makeApi({});
+    api.catalog = {
+      statuses: () => {
+        throw new Error('boom');
+      },
+    };
+    const throwing = await TaskNotesSource.create(makeApp(api));
+    expect(await throwing!.getChoiceOptions('status')).toEqual([]);
+  });
+});
+
 describe('TaskNotesSource — getFieldConfig (U1)', () => {
   /** Build an api whose model.config() returns the given fieldMapping + userFields. */
   function makeConfigApi(config: {

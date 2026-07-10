@@ -12,6 +12,9 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   BOOLEAN_EDITOR_OPTIONS,
+  choiceEditorOptions,
+  counterpartDate,
+  dateRoleColumns,
   editorAttachedColumnIds,
   editorSeedValue,
   resolveCellEditCommit,
@@ -19,7 +22,9 @@ import {
   shippedEditorKind,
   shippedEditorKinds,
   storedFlatValue,
+  suggestColumns,
   svarEditorConfigFor,
+  violatesDateOrder,
   withAlignedFlatKeys,
 } from '../../src/bases/cellEditCommit';
 import type { CellEditorDescriptor } from '../../src/bases/cellEditability';
@@ -31,20 +36,21 @@ const text = (v: string): TypedValue => ({ kind: 'text', value: v });
 const num = (v: number): TypedValue => ({ kind: 'number', value: v });
 const bool = (v: boolean): TypedValue => ({ kind: 'boolean', value: v });
 const list = (v: string[]): TypedValue => ({ kind: 'list', value: v });
+const date = (v: Date): TypedValue => ({ kind: 'date', value: v });
 
 describe('shippedEditorKind', () => {
-  it('ships text, number, boolean, and list', () => {
+  it('ships text, number, boolean, list, and date', () => {
     expect(shippedEditorKind('text')).toBe('text');
     expect(shippedEditorKind('number')).toBe('number');
     expect(shippedEditorKind('boolean')).toBe('boolean');
     expect(shippedEditorKind('list')).toBe('list');
+    expect(shippedEditorKind('date')).toBe('date');
   });
 
-  it('resolves no shipped editor for date, choice, and suggest kinds', () => {
-    expect(shippedEditorKind('date')).toBeNull();
-    expect(shippedEditorKind('choice-status')).toBeNull();
-    expect(shippedEditorKind('choice-priority')).toBeNull();
-    expect(shippedEditorKind('suggest')).toBeNull();
+  it('ships the choice and suggest kinds', () => {
+    expect(shippedEditorKind('choice-status')).toBe('choice-status');
+    expect(shippedEditorKind('choice-priority')).toBe('choice-priority');
+    expect(shippedEditorKind('suggest')).toBe('suggest');
   });
 });
 
@@ -176,6 +182,119 @@ describe('resolveCellEditCommit — list kind', () => {
   });
 });
 
+describe('resolveCellEditCommit — date kind', () => {
+  const stored = date(new Date(2026, 3, 3));
+
+  it('commits a Date (the bridge passes Dates through uncoerced)', () => {
+    const picked = new Date(2026, 3, 10);
+    expect(resolveCellEditCommit('date', picked, stored)).toEqual({ action: 'commit', value: picked });
+  });
+
+  it('commits a Date onto an empty stored value', () => {
+    const picked = new Date(2026, 3, 10);
+    expect(resolveCellEditCommit('date', picked, empty)).toEqual({ action: 'commit', value: picked });
+  });
+
+  it('treats re-committing the stored calendar day as a noop (time-of-day ignored)', () => {
+    expect(resolveCellEditCommit('date', new Date(2026, 3, 3), stored)).toEqual({ action: 'noop' });
+    expect(resolveCellEditCommit('date', new Date(2026, 3, 3, 14, 30), stored)).toEqual({ action: 'noop' });
+  });
+
+  it('clears with null on an empty string', () => {
+    expect(resolveCellEditCommit('date', '', stored)).toEqual({ action: 'commit', value: null });
+  });
+
+  it('treats clearing an already-empty value as a noop', () => {
+    expect(resolveCellEditCommit('date', '', empty)).toEqual({ action: 'noop' });
+  });
+
+  it('rejects an invalid Date', () => {
+    expect(resolveCellEditCommit('date', new Date('nonsense'), stored).action).toBe('reject');
+  });
+
+  it('rejects any non-Date value', () => {
+    expect(resolveCellEditCommit('date', 'tomorrow', stored).action).toBe('reject');
+    expect(resolveCellEditCommit('date', 20260403, stored).action).toBe('reject');
+  });
+});
+
+describe('dateRoleColumns', () => {
+  it('maps only the columns whose descriptor carries a date role', () => {
+    const descriptors = new Map<string, CellEditorDescriptor>([
+      ['note.scheduled', { kind: 'date', dateRole: 'start' }],
+      ['note.due', { kind: 'date', dateRole: 'end' }],
+      ['note.review', { kind: 'date' }],
+      ['note.effort', { kind: 'text' }],
+    ]);
+    expect([...dateRoleColumns(descriptors)]).toEqual([
+      ['note.scheduled', 'start'],
+      ['note.due', 'end'],
+    ]);
+  });
+
+  it('yields an empty map for absent descriptors', () => {
+    expect(dateRoleColumns(undefined).size).toBe(0);
+  });
+});
+
+describe('counterpartDate', () => {
+  const start = new Date(2026, 3, 1);
+  const end = new Date(2026, 3, 5, 23, 59, 59, 999);
+
+  it('returns the other edge of a complete-dated row', () => {
+    const row = { start, end, dateStatus: 'complete' } as const;
+    expect(counterpartDate(row, 'start')).toBe(end);
+    expect(counterpartDate(row, 'end')).toBe(start);
+  });
+
+  it('returns the real counterpart when the EDITED edge was the inferred one', () => {
+    expect(counterpartDate({ start, end, dateStatus: 'inferred-start' }, 'start')).toBe(end);
+    expect(counterpartDate({ start, end, dateStatus: 'inferred-end' }, 'end')).toBe(start);
+  });
+
+  it('returns null when the counterpart edge was inferred from the edited one', () => {
+    expect(counterpartDate({ start, end, dateStatus: 'inferred-end' }, 'start')).toBeNull();
+    expect(counterpartDate({ start, end, dateStatus: 'inferred-start' }, 'end')).toBeNull();
+  });
+
+  it('returns null for placeholder/swapped rows and missing rows', () => {
+    expect(counterpartDate({ start, end, dateStatus: 'placeholder' }, 'start')).toBeNull();
+    expect(counterpartDate({ start, end, dateStatus: 'swapped' }, 'end')).toBeNull();
+    expect(counterpartDate(undefined, 'start')).toBeNull();
+  });
+
+  it('returns null when the counterpart date is absent', () => {
+    expect(counterpartDate({ start, end: null, dateStatus: 'complete' }, 'start')).toBeNull();
+  });
+});
+
+describe('violatesDateOrder', () => {
+  const end = new Date(2026, 3, 5, 23, 59, 59, 999);
+  const start = new Date(2026, 3, 5);
+
+  it('rejects a start edited past the end', () => {
+    expect(violatesDateOrder('start', new Date(2026, 3, 6), end)).toBe(true);
+  });
+
+  it('rejects an end edited before the start', () => {
+    expect(violatesDateOrder('end', new Date(2026, 3, 4), start)).toBe(true);
+  });
+
+  it('passes equal calendar days (the end is normalized to end-of-day)', () => {
+    expect(violatesDateOrder('start', new Date(2026, 3, 5), end)).toBe(false);
+    expect(violatesDateOrder('end', new Date(2026, 3, 5), start)).toBe(false);
+  });
+
+  it('passes an in-order edit', () => {
+    expect(violatesDateOrder('start', new Date(2026, 3, 2), end)).toBe(false);
+    expect(violatesDateOrder('end', new Date(2026, 3, 9), start)).toBe(false);
+  });
+
+  it('passes when there is no counterpart date', () => {
+    expect(violatesDateOrder('start', new Date(2026, 3, 6), null)).toBe(false);
+  });
+});
+
 describe('resolveCellEditCommit — text kind', () => {
   it('commits the string', () => {
     expect(resolveCellEditCommit('text', 'Draft v2', text('Draft'))).toEqual({
@@ -205,7 +324,101 @@ describe('resolveCellEditCommit — text kind', () => {
   });
 });
 
+describe('resolveCellEditCommit — choice kinds', () => {
+  it('commits the picked configured value string when it differs', () => {
+    expect(resolveCellEditCommit('choice-status', 'done', text('open'))).toEqual({
+      action: 'commit',
+      value: 'done',
+    });
+    expect(resolveCellEditCommit('choice-priority', 'high', empty)).toEqual({
+      action: 'commit',
+      value: 'high',
+    });
+  });
+
+  it('treats re-committing the stored value as a noop', () => {
+    expect(resolveCellEditCommit('choice-status', 'open', text('open'))).toEqual({ action: 'noop' });
+  });
+
+  it('recovers the exact configured value from a bridge-coerced number', () => {
+    // "01" rides the richselect bridge as the number 1 — the commit must
+    // restore the catalog's exact string, not String(1).
+    expect(
+      resolveCellEditCommit('choice-status', 1, text('open'), { choiceValues: ['01', 'open'] }),
+    ).toEqual({ action: 'commit', value: '01' });
+  });
+
+  it('rejects a coerced number matching several configured values (ambiguous)', () => {
+    expect(
+      resolveCellEditCommit('choice-status', 1, text('open'), { choiceValues: ['1', '01'] }),
+    ).toEqual({ action: 'reject', reason: 'This field needs one of the configured values.' });
+  });
+
+  it('rejects a coerced number matching no configured value', () => {
+    expect(
+      resolveCellEditCommit('choice-status', 9, text('open'), { choiceValues: ['open', 'done'] }),
+    ).toEqual({ action: 'reject', reason: 'This field needs one of the configured values.' });
+  });
+
+  it('stringifies a bridge-coerced numeric option id (a numeric status value)', () => {
+    expect(resolveCellEditCommit('choice-status', 2, text('1'))).toEqual({
+      action: 'commit',
+      value: '2',
+    });
+    expect(resolveCellEditCommit('choice-status', 1, text('1'))).toEqual({ action: 'noop' });
+  });
+
+  it('rejects a non-string, non-numeric committed value without writing', () => {
+    expect(resolveCellEditCommit('choice-status', { id: 'x' }, text('open'))).toEqual({
+      action: 'reject',
+      reason: 'This field needs one of the configured values.',
+    });
+    expect(resolveCellEditCommit('choice-priority', true, empty)).toEqual({
+      action: 'reject',
+      reason: 'This field needs one of the configured values.',
+    });
+  });
+});
+
+describe('resolveCellEditCommit — suggest kind (single-value text semantics)', () => {
+  it('commits typed free text', () => {
+    expect(resolveCellEditCommit('suggest', 'Anna', text('Bob'))).toEqual({
+      action: 'commit',
+      value: 'Anna',
+    });
+  });
+
+  it('commits a picked wikilink string verbatim', () => {
+    expect(resolveCellEditCommit('suggest', '[[People/Anna]]', empty)).toEqual({
+      action: 'commit',
+      value: '[[People/Anna]]',
+    });
+  });
+
+  it('treats re-committing the stored string form as a noop (click-away safety)', () => {
+    expect(resolveCellEditCommit('suggest', 'Bob', text('Bob'))).toEqual({ action: 'noop' });
+    // The seed of a stored LIST is its comma-joined display form; an untouched
+    // editor re-commits it and must not write.
+    expect(resolveCellEditCommit('suggest', 'a, b', list(['a', 'b']))).toEqual({ action: 'noop' });
+  });
+
+  it('clears with null on an empty commit, noop when already empty', () => {
+    expect(resolveCellEditCommit('suggest', '', text('Bob'))).toEqual({ action: 'commit', value: null });
+    expect(resolveCellEditCommit('suggest', '', empty)).toEqual({ action: 'noop' });
+  });
+});
+
 describe('editorSeedValue', () => {
+  it('seeds choice editors with the stored value string (the richselect option id)', () => {
+    expect(editorSeedValue('choice-status', text('open'))).toBe('open');
+    expect(editorSeedValue('choice-priority', empty)).toBe('');
+  });
+
+  it('seeds suggest editors with the stored string form (list items comma-joined)', () => {
+    expect(editorSeedValue('suggest', text('Bob'))).toBe('Bob');
+    expect(editorSeedValue('suggest', list(['a', 'b']))).toBe('a, b');
+  });
+
   it('seeds text editors with the stored string', () => {
     expect(editorSeedValue('text', text('Draft'))).toBe('Draft');
   });
@@ -234,8 +447,17 @@ describe('editorSeedValue', () => {
     expect(editorSeedValue('list', list(['a', 'b']))).toBe('a, b');
   });
 
-  it('seeds a stored date as its local YYYY-MM-DD form', () => {
+  it('seeds a stored date as its local YYYY-MM-DD form on a TEXT column', () => {
     expect(editorSeedValue('text', { kind: 'date', value: new Date(2026, 5, 17) })).toBe('2026-06-17');
+  });
+
+  it('seeds a DATE column with the raw stored Date (the custom editor formats it)', () => {
+    const d = new Date(2026, 5, 17);
+    expect(editorSeedValue('date', date(d))).toBe(d);
+  });
+
+  it('seeds an empty date column as an empty string', () => {
+    expect(editorSeedValue('date', empty)).toBe('');
   });
 });
 
@@ -323,7 +545,7 @@ describe('withAlignedFlatKeys', () => {
 });
 
 describe('shippedEditorKinds', () => {
-  it('keeps only descriptors whose kind has a shipped editor', () => {
+  it('keeps every descriptor whose kind has a shipped editor', () => {
     const descriptors = new Map<string, CellEditorDescriptor>([
       ['note.effort', { kind: 'text' }],
       ['note.points', { kind: 'number' }],
@@ -331,6 +553,7 @@ describe('shippedEditorKinds', () => {
       ['note.tags', { kind: 'list' }],
       ['note.due', { kind: 'date' }],
       ['note.status', { kind: 'choice-status' }],
+      ['note.priority', { kind: 'choice-priority' }],
       ['note.owner', { kind: 'suggest' }],
     ]);
     expect([...shippedEditorKinds(descriptors)]).toEqual([
@@ -338,6 +561,10 @@ describe('shippedEditorKinds', () => {
       ['note.points', 'number'],
       ['note.done', 'boolean'],
       ['note.tags', 'list'],
+      ['note.due', 'date'],
+      ['note.status', 'choice-status'],
+      ['note.priority', 'choice-priority'],
+      ['note.owner', 'suggest'],
     ]);
   });
 
@@ -365,7 +592,7 @@ describe('editorAttachedColumnIds', () => {
 
 describe('svarEditorConfigFor', () => {
   it("maps boolean to a richselect with 'true'/'false' string option ids", () => {
-    const config = svarEditorConfigFor('boolean');
+    const config = svarEditorConfigFor('boolean', { dateLocale: 'en-US' });
     expect(config).toEqual({
       type: 'richselect',
       config: { options: [{ id: 'true', label: 'true' }, { id: 'false', label: 'false' }] },
@@ -373,24 +600,115 @@ describe('svarEditorConfigFor', () => {
   });
 
   it('maps text, number, and list to the text editor', () => {
-    expect(svarEditorConfigFor('text')).toBe('text');
-    expect(svarEditorConfigFor('number')).toBe('text');
-    expect(svarEditorConfigFor('list')).toBe('text');
+    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toBe('text');
+    expect(svarEditorConfigFor('number', { dateLocale: 'en-US' })).toBe('text');
+    expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toBe('text');
+  });
+
+  it('maps date to the registered custom editor, carrying the display locale', () => {
+    expect(svarEditorConfigFor('date', { dateLocale: 'de-DE' })).toEqual({
+      type: 'og-date',
+      config: { locale: 'de-DE' },
+    });
+  });
+
+  it('maps the choice kinds to a richselect over the supplied catalog options', () => {
+    const choiceOptions = [
+      { id: 'open', label: 'Open' },
+      { id: 'done', label: 'Done' },
+    ];
+    for (const kind of ['choice-status', 'choice-priority'] as const) {
+      expect(svarEditorConfigFor(kind, { dateLocale: 'en-US', choiceOptions })).toEqual({
+        type: 'richselect',
+        config: { options: choiceOptions },
+      });
+    }
+  });
+
+  it('resolves NO editor for a choice kind without catalog options (nothing to pick)', () => {
+    expect(svarEditorConfigFor('choice-status', { dateLocale: 'en-US' })).toBeNull();
+    expect(
+      svarEditorConfigFor('choice-priority', { dateLocale: 'en-US', choiceOptions: [] }),
+    ).toBeNull();
+  });
+
+  it('maps suggest to the registered custom editor, carrying the suggest channel', () => {
+    const suggest = { columnId: 'note.owner', autosuggestFilter: { requiredTags: ['person'] }, isList: false };
+    expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US', suggest })).toEqual({
+      type: 'og-suggest',
+      config: suggest,
+    });
+  });
+
+  it('resolves NO editor for a suggest kind without a channel', () => {
+    expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US' })).toBeNull();
+  });
+});
+
+describe('choiceEditorOptions', () => {
+  it('maps catalog options to {id: value, label} richselect options', () => {
+    expect(
+      choiceEditorOptions([
+        { value: 'open', label: 'Open' },
+        { value: 'in-progress', label: 'In progress' },
+      ]),
+    ).toEqual([
+      { id: 'open', label: 'Open' },
+      { id: 'in-progress', label: 'In progress' },
+    ]);
+  });
+
+  it('falls back to the value when the label is empty', () => {
+    expect(choiceEditorOptions([{ value: 'x', label: '' }])).toEqual([{ id: 'x', label: 'x' }]);
+  });
+});
+
+describe('suggestColumns', () => {
+  it('keys each suggest descriptor by column id, carrying filter + list shape', () => {
+    const filter = { requiredTags: ['ws'] };
+    const descriptors = new Map<string, CellEditorDescriptor>([
+      ['note.due', { kind: 'date', dateRole: 'end' }],
+      ['note.owner', { kind: 'suggest', autosuggestFilter: filter }],
+      ['note.workstream', { kind: 'suggest', autosuggestFilter: filter, isList: true }],
+    ]);
+    expect([...suggestColumns(descriptors)]).toEqual([
+      ['note.owner', { autosuggestFilter: filter, isList: false }],
+      ['note.workstream', { autosuggestFilter: filter, isList: true }],
+    ]);
+  });
+
+  it('yields an empty map for absent descriptors', () => {
+    expect(suggestColumns(undefined).size).toBe(0);
   });
 });
 
 describe('rowEditorConfig', () => {
   it('returns null for a row that is not editable', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: false } }, 'text')).toBeNull();
-    expect(rowEditorConfig(undefined, 'text')).toBeNull();
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: false } }, 'text', { dateLocale: 'en-US' }),
+    ).toBeNull();
+    expect(rowEditorConfig(undefined, 'text', { dateLocale: 'en-US' })).toBeNull();
   });
 
   it('returns null when the column resolved no shipped kind', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, undefined)).toBeNull();
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, undefined, { dateLocale: 'en-US' }),
+    ).toBeNull();
   });
 
   it('returns the kind config for an editable row', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text')).toBe('text');
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text', { dateLocale: 'en-US' }),
+    ).toBe('text');
+  });
+
+  it('returns the locale-carrying date config for an editable row', () => {
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'date', { dateLocale: 'de-DE' }),
+    ).toEqual({
+      type: 'og-date',
+      config: { locale: 'de-DE' },
+    });
   });
 });
 

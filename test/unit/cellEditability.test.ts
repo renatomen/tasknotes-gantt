@@ -66,14 +66,14 @@ describe('resolveCellEditor — computed and name columns', () => {
 });
 
 describe('resolveCellEditor — mapped canonical fields', () => {
-  it('resolves the mapped start property to a date editor', () => {
+  it('resolves the mapped start property to a date editor carrying the start role', () => {
     const d = deps({ mappings: mappings({ startProperty: 'note.start' }) });
-    expect(resolveCellEditor('note.start', d)).toEqual({ kind: 'date' });
+    expect(resolveCellEditor('note.start', d)).toEqual({ kind: 'date', dateRole: 'start' });
   });
 
-  it('resolves the mapped end property to a date editor across prefix forms', () => {
+  it('resolves the mapped end property to a date editor (end role) across prefix forms', () => {
     const d = deps({ mappings: mappings({ endProperty: 'due' }) });
-    expect(resolveCellEditor('note.due', d)).toEqual({ kind: 'date' });
+    expect(resolveCellEditor('note.due', d)).toEqual({ kind: 'date', dateRole: 'end' });
   });
 
   it('resolves the mapped status property to the status choice editor', () => {
@@ -118,12 +118,12 @@ describe('resolveCellEditor — mapped canonical fields', () => {
       mappings: mappings({ startProperty: 'note.start' }),
       taskNotesFieldType: registered('start', { type: 'text' }),
     });
-    expect(resolveCellEditor('note.start', d)).toEqual({ kind: 'date' });
+    expect(resolveCellEditor('note.start', d)).toEqual({ kind: 'date', dateRole: 'start' });
   });
 });
 
 describe('resolveCellEditor — registered TaskNotes user fields', () => {
-  it('resolves a date field to a date editor', () => {
+  it('resolves a date field to a date editor with NO date role (not cross-field validated)', () => {
     const d = deps({ taskNotesFieldType: registered('review', { type: 'date' }) });
     expect(resolveCellEditor('note.review', d)).toEqual({ kind: 'date' });
   });
@@ -143,12 +143,16 @@ describe('resolveCellEditor — registered TaskNotes user fields', () => {
     expect(resolveCellEditor('note.tags2', d)).toEqual({ kind: 'list' });
   });
 
-  it('resolves a list field with an autosuggest filter to a suggest editor carrying it', () => {
+  it('resolves a list field with an autosuggest filter to a LIST-shaped suggest editor', () => {
     const filter = { includeFolders: ['People'] };
     const d = deps({
       taskNotesFieldType: registered('assignee', { type: 'list', autosuggestFilter: filter }),
     });
-    expect(resolveCellEditor('note.assignee', d)).toEqual({ kind: 'suggest', autosuggestFilter: filter });
+    expect(resolveCellEditor('note.assignee', d)).toEqual({
+      kind: 'suggest',
+      autosuggestFilter: filter,
+      isList: true,
+    });
   });
 
   it('resolves a text field without a filter to a text editor', () => {
@@ -156,12 +160,16 @@ describe('resolveCellEditor — registered TaskNotes user fields', () => {
     expect(resolveCellEditor('note.owner', d)).toEqual({ kind: 'text' });
   });
 
-  it('resolves a text field with an autosuggest filter to a suggest editor carrying it', () => {
+  it('resolves a text field with an autosuggest filter to a single-value suggest editor', () => {
     const filter = { includeTags: ['#person'] };
     const d = deps({
       taskNotesFieldType: registered('owner', { type: 'text', autosuggestFilter: filter }),
     });
-    expect(resolveCellEditor('note.owner', d)).toEqual({ kind: 'suggest', autosuggestFilter: filter });
+    expect(resolveCellEditor('note.owner', d)).toEqual({
+      kind: 'suggest',
+      autosuggestFilter: filter,
+      isList: false,
+    });
   });
 
   it('resolves an unknown field type to a plain text editor', () => {

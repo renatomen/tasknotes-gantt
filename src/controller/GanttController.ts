@@ -64,6 +64,8 @@ import {
   resolveDateMapping,
   bareProperty,
   toNoteProperty,
+  type ChoiceOption,
+  type ChoiceRole,
   type DataSource,
   type DataSourceCapabilities,
   type DateWrite,
@@ -383,6 +385,13 @@ export class GanttController {
    * so plain Bases notifies reuse it instead of re-running a full task list.
    */
   private cachedManagedPaths: ReadonlySet<string> | null = null;
+  /**
+   * Restricted-choice value sets per role, cached like the managed paths: they
+   * only change on a genuine TaskNotes data/config change (which flips
+   * `enrichmentDirty`), so plain Bases notifies reuse them instead of re-reading
+   * the TaskNotes catalog.
+   */
+  private readonly cachedChoiceOptions = new Map<ChoiceRole, ChoiceOption[]>();
   /** [OGDBG #161 fix-prototype] last base tasks read, for the reuse experiment. */
   private cachedRawTasks: readonly SourceTask[] | null = null;
 
@@ -682,6 +691,23 @@ export class GanttController {
     const paths = (await this.activeSource?.getManagedPaths?.()) ?? new Set<string>();
     this.cachedManagedPaths = paths;
     return paths;
+  }
+
+  /**
+   * The active source's configured value set for a restricted-choice role
+   * (TaskNotes statuses/priorities), or `[]`. The view reads this to build the
+   * status/priority cell pickers. Cached per role across plain Bases notifies
+   * and invalidated with the other enrichment caches on a TaskNotes data
+   * change, mirroring {@link getManagedPaths}.
+   */
+  public async getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+    const cached = this.cachedChoiceOptions.get(role);
+    if (cached) {
+      return cached;
+    }
+    const options = (await this.activeSource?.getChoiceOptions?.(role)) ?? [];
+    this.cachedChoiceOptions.set(role, options);
+    return options;
   }
 
   /**
@@ -1371,6 +1397,7 @@ export class GanttController {
       this.relationshipIndex = null;
       this.dependencyCache.clear();
       this.cachedManagedPaths = null;
+      this.cachedChoiceOptions.clear();
       this.enrichmentDirty = false;
     }
 

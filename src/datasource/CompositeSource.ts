@@ -30,6 +30,8 @@
  */
 
 import type {
+  ChoiceOption,
+  ChoiceRole,
   DataSource,
   DataSourceCapabilities,
   DependencyRelType,
@@ -118,6 +120,16 @@ export class CompositeSource implements DataSource {
    */
   public getPriorityColors(): Promise<PriorityColor[]> {
     return this.enrichment?.getPriorityColors?.() ?? Promise.resolve([]);
+  }
+
+  /**
+   * Restricted-choice value sets (statuses/priorities) come from the enrichment
+   * (TaskNotes' catalog). With no enrichment, or one that exposes none, this
+   * yields `[]` — the view then offers no choice pickers. Mirrors
+   * {@link getStatusColors}.
+   */
+  public getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+    return this.enrichment?.getChoiceOptions?.(role) ?? Promise.resolve([]);
   }
 
   /**
