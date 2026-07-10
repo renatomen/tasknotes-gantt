@@ -498,6 +498,7 @@
       // path and diffs update-only, so the hatch flips live without churning.
       hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
       propertyValues: d.propertyValues,
+      cellRenders: d.cellRenders,
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.
       collapsedIds,

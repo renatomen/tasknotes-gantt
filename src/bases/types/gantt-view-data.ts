@@ -20,6 +20,7 @@ import type { PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
 import type { TypedValue } from '../propertyValues';
+import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
 import type { DefaultScale } from '../zoomConfig';
 
@@ -130,6 +131,12 @@ export interface GanttData {
    * entries; the grid cell looks values up by each instance's `sourcePath`.
    */
   propertyValues: Map<string, Record<string, TypedValue>>;
+  /**
+   * Per-task render descriptors for the grid's visible property columns, keyed by
+   * source path. Built in the same pass as {@link propertyValues}; drives whether
+   * a cell renders Obsidian markdown (wikilinks, tag pills) or conventional text.
+   */
+  cellRenders: Map<string, Record<string, CellRender>>;
   /**
    * Grid column descriptors derived from the Base config (U2): name column
    * first, then the visible properties in order. The view turns these into SVAR

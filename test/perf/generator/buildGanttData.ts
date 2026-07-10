@@ -94,6 +94,7 @@ export async function assembleGanttData(
     cascadeMode: 'ask',
     defaultScale: 'month',
     propertyValues: new Map(),
+    cellRenders: new Map(),
     gridColumns,
     gridColumnsKey: gridColumnsKey(gridColumns),
   };
