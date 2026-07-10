@@ -717,6 +717,16 @@ export class TaskNotesSource implements DataSource {
       throw new Error('TaskNotes API does not support task updates');
     }
 
+    // Row gate (U2): a fieldWrite grafts frontmatter onto whatever note
+    // `tasks.update` touches, so it may only land on a TaskNotes-managed row.
+    // Fails closed when task info cannot be resolved at all.
+    if (patch.fieldWrite) {
+      const info = typeof tasks.get === 'function' ? await tasks.get(path) : null;
+      if (!info) {
+        throw new Error(`Refusing field write: no TaskNotes task at ${path}`);
+      }
+    }
+
     const updates = buildTaskUpdates(patch);
 
     await tasks.update(path, updates, context);
@@ -995,6 +1005,13 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
     } else {
       updates[patch.estimateWrite.key] = minutes;
     }
+  }
+  // Generic field write (U2): verbatim under the resolved bare frontmatter key,
+  // top-level — TaskNotes' frontmatter writer reads custom user fields from
+  // `task[key]`, never a nested `userFields` object (confirmed vs 4.11.0).
+  // `null` clears the property (matching the date-clear convention).
+  if (patch.fieldWrite) {
+    updates[patch.fieldWrite.key] = patch.fieldWrite.value;
   }
 
   return updates;

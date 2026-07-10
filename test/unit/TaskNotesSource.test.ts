@@ -1167,6 +1167,120 @@ describe('TaskNotesSource', () => {
     });
   });
 
+  describe('write path — generic field writes (U2)', () => {
+    // The row is TaskNotes-managed: tasks.get resolves task info for it.
+    const managedTask = { path: 't.md', title: 'T' };
+
+    it('mutate() applies a fieldWrite as a top-level frontmatter key (real writer shape, never nested under userFields)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate(
+        't.md',
+        { fieldWrite: { key: 'effort', value: 'high' } },
+        { source: 'obsidian-gantt', correlationId: 'f1' },
+      );
+
+      // Assert — TaskNotes' mapToFrontmatter reads custom-field values from the
+      // TOP LEVEL of updates by frontmatter `key` (confirmed vs 4.11.0).
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { effort: 'high' },
+        { source: 'obsidian-gantt', correlationId: 'f1' },
+      );
+    });
+
+    it('mutate() forwards a null fieldWrite value to clear the property', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { fieldWrite: { key: 'effort', value: null } });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { effort: null }, undefined);
+    });
+
+    it('mutate() forwards an empty list fieldWrite value as []', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { fieldWrite: { key: 'contexts', value: [] } });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { contexts: [] }, undefined);
+    });
+
+    it('mutate() does not let a fieldWrite clobber other patched fields', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', {
+        fieldWrite: { key: 'effort', value: 'high' },
+        status: 'doing',
+      });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { effort: 'high', status: 'doing' }, undefined);
+    });
+
+    it('mutate() refuses a fieldWrite for a path with no TaskNotes task info — no update attempted', async () => {
+      // Arrange — tasks.get resolves nothing for this path (plain note, not a task).
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('plain-note.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow(/no TaskNotes task/i);
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('mutate() refuses a fieldWrite when task info cannot be resolved (tasks.get unavailable) — fails closed', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      delete (api.tasks as { get?: unknown }).get;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('t.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('mutate() does NOT gate non-fieldWrite patches on task info (regression: drags on plain rows unchanged)', async () => {
+      // Arrange — no task info resolvable, but the patch carries no fieldWrite.
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { status: 'doing' });
+
+      // Assert — existing write behavior is unchanged.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() propagates a fieldWrite update failure (so callers can revert)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      updateSpy.mockRejectedValueOnce(new Error('disk full'));
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('t.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow('disk full');
+    });
+  });
+
   describe('subscribe()', () => {
     it('registers a handler for every change event and fires it on emit', async () => {
       // Arrange
@@ -1245,5 +1359,22 @@ describe('buildTaskUpdates — time estimate write (U6)', () => {
   it('writes only the estimate — no other fields — for a bare estimate patch', () => {
     const updates = buildTaskUpdates({ estimate: 1440, estimateWrite: { kind: 'property', key: 'est' } });
     expect(updates).toEqual({ est: 1440 });
+  });
+});
+
+describe('buildTaskUpdates — generic field write (U2)', () => {
+  it('lands the value as a top-level key by frontmatter key (not nested under userFields)', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'effort', value: 'high' } });
+    expect(updates).toEqual({ effort: 'high' });
+  });
+
+  it('a null value clears the property', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'effort', value: null } });
+    expect(updates).toEqual({ effort: null });
+  });
+
+  it('an empty list value writes []', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'contexts', value: [] } });
+    expect(updates).toEqual({ contexts: [] });
   });
 });

@@ -715,6 +715,66 @@ export class GanttController {
   }
 
   /**
+   * Persist a single property edit (cell edit, U2) to the source task behind a
+   * render instance. Resolves `propertyId` (a Bases `note.`-prefixed id or a
+   * bare frontmatter key) into a {@link TaskPatch}: a property that IS one of
+   * the configured field mappings routes through its existing resolved branch
+   * (start/end via date write targets, text/status via their canonical fields,
+   * progress/estimate via their resolved targets), so the write always lands
+   * where the mapping says — never a hardcoded property name. Any other
+   * property becomes a generic {@link TaskPatch.fieldWrite} by bare key, which
+   * the source applies only to TaskNotes-managed rows (defensive row gate).
+   * Rejects (without writing) for non-note property ids (`file.*`/`formula.*`)
+   * and for value types a mapped field cannot accept.
+   *
+   * @param instanceId - The render-row id being edited.
+   * @param propertyId - The edited column's property id (the caller supplies it).
+   * @param value - The raw new value; `null` clears, `[]` writes an empty list.
+   */
+  public async mutateProperty(
+    instanceId: string,
+    propertyId: string,
+    value: unknown,
+  ): Promise<void> {
+    await this.mutate(instanceId, this.toPropertyPatch(propertyId, value));
+  }
+
+  /**
+   * Resolve an edited property id + raw value into the right {@link TaskPatch}
+   * member — mapped fields through their existing branches, everything else as
+   * a generic `fieldWrite` by bare frontmatter key.
+   */
+  private toPropertyPatch(propertyId: string, value: unknown): TaskPatch {
+    if (/^(file|formula)[.:]/.test(propertyId)) {
+      throw new Error(`Not a writable note property: ${propertyId}`);
+    }
+    const key = bareProperty(propertyId);
+    if (!key) {
+      throw new Error(`Unresolvable property id: ${propertyId}`);
+    }
+    const mappings = this.effectiveMappings;
+    if (key === bareProperty(mappings.startProperty)) {
+      return { start: asDatePatchValue(value, propertyId) };
+    }
+    if (key === bareProperty(mappings.endProperty)) {
+      return { end: asDatePatchValue(value, propertyId) };
+    }
+    if (key === bareProperty(mappings.textProperty)) {
+      return { text: asStringPatchValue(value, propertyId) };
+    }
+    if (key === bareProperty(mappings.statusProperty)) {
+      return { status: asStringPatchValue(value, propertyId) };
+    }
+    if (key === bareProperty(mappings.progressProperty)) {
+      return { progress: asNumberPatchValue(value, propertyId) };
+    }
+    if (key === bareProperty(mappings.timeEstimateProperty)) {
+      return { estimate: asNumberPatchValue(value, propertyId) };
+    }
+    return { fieldWrite: { key, value } };
+  }
+
+  /**
    * Translate a `{start,end}` patch into resolved `dateWrites` using the active
    * source's write targets (R-D), so a start drag persists to the mapped field
    * (canonical scheduled/due or a custom userField) rather than always
@@ -1513,6 +1573,33 @@ let correlationCounter = 0;
  * (Electron/modern runtimes), else a timestamp+counter fallback. Injected in
  * tests for determinism.
  */
+/** Narrow a raw property-edit value for a mapped date field (`null` clears). */
+function asDatePatchValue(value: unknown, propertyId: string): Date | null {
+  if (value === null) {
+    return null;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+  throw new TypeError(`Mapped date property ${propertyId} requires a Date or null`);
+}
+
+/** Narrow a raw property-edit value for a mapped string field (text/status). */
+function asStringPatchValue(value: unknown, propertyId: string): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  throw new TypeError(`Mapped property ${propertyId} requires a string value`);
+}
+
+/** Narrow a raw property-edit value for a mapped numeric field (progress/estimate). */
+function asNumberPatchValue(value: unknown, propertyId: string): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  throw new TypeError(`Mapped property ${propertyId} requires a finite number value`);
+}
+
 function defaultCorrelationId(): string {
   const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
