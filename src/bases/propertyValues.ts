@@ -40,6 +40,14 @@ export interface TypedValue {
   value: unknown;
 }
 
+/** The canonical `empty` value — the shared default where a value is absent. */
+export const EMPTY_TYPED_VALUE: TypedValue = { kind: 'empty', value: null };
+
+/** Element-wise equality of two display-item lists. */
+export function listsEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */
 export interface PropertyExtractor {
   extractValue(entry: unknown, propertyId: string): unknown;

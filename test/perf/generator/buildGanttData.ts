@@ -95,6 +95,7 @@ export async function assembleGanttData(
     defaultScale: 'month',
     propertyValues: new Map(),
     cellRenders: new Map(),
+    managedPaths: new Set<string>(),
     // Fixed locale: the harness has no property columns, so no date renders; a
     // pinned value keeps the run deterministic across machines regardless.
     dateLocale: 'en-US',

@@ -17,7 +17,12 @@
   import type { App } from 'obsidian';
   import type { CellRender } from './cellRender';
   import { resolveDateLocale } from './dateLocale';
-  import { GRID_APP_CONTEXT_KEY, GRID_DATE_LOCALE_CONTEXT_KEY } from './gridContext';
+  import {
+    GRID_APP_CONTEXT_KEY,
+    GRID_DATE_LOCALE_CONTEXT_KEY,
+    GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
+    type GridEditableColumnsContext,
+  } from './gridContext';
   import { formatPropertyValue } from './propertyFormat';
   import type { TypedValue } from './propertyValues';
 
@@ -50,6 +55,16 @@
   const useMarkdown = $derived(render?.mode === 'markdown' && !!app);
   const displayText = $derived(render?.mode === 'text' ? render.text : fallbackText);
   const sourcePath = $derived((row?.custom?.sourceTaskId as string | undefined) ?? '');
+
+  // Editable-cell cue (inline cell editing): a text cursor marks cells whose
+  // column carries an inline editor AND whose row TaskNotes can persist —
+  // mirroring the editor-open gate, so the cue never points at a dead end.
+  const getEditableColumns = getContext<GridEditableColumnsContext | undefined>(
+    GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
+  );
+  const isEditable = $derived(
+    !!row?.custom?.editable && !!getEditableColumns?.().has(column.id as string),
+  );
 
   let el: HTMLElement | undefined = $state();
 
@@ -147,9 +162,16 @@
 </script>
 
 {#if useMarkdown}
-  <span class="og-grid-cell og-grid-cell--md" title={fallbackText} bind:this={el}></span>
+  <span
+    class="og-grid-cell og-grid-cell--md"
+    class:og-cell-editable={isEditable}
+    title={fallbackText}
+    bind:this={el}
+  ></span>
 {:else}
-  <span class="og-grid-cell" title={displayText}>{displayText}</span>
+  <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
+    >{displayText}</span
+  >
 {/if}
 
 <style>
@@ -158,6 +180,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .og-cell-editable {
+    cursor: text;
   }
   /* Markdown cells can hold multi-value/list content; clamp to the row so a
      rendered list or wrapping links can never grow the fixed SVAR row height

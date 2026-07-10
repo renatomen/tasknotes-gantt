@@ -377,6 +377,12 @@ export class GanttController {
   private relationshipIndex: RelationshipIndex | null = null;
   private readonly dependencyCache = new Map<string, SourceDependency[]>();
   private enrichmentDirty = true;
+  /**
+   * Task-identified paths, cached like the relationship index: the set only
+   * changes on a genuine TaskNotes data change (which flips `enrichmentDirty`),
+   * so plain Bases notifies reuse it instead of re-running a full task list.
+   */
+  private cachedManagedPaths: ReadonlySet<string> | null = null;
   /** [OGDBG #161 fix-prototype] last base tasks read, for the reuse experiment. */
   private cachedRawTasks: readonly SourceTask[] | null = null;
 
@@ -659,6 +665,23 @@ export class GanttController {
    */
   public async getPriorityColors(): Promise<PriorityColor[]> {
     return (await this.activeSource?.getPriorityColors?.()) ?? [];
+  }
+
+  /**
+   * The active source's task-identified note paths (TaskNotes computes task
+   * identification per the user's tag/property configuration), or an empty set.
+   * The view reads this for per-row inline editability. Source-agnostic,
+   * mirroring {@link getStatusColors}. Cached across plain Bases notifies and
+   * invalidated with the other enrichment caches on a TaskNotes data change, so
+   * echo/config refreshes never re-run a full task list.
+   */
+  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+    if (this.cachedManagedPaths !== null) {
+      return this.cachedManagedPaths;
+    }
+    const paths = (await this.activeSource?.getManagedPaths?.()) ?? new Set<string>();
+    this.cachedManagedPaths = paths;
+    return paths;
   }
 
   /**
@@ -1347,6 +1370,7 @@ export class GanttController {
     if (this.enrichmentDirty) {
       this.relationshipIndex = null;
       this.dependencyCache.clear();
+      this.cachedManagedPaths = null;
       this.enrichmentDirty = false;
     }
 

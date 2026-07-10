@@ -73,6 +73,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     hideTopLevelSubtasks: over.hideTopLevelSubtasks ?? false,
     propertyValues: over.propertyValues,
     collapsedIds: over.collapsedIds,
+    managedPaths: over.managedPaths,
   };
 }
 
@@ -608,6 +609,43 @@ describe('buildSvarTasks — grid property values (U4)', () => {
   it('defaults custom.properties to {} when the task has no resolved values', () => {
     const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', sourcePath: 'a.md' })] }));
     expect(t.custom.properties).toEqual({});
+  });
+});
+
+describe('buildSvarTasks — row editability', () => {
+  it('marks a TaskNotes-managed source path editable and an unmanaged one not', () => {
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({ id: 'a', sourcePath: 'tasks/a.md' }),
+          inst({ id: 'b', sourcePath: 'notes/plain.md' }),
+        ],
+        managedPaths: new Set(['tasks/a.md']),
+      }),
+    );
+    expect(tasks[0]!.custom.editable).toBe(true);
+    expect(tasks[1]!.custom.editable).toBe(false);
+  });
+
+  it('marks a companion-fetched instance not editable when its path is unmanaged', () => {
+    const [t] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'ctx', sourcePath: 'notes/plain.md', isFetched: true })],
+        managedPaths: new Set(['tasks/other.md']),
+      }),
+    );
+    expect(t.custom.editable).toBe(false);
+  });
+
+  it('defaults to not editable when no managed set is provided', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
+    expect(t.custom.editable).toBe(false);
+  });
+
+  it('taskStateKey changes when editability flips (re-sync guard)', () => {
+    const build = (managedPaths?: ReadonlySet<string>) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', sourcePath: 'a.md' })], managedPaths }))[0]!;
+    expect(taskStateKey(build(new Set(['a.md'])))).not.toBe(taskStateKey(build()));
   });
 });
 

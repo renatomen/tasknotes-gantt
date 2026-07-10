@@ -537,6 +537,35 @@ describe('TaskNotesSource', () => {
     });
   });
 
+  describe('getManagedPaths()', () => {
+    it('returns the task paths TaskNotes identifies via tasks.list()', async () => {
+      // Arrange
+      const { api } = makeApi({
+        tasks: [
+          { path: 'tasks/a.md', title: 'A' },
+          { path: 'tasks/b.md', title: 'B' },
+        ],
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      const managed = await source!.getManagedPaths();
+
+      // Assert — identification is TaskNotes' computation, consumed verbatim.
+      expect(managed).toEqual(new Set(['tasks/a.md', 'tasks/b.md']));
+    });
+
+    it('returns an empty set when the tasks API is unavailable', async () => {
+      // Arrange
+      const { api } = makeApi();
+      (api as { tasks?: unknown }).tasks = undefined;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act + Assert
+      expect(await source!.getManagedPaths()).toEqual(new Set());
+    });
+  });
+
   describe('getTasks()', () => {
     it('maps TaskInfo to SourceTask with raw Date dates, null progress, status', async () => {
       // Arrange

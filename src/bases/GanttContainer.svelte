@@ -24,7 +24,11 @@
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
   import { setContext, tick } from 'svelte';
-  import { GRID_APP_CONTEXT_KEY, GRID_DATE_LOCALE_CONTEXT_KEY } from './gridContext';
+  import {
+    GRID_APP_CONTEXT_KEY,
+    GRID_DATE_LOCALE_CONTEXT_KEY,
+    GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
+  } from './gridContext';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
@@ -42,6 +46,7 @@
   } from './ganttSync';
   import {
     classifyUpdateEvent,
+    classifyUpdateGesture,
     classifyLinkCreate,
     computeMoveDelta,
     computeMoveExtensions,
@@ -52,6 +57,24 @@
     type ExtensionNode,
     type SubtreeShift,
   } from './cascadeGate';
+  import {
+    editorAttachedColumnIds,
+    editorSeedValue,
+    resolveCellEditCommit,
+    rowEditorConfig,
+    shippedEditorKinds,
+    storedFlatValue,
+    withAlignedFlatKeys,
+    type SvarEditorConfig,
+    type SvarRowLike,
+  } from './cellEditCommit';
+  import {
+    classifyTypedValue,
+    EMPTY_TYPED_VALUE,
+    type TypedValue,
+  } from './propertyValues';
+  import { formatPropertyValue } from './propertyFormat';
+  import type { CellRender } from './cellRender';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
@@ -100,6 +123,14 @@
      * read-only contexts / older callers — drag persistence is then inert.
      */
     onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
+    /**
+     * Persist a single property edit (inline cell edit) for a render instance
+     * through the controller's `mutateProperty`. Rejects (throws) without
+     * writing for non-writable columns, wrong-typed values, canonical-key
+     * collisions, and unmanaged rows. Absent in read-only contexts — inline
+     * editors are then never offered.
+     */
+    onMutateProperty?: (instanceId: string, propertyId: string, value: unknown) => Promise<void>;
     /**
      * Create a Finish-to-Start dependency from a drawn link (M2/U4): the task
      * behind `predecessorInstanceId` blocks the one behind `dependentInstanceId`.
@@ -173,6 +204,7 @@
     app,
     config,
     onMutate,
+    onMutateProperty,
     onAddDependency,
     onRemoveDependency,
     onBarActivate,
@@ -504,6 +536,7 @@
       hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
       propertyValues: d.propertyValues,
       cellRenders: d.cellRenders,
+      managedPaths: d.managedPaths,
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.
       collapsedIds,
@@ -528,10 +561,19 @@
   // floating reset pill (U3) and the asc→desc→clear cycle (U2) drive it back to
   // null. Recorded by the `sort-tasks` interceptor below.
   let ephemeralSort: EphemeralSort | null = $state(null);
+  // The mount-time editor-attach set, used for the seed's flat-key alignment
+  // and the applied-attach baseline before the $derived live sets exist.
+  const initialEditorColumnIds = editorAttachedColumnIds(
+    initialData.gridColumns,
+    shippedEditorKinds(initialData.cellEditors),
+  );
   // Plain seed values, used both to seed the `$state` props below and the
   // applied-state maps further down (referencing the consts, not the $state,
-  // avoids a spurious "state referenced locally" warning).
-  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData));
+  // avoids a spurious "state referenced locally" warning). Seeds carry aligned
+  // flat editor keys, like every diff-sync update (see withAlignedFlatKeys).
+  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData)).map((t) =>
+    withAlignedFlatKeys(t, initialEditorColumnIds),
+  );
   const seedLinks0: RenderLink[] = initialData.links;
   // Seed props handed to `<Gantt>`. Reassigned ONLY on a column-config change
   // (which intentionally re-inits the SVAR store, resetting zoom/scroll); a
@@ -687,9 +729,11 @@
     // re-init from the stale frozen task seed, dropping incremental updates),
     // resync the applied maps, and let the single re-init render it. Zoom/scroll
     // reset here — accepted, since this only fires on an actual column change.
-    if (d.gridColumnsKey !== appliedColumnsKey) {
+    const editorAttachKey = cellEditColumnIds.join('|');
+    if (d.gridColumnsKey !== appliedColumnsKey || editorAttachKey !== appliedEditorAttachKey) {
       dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
       appliedGridWidth = d.gridWidth; // reseed re-asserts the width itself
+      appliedEditorAttachKey = editorAttachKey;
       reseedForColumnChange(d);
       return;
     }
@@ -782,7 +826,16 @@
         api.exec('move-task', { id: m.id, target: m.parent, mode: 'child', eventSource: OG_ECHO_SOURCE });
       }
       for (const u of taskPlan.updates) {
-        api.exec('update-task', { id: u.id, task: u.task, eventSource: OG_ECHO_SOURCE });
+        // Re-assert the flat editor keys with every update: SVAR applies the
+        // payload as a shallow spread, so a flat key committed by an earlier
+        // inline edit would otherwise go stale against the refreshed
+        // custom.properties — and a later commit on another column would
+        // misattribute the edit to the stale key and write the old value back.
+        api.exec('update-task', {
+          id: u.id,
+          task: withAlignedFlatKeys(u.task, cellEditColumnIds),
+          eventSource: OG_ECHO_SOURCE,
+        });
         appliedTasks.set(u.id, u.task);
       }
       for (const id of linkPlan.deletes) {
@@ -950,7 +1003,11 @@
    * seed instead of the current data.
    */
   function reseedSeedsFromData(d: GanttData): void {
-    const tasks = buildSvarTasks(toInputs(d));
+    // Aligned flat editor keys, like the incremental update path — a reseed
+    // must leave every row's flat keys matching its stored values too.
+    const tasks = buildSvarTasks(toInputs(d)).map((t) =>
+      withAlignedFlatKeys(t, cellEditColumnIds),
+    );
     initialTasks = tasks;
     initialLinks = d.links;
 
@@ -1214,10 +1271,61 @@
     // SVAR cell component for property columns; the name column omits it (uses
     // the default cell, which renders the tree + row.text).
     cell?: typeof PropertyCell;
+    // Per-row inline-editor gate (inline cell editing): SVAR's grid store calls
+    // this at every editor open (double-click AND keyboard); `null` blocks the
+    // open. Attached ONLY to columns with a shipped editor kind — an attached
+    // editor suppresses the grid's `show-editor` double-click fallback, which
+    // editor-less columns must keep (TaskNotes activation).
+    editor?: (row?: SvarRowLike) => SvarEditorConfig | null;
+    // Raw stored value for an opening editor (SVAR seeds the input from it);
+    // without it SVAR falls back to the flat `row[column.id]`, which our rows
+    // don't carry until a first commit.
+    getter?: (row?: SvarRowLike) => unknown;
+  }
+
+  // Live per-column shipped editor kinds, from the assembly pass's resolved
+  // descriptors. Consulted at editor-open/seed time (not only column-build
+  // time) so an editability change reaches already-built columns.
+  const editorKindByColumn = $derived(shippedEditorKinds($data.cellEditors));
+
+  // Editor-attached column ids in grid display order (name column excluded) —
+  // the id set `classifyUpdateGesture` diffs a committed task copy against.
+  const cellEditColumnIds = $derived(editorAttachedColumnIds($data.gridColumns, editorKindByColumn));
+
+  // Rows with an in-flight cell-edit write: the editor gate returns null for
+  // them, so a second edit can't race the pending persistence/revert.
+  const pendingCellEdits = new Set<string>();
+
+  // Editable-cell cue (discoverability): PropertyCell combines this live column
+  // set with its row's `custom.editable` to add `og-cell-editable`. A getter so
+  // the cell's $derived tracks changes.
+  setContext(GRID_EDITABLE_COLUMNS_CONTEXT_KEY, () => new Set(editorKindByColumn.keys()));
+
+  /**
+   * The per-row editor gate for an editor-attached column: only a
+   * TaskNotes-managed row (`custom.editable`) in a write-capable view with no
+   * pending write on it may open an editor; `null` blocks the open.
+   */
+  function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
+    if (readOnly || !onMutateProperty) return null;
+    if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
+    const config = rowEditorConfig(row, editorKindByColumn.get(columnId));
+    if (!config) return null;
+    // An editor is opening: cancel any deferred single-click activation. On an
+    // already-selected row the double-click's first click schedules one, and
+    // the show-editor intercept that normally cancels it never fires for an
+    // editor-attached column — without this the TaskNotes action would open
+    // over the just-opened editor.
+    if (pendingSingleClick) {
+      clearTimeout(pendingSingleClick);
+      pendingSingleClick = null;
+    }
+    return config;
   }
 
   /** Turn config-derived descriptors into SVAR columns (fresh objects). */
   function buildSvarColumns(descriptors: GridColumn[]): SvarGridColumn[] {
+    const attachedKinds = editorKindByColumn;
     return descriptors.map((c) => {
       const col: SvarGridColumn = {
         id: c.id,
@@ -1232,7 +1340,15 @@
           ? true
           : (a, b) => Math.sign(propertyColumnSort(c.propId)(a, b)) as 1 | -1 | 0,
       };
-      if (!c.isName) col.cell = PropertyCell;
+      if (!c.isName) {
+        col.cell = PropertyCell;
+        const buildKind = attachedKinds.get(c.id);
+        if (buildKind) {
+          col.editor = (row) => resolveRowEditor(row, c.id);
+          col.getter = (row) =>
+            editorSeedValue(editorKindByColumn.get(c.id) ?? buildKind, row?.custom?.properties?.[c.id]);
+        }
+      }
       return col;
     });
   }
@@ -1241,6 +1357,11 @@
   // Last-applied column-config fingerprint; a change triggers a reseed (see the
   // diff-sync $effect). Plain `let` — read/written only inside the effect.
   let appliedColumnsKey = initialData.gridColumnsKey;
+  // Last-applied editor-attach set. Which columns CARRY an editor/getter is
+  // decided at column-build time, so an editability change with an unchanged
+  // column config (e.g. a newly registered TaskNotes field) also needs a column
+  // reseed — otherwise the new editor never attaches (or a dead one lingers).
+  let appliedEditorAttachKey = initialEditorColumnIds.join('|');
 
   // NOTE: there is intentionally no toolbar. The only items it ever held were
   // Zoom In/Out, which are redundant with the floating +/- controls at the
@@ -1497,7 +1618,34 @@
     // events are not expected and are left as a no-op.
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
-      const cls = classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing });
+      // Cell edits fold into the same event stream: the grid's update-cell
+      // bridge re-emits a committed inline edit as an untagged `update-task`
+      // whose task copy carries a flat `[columnId]` key. classifyUpdateGesture
+      // tells those apart from drag/resize gestures by diffing the copy's flat
+      // keys against the row's stored values.
+      const gesture = classifyUpdateGesture(ev, {
+        echoSource: OG_ECHO_SOURCE,
+        syncing,
+        cellEditColumnIds,
+        storedProperties: storedPropertiesOf(ev.id),
+      });
+      if (gesture.kind === 'cell-edit') {
+        return ev.id != null
+          ? handleCellEditCommit(String(ev.id), gesture.columnId, gesture.value)
+          : false;
+      }
+      // Re-committing the current value: nothing to write, nothing to revert.
+      if (gesture.kind === 'cell-edit-noop') return false;
+      // More than one flat key diffs (a stale committed key over an externally
+      // changed note): writing either could clobber the external change, so
+      // block the apply, re-align the row's flat keys with the stored truth,
+      // and tell the user the silently-dropped edit needs a retry.
+      if (gesture.kind === 'cell-edit-ambiguous') {
+        if (ev.id != null) reseedRowFlatKeys(String(ev.id));
+        new Notice("Couldn't save — the row changed externally; try again.");
+        return false;
+      }
+      const cls = gesture.kind;
       if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
         const before = instances.find((i) => i.id === id);
@@ -1653,6 +1801,129 @@
         eventSource: OG_ECHO_SOURCE,
       });
       new Notice("Couldn't save progress — check TaskNotes is running.");
+    }
+  }
+
+  /**
+   * The row's stored TypedValue record, read from the live SVAR task. This is
+   * the SAME shared per-source record `buildSvarTasks` attached (and the diff
+   * baseline fingerprints), so advancing it after a commit keeps every
+   * instance of the source — and the next diff — in agreement.
+   */
+  function storedPropertiesOf(id: string | number | undefined): Record<string, TypedValue> | undefined {
+    if (id == null) return undefined;
+    try {
+      return api?.getTask?.(String(id))?.custom?.properties as
+        | Record<string, TypedValue>
+        | undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The row's render-descriptor record (same shared-record semantics as
+   * {@link storedPropertiesOf}) — advanced optimistically on a cell-edit commit
+   * so the cell shows the committed value before the refresh confirms it.
+   */
+  function cellRendersOf(id: string): Record<string, CellRender> | undefined {
+    try {
+      return api?.getTask?.(id)?.custom?.cellRenders as Record<string, CellRender> | undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Handle a committed inline cell edit: cast the bridged value back per the
+   * column's editor kind, then either block the apply (noop/reject, with a
+   * Notice on reject) or let SVAR's optimistic apply stand and persist through
+   * the controller — reverting (+Notice) if the write rejects or times out.
+   * The stored baseline advances synchronously so a quick follow-up edit diffs
+   * against what is being persisted, and rolls back with a failed write.
+   */
+  function handleCellEditCommit(instanceId: string, columnId: string, rawValue: unknown): boolean {
+    const persist = onMutateProperty;
+    const kind = editorKindByColumn.get(columnId);
+    if (!persist || !kind) return false;
+    const properties = storedPropertiesOf(instanceId);
+    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
+    const outcome = resolveCellEditCommit(kind, rawValue, stored);
+    if (outcome.action === 'noop') return false;
+    if (outcome.action === 'reject') {
+      new Notice(`Couldn't save — ${outcome.reason}`);
+      return false;
+    }
+    const typed = classifyTypedValue(outcome.value);
+    if (properties) properties[columnId] = typed;
+    // Optimistic display: the cell renders custom.cellRenders[columnId].text,
+    // not the flat key SVAR just applied — advance it (text mode; a markdown
+    // descriptor is refreshed by the confirming data pass) so the committed
+    // value shows immediately. Rolled back with the baseline on failure.
+    const renders = cellRendersOf(instanceId);
+    const previousRender = renders?.[columnId];
+    if (renders) {
+      renders[columnId] = { mode: 'text', text: formatPropertyValue(typed, initialData.dateLocale) };
+    }
+    pendingCellEdits.add(instanceId);
+    void persistCellEdit(persist, {
+      instanceId,
+      columnId,
+      value: outcome.value,
+      previous: stored,
+      previousRender,
+    });
+    return true;
+  }
+
+  async function persistCellEdit(
+    persist: (instanceId: string, propertyId: string, value: unknown) => Promise<void>,
+    edit: {
+      instanceId: string;
+      columnId: string;
+      value: unknown;
+      previous: TypedValue;
+      previousRender: CellRender | undefined;
+    },
+  ): Promise<void> {
+    try {
+      await withTimeout(persist(edit.instanceId, edit.columnId, edit.value), MUTATION_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[GanttContainer] cell-edit persist failed:', err);
+      const properties = storedPropertiesOf(edit.instanceId);
+      if (properties) properties[edit.columnId] = edit.previous;
+      const renders = cellRendersOf(edit.instanceId);
+      if (renders) {
+        if (edit.previousRender) {
+          renders[edit.columnId] = edit.previousRender;
+        } else {
+          delete renders[edit.columnId];
+        }
+      }
+      api?.exec('update-task', {
+        id: edit.instanceId,
+        task: { [edit.columnId]: storedFlatValue(edit.previous) },
+        eventSource: OG_ECHO_SOURCE,
+      });
+      new Notice("Couldn't save the change — check TaskNotes is running.");
+    } finally {
+      pendingCellEdits.delete(edit.instanceId);
+    }
+  }
+
+  /**
+   * Re-align an ambiguous row's flat editor keys with its stored values (the
+   * lightest per-row refresh: one echo-tagged exec, no source re-read), so the
+   * stale committed key that caused the ambiguity stops diffing.
+   */
+  function reseedRowFlatKeys(instanceId: string): void {
+    const properties = storedPropertiesOf(instanceId);
+    const patch: Record<string, unknown> = {};
+    for (const columnId of cellEditColumnIds) {
+      patch[columnId] = storedFlatValue(properties?.[columnId]);
+    }
+    if (Object.keys(patch).length > 0) {
+      api?.exec('update-task', { id: instanceId, task: patch, eventSource: OG_ECHO_SOURCE });
     }
   }
 

@@ -40,6 +40,7 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
+import { resolveCellEditor, type CellEditorDescriptor } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
@@ -749,6 +750,12 @@ class ObsidianGanttBasesView extends BasesView {
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch: TaskPatch) => controller.mutate(instanceId, patch),
+          // Inline cell-edit persistence: a committed grid editor value routes
+          // to the controller's property write (mapped fields via their
+          // resolved branches, user fields as a generic fieldWrite). Rejects
+          // without writing where the resolution refuses.
+          onMutateProperty: (instanceId: string, propertyId: string, value: unknown) =>
+            controller.mutateProperty(instanceId, propertyId, value),
           // FS dependency authoring (M2): drag-to-create / delete a link route to
           // the controller, which resolves both endpoints → source and writes
           // blockedBy through TaskNotes.
@@ -849,11 +856,12 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors, priorityColors] = await Promise.all([
+    const [instances, links, statusColors, priorityColors, managedPaths] = await Promise.all([
       controller.getInstances(),
       controller.getLinks(arrowMode),
       controller.getStatusColors(),
       controller.getPriorityColors(),
+      controller.getManagedPaths(),
     ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
@@ -906,6 +914,22 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
+    // Per-column inline editors (inline cell editing): resolve each grid
+    // column's editor descriptor against the same mappings + writability the
+    // write path (`mutateProperty` → `resolvePropertyPatch`) enforces, so an
+    // editor is never offered where the write would refuse.
+    const editorMappings = this.buildFieldMappings();
+    const cellEditors = new Map<string, CellEditorDescriptor>();
+    for (const column of gridColumns) {
+      const descriptor = resolveCellEditor(column.propId, {
+        taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
+        mappings: editorMappings,
+        progressWritable: !isProgressReadonly(editorMappings),
+        estimateWritable: isTimeEstimateWriteEnabled(editorMappings),
+        isNameColumn: column.isName,
+      });
+      if (descriptor) cellEditors.set(column.id, descriptor);
+    }
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {
@@ -942,6 +966,8 @@ class ObsidianGanttBasesView extends BasesView {
       propertyValues,
       cellRenders,
       dateLocale,
+      managedPaths,
+      cellEditors,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),

@@ -262,6 +262,15 @@ export interface DataSource {
   getPriorityColors?(): Promise<PriorityColor[]>;
 
   /**
+   * The note paths the backing system identifies as tasks (e.g. TaskNotes,
+   * whose task identification is user-configurable — by tag or by a chosen
+   * property+value — and computed by TaskNotes itself), or an empty set.
+   * Present only on sources that can answer; the view treats absence as
+   * "no rows are managed". Mirrors {@link DataSource.getStatusColors}.
+   */
+  getManagedPaths?(): Promise<ReadonlySet<string>>;
+
+  /**
    * The backing system's configured date-field surface ({@link FieldConfig}) —
    * the scheduled/due property names plus enabled custom date fields — or `null`
    * when unavailable (e.g. TaskNotes absent). Used to resolve start/end roles to
