@@ -24,20 +24,37 @@ export function formatIsoDate(d: Date): string {
 }
 
 /**
+ * Formatter construction costs ~60x a format call, and an assembly pass formats
+ * every date cell — memoize per locale (a session sees ~1). `null` marks a
+ * locale Intl rejected, so bad strings don't retry construction per cell.
+ */
+const formattersByLocale = new Map<string, Intl.DateTimeFormat | null>();
+
+function formatterFor(locale: string): Intl.DateTimeFormat | null {
+  let formatter = formattersByLocale.get(locale);
+  if (formatter === undefined) {
+    try {
+      formatter = new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      });
+    } catch {
+      formatter = null;
+    }
+    formattersByLocale.set(locale, formatter);
+  }
+  return formatter;
+}
+
+/**
  * Format a date for display in the given locale (numeric year/month/day, the
  * regional order and separators). Pure in (date, locale). A locale string Intl
  * rejects falls back to the canonical `YYYY-MM-DD` rather than throwing.
  */
 export function formatDateForLocale(d: Date, locale: string): string {
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    }).format(d);
-  } catch {
-    return formatIsoDate(d);
-  }
+  const formatter = formatterFor(locale);
+  return formatter ? formatter.format(d) : formatIsoDate(d);
 }
 
 /**

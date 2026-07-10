@@ -96,7 +96,9 @@ async function ensureLocaleGridReady(): Promise<void> {
         await activateBaseLeaf();
         const state = await readGridState();
         last = JSON.stringify(state);
-        return state.mounted && state.dueHeader && state.cellTexts.some((t) => t.trim().length > 0);
+        // Gate on the SPECIFIC observable (the de-DE form), not "anything
+        // rendered" — a pre-override ISO render must keep the retry loop alive.
+        return state.mounted && state.dueHeader && state.cellTexts.some((t) => DE_DUE_PATTERN.test(t));
       },
       { timeout: 90000, timeoutMsg: `Locale grid not ready (column "${DUE_COLUMN_ID}" + rendered cells)` },
     );
