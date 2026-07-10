@@ -123,6 +123,13 @@ export interface SvarTaskInputs {
    * on `open`, and the diff never fights a persisted collapse. Omitted → all open.
    */
   collapsedIds?: ReadonlySet<string>;
+  /**
+   * Source paths TaskNotes manages (inline cell editing). An instance whose
+   * `sourcePath` is in the set renders editable (`custom.editable`); rows backed
+   * by plain notes — and every row when omitted (TaskNotes absent, pure-task
+   * test contexts) — render read-only.
+   */
+  managedPaths?: ReadonlySet<string>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -193,6 +200,12 @@ export interface SvarTask {
      * must be precomputed here rather than read off the links at hover time.
      */
     incomingDeps: IncomingDep[];
+    /**
+     * The row's source note is TaskNotes-managed, so its cells may offer inline
+     * editors (per-row half of the editability model). `false` for rows backed
+     * by plain notes — the write path would refuse them.
+     */
+    editable: boolean;
   };
 }
 
@@ -216,6 +229,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     propertyValues,
     cellRenders,
     collapsedIds,
+    managedPaths,
   } = input;
   const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
@@ -337,6 +351,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         cellRenders: cellRenders?.get(inst.sourcePath) ?? {},
         // Incoming dependency edges for the tooltip (U3). `[]` when none.
         incomingDeps: incomingByTargetId.get(inst.id) ?? [],
+        editable: managedPaths?.has(inst.sourcePath) ?? false,
       },
     };
     if (inst.parent) task.parent = inst.parent;
@@ -421,6 +436,9 @@ export function taskStateKey(t: SvarTask): string {
     // reltype/gap edit re-issues the task (the tooltip would otherwise go
     // stale — the task-side analogue of the gap-in-link-id fix, KTD6).
     incomingDepsKey(t.custom.incomingDeps),
+    // Row editability gates the inline editors; fold it so a note converted
+    // to/from a TaskNotes task re-issues the row with the right affordance.
+    t.custom.editable,
   ]);
 }
 

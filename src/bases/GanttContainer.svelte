@@ -504,6 +504,7 @@
       hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
       propertyValues: d.propertyValues,
       cellRenders: d.cellRenders,
+      managedPaths: d.managedPaths,
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.
       collapsedIds,

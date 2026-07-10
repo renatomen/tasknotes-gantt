@@ -144,6 +144,13 @@ export interface GanttData {
    */
   dateLocale: string;
   /**
+   * Source paths TaskNotes manages, resolved per assembly pass (inline cell
+   * editing). Rides `buildSvarTasks` onto each row as `custom.editable` so the
+   * grid offers editors only where TaskNotes can persist. Empty when TaskNotes
+   * is unavailable — every row read-only.
+   */
+  managedPaths: ReadonlySet<string>;
+  /**
    * Grid column descriptors derived from the Base config (U2): name column
    * first, then the visible properties in order. The view turns these into SVAR
    * columns.

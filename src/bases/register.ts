@@ -40,6 +40,7 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
+import { resolveManagedTaskPaths } from './taskNotesManagedPaths';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
@@ -906,6 +907,12 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
+    // Per-row editability: the source paths TaskNotes manages (the same
+    // tasks.get truth the write path's row gate enforces), one pass per build.
+    const managedPaths = await resolveManagedTaskPaths(
+      this.app,
+      instances.map((inst) => inst.sourcePath),
+    );
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {
@@ -942,6 +949,7 @@ class ObsidianGanttBasesView extends BasesView {
       propertyValues,
       cellRenders,
       dateLocale,
+      managedPaths,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
