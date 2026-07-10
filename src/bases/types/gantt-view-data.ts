@@ -138,6 +138,12 @@ export interface GanttData {
    */
   cellRenders: Map<string, Record<string, CellRender>>;
   /**
+   * The display-locale snapshot taken for this assembly pass. Every date the
+   * pass formatted (the `cellRenders` text) used it; the view hands it to grid
+   * cells (context) so their fallback formatting agrees with the pass.
+   */
+  dateLocale: string;
+  /**
    * Grid column descriptors derived from the Base config (U2): name column
    * first, then the visible properties in order. The view turns these into SVAR
    * columns.

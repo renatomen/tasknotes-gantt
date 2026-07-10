@@ -15,3 +15,10 @@ export const GRID_APP_CONTEXT_KEY = 'og-gantt-app';
 
 /** The value stored under {@link GRID_APP_CONTEXT_KEY}. */
 export type GridAppContext = App;
+
+/**
+ * Context key under which `GanttContainer` provides the assembly pass's
+ * display-locale snapshot (`GanttData.dateLocale`) to grid cells, for the same
+ * SVAR-can't-pass-props reason as the App context. A `string` locale tag.
+ */
+export const GRID_DATE_LOCALE_CONTEXT_KEY = 'og-gantt-date-locale';

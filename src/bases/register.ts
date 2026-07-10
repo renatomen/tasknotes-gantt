@@ -36,6 +36,7 @@ import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import { type FetchedFileMeta } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
+import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
@@ -866,11 +867,14 @@ class ObsidianGanttBasesView extends BasesView {
         obsidianWidget: (name) => getObsidianPropertyWidget(this.app, name),
         valueKind,
       });
+    // Snapshot the display locale ONCE per assembly pass and thread it down, so
+    // every cell of this pass (matched + fetched) formats dates identically.
+    const dateLocale = resolveDateLocale();
+    const cellDataContext = { extractor: this.gridAdapter, resolveRenderType, dateLocale };
     const { cellRenders, propertyValues } = buildCellData(
       this.data?.data ?? [],
       visiblePropIds,
-      this.gridAdapter,
-      resolveRenderType,
+      cellDataContext,
     );
     // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
     // result, so the matched-only maps above leave their grid cells blank. Fill
@@ -891,12 +895,7 @@ class ObsidianGanttBasesView extends BasesView {
           frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
         });
       }
-      const fetched = buildFetchedCellData(
-        fetchedMetas,
-        visiblePropIds,
-        this.gridAdapter,
-        resolveRenderType,
-      );
+      const fetched = buildFetchedCellData(fetchedMetas, visiblePropIds, cellDataContext);
       for (const [path, record] of fetched.cellRenders) cellRenders.set(path, record);
       for (const [path, record] of fetched.propertyValues) propertyValues.set(path, record);
     }
@@ -942,6 +941,7 @@ class ObsidianGanttBasesView extends BasesView {
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
+      dateLocale,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
