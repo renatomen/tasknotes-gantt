@@ -168,4 +168,44 @@ describe("Gantt (OG) markdown grid cells", () => {
     expect(state.rawBrackets).toBe(false);
     expect(state.cellCount).toBeGreaterThan(0);
   });
+
+  it("opens global search on a tag click, not the task modal (R8)", async () => {
+    await ensureMarkdownGridReady();
+    const clicked = await browser.execute(() => {
+      const a = document.querySelector<HTMLElement>(".og-bases-gantt .og-grid-cell a.tag");
+      if (!a) return false;
+      a.click();
+      return true;
+    });
+    expect(clicked).toBe(true);
+    // The tag click routes to Obsidian's global search (a search leaf opens),
+    // rather than bubbling to the row handler that opens the TaskNotes modal.
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(({ app }) => {
+          const ws = app.workspace as unknown as { getLeavesOfType?: (t: string) => unknown[] };
+          return (ws.getLeavesOfType?.("search") ?? []).length > 0;
+        }),
+      { timeout: 10000, timeoutMsg: "Tag click did not open global search" },
+    );
+  });
+
+  it("opens the linked note on an internal-link click, not the task modal (R8)", async () => {
+    await ensureMarkdownGridReady();
+    const clicked = await browser.execute(() => {
+      const a = Array.from(
+        document.querySelectorAll<HTMLElement>(".og-bases-gantt .og-grid-cell a.internal-link"),
+      ).find((el) => (el.textContent ?? "") === "Justin");
+      if (!a) return false;
+      a.click();
+      return true;
+    });
+    expect(clicked).toBe(true);
+    // Clicking the link navigates to the note (link behavior). If the row handler
+    // had captured the click it would open the modal and never change the file.
+    await browser.waitUntil(
+      async () => browser.executeObsidian(({ app }) => app.workspace.getActiveFile()?.path === "Justin.md"),
+      { timeout: 10000, timeoutMsg: "Clicking the assignee link did not open Justin.md" },
+    );
+  });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement */
+  /* global HTMLElement, MouseEvent */
   /**
    * Generic type-aware grid cell.
    *
@@ -47,6 +47,22 @@
 
   let el: HTMLElement | undefined = $state();
 
+  /** Open Obsidian's global search for a tag (mirrors a tag click in a note). */
+  function openTagSearch(currentApp: App, tag: string): void {
+    try {
+      const gs = (
+        currentApp as unknown as {
+          internalPlugins?: {
+            getPluginById?: (id: string) => { instance?: { openGlobalSearch?: (q: string) => void } } | undefined;
+          };
+        }
+      ).internalPlugins?.getPluginById?.('global-search')?.instance;
+      gs?.openGlobalSearch?.(`tag:#${tag}`);
+    } catch {
+      /* global search unavailable — no-op (never fall back to the row modal) */
+    }
+  }
+
   $effect(() => {
     // Re-runs when the descriptor, app, or target element change (SVAR reuses
     // cell nodes across rows). Own the render lifecycle per pass and tear it down
@@ -63,6 +79,43 @@
     return () => {
       owner.unload();
       child.remove();
+    };
+  });
+
+  /**
+   * Make rendered links/tags behave as they do in a note body. Without this the
+   * click bubbles to the grid's row handler (SVAR `select-task` → the TaskNotes
+   * modal); stopping propagation on an anchor keeps the modal closed and runs the
+   * native action instead: an internal link opens its note, a tag opens Obsidian
+   * search. Clicks elsewhere in the cell still fall through to the row handler.
+   */
+  $effect(() => {
+    const node = el;
+    if (!useMarkdown || !node || !app) return;
+    const currentApp = app;
+    const onClick = (evt: MouseEvent): void => {
+      const anchor = (evt.target as HTMLElement | null)?.closest?.('a.internal-link, a.tag');
+      if (!anchor) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      if (anchor.classList.contains('internal-link')) {
+        const linktext =
+          anchor.getAttribute('data-href') ?? anchor.getAttribute('href') ?? anchor.textContent ?? '';
+        if (linktext) void currentApp.workspace.openLinkText(linktext, sourcePath, evt.ctrlKey || evt.metaKey);
+      } else {
+        const tag = (anchor.getAttribute('href') ?? anchor.textContent ?? '').replace(/^#/, '');
+        if (tag) openTagSearch(currentApp, tag);
+      }
+    };
+    // Also swallow the anchor's mousedown so SVAR can't begin a row selection/drag.
+    const onMouseDown = (evt: MouseEvent): void => {
+      if ((evt.target as HTMLElement | null)?.closest?.('a.internal-link, a.tag')) evt.stopPropagation();
+    };
+    node.addEventListener('click', onClick);
+    node.addEventListener('mousedown', onMouseDown);
+    return () => {
+      node.removeEventListener('click', onClick);
+      node.removeEventListener('mousedown', onMouseDown);
     };
   });
 </script>
