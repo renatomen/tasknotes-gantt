@@ -16,7 +16,8 @@
   import { Component, MarkdownRenderer } from 'obsidian';
   import type { App } from 'obsidian';
   import type { CellRender } from './cellRender';
-  import { GRID_APP_CONTEXT_KEY } from './gridContext';
+  import { resolveDateLocale } from './dateLocale';
+  import { GRID_APP_CONTEXT_KEY, GRID_DATE_LOCALE_CONTEXT_KEY } from './gridContext';
   import { formatPropertyValue } from './propertyFormat';
   import type { TypedValue } from './propertyValues';
 
@@ -27,6 +28,10 @@
   let { row, column }: { row: any; column: any } = $props();
 
   const app = getContext<App | undefined>(GRID_APP_CONTEXT_KEY);
+  // The assembly pass's locale snapshot; a cell mounted without the container
+  // context re-resolves from the same source, so the two can't disagree.
+  const dateLocale =
+    getContext<string | undefined>(GRID_DATE_LOCALE_CONTEXT_KEY) ?? resolveDateLocale();
 
   const render = $derived(
     (row?.custom?.cellRenders as Record<string, CellRender> | undefined)?.[column.id as string],
@@ -38,6 +43,7 @@
   const fallbackText = $derived(
     formatPropertyValue(
       (row?.custom?.properties as Record<string, TypedValue> | undefined)?.[column.id as string],
+      dateLocale,
     ),
   );
 

@@ -72,6 +72,7 @@ export function buildCellRender(
   rawValue: unknown,
   typedValue: TypedValue,
   renderType: CellRenderType,
+  dateLocale: string,
 ): CellRender {
   if (renderType.display === 'markdown') {
     // A link (scalar or list item) may be a bare path (computed column) — wrap it
@@ -83,7 +84,15 @@ export function buildCellRender(
     const source = buildCellMarkdownSource(rawForSource, renderType);
     return source === '' ? { mode: 'text', text: '' } : { mode: 'markdown', source };
   }
-  return { mode: 'text', text: formatPropertyValue(typedValue) };
+  return { mode: 'text', text: formatPropertyValue(typedValue, dateLocale) };
+}
+
+/** The shared per-pass inputs of a cell-data build (beyond the entries/columns). */
+export interface CellDataContext {
+  extractor: PropertyExtractor;
+  resolveRenderType: ResolveRenderType;
+  /** The display locale snapshot for this data-assembly pass (dates in text cells). */
+  dateLocale: string;
 }
 
 /**
@@ -95,9 +104,9 @@ export function buildCellRender(
 export function buildCellData(
   entries: readonly unknown[],
   visiblePropIds: readonly string[],
-  extractor: PropertyExtractor,
-  resolveRenderType: ResolveRenderType,
+  context: CellDataContext,
 ): CellData {
+  const { extractor, resolveRenderType, dateLocale } = context;
   const cellRenders = new Map<string, Record<string, CellRender>>();
   const propertyValues = new Map<string, Record<string, TypedValue>>();
   if (visiblePropIds.length === 0) return { cellRenders, propertyValues };
@@ -112,7 +121,7 @@ export function buildCellData(
       const raw = extractor.extractValue(entry, propId);
       const tv = classifyTypedValue(raw);
       typed[propId] = tv;
-      renders[propId] = buildCellRender(raw, tv, resolveRenderType(propId, tv.kind));
+      renders[propId] = buildCellRender(raw, tv, resolveRenderType(propId, tv.kind), dateLocale);
     }
     cellRenders.set(path, renders);
     propertyValues.set(path, typed);
@@ -129,8 +138,7 @@ export function buildCellData(
 export function buildFetchedCellData(
   metas: readonly FetchedFileMeta[],
   visiblePropIds: readonly string[],
-  extractor: PropertyExtractor,
-  resolveRenderType: ResolveRenderType,
+  context: CellDataContext,
 ): CellData {
   const entries = metas.map((m) => ({
     file: {
@@ -142,7 +150,7 @@ export function buildFetchedCellData(
     frontmatter: m.frontmatter ?? {},
     getValue: () => null,
   }));
-  return buildCellData(entries, visiblePropIds, extractor, resolveRenderType);
+  return buildCellData(entries, visiblePropIds, context);
 }
 
 /** Deterministic fingerprint of one cell's render descriptor (for diff-sync). */

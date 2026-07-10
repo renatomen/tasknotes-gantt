@@ -32,7 +32,7 @@ import {
 } from './barTreatment';
 import type { TypedValue } from './propertyValues';
 import { cellRenderKey, type CellRender } from './cellRender';
-import { formatPropertyValue } from './propertyFormat';
+import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 
 /**
@@ -406,10 +406,12 @@ export function taskStateKey(t: SvarTask): string {
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
     // Displayed property values (visible columns only — `properties` is already
-    // scoped to them). Fold the *formatted* strings, not the raw values: a raw
-    // Date/ISO-string/wrapper serializes non-deterministically and would make
-    // every refresh look like a change (re-render storm). The formatted output
-    // is stable, so a cell refreshes on an external edit without churn.
+    // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
+    // values: a raw Date/ISO-string/wrapper serializes non-deterministically and
+    // would make every refresh look like a change (re-render storm). The
+    // canonical formatter is locale-independent, so the display locale can never
+    // perturb this key; the locale-formatted cell text is folded separately via
+    // cellRendersKey, which re-issues the task when the rendered text changes.
     propertiesKey(t.custom.properties),
     // Rendered cell descriptors: fold the markdown source / text so an external
     // edit that changes what the cell renders (e.g. a wikilink target) re-issues
@@ -445,7 +447,7 @@ function propertiesKey(properties: Record<string, TypedValue> | undefined): stri
   if (!properties) return '';
   return Object.keys(properties)
     .sort((a, b) => a.localeCompare(b))
-    .map((k) => `${k}=${formatPropertyValue(properties[k])}`)
+    .map((k) => `${k}=${fingerprintPropertyValue(properties[k])}`)
     .join('|');
 }
 

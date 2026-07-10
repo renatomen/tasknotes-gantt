@@ -1,0 +1,11 @@
+filters:
+  and:
+    - 'file.hasTag("loc")'
+views:
+  - type: obsidianGantt
+    name: "Gantt Locale"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    order:
+      - file.name
+      - note.due

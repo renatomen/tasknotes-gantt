@@ -24,7 +24,7 @@
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
   import { setContext, tick } from 'svelte';
-  import { GRID_APP_CONTEXT_KEY } from './gridContext';
+  import { GRID_APP_CONTEXT_KEY, GRID_DATE_LOCALE_CONTEXT_KEY } from './gridContext';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
@@ -511,6 +511,11 @@
   }
 
   const initialData = get(data);
+  // The assembly pass's display-locale snapshot, handed to grid cells for their
+  // fallback formatting (SVAR can't pass cell props). Context is init-time by
+  // design: the locale is session-constant (the Intl default can't change
+  // without an app restart).
+  setContext(GRID_DATE_LOCALE_CONTEXT_KEY, initialData.dateLocale);
   // Collapsed instance ids (U7) — EPHEMERAL session state, not persisted. Drives
   // the collapse-all toggle's icon/decision and seeds SVAR's `open` via toInputs
   // so a collapse survives data refreshes/reseeds within the session. Starts
