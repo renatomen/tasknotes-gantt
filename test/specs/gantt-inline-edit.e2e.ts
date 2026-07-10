@@ -20,7 +20,9 @@ import { fileURLToPath } from "node:url";
  *     falls through to the preserved TaskNotes-activation path);
  *   - a text-field cell on the managed row opens SVAR's inline editor
  *     on double-click; typing a new value + Enter persists it to frontmatter
- *     and the cell re-renders the new value;
+ *     and the cell shows the committed value IMMEDIATELY (optimistic apply,
+ *     before the TaskNotes echo/refresh) and never flips back to the
+ *     pre-edit value across the settle window;
  *   - committing non-numeric text into the number-field cell writes
  *     nothing (frontmatter unchanged) and the cell keeps showing the stored
  *     value;
@@ -410,13 +412,22 @@ describe("Gantt (OG) inline cell editing", () => {
     await dismissAnyModal();
   });
 
-  it("commits a text edit to frontmatter and re-renders the cell (happy path)", async () => {
+  it("commits a text edit to frontmatter and re-renders the cell (happy path, no flicker)", async () => {
+    const preEditText = (await readEditState()).cells[`${TASK_ROW}|${EFFORT_COL}`]?.text;
+    expect(preEditText).toBe("Draft");
+
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {
       timeout: 10000,
       timeoutMsg: "Inline editor did not open on the managed effort cell",
     });
     expect(await commitEditorValue("Deep work")).toBe(true);
+
+    // No-flicker pin: the optimistic apply advances the render descriptor on
+    // the commit itself, so the cell must ALREADY show the committed value —
+    // read immediately, with no wait, well before the TaskNotes echo/refresh.
+    const immediateText = (await readEditState()).cells[`${TASK_ROW}|${EFFORT_COL}`]?.text;
+    expect(immediateText).toBe("Deep work");
 
     let lastEffort: unknown = "<unread>";
     await browser.waitUntil(
@@ -440,6 +451,16 @@ describe("Gantt (OG) inline cell editing", () => {
       },
       { timeout: 15000, timeoutMsg: "Effort cell did not re-render the committed value" },
     );
+
+    // Poll-negative flicker guard: across the echo/refresh settle window the
+    // cell keeps the committed value on every sample — the pre-edit value
+    // ("Draft") must never reappear, not even transiently.
+    const flickerDeadline = Date.now() + 1500;
+    while (Date.now() < flickerDeadline) {
+      const sampledText = (await readEditState()).cells[`${TASK_ROW}|${EFFORT_COL}`]?.text;
+      expect(sampledText).toBe("Deep work");
+      await browser.pause(100);
+    }
   });
 
   it("rejects non-numeric text in the number cell without writing", async () => {
