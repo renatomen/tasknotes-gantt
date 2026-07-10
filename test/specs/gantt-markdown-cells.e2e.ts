@@ -190,6 +190,35 @@ describe("Gantt (OG) markdown grid cells", () => {
     );
   });
 
+  it("fires hover-link on link hover so Page Preview can show a popover (R8)", async () => {
+    await ensureMarkdownGridReady();
+    // Register a hover-link listener, then hover the link. Our cell should fire
+    // hover-link with the link's text — the event Page Preview consumes to pop
+    // its preview (with the user's modifier). We assert the event, not the async
+    // popover DOM (that is Obsidian's plugin, and timing-flaky to observe).
+    const linktext = await browser.executeObsidian(({ app }) => {
+      return new Promise<string>((resolve) => {
+        const ws = app.workspace as unknown as {
+          on: (name: string, cb: (info: { linktext?: string }) => void) => unknown;
+          offref: (ref: unknown) => void;
+        };
+        const ref = ws.on('hover-link', (info) => {
+          ws.offref(ref);
+          resolve(info?.linktext ?? '');
+        });
+        const a = Array.from(
+          document.querySelectorAll('.og-bases-gantt .og-grid-cell a.internal-link'),
+        ).find((el) => (el.textContent ?? '') === 'Justin') as HTMLElement | undefined;
+        a?.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true, ctrlKey: true }));
+        setTimeout(() => {
+          ws.offref(ref);
+          resolve('');
+        }, 3000);
+      });
+    });
+    expect(linktext).toBe('Justin');
+  });
+
   it("opens the linked note on an internal-link click, not the task modal (R8)", async () => {
     await ensureMarkdownGridReady();
     const clicked = await browser.execute(() => {

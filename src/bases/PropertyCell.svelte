@@ -111,11 +111,31 @@
     const onMouseDown = (evt: MouseEvent): void => {
       if ((evt.target as HTMLElement | null)?.closest?.('a.internal-link, a.tag')) evt.stopPropagation();
     };
+    // Fire `hover-link` so the Page Preview core plugin shows its popover (with the
+    // user's configured modifier — we pass the event and let the plugin decide),
+    // matching link hover in a note body.
+    const onMouseOver = (evt: MouseEvent): void => {
+      const anchor = (evt.target as HTMLElement | null)?.closest?.('a.internal-link');
+      if (!anchor) return;
+      const linktext =
+        anchor.getAttribute('data-href') ?? anchor.getAttribute('href') ?? anchor.textContent ?? '';
+      if (!linktext) return;
+      currentApp.workspace.trigger('hover-link', {
+        event: evt,
+        source: 'og-gantt-grid',
+        hoverParent: { hoverPopover: null },
+        targetEl: anchor,
+        linktext,
+        sourcePath,
+      });
+    };
     node.addEventListener('click', onClick);
     node.addEventListener('mousedown', onMouseDown);
+    node.addEventListener('mouseover', onMouseOver);
     return () => {
       node.removeEventListener('click', onClick);
       node.removeEventListener('mousedown', onMouseDown);
+      node.removeEventListener('mouseover', onMouseOver);
     };
   });
 </script>
