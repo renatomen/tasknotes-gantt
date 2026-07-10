@@ -1,0 +1,12 @@
+filters:
+  and:
+    - 'file.hasTag("mdcell")'
+views:
+  - type: obsidianGantt
+    name: "Gantt MD"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    order:
+      - file.name
+      - note.assignee
+      - note.tags

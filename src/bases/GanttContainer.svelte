@@ -23,7 +23,8 @@
   import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
-  import { tick } from 'svelte';
+  import { setContext, tick } from 'svelte';
+  import { GRID_APP_CONTEXT_KEY } from './gridContext';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
@@ -183,6 +184,10 @@
     onFocusEntryReady,
     onReassertGridWidthReady,
   }: Props = $props();
+
+  // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
+  // passes cells only { api, row, column, onaction }, so a prop can't reach them.
+  setContext(GRID_APP_CONTEXT_KEY, app);
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
   // Live theme mode (seeded from the per-view prop) + the current Obsidian
