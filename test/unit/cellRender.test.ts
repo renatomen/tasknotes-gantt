@@ -45,6 +45,13 @@ describe('buildCellRender', () => {
     });
   });
 
+  it('wraps a bare link path so a computed link column stays clickable', () => {
+    expect(buildCellRender('folder/Note.md', classifyTypedValue('folder/Note.md'), MD)).toEqual({
+      mode: 'markdown',
+      source: '[[folder/Note.md]]',
+    });
+  });
+
   it('degrades an empty markdown source to an empty text cell', () => {
     expect(buildCellRender('', classifyTypedValue(''), MD)).toEqual({ mode: 'text', text: '' });
   });

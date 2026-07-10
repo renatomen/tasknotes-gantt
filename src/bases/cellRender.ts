@@ -50,13 +50,31 @@ export interface CellData {
  * resolved render type. A markdown descriptor whose source is empty degrades to
  * an empty text cell (nothing to render, and MarkdownRenderer on `''` is noise).
  */
+/**
+ * Wrap a bare link path as a wikilink so it renders clickable. A `link`-kind
+ * value can arrive as an already-formed `[[...]]` (frontmatter) or as a bare
+ * path like `folder/Note.md` (a computed/FileValue column unwrapped to its
+ * path). Wrapping the bare path keeps computed link columns clickable instead
+ * of rendering the raw path as plain text.
+ */
+function toWikilinkSource(raw: unknown): unknown {
+  const wrapOne = (item: unknown): unknown => {
+    if (typeof item !== 'string') return item;
+    const trimmed = item.trim();
+    return trimmed === '' || trimmed.startsWith('[[') ? item : `[[${trimmed}]]`;
+  };
+  return Array.isArray(raw) ? raw.map(wrapOne) : wrapOne(raw);
+}
+
 export function buildCellRender(
   rawValue: unknown,
   typedValue: TypedValue,
   renderType: CellRenderType,
 ): CellRender {
   if (renderType.display === 'markdown') {
-    const source = buildCellMarkdownSource(rawValue, renderType);
+    // A scalar link may be a bare path (computed column) — wrap it so it stays clickable.
+    const rawForSource = typedValue.kind === 'link' ? toWikilinkSource(rawValue) : rawValue;
+    const source = buildCellMarkdownSource(rawForSource, renderType);
     return source === '' ? { mode: 'text', text: '' } : { mode: 'markdown', source };
   }
   return { mode: 'text', text: formatPropertyValue(typedValue) };

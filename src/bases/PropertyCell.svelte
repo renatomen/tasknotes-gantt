@@ -53,18 +53,16 @@
     // on cleanup so virtualized reuse cannot leak render children or leave stale
     // content, and guard the async race (cleanup before render resolves).
     if (!useMarkdown || !el || !app || render?.mode !== 'markdown') return;
-    const target = el;
     const owner = new Component();
     owner.load();
-    target.empty();
-    let cancelled = false;
-    void MarkdownRenderer.render(app, render.source, target, sourcePath, owner).then(() => {
-      if (cancelled) target.empty();
-    });
+    // Render into a fresh child per pass: a stale in-flight render (SVAR reuses
+    // this node on scroll) then resolves into its own detached child on cleanup,
+    // never wiping the live render.
+    const child = el.createSpan();
+    void MarkdownRenderer.render(app, render.source, child, sourcePath, owner);
     return () => {
-      cancelled = true;
       owner.unload();
-      target.empty();
+      child.remove();
     };
   });
 </script>
