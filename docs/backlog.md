@@ -107,7 +107,7 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   Source: `docs/plans/2026-06-21-003-feat-gantt-viewport-sizing-plan.md`.
 - True divider min-width guard / tune SVAR's hard-coded 50–800px clamp (frozen-columns alternative).
   Source: `docs/plans/2026-06-18-002-feat-gantt-frozen-columns-and-divider-plan.md`.
-- Inline cell editing of property values; column sorting persistence. Source:
+- Column sorting persistence. Source:
   `docs/plans/2026-06-18-001-feat-gantt-grid-bases-columns-plan.md`.
 
 ### P8 — e2e / CI infra
