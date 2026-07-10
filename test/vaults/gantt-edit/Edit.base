@@ -1,0 +1,15 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+formulas:
+  label: 'if(effort, "has-effort", "no-effort")'
+views:
+  - type: obsidianGantt
+    name: "Gantt (OG)"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    order:
+      - file.name
+      - note.effort
+      - note.points
+      - formula.label

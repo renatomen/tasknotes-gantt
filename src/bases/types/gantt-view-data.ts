@@ -19,6 +19,7 @@ import type {
 import type { PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
+import type { CellEditorDescriptor } from '../cellEditability';
 import type { TypedValue } from '../propertyValues';
 import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
@@ -150,6 +151,14 @@ export interface GanttData {
    * is unavailable — every row read-only.
    */
   managedPaths: ReadonlySet<string>;
+  /**
+   * Per-column inline editor descriptors (inline cell editing), keyed by grid
+   * column id. Resolved per assembly pass from the field mappings + registered
+   * TaskNotes user fields ({@link import('../cellEditability').resolveCellEditor});
+   * a column absent here is read-only. The view attaches SVAR editors for the
+   * kinds it ships and gates each open on the row's `custom.editable`.
+   */
+  cellEditors: Map<string, CellEditorDescriptor>;
   /**
    * Grid column descriptors derived from the Base config (U2): name column
    * first, then the visible properties in order. The view turns these into SVAR
