@@ -90,6 +90,7 @@ import {
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
 import { minutesToSpanDays } from './durationConversion';
+import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
@@ -712,6 +713,36 @@ export class GanttController {
       this.clearInFlight(context.correlationId);
       throw err;
     }
+  }
+
+  /**
+   * Persist a single property edit (inline cell edit) to the source task behind
+   * a render instance. Delegates resolution to {@link resolvePropertyPatch}: a
+   * property that IS one of the configured field mappings routes through its
+   * existing resolved branch (start/end via date write targets, text/status via
+   * their canonical fields, progress/estimate via their resolved targets), so
+   * the write always lands where the mapping says — never a hardcoded property
+   * name. Any other property becomes a generic {@link TaskPatch.fieldWrite} by
+   * bare key, which the source applies only to TaskNotes-managed rows
+   * (defensive row gate). Rejects (without writing) for non-note property ids
+   * (`file.*`/`formula.*`), value types a mapped field cannot accept, edits on
+   * a non-writable progress/estimate mapping, and canonical TaskNotes keys.
+   *
+   * @param instanceId - The render-row id being edited.
+   * @param propertyId - The edited column's property id (the caller supplies it).
+   * @param value - The raw new value; `null` clears, `[]` writes an empty list.
+   */
+  public async mutateProperty(
+    instanceId: string,
+    propertyId: string,
+    value: unknown,
+  ): Promise<void> {
+    const patch = resolvePropertyPatch(propertyId, value, {
+      mappings: this.effectiveMappings,
+      progressWritable: this.progressWriteTarget !== null,
+      estimateWritable: this.estimateWriteTarget !== null,
+    });
+    await this.mutate(instanceId, patch);
   }
 
   /**

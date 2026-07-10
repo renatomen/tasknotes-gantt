@@ -247,6 +247,7 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     endProperty?: string;
     progressProperty?: string;
     progressMode?: 'tasknotes' | 'property';
+    statusProperty?: string;
     timeEstimateProperty?: string;
     timeEstimateMode?: 'dont-update' | 'tasknotes' | 'property';
     fieldConfig?: FieldConfig | null;
@@ -265,6 +266,7 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
           endProperty: opts.endProperty,
           progressProperty: opts.progressProperty,
           progressMode: opts.progressMode,
+          statusProperty: opts.statusProperty,
           timeEstimateProperty: opts.timeEstimateProperty,
           timeEstimateMode: opts.timeEstimateMode,
         } as FieldMappings,
@@ -430,6 +432,129 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.capabilities.write).toBe(false);
     await expect(controller.mutate('child.md', { start: new Date(2026, 5, 1) })).rejects.toThrow();
     expect(enrichment.mutateCalls).toHaveLength(0);
+  });
+
+  describe('mutateProperty — generic field writes (U2)', () => {
+    it('routes an unmapped property to a resolved fieldWrite by bare frontmatter key', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.effort', 'high');
+
+      expect(enrichment.mutateCalls).toHaveLength(1);
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.fieldWrite).toEqual({ key: 'effort', value: 'high' });
+      expect(patch.dateWrites).toBeUndefined();
+      expect(patch.status).toBeUndefined();
+    });
+
+    it('routes an edit on the mapped start property through the resolved date target, not a raw key write', async () => {
+      const { controller, enrichment } = makeBasesScoped({ startProperty: 'note.start' });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.start', new Date(2026, 5, 1));
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.dateWrites).toEqual([
+        { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+      ]);
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('routes an edit on the mapped status property through the canonical status branch (FieldMappings, not a hardcoded name)', async () => {
+      const { controller, enrichment } = makeBasesScoped({ statusProperty: 'note.state' });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.state', 'done');
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.status).toBe('done');
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('passes a null value through the fieldWrite (property clear)', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.effort', null);
+
+      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'effort', value: null });
+    });
+
+    it('passes an empty list value through the fieldWrite', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.labels', []);
+
+      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'labels', value: [] });
+    });
+
+    it('rejects a non-note property id without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await expect(controller.mutateProperty('child.md', 'file.name', 'x')).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('refuses a fieldWrite to a canonical TaskNotes TaskInfo key without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await expect(controller.mutateProperty('child.md', 'note.contexts', [])).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('resolves a Property-mode progress cell edit through the progress branch', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'property',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.percent', 80);
+
+      expect(enrichment.mutateCalls).toHaveLength(1);
+      expect(enrichment.mutateCalls[0]!.patch.progress).toBe(80);
+      expect(enrichment.mutateCalls[0]!.patch.progressWrite).toEqual({ key: 'percent' });
+    });
+
+    it('fails CLOSED on a progress cell edit in TaskNotes mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'tasknotes',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.percent', 80),
+      ).rejects.toThrow(/not writable/);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('fails CLOSED on an estimate cell edit in dont-update mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        timeEstimateMode: 'dont-update',
+        timeEstimateProperty: 'note.estimate',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.estimate', 4320),
+      ).rejects.toThrow(/not writable/);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('rejects a non-Date value for a mapped date property without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({ startProperty: 'note.start' });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.start', 'tomorrow'),
+      ).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
   });
 });
 

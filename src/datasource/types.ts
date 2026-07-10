@@ -179,6 +179,7 @@ export interface TaskPatch {
   estimate?: number;
   text?: string;
   status?: string;
+  priority?: string;
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
   dateWrites?: DateWrite[];
   /**
@@ -197,6 +198,16 @@ export interface TaskPatch {
    * mode and no-target callers never persist the estimate).
    */
   estimateWrite?: EstimateWriteTarget;
+  /**
+   * Resolved generic field write: persist `value` under the bare frontmatter
+   * `key`, written verbatim as a TOP-LEVEL update key — TaskNotes' frontmatter
+   * writer reads custom user fields from `task[key]`, never a nested `userFields`
+   * object. `null` clears the property; `[]` writes an empty list. The controller
+   * resolves the key from the edited property id (mapped fields route through
+   * their dedicated members instead). Applied only to TaskNotes-managed rows —
+   * the source refuses it when no task info resolves at the path.
+   */
+  fieldWrite?: { key: string; value: unknown };
 }
 
 /**
