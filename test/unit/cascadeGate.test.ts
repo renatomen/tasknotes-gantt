@@ -3,6 +3,9 @@
  *
  * - normalizeCascadeMode: arbitrary value → valid mode (default ask)
  * - classifyUpdateEvent: syncing/echo/user-gesture/action/ignore (five SVAR tags)
+ * - classifyCellEdit: diff-against-stored cell-edit detection (noop on zero
+ *   diffs, ambiguous on multiple diffs, coercion bridges for SVAR's `v * 1`)
+ * - classifyUpdateGesture: classifyUpdateEvent with cell-edit detection folded in
  * - collectAncestorIds: parent-chain walk, cycle-guarded
  * - computeExtensions: extend-only union up the chain, dedup by source
  */
@@ -280,10 +283,13 @@ describe('classifyCellEdit', () => {
     expect(out).toEqual({ kind: 'cell-edit', columnId: 'note.priority', value: 2027 });
   });
 
-  it('compares numbers by value when both sides are numeric', () => {
+  it('classifies an equal numeric value as a no-op', () => {
     expect(
       classifyCellEdit({ 'note.priority': 5 }, COLUMNS, { 'note.priority': num(5) }),
     ).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('classifies a differing numeric value as a cell edit', () => {
     expect(
       classifyCellEdit({ 'note.priority': 6 }, COLUMNS, { 'note.priority': num(5) }),
     ).toEqual({ kind: 'cell-edit', columnId: 'note.priority', value: 6 });
@@ -298,15 +304,88 @@ describe('classifyCellEdit', () => {
     expect(out).toEqual({ kind: 'cell-edit-noop' });
   });
 
-  it('treats a cleared value as equal to a stored empty (no-op), and as a diff otherwise', () => {
+  it('treats a cleared value as equal to a stored empty (no-op)', () => {
     expect(
       classifyCellEdit({ 'note.priority': '' }, COLUMNS, {
         'note.priority': { kind: 'empty', value: null },
       }),
     ).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('classifies clearing a stored value as a cell edit', () => {
     expect(
       classifyCellEdit({ 'note.priority': '' }, COLUMNS, { 'note.priority': text('low') }),
     ).toEqual({ kind: 'cell-edit', columnId: 'note.priority', value: '' });
+  });
+
+  it('classifies more than one genuine diff as ambiguous (stale flat key + external note change)', () => {
+    const out = classifyCellEdit(
+      { id: 'A', 'note.priority': 'high', 'note.status': 'doing' },
+      COLUMNS,
+      { 'note.priority': text('low'), 'note.status': text('done') },
+    );
+    expect(out).toEqual({ kind: 'cell-edit-ambiguous' });
+  });
+
+  it('treats a bridge-coerced 1 as equal to a stored boolean true (no-op)', () => {
+    const out = classifyCellEdit(
+      { 'note.flag': 1 },
+      ['note.flag'],
+      { 'note.flag': { kind: 'boolean', value: true } },
+    );
+    expect(out).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('treats a bridge-coerced 0 as equal to a stored boolean false (no-op)', () => {
+    const out = classifyCellEdit(
+      { 'note.flag': 0 },
+      ['note.flag'],
+      { 'note.flag': { kind: 'boolean', value: false } },
+    );
+    expect(out).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('classifies a genuine boolean flip (stored false, flat 1) as a cell edit', () => {
+    const out = classifyCellEdit(
+      { 'note.flag': 1 },
+      ['note.flag'],
+      { 'note.flag': { kind: 'boolean', value: false } },
+    );
+    expect(out).toEqual({ kind: 'cell-edit', columnId: 'note.flag', value: 1 });
+  });
+
+  it('treats a bridge-coerced 0 as equal to a stored EMPTY list (no-op)', () => {
+    const out = classifyCellEdit(
+      { 'note.contexts': 0 },
+      ['note.contexts'],
+      { 'note.contexts': { kind: 'list', value: [] } },
+    );
+    expect(out).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('classifies flat 0 against a NON-empty stored list as a cell edit', () => {
+    const out = classifyCellEdit(
+      { 'note.contexts': 0 },
+      ['note.contexts'],
+      { 'note.contexts': { kind: 'list', value: ['a'] } },
+    );
+    expect(out).toEqual({ kind: 'cell-edit', columnId: 'note.contexts', value: 0 });
+  });
+
+  it('classifies an element-wise equal list as a no-op', () => {
+    expect(
+      classifyCellEdit({ 'note.contexts': ['a', 'b'] }, ['note.contexts'], {
+        'note.contexts': { kind: 'list', value: ['a', 'b'] },
+      }),
+    ).toEqual({ kind: 'cell-edit-noop' });
+  });
+
+  it('classifies a reordered list as a cell edit (order-sensitive)', () => {
+    expect(
+      classifyCellEdit({ 'note.contexts': ['b', 'a'] }, ['note.contexts'], {
+        'note.contexts': { kind: 'list', value: ['a', 'b'] },
+      }),
+    ).toEqual({ kind: 'cell-edit', columnId: 'note.contexts', value: ['b', 'a'] });
   });
 
   it('returns null when no configured column key is present (reschedule/progress payloads)', () => {
@@ -346,43 +425,60 @@ describe('classifyUpdateGesture', () => {
       { task: { start: d(2026, 5, 1), end: d(2026, 5, 10), 'note.priority': 'high' } },
       opts,
     );
-    expect(out).toEqual({ class: 'cell-edit', columnId: 'note.priority', value: 'high' });
+    expect(out).toEqual({ kind: 'cell-edit', columnId: 'note.priority', value: 'high' });
   });
 
   it('keeps echo and syncing precedence ahead of cell-edit detection', () => {
     expect(
       classifyUpdateGesture({ eventSource: ECHO, task: { 'note.priority': 'high' } }, opts),
-    ).toEqual({ class: 'echo' });
+    ).toEqual({ kind: 'echo' });
     expect(
       classifyUpdateGesture(
         { task: { 'note.priority': 'high' } },
         { ...opts, syncing: true },
       ),
-    ).toEqual({ class: 'syncing' });
+    ).toEqual({ kind: 'syncing' });
   });
 
   it('keeps action and ignore classifications for tagged events with flat keys', () => {
     expect(
       classifyUpdateGesture({ eventSource: 'move-task', task: { 'note.priority': 'high' } }, opts),
-    ).toEqual({ class: 'action' });
+    ).toEqual({ kind: 'action' });
     expect(
       classifyUpdateGesture({ eventSource: 'chart', task: { 'note.priority': 'high' } }, opts),
-    ).toEqual({ class: 'ignore' });
+    ).toEqual({ kind: 'ignore' });
   });
 
   it('classifies reschedule and progress payloads as the plain user gesture', () => {
     expect(
       classifyUpdateGesture({ task: { start: d(2026, 5, 1), end: d(2026, 5, 10) } }, opts),
-    ).toEqual({ class: 'user-gesture' });
+    ).toEqual({ kind: 'user-gesture' });
     expect(classifyUpdateGesture({ task: { progress: 40 } }, opts)).toEqual({
-      class: 'user-gesture',
+      kind: 'user-gesture',
     });
   });
 
   it('classifies a zero-diff cell commit as a no-op cell edit', () => {
     expect(classifyUpdateGesture({ task: { 'note.priority': 'low' } }, opts)).toEqual({
-      class: 'cell-edit-noop',
+      kind: 'cell-edit-noop',
     });
+  });
+
+  it('lets an ambiguous multi-diff commit flow through as cell-edit-ambiguous', () => {
+    const multiOpts = {
+      ...opts,
+      cellEditColumnIds: ['note.priority', 'note.status'],
+      storedProperties: {
+        'note.priority': { kind: 'text', value: 'low' } as TypedValue,
+        'note.status': { kind: 'text', value: 'done' } as TypedValue,
+      },
+    };
+    expect(
+      classifyUpdateGesture(
+        { task: { 'note.priority': 'high', 'note.status': 'doing' } },
+        multiOpts,
+      ),
+    ).toEqual({ kind: 'cell-edit-ambiguous' });
   });
 });
 

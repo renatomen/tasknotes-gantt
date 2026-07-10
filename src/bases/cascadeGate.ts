@@ -325,16 +325,20 @@ export function classifyUpdateEvent(
   return 'ignore';
 }
 
-/** How a committed inline grid cell edit should be treated. */
+/**
+ * How a committed inline grid cell edit should be treated. `cell-edit-ambiguous`
+ * means more than one configured column diffs from the stored values, so the
+ * freshly-edited column cannot be told apart from a stale committed flat key
+ * over an externally-changed note — callers must not write (and should reseed
+ * the grid from the store instead).
+ */
 export type CellEditClass =
   | { kind: 'cell-edit'; columnId: string; value: unknown }
-  | { kind: 'cell-edit-noop' };
+  | { kind: 'cell-edit-noop' }
+  | { kind: 'cell-edit-ambiguous' };
 
 /** An `update-task` event class with the cell-edit gestures folded in. */
-export type UpdateGesture =
-  | { class: UpdateEventClass }
-  | { class: 'cell-edit'; columnId: string; value: unknown }
-  | { class: 'cell-edit-noop' };
+export type UpdateGesture = { kind: UpdateEventClass } | CellEditClass;
 
 const EMPTY_TYPED_VALUE: TypedValue = { kind: 'empty', value: null };
 
@@ -351,8 +355,44 @@ function listsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item, i) => item === b[i]);
 }
 
+/**
+ * SVAR's update-cell coercion (`v * 1`) also converts a boolean (`true`→1,
+ * `false`→0), so a flat 1/0 whose truth value matches the stored boolean is the
+ * unchanged form of it — a genuine flip (e.g. stored `false`, flat 1) still diffs.
+ */
+function numberMatchesBoolean(a: TypedValue, b: TypedValue): boolean {
+  return (
+    a.kind === 'number' &&
+    b.kind === 'boolean' &&
+    a.value === (b.value === true ? 1 : 0)
+  );
+}
+
+/**
+ * SVAR's update-cell coercion (`v * 1`) converts an empty array to 0, so a flat
+ * 0 against a stored EMPTY list means nothing changed; a non-empty stored list
+ * still diffs.
+ */
+function zeroMatchesEmptyList(a: TypedValue, b: TypedValue): boolean {
+  return (
+    a.kind === 'number' &&
+    a.value === 0 &&
+    b.kind === 'list' &&
+    (b.value as string[]).length === 0
+  );
+}
+
 function typedValuesEqual(a: TypedValue, b: TypedValue): boolean {
-  if (a.kind !== b.kind) return numberMatchesText(a, b) || numberMatchesText(b, a);
+  if (a.kind !== b.kind) {
+    return (
+      numberMatchesText(a, b) ||
+      numberMatchesText(b, a) ||
+      numberMatchesBoolean(a, b) ||
+      numberMatchesBoolean(b, a) ||
+      zeroMatchesEmptyList(a, b) ||
+      zeroMatchesEmptyList(b, a)
+    );
+  }
   if (a.kind === 'date') return (a.value as Date).getTime() === (b.value as Date).getTime();
   if (a.kind === 'list') return listsEqual(a.value as string[], b.value as string[]);
   return a.value === b.value;
@@ -370,8 +410,10 @@ function typedValuesEqual(a: TypedValue, b: TypedValue): boolean {
  * value DIFFERS from the row's stored {@link TypedValue} (type-aware, so a
  * bridge-coerced number still matches its stored string form). Zero diffs mean
  * the user re-committed the current value — a no-op the caller must not write.
- * Should multiple keys diff (stale key vs an externally-changed note), the
- * first in `columnIds` order wins.
+ * Should MORE THAN ONE key diff (a stale committed flat key alongside an
+ * externally-changed note), the edit is `cell-edit-ambiguous`: picking either
+ * key could write the stale flat value back over the external change and drop
+ * the user's edit, so the caller must not write and should reseed instead.
  */
 export function classifyCellEdit(
   taskCopy: Readonly<Record<string, unknown>> | undefined,
@@ -386,9 +428,9 @@ export function classifyCellEdit(
     sawColumnKey = true;
     const flat = classifyTypedValue(taskCopy[columnId]);
     const stored = storedProperties?.[columnId] ?? EMPTY_TYPED_VALUE;
-    if (!typedValuesEqual(flat, stored) && !edited) {
-      edited = { kind: 'cell-edit', columnId, value: taskCopy[columnId] };
-    }
+    if (typedValuesEqual(flat, stored)) continue;
+    if (edited) return { kind: 'cell-edit-ambiguous' };
+    edited = { kind: 'cell-edit', columnId, value: taskCopy[columnId] };
   }
   if (!sawColumnKey) return null;
   return edited ?? { kind: 'cell-edit-noop' };
@@ -410,12 +452,8 @@ export function classifyUpdateGesture(
   },
 ): UpdateGesture {
   const base = classifyUpdateEvent(ev, opts);
-  if (base !== 'user-gesture') return { class: base };
-  const cellEdit = classifyCellEdit(ev.task, opts.cellEditColumnIds, opts.storedProperties);
-  if (!cellEdit) return { class: 'user-gesture' };
-  return cellEdit.kind === 'cell-edit'
-    ? { class: 'cell-edit', columnId: cellEdit.columnId, value: cellEdit.value }
-    : { class: 'cell-edit-noop' };
+  if (base !== 'user-gesture') return { kind: base };
+  return classifyCellEdit(ev.task, opts.cellEditColumnIds, opts.storedProperties) ?? { kind: 'user-gesture' };
 }
 
 /**
