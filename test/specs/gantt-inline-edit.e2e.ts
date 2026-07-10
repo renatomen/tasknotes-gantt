@@ -23,7 +23,17 @@ import { fileURLToPath } from "node:url";
  *     and the cell re-renders the new value;
  *   - committing non-numeric text into the number-field cell writes
  *     nothing (frontmatter unchanged) and the cell keeps showing the stored
- *     value.
+ *     value;
+ *   - a mapped due-date cell opens the CUSTOM locale-aware date editor
+ *     (seeded in the forced de-DE regional form); typing a de-DE date + Enter
+ *     persists the canonical YYYY-MM-DD to frontmatter and the cell
+ *     re-renders the regional form;
+ *   - typing a start date past the due date is rejected by the cross-field
+ *     gate (frontmatter unchanged).
+ *
+ * The display locale is forced to de-DE via `window.__tnGanttDebug.localeOverride`
+ * BEFORE the view assembles data (and re-asserted on every readiness poll),
+ * exactly like gantt-locale-dates.e2e.ts.
  *
  * SELECTOR NOTES (verified against @svar-ui/svelte-grid 2.7.0 source):
  *  - grid body cells: `.wx-cell` carrying `data-row-id` (SVAR setID → leading
@@ -42,6 +52,10 @@ const PLAIN_ROW = "Plain Note.md";
 const EFFORT_COL = "note.effort";
 const POINTS_COL = "note.points";
 const FORMULA_COL = "formula.label";
+const SCHEDULED_COL = "note.scheduled";
+const DUE_COL = "note.due";
+/** Any de-DE numeric date (the fixture dates render dotted under the override). */
+const DE_DATE_PATTERN = /\d{1,2}\.\d{1,2}\.\d{4}/;
 
 interface EditGridState {
   mounted: boolean;
@@ -85,7 +99,7 @@ async function activateBaseLeaf(): Promise<void> {
 /** Read the grid's edit-relevant state (probed cells keyed "row|col"). */
 async function readEditState(): Promise<EditGridState> {
   return browser.execute(
-    (taskRow, plainRow, effortCol, pointsCol, formulaCol) => {
+    (taskRow, plainRow, effortCol, pointsCol, formulaCol, scheduledCol, dueCol) => {
       const root = document.querySelector(".og-bases-gantt");
       const state: {
         mounted: boolean;
@@ -115,6 +129,8 @@ async function readEditState(): Promise<EditGridState> {
       probe(taskRow, effortCol);
       probe(taskRow, pointsCol);
       probe(taskRow, formulaCol);
+      probe(taskRow, scheduledCol);
+      probe(taskRow, dueCol);
       probe(plainRow, effortCol);
       return state;
     },
@@ -123,7 +139,24 @@ async function readEditState(): Promise<EditGridState> {
     EFFORT_COL,
     POINTS_COL,
     FORMULA_COL,
+    SCHEDULED_COL,
+    DUE_COL,
   );
+}
+
+/** The open inline editor's input value, or null when none is open. */
+async function readEditorInputValue(): Promise<string | null> {
+  return browser.execute(() => {
+    const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+    return input ? input.value : null;
+  });
+}
+
+/** Force the display-locale override the assembly pass snapshots. */
+async function forceLocaleOverride(): Promise<void> {
+  await browser.execute(() => {
+    (window as unknown as { __tnGanttDebug?: unknown }).__tnGanttDebug = { localeOverride: "de-DE" };
+  });
 }
 
 /** Double-click a grid cell located by row/column id suffix (in-page). */
@@ -188,13 +221,17 @@ async function dismissAnyModal(): Promise<void> {
  * Wait until the grid is mounted with both rows' effort cells present AND the
  * managed row is editable (the `og-cell-editable` cue) — editability needs
  * TaskNotes' task index (`tasks.get`) to have warmed, which lands via a normal
- * data refresh after readiness. Re-fronts the base leaf on every poll.
+ * data refresh after readiness. Also gates on the due cell rendering in the
+ * forced de-DE form (any dotted date — the value changes mid-suite), so the
+ * assembly pass demonstrably consumed the locale override before any date-editor
+ * assertion runs. Re-asserts the override + re-fronts the base leaf per poll.
  */
 async function ensureEditGridReady(): Promise<void> {
   let last = "<never polled>";
   try {
     await browser.waitUntil(
       async () => {
+        await forceLocaleOverride();
         await activateBaseLeaf();
         const state = await readEditState();
         last = JSON.stringify(state);
@@ -203,10 +240,11 @@ async function ensureEditGridReady(): Promise<void> {
           state.effortHeader &&
           state.cells[`${TASK_ROW}|${EFFORT_COL}`]?.exists === true &&
           state.cells[`${PLAIN_ROW}|${EFFORT_COL}`]?.exists === true &&
-          state.cells[`${TASK_ROW}|${EFFORT_COL}`]?.editable === true
+          state.cells[`${TASK_ROW}|${EFFORT_COL}`]?.editable === true &&
+          DE_DATE_PATTERN.test(state.cells[`${TASK_ROW}|${DUE_COL}`]?.text ?? "")
         );
       },
-      { timeout: 90000, timeoutMsg: "Edit grid not ready (cells + editable cue)" },
+      { timeout: 90000, timeoutMsg: "Edit grid not ready (cells + editable cue + de-DE dates)" },
     );
   } catch {
     throw new Error(`Edit grid not ready. Last observed: ${last}`);
@@ -224,6 +262,11 @@ describe("Gantt (OG) inline cell editing", () => {
       vault: tmpVault,
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
+
+    // Force the display locale BEFORE anything can mount the view: the editor
+    // config snapshots the locale at mount, so the override must precede the
+    // first assembly pass (ensureEditGridReady re-asserts it per poll).
+    await forceLocaleOverride();
 
     // Bases core plugin must be ON to open the .base file.
     await browser.executeObsidian(async ({ app }) => {
@@ -357,5 +400,64 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(await frontmatterValue(TASK_ROW, "points")).toBe(3);
     const state = await readEditState();
     expect(state.cells[`${TASK_ROW}|${POINTS_COL}`]?.text).toBe("3");
+  });
+
+  it("commits a de-DE-typed due date as canonical YYYY-MM-DD and re-renders the cell", async () => {
+    expect(await doubleClickCell(TASK_ROW, DUE_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Custom date editor did not open on the mapped due cell",
+    });
+    // The custom editor pre-fills the typed input with the stored due date in
+    // the forced regional format (3.4.2026 — never the ISO form).
+    expect(await readEditorInputValue()).toMatch(/^0?3\.0?4\.2026$/);
+
+    expect(await commitEditorValue("10.04.2026")).toBe(true);
+
+    let lastDue: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        lastDue = await frontmatterValue(TASK_ROW, "due");
+        return lastDue === "2026-04-10";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `frontmatter due not updated to 2026-04-10; saw: ${JSON.stringify(lastDue)}`,
+      },
+    );
+
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        const state = await readEditState();
+        return /^10\.0?4\.2026$/.test(state.cells[`${TASK_ROW}|${DUE_COL}`]?.text ?? "");
+      },
+      { timeout: 15000, timeoutMsg: "Due cell did not re-render the committed date in de-DE form" },
+    );
+  });
+
+  it("rejects a start date typed past the due date without writing (cross-field gate)", async () => {
+    const before = await frontmatterValue(TASK_ROW, "scheduled");
+    expect(before).toBe("2026-04-01");
+
+    expect(await doubleClickCell(TASK_ROW, SCHEDULED_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Custom date editor did not open on the mapped scheduled cell",
+    });
+    // Past the due date whether or not the previous test advanced it
+    // (2026-04-03 fixture value or 2026-04-10 after the commit test).
+    expect(await commitEditorValue("20.04.2026")).toBe(true);
+
+    // A conforming date closes the editor; the cross-field gate then rejects
+    // the commit before any write. Settle, then assert nothing changed.
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Inline editor did not close after the rejected date commit",
+    });
+    await browser.pause(1500);
+    expect(await frontmatterValue(TASK_ROW, "scheduled")).toBe("2026-04-01");
+    const state = await readEditState();
+    expect(state.cells[`${TASK_ROW}|${SCHEDULED_COL}`]?.text).toMatch(/^0?1\.0?4\.2026$/);
   });
 });

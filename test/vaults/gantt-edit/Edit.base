@@ -12,4 +12,6 @@ views:
       - file.name
       - note.effort
       - note.points
+      - note.scheduled
+      - note.due
       - formula.label

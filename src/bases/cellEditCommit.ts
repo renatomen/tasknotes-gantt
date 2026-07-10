@@ -11,8 +11,11 @@
  * should hand SVAR when the editor opens (SVAR seeds the input from it).
  *
  * Only editor kinds with a shipped inline editor are handled here (`text`,
- * `number`, `boolean`, `list`); date/choice/suggest kinds resolve descriptors
- * but have no inline editor yet, and {@link shippedEditorKind} filters them out.
+ * `number`, `boolean`, `list`, `date`); choice/suggest kinds resolve
+ * descriptors but have no inline editor yet, and {@link shippedEditorKind}
+ * filters them out. The `date` kind rides the custom locale-aware editor
+ * (registered as {@link OG_DATE_EDITOR_TYPE}), which commits real `Date`
+ * objects — the bridge's coercion skips `instanceof Date`.
  *
  * No Obsidian/SVAR dependencies. Mirrors {@link ./cascadeGate}.
  *
@@ -24,9 +27,18 @@ import type { CellEditorDescriptor, CellEditorKind } from './cellEditability';
 import { EMPTY_TYPED_VALUE, listsEqual, type TypedValue } from './propertyValues';
 
 /** The editor kinds with a shipped inline editor. */
-export type ShippedEditorKind = 'text' | 'number' | 'boolean' | 'list';
+export type ShippedEditorKind = 'text' | 'number' | 'boolean' | 'list' | 'date';
 
-const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set(['text', 'number', 'boolean', 'list']);
+const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set([
+  'text',
+  'number',
+  'boolean',
+  'list',
+  'date',
+]);
+
+/** The inline-editor type the custom locale-aware date editor registers under. */
+export const OG_DATE_EDITOR_TYPE = 'og-date';
 
 /** Narrow a resolved editor kind to a shipped one, or `null` when there is none. */
 export function shippedEditorKind(kind: CellEditorKind): ShippedEditorKind | null {
@@ -76,13 +88,23 @@ export interface SvarRowLike {
 /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
 export type SvarEditorConfig =
   | string
-  | { type: string; config: { options: Array<{ id: string; label: string }> } };
+  | { type: string; config: { options: Array<{ id: string; label: string }> } }
+  | { type: string; config: { locale: string } };
 
-/** The SVAR editor config for a shipped kind (text-input based except boolean). */
-export function svarEditorConfigFor(kind: ShippedEditorKind): SvarEditorConfig {
-  return kind === 'boolean'
-    ? { type: 'richselect', config: { options: [...BOOLEAN_EDITOR_OPTIONS] } }
-    : 'text';
+/**
+ * The SVAR editor config for a shipped kind: boolean → richselect, date → the
+ * registered custom editor (its config carries the assembly pass's display
+ * locale — SVAR's store hands `column.editor.config` to the opened editor as
+ * `editor.config`), everything else → the stock text input.
+ */
+export function svarEditorConfigFor(kind: ShippedEditorKind, dateLocale: string): SvarEditorConfig {
+  if (kind === 'boolean') {
+    return { type: 'richselect', config: { options: [...BOOLEAN_EDITOR_OPTIONS] } };
+  }
+  if (kind === 'date') {
+    return { type: OG_DATE_EDITOR_TYPE, config: { locale: dateLocale } };
+  }
+  return 'text';
 }
 
 /**
@@ -94,9 +116,10 @@ export function svarEditorConfigFor(kind: ShippedEditorKind): SvarEditorConfig {
 export function rowEditorConfig(
   row: SvarRowLike | undefined,
   kind: ShippedEditorKind | undefined,
+  dateLocale: string,
 ): SvarEditorConfig | null {
   if (!row?.custom?.editable || !kind) return null;
-  return svarEditorConfigFor(kind);
+  return svarEditorConfigFor(kind, dateLocale);
 }
 
 /** How a committed editor value should be handled. */
@@ -130,6 +153,8 @@ export function resolveCellEditCommit(
       return commitBoolean(raw, stored);
     case 'list':
       return commitList(raw, stored);
+    case 'date':
+      return commitDate(raw, stored);
     case 'text':
       return commitText(raw, stored);
   }
@@ -244,6 +269,84 @@ function splitListEntries(raw: string): string[] {
   return entries;
 }
 
+// The custom date editor commits only real Dates (typed input is parsed
+// BEFORE it applies; the calendar picks Dates), and the bridge's coercion
+// skips `instanceof Date` — so anything else here is a stray value that must
+// not reach the write path.
+function commitDate(raw: unknown, stored: TypedValue): CellEditCommit {
+  if (!(raw instanceof Date) || Number.isNaN(raw.getTime())) {
+    return { action: 'reject', reason: 'This field needs a date.' };
+  }
+  if (stored.kind === 'date' && isSameCalendarDay(raw, stored.value as Date)) return NOOP;
+  return { action: 'commit', value: raw };
+}
+
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/** Local-midnight epoch — day-granularity comparisons for date-order checks. */
+function localDayMs(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** The mapped-role date columns (start/end) among the resolved editor descriptors. */
+export function dateRoleColumns(
+  cellEditors: ReadonlyMap<string, CellEditorDescriptor> | undefined,
+): Map<string, 'start' | 'end'> {
+  const roles = new Map<string, 'start' | 'end'>();
+  for (const [columnId, descriptor] of cellEditors ?? []) {
+    if (descriptor.kind === 'date' && descriptor.dateRole) {
+      roles.set(columnId, descriptor.dateRole);
+    }
+  }
+  return roles;
+}
+
+/** The date-bearing slice of a render row the cross-field check reads. */
+export interface DatedRowLike {
+  start: Date | null;
+  end: Date | null;
+  /** How the row's dates were derived ({@link import('../controller/datePolicy')}). */
+  dateStatus?: string;
+}
+
+/**
+ * The REAL counterpart date for an edit on the given mapped role, or `null`
+ * when there is nothing trustworthy to validate against. The row's resolved
+ * dates may be policy-inferred: the counterpart is real only for a `complete`
+ * row or when the INFERRED edge is the one being edited (`inferred-start`
+ * while editing start ⇒ the end is real, and vice versa). Placeholder and
+ * swapped rows fail open — their resolved edges don't mirror the stored
+ * fields, so blocking on them would reject valid single-edge writes.
+ */
+export function counterpartDate(row: DatedRowLike | undefined, role: 'start' | 'end'): Date | null {
+  if (!row) return null;
+  const status = row.dateStatus ?? 'complete';
+  if (status !== 'complete' && status !== `inferred-${role}`) return null;
+  return role === 'start' ? row.end : row.start;
+}
+
+/**
+ * Whether committing `edited` on the given role would put the start after the
+ * end, compared at calendar-day granularity (resolved ends are normalized to
+ * end-of-day, so equal days must pass). No counterpart → nothing to violate.
+ */
+export function violatesDateOrder(
+  role: 'start' | 'end',
+  edited: Date,
+  counterpart: Date | null,
+): boolean {
+  if (!counterpart) return false;
+  return role === 'start'
+    ? localDayMs(edited) > localDayMs(counterpart)
+    : localDayMs(edited) < localDayMs(counterpart);
+}
+
 function commitText(raw: unknown, stored: TypedValue): CellEditCommit {
   const s = String(raw);
   if (s === storedStringForm(stored)) return NOOP;
@@ -268,13 +371,17 @@ function storedStringForm(stored: TypedValue): string {
  * What the column `getter` should return for an opening editor: the
  * `'true'`/`'false'` option id for a boolean column (matching
  * {@link BOOLEAN_EDITOR_OPTIONS} so the richselect pre-selects it), the raw
- * number for a number column, and the single-string form otherwise (list
- * items comma-joined — matching what the text editor shows).
+ * number for a number column, the raw stored `Date` for a date column (the
+ * custom editor formats it for the locale itself, and an untouched
+ * commit-on-close then round-trips as the unchanged Date), and the
+ * single-string form otherwise (list items comma-joined — matching what the
+ * text editor shows).
  */
 export function editorSeedValue(kind: ShippedEditorKind, stored: TypedValue | undefined): unknown {
   const value = stored ?? EMPTY_TYPED_VALUE;
   if (value.kind === 'empty') return '';
   if (kind === 'number' && value.kind === 'number') return value.value;
+  if (kind === 'date' && value.kind === 'date') return value.value;
   return storedStringForm(value);
 }
 

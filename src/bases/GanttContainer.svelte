@@ -58,16 +58,20 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
+    counterpartDate,
+    dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedValue,
     resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
     storedFlatValue,
+    violatesDateOrder,
     withAlignedFlatKeys,
     type SvarEditorConfig,
     type SvarRowLike,
   } from './cellEditCommit';
+  import { ensureInlineEditorsRegistered } from './inlineEditors';
   import {
     classifyTypedValue,
     EMPTY_TYPED_VALUE,
@@ -220,6 +224,10 @@
   // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
   // passes cells only { api, row, column, onaction }, so a prop can't reach them.
   setContext(GRID_APP_CONTEXT_KEY, app);
+
+  // The custom inline editors (locale-aware date editor) must be registered in
+  // SVAR's grid editor registry before any column referencing their type opens.
+  ensureInlineEditorsRegistered();
 
   // ── Theme (plan 002 U2) ─────────────────────────────────────────────────
   // Live theme mode (seeded from the per-view prop) + the current Obsidian
@@ -1292,6 +1300,10 @@
   // the id set `classifyUpdateGesture` diffs a committed task copy against.
   const cellEditColumnIds = $derived(editorAttachedColumnIds($data.gridColumns, editorKindByColumn));
 
+  // The mapped start/end date columns (by role), from the same resolved
+  // descriptors. Keys the cross-field start≤end check on a date-cell commit.
+  const dateRoleByColumn = $derived(dateRoleColumns($data.cellEditors));
+
   // Rows with an in-flight cell-edit write: the editor gate returns null for
   // them, so a second edit can't race the pending persistence/revert.
   const pendingCellEdits = new Set<string>();
@@ -1309,7 +1321,7 @@
   function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
     if (readOnly || !onMutateProperty) return null;
     if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
-    const config = rowEditorConfig(row, editorKindByColumn.get(columnId));
+    const config = rowEditorConfig(row, editorKindByColumn.get(columnId), initialData.dateLocale);
     if (!config) return null;
     // An editor is opening: cancel any deferred single-click activation. On an
     // already-selected row the double-click's first click schedules one, and
@@ -1853,6 +1865,21 @@
     if (outcome.action === 'reject') {
       new Notice(`Couldn't save — ${outcome.reason}`);
       return false;
+    }
+    // Cross-field date order: a mapped start (end) commit must not pass the
+    // row's real end (start). Single-edge semantics otherwise — one field
+    // write, no reshuffle of the counterpart, no subtree cascade.
+    const dateRole = outcome.value instanceof Date ? dateRoleByColumn.get(columnId) : undefined;
+    if (dateRole) {
+      const row = instances.find((i) => i.id === instanceId);
+      if (violatesDateOrder(dateRole, outcome.value as Date, counterpartDate(row, dateRole))) {
+        new Notice(
+          dateRole === 'start'
+            ? "Couldn't save — the start date must not be after the end date."
+            : "Couldn't save — the end date must not be before the start date.",
+        );
+        return false;
+      }
     }
     const typed = classifyTypedValue(outcome.value);
     if (properties) properties[columnId] = typed;
