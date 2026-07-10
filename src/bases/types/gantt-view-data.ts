@@ -16,7 +16,7 @@ import type {
   RenderLink,
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
-import type { PriorityColor, StatusColor } from '../../datasource/types';
+import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
 import type { CellEditorDescriptor } from '../cellEditability';
@@ -151,6 +151,14 @@ export interface GanttData {
    * is unavailable — every row read-only.
    */
   managedPaths: ReadonlySet<string>;
+  /**
+   * The configured restricted-choice value sets (TaskNotes statuses/priorities),
+   * resolved per assembly pass alongside the color palettes. The view builds the
+   * status/priority cell pickers from them; empty sets offer no picker (the
+   * cell stays read-only rather than opening an unconstrained editor). Optional
+   * so data assembled without a choice-capable source omits it cleanly.
+   */
+  choiceOptions?: { status: ChoiceOption[]; priority: ChoiceOption[] };
   /**
    * Per-column inline editor descriptors (inline cell editing), keyed by grid
    * column id. Resolved per assembly pass from the field mappings + registered

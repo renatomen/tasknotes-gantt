@@ -14,15 +14,17 @@
 
 import { registerInlineEditor } from '@svar-ui/svelte-grid';
 import DateCellEditor from './DateCellEditor.svelte';
-import { OG_DATE_EDITOR_TYPE } from './cellEditCommit';
+import SuggestCellEditor from './SuggestCellEditor.svelte';
+import { OG_DATE_EDITOR_TYPE, OG_SUGGEST_EDITOR_TYPE } from './cellEditCommit';
 
 let registered = false;
 
 /**
  * SVAR types inline editors against its own `TEditorConfig` (whose `config` is
- * the stock editors' options/cell/template shape); ours reads the custom
- * `{ locale }` config `svarEditorConfigFor('date', …)` attaches, so the
- * component is bridged with a cast rather than widening its props.
+ * the stock editors' options/cell/template shape); ours read the custom
+ * configs `svarEditorConfigFor` attaches (`{ locale }` for the date editor,
+ * the suggest channel for the autosuggest editor), so the components are
+ * bridged with a cast rather than widening their props.
  */
 type SvarInlineEditorComponent = Parameters<typeof registerInlineEditor>[1];
 
@@ -31,4 +33,8 @@ export function ensureInlineEditorsRegistered(): void {
   if (registered) return;
   registered = true;
   registerInlineEditor(OG_DATE_EDITOR_TYPE, DateCellEditor as unknown as SvarInlineEditorComponent);
+  registerInlineEditor(
+    OG_SUGGEST_EDITOR_TYPE,
+    SuggestCellEditor as unknown as SvarInlineEditorComponent,
+  );
 }

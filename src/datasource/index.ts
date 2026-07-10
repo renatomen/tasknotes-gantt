@@ -12,6 +12,8 @@ export type {
   DependencyRelType,
   StatusColor,
   PriorityColor,
+  ChoiceOption,
+  ChoiceRole,
   TaskPatch,
   MutationContext,
   FieldConfig,

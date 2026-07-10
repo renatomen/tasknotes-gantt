@@ -39,6 +39,13 @@ export interface CellEditorDescriptor {
   /** TaskNotes `FileFilterConfig` scoping a `suggest` editor; opaque here. */
   autosuggestFilter?: unknown;
   /**
+   * Whether a `suggest` column's underlying field is list-shaped. List commits
+   * APPEND an entry through the direct write path (never the grid bridge, whose
+   * display-form diffing cannot represent wikilink lists); single-value commits
+   * ride the bridge with text semantics.
+   */
+  isList?: boolean;
+  /**
    * Which mapped date role a `date` column carries. Only the mapped start/end
    * columns have one — it keys the cross-field start≤end validation; a custom
    * TaskNotes date field is order-free and carries none.
@@ -105,7 +112,11 @@ function editorForUserField(field: TaskNotesFieldMeta): CellEditorDescriptor {
     case 'list':
     case 'text':
       if (field.autosuggestFilter) {
-        return { kind: 'suggest', autosuggestFilter: field.autosuggestFilter };
+        return {
+          kind: 'suggest',
+          autosuggestFilter: field.autosuggestFilter,
+          isList: field.type === 'list',
+        };
       }
       return { kind: field.type };
     default:

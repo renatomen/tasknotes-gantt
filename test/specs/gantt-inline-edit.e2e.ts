@@ -29,7 +29,13 @@ import { fileURLToPath } from "node:url";
  *     persists the canonical YYYY-MM-DD to frontmatter and the cell
  *     re-renders the regional form;
  *   - typing a start date past the due date is rejected by the cross-field
- *     gate (frontmatter unchanged).
+ *     gate (frontmatter unchanged);
+ *   - the mapped status cell opens a richselect picker listing ONLY TaskNotes'
+ *     configured statuses, and a pick persists the configured value string;
+ *   - a list-shaped user field with an autosuggestFilter opens the custom
+ *     suggest editor; against TaskNotes 4.11.0 (no reachable FileSuggestHelper)
+ *     it renders the DEGRADED free-text state, and an Enter commit APPENDS the
+ *     entry to the raw stored list via the direct (bridge-bypassing) path.
  *
  * The display locale is forced to de-DE via `window.__tnGanttDebug.localeOverride`
  * BEFORE the view assembles data (and re-asserted on every readiness poll),
@@ -54,6 +60,8 @@ const POINTS_COL = "note.points";
 const FORMULA_COL = "formula.label";
 const SCHEDULED_COL = "note.scheduled";
 const DUE_COL = "note.due";
+const STATUS_COL = "note.status";
+const WORKSTREAM_COL = "note.workstream";
 /** Any de-DE numeric date (the fixture dates render dotted under the override). */
 const DE_DATE_PATTERN = /\d{1,2}\.\d{1,2}\.\d{4}/;
 
@@ -99,7 +107,7 @@ async function activateBaseLeaf(): Promise<void> {
 /** Read the grid's edit-relevant state (probed cells keyed "row|col"). */
 async function readEditState(): Promise<EditGridState> {
   return browser.execute(
-    (taskRow, plainRow, effortCol, pointsCol, formulaCol, scheduledCol, dueCol) => {
+    (taskRow, plainRow, effortCol, pointsCol, formulaCol, scheduledCol, dueCol, statusCol, workstreamCol) => {
       const root = document.querySelector(".og-bases-gantt");
       const state: {
         mounted: boolean;
@@ -131,6 +139,8 @@ async function readEditState(): Promise<EditGridState> {
       probe(taskRow, formulaCol);
       probe(taskRow, scheduledCol);
       probe(taskRow, dueCol);
+      probe(taskRow, statusCol);
+      probe(taskRow, workstreamCol);
       probe(plainRow, effortCol);
       return state;
     },
@@ -141,6 +151,8 @@ async function readEditState(): Promise<EditGridState> {
     FORMULA_COL,
     SCHEDULED_COL,
     DUE_COL,
+    STATUS_COL,
+    WORKSTREAM_COL,
   );
 }
 
@@ -206,6 +218,48 @@ async function frontmatterValue(notePath: string, key: string): Promise<unknown>
   );
 }
 
+/** The labels of the open richselect picker's rows (portal'd out of the grid). */
+async function readPickerLabels(): Promise<string[] | null> {
+  return browser.execute(() => {
+    if (!document.querySelector(".og-bases-gantt .wx-editor")) return null;
+    const items = Array.from(document.querySelectorAll<HTMLElement>(".wx-list > .wx-item"));
+    return items.map((el) => (el.textContent ?? "").trim());
+  });
+}
+
+/** Pick the richselect row with the given label (mousemove arms SVAR's navIndex). */
+async function pickPickerItem(label: string): Promise<boolean> {
+  return browser.execute((wanted) => {
+    const item = Array.from(document.querySelectorAll<HTMLElement>(".wx-list > .wx-item")).find(
+      (el) => (el.textContent ?? "").trim() === wanted,
+    );
+    if (!item) return false;
+    item.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true }));
+    item.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    return true;
+  }, label);
+}
+
+/** TaskNotes' live configured statuses ({value,label}), via its catalog api. */
+async function readConfiguredStatuses(): Promise<Array<{ value: string; label: string }>> {
+  return browser.executeObsidian(({ app }) => {
+    const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.(
+      "tasknotes",
+    ) as
+      | { api?: { catalog?: { statuses?: () => Array<{ value?: string; label?: string }> } } }
+      | undefined;
+    const raw = tn?.api?.catalog?.statuses?.() ?? [];
+    return raw
+      .filter((s) => typeof s?.value === "string" && s.value.length > 0)
+      .map((s) => ({ value: s.value as string, label: (s.label as string) || (s.value as string) }));
+  });
+}
+
+/** Whether the open suggest editor shows its degraded (free-text) hint. */
+async function readSuggestDegradedHint(): Promise<boolean> {
+  return browser.execute(() => !!document.querySelector(".og-suggest-degraded"));
+}
+
 /** Close any TaskNotes modal a fall-through double-click activation opened. */
 async function dismissAnyModal(): Promise<void> {
   await browser.execute(() => {
@@ -241,6 +295,8 @@ async function ensureEditGridReady(): Promise<void> {
           state.cells[`${TASK_ROW}|${EFFORT_COL}`]?.exists === true &&
           state.cells[`${PLAIN_ROW}|${EFFORT_COL}`]?.exists === true &&
           state.cells[`${TASK_ROW}|${EFFORT_COL}`]?.editable === true &&
+          state.cells[`${TASK_ROW}|${STATUS_COL}`]?.exists === true &&
+          state.cells[`${TASK_ROW}|${WORKSTREAM_COL}`]?.exists === true &&
           DE_DATE_PATTERN.test(state.cells[`${TASK_ROW}|${DUE_COL}`]?.text ?? "")
         );
       },
@@ -310,6 +366,13 @@ describe("Gantt (OG) inline cell editing", () => {
       tn.settings.userFields = [
         { id: "effort", displayName: "Effort", key: "effort", type: "text" },
         { id: "points", displayName: "Points", key: "points", type: "number" },
+        {
+          id: "workstream",
+          displayName: "Workstream",
+          key: "workstream",
+          type: "list",
+          autosuggestFilter: { requiredTags: ["ws"] },
+        },
       ];
       await tn.saveSettings?.();
     });
@@ -459,5 +522,78 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(await frontmatterValue(TASK_ROW, "scheduled")).toBe("2026-04-01");
     const state = await readEditState();
     expect(state.cells[`${TASK_ROW}|${SCHEDULED_COL}`]?.text).toMatch(/^0?1\.0?4\.2026$/);
+  });
+
+  it("offers ONLY the configured statuses in the status picker and persists a pick", async () => {
+    const configured = await readConfiguredStatuses();
+    expect(configured.length).toBeGreaterThan(1);
+    expect(configured.map((s) => s.value)).toContain("done");
+
+    expect(await doubleClickCell(TASK_ROW, STATUS_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Status picker did not open on the managed status cell",
+    });
+
+    // The picker lists exactly TaskNotes' configured statuses (by label) — no
+    // free-text row, nothing beyond the catalog.
+    let labels: string[] | null = null;
+    await browser.waitUntil(
+      async () => {
+        labels = await readPickerLabels();
+        return (labels?.length ?? 0) > 0;
+      },
+      { timeout: 10000, timeoutMsg: "Status picker rows did not render" },
+    );
+    expect(labels).toEqual(configured.map((s) => s.label));
+
+    expect(await pickPickerItem("Done")).toBe(true);
+
+    let lastStatus: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        lastStatus = await frontmatterValue(TASK_ROW, "status");
+        return lastStatus === "done";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `frontmatter status not updated to 'done'; saw: ${JSON.stringify(lastStatus)}`,
+      },
+    );
+  });
+
+  it("renders the degraded suggest state (no reachable TaskNotes suggester) and appends a free-text entry to the list via the direct path", async () => {
+    expect(await frontmatterValue(TASK_ROW, "workstream")).toEqual(["[[WS Alpha]]"]);
+
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Suggest editor did not open on the managed workstream cell",
+    });
+
+    // TaskNotes 4.11.0 exposes no reachable FileSuggestHelper, so the editor
+    // must show its degraded hint (and behave as free text) rather than a
+    // silent, empty dropdown.
+    await browser.waitUntil(async () => readSuggestDegradedHint(), {
+      timeout: 10000,
+      timeoutMsg: "Suggest editor did not render the degraded (free-text) hint",
+    });
+
+    expect(await commitEditorValue("Manual entry")).toBe(true);
+
+    // The direct commit APPENDS to the raw stored list, preserving the
+    // existing wikilink entry verbatim (never the display-form round-trip).
+    let lastWorkstream: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        lastWorkstream = await frontmatterValue(TASK_ROW, "workstream");
+        return JSON.stringify(lastWorkstream) === JSON.stringify(["[[WS Alpha]]", "Manual entry"]);
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () =>
+          `frontmatter workstream not appended; saw: ${JSON.stringify(lastWorkstream)}`,
+      },
+    );
   });
 });

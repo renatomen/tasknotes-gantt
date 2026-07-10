@@ -143,12 +143,16 @@ describe('resolveCellEditor — registered TaskNotes user fields', () => {
     expect(resolveCellEditor('note.tags2', d)).toEqual({ kind: 'list' });
   });
 
-  it('resolves a list field with an autosuggest filter to a suggest editor carrying it', () => {
+  it('resolves a list field with an autosuggest filter to a LIST-shaped suggest editor', () => {
     const filter = { includeFolders: ['People'] };
     const d = deps({
       taskNotesFieldType: registered('assignee', { type: 'list', autosuggestFilter: filter }),
     });
-    expect(resolveCellEditor('note.assignee', d)).toEqual({ kind: 'suggest', autosuggestFilter: filter });
+    expect(resolveCellEditor('note.assignee', d)).toEqual({
+      kind: 'suggest',
+      autosuggestFilter: filter,
+      isList: true,
+    });
   });
 
   it('resolves a text field without a filter to a text editor', () => {
@@ -156,12 +160,16 @@ describe('resolveCellEditor — registered TaskNotes user fields', () => {
     expect(resolveCellEditor('note.owner', d)).toEqual({ kind: 'text' });
   });
 
-  it('resolves a text field with an autosuggest filter to a suggest editor carrying it', () => {
+  it('resolves a text field with an autosuggest filter to a single-value suggest editor', () => {
     const filter = { includeTags: ['#person'] };
     const d = deps({
       taskNotesFieldType: registered('owner', { type: 'text', autosuggestFilter: filter }),
     });
-    expect(resolveCellEditor('note.owner', d)).toEqual({ kind: 'suggest', autosuggestFilter: filter });
+    expect(resolveCellEditor('note.owner', d)).toEqual({
+      kind: 'suggest',
+      autosuggestFilter: filter,
+      isList: false,
+    });
   });
 
   it('resolves an unknown field type to a plain text editor', () => {

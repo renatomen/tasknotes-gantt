@@ -12,6 +12,7 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   BOOLEAN_EDITOR_OPTIONS,
+  choiceEditorOptions,
   counterpartDate,
   dateRoleColumns,
   editorAttachedColumnIds,
@@ -21,6 +22,7 @@ import {
   shippedEditorKind,
   shippedEditorKinds,
   storedFlatValue,
+  suggestColumns,
   svarEditorConfigFor,
   violatesDateOrder,
   withAlignedFlatKeys,
@@ -45,10 +47,10 @@ describe('shippedEditorKind', () => {
     expect(shippedEditorKind('date')).toBe('date');
   });
 
-  it('resolves no shipped editor for choice and suggest kinds', () => {
-    expect(shippedEditorKind('choice-status')).toBeNull();
-    expect(shippedEditorKind('choice-priority')).toBeNull();
-    expect(shippedEditorKind('suggest')).toBeNull();
+  it('ships the choice and suggest kinds', () => {
+    expect(shippedEditorKind('choice-status')).toBe('choice-status');
+    expect(shippedEditorKind('choice-priority')).toBe('choice-priority');
+    expect(shippedEditorKind('suggest')).toBe('suggest');
   });
 });
 
@@ -322,7 +324,81 @@ describe('resolveCellEditCommit — text kind', () => {
   });
 });
 
+describe('resolveCellEditCommit — choice kinds', () => {
+  it('commits the picked configured value string when it differs', () => {
+    expect(resolveCellEditCommit('choice-status', 'done', text('open'))).toEqual({
+      action: 'commit',
+      value: 'done',
+    });
+    expect(resolveCellEditCommit('choice-priority', 'high', empty)).toEqual({
+      action: 'commit',
+      value: 'high',
+    });
+  });
+
+  it('treats re-committing the stored value as a noop', () => {
+    expect(resolveCellEditCommit('choice-status', 'open', text('open'))).toEqual({ action: 'noop' });
+  });
+
+  it('stringifies a bridge-coerced numeric option id (a numeric status value)', () => {
+    expect(resolveCellEditCommit('choice-status', 2, text('1'))).toEqual({
+      action: 'commit',
+      value: '2',
+    });
+    expect(resolveCellEditCommit('choice-status', 1, text('1'))).toEqual({ action: 'noop' });
+  });
+
+  it('rejects a non-string, non-numeric committed value without writing', () => {
+    expect(resolveCellEditCommit('choice-status', { id: 'x' }, text('open'))).toEqual({
+      action: 'reject',
+      reason: 'This field needs one of the configured values.',
+    });
+    expect(resolveCellEditCommit('choice-priority', true, empty)).toEqual({
+      action: 'reject',
+      reason: 'This field needs one of the configured values.',
+    });
+  });
+});
+
+describe('resolveCellEditCommit — suggest kind (single-value text semantics)', () => {
+  it('commits typed free text', () => {
+    expect(resolveCellEditCommit('suggest', 'Anna', text('Bob'))).toEqual({
+      action: 'commit',
+      value: 'Anna',
+    });
+  });
+
+  it('commits a picked wikilink string verbatim', () => {
+    expect(resolveCellEditCommit('suggest', '[[People/Anna]]', empty)).toEqual({
+      action: 'commit',
+      value: '[[People/Anna]]',
+    });
+  });
+
+  it('treats re-committing the stored string form as a noop (click-away safety)', () => {
+    expect(resolveCellEditCommit('suggest', 'Bob', text('Bob'))).toEqual({ action: 'noop' });
+    // The seed of a stored LIST is its comma-joined display form; an untouched
+    // editor re-commits it and must not write.
+    expect(resolveCellEditCommit('suggest', 'a, b', list(['a', 'b']))).toEqual({ action: 'noop' });
+  });
+
+  it('clears with null on an empty commit, noop when already empty', () => {
+    expect(resolveCellEditCommit('suggest', '', text('Bob'))).toEqual({ action: 'commit', value: null });
+    expect(resolveCellEditCommit('suggest', '', empty)).toEqual({ action: 'noop' });
+  });
+});
+
 describe('editorSeedValue', () => {
+  it('seeds choice editors with the stored value string (the richselect option id)', () => {
+    expect(editorSeedValue('choice-status', text('open'))).toBe('open');
+    expect(editorSeedValue('choice-priority', empty)).toBe('');
+  });
+
+  it('seeds suggest editors with the stored string form (list items comma-joined)', () => {
+    expect(editorSeedValue('suggest', text('Bob'))).toBe('Bob');
+    expect(editorSeedValue('suggest', list(['a', 'b']))).toBe('a, b');
+  });
+
   it('seeds text editors with the stored string', () => {
     expect(editorSeedValue('text', text('Draft'))).toBe('Draft');
   });
@@ -449,7 +525,7 @@ describe('withAlignedFlatKeys', () => {
 });
 
 describe('shippedEditorKinds', () => {
-  it('keeps only descriptors whose kind has a shipped editor', () => {
+  it('keeps every descriptor whose kind has a shipped editor', () => {
     const descriptors = new Map<string, CellEditorDescriptor>([
       ['note.effort', { kind: 'text' }],
       ['note.points', { kind: 'number' }],
@@ -457,6 +533,7 @@ describe('shippedEditorKinds', () => {
       ['note.tags', { kind: 'list' }],
       ['note.due', { kind: 'date' }],
       ['note.status', { kind: 'choice-status' }],
+      ['note.priority', { kind: 'choice-priority' }],
       ['note.owner', { kind: 'suggest' }],
     ]);
     expect([...shippedEditorKinds(descriptors)]).toEqual([
@@ -465,6 +542,9 @@ describe('shippedEditorKinds', () => {
       ['note.done', 'boolean'],
       ['note.tags', 'list'],
       ['note.due', 'date'],
+      ['note.status', 'choice-status'],
+      ['note.priority', 'choice-priority'],
+      ['note.owner', 'suggest'],
     ]);
   });
 
@@ -492,7 +572,7 @@ describe('editorAttachedColumnIds', () => {
 
 describe('svarEditorConfigFor', () => {
   it("maps boolean to a richselect with 'true'/'false' string option ids", () => {
-    const config = svarEditorConfigFor('boolean', 'en-US');
+    const config = svarEditorConfigFor('boolean', { dateLocale: 'en-US' });
     expect(config).toEqual({
       type: 'richselect',
       config: { options: [{ id: 'true', label: 'true' }, { id: 'false', label: 'false' }] },
@@ -500,35 +580,112 @@ describe('svarEditorConfigFor', () => {
   });
 
   it('maps text, number, and list to the text editor', () => {
-    expect(svarEditorConfigFor('text', 'en-US')).toBe('text');
-    expect(svarEditorConfigFor('number', 'en-US')).toBe('text');
-    expect(svarEditorConfigFor('list', 'en-US')).toBe('text');
+    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toBe('text');
+    expect(svarEditorConfigFor('number', { dateLocale: 'en-US' })).toBe('text');
+    expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toBe('text');
   });
 
   it('maps date to the registered custom editor, carrying the display locale', () => {
-    expect(svarEditorConfigFor('date', 'de-DE')).toEqual({
+    expect(svarEditorConfigFor('date', { dateLocale: 'de-DE' })).toEqual({
       type: 'og-date',
       config: { locale: 'de-DE' },
     });
+  });
+
+  it('maps the choice kinds to a richselect over the supplied catalog options', () => {
+    const choiceOptions = [
+      { id: 'open', label: 'Open' },
+      { id: 'done', label: 'Done' },
+    ];
+    for (const kind of ['choice-status', 'choice-priority'] as const) {
+      expect(svarEditorConfigFor(kind, { dateLocale: 'en-US', choiceOptions })).toEqual({
+        type: 'richselect',
+        config: { options: choiceOptions },
+      });
+    }
+  });
+
+  it('resolves NO editor for a choice kind without catalog options (nothing to pick)', () => {
+    expect(svarEditorConfigFor('choice-status', { dateLocale: 'en-US' })).toBeNull();
+    expect(
+      svarEditorConfigFor('choice-priority', { dateLocale: 'en-US', choiceOptions: [] }),
+    ).toBeNull();
+  });
+
+  it('maps suggest to the registered custom editor, carrying the suggest channel', () => {
+    const suggest = { columnId: 'note.owner', autosuggestFilter: { requiredTags: ['person'] }, isList: false };
+    expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US', suggest })).toEqual({
+      type: 'og-suggest',
+      config: suggest,
+    });
+  });
+
+  it('resolves NO editor for a suggest kind without a channel', () => {
+    expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US' })).toBeNull();
+  });
+});
+
+describe('choiceEditorOptions', () => {
+  it('maps catalog options to {id: value, label} richselect options', () => {
+    expect(
+      choiceEditorOptions([
+        { value: 'open', label: 'Open' },
+        { value: 'in-progress', label: 'In progress' },
+      ]),
+    ).toEqual([
+      { id: 'open', label: 'Open' },
+      { id: 'in-progress', label: 'In progress' },
+    ]);
+  });
+
+  it('falls back to the value when the label is empty', () => {
+    expect(choiceEditorOptions([{ value: 'x', label: '' }])).toEqual([{ id: 'x', label: 'x' }]);
+  });
+});
+
+describe('suggestColumns', () => {
+  it('keys each suggest descriptor by column id, carrying filter + list shape', () => {
+    const filter = { requiredTags: ['ws'] };
+    const descriptors = new Map<string, CellEditorDescriptor>([
+      ['note.due', { kind: 'date', dateRole: 'end' }],
+      ['note.owner', { kind: 'suggest', autosuggestFilter: filter }],
+      ['note.workstream', { kind: 'suggest', autosuggestFilter: filter, isList: true }],
+    ]);
+    expect([...suggestColumns(descriptors)]).toEqual([
+      ['note.owner', { autosuggestFilter: filter, isList: false }],
+      ['note.workstream', { autosuggestFilter: filter, isList: true }],
+    ]);
+  });
+
+  it('yields an empty map for absent descriptors', () => {
+    expect(suggestColumns(undefined).size).toBe(0);
   });
 });
 
 describe('rowEditorConfig', () => {
   it('returns null for a row that is not editable', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: false } }, 'text', 'en-US')).toBeNull();
-    expect(rowEditorConfig(undefined, 'text', 'en-US')).toBeNull();
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: false } }, 'text', { dateLocale: 'en-US' }),
+    ).toBeNull();
+    expect(rowEditorConfig(undefined, 'text', { dateLocale: 'en-US' })).toBeNull();
   });
 
   it('returns null when the column resolved no shipped kind', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, undefined, 'en-US')).toBeNull();
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, undefined, { dateLocale: 'en-US' }),
+    ).toBeNull();
   });
 
   it('returns the kind config for an editable row', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text', 'en-US')).toBe('text');
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text', { dateLocale: 'en-US' }),
+    ).toBe('text');
   });
 
   it('returns the locale-carrying date config for an editable row', () => {
-    expect(rowEditorConfig({ id: 't1', custom: { editable: true } }, 'date', 'de-DE')).toEqual({
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'date', { dateLocale: 'de-DE' }),
+    ).toEqual({
       type: 'og-date',
       config: { locale: 'de-DE' },
     });

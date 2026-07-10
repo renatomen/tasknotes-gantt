@@ -10,12 +10,16 @@
  * `editorSeedValue` is the mirror image: what the column `getter`
  * should hand SVAR when the editor opens (SVAR seeds the input from it).
  *
- * Only editor kinds with a shipped inline editor are handled here (`text`,
- * `number`, `boolean`, `list`, `date`); choice/suggest kinds resolve
- * descriptors but have no inline editor yet, and {@link shippedEditorKind}
- * filters them out. The `date` kind rides the custom locale-aware editor
- * (registered as {@link OG_DATE_EDITOR_TYPE}), which commits real `Date`
- * objects — the bridge's coercion skips `instanceof Date`.
+ * Every resolvable editor kind now ships an inline editor: the scalar kinds
+ * (`text`, `number`, `boolean`, `list`), the custom locale-aware `date` editor
+ * (registered as {@link OG_DATE_EDITOR_TYPE}, commits real `Date` objects — the
+ * bridge's coercion skips `instanceof Date`), the restricted-choice kinds
+ * (`choice-status`/`choice-priority` — a stock richselect over the backing
+ * system's configured value set, committing the value STRING), and `suggest`
+ * (the custom {@link OG_SUGGEST_EDITOR_TYPE} editor — single-value fields
+ * commit with text semantics through the bridge; LIST-shaped fields bypass the
+ * bridge entirely via a direct-commit callback, because the bridge's
+ * display-form diffing cannot represent wikilink lists).
  *
  * No Obsidian/SVAR dependencies. Mirrors {@link ./cascadeGate}.
  *
@@ -27,7 +31,15 @@ import type { CellEditorDescriptor, CellEditorKind } from './cellEditability';
 import { EMPTY_TYPED_VALUE, listsEqual, type TypedValue } from './propertyValues';
 
 /** The editor kinds with a shipped inline editor. */
-export type ShippedEditorKind = 'text' | 'number' | 'boolean' | 'list' | 'date';
+export type ShippedEditorKind =
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'list'
+  | 'date'
+  | 'choice-status'
+  | 'choice-priority'
+  | 'suggest';
 
 const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set([
   'text',
@@ -35,10 +47,16 @@ const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set([
   'boolean',
   'list',
   'date',
+  'choice-status',
+  'choice-priority',
+  'suggest',
 ]);
 
 /** The inline-editor type the custom locale-aware date editor registers under. */
 export const OG_DATE_EDITOR_TYPE = 'og-date';
+
+/** The inline-editor type the custom autosuggest editor registers under. */
+export const OG_SUGGEST_EDITOR_TYPE = 'og-suggest';
 
 /** Narrow a resolved editor kind to a shipped one, or `null` when there is none. */
 export function shippedEditorKind(kind: CellEditorKind): ShippedEditorKind | null {
@@ -85,24 +103,89 @@ export interface SvarRowLike {
   custom?: { editable?: boolean; properties?: Record<string, TypedValue> };
 }
 
+/** One selectable value of a choice column's richselect (SVAR `IOption`). */
+export interface ChoiceEditorOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * Map a backing system's configured choice values to richselect options: the
+ * stored value string is the option id (what the editor commits and the bridge
+ * passes through), the label its display form (value fallback).
+ */
+export function choiceEditorOptions(
+  options: ReadonlyArray<{ value: string; label: string }>,
+): ChoiceEditorOption[] {
+  return options.map((o) => ({ id: o.value, label: o.label || o.value }));
+}
+
+/** The per-column suggest channel resolved from the editor descriptors. */
+export interface SuggestEditorChannel {
+  /** The edited grid column id — also the property id the write path resolves. */
+  columnId: string;
+  /** TaskNotes `FileFilterConfig` scoping the suggestions; opaque here. */
+  autosuggestFilter: unknown;
+  /** List-shaped field: commits append via {@link SuggestEditorConfig.commitListEntry}. */
+  isList: boolean;
+}
+
+/**
+ * What the suggest editor reads from `editor.config`: the pure channel plus the
+ * view-wired callbacks. `fetchSuggestions` absent = TaskNotes' file-suggest
+ * capability is unreachable — the editor renders its degraded state (hint +
+ * free text). `commitListEntry` is wired only for list-shaped columns and owns
+ * persistence for them (the direct path).
+ */
+export interface SuggestEditorConfig extends SuggestEditorChannel {
+  fetchSuggestions?: (query: string) => Promise<Array<{ value: string; display: string }>>;
+  commitListEntry?: (entry: string) => void;
+}
+
 /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
 export type SvarEditorConfig =
   | string
-  | { type: string; config: { options: Array<{ id: string; label: string }> } }
-  | { type: string; config: { locale: string } };
+  | { type: string; config: { options: ChoiceEditorOption[] } }
+  | { type: string; config: { locale: string } }
+  | { type: string; config: SuggestEditorConfig };
+
+/** The context the per-kind editor configs are built from. */
+export interface EditorConfigContext {
+  /** The assembly pass's display-locale snapshot (the date editor's channel). */
+  dateLocale: string;
+  /** Richselect options for a choice column; no/empty options ⇒ no editor. */
+  choiceOptions?: ReadonlyArray<ChoiceEditorOption>;
+  /** The suggest channel for a suggest column; absent ⇒ no editor. */
+  suggest?: SuggestEditorChannel;
+}
 
 /**
  * The SVAR editor config for a shipped kind: boolean → richselect, date → the
  * registered custom editor (its config carries the assembly pass's display
  * locale — SVAR's store hands `column.editor.config` to the opened editor as
- * `editor.config`), everything else → the stock text input.
+ * `editor.config`), choice kinds → richselect over the configured value set
+ * (or `null` when the set is empty — a picker with nothing to pick is not
+ * offered), suggest → the registered custom autosuggest editor carrying its
+ * channel (or `null` without one), everything else → the stock text input.
  */
-export function svarEditorConfigFor(kind: ShippedEditorKind, dateLocale: string): SvarEditorConfig {
+export function svarEditorConfigFor(
+  kind: ShippedEditorKind,
+  context: EditorConfigContext,
+): SvarEditorConfig | null {
   if (kind === 'boolean') {
     return { type: 'richselect', config: { options: [...BOOLEAN_EDITOR_OPTIONS] } };
   }
   if (kind === 'date') {
-    return { type: OG_DATE_EDITOR_TYPE, config: { locale: dateLocale } };
+    return { type: OG_DATE_EDITOR_TYPE, config: { locale: context.dateLocale } };
+  }
+  if (kind === 'choice-status' || kind === 'choice-priority') {
+    const options = context.choiceOptions ?? [];
+    if (options.length === 0) return null;
+    return { type: 'richselect', config: { options: [...options] } };
+  }
+  if (kind === 'suggest') {
+    if (!context.suggest) return null;
+    return { type: OG_SUGGEST_EDITOR_TYPE, config: { ...context.suggest } };
   }
   return 'text';
 }
@@ -116,10 +199,10 @@ export function svarEditorConfigFor(kind: ShippedEditorKind, dateLocale: string)
 export function rowEditorConfig(
   row: SvarRowLike | undefined,
   kind: ShippedEditorKind | undefined,
-  dateLocale: string,
+  context: EditorConfigContext,
 ): SvarEditorConfig | null {
   if (!row?.custom?.editable || !kind) return null;
-  return svarEditorConfigFor(kind, dateLocale);
+  return svarEditorConfigFor(kind, context);
 }
 
 /** How a committed editor value should be handled. */
@@ -155,9 +238,34 @@ export function resolveCellEditCommit(
       return commitList(raw, stored);
     case 'date':
       return commitDate(raw, stored);
+    case 'choice-status':
+    case 'choice-priority':
+      return commitChoice(raw, stored);
+    // Single-value suggest fields commit whatever the editor produced (typed
+    // free text or a picked `[[wikilink]]` string) with text semantics; the
+    // list-shaped suggest commits never reach here (direct path).
+    case 'suggest':
     case 'text':
       return commitText(raw, stored);
   }
+}
+
+// A choice richselect commits the picked option id — the configured value
+// STRING. The bridge's `v *= 1` coercion turns a numeric-looking value into a
+// number, so a finite number casts back to its string form; anything else is a
+// stray value that must not reach the write path.
+function commitChoice(raw: unknown, stored: TypedValue): CellEditCommit {
+  const value =
+    typeof raw === 'string'
+      ? raw
+      : typeof raw === 'number' && Number.isFinite(raw)
+        ? String(raw)
+        : null;
+  if (value === null) {
+    return { action: 'reject', reason: 'This field needs one of the configured values.' };
+  }
+  if (value === storedStringForm(stored)) return NOOP;
+  return { action: 'commit', value };
 }
 
 // Caveat shared by the number and text casts below: SVAR's bridge coerces a
@@ -305,6 +413,25 @@ export function dateRoleColumns(
     }
   }
   return roles;
+}
+
+/**
+ * The suggest columns among the resolved editor descriptors, keyed by column
+ * id with their channel (filter + list shape). Mirrors {@link dateRoleColumns}.
+ */
+export function suggestColumns(
+  cellEditors: ReadonlyMap<string, CellEditorDescriptor> | undefined,
+): Map<string, { autosuggestFilter: unknown; isList: boolean }> {
+  const channels = new Map<string, { autosuggestFilter: unknown; isList: boolean }>();
+  for (const [columnId, descriptor] of cellEditors ?? []) {
+    if (descriptor.kind === 'suggest') {
+      channels.set(columnId, {
+        autosuggestFilter: descriptor.autosuggestFilter,
+        isList: descriptor.isList === true,
+      });
+    }
+  }
+  return channels;
 }
 
 /** The date-bearing slice of a render row the cross-field check reads. */

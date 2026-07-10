@@ -856,13 +856,16 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors, priorityColors, managedPaths] = await Promise.all([
-      controller.getInstances(),
-      controller.getLinks(arrowMode),
-      controller.getStatusColors(),
-      controller.getPriorityColors(),
-      controller.getManagedPaths(),
-    ]);
+    const [instances, links, statusColors, priorityColors, managedPaths, statusOptions, priorityOptions] =
+      await Promise.all([
+        controller.getInstances(),
+        controller.getLinks(arrowMode),
+        controller.getStatusColors(),
+        controller.getPriorityColors(),
+        controller.getManagedPaths(),
+        controller.getChoiceOptions('status'),
+        controller.getChoiceOptions('priority'),
+      ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
     const visiblePropIds = this.getVisiblePropertyIds();
@@ -951,6 +954,7 @@ class ObsidianGanttBasesView extends BasesView {
       contextOpacity: this.getContextOpacity(),
       statusColors,
       priorityColors,
+      choiceOptions: { status: statusOptions, priority: priorityOptions },
       barColorMode: this.getBarColorMode(),
       barColorSource: this.getBarColorSource(),
       barIcon: this.getBarIcon(),
