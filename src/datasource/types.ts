@@ -198,7 +198,7 @@ export interface TaskPatch {
    */
   estimateWrite?: EstimateWriteTarget;
   /**
-   * Resolved generic field write (U2): persist `value` under the bare frontmatter
+   * Resolved generic field write: persist `value` under the bare frontmatter
    * `key`, written verbatim as a TOP-LEVEL update key — TaskNotes' frontmatter
    * writer reads custom user fields from `task[key]`, never a nested `userFields`
    * object. `null` clears the property; `[]` writes an empty list. The controller

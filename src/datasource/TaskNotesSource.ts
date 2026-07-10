@@ -717,7 +717,7 @@ export class TaskNotesSource implements DataSource {
       throw new Error('TaskNotes API does not support task updates');
     }
 
-    // Row gate (U2): a fieldWrite grafts frontmatter onto whatever note
+    // Row gate: a fieldWrite grafts frontmatter onto whatever note
     // `tasks.update` touches, so it may only land on a TaskNotes-managed row.
     // Fails closed when task info cannot be resolved at all.
     if (patch.fieldWrite) {
@@ -1006,7 +1006,7 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
       updates[patch.estimateWrite.key] = minutes;
     }
   }
-  // Generic field write (U2): verbatim under the resolved bare frontmatter key,
+  // Generic field write: verbatim under the resolved bare frontmatter key,
   // top-level — TaskNotes' frontmatter writer reads custom user fields from
   // `task[key]`, never a nested `userFields` object (confirmed vs 4.11.0).
   // `null` clears the property (matching the date-clear convention).
@@ -1049,9 +1049,10 @@ function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): voi
  * The write path receives day-snapped, local-midnight `Date`s (from a SVAR drag
  * commit or a `yyyy-MM-dd` date input parsed locally). Using UTC here would
  * shift the day by one for users west of UTC, so local Y/M/D is the correct
- * basis — TaskNotes stores `scheduled`/`due` as calendar dates.
+ * basis — TaskNotes stores `scheduled`/`due` as calendar dates. Exported so the
+ * controller's property-patch resolution serializes fieldWrite dates the same way.
  */
-function toYmd(date: Date): string {
+export function toYmd(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

@@ -439,11 +439,11 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
       const { controller, enrichment } = makeBasesScoped({});
       await controller.init();
 
-      await controller.mutateProperty('child.md', 'note.priority', 'high');
+      await controller.mutateProperty('child.md', 'note.effort', 'high');
 
       expect(enrichment.mutateCalls).toHaveLength(1);
       const patch = enrichment.mutateCalls[0]!.patch;
-      expect(patch.fieldWrite).toEqual({ key: 'priority', value: 'high' });
+      expect(patch.fieldWrite).toEqual({ key: 'effort', value: 'high' });
       expect(patch.dateWrites).toBeUndefined();
       expect(patch.status).toBeUndefined();
     });
@@ -485,16 +485,64 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
       const { controller, enrichment } = makeBasesScoped({});
       await controller.init();
 
-      await controller.mutateProperty('child.md', 'note.contexts', []);
+      await controller.mutateProperty('child.md', 'note.labels', []);
 
-      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'contexts', value: [] });
+      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'labels', value: [] });
     });
 
     it('rejects a non-note property id without writing', async () => {
       const { controller, enrichment } = makeBasesScoped({});
       await controller.init();
 
-      await expect(controller.mutateProperty('child.md', 'file.name', 'x')).rejects.toThrow();
+      await expect(controller.mutateProperty('child.md', 'file.name', 'x')).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('refuses a fieldWrite to a canonical TaskNotes TaskInfo key without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await expect(controller.mutateProperty('child.md', 'note.contexts', [])).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('resolves a Property-mode progress cell edit through the progress branch', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'property',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.percent', 80);
+
+      expect(enrichment.mutateCalls).toHaveLength(1);
+      expect(enrichment.mutateCalls[0]!.patch.progress).toBe(80);
+      expect(enrichment.mutateCalls[0]!.patch.progressWrite).toEqual({ key: 'percent' });
+    });
+
+    it('fails CLOSED on a progress cell edit in TaskNotes mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'tasknotes',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.percent', 80),
+      ).rejects.toThrow(/not writable/);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('fails CLOSED on an estimate cell edit in dont-update mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        timeEstimateMode: 'dont-update',
+        timeEstimateProperty: 'note.estimate',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.estimate', 4320),
+      ).rejects.toThrow(/not writable/);
       expect(enrichment.mutateCalls).toHaveLength(0);
     });
 
