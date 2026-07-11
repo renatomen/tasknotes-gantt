@@ -1,14 +1,16 @@
 <script lang="ts">
   /* global HTMLInputElement, KeyboardEvent, setTimeout, clearTimeout */
   /**
-   * Custom inline autosuggest editor (typed input + TaskNotes-served
-   * suggestions in a SVAR Dropdown).
+   * Custom inline list-append editor (typed input + TaskNotes-served suggestions
+   * in a SVAR Dropdown) for LIST-shaped user fields with an autosuggest filter.
    *
    * Registered with SVAR's grid via `registerInlineEditor(OG_SUGGEST_EDITOR_TYPE, …)`
    * (see {@link ./inlineEditors}); SVAR mounts it with the stock inline-editor
-   * contract (`editor` + `onsave`/`onapply`/`oncancel`), and the column's
-   * editor config carries a {@link SuggestEditorConfig}: the suggest channel
-   * (filter + column id + list shape) plus the view-wired callbacks.
+   * contract (`editor` + `onsave`/`onapply`/`oncancel`), and the column's editor
+   * config carries a {@link SuggestEditorConfig}: the suggest channel (filter +
+   * column id + list shape) plus the view-wired callbacks. Single-value suggest
+   * and plain text host the native `[[` suggester in {@link ./TextCellEditor.svelte};
+   * only list-shaped fields reach this editor.
    *
    * States:
    * - `fetchSuggestions` absent → DEGRADED: a "suggestions unavailable" hint,
@@ -18,18 +20,12 @@
    * - results → pick with click or ArrowUp/Down + Enter (ArrowUp above the
    *   first row clears the highlight so a plain Enter commits the typed text).
    *
-   * Commit semantics:
-   * - Single-value column: a pick applies `[[link text]]`, typed Enter applies
-   *   the raw text — both save through the grid bridge (text semantics
-   *   downstream). An empty typed Enter applies `''` (the "clear" commit).
-   * - LIST-shaped column (`isList`): every commit routes through
-   *   `commitListEntry` (the view's direct append path — the bridge's
-   *   display-form diffing cannot represent wikilink lists) and the editor
-   *   closes via `oncancel` WITHOUT applying, so nothing rides the bridge. The
-   *   input starts empty: the editor appends an entry, it does not re-edit the
-   *   joined list.
-   * - Escape → SVAR's grid hotkey cancels; a click elsewhere `onsave(true)`s,
-   *   which re-commits the seeded value — a noop downstream.
+   * Commit semantics: every commit routes through `commitListEntry` (the view's
+   * direct append path — the bridge's display-form diffing cannot represent
+   * wikilink lists) and the editor closes via `oncancel` WITHOUT applying, so
+   * nothing rides the bridge. The input starts empty: the editor appends an
+   * entry, it does not re-edit the joined list. Escape → SVAR's grid hotkey
+   * cancels; a click elsewhere `onsave(true)`s, re-committing the seed as a noop.
    */
   import { onMount } from 'svelte';
   import { clickOutside } from '@svar-ui/lib-dom';
@@ -40,19 +36,20 @@
   interface Props {
     editor: { value?: unknown; config?: Partial<SuggestEditorConfig> };
     onsave: (ignoreFocus?: boolean) => void;
-    onapply: (value: unknown) => void;
+    // SVAR also passes `onapply` (commit through the bridge); the list path never
+    // rides the bridge (it appends via the direct-commit callback), so it is
+    // intentionally not consumed here.
+    onapply?: (value: unknown) => void;
     oncancel: () => void;
   }
-  let { editor, onsave, onapply, oncancel }: Props = $props();
+  let { editor, onsave, oncancel }: Props = $props();
 
   const config: Partial<SuggestEditorConfig> = editor?.config ?? {};
-  const isList = config.isList === true;
   const fetchSuggestions =
     typeof config.fetchSuggestions === 'function' ? config.fetchSuggestions : null;
   const degraded = !fetchSuggestions;
 
-  const seeded = typeof editor?.value === 'string' ? editor.value : '';
-  let text = $state(isList ? '' : seeded);
+  let text = $state('');
   let items = $state<TaskNotesSuggestion[]>([]);
   let loading = $state(false);
   let searched = $state(false);
@@ -65,7 +62,6 @@
 
   onMount(() => {
     node?.focus();
-    if (!isList) node?.select();
     scheduleFetch();
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -96,14 +92,9 @@
   }
 
   function commitEntry(entry: string): void {
-    if (isList) {
-      // Direct path: the view appends + persists; nothing may ride the bridge.
-      config.commitListEntry?.(entry);
-      oncancel();
-      return;
-    }
-    onapply(entry);
-    onsave();
+    // Direct path: the view appends + persists; nothing may ride the bridge.
+    config.commitListEntry?.(entry);
+    oncancel();
   }
 
   function pick(item: TaskNotesSuggestion): void {
@@ -133,18 +124,11 @@
       return;
     }
     const trimmed = text.trim();
-    if (isList) {
-      if (trimmed === '') {
-        oncancel();
-        return;
-      }
-      commitEntry(trimmed);
+    if (trimmed === '') {
+      oncancel();
       return;
     }
-    // Single-value free text (or the '' clear) rides the bridge like the stock
-    // text editor.
-    onapply(trimmed);
-    onsave();
+    commitEntry(trimmed);
   }
 
   function handleInput(): void {
@@ -164,7 +148,7 @@
     bind:value={text}
     class="wx-text"
     spellcheck="false"
-    placeholder={isList ? 'Add entry…' : ''}
+    placeholder="Add entry…"
     onkeydown={handleKeydown}
     oninput={handleInput}
   />

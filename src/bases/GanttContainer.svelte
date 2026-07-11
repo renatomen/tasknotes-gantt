@@ -75,9 +75,11 @@
     type SuggestEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
+    type TextEditorConfig,
   } from './cellEditCommit';
   import { appendListEntry, resolveSuggestionFetcher } from './taskNotesSuggest';
   import { createVaultWikilinkFetcher } from './vaultWikilinkSuggest';
+  import type { FileFilterConfig } from './fileFilter';
   import { bareProperty } from '../datasource/dateFieldMapping';
   import { ensureInlineEditorsRegistered } from './inlineEditors';
   import {
@@ -1366,8 +1368,9 @@
   /**
    * Attach the vault `[[` fetcher to a text editor config per open (parallel to
    * {@link withSuggestWiring}): the fetcher enumerates the vault relative to the
-   * row's note path, so the component gets a fresh source each open. Non-text
-   * configs pass through untouched.
+   * row's note path, scoped by the field's autosuggest filter when the config
+   * carries one (a single-value suggest field; plain text is unfiltered), so the
+   * component gets a fresh source each open. Non-text configs pass through.
    */
   function withTextEditorWiring(
     config: SvarEditorConfig,
@@ -1375,9 +1378,12 @@
   ): SvarEditorConfig {
     if (typeof config === 'string' || config.type !== OG_TEXT_EDITOR_TYPE) return config;
     const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
+    const filter = (config.config as TextEditorConfig).autosuggestFilter as
+      | FileFilterConfig
+      | undefined;
     return {
       type: OG_TEXT_EDITOR_TYPE,
-      config: { fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath) },
+      config: { fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter) },
     };
   }
 
