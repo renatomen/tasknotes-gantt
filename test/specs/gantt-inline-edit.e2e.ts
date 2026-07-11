@@ -38,10 +38,12 @@ import { fileURLToPath } from "node:url";
  *     suggest editor; against TaskNotes 4.11.0 (no reachable FileSuggestHelper)
  *     it renders the DEGRADED free-text state, and an Enter commit APPENDS the
  *     entry to the raw stored list via the direct (bridge-bypassing) path;
- *   - a text-field cell opens the custom text editor: typing `[[Q3` surfaces
- *     VAULT-sourced note suggestions (the fixture's Q3 notes, not TaskNotes),
- *     and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving the
- *     surrounding text WITHOUT being lost to the editor's clickOutside;
+ *   - a text-field cell opens the native `[[` suggester: typing `[[Q3` surfaces
+ *     VAULT-sourced note suggestions in Obsidian's own popover (the fixture's Q3
+ *     notes), and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving
+ *     the surrounding text WITHOUT being lost to the editor's clickOutside;
+ *   - key arbitration: Enter with the native popover open picks the highlighted
+ *     suggestion (splices, does not commit); Enter with no popover commits;
  *   - committing markdown (`**ship**`) into a text cell re-renders decorated
  *     (bold) after the confirming data pass (raw text shows optimistically).
  *
@@ -55,8 +57,9 @@ import { fileURLToPath } from "node:url";
  *  - an OPEN inline editor is `.wx-cell.wx-editor` with an `input.wx-text`
  *    (text editor); Enter commits (grid `update-cell` → gantt `update-task`);
  *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`;
- *  - the text editor's `[[` dropdown is PORTAL'd to the body: its rows are
- *    `.og-suggest-item` (queried document-wide, like the richselect picker).
+ *  - the text editor's `[[` suggestions are Obsidian's NATIVE popover, rendered
+ *    on document.body as `.suggestion-container .suggestion-item` (queried
+ *    document-wide); the list-append editor keeps its own `.og-suggest-*` panel.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -276,15 +279,17 @@ async function readSuggestDegradedHint(): Promise<boolean> {
 }
 
 /**
- * Set the open text editor's value and caret, then fire `input` so the editor
- * runs its `[[`-token detection at that caret (setting `.value` alone leaves the
- * caret at the end, which the mid-text cases need to override).
+ * Focus the open text editor, set its value and caret, then fire `input` so the
+ * native suggester runs its `[[`-token detection at that caret (setting `.value`
+ * alone leaves the caret at the end, which the mid-text cases need to override;
+ * the focus keeps the input the active element so Obsidian's suggest reacts).
  */
 async function typeEditorToken(value: string, caret: number): Promise<boolean> {
   return browser.execute(
     (v, c) => {
       const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
       if (!input) return false;
+      input.focus();
       input.value = v;
       input.setSelectionRange(c, c);
       input.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -295,18 +300,18 @@ async function typeEditorToken(value: string, caret: number): Promise<boolean> {
   );
 }
 
-/** The labels of the text editor's portal'd `[[` suggestion rows. */
+/** The labels of Obsidian's native `[[` suggestion rows (portal'd to body). */
 async function readSuggestItems(): Promise<string[]> {
   return browser.execute(() =>
-    Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).map((el) =>
-      (el.textContent ?? "").trim(),
-    ),
+    Array.from(
+      document.querySelectorAll<HTMLElement>(".suggestion-container .suggestion-item"),
+    ).map((el) => (el.textContent ?? "").trim()),
   );
 }
 
-/** Whether the text editor's `[[` suggestion panel is currently rendered. */
+/** Whether Obsidian's native `[[` suggestion popover is currently rendered. */
 async function readSuggestPanelOpen(): Promise<boolean> {
-  return browser.execute(() => !!document.querySelector(".og-suggest-panel"));
+  return browser.execute(() => !!document.querySelector(".suggestion-container"));
 }
 
 /**
@@ -342,34 +347,17 @@ async function readCellRenderedText(rowSuffix: string, columnId: string): Promis
 }
 
 /**
- * Reposition the caret in the open editor and fire the caret key's keyup WITHOUT
- * changing the text — the path that must re-sync the `[[` token state so the
- * dropdown closes once the caret leaves the token.
- */
-async function moveEditorCaret(caret: number, key: string): Promise<void> {
-  await browser.execute(
-    (c, k) => {
-      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
-      if (!input) return;
-      input.setSelectionRange(c, c);
-      input.dispatchEvent(new window.KeyboardEvent("keyup", { key: k, bubbles: true }));
-    },
-    caret,
-    key,
-  );
-}
-
-/**
- * Pick a `[[` suggestion by label with a realistic gesture (mousemove + mousedown
- * + click): the mousedown drives lib-dom's clickOutside bookkeeping so the pick's
- * click is correctly classified as INSIDE the editor (via the portal'd-dropdown
- * nested-listener exemption) and is not lost to a spurious commit.
+ * Pick a native `[[` suggestion by label with a realistic gesture (mousemove +
+ * mousedown + click): the mousedown drives lib-dom's clickOutside bookkeeping,
+ * and — since the popover is topologically OUTSIDE the editor — the pick's click
+ * must be exempted by the editor's `.suggestion-container` clickOutside guard so
+ * the splice lands instead of being lost to a spurious commit.
  */
 async function pickSuggestItem(label: string): Promise<boolean> {
   return browser.execute((wanted) => {
-    const item = Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).find(
-      (el) => (el.textContent ?? "").trim() === wanted,
-    );
+    const item = Array.from(
+      document.querySelectorAll<HTMLElement>(".suggestion-container .suggestion-item"),
+    ).find((el) => (el.textContent ?? "").trim() === wanted);
     if (!item) return false;
     item.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true }));
     item.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
@@ -824,23 +812,19 @@ describe("Gantt (OG) inline cell editing", () => {
     });
   });
 
-  it("commits the typed text on Enter when the `[[` token matches no notes", async () => {
+  it("commits the typed text on Enter when the `[[` token matches no notes (native popover closed)", async () => {
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {
       timeout: 10000,
       timeoutMsg: "Text editor did not open on the effort cell",
     });
 
-    // A token that matches no vault note keeps the dropdown open on a "no
-    // matches" state; Enter must still commit the typed text, not be swallowed.
+    // A token that matches no vault note leaves the NATIVE popover closed (it
+    // never opens on empty results); Enter then reaches the editor and commits
+    // the typed text, rather than being owned by an open suggest scope.
     expect(await typeEditorToken("note [[Zzq", 10)).toBe(true);
-    await browser.waitUntil(
-      async () => (await readSuggestPanelOpen()) && (await readSuggestItems()).length === 0,
-      {
-        timeout: 10000,
-        timeoutMsg: "`[[` dropdown did not reach the no-matches state",
-      },
-    );
+    await browser.pause(600);
+    expect(await readSuggestPanelOpen()).toBe(false);
 
     await pressEnterInEditor();
     await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
@@ -861,36 +845,45 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
-  it("closes the `[[` dropdown when the caret leaves the token so Enter commits instead of picking", async () => {
+  it("picks the highlighted native suggestion on Enter while the popover is open (splice, no commit)", async () => {
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {
       timeout: 10000,
       timeoutMsg: "Text editor did not open on the effort cell",
     });
 
-    // Open the dropdown with a mid-text token gesture.
-    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
-    await browser.waitUntil(async () => readSuggestPanelOpen(), {
+    // A token matching exactly one note ("Roadmap" ⇒ Q3 Roadmap, never Q3 Retro)
+    // so the highlighted (first) suggestion is deterministic.
+    expect(await typeEditorToken("pick [[Roadmap", 14)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).includes(ROADMAP_LABEL), {
       timeout: 10000,
-      timeoutMsg: "`[[` dropdown did not open on the typed token",
+      timeoutMsg: "native `[[` popover did not surface the single Roadmap match",
     });
 
-    // Move the caret to the start with a keyup that fires no `input` — the caret
-    // no longer sits inside the `[[…` token, so the dropdown must close on its
-    // own rather than staying open and hijacking the next Enter.
-    await moveEditorCaret(0, "Home");
-    await browser.waitUntil(async () => !(await readSuggestPanelOpen()), {
-      timeout: 5000,
-      timeoutMsg: "`[[` dropdown did not close after the caret left the token",
+    // Dispatch Enter and read the spliced value in ONE synchronous in-page pass
+    // (native popovers are transient — Obsidian's scope picks synchronously, so
+    // the splice is already in `input.value` when dispatchEvent returns).
+    const splicedValue = await browser.execute(() => {
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!input) return null;
+      input.focus();
+      input.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      return input.value;
     });
+    expect(splicedValue).toBe("pick [[Q3 Roadmap]]");
 
-    // Dropdown closed → Enter commits the current text verbatim (never force-picks
-    // a suggestion) and the editor closes.
-    expect(await readEditorInputValue()).toBe("see [[Q3 later");
-    await pressEnterInEditor();
+    // The pick did NOT commit: the editor is still open (Enter-when-open never
+    // reaches SVAR's cancel nor the editor's own commit).
+    expect((await readEditState()).editorOpen).toBe(true);
+
+    // Close the editor deterministically (an outside click commits the splice;
+    // the next test overwrites the effort value).
+    await clickOutsideEditor();
     await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
       timeout: 5000,
-      timeoutMsg: "Text editor did not commit-and-close on Enter with the dropdown closed",
+      timeoutMsg: "Text editor did not close after the pick's outside click",
     });
   });
 

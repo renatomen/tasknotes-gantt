@@ -16,10 +16,11 @@
  * bridge's coercion skips `instanceof Date`), the restricted-choice kinds
  * (`choice-status`/`choice-priority` — a stock richselect over the backing
  * system's configured value set, committing the value STRING), and `suggest`
- * (the custom {@link OG_SUGGEST_EDITOR_TYPE} editor — single-value fields
- * commit with text semantics through the bridge; LIST-shaped fields bypass the
- * bridge entirely via a direct-commit callback, because the bridge's
- * display-form diffing cannot represent wikilink lists).
+ * (single-value fields host the native `[[` suggester under
+ * {@link OG_TEXT_EDITOR_TYPE} and commit with text semantics through the
+ * bridge; LIST-shaped fields keep the {@link OG_SUGGEST_EDITOR_TYPE} append
+ * editor and bypass the bridge entirely via a direct-commit callback, because
+ * the bridge's display-form diffing cannot represent wikilink lists).
  *
  * No Obsidian/SVAR dependencies. Mirrors {@link ./cascadeGate}.
  *
@@ -56,13 +57,18 @@ const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set([
 /** The inline-editor type the custom locale-aware date editor registers under. */
 export const OG_DATE_EDITOR_TYPE = 'og-date';
 
-/** The inline-editor type the custom autosuggest editor registers under. */
+/**
+ * The inline-editor type the list-append autosuggest editor registers under.
+ * Reached only by list-shaped suggest fields; single-value suggest and plain
+ * text host the native suggester under {@link OG_TEXT_EDITOR_TYPE}.
+ */
 export const OG_SUGGEST_EDITOR_TYPE = 'og-suggest';
 
 /**
- * The inline-editor type the custom text editor registers under. Replaces the
- * stock `'text'` input for `text`-kind cells, adding inline `[[` wikilink
- * autosuggest; `number`/`list` keep the bare stock text editor.
+ * The inline-editor type the native `[[` suggester editor registers under.
+ * Replaces the stock `'text'` input for `text`-kind AND single-value `suggest`
+ * cells (the latter carrying the field's autosuggest filter); `number`/`list`
+ * keep the bare stock text editor.
  */
 export const OG_TEXT_EDITOR_TYPE = 'og-text';
 
@@ -153,12 +159,16 @@ export interface SuggestEditorConfig extends SuggestEditorChannel {
 /**
  * What the text cell editor reads from `editor.config`: the vault `[[`
  * suggestion source, attached per editor-open by the view (the base config
- * carries none). Absent = plain text editing with no autosuggest dropdown.
+ * carries none). Absent = plain text editing with no autosuggest.
+ * `autosuggestFilter` scopes a single-value suggest field's fetcher; the view
+ * consumes it while wiring the fetcher and does not forward it to the editor.
  */
 export interface TextEditorConfig {
   fetchSuggestions?: (
     query: string,
   ) => Promise<Array<{ value: string; display: string; path?: string }>>;
+  /** TaskNotes `FileFilterConfig` scoping a single-value suggest field; opaque here. */
+  autosuggestFilter?: unknown;
 }
 
 /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
@@ -206,10 +216,19 @@ export function svarEditorConfigFor(
   }
   if (kind === 'suggest') {
     if (!context.suggest) return null;
-    return { type: OG_SUGGEST_EDITOR_TYPE, config: { ...context.suggest } };
+    // A list-shaped suggest keeps the append editor (chips arrive later); a
+    // single-value suggest hosts the native `[[` suggester like plain text,
+    // carrying its filter so the view wires a scoped fetcher.
+    if (context.suggest.isList) {
+      return { type: OG_SUGGEST_EDITOR_TYPE, config: { ...context.suggest } };
+    }
+    return {
+      type: OG_TEXT_EDITOR_TYPE,
+      config: { autosuggestFilter: context.suggest.autosuggestFilter },
+    };
   }
   if (kind === 'text') {
-    // The view attaches the vault `[[` fetcher per open (withTextEditorWiring).
+    // The view attaches an unfiltered vault `[[` fetcher per open (withTextEditorWiring).
     return { type: OG_TEXT_EDITOR_TYPE, config: {} };
   }
   // `number` and `list` share the stock text input (they cast on commit).

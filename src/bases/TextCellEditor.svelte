@@ -1,47 +1,47 @@
 <script lang="ts">
-  /* global HTMLInputElement, KeyboardEvent */
+  /* global HTMLInputElement, KeyboardEvent, MouseEvent, HTMLElement */
   /**
-   * Custom inline text editor with Obsidian-native `[[` wikilink autosuggest.
+   * Custom inline text editor hosting Obsidian's NATIVE `[[` wikilink suggester.
    *
-   * A variant of {@link ./SuggestCellEditor.svelte}: same inline-editor contract
-   * (`editor` + `onsave`/`onapply`/`oncancel`), same SVAR `Dropdown` +
-   * `use:clickOutside` wrapper (a mouse pick in the portal'd dropdown is exempted
-   * by lib-dom's nested-listener check, so it lands instead of being lost to the
-   * editor's clickOutside → commit). Registered via
-   * `registerInlineEditor(OG_TEXT_EDITOR_TYPE, …)` and opened for `text`-kind
-   * cells in place of the stock text input.
+   * Registered via `registerInlineEditor(OG_TEXT_EDITOR_TYPE, …)` and opened for
+   * plain `text`-kind cells AND single-value `suggest` cells (a TaskNotes user
+   * field carrying an autosuggest filter). SVAR mounts it with the stock
+   * inline-editor contract (`editor` + `onsave`/`onapply`/`oncancel`): the column
+   * getter seeds `editor.value` with the cell's RAW markdown (a stored `[[Note]]`
+   * seeds verbatim, aliases intact — never the resolved display form), and the
+   * view attaches a per-open vault fetcher as `editor.config.fetchSuggestions`
+   * (scoped by the field's filter for a suggest cell, unfiltered for plain text).
    *
-   * The difference from the suggest editor: the dropdown opens ONLY while the
-   * caret sits inside an open `[[…` token (the suggest editor queries the whole
-   * value). Each keystroke runs the pure token detector; a token feeds its query
-   * to the per-open vault fetcher and a pick splices `[[Note]]` into the bound
-   * `text` at the token bounds. This source is always reachable (the vault), so
-   * there is no degraded/loading state — only matches / no-matches.
+   * On mount it attaches a {@link WikilinkInputSuggest} over the rendered input:
+   * the primitive owns `[[`-token detection, the filtered fetch, native rendering,
+   * and the caret splice on pick. This component owns seeding, the commit, and the
+   * two arbitration seams against SVAR's editor wrapper:
    *
-   * Key arbitration:
-   * - Dropdown OPEN: ArrowUp/Down move the highlight; Enter picks the highlighted
-   *   suggestion (does not commit the cell); Escape closes the dropdown only —
-   *   all with `stopPropagation` so the grid never sees them.
-   * - Dropdown CLOSED: Enter commits the current text through the grid bridge;
-   *   Escape falls through to SVAR's grid cancel.
+   * - clickOutside: Obsidian renders the suggestion popover on `document.body`,
+   *   topologically OUTSIDE this editor, so the wrapper's `use:clickOutside`
+   *   would read a pick's click as an outside commit. A click landing in the
+   *   popover is exempted so the pick's `selectSuggestion` runs instead.
+   * - keys: while the popover is open Obsidian's suggest scope owns
+   *   Arrow/Enter/Escape (move/pick/close). The editor commits on Enter only
+   *   once the popover is closed, and never lets SVAR's wrapper cancel the edit
+   *   out from under an in-flight pick.
    *
    * Commit rides the existing text path (raw markdown, including any inserted
    * `[[Note]]`, persists verbatim; decorations re-render on the confirming pass).
    */
-  import { onMount, tick } from 'svelte';
+  import { getContext, onMount } from 'svelte';
   import { clickOutside } from '@svar-ui/lib-dom';
-  import { Dropdown } from '@svar-ui/svelte-core';
+  import type { App } from 'obsidian';
   import type { TextEditorConfig } from './cellEditCommit';
-  import { detectWikilinkToken, spliceWikilink } from './wikilinkToken';
-  import { wikilinkEntry, type TaskNotesSuggestion } from './taskNotesSuggest';
+  import { GRID_APP_CONTEXT_KEY } from './gridContext';
+  import { WikilinkInputSuggest } from './wikilinkInputSuggest';
 
   interface Props {
     editor: { value?: unknown; config?: Partial<TextEditorConfig> };
     onsave: (ignoreFocus?: boolean) => void;
     onapply: (value: unknown) => void;
-    // SVAR also passes `oncancel` (cancel the whole edit); this editor closes its
-    // dropdown independently and lets Escape fall through to the grid's own
-    // cancel hotkey, so it is intentionally not consumed here.
+    // SVAR also passes `oncancel` (cancel the whole edit); this editor lets
+    // Escape fall through to the grid's own cancel hotkey, so it is not consumed.
     oncancel?: () => void;
   }
   let { editor, onsave, onapply }: Props = $props();
@@ -49,161 +49,81 @@
   const config: Partial<TextEditorConfig> = editor?.config ?? {};
   const fetchSuggestions =
     typeof config.fetchSuggestions === 'function' ? config.fetchSuggestions : null;
+  const app = getContext<App | undefined>(GRID_APP_CONTEXT_KEY);
 
   const seeded = typeof editor?.value === 'string' ? editor.value : '';
   let text = $state(seeded);
-  let items = $state<TaskNotesSuggestion[]>([]);
-  let searched = $state(false);
-  let open = $state(false);
-  let active = $state(-1);
   let node: HTMLInputElement | undefined = $state();
-  let tokenBounds: { start: number; end: number } | null = null;
-  let fetchSeq = 0;
+
+  // Obsidian renders its suggestion popover as this element on document.body —
+  // undocumented popover DOM. Both arbitration seams key off its presence.
+  const SUGGESTION_POPOVER_SELECTOR = '.suggestion-container';
 
   onMount(() => {
     node?.focus();
     node?.select();
-    return () => {
-      // Orphan any in-flight fetch so a late resolve can't touch torn-down state.
-      fetchSeq += 1;
-    };
+    // Fire-and-forget: the suggester lives on the input's event listeners and is
+    // GC'd with the input when the editor closes (the TaskNotes pattern).
+    if (app && node && fetchSuggestions) {
+      new WikilinkInputSuggest(app, node, fetchSuggestions);
+    }
   });
 
-  function closeDropdown(): void {
-    open = false;
-    items = [];
-    searched = false;
-    active = -1;
-    tokenBounds = null;
-    // Orphan any in-flight fetch so a late resolve can't reopen the dropdown.
-    fetchSeq += 1;
+  function isSuggestPopoverOpen(): boolean {
+    return document.querySelector(SUGGESTION_POPOVER_SELECTOR) !== null;
   }
 
-  async function refreshFromCaret(): Promise<void> {
-    if (!fetchSuggestions) {
-      closeDropdown();
-      return;
-    }
-    const caret = node?.selectionStart ?? text.length;
-    const token = detectWikilinkToken(text, caret);
-    if (!token) {
-      closeDropdown();
-      return;
-    }
-    tokenBounds = { start: token.start, end: token.end };
-    const seq = ++fetchSeq;
-    const results = await fetchSuggestions(token.query);
-    if (seq !== fetchSeq) return;
-    items = results;
-    searched = true;
-    active = results.length > 0 ? 0 : -1;
-    open = true;
-  }
-
-  async function pick(item: TaskNotesSuggestion): Promise<void> {
-    if (!tokenBounds) return;
-    // The fetcher's `value` is already the fileToLinktext form, so the insert is
-    // `[[` + value + `]]` (wikilinkEntry) — spliced at the token bounds so the
-    // surrounding text is preserved.
-    const spliced = spliceWikilink(text, tokenBounds, wikilinkEntry(item.value));
-    text = spliced.value;
+  function handleInput(): void {
+    // The native suggester mutates the input value directly on a pick and
+    // dispatches `input`; read the live value so SVAR's editor mirror stays in
+    // sync (the value a Tab-to-next-cell commit saves from).
+    text = node?.value ?? text;
     onapply(text);
-    closeDropdown();
-    // Restore focus + caret after the input re-renders from the new `text`.
-    await tick();
-    node?.focus();
-    node?.setSelectionRange(spliced.caret, spliced.caret);
-  }
-
-  function moveActive(delta: number): void {
-    if (items.length === 0) return;
-    active = Math.min(items.length - 1, Math.max(0, active + delta));
   }
 
   function handleKeydown(ev: KeyboardEvent): void {
-    if (open) {
-      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-        moveActive(ev.key === 'ArrowDown' ? 1 : -1);
-        ev.preventDefault();
-        ev.stopPropagation();
-        return;
-      }
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const chosen = active >= 0 ? items[active] : undefined;
-        if (chosen) {
-          // Pick the highlighted suggestion; don't commit the cell.
-          void pick(chosen);
-        } else {
-          // No suggestion to pick (e.g. the token matched nothing) — commit the
-          // typed text so Enter isn't a dead end for keyboard users.
-          onapply(text);
-          onsave();
-        }
-        return;
-      }
-      if (ev.key === 'Escape') {
-        // Close the dropdown only — keep the edit open (don't let the grid cancel).
-        ev.stopPropagation();
-        closeDropdown();
-        return;
-      }
+    // Obsidian's suggest scope handles Arrow/Enter/Escape in the capture phase
+    // and marks them handled; once it has, keep SVAR's wrapper from acting on
+    // the same key (its Enter cancels the whole edit).
+    if (ev.defaultPrevented) {
+      ev.stopPropagation();
+      return;
+    }
+    // The popover owns navigation/pick/close while open: don't commit, and don't
+    // let Enter reach SVAR's cancel.
+    if (isSuggestPopoverOpen()) {
+      if (ev.key === 'Enter') ev.stopPropagation();
       return;
     }
     if (ev.key === 'Enter') {
-      // No dropdown: commit the current text like the stock text editor. onsave
-      // is the authoritative commit trigger; stop the event so the grid's own
-      // Enter handler doesn't also process it.
+      // No popover: commit the current text like the stock editor. stopPropagation
+      // so SVAR's wrapper Enter (which cancels) doesn't also fire.
       ev.stopPropagation();
       onapply(text);
       onsave();
     }
-    // Escape (no dropdown) falls through to SVAR's grid cancel.
+    // Escape with no popover falls through to SVAR's grid cancel.
   }
 
-  function handleInput(): void {
-    // Mirror the typed text into SVAR's editor value on every keystroke (the
-    // stock text editor binds straight to the store). Without this, a commit
-    // path SVAR drives itself — Tab to the next cell — would save the stale seed.
-    onapply(text);
-    void refreshFromCaret();
-  }
-
-  function commitFromOutsideClick(): void {
-    // A genuine click elsewhere commits the current text (Enter is not required),
-    // matching grid convention. Unlike the suggest editor — whose pick commits
-    // immediately — a pick here only splices into `text`, so committing on blur
-    // is what keeps an inserted `[[Note]]` (or any typed text) from being lost.
+  function commitFromOutsideClick(event?: MouseEvent): void {
+    // A pick's click lands in the popover, which is topologically outside this
+    // editor — the wrapper's clickOutside would otherwise commit before the
+    // pick's selectSuggestion runs. Treat a click inside the popover as inside
+    // the editor (no commit); a genuine elsewhere click commits the current text.
+    if (
+      event?.target instanceof HTMLElement &&
+      event.target.closest(SUGGESTION_POPOVER_SELECTOR)
+    ) {
+      return;
+    }
     onapply(text);
     onsave(true);
   }
-
-  // Caret moves that fire no `input` (arrows, Home/End, a click inside the cell)
-  // must re-sync the token state — otherwise the dropdown stays open after the
-  // caret leaves the `[[…` span and Enter would force-pick instead of commit.
-  const CARET_KEYS = new Set([
-    'ArrowLeft',
-    'ArrowRight',
-    'Home',
-    'End',
-    'PageUp',
-    'PageDown',
-  ]);
-
-  function handleKeyup(ev: KeyboardEvent): void {
-    if (CARET_KEYS.has(ev.key)) void refreshFromCaret();
-  }
-
-  function handleClick(): void {
-    void refreshFromCaret();
-  }
 </script>
 
-<!-- clickOutside on the WRAPPER, like SuggestCellEditor/DateCellEditor: clicks in
-     the input stay inside, clicks in the portal'd dropdown are exempted by
-     lib-dom's nested-listener check (so a mouse pick lands), and a
-     genuinely-elsewhere click commits the current text before closing. -->
+<!-- clickOutside on the WRAPPER: clicks in the input stay inside, a click in the
+     native popover is exempted by commitFromOutsideClick (so a mouse pick lands),
+     and a genuinely-elsewhere click commits the current text before closing. -->
 <div class="og-text-editor" use:clickOutside={commitFromOutsideClick}>
   <input
     bind:this={node}
@@ -211,37 +131,8 @@
     class="wx-text"
     spellcheck="false"
     onkeydown={handleKeydown}
-    onkeyup={handleKeyup}
-    onclick={handleClick}
     oninput={handleInput}
   />
-  {#if open}
-    <!-- oncancel closes the dropdown (scroll / click outside the popup) without
-         cancelling the edit — a genuine outside click still commits via the
-         wrapper's clickOutside above. -->
-    <Dropdown trackScroll={true} width="auto" oncancel={closeDropdown}>
-      <div class="og-suggest-panel">
-        {#if items.length === 0}
-          {#if searched}
-            <div class="og-suggest-hint og-suggest-empty">No matching notes.</div>
-          {/if}
-        {:else}
-          {#each items as item, index (item.value)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              class="og-suggest-item"
-              class:og-suggest-active={index === active}
-              onclick={() => pick(item)}
-              onmousemove={() => (active = index)}
-            >
-              {item.display}
-            </div>
-          {/each}
-        {/if}
-      </div>
-    </Dropdown>
-  {/if}
 </div>
 
 <style>
@@ -258,28 +149,5 @@
     font: inherit;
     background: var(--wx-background);
     color: var(--wx-color-font);
-  }
-  /* The Dropdown portals the panel out of this subtree, so no descendant
-     selectors off .og-text-editor — these nodes are authored here, and Svelte's
-     attribute scoping travels with them into the portal. */
-  .og-suggest-panel {
-    max-height: 250px;
-    min-width: 180px;
-    overflow-y: auto;
-  }
-  .og-suggest-item {
-    padding: var(--wx-input-padding, 6px 8px);
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .og-suggest-item.og-suggest-active {
-    background: var(--wx-background-hover);
-  }
-  .og-suggest-hint {
-    padding: var(--wx-input-padding, 6px 8px);
-    color: var(--wx-color-font-alt, var(--wx-color-font));
-    font-style: italic;
   }
 </style>

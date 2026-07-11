@@ -678,8 +678,17 @@ describe('svarEditorConfigFor', () => {
     ).toBeNull();
   });
 
-  it('maps suggest to the registered custom editor, carrying the suggest channel', () => {
-    const suggest = { columnId: 'note.owner', autosuggestFilter: { requiredTags: ['person'] }, isList: false };
+  it('maps a single-value suggest to the native text editor carrying the field filter', () => {
+    const autosuggestFilter = { requiredTags: ['person'] };
+    const suggest = { columnId: 'note.owner', autosuggestFilter, isList: false };
+    expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US', suggest })).toEqual({
+      type: OG_TEXT_EDITOR_TYPE,
+      config: { autosuggestFilter },
+    });
+  });
+
+  it('keeps a list-shaped suggest on the append editor, carrying the suggest channel', () => {
+    const suggest = { columnId: 'note.workstream', autosuggestFilter: { requiredTags: ['ws'] }, isList: true };
     expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US', suggest })).toEqual({
       type: 'og-suggest',
       config: suggest,
