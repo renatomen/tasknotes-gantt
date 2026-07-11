@@ -22,14 +22,14 @@ import { wikilinkEntry, type SuggestionFetcher, type TaskNotesSuggestion } from 
 
 export class WikilinkInputSuggest extends AbstractInputSuggest<TaskNotesSuggestion> {
   private readonly inputEl: HTMLInputElement;
-  private readonly fetch: SuggestionFetcher;
+  private readonly fetcher: SuggestionFetcher;
   /** Value bounds the last-detected token occupies, cleared once a pick splices over them. */
   private tokenBounds: { start: number; end: number } | null = null;
 
-  constructor(app: App, inputEl: HTMLInputElement, fetch: SuggestionFetcher) {
+  constructor(app: App, inputEl: HTMLInputElement, fetcher: SuggestionFetcher) {
     super(app, inputEl);
     this.inputEl = inputEl;
-    this.fetch = fetch;
+    this.fetcher = fetcher;
     const reopen = (): void => this.reopenWhenTokenOpen();
     inputEl.addEventListener('focus', reopen);
     inputEl.addEventListener('click', reopen);
@@ -42,7 +42,7 @@ export class WikilinkInputSuggest extends AbstractInputSuggest<TaskNotesSuggesti
       return [];
     }
     this.tokenBounds = { start: token.start, end: token.end };
-    return this.fetch(token.query);
+    return this.fetcher(token.query);
   }
 
   renderSuggestion(item: TaskNotesSuggestion, el: HTMLElement): void {
