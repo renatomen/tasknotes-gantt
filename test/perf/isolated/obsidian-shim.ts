@@ -39,6 +39,31 @@ export function prepareFuzzySearch(_query: string): (text: string) => any {
   return (_text: string) => null;
 }
 
+// `wikilinkInputSuggest.ts` (reached through GanttContainer once the cell
+// editors host it) extends this and calls `renderResults` at module scope.
+// The suggester only wakes on real focus/keystroke events, never on a
+// read-only render, so a constructible stub with no-op methods is enough.
+export class AbstractInputSuggest<T> {
+  app: any;
+  limit = 100;
+  constructor(app?: any, _inputEl?: any) {
+    this.app = app;
+  }
+  setValue(_value: string): void {}
+  getValue(): string {
+    return '';
+  }
+  open(): void {}
+  close(): void {}
+  renderSuggestion(_value: T, _el: any): void {}
+  selectSuggestion(_value: T, _evt?: any): void {}
+  onSelect(_cb: (value: T, evt: any) => any): this {
+    return this;
+  }
+}
+
+export function renderResults(_el: any, _text: string, _result: any, _offset?: number): void {}
+
 export class App {}
 
 /**
