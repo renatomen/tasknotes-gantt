@@ -34,10 +34,11 @@ import { fileURLToPath } from "node:url";
  *     gate (frontmatter unchanged);
  *   - the mapped status cell opens a richselect picker listing ONLY TaskNotes'
  *     configured statuses, and a pick persists the configured value string;
- *   - a list-shaped user field with an autosuggestFilter opens the custom
- *     suggest editor; against TaskNotes 4.11.0 (no reachable FileSuggestHelper)
- *     it renders the DEGRADED free-text state, and an Enter commit APPENDS the
- *     entry to the raw stored list via the direct (bridge-bypassing) path;
+ *   - a list-shaped user field edits as CHIPS: existing links seed as chips from
+ *     the raw stored list, a plain add + a filter-scoped native `[[` pick each
+ *     push a chip, a remove drops one, and an outside click commits the WHOLE raw
+ *     list once via the direct (bridge-bypassing) path — untouched entries kept
+ *     byte-identical (never the display-form round-trip);
  *   - a text-field cell opens the native `[[` suggester: typing `[[Q3` surfaces
  *     VAULT-sourced note suggestions in Obsidian's own popover (the fixture's Q3
  *     notes), and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving
@@ -57,9 +58,9 @@ import { fileURLToPath } from "node:url";
  *  - an OPEN inline editor is `.wx-cell.wx-editor` with an `input.wx-text`
  *    (text editor); Enter commits (grid `update-cell` → gantt `update-task`);
  *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`;
- *  - the text editor's `[[` suggestions are Obsidian's NATIVE popover, rendered
- *    on document.body as `.suggestion-container .suggestion-item` (queried
- *    document-wide); the list-append editor keeps its own `.og-suggest-*` panel.
+ *  - the `[[` suggestions (text editor AND chips add-input) are Obsidian's NATIVE
+ *    popover, rendered on document.body as `.suggestion-container .suggestion-item`
+ *    (queried document-wide); chips render as `.og-chip` with an `.og-chip-label`.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -273,9 +274,26 @@ async function readConfiguredStatuses(): Promise<Array<{ value: string; label: s
   });
 }
 
-/** Whether the open suggest editor shows its degraded (free-text) hint. */
-async function readSuggestDegradedHint(): Promise<boolean> {
-  return browser.execute(() => !!document.querySelector(".og-suggest-degraded"));
+/** The labels of the chips rendered in the open chips list editor. */
+async function readChipLabels(): Promise<string[]> {
+  return browser.execute(() =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>(".og-bases-gantt .wx-editor .og-chip-label"),
+    ).map((el) => (el.textContent ?? "").trim()),
+  );
+}
+
+/** Click the remove control of the chip whose label matches, returning success. */
+async function removeChipByLabel(label: string): Promise<boolean> {
+  return browser.execute((wanted) => {
+    const chip = Array.from(
+      document.querySelectorAll<HTMLElement>(".og-bases-gantt .wx-editor .og-chip"),
+    ).find((el) => (el.querySelector(".og-chip-label")?.textContent ?? "").trim() === wanted);
+    const button = chip?.querySelector<HTMLElement>(".og-chip-remove");
+    if (!button) return false;
+    button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    return true;
+  }, label);
 }
 
 /**
@@ -744,38 +762,101 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
-  it("renders the degraded suggest state (no reachable TaskNotes suggester) and appends a free-text entry to the list via the direct path", async () => {
+  it("edits a list field as chips (seed, add, remove) preserving existing raw entries and committing the whole list", async () => {
+    expect(await frontmatterValue(TASK_ROW, "workstream")).toEqual(["[[WS Alpha]]"]);
+
+    // Open — the existing [[WS Alpha]] entry seeds as a chip showing its basename.
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("WS Alpha"), {
+      timeout: 10000,
+      timeoutMsg: "Existing workstream link did not seed as a chip",
+    });
+
+    // Type a plain entry + Enter to push a chip (Enter does NOT commit the session).
+    expect(await typeEditorToken("Manual entry", "Manual entry".length)).toBe(true);
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => (await readChipLabels()).includes("Manual entry"), {
+      timeout: 5000,
+      timeoutMsg: "Enter did not push the typed text as a chip",
+    });
+
+    // Outside click commits the WHOLE list once — the existing wikilink is kept
+    // byte-identically (never the display-form round-trip).
+    await clickOutsideEditor();
+    await browser.waitUntil(
+      async () =>
+        JSON.stringify(await frontmatterValue(TASK_ROW, "workstream")) ===
+        JSON.stringify(["[[WS Alpha]]", "Manual entry"]),
+      { timeout: 15000, timeoutMsg: "workstream not committed as a whole list" },
+    );
+
+    // Re-open and remove the added chip — the commit drops it, keeping the link.
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("Manual entry"), {
+      timeout: 10000,
+      timeoutMsg: "Chips editor did not reseed the added chip",
+    });
+    expect(await removeChipByLabel("Manual entry")).toBe(true);
+    await clickOutsideEditor();
+    let ws: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        ws = await frontmatterValue(TASK_ROW, "workstream");
+        return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]"]);
+      },
+      { timeout: 15000, timeoutMsg: () => `remove did not restore the kept link; saw: ${JSON.stringify(ws)}` },
+    );
+  });
+
+  it("adds a chip from the native `[[` suggester scoped by the field filter", async () => {
     expect(await frontmatterValue(TASK_ROW, "workstream")).toEqual(["[[WS Alpha]]"]);
 
     expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
-    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+    await browser.waitUntil(async () => (await readChipLabels()).includes("WS Alpha"), {
       timeout: 10000,
-      timeoutMsg: "Suggest editor did not open on the managed workstream cell",
+      timeoutMsg: "Chips editor did not open on the workstream cell",
     });
 
-    // TaskNotes 4.11.0 exposes no reachable FileSuggestHelper, so the editor
-    // must show its degraded hint (and behave as free text) rather than a
-    // silent, empty dropdown.
-    await browser.waitUntil(async () => readSuggestDegradedHint(), {
+    // Type a `[[` token into the add-input; the filter-scoped native popover offers WS notes.
+    expect(await typeEditorToken("[[WS", 4)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).some((s) => s.includes("WS Beta")), {
       timeout: 10000,
-      timeoutMsg: "Suggest editor did not render the degraded (free-text) hint",
+      timeoutMsg: "Native `[[` suggester did not surface the filtered WS notes",
     });
 
-    expect(await commitEditorValue("Manual entry")).toBe(true);
+    // Pick WS Beta — it pushes a `[[WS Beta]]` chip (the suggester's onPickEntry path).
+    expect(await pickSuggestItem("WS Beta")).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("WS Beta"), {
+      timeout: 5000,
+      timeoutMsg: "Picking a suggestion did not push a chip",
+    });
 
-    // The direct commit APPENDS to the raw stored list, preserving the
-    // existing wikilink entry verbatim (never the display-form round-trip).
-    let lastWorkstream: unknown = "<unread>";
+    await clickOutsideEditor();
+    let ws: unknown = "<unread>";
     await browser.waitUntil(
       async () => {
-        lastWorkstream = await frontmatterValue(TASK_ROW, "workstream");
-        return JSON.stringify(lastWorkstream) === JSON.stringify(["[[WS Alpha]]", "Manual entry"]);
+        ws = await frontmatterValue(TASK_ROW, "workstream");
+        return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]", "[[WS Beta]]"]);
       },
       {
         timeout: 15000,
-        timeoutMsg: () =>
-          `frontmatter workstream not appended; saw: ${JSON.stringify(lastWorkstream)}`,
+        timeoutMsg: () => `picked wikilink not committed as a chip; saw: ${JSON.stringify(ws)}`,
       },
+    );
+
+    // Restore: re-open and remove WS Beta so the suite stays at ["[[WS Alpha]]"].
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("WS Beta"), {
+      timeout: 10000,
+      timeoutMsg: "Chips editor did not reseed for cleanup",
+    });
+    expect(await removeChipByLabel("WS Beta")).toBe(true);
+    await clickOutsideEditor();
+    await browser.waitUntil(
+      async () =>
+        JSON.stringify(await frontmatterValue(TASK_ROW, "workstream")) ===
+        JSON.stringify(["[[WS Alpha]]"]),
+      { timeout: 15000, timeoutMsg: "cleanup did not restore ['[[WS Alpha]]']" },
     );
   });
 

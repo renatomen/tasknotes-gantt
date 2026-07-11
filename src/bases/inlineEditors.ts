@@ -13,10 +13,10 @@
  */
 
 import { registerInlineEditor } from '@svar-ui/svelte-grid';
+import ChipsListEditor from './ChipsListEditor.svelte';
 import DateCellEditor from './DateCellEditor.svelte';
-import SuggestCellEditor from './SuggestCellEditor.svelte';
 import TextCellEditor from './TextCellEditor.svelte';
-import { OG_DATE_EDITOR_TYPE, OG_SUGGEST_EDITOR_TYPE, OG_TEXT_EDITOR_TYPE } from './cellEditCommit';
+import { OG_CHIPS_EDITOR_TYPE, OG_DATE_EDITOR_TYPE, OG_TEXT_EDITOR_TYPE } from './cellEditCommit';
 
 let registered = false;
 
@@ -34,9 +34,9 @@ export function ensureInlineEditorsRegistered(): void {
   if (registered) return;
   registered = true;
   registerInlineEditor(OG_DATE_EDITOR_TYPE, DateCellEditor as unknown as SvarInlineEditorComponent);
-  registerInlineEditor(
-    OG_SUGGEST_EDITOR_TYPE,
-    SuggestCellEditor as unknown as SvarInlineEditorComponent,
-  );
   registerInlineEditor(OG_TEXT_EDITOR_TYPE, TextCellEditor as unknown as SvarInlineEditorComponent);
+  registerInlineEditor(
+    OG_CHIPS_EDITOR_TYPE,
+    ChipsListEditor as unknown as SvarInlineEditorComponent,
+  );
 }
