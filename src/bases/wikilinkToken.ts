@@ -36,6 +36,10 @@ export interface SplicedWikilink {
  */
 export function detectWikilinkToken(value: string, caret: number): WikilinkToken | null {
   const bounded = Math.max(0, Math.min(caret, value.length));
+  // Guard the `lastIndexOf` fromIndex: a negative value is clamped to 0 by the
+  // spec (not treated as "no match"), which would falsely find an `[[` at the
+  // very start when the caret is still inside or left of it.
+  if (bounded < OPEN.length) return null;
   const start = value.lastIndexOf(OPEN, bounded - OPEN.length);
   if (start === -1) return null;
   const closeIdx = value.indexOf(CLOSE, start + OPEN.length);
@@ -52,6 +56,8 @@ export function spliceWikilink(
   token: { start: number; end: number },
   insert: string,
 ): SplicedWikilink {
-  const next = value.slice(0, token.start) + insert + value.slice(token.end);
-  return { value: next, caret: token.start + insert.length };
+  const start = Math.max(0, Math.min(token.start, value.length));
+  const end = Math.max(start, Math.min(token.end, value.length));
+  const next = value.slice(0, start) + insert + value.slice(end);
+  return { value: next, caret: start + insert.length };
 }

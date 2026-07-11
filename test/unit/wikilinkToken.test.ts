@@ -42,6 +42,16 @@ describe('detectWikilinkToken', () => {
     // caret sits before the closing ]] of '[[Q3]]'
     expect(detectWikilinkToken('[[Q3]] foo', 4)).toEqual({ query: 'Q3', start: 0, end: 4 });
   });
+
+  it('returns null at caret 0 even when the value starts with [[', () => {
+    // The caret is left of the whole `[[`; no token has been typed before it.
+    expect(detectWikilinkToken('[[ProjectX]]', 0)).toBeNull();
+  });
+
+  it('returns null at caret 1 (between the two opening brackets)', () => {
+    // Only one `[` is to the left of the caret — not a complete `[[` token.
+    expect(detectWikilinkToken('[[ProjectX]]', 1)).toBeNull();
+  });
 });
 
 describe('spliceWikilink', () => {
