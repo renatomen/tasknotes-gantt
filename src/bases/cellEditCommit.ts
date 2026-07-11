@@ -18,9 +18,9 @@
  * system's configured value set, committing the value STRING), and `suggest`
  * (single-value fields host the native `[[` suggester under
  * {@link OG_TEXT_EDITOR_TYPE} and commit with text semantics through the
- * bridge; LIST-shaped fields keep the {@link OG_SUGGEST_EDITOR_TYPE} append
- * editor and bypass the bridge entirely via a direct-commit callback, because
- * the bridge's display-form diffing cannot represent wikilink lists).
+ * bridge; LIST-shaped fields edit as chips under {@link OG_CHIPS_EDITOR_TYPE}
+ * and bypass the bridge entirely via a direct whole-list commit, because the
+ * bridge's display-form diffing cannot represent wikilink lists).
  *
  * No Obsidian/SVAR dependencies. Mirrors {@link ./cascadeGate}.
  *
@@ -58,19 +58,20 @@ const SHIPPED_KINDS: ReadonlySet<CellEditorKind> = new Set([
 export const OG_DATE_EDITOR_TYPE = 'og-date';
 
 /**
- * The inline-editor type the list-append autosuggest editor registers under.
- * Reached only by list-shaped suggest fields; single-value suggest and plain
- * text host the native suggester under {@link OG_TEXT_EDITOR_TYPE}.
- */
-export const OG_SUGGEST_EDITOR_TYPE = 'og-suggest';
-
-/**
  * The inline-editor type the native `[[` suggester editor registers under.
  * Replaces the stock `'text'` input for `text`-kind AND single-value `suggest`
- * cells (the latter carrying the field's autosuggest filter); `number`/`list`
- * keep the bare stock text editor.
+ * cells (the latter carrying the field's autosuggest filter); `number` keeps the
+ * bare stock text editor and `list` routes to {@link OG_CHIPS_EDITOR_TYPE}.
  */
 export const OG_TEXT_EDITOR_TYPE = 'og-text';
+
+/**
+ * The inline-editor type the chips list editor registers under. Reached by every
+ * list-shaped field — `list`-kind (unfiltered) and list-shaped `suggest` (with
+ * the field's autosuggest filter). Items render as removable chips seeded from
+ * the RAW frontmatter list; the whole list commits once through the direct path.
+ */
+export const OG_CHIPS_EDITOR_TYPE = 'og-chips';
 
 /** Narrow a resolved editor kind to a shipped one, or `null` when there is none. */
 export function shippedEditorKind(kind: CellEditorKind): ShippedEditorKind | null {
@@ -140,20 +141,9 @@ export interface SuggestEditorChannel {
   columnId: string;
   /** TaskNotes `FileFilterConfig` scoping the suggestions; opaque here. */
   autosuggestFilter: unknown;
-  /** List-shaped field: commits append via {@link SuggestEditorConfig.commitListEntry}. */
+  /** List-shaped field: edits as chips under {@link OG_CHIPS_EDITOR_TYPE} (a
+   * single-value suggest hosts the native `[[` suggester like plain text). */
   isList: boolean;
-}
-
-/**
- * What the suggest editor reads from `editor.config`: the pure channel plus the
- * view-wired callbacks. `fetchSuggestions` absent = TaskNotes' file-suggest
- * capability is unreachable — the editor renders its degraded state (hint +
- * free text). `commitListEntry` is wired only for list-shaped columns and owns
- * persistence for them (the direct path).
- */
-export interface SuggestEditorConfig extends SuggestEditorChannel {
-  fetchSuggestions?: (query: string) => Promise<Array<{ value: string; display: string }>>;
-  commitListEntry?: (entry: string) => void;
 }
 
 /**
@@ -171,13 +161,32 @@ export interface TextEditorConfig {
   autosuggestFilter?: unknown;
 }
 
+/**
+ * What the chips list editor reads from `editor.config`. The base config carries
+ * only `autosuggestFilter` (the view builds the add-input's fetcher from it per
+ * open, like the text editor); the view attaches `seed` (the RAW stored list) and
+ * `commitList` (the single whole-list direct-path write) at editor-open. Absent
+ * `commitList` = read-only fallback (the gate should have blocked the open).
+ */
+export interface ChipsEditorConfig {
+  fetchSuggestions?: (
+    query: string,
+  ) => Promise<Array<{ value: string; display: string; path?: string }>>;
+  /** TaskNotes `FileFilterConfig` scoping the add-input's fetcher; opaque here. */
+  autosuggestFilter?: unknown;
+  /** The note's RAW stored list, seeded per open (verbatim entries → chips). */
+  seed?: string[];
+  /** Persist the whole edited raw list once (the direct path, never the bridge). */
+  commitList?: (raw: string[]) => void;
+}
+
 /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
 export type SvarEditorConfig =
   | string
   | { type: string; config: { options: ChoiceEditorOption[] } }
   | { type: string; config: { locale: string } }
-  | { type: string; config: SuggestEditorConfig }
-  | { type: string; config: TextEditorConfig };
+  | { type: string; config: TextEditorConfig }
+  | { type: string; config: ChipsEditorConfig };
 
 /** The context the per-kind editor configs are built from. */
 export interface EditorConfigContext {
@@ -216,11 +225,14 @@ export function svarEditorConfigFor(
   }
   if (kind === 'suggest') {
     if (!context.suggest) return null;
-    // A list-shaped suggest keeps the append editor (chips arrive later); a
-    // single-value suggest hosts the native `[[` suggester like plain text,
-    // carrying its filter so the view wires a scoped fetcher.
+    // A list-shaped suggest edits as chips (carrying its filter so the view wires
+    // a scoped add-input fetcher); a single-value suggest hosts the native `[[`
+    // suggester like plain text, carrying its filter the same way.
     if (context.suggest.isList) {
-      return { type: OG_SUGGEST_EDITOR_TYPE, config: { ...context.suggest } };
+      return {
+        type: OG_CHIPS_EDITOR_TYPE,
+        config: { autosuggestFilter: context.suggest.autosuggestFilter },
+      };
     }
     return {
       type: OG_TEXT_EDITOR_TYPE,
@@ -231,7 +243,12 @@ export function svarEditorConfigFor(
     // The view attaches an unfiltered vault `[[` fetcher per open (withTextEditorWiring).
     return { type: OG_TEXT_EDITOR_TYPE, config: {} };
   }
-  // `number` and `list` share the stock text input (they cast on commit).
+  if (kind === 'list') {
+    // An unfiltered list edits as chips; the view attaches the seed, an unfiltered
+    // add-input fetcher, and the whole-list direct commit per open.
+    return { type: OG_CHIPS_EDITOR_TYPE, config: {} };
+  }
+  // `number` keeps the stock text input (it casts on commit).
   return 'text';
 }
 

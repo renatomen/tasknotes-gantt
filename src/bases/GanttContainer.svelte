@@ -63,7 +63,7 @@
     dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedFor,
-    OG_SUGGEST_EDITOR_TYPE,
+    OG_CHIPS_EDITOR_TYPE,
     OG_TEXT_EDITOR_TYPE,
     resolveCellEditCommit,
     rowEditorConfig,
@@ -72,12 +72,12 @@
     suggestColumns,
     violatesDateOrder,
     withAlignedFlatKeys,
-    type SuggestEditorConfig,
+    type ChipsEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
     type TextEditorConfig,
   } from './cellEditCommit';
-  import { appendListEntry, resolveSuggestionFetcher } from './taskNotesSuggest';
+  import { normalizeStoredList } from './taskNotesSuggest';
   import { createVaultWikilinkFetcher } from './vaultWikilinkSuggest';
   import type { FileFilterConfig } from './fileFilter';
   import { bareProperty } from '../datasource/dateFieldMapping';
@@ -1378,7 +1378,7 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return withTextEditorWiring(withSuggestWiring(config, row), row);
+    return withChipsWiring(withTextEditorWiring(config, row), row, columnId);
   }
 
   /**
@@ -1404,30 +1404,30 @@
   }
 
   /**
-   * Attach the per-open view callbacks to a suggest editor config: the
-   * TaskNotes suggestion fetcher (re-probed per open — absent means the editor
-   * renders its degraded free-text state) and, for a list-shaped column, the
-   * direct commit closure over this row (list commits never ride the bridge).
+   * Attach the per-open view callbacks to a chips list editor config: the
+   * add-input's `[[` fetcher (scoped by the field filter when present), the RAW
+   * stored list to seed chips from (verbatim entries — the grid's TypedValues
+   * carry only display forms), and the whole-list direct commit closure over
+   * this row. List commits never ride the bridge.
    */
-  function withSuggestWiring(
+  function withChipsWiring(
     config: SvarEditorConfig,
     row: SvarRowLike | undefined,
+    columnId: string,
   ): SvarEditorConfig {
-    if (typeof config === 'string' || config.type !== OG_SUGGEST_EDITOR_TYPE) return config;
-    const channel = config.config as SuggestEditorConfig;
+    if (typeof config === 'string' || config.type !== OG_CHIPS_EDITOR_TYPE) return config;
     const rowId = row?.id != null ? String(row.id) : null;
-    const fetcher = resolveSuggestionFetcher(app, channel.autosuggestFilter);
+    if (!rowId) return config;
+    const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
+    const filter = (config.config as ChipsEditorConfig).autosuggestFilter as
+      | FileFilterConfig
+      | undefined;
     return {
-      type: OG_SUGGEST_EDITOR_TYPE,
+      type: OG_CHIPS_EDITOR_TYPE,
       config: {
-        ...channel,
-        ...(fetcher ? { fetchSuggestions: fetcher } : {}),
-        ...(channel.isList && rowId
-          ? {
-              commitListEntry: (entry: string) =>
-                handleSuggestListCommit(rowId, channel.columnId, entry),
-            }
-          : {}),
+        fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter),
+        seed: normalizeStoredList(rawStoredValueOf(rowId, columnId)),
+        commitList: (raw: string[]) => handleChipsCommit(rowId, columnId, raw),
       },
     };
   }
@@ -2071,11 +2071,17 @@
    * time because the grid's TypedValues carry only display forms — rebuilding
    * the list from them would strip the existing entries' wikilink brackets.
    */
-  function handleSuggestListCommit(instanceId: string, columnId: string, entry: string): void {
+  /**
+   * Direct commit for a chips list column: persist the whole edited RAW list once
+   * (compared against the current raw frontmatter so an unchanged session writes
+   * nothing). Reads the raw value at commit time because the grid's TypedValues
+   * carry only display forms — rebuilding from them would strip wikilink brackets.
+   */
+  function handleChipsCommit(instanceId: string, columnId: string, raw: string[]): void {
     if (pendingCellEdits.has(instanceId)) return;
-    const next = appendListEntry(rawStoredValueOf(instanceId, columnId), entry);
-    if (!next) return;
-    applyAndPersistCellEdit(instanceId, columnId, next, { refreshRow: true });
+    const current = normalizeStoredList(rawStoredValueOf(instanceId, columnId));
+    if (current.length === raw.length && current.every((v, i) => v === raw[i])) return;
+    applyAndPersistCellEdit(instanceId, columnId, raw, { refreshRow: true });
   }
 
   /** The RAW frontmatter value behind a row's note property (entries verbatim). */

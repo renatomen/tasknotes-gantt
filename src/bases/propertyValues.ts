@@ -91,7 +91,7 @@ function basename(path: string): string {
  * (→ basename). A `.md` string here is a resolved FileValue path
  * (`convertValueToNative`) or a frontmatter path; wikilinks are handled above.
  */
-function linkDisplay(s: string): string | null {
+export function linkDisplay(s: string): string | null {
   const wiki = WIKILINK_RE.exec(s);
   if (wiki) {
     const inner = wiki[1] ?? '';

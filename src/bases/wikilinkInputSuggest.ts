@@ -23,13 +23,21 @@ import { wikilinkEntry, type SuggestionFetcher, type TaskNotesSuggestion } from 
 export class WikilinkInputSuggest extends AbstractInputSuggest<TaskNotesSuggestion> {
   private readonly inputEl: HTMLInputElement;
   private readonly fetcher: SuggestionFetcher;
+  /** When set, a pick hands the raw `[[Note]]` here instead of splicing the input. */
+  private readonly onPickEntry?: (rawEntry: string) => void;
   /** Value bounds the last-detected token occupies, cleared once a pick splices over them. */
   private tokenBounds: { start: number; end: number } | null = null;
 
-  constructor(app: App, inputEl: HTMLInputElement, fetcher: SuggestionFetcher) {
+  constructor(
+    app: App,
+    inputEl: HTMLInputElement,
+    fetcher: SuggestionFetcher,
+    onPickEntry?: (rawEntry: string) => void,
+  ) {
     super(app, inputEl);
     this.inputEl = inputEl;
     this.fetcher = fetcher;
+    this.onPickEntry = onPickEntry;
     const reopen = (): void => this.reopenWhenTokenOpen();
     inputEl.addEventListener('focus', reopen);
     inputEl.addEventListener('click', reopen);
@@ -56,7 +64,16 @@ export class WikilinkInputSuggest extends AbstractInputSuggest<TaskNotesSuggesti
   selectSuggestion(item: TaskNotesSuggestion): void {
     const bounds = this.tokenBounds;
     if (!bounds) return;
-    const spliced = spliceWikilink(this.inputEl.value, bounds, wikilinkEntry(item.value));
+    const rawEntry = wikilinkEntry(item.value);
+    if (this.onPickEntry) {
+      // Chips host: the pick becomes a chip; the host clears the add-input. The
+      // token is not spliced back into the input.
+      this.tokenBounds = null;
+      this.onPickEntry(rawEntry);
+      this.inputEl.focus();
+      return;
+    }
+    const spliced = spliceWikilink(this.inputEl.value, bounds, rawEntry);
     this.inputEl.value = spliced.value;
     this.inputEl.setSelectionRange(spliced.caret, spliced.caret);
     // Bubbling `input` keeps a host editor's bound value in sync; the base
