@@ -18,7 +18,7 @@
  * @module bases/taskNotesSuggest
  */
 
-import type { App } from 'obsidian';
+import type { App, SearchResult } from 'obsidian';
 
 /** One suggestion served to the editor: the link text to store + display form. */
 export interface TaskNotesSuggestion {
@@ -28,6 +28,8 @@ export interface TaskNotesSuggestion {
   display: string;
   /** Vault path of the suggested note, when the helper carried one. */
   path?: string;
+  /** Fuzzy-match spans over the display text, for native `renderResults` highlighting. */
+  match?: SearchResult;
 }
 
 /** Async suggestion source the editor debounces over. */

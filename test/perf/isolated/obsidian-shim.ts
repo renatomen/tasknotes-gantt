@@ -24,6 +24,21 @@ export class Notice {
 
 export function setIcon(_parent: any, _iconId: string): void {}
 
+// `vaultWikilinkSuggest.ts` (reached through GanttContainer) imports these at
+// module scope. They fire only while a `[[` token is open — never on a
+// read-only render — so inert stubs keep the module graph loading.
+export function getAllTags(_cache: any): string[] | null {
+  return null;
+}
+
+export function parseFrontMatterAliases(_frontmatter: any): string[] | null {
+  return null;
+}
+
+export function prepareFuzzySearch(_query: string): (text: string) => any {
+  return (_text: string) => null;
+}
+
 export class App {}
 
 /**

@@ -1,10 +1,11 @@
 /**
  * vaultWikilinkSuggest unit tests — vault-sourced `[[` suggestion fetcher.
  *
- * Enumerates the vault's markdown files, filters by the query (case-insensitive
- * over basename/path), caps the result, and maps each file to the shared
- * SuggestionFetcher item shape with the `fileToLinktext` insert form. Injected
- * with a fake vault + metadataCache so it is pure and offline.
+ * Enumerates the vault's markdown files, scopes them by an optional
+ * `FileFilterConfig`, fuzzy-ranks the survivors over basename + title + aliases,
+ * caps the result, and maps each file to the shared SuggestionFetcher item shape
+ * (with the `fileToLinktext` insert form and the winning SearchResult attached).
+ * Injected with a fake vault + metadataCache so it is pure and offline.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -23,7 +24,8 @@ function fakeFile(path: string): TFile {
 /**
  * A fake App exposing only the vault + metadataCache slices the fetcher reads.
  * `fileToLinktext` returns the basename wrapped in a marker so tests can assert
- * the insert value is the linktext form, not the raw path.
+ * the insert value is the linktext form, not the raw path. `getFileCache` is
+ * deliberately absent — the fetcher must tolerate a note with no cache.
  */
 function makeApp(paths: string[]): App {
   const files = paths.map(fakeFile);
@@ -37,6 +39,36 @@ function makeApp(paths: string[]): App {
   } as unknown as App;
 }
 
+interface FileSpec {
+  path: string;
+  aliases?: string[];
+  title?: string;
+  tags?: string[];
+}
+
+/** A fake App whose `getFileCache` returns frontmatter (aliases/title/tags) per note. */
+function makeRichApp(specs: FileSpec[]): App {
+  const byPath = new Map(specs.map((spec) => [spec.path, spec]));
+  const files = specs.map((spec) => fakeFile(spec.path));
+  return {
+    vault: {
+      getMarkdownFiles: () => files,
+    },
+    metadataCache: {
+      fileToLinktext: (file: TFile) => `LINK:${file.basename}`,
+      getFileCache: (file: TFile) => {
+        const spec = byPath.get(file.path);
+        if (!spec) return null;
+        const frontmatter: Record<string, unknown> = {};
+        if (spec.aliases) frontmatter.aliases = spec.aliases;
+        if (spec.title) frontmatter.title = spec.title;
+        if (spec.tags) frontmatter.tags = spec.tags;
+        return { frontmatter };
+      },
+    },
+  } as unknown as App;
+}
+
 describe('createVaultWikilinkFetcher', () => {
   it('returns matching files mapped to the fileToLinktext insert form', async () => {
     const app = makeApp(['notes/Q3 Roadmap.md', 'notes/Q3 Budget.md', 'notes/Other.md']);
@@ -44,7 +76,7 @@ describe('createVaultWikilinkFetcher', () => {
 
     const results = await fetch('q3');
 
-    expect(results).toEqual([
+    expect(results.map((r) => ({ value: r.value, display: r.display, path: r.path }))).toEqual([
       { value: 'LINK:Q3 Roadmap', display: 'Q3 Roadmap', path: 'notes/Q3 Roadmap.md' },
       { value: 'LINK:Q3 Budget', display: 'Q3 Budget', path: 'notes/Q3 Budget.md' },
     ]);
@@ -90,14 +122,6 @@ describe('createVaultWikilinkFetcher', () => {
     expect((await fetch('ROADMAP'))[0]?.display).toBe('RoadMap');
   });
 
-  it('matches over the path, not only the basename', async () => {
-    const app = makeApp(['projects/alpha/Notes.md', 'projects/beta/Notes.md']);
-    const fetch = createVaultWikilinkFetcher(app, 'source.md');
-
-    const results = await fetch('alpha');
-    expect(results.map((r) => r.path)).toEqual(['projects/alpha/Notes.md']);
-  });
-
   it('returns [] defensively when getMarkdownFiles is absent', async () => {
     const app = { vault: {}, metadataCache: {} } as unknown as App;
     const fetch = createVaultWikilinkFetcher(app, 'source.md');
@@ -113,5 +137,78 @@ describe('createVaultWikilinkFetcher', () => {
     const fetch = createVaultWikilinkFetcher(app, 'source.md');
 
     expect(await fetch('a')).toEqual([]);
+  });
+});
+
+describe('createVaultWikilinkFetcher — fuzzy ranking', () => {
+  it('ranks a note whose ALIAS matches the query even when its basename does not', async () => {
+    const app = makeRichApp([
+      { path: 'people/Charles.md', aliases: ['Chuck Norris'] },
+      { path: 'people/Diane.md' },
+    ]);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const results = await fetch('chuck');
+    expect(results.map((r) => r.display)).toEqual(['Charles']);
+  });
+
+  it('orders the higher fuzzy score first', async () => {
+    const app = makeRichApp([{ path: 'notes/Alpha Road.md' }, { path: 'notes/Road Map.md' }]);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const results = await fetch('road');
+    expect(results.map((r) => r.display)).toEqual(['Road Map', 'Alpha Road']);
+  });
+
+  it('attaches the winning SearchResult to a matched suggestion for native highlighting', async () => {
+    const app = makeApp(['notes/Roadmap.md']);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const [only] = await fetch('road');
+    expect(only?.match).toBeDefined();
+    expect(only?.match?.score).toBeGreaterThan(0);
+  });
+
+  it('omits the match on empty-query results (no fuzzy run)', async () => {
+    const app = makeApp(['a.md']);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const [only] = await fetch('');
+    expect(only?.match).toBeUndefined();
+  });
+});
+
+describe('createVaultWikilinkFetcher — filter scoping', () => {
+  it('limits suggestions to notes matching the filter (only #ws-tagged notes)', async () => {
+    const app = makeRichApp([
+      { path: 'ws/Alpha.md', tags: ['ws'] },
+      { path: 'misc/Beta.md', tags: ['other'] },
+    ]);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md', { requiredTags: ['ws'] });
+
+    const results = await fetch('');
+    expect(results.map((r) => r.display)).toEqual(['Alpha']);
+  });
+
+  it('offers all vault notes when no filter is configured', async () => {
+    const app = makeRichApp([
+      { path: 'ws/Alpha.md', tags: ['ws'] },
+      { path: 'misc/Beta.md', tags: ['other'] },
+    ]);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const results = await fetch('');
+    expect(results.map((r) => r.display).sort()).toEqual(['Alpha', 'Beta']);
+  });
+
+  it('scopes by an include folder, rejecting a sibling that shares the prefix', async () => {
+    const app = makeRichApp([
+      { path: 'Projects/Alpha.md' },
+      { path: 'ProjectsX/Beta.md' },
+    ]);
+    const fetch = createVaultWikilinkFetcher(app, 'source.md', { includeFolders: ['Projects'] });
+
+    const results = await fetch('');
+    expect(results.map((r) => r.display)).toEqual(['Alpha']);
   });
 });
