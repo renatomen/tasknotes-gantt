@@ -860,6 +860,55 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
+  it("commits chip edits on Tab via the direct path (not the stale bridge seed)", async () => {
+    expect(await frontmatterValue(TASK_ROW, "workstream")).toEqual(["[[WS Alpha]]"]);
+
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("WS Alpha"), {
+      timeout: 10000,
+      timeoutMsg: "Chips editor did not open on the workstream cell",
+    });
+
+    expect(await typeEditorToken("Tabbed entry", "Tabbed entry".length)).toBe(true);
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => (await readChipLabels()).includes("Tabbed entry"), {
+      timeout: 5000,
+      timeoutMsg: "Enter did not push the chip",
+    });
+
+    // Tab must commit the whole chip list via the direct path and close — not let
+    // SVAR's grid hotkey close-commit the stale seed (dropping the edit / writing
+    // a list-suggest cell back as scalar text).
+    await browser.keys(["Tab"]);
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Tab did not close the chips editor",
+    });
+    let ws: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        ws = await frontmatterValue(TASK_ROW, "workstream");
+        return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]", "Tabbed entry"]);
+      },
+      { timeout: 15000, timeoutMsg: () => `Tab did not commit the chip list; saw: ${JSON.stringify(ws)}` },
+    );
+
+    // Restore ["[[WS Alpha]]"] for suite idempotence.
+    expect(await doubleClickCell(TASK_ROW, WORKSTREAM_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readChipLabels()).includes("Tabbed entry"), {
+      timeout: 10000,
+      timeoutMsg: "Chips editor did not reseed for cleanup",
+    });
+    expect(await removeChipByLabel("Tabbed entry")).toBe(true);
+    await clickOutsideEditor();
+    await browser.waitUntil(
+      async () =>
+        JSON.stringify(await frontmatterValue(TASK_ROW, "workstream")) ===
+        JSON.stringify(["[[WS Alpha]]"]),
+      { timeout: 15000, timeoutMsg: "cleanup did not restore ['[[WS Alpha]]']" },
+    );
+  });
+
   it("keeps SVAR's editor value in sync so Tab commits the typed text", async () => {
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {

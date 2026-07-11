@@ -9,7 +9,13 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { chipsFromStoredList, rawListFromChips, type ListChip } from '../../src/bases/listChips';
+import {
+  chipsContainEntry,
+  chipsFromStoredList,
+  entryTarget,
+  rawListFromChips,
+  type ListChip,
+} from '../../src/bases/listChips';
 
 describe('chipsFromStoredList', () => {
   it('maps a mixed link + plain list to link and plain chips', () => {
@@ -54,6 +60,36 @@ describe('chipsFromStoredList', () => {
   it('skips null/undefined array holes, keeping the surrounding items verbatim', () => {
     const chips = chipsFromStoredList(['[[WS Alpha]]', null, 'kept']);
     expect(chips.map((c) => c.raw)).toEqual(['[[WS Alpha]]', 'kept']);
+  });
+});
+
+describe('entryTarget', () => {
+  it('returns a wikilink target, alias-insensitive', () => {
+    expect(entryTarget('[[WS Alpha]]')).toBe('WS Alpha');
+    expect(entryTarget('[[projects/WS Alpha]]')).toBe('projects/WS Alpha');
+    expect(entryTarget('[[projects/WS Alpha|Alpha]]')).toBe('projects/WS Alpha');
+  });
+
+  it('returns the trimmed entry for plain text', () => {
+    expect(entryTarget('  Ad-hoc item ')).toBe('Ad-hoc item');
+  });
+});
+
+describe('chipsContainEntry', () => {
+  const chips = chipsFromStoredList(['[[WS Alpha]]', 'Ad-hoc item']);
+
+  it('detects an exact duplicate', () => {
+    expect(chipsContainEntry(chips, '[[WS Alpha]]')).toBe(true);
+    expect(chipsContainEntry(chips, 'Ad-hoc item')).toBe(true);
+  });
+
+  it('detects a wikilink to the same note under a different alias', () => {
+    expect(chipsContainEntry(chips, '[[WS Alpha|Something]]')).toBe(true);
+  });
+
+  it('is false for a new entry', () => {
+    expect(chipsContainEntry(chips, '[[WS Beta]]')).toBe(false);
+    expect(chipsContainEntry(chips, 'Another item')).toBe(false);
   });
 });
 
