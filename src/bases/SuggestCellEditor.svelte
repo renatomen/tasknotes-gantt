@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLInputElement, KeyboardEvent, setTimeout, clearTimeout */
+  /* global HTMLInputElement, KeyboardEvent, MouseEvent, setTimeout, clearTimeout */
   /**
    * Custom inline list-append editor (typed input + TaskNotes-served suggestions
    * in a SVAR Dropdown) for LIST-shaped user fields with an autosuggest filter.
@@ -136,6 +136,12 @@
     searched = false;
     scheduleFetch();
   }
+
+  function stopRowDragArming(ev: MouseEvent): void {
+    // A selection drag inside the input must stay a text selection — SVAR's
+    // row-reorder helper arms on any bubbling row mousedown.
+    ev.stopPropagation();
+  }
 </script>
 
 <!-- clickOutside on the WRAPPER, exactly like DateCellEditor: clicks in the
@@ -151,6 +157,7 @@
     placeholder="Add entry…"
     onkeydown={handleKeydown}
     oninput={handleInput}
+    onmousedowncapture={stopRowDragArming}
   />
   <Dropdown trackScroll={true} width="auto" {oncancel}>
     <div class="og-suggest-panel">

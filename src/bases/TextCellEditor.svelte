@@ -107,6 +107,15 @@
     // Escape with no popover falls through to SVAR's grid cancel.
   }
 
+  function stopRowDragArming(ev: MouseEvent): void {
+    // SVAR's row-reorder helper arms on any bubbling row mousedown and sets
+    // body user-select:none for the drag, so a selection drag inside the input
+    // becomes a row drag and loses text selection. This must run in the CAPTURE
+    // phase (onmousedowncapture): Svelte delegates bubble-phase mousedown to the
+    // app root, which fires after SVAR's own listener has already armed.
+    ev.stopPropagation();
+  }
+
   function commitFromOutsideClick(event?: MouseEvent): void {
     // A pick's click lands in the popover, which is topologically outside this
     // editor — the wrapper's clickOutside would otherwise commit before the
@@ -134,6 +143,7 @@
     spellcheck="false"
     onkeydown={handleKeydown}
     oninput={handleInput}
+    onmousedowncapture={stopRowDragArming}
   />
 </div>
 

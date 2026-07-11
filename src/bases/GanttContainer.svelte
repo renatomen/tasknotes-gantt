@@ -468,6 +468,12 @@
     if (!el) return;
     const onPointerDown = (e: MouseEvent) => {
       lastCtrlMeta = e.ctrlKey || e.metaKey;
+      // A parent collapse fires from exactly two pointer paths, both starting
+      // with this mousedown: a chevron click (SVAR's onClick -> open-task) and a
+      // row drag (SVAR's startReorder collapses before reordering). Record which
+      // one so the open-task intercept can honor the chevron and veto the drag.
+      const target = e.target as HTMLElement | null;
+      lastPointerOnChevron = !!target?.closest?.('[data-action="open-task"], .wx-toggle-icon');
     };
     const onDblClick = (e: MouseEvent) => {
       // When SVAR is NOT in readonly mode its own ondblclick handler fires
@@ -1249,6 +1255,9 @@
   // show-editor (double-click) carries no modifier keys, so we read the most
   // recent pointer event's ctrl/meta state, captured on the chart root.
   let lastCtrlMeta = false;
+  // Whether the most recent pointer-down landed on a row chevron — the only user
+  // surface allowed to expand/collapse (the open-task intercept vetoes the rest).
+  let lastPointerOnChevron = false;
   // Raised around the programmatic `select-task` that Focus issues so the
   // select-first interceptor skips scheduling activation — Focus highlights the
   // target without opening it, even when it was already selected (R9).
@@ -1621,10 +1630,17 @@
     // click — mode=true expands, mode=false collapses. Let it proceed (return
     // true) and record the change so it survives reload. Ignore our own bulk
     // collapse-all execs (tagged eventSource) and any event during a reseed.
+    // A user toggle is honored only when its pointer-down landed on the chevron:
+    // SVAR's reorder gesture also collapses a parent (startReorder) before
+    // dragging it, so a drag that begins on a cell would otherwise collapse the
+    // row by surprise. Non-chevron origins are vetoed.
     api.intercept(
       "open-task",
       (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
         if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+        const fromChevron = lastPointerOnChevron;
+        lastPointerOnChevron = false;
+        if (!fromChevron) return false;
         const id = ev?.id != null ? String(ev.id) : null;
         if (!id || typeof ev.mode !== 'boolean') return true;
         const next = new Set(collapsedIds);
@@ -1634,6 +1650,27 @@
         return true;
       },
     );
+
+    // Row reordering is disabled. SVAR ships no reorder-toggle prop in this
+    // version (readonly is too broad — it also kills editing and double-click
+    // editor opening), so the documented lever is api.intercept returning false.
+    // A user reorder would not persist (the next data pass rebuilds order) and
+    // its drag-start collapses parents and swallows in-editor text selection.
+    // Our own ordering moves are echo-tagged and pass through. The keyboard
+    // actions and the newer semantic aliases are blocked too so a SVAR bump
+    // can't silently re-enable reordering.
+    const blockUserReorder = (ev?: { eventSource?: string }): boolean =>
+      syncing || ev?.eventSource === OG_ECHO_SOURCE;
+    for (const reorderAction of [
+      "move-task",
+      "move-task:up",
+      "move-task:down",
+      "reorder-tasks",
+      "move-up",
+      "move-down",
+    ]) {
+      api.intercept(reorderAction, blockUserReorder);
+    }
 
     api.intercept("show-editor", ({ id }: { id: string }) => {
       // Ignore programmatic selection/editor events emitted while we reseed the
@@ -2718,6 +2755,15 @@
     height: 100%;
     /* Position relative for floating zoom controls (OG-81) */
     position: relative;
+  }
+
+  /* Row drag-reorder is vetoed at the store (move-task intercept), but SVAR's
+     drag helper still builds a floating row clone at drag time — hide it so a
+     blocked drag shows nothing instead of a ghost that snaps back. Only the
+     clone ever carries this class here: the row variant is store-driven and the
+     veto keeps it from being applied. */
+  .og-bases-gantt :global(.wx-table .wx-reorder-task) {
+    display: none !important;
   }
 
   /* OG-79: Touch device scroll fix for drag-and-drop */

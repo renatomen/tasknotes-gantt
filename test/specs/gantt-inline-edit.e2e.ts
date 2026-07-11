@@ -1005,4 +1005,77 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
+  it("does not reorder rows on a row drag (reordering is disabled)", async () => {
+    const result = await browser.execute((plainRow) => {
+      const empty = { ok: false, before: [] as string[], after: [] as string[], armed: false, ghostVisible: false };
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return empty;
+      const readOrder = (): string[] =>
+        Array.from(root.querySelectorAll<HTMLElement>(".wx-table [data-id]")).map(
+          (el) => el.getAttribute("data-id") ?? "",
+        );
+      const row = Array.from(root.querySelectorAll<HTMLElement>(".wx-table [data-id]")).find(
+        (el) => (el.getAttribute("data-id") ?? "").endsWith(plainRow),
+      );
+      if (!row) return empty;
+      const before = readOrder();
+      const rect = row.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const at = (y: number) => ({ bubbles: true, button: 0, clientX: x, clientY: y });
+      row.dispatchEvent(new window.MouseEvent("mousedown", at(rect.top + 4)));
+      row.dispatchEvent(new window.MouseEvent("mousemove", at(rect.top + 30)));
+      row.dispatchEvent(new window.MouseEvent("mousemove", at(rect.top + 60)));
+      // Mid-drag: the gesture must have armed (positive control), but its ghost
+      // clone must be hidden so a blocked drag shows nothing.
+      const ghost = root.querySelector<HTMLElement>(".wx-table .wx-reorder-task");
+      const armed = !!ghost;
+      const ghostVisible = !!ghost && window.getComputedStyle(ghost).display !== "none";
+      row.dispatchEvent(new window.MouseEvent("mouseup", at(rect.top + 60)));
+      return { ok: true, before, after: readOrder(), armed, ghostVisible };
+    }, PLAIN_ROW);
+
+    expect(result.ok).toBe(true);
+    expect(result.armed).toBe(true); // positive control: the reorder gesture engaged
+    expect(result.ghostVisible).toBe(false);
+    expect(result.after).toEqual(result.before);
+  });
+
+  it("keeps a drag inside the text editor as a text selection (no row drag armed)", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    const result = await browser.execute(() => {
+      const table = document.querySelector(".og-bases-gantt .wx-table");
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!table || !input) return { ok: false, newClone: true, userSelect: "none" };
+      const clonesBefore = table.querySelectorAll(".wx-reorder-task").length;
+      const rect = input.getBoundingClientRect();
+      const y = rect.top + rect.height / 2;
+      const at = (x: number) => ({ bubbles: true, button: 0, clientX: x, clientY: y });
+      input.dispatchEvent(new window.MouseEvent("mousedown", at(rect.left + 6)));
+      input.dispatchEvent(new window.MouseEvent("mousemove", at(rect.left + 46)));
+      // The editor stops the mousedown in the capture phase, so the row-drag
+      // helper must never arm: it neither builds a NEW clone nor sets the body's
+      // user-select:none (which would kill the in-input text selection).
+      const newClone = table.querySelectorAll(".wx-reorder-task").length > clonesBefore;
+      const userSelect = document.body.style.userSelect;
+      input.dispatchEvent(new window.MouseEvent("mouseup", at(rect.left + 46)));
+      return { ok: true, newClone, userSelect };
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.userSelect).not.toBe("none"); // reorder never armed -> selection stays enabled
+    expect(result.newClone).toBe(false); // the input drag did not start a new row reorder
+    expect((await readEditState()).editorOpen).toBe(true);
+
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not close after the drag-selection check",
+    });
+  });
+
 });
