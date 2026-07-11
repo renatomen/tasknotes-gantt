@@ -468,12 +468,15 @@
     if (!el) return;
     const onPointerDown = (e: MouseEvent) => {
       lastCtrlMeta = e.ctrlKey || e.metaKey;
-      // A parent collapse fires from exactly two pointer paths, both starting
-      // with this mousedown: a chevron click (SVAR's onClick -> open-task) and a
-      // row drag (SVAR's startReorder collapses before reordering). Record which
-      // one so the open-task intercept can honor the chevron and veto the drag.
-      const target = e.target as HTMLElement | null;
-      lastPointerOnChevron = !!target?.closest?.('[data-action="open-task"], .wx-toggle-icon');
+      // A held mouse button marks a possible drag in flight. SVAR's reorder
+      // gesture collapses a parent (startReorder -> open-task) mid-drag, while
+      // the deliberate toggles fire open-task with the button already up: a
+      // chevron click on `click` (after mouseup) and the keyboard hotkey with no
+      // pointer at all. So the open-task intercept vetoes only while this is set.
+      pointerButtonDown = true;
+    };
+    const onPointerUp = () => {
+      pointerButtonDown = false;
     };
     const onDblClick = (e: MouseEvent) => {
       // When SVAR is NOT in readonly mode its own ondblclick handler fires
@@ -513,10 +516,13 @@
       onBarContextMenu(path, e);
     };
     el.addEventListener('mousedown', onPointerDown, true);
+    // Reset on window so a drag that ends off the grid still clears the flag.
+    window.addEventListener('mouseup', onPointerUp, true);
     el.addEventListener('dblclick', onDblClick, true);
     el.addEventListener('contextmenu', onContextMenu, true);
     return () => {
       el.removeEventListener('mousedown', onPointerDown, true);
+      window.removeEventListener('mouseup', onPointerUp, true);
       el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('contextmenu', onContextMenu, true);
     };
@@ -1255,9 +1261,10 @@
   // show-editor (double-click) carries no modifier keys, so we read the most
   // recent pointer event's ctrl/meta state, captured on the chart root.
   let lastCtrlMeta = false;
-  // Whether the most recent pointer-down landed on a row chevron — the only user
-  // surface allowed to expand/collapse (the open-task intercept vetoes the rest).
-  let lastPointerOnChevron = false;
+  // Whether a mouse button is currently held over the chart — true only during a
+  // drag. The open-task intercept uses it to veto the mid-drag parent collapse
+  // while leaving pointer-up toggles (chevron click, keyboard hotkey) alone.
+  let pointerButtonDown = false;
   // Raised around the programmatic `select-task` that Focus issues so the
   // select-first interceptor skips scheduling activation — Focus highlights the
   // target without opening it, even when it was already selected (R9).
@@ -1630,17 +1637,16 @@
     // click — mode=true expands, mode=false collapses. Let it proceed (return
     // true) and record the change so it survives reload. Ignore our own bulk
     // collapse-all execs (tagged eventSource) and any event during a reseed.
-    // A user toggle is honored only when its pointer-down landed on the chevron:
-    // SVAR's reorder gesture also collapses a parent (startReorder) before
-    // dragging it, so a drag that begins on a cell would otherwise collapse the
-    // row by surprise. Non-chevron origins are vetoed.
+    // Veto only the mid-drag collapse: SVAR's reorder gesture folds a parent
+    // (startReorder) before dragging it, so a drag begun on a cell would collapse
+    // the row by surprise. That is the only open-task that fires with a button
+    // held; the deliberate toggles (chevron click, keyboard hotkey) fire with the
+    // pointer already up, so they pass.
     api.intercept(
       "open-task",
       (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
         if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
-        const fromChevron = lastPointerOnChevron;
-        lastPointerOnChevron = false;
-        if (!fromChevron) return false;
+        if (pointerButtonDown) return false;
         const id = ev?.id != null ? String(ev.id) : null;
         if (!id || typeof ev.mode !== 'boolean') return true;
         const next = new Set(collapsedIds);
