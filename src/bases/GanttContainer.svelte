@@ -64,7 +64,7 @@
     counterpartDate,
     dateRoleColumns,
     editorAttachedColumnIds,
-    editorSeedValue,
+    editorSeedFor,
     OG_SUGGEST_EDITOR_TYPE,
     OG_TEXT_EDITOR_TYPE,
     resolveCellEditCommit,
@@ -1458,7 +1458,13 @@
         if (buildKind) {
           col.editor = (row) => resolveRowEditor(row, c.id);
           col.getter = (row) =>
-            editorSeedValue(editorKindByColumn.get(c.id) ?? buildKind, row?.custom?.properties?.[c.id]);
+            editorSeedFor(
+              editorKindByColumn.get(c.id) ?? buildKind,
+              row?.custom?.properties?.[c.id],
+              (row?.custom as { cellRenders?: Record<string, CellRender> } | undefined)?.cellRenders?.[
+                c.id
+              ],
+            );
         }
       }
       return col;

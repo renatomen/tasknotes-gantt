@@ -28,6 +28,7 @@
 
 import { toYmd } from '../datasource/dateFieldMapping';
 import type { CellEditorDescriptor, CellEditorKind } from './cellEditability';
+import type { CellRender } from './cellRender';
 import { EMPTY_TYPED_VALUE, listsEqual, type TypedValue } from './propertyValues';
 
 /** The editor kinds with a shipped inline editor. */
@@ -571,6 +572,27 @@ export function editorSeedValue(kind: ShippedEditorKind, stored: TypedValue | un
   if (kind === 'number' && value.kind === 'number') return value.value;
   if (kind === 'date' && value.kind === 'date') return value.value;
   return storedStringForm(value);
+}
+
+/**
+ * The seed for an opening single-value text/suggest editor, preferring the
+ * cell's rendered markdown source over the type-tagged display form. A wikilink
+ * value (`[[Note]]`, `[[Note|Alias]]`) classifies to its display text, so
+ * {@link editorSeedValue} alone would seed the editor with `Note`/`Alias` and a
+ * commit would drop the link. The render descriptor already holds the exact
+ * markdown the cell shows, so the editor seeds and round-trips that instead.
+ * (A list-shaped suggest editor starts empty and ignores this seed.) Other
+ * kinds and non-markdown cells fall back to {@link editorSeedValue}.
+ */
+export function editorSeedFor(
+  kind: ShippedEditorKind,
+  stored: TypedValue | undefined,
+  render: CellRender | undefined,
+): unknown {
+  if ((kind === 'text' || kind === 'suggest') && render?.mode === 'markdown') {
+    return render.source;
+  }
+  return editorSeedValue(kind, stored);
 }
 
 /**

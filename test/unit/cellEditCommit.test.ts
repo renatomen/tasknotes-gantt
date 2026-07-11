@@ -16,6 +16,7 @@ import {
   counterpartDate,
   dateRoleColumns,
   editorAttachedColumnIds,
+  editorSeedFor,
   editorSeedValue,
   OG_TEXT_EDITOR_TYPE,
   resolveCellEditCommit,
@@ -479,6 +480,42 @@ describe('editorSeedValue', () => {
 
   it('seeds an empty date column as an empty string', () => {
     expect(editorSeedValue('date', empty)).toBe('');
+  });
+});
+
+describe('editorSeedFor', () => {
+  it('seeds a text cell with the rendered markdown source, not the display form', () => {
+    // A wikilink value classifies to its display text ("Chuck Norris"), but the
+    // render descriptor holds the raw markdown the cell shows — editing must use
+    // that so the link is not dropped on commit.
+    const stored: TypedValue = { kind: 'link', value: 'Chuck Norris' };
+    const render = { mode: 'markdown', source: '[[Chuck Norris]]' } as const;
+    expect(editorSeedFor('text', stored, render)).toBe('[[Chuck Norris]]');
+  });
+
+  it('preserves an aliased wikilink verbatim (reconstruction from the display would corrupt it)', () => {
+    const stored: TypedValue = { kind: 'link', value: 'Chuck' };
+    const render = { mode: 'markdown', source: '[[People/Chuck Norris|Chuck]]' } as const;
+    expect(editorSeedFor('text', stored, render)).toBe('[[People/Chuck Norris|Chuck]]');
+  });
+
+  it('falls back to the stored string form for a text cell rendered as plain text', () => {
+    expect(editorSeedFor('text', text('Draft'), { mode: 'text', text: 'Draft' })).toBe('Draft');
+  });
+
+  it('falls back to the stored value when there is no render descriptor', () => {
+    expect(editorSeedFor('text', text('Draft'), undefined)).toBe('Draft');
+  });
+
+  it('ignores the markdown source for non-text kinds (number keeps the raw number)', () => {
+    const render = { mode: 'markdown', source: '42' } as const;
+    expect(editorSeedFor('number', num(42), render)).toBe(42);
+  });
+
+  it('seeds a single-value suggest cell with the markdown source too (link not dropped)', () => {
+    const stored: TypedValue = { kind: 'link', value: 'Chuck Norris' };
+    const render = { mode: 'markdown', source: '[[Chuck Norris]]' } as const;
+    expect(editorSeedFor('suggest', stored, render)).toBe('[[Chuck Norris]]');
   });
 });
 

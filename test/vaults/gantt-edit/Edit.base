@@ -16,6 +16,7 @@ views:
     order:
       - file.name
       - note.effort
+      - note.assignee
       - note.points
       - note.status
       - note.workstream

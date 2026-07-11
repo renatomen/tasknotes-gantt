@@ -68,8 +68,10 @@ const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-edit");
 
 const TASK_ROW = "Task Alpha.md";
+const TASK_BETA_ROW = "Task Beta.md";
 const PLAIN_ROW = "Plain Note.md";
 const EFFORT_COL = "note.effort";
+const ASSIGNEE_COL = "note.assignee";
 const POINTS_COL = "note.points";
 const FORMULA_COL = "formula.label";
 const SCHEDULED_COL = "note.scheduled";
@@ -570,6 +572,7 @@ describe("Gantt (OG) inline cell editing", () => {
       if (!tn?.settings) throw new Error("TaskNotes plugin/settings unavailable");
       tn.settings.userFields = [
         { id: "effort", displayName: "Effort", key: "effort", type: "text" },
+        { id: "assignee", displayName: "Assignee", key: "assignee", type: "text" },
         { id: "points", displayName: "Points", key: "points", type: "number" },
         {
           id: "workstream",
@@ -664,6 +667,33 @@ describe("Gantt (OG) inline cell editing", () => {
       expect(sampledText).toBe("Deep work");
       await browser.pause(100);
     }
+  });
+
+  it("seeds a wikilink-valued text cell with the raw markdown and offers `[[` suggestions", async () => {
+    // Task Beta's assignee cell stores `[[Chuck Norris]]` — read mode renders it
+    // as a link, so edit mode must seed the RAW wikilink, not the display form.
+    expect(await doubleClickCell(TASK_BETA_ROW, ASSIGNEE_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the assignee cell",
+    });
+    expect(await readEditorInputValue()).toBe("[[Chuck Norris]]");
+
+    // A plain text field (no autosuggestFilter) gets the `[[` vault autosuggest:
+    // append a second token and the vault notes surface.
+    expect(await typeEditorToken("[[Chuck Norris]] and [[Q3", 24)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).includes(ROADMAP_LABEL), {
+      timeout: 10000,
+      timeoutMsg: "`[[` suggestions did not surface on the assignee cell",
+    });
+
+    // Close the editor (an outside click commits the current text); no later
+    // test reads the assignee cell, so the committed value is not asserted.
+    await clickOutsideEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Assignee editor did not close",
+    });
   });
 
   it("rejects non-numeric text in the number cell without writing", async () => {
