@@ -1,0 +1,75 @@
+/**
+ * wikilinkToken unit tests — pure `[[`-token detection + splice over a text
+ * input value and caret offset (no Obsidian/SVAR).
+ *
+ * detectWikilinkToken scans back from the caret for the last `[[` not closed by
+ * a `]]` before the caret; spliceWikilink replaces the token bounds with the
+ * full inserted `[[Note]]` string and reports the caret after the insert.
+ */
+
+import { describe, it, expect } from '@jest/globals';
+import { detectWikilinkToken, spliceWikilink } from '../../src/bases/wikilinkToken';
+
+describe('detectWikilinkToken', () => {
+  it('detects an open token at the end of the value', () => {
+    expect(detectWikilinkToken('Draft [[Q3', 10)).toEqual({ query: 'Q3', start: 6, end: 10 });
+  });
+
+  it('detects the second unterminated token, not the first closed one', () => {
+    const value = 'Draft [[Q3]] and [[Re';
+    expect(detectWikilinkToken(value, value.length)).toEqual({ query: 'Re', start: 17, end: 21 });
+  });
+
+  it('returns null when there is no [[ at all', () => {
+    expect(detectWikilinkToken('plain text', 5)).toBeNull();
+  });
+
+  it('returns null for a closed [[X]] with the caret after the ]]', () => {
+    expect(detectWikilinkToken('[[X]]', 5)).toBeNull();
+  });
+
+  it('detects an empty-query token right after a just-opened [[', () => {
+    expect(detectWikilinkToken('[[', 2)).toEqual({ query: '', start: 0, end: 2 });
+  });
+
+  it('detects the token the caret is inside (first of two [[ tokens)', () => {
+    // value: '[[Alpha and [[Be', caret inside "Alpha" (after "Al")
+    const value = '[[Alpha and [[Be';
+    expect(detectWikilinkToken(value, 4)).toEqual({ query: 'Al', start: 0, end: 4 });
+  });
+
+  it('does not treat a ]] positioned after the caret as terminating the token', () => {
+    // caret sits before the closing ]] of '[[Q3]]'
+    expect(detectWikilinkToken('[[Q3]] foo', 4)).toEqual({ query: 'Q3', start: 0, end: 4 });
+  });
+});
+
+describe('spliceWikilink', () => {
+  it('replaces the token bounds mid-string and preserves the surrounding text', () => {
+    expect(spliceWikilink('see [[Q3 later', { start: 4, end: 8 }, '[[Q3-Roadmap]]')).toEqual({
+      value: 'see [[Q3-Roadmap]] later',
+      caret: 18,
+    });
+  });
+
+  it('splices at the end of the string with the caret after the insert', () => {
+    expect(spliceWikilink('Draft [[Q3', { start: 6, end: 10 }, '[[Q3-Roadmap]]')).toEqual({
+      value: 'Draft [[Q3-Roadmap]]',
+      caret: 20,
+    });
+  });
+
+  it('splices into the middle of the string', () => {
+    expect(spliceWikilink('a [[b c', { start: 2, end: 5 }, '[[bee]]')).toEqual({
+      value: 'a [[bee]] c',
+      caret: 9,
+    });
+  });
+
+  it('inserts at a zero-width bound (start === end) defensively', () => {
+    expect(spliceWikilink('abc', { start: 1, end: 1 }, '[[X]]')).toEqual({
+      value: 'a[[X]]bc',
+      caret: 6,
+    });
+  });
+});
