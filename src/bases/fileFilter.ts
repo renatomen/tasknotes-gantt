@@ -89,19 +89,17 @@ function isPathUnderFolder(path: string, folder: string): boolean {
   return path === folder || path.startsWith(`${folder}/`);
 }
 
+function normalizeFolderList(folders: string[] | undefined): string[] {
+  return (folders ?? []).map(normalizeFolder).filter((folder) => folder !== '');
+}
+
 function matchesIncludeFolders(path: string, includeFolders: string[] | undefined): boolean {
-  if (!includeFolders || includeFolders.length === 0) return true;
-  const folders = includeFolders.map(normalizeFolder).filter((folder) => folder !== '');
-  if (folders.length === 0) return true;
-  return folders.some((folder) => isPathUnderFolder(path, folder));
+  const folders = normalizeFolderList(includeFolders);
+  return folders.length === 0 || folders.some((folder) => isPathUnderFolder(path, folder));
 }
 
 function isPathExcluded(path: string, excludedFolders: string[] | undefined): boolean {
-  if (!excludedFolders || excludedFolders.length === 0) return false;
-  return excludedFolders
-    .map(normalizeFolder)
-    .filter((folder) => folder !== '')
-    .some((folder) => isPathUnderFolder(path, folder));
+  return normalizeFolderList(excludedFolders).some((folder) => isPathUnderFolder(path, folder));
 }
 
 function normalizePropertyValues(value: string | undefined): string[] {

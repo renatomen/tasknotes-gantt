@@ -99,17 +99,23 @@ export function createVaultWikilinkFetcher(
     const hasQuery = needle !== '';
     const scoreText = prepareFuzzySearch(needle);
 
-    const ranked: Array<{ suggestion: TaskNotesSuggestion; score: number }> = [];
+    const ranked: TaskNotesSuggestion[] = [];
     for (const file of getMarkdownFiles.call(vault)) {
+      // Only the filter reads tags, and only a non-empty query reads title/aliases,
+      // so the metadata-cache lookup is skipped for an unfiltered, not-yet-typed
+      // `[[` — the common plain-text case scanning the whole vault.
+      const needsCache = filter !== undefined || hasQuery;
       const cache =
-        typeof getFileCache === 'function' ? getFileCache.call(metadataCache, file) : null;
+        needsCache && typeof getFileCache === 'function'
+          ? getFileCache.call(metadataCache, file)
+          : null;
       const frontmatter = (cache?.frontmatter ?? {}) as Record<string, unknown>;
       const candidate: FileFilterCandidate = {
-        tags: cache ? (getAllTags(cache) ?? []) : [],
+        tags: filter !== undefined && cache ? (getAllTags(cache) ?? []) : [],
         path: file.path,
         frontmatter,
-        aliases: parseFrontMatterAliases(frontmatter) ?? [],
-        title: typeof frontmatter.title === 'string' ? frontmatter.title : file.basename,
+        aliases: hasQuery ? (parseFrontMatterAliases(frontmatter) ?? []) : [],
+        title: hasQuery && typeof frontmatter.title === 'string' ? frontmatter.title : file.basename,
       };
       if (!matchesFileFilter(candidate, filter, excludedFolders)) continue;
 
@@ -119,17 +125,14 @@ export function createVaultWikilinkFetcher(
       if (hasQuery && match === null) continue;
 
       ranked.push({
-        suggestion: {
-          value: fileToLinktext.call(metadataCache, file, sourcePath, true),
-          display: file.basename,
-          path: file.path,
-          ...(match ? { match } : {}),
-        },
-        score: match?.score ?? 0,
+        value: fileToLinktext.call(metadataCache, file, sourcePath, true),
+        display: file.basename,
+        path: file.path,
+        ...(match ? { match } : {}),
       });
     }
 
-    ranked.sort((a, b) => b.score - a.score);
-    return Promise.resolve(ranked.slice(0, VAULT_SUGGEST_LIMIT).map((entry) => entry.suggestion));
+    ranked.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
+    return Promise.resolve(ranked.slice(0, VAULT_SUGGEST_LIMIT));
   };
 }
