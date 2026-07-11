@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, MouseEvent */
+  /* global HTMLElement, MouseEvent, ResizeObserver, MutationObserver */
   /**
    * Generic type-aware grid cell.
    *
@@ -67,6 +67,43 @@
   );
 
   let el: HTMLElement | undefined = $state();
+
+  // How many items a list cell holds (0 for non-list values). Read from the typed
+  // value's array length — the display forms differ from the raw entries but the
+  // count is the same.
+  const itemCount = $derived.by(() => {
+    const typed = (row?.custom?.properties as Record<string, TypedValue> | undefined)?.[
+      column.id as string
+    ];
+    return typed?.kind === 'list' ? (typed.value as string[]).length : 0;
+  });
+
+  // Whether the rendered content is clipped by the cell's ellipsis. Recomputed on
+  // column resize and when the async markdown render settles.
+  let overflowing = $state(false);
+  // A multi-item list whose content is truncated shows a total-count badge next to
+  // the ellipsis — the ellipsis signals "more", the count gives the precise total.
+  const showCount = $derived(overflowing && itemCount >= 2);
+
+  $effect(() => {
+    const node = el;
+    if (!useMarkdown || !node) {
+      overflowing = false;
+      return;
+    }
+    const measure = (): void => {
+      overflowing = node.scrollWidth > node.clientWidth + 1;
+    };
+    const ro = new ResizeObserver(measure);
+    const mo = new MutationObserver(measure);
+    ro.observe(node);
+    mo.observe(node, { childList: true, subtree: true, characterData: true });
+    measure();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  });
 
   /** Open Obsidian's global search for a tag (mirrors a tag click in a note). */
   function openTagSearch(currentApp: App, tag: string): void {
@@ -162,12 +199,11 @@
 </script>
 
 {#if useMarkdown}
-  <span
-    class="og-grid-cell og-grid-cell--md"
-    class:og-cell-editable={isEditable}
-    title={fallbackText}
-    bind:this={el}
-  ></span>
+  <span class="og-md-cell" title={fallbackText}>
+    <span class="og-grid-cell og-grid-cell--md" class:og-cell-editable={isEditable} bind:this={el}
+    ></span>
+    {#if showCount}<span class="og-count-badge" aria-hidden="true">{itemCount}</span>{/if}
+  </span>
 {:else}
   <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
     >{displayText}</span
@@ -180,6 +216,30 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A markdown list cell: the rendered links clip with ellipsis (flex-1, min-width
+     0) and, when truncated, a total-count badge sits after them (flex-none). */
+  .og-md-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  .og-md-cell > .og-grid-cell--md {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .og-count-badge {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 0.75em;
+    line-height: 1.5;
+    background: var(--background-modifier-hover, rgba(127, 127, 127, 0.2));
+    color: var(--text-muted, var(--wx-color-font));
+    pointer-events: none;
   }
   .og-cell-editable {
     cursor: text;
