@@ -24,7 +24,13 @@
   import type { ChipsEditorConfig } from './cellEditCommit';
   import { GRID_APP_CONTEXT_KEY } from './gridContext';
   import { WikilinkInputSuggest } from './wikilinkInputSuggest';
-  import { chipFromRawEntry, chipsFromStoredList, rawListFromChips, type ListChip } from './listChips';
+  import {
+    chipFromRawEntry,
+    chipsContainEntry,
+    chipsFromStoredList,
+    rawListFromChips,
+    type ListChip,
+  } from './listChips';
 
   interface Props {
     editor: { value?: unknown; config?: Partial<ChipsEditorConfig> };
@@ -68,8 +74,11 @@
 
   function pushRawChip(rawEntry: string): void {
     const raw = rawEntry.trim();
-    if (raw === '') return;
-    chips = [...chips, chipFromRawEntry(raw)];
+    // Ignore an empty add or a duplicate (exact or a wikilink to the same note),
+    // matching the shipped append path's dedupe — clear the input either way.
+    if (raw !== '' && !chipsContainEntry(chips, raw)) {
+      chips = [...chips, chipFromRawEntry(raw)];
+    }
     draft = '';
     if (node) node.value = '';
     node?.focus();
@@ -104,6 +113,16 @@
     // once it marks a key handled, keep SVAR's wrapper from acting on it.
     if (ev.defaultPrevented) {
       ev.stopPropagation();
+      return;
+    }
+    if (ev.key === 'Tab') {
+      // Tab/Shift+Tab would reach SVAR's grid hotkey, which closes this editor via
+      // the bridge and commits the stale seed — discarding chip edits and writing a
+      // list-suggest cell back as scalar text. Commit the chips directly and consume
+      // the key so the bridge never fires (the edit stays; focus does not advance).
+      ev.stopPropagation();
+      ev.preventDefault();
+      commit();
       return;
     }
     if (isSuggestPopoverOpen()) {

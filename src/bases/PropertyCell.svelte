@@ -87,7 +87,9 @@
 
   $effect(() => {
     const node = el;
-    if (!useMarkdown || !node) {
+    // Only a multi-item list can show the badge, so only those cells need the
+    // overflow observers — single links and plain cells skip the mount-time work.
+    if (!useMarkdown || !node || itemCount < 2) {
       overflowing = false;
       return;
     }
