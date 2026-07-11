@@ -43,9 +43,7 @@ import { fileURLToPath } from "node:url";
  *     and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving the
  *     surrounding text WITHOUT being lost to the editor's clickOutside;
  *   - committing markdown (`**ship**`) into a text cell re-renders decorated
- *     (bold) after the confirming data pass (raw text shows optimistically);
- *   - the managed text cell carries a view-mode edit-in-modal affordance that
- *     opens TaskNotes' edit modal; a non-managed row's text cell has none.
+ *     (bold) after the confirming data pass (raw text shows optimistically).
  *
  * The display locale is forced to de-DE via `window.__tnGanttDebug.localeOverride`
  * BEFORE the view assembles data (and re-asserted on every readiness poll),
@@ -58,9 +56,7 @@ import { fileURLToPath } from "node:url";
  *    (text editor); Enter commits (grid `update-cell` → gantt `update-task`);
  *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`;
  *  - the text editor's `[[` dropdown is PORTAL'd to the body: its rows are
- *    `.og-suggest-item` (queried document-wide, like the richselect picker);
- *  - the edit-in-modal affordance is a `.og-cell-edit-modal` button inside the
- *    cell (opacity-hidden until hover, but present in the DOM + clickable).
+ *    `.og-suggest-item` (queried document-wide, like the richselect picker).
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -409,62 +405,6 @@ async function readCellStrongText(rowSuffix: string, columnId: string): Promise<
     rowSuffix,
     columnId,
   );
-}
-
-/** Whether a cell carries the edit-in-modal affordance button. */
-async function readAffordancePresent(rowSuffix: string, columnId: string): Promise<boolean> {
-  return browser.execute(
-    (row, col) => {
-      const root = document.querySelector(".og-bases-gantt");
-      if (!root) return false;
-      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
-      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
-        (el) =>
-          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
-          strip(el.getAttribute("data-col-id") ?? "") === col,
-      );
-      return !!cell?.querySelector(".og-cell-edit-modal");
-    },
-    rowSuffix,
-    columnId,
-  );
-}
-
-/** Click a cell's edit-in-modal affordance (opens TaskNotes' edit modal). */
-async function clickAffordance(rowSuffix: string, columnId: string): Promise<boolean> {
-  return browser.execute(
-    (row, col) => {
-      const root = document.querySelector(".og-bases-gantt");
-      if (!root) return false;
-      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
-      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
-        (el) =>
-          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
-          strip(el.getAttribute("data-col-id") ?? "") === col,
-      );
-      const btn = cell?.querySelector<HTMLElement>(".og-cell-edit-modal");
-      if (!btn) return false;
-      btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
-      return true;
-    },
-    rowSuffix,
-    columnId,
-  );
-}
-
-/** Whether the installed TaskNotes build exposes the internal edit-modal opener. */
-async function taskNotesHasEditModal(): Promise<boolean> {
-  return browser.executeObsidian(({ app }) => {
-    const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.(
-      "tasknotes",
-    ) as { openTaskEditModal?: unknown } | undefined;
-    return typeof tn?.openTaskEditModal === "function";
-  });
-}
-
-/** Whether any Obsidian modal is currently open. */
-async function isModalOpen(): Promise<boolean> {
-  return browser.execute(() => !!document.querySelector(".modal-container"));
 }
 
 /** Close any TaskNotes modal a fall-through double-click activation opened. */
@@ -1072,24 +1012,4 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
-  it("opens TaskNotes' edit modal from the managed text cell's affordance", async function () {
-    if (!(await taskNotesHasEditModal())) {
-      // The installed TaskNotes build lacks the internal opener; the affordance
-      // would fall back to opening the note. Skip rather than assert a modal.
-      this.skip();
-    }
-    expect(await readAffordancePresent(TASK_ROW, EFFORT_COL)).toBe(true);
-    expect(await clickAffordance(TASK_ROW, EFFORT_COL)).toBe(true);
-
-    await browser.waitUntil(async () => isModalOpen(), {
-      timeout: 10000,
-      timeoutMsg: "TaskNotes' edit modal did not open from the affordance",
-    });
-    await dismissAnyModal();
-  });
-
-  it("shows no edit-in-modal affordance on a non-TaskNotes row's text cell", async () => {
-    expect(await readAffordancePresent(TASK_ROW, EFFORT_COL)).toBe(true);
-    expect(await readAffordancePresent(PLAIN_ROW, EFFORT_COL)).toBe(false);
-  });
 });

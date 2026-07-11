@@ -770,10 +770,6 @@ class ObsidianGanttBasesView extends BasesView {
             interactions.handleActivate(path, opts),
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
-          // Edit-in-modal affordance (grid text cells): the view-mode hover
-          // control opens TaskNotes' edit modal unconditionally for the row's
-          // note, bypassing the click-action gate.
-          onOpenEditModal: (path: string) => interactions.openEditModal(path),
           // Focus-on-task command wiring (R2): the view publishes its opener on
           // mount and retracts it on teardown, so the plugin command targets the
           // active Gantt view. Tracked per-view so one view's teardown never

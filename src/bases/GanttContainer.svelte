@@ -28,8 +28,6 @@
     GRID_APP_CONTEXT_KEY,
     GRID_DATE_LOCALE_CONTEXT_KEY,
     GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
-    GRID_TEXT_COLUMNS_CONTEXT_KEY,
-    GRID_OPEN_MODAL_CONTEXT_KEY,
   } from './gridContext';
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
@@ -72,7 +70,6 @@
     shippedEditorKinds,
     storedFlatValue,
     suggestColumns,
-    textAffordanceColumns,
     violatesDateOrder,
     withAlignedFlatKeys,
     type SuggestEditorConfig,
@@ -170,13 +167,6 @@
      */
     onBarContextMenu?: (path: string, event: MouseEvent) => void;
     /**
-     * Open TaskNotes' edit modal unconditionally for a note path (the grid's
-     * edit-in-modal hover affordance on an editable text cell). Routed by
-     * register.ts to the interaction service's `openEditModal` — distinct from
-     * `onBarActivate`, which honors the configured click action.
-     */
-    onOpenEditModal?: (path: string) => void;
-    /**
      * Persist a column's new width (U5/R8). Invoked on a resize commit with the
      * Bases property id the column maps to (the name column reports its name
      * key, not `text`). The binder writes it to the standard `columnSize` map.
@@ -231,7 +221,6 @@
     onRemoveDependency,
     onBarActivate,
     onBarContextMenu,
-    onOpenEditModal,
     onColumnResize,
     onGridWidthChange,
     themeMode = 'auto',
@@ -1340,20 +1329,6 @@
   // set with its row's `custom.editable` to add `og-cell-editable`. A getter so
   // the cell's $derived tracks changes.
   setContext(GRID_EDITABLE_COLUMNS_CONTEXT_KEY, () => new Set(editorKindByColumn.keys()));
-
-  // The text-editor columns (edit-in-modal affordance target): PropertyCell
-  // combines this live set with its row's `custom.editable` to render the
-  // hover affordance only on editable text cells. A getter so the cell tracks it.
-  // Gated by the same write-capability check as resolveRowEditor — the affordance
-  // opens TaskNotes' editor, so a read-only view must not surface it.
-  setContext(GRID_TEXT_COLUMNS_CONTEXT_KEY, () =>
-    textAffordanceColumns(editorKindByColumn, !readOnly && !!onMutateProperty),
-  );
-
-  // The edit-in-modal action for PropertyCell's affordance (SVAR can't pass it
-  // as a prop). Routes the row's note path to the interaction service's
-  // unconditional modal open (register.ts); inert when no binder wired it.
-  setContext(GRID_OPEN_MODAL_CONTEXT_KEY, (path: string) => onOpenEditModal?.(path));
 
   /**
    * The per-row editor gate for an editor-attached column: only a

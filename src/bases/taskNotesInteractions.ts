@@ -140,16 +140,6 @@ export class TaskNotesInteractions {
   }
 
   /**
-   * Open the native TaskNotes edit modal for `path` unconditionally — the
-   * explicit "edit in modal" affordance, which must ignore the configured
-   * single/double-click action (unlike {@link handleActivate}). Falls back to
-   * opening the note when the edit modal can't be opened.
-   */
-  public async openEditModal(path: string): Promise<void> {
-    await this.openEditModalOrFallback(path);
-  }
-
-  /**
    * Show the native TaskNotes task context menu for `path` at the event
    * position. Inert (no-op) when TaskNotes is unavailable.
    */

@@ -21,11 +21,7 @@
     GRID_APP_CONTEXT_KEY,
     GRID_DATE_LOCALE_CONTEXT_KEY,
     GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
-    GRID_TEXT_COLUMNS_CONTEXT_KEY,
-    GRID_OPEN_MODAL_CONTEXT_KEY,
     type GridEditableColumnsContext,
-    type GridTextColumnsContext,
-    type GridOpenModalContext,
   } from './gridContext';
   import { formatPropertyValue } from './propertyFormat';
   import type { TypedValue } from './propertyValues';
@@ -69,25 +65,6 @@
   const isEditable = $derived(
     !!row?.custom?.editable && !!getEditableColumns?.().has(column.id as string),
   );
-
-  // Edit-in-modal affordance: shown only on an editable TEXT cell (the full
-  // markdown-authoring route). Restricted to text columns so it never appears on
-  // date/number/choice cells. The affordance renders in view mode only (SVAR
-  // swaps in the editor when editing), so it never races an open editor.
-  const getTextColumns = getContext<GridTextColumnsContext | undefined>(
-    GRID_TEXT_COLUMNS_CONTEXT_KEY,
-  );
-  const openEditModal = getContext<GridOpenModalContext | undefined>(GRID_OPEN_MODAL_CONTEXT_KEY);
-  const isTextEditable = $derived(
-    !!row?.custom?.editable && !!getTextColumns?.().has(column.id as string),
-  );
-
-  /** Open the row's note in TaskNotes' edit modal; keep the click off the grid. */
-  function activateEditModal(evt: MouseEvent): void {
-    evt.preventDefault();
-    evt.stopPropagation();
-    if (sourcePath) openEditModal?.(sourcePath);
-  }
 
   let el: HTMLElement | undefined = $state();
 
@@ -184,38 +161,20 @@
   });
 </script>
 
-<span class="og-cell-host" class:og-cell-host--editable={isTextEditable}>
-  {#if useMarkdown}
-    <span
-      class="og-grid-cell og-grid-cell--md"
-      class:og-cell-editable={isEditable}
-      title={fallbackText}
-      bind:this={el}
-    ></span>
-  {:else}
-    <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
-      >{displayText}</span
-    >
-  {/if}
-  {#if isTextEditable && sourcePath}
-    <button
-      class="og-cell-edit-modal"
-      type="button"
-      title="Edit in TaskNotes"
-      aria-label="Edit in TaskNotes"
-      onclick={activateEditModal}
-      onmousedown={(evt) => evt.stopPropagation()}
-    ></button>
-  {/if}
-</span>
+{#if useMarkdown}
+  <span
+    class="og-grid-cell og-grid-cell--md"
+    class:og-cell-editable={isEditable}
+    title={fallbackText}
+    bind:this={el}
+  ></span>
+{:else}
+  <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
+    >{displayText}</span
+  >
+{/if}
 
 <style>
-  .og-cell-host {
-    display: block;
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
   .og-grid-cell {
     display: block;
     overflow: hidden;
@@ -224,54 +183,6 @@
   }
   .og-cell-editable {
     cursor: text;
-  }
-  /* Edit-in-modal affordance: hover-revealed, right-aligned within the cell.
-     Hidden until the cell (or the control) is hovered/focused so it never
-     obscures the value at rest. */
-  .og-cell-edit-modal {
-    position: absolute;
-    top: 50%;
-    right: 2px;
-    transform: translateY(-50%);
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-s, 4px);
-    background: transparent;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.08s ease-in;
-  }
-  .og-cell-host--editable:hover .og-cell-edit-modal,
-  .og-cell-edit-modal:focus-visible {
-    opacity: 1;
-  }
-  .og-cell-edit-modal:hover {
-    background: var(--background-modifier-hover, rgba(127, 127, 127, 0.15));
-  }
-  /* Paint the pencil as an alpha MASK filled with the element's themed color —
-     never a background-image (currentColor there resolves inside the SVG's own
-     document, so it renders black on the dark grid). See the datauri-currentcolor
-     glyph learning. */
-  .og-cell-edit-modal::before {
-    content: '';
-    display: block;
-    width: 14px;
-    height: 14px;
-    margin: 0 auto;
-    background-color: var(--text-muted, currentColor);
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E");
-    -webkit-mask-size: contain;
-    mask-size: contain;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-  }
-  .og-cell-edit-modal:hover::before {
-    background-color: var(--text-normal, currentColor);
   }
   /* Markdown cells can hold multi-value/list content; clamp to the row so a
      rendered list or wrapping links can never grow the fixed SVAR row height

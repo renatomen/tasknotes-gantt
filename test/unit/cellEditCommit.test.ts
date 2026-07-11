@@ -26,10 +26,8 @@ import {
   storedFlatValue,
   suggestColumns,
   svarEditorConfigFor,
-  textAffordanceColumns,
   violatesDateOrder,
   withAlignedFlatKeys,
-  type ShippedEditorKind,
 } from '../../src/bases/cellEditCommit';
 import type { CellEditorDescriptor } from '../../src/bases/cellEditability';
 import { classifyCellEdit } from '../../src/bases/cascadeGate';
@@ -238,24 +236,6 @@ describe('dateRoleColumns', () => {
 
   it('yields an empty map for absent descriptors', () => {
     expect(dateRoleColumns(undefined).size).toBe(0);
-  });
-});
-
-describe('textAffordanceColumns', () => {
-  const kinds: ReadonlyMap<string, ShippedEditorKind> = new Map<string, ShippedEditorKind>([
-    ['note.effort', 'text'],
-    ['note.details', 'text'],
-    ['note.points', 'number'],
-    ['note.tags', 'list'],
-    ['note.due', 'date'],
-  ]);
-
-  it('returns only the text columns when the view can write', () => {
-    expect([...textAffordanceColumns(kinds, true)].sort()).toEqual(['note.details', 'note.effort']);
-  });
-
-  it('returns an empty set when the view cannot write (read-only gate)', () => {
-    expect(textAffordanceColumns(kinds, false).size).toBe(0);
   });
 });
 
