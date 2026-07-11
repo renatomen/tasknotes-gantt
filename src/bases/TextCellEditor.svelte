@@ -107,6 +107,7 @@
     // surrounding text is preserved.
     const spliced = spliceWikilink(text, tokenBounds, wikilinkEntry(item.value));
     text = spliced.value;
+    onapply(text);
     closeDropdown();
     // Restore focus + caret after the input re-renders from the new `text`.
     await tick();
@@ -155,6 +156,10 @@
   }
 
   function handleInput(): void {
+    // Mirror the typed text into SVAR's editor value on every keystroke (the
+    // stock text editor binds straight to the store). Without this, a commit
+    // path SVAR drives itself — Tab to the next cell — would save the stale seed.
+    onapply(text);
     void refreshFromCaret();
   }
 

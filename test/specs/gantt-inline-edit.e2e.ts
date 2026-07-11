@@ -821,6 +821,39 @@ describe("Gantt (OG) inline cell editing", () => {
     );
   });
 
+  it("keeps SVAR's editor value in sync so Tab commits the typed text", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Type (no `[[`, so no dropdown), then Tab — SVAR closes the editor and
+    // commits its own store value, which the editor must have kept in sync.
+    expect(await typeEditorToken("tabbed edit", 11)).toBe(true);
+    await browser.keys(["Tab"]);
+
+    let committed: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        committed = await frontmatterValue(TASK_ROW, "effort");
+        return committed === "tabbed edit";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `Tab did not commit the typed text; frontmatter effort: ${JSON.stringify(committed)}`,
+      },
+    );
+
+    // Tab may have opened the next cell's editor — close it so the next test's
+    // readiness gate starts clean.
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "An editor stayed open after the Tab commit",
+    });
+  });
+
   it("closes the `[[` dropdown when the caret leaves the token so Enter commits instead of picking", async () => {
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {

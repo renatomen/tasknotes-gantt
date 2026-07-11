@@ -477,6 +477,24 @@ export function suggestColumns(
   return channels;
 }
 
+/**
+ * The `text`-kind columns eligible for the edit-in-modal affordance: empty when
+ * the view cannot write. The affordance opens TaskNotes' editor — a write path —
+ * so it must be gated by the same write capability as the inline editors, never
+ * surfaced in a read-only view even while TaskNotes still reports managed rows.
+ */
+export function textAffordanceColumns(
+  editorKinds: ReadonlyMap<string, ShippedEditorKind>,
+  writable: boolean,
+): Set<string> {
+  const columns = new Set<string>();
+  if (!writable) return columns;
+  for (const [columnId, kind] of editorKinds) {
+    if (kind === 'text') columns.add(columnId);
+  }
+  return columns;
+}
+
 /** The date-bearing slice of a render row the cross-field check reads. */
 export interface DatedRowLike {
   start: Date | null;

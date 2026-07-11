@@ -72,6 +72,7 @@
     shippedEditorKinds,
     storedFlatValue,
     suggestColumns,
+    textAffordanceColumns,
     violatesDateOrder,
     withAlignedFlatKeys,
     type SuggestEditorConfig,
@@ -1343,9 +1344,10 @@
   // The text-editor columns (edit-in-modal affordance target): PropertyCell
   // combines this live set with its row's `custom.editable` to render the
   // hover affordance only on editable text cells. A getter so the cell tracks it.
-  setContext(
-    GRID_TEXT_COLUMNS_CONTEXT_KEY,
-    () => new Set([...editorKindByColumn].filter(([, k]) => k === 'text').map(([id]) => id)),
+  // Gated by the same write-capability check as resolveRowEditor — the affordance
+  // opens TaskNotes' editor, so a read-only view must not surface it.
+  setContext(GRID_TEXT_COLUMNS_CONTEXT_KEY, () =>
+    textAffordanceColumns(editorKindByColumn, !readOnly && !!onMutateProperty),
   );
 
   // The edit-in-modal action for PropertyCell's affordance (SVAR can't pass it
