@@ -28,11 +28,15 @@ export interface SplicedWikilink {
 }
 
 /**
- * Detect an unterminated `[[…` token whose opening lies before `caret`.
+ * Detect the `[[…` token the caret sits within: its query (text between the
+ * `[[` and the caret) and the value bounds a pick should replace.
  *
- * Scans back from the caret for the last `[[`; the token is open only when no
- * `]]` closes it before the caret. Returns the token's `query`/`start`/`end`,
- * or `null` when the caret is not inside an open `[[` token.
+ * Scans back for the nearest `[[` before the caret. When a `]]` closes that
+ * same `[[` (no other `[[` intervenes), the token is an existing link: if the
+ * caret is past the `]]` there is no token (`null`); otherwise the token's
+ * `end` extends through the `]]` so a pick replaces the whole link rather than
+ * leaving a stray `]]`. Otherwise the token is unterminated and ends at the
+ * caret. Returns `null` when the caret is not inside a `[[` token.
  */
 export function detectWikilinkToken(value: string, caret: number): WikilinkToken | null {
   const bounded = Math.max(0, Math.min(caret, value.length));
@@ -42,9 +46,17 @@ export function detectWikilinkToken(value: string, caret: number): WikilinkToken
   if (bounded < OPEN.length) return null;
   const start = value.lastIndexOf(OPEN, bounded - OPEN.length);
   if (start === -1) return null;
+  const query = value.slice(start + OPEN.length, bounded);
   const closeIdx = value.indexOf(CLOSE, start + OPEN.length);
-  if (closeIdx !== -1 && closeIdx < bounded) return null;
-  return { query: value.slice(start + OPEN.length, bounded), start, end: bounded };
+  const nextOpenIdx = value.indexOf(OPEN, start + OPEN.length);
+  // A `]]` closes THIS `[[` only when no other `[[` opens before it.
+  const closesThisToken =
+    closeIdx !== -1 && (nextOpenIdx === -1 || nextOpenIdx > closeIdx);
+  if (closesThisToken) {
+    if (closeIdx < bounded) return null; // caret is past the closing `]]`
+    return { query, start, end: closeIdx + CLOSE.length };
+  }
+  return { query, start, end: bounded };
 }
 
 /**

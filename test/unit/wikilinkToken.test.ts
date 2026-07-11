@@ -38,9 +38,19 @@ describe('detectWikilinkToken', () => {
     expect(detectWikilinkToken(value, 4)).toEqual({ query: 'Al', start: 0, end: 4 });
   });
 
-  it('does not treat a ]] positioned after the caret as terminating the token', () => {
-    // caret sits before the closing ]] of '[[Q3]]'
-    expect(detectWikilinkToken('[[Q3]] foo', 4)).toEqual({ query: 'Q3', start: 0, end: 4 });
+  it('extends the token end through a following ]] that closes it (editing an existing link)', () => {
+    // caret sits before the closing ]] of '[[Q3]]' — a pick must replace the
+    // whole link, not leave a stray ]] behind.
+    expect(detectWikilinkToken('[[Q3]] foo', 4)).toEqual({ query: 'Q3', start: 0, end: 6 });
+  });
+
+  it('does not extend through a ]] that belongs to a nested [[ (token stays open)', () => {
+    // The ]] closes '[[b', not the outer '[[a', so '[[a' is unterminated.
+    expect(detectWikilinkToken('[[a [[b]]', 3)).toEqual({ query: 'a', start: 0, end: 3 });
+  });
+
+  it('returns null when the caret is past the closing ]] of a link', () => {
+    expect(detectWikilinkToken('[[Q3]] foo', 8)).toBeNull();
   });
 
   it('returns null at caret 0 even when the value starts with [[', () => {
