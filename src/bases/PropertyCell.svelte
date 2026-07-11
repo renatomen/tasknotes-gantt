@@ -80,7 +80,7 @@
       ).internalPlugins?.getPluginById?.('global-search')?.instance;
       gs?.openGlobalSearch?.(`tag:#${tag}`);
     } catch {
-      /* global search unavailable — no-op (never fall back to the row modal) */
+      /* Global-search plugin unavailable — no-op (never fall back to the row modal) */
     }
   }
 

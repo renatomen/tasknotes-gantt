@@ -37,7 +37,13 @@ import { fileURLToPath } from "node:url";
  *   - a list-shaped user field with an autosuggestFilter opens the custom
  *     suggest editor; against TaskNotes 4.11.0 (no reachable FileSuggestHelper)
  *     it renders the DEGRADED free-text state, and an Enter commit APPENDS the
- *     entry to the raw stored list via the direct (bridge-bypassing) path.
+ *     entry to the raw stored list via the direct (bridge-bypassing) path;
+ *   - a text-field cell opens the custom text editor: typing `[[Q3` surfaces
+ *     VAULT-sourced note suggestions (the fixture's Q3 notes, not TaskNotes),
+ *     and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving the
+ *     surrounding text WITHOUT being lost to the editor's clickOutside;
+ *   - committing markdown (`**ship**`) into a text cell re-renders decorated
+ *     (bold) after the confirming data pass (raw text shows optimistically).
  *
  * The display locale is forced to de-DE via `window.__tnGanttDebug.localeOverride`
  * BEFORE the view assembles data (and re-asserted on every readiness poll),
@@ -48,7 +54,9 @@ import { fileURLToPath } from "node:url";
  *    ":" for string ids) and `data-col-id` — match with endsWith in-page;
  *  - an OPEN inline editor is `.wx-cell.wx-editor` with an `input.wx-text`
  *    (text editor); Enter commits (grid `update-cell` → gantt `update-task`);
- *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`.
+ *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`;
+ *  - the text editor's `[[` dropdown is PORTAL'd to the body: its rows are
+ *    `.og-suggest-item` (queried document-wide, like the richselect picker).
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -56,8 +64,10 @@ const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-edit");
 
 const TASK_ROW = "Task Alpha.md";
+const TASK_BETA_ROW = "Task Beta.md";
 const PLAIN_ROW = "Plain Note.md";
 const EFFORT_COL = "note.effort";
+const ASSIGNEE_COL = "note.assignee";
 const POINTS_COL = "note.points";
 const FORMULA_COL = "formula.label";
 const SCHEDULED_COL = "note.scheduled";
@@ -66,6 +76,9 @@ const STATUS_COL = "note.status";
 const WORKSTREAM_COL = "note.workstream";
 /** Any de-DE numeric date (the fixture dates render dotted under the override). */
 const DE_DATE_PATTERN = /\d{1,2}\.\d{1,2}\.\d{4}/;
+/** Vault notes that back the `[[` autosuggest (excluded from the base rows). */
+const ROADMAP_LABEL = "Q3 Roadmap";
+const RETRO_LABEL = "Q3 Retro";
 
 interface EditGridState {
   mounted: boolean;
@@ -262,6 +275,138 @@ async function readSuggestDegradedHint(): Promise<boolean> {
   return browser.execute(() => !!document.querySelector(".og-suggest-degraded"));
 }
 
+/**
+ * Set the open text editor's value and caret, then fire `input` so the editor
+ * runs its `[[`-token detection at that caret (setting `.value` alone leaves the
+ * caret at the end, which the mid-text cases need to override).
+ */
+async function typeEditorToken(value: string, caret: number): Promise<boolean> {
+  return browser.execute(
+    (v, c) => {
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!input) return false;
+      input.value = v;
+      input.setSelectionRange(c, c);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+      return true;
+    },
+    value,
+    caret,
+  );
+}
+
+/** The labels of the text editor's portal'd `[[` suggestion rows. */
+async function readSuggestItems(): Promise<string[]> {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).map((el) =>
+      (el.textContent ?? "").trim(),
+    ),
+  );
+}
+
+/** Whether the text editor's `[[` suggestion panel is currently rendered. */
+async function readSuggestPanelOpen(): Promise<boolean> {
+  return browser.execute(() => !!document.querySelector(".og-suggest-panel"));
+}
+
+/**
+ * Simulate a genuine click OUTSIDE the open editor: mousedown then click on the
+ * document body (lib-dom's clickOutside arms on mousedown, fires on the click),
+ * so the editor's outside-click commit runs.
+ */
+async function clickOutsideEditor(): Promise<void> {
+  await browser.execute(() => {
+    document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    document.body.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+}
+
+/** The rendered text of a grid cell (markdown flattened to text), or null. */
+async function readCellRenderedText(rowSuffix: string, columnId: string): Promise<string | null> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return null;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      const span = cell?.querySelector<HTMLElement>(".og-grid-cell");
+      return span ? (span.textContent ?? "").trim() : null;
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
+/**
+ * Reposition the caret in the open editor and fire the caret key's keyup WITHOUT
+ * changing the text — the path that must re-sync the `[[` token state so the
+ * dropdown closes once the caret leaves the token.
+ */
+async function moveEditorCaret(caret: number, key: string): Promise<void> {
+  await browser.execute(
+    (c, k) => {
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!input) return;
+      input.setSelectionRange(c, c);
+      input.dispatchEvent(new window.KeyboardEvent("keyup", { key: k, bubbles: true }));
+    },
+    caret,
+    key,
+  );
+}
+
+/**
+ * Pick a `[[` suggestion by label with a realistic gesture (mousemove + mousedown
+ * + click): the mousedown drives lib-dom's clickOutside bookkeeping so the pick's
+ * click is correctly classified as INSIDE the editor (via the portal'd-dropdown
+ * nested-listener exemption) and is not lost to a spurious commit.
+ */
+async function pickSuggestItem(label: string): Promise<boolean> {
+  return browser.execute((wanted) => {
+    const item = Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).find(
+      (el) => (el.textContent ?? "").trim() === wanted,
+    );
+    if (!item) return false;
+    item.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true }));
+    item.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    item.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    return true;
+  }, label);
+}
+
+/** Commit the open editor's CURRENT value with Enter (no value change). */
+async function pressEnterInEditor(): Promise<void> {
+  await browser.execute(() => {
+    document
+      .querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input")
+      ?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}
+
+/** The text of a `<strong>` rendered inside a cell (markdown decoration), or null. */
+async function readCellStrongText(rowSuffix: string, columnId: string): Promise<string | null> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return null;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      const strong = cell?.querySelector<HTMLElement>(".og-grid-cell strong");
+      return strong ? (strong.textContent ?? "").trim() : null;
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
 /** Close any TaskNotes modal a fall-through double-click activation opened. */
 async function dismissAnyModal(): Promise<void> {
   await browser.execute(() => {
@@ -367,6 +512,7 @@ describe("Gantt (OG) inline cell editing", () => {
       if (!tn?.settings) throw new Error("TaskNotes plugin/settings unavailable");
       tn.settings.userFields = [
         { id: "effort", displayName: "Effort", key: "effort", type: "text" },
+        { id: "assignee", displayName: "Assignee", key: "assignee", type: "text" },
         { id: "points", displayName: "Points", key: "points", type: "number" },
         {
           id: "workstream",
@@ -461,6 +607,33 @@ describe("Gantt (OG) inline cell editing", () => {
       expect(sampledText).toBe("Deep work");
       await browser.pause(100);
     }
+  });
+
+  it("seeds a wikilink-valued text cell with the raw markdown and offers `[[` suggestions", async () => {
+    // Task Beta's assignee cell stores `[[Chuck Norris]]` — read mode renders it
+    // as a link, so edit mode must seed the RAW wikilink, not the display form.
+    expect(await doubleClickCell(TASK_BETA_ROW, ASSIGNEE_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the assignee cell",
+    });
+    expect(await readEditorInputValue()).toBe("[[Chuck Norris]]");
+
+    // A plain text field (no autosuggestFilter) gets the `[[` vault autosuggest:
+    // append a second token and the vault notes surface.
+    expect(await typeEditorToken("[[Chuck Norris]] and [[Q3", 24)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).includes(ROADMAP_LABEL), {
+      timeout: 10000,
+      timeoutMsg: "`[[` suggestions did not surface on the assignee cell",
+    });
+
+    // Close the editor (an outside click commits the current text); no later
+    // test reads the assignee cell, so the committed value is not asserted.
+    await clickOutsideEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Assignee editor did not close",
+    });
   });
 
   it("rejects non-numeric text in the number cell without writing", async () => {
@@ -617,4 +790,226 @@ describe("Gantt (OG) inline cell editing", () => {
       },
     );
   });
+
+  it("keeps SVAR's editor value in sync so Tab commits the typed text", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Type (no `[[`, so no dropdown), then Tab — SVAR closes the editor and
+    // commits its own store value, which the editor must have kept in sync.
+    expect(await typeEditorToken("tabbed edit", 11)).toBe(true);
+    await browser.keys(["Tab"]);
+
+    let committed: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        committed = await frontmatterValue(TASK_ROW, "effort");
+        return committed === "tabbed edit";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `Tab did not commit the typed text; frontmatter effort: ${JSON.stringify(committed)}`,
+      },
+    );
+
+    // Tab may have opened the next cell's editor — close it so the next test's
+    // readiness gate starts clean.
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "An editor stayed open after the Tab commit",
+    });
+  });
+
+  it("commits the typed text on Enter when the `[[` token matches no notes", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // A token that matches no vault note keeps the dropdown open on a "no
+    // matches" state; Enter must still commit the typed text, not be swallowed.
+    expect(await typeEditorToken("note [[Zzq", 10)).toBe(true);
+    await browser.waitUntil(
+      async () => (await readSuggestPanelOpen()) && (await readSuggestItems()).length === 0,
+      {
+        timeout: 10000,
+        timeoutMsg: "`[[` dropdown did not reach the no-matches state",
+      },
+    );
+
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Enter did not commit-and-close on the no-matches token",
+    });
+
+    let committed: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        committed = await frontmatterValue(TASK_ROW, "effort");
+        return committed === "note [[Zzq";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `no-match Enter did not commit the typed text; frontmatter: ${JSON.stringify(committed)}`,
+      },
+    );
+  });
+
+  it("closes the `[[` dropdown when the caret leaves the token so Enter commits instead of picking", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Open the dropdown with a mid-text token gesture.
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+    await browser.waitUntil(async () => readSuggestPanelOpen(), {
+      timeout: 10000,
+      timeoutMsg: "`[[` dropdown did not open on the typed token",
+    });
+
+    // Move the caret to the start with a keyup that fires no `input` — the caret
+    // no longer sits inside the `[[…` token, so the dropdown must close on its
+    // own rather than staying open and hijacking the next Enter.
+    await moveEditorCaret(0, "Home");
+    await browser.waitUntil(async () => !(await readSuggestPanelOpen()), {
+      timeout: 5000,
+      timeoutMsg: "`[[` dropdown did not close after the caret left the token",
+    });
+
+    // Dropdown closed → Enter commits the current text verbatim (never force-picks
+    // a suggestion) and the editor closes.
+    expect(await readEditorInputValue()).toBe("see [[Q3 later");
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not commit-and-close on Enter with the dropdown closed",
+    });
+  });
+
+  it("surfaces vault [[ suggestions in the text editor and a mouse pick splices at the caret (not lost to clickOutside)", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Mid-text token: caret sits right after "Q3" (offset 8) so a correct splice
+    // must preserve BOTH the leading "see " and the trailing " later".
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+
+    // Suggestions come from the VAULT (the fixture's Q3 notes), not TaskNotes —
+    // TaskNotes' helper is unreachable in the harness, so this proves R2.
+    let items: string[] = [];
+    await browser.waitUntil(
+      async () => {
+        items = await readSuggestItems();
+        return items.includes(ROADMAP_LABEL) && items.includes(RETRO_LABEL);
+      },
+      {
+        timeout: 10000,
+        timeoutMsg: () => `vault [[ suggestions did not appear; saw: ${JSON.stringify(items)}`,
+      },
+    );
+
+    expect(await pickSuggestItem(ROADMAP_LABEL)).toBe(true);
+
+    // The pick splices `[[Q3 Roadmap]]` at the token bounds (surrounding text
+    // preserved) AND the editor is STILL OPEN — the portal'd-dropdown click was
+    // not lost to the wrapper's clickOutside → commit.
+    let inputValue: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        inputValue = await readEditorInputValue();
+        return inputValue === "see [[Q3 Roadmap]] later";
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: () => `pick did not splice at the caret; input: ${JSON.stringify(inputValue)}`,
+      },
+    );
+    expect((await readEditState()).editorOpen).toBe(true);
+
+    // Commit the spliced value with Enter (dropdown already closed) to close the
+    // editor deterministically; the next test overwrites the effort value.
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not close after the Enter commit",
+    });
+  });
+
+  it("re-renders committed markdown decorated (bold) after the confirming pass", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    expect(await commitEditorValue("**ship** it")).toBe(true);
+
+    // KTD7: the optimistic apply shows RAW text on commit; the decorated
+    // `<strong>` appears only after the async confirming data pass — so POLL for
+    // it rather than asserting synchronously post-commit.
+    let boldText: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        boldText = await readCellStrongText(TASK_ROW, EFFORT_COL);
+        return boldText === "ship";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `effort cell did not render <strong>ship</strong>; saw: ${JSON.stringify(boldText)}`,
+      },
+    );
+  });
+
+  it("commits a mouse-picked wikilink splice when the click lands outside the editor", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).includes(ROADMAP_LABEL), {
+      timeout: 10000,
+      timeoutMsg: "vault [[ suggestions did not appear for the outside-click case",
+    });
+    expect(await pickSuggestItem(ROADMAP_LABEL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditorInputValue()) === "see [[Q3 Roadmap]] later", {
+      timeout: 5000,
+      timeoutMsg: "pick did not splice before the outside click",
+    });
+
+    // Click elsewhere instead of pressing Enter — the spliced value must commit,
+    // not be discarded back to the seed.
+    await clickOutsideEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not close on the outside click",
+    });
+
+    let rendered: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        rendered = await readCellRenderedText(TASK_ROW, EFFORT_COL);
+        return rendered !== null && rendered.includes("Q3 Roadmap");
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `outside click did not commit the splice; cell shows: ${JSON.stringify(rendered)}`,
+      },
+    );
+  });
+
 });

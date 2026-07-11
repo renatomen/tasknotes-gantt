@@ -16,7 +16,9 @@ import {
   counterpartDate,
   dateRoleColumns,
   editorAttachedColumnIds,
+  editorSeedFor,
   editorSeedValue,
+  OG_TEXT_EDITOR_TYPE,
   resolveCellEditCommit,
   rowEditorConfig,
   shippedEditorKind,
@@ -461,6 +463,42 @@ describe('editorSeedValue', () => {
   });
 });
 
+describe('editorSeedFor', () => {
+  it('seeds a text cell with the rendered markdown source, not the display form', () => {
+    // A wikilink value classifies to its display text ("Chuck Norris"), but the
+    // render descriptor holds the raw markdown the cell shows — editing must use
+    // that so the link is not dropped on commit.
+    const stored: TypedValue = { kind: 'link', value: 'Chuck Norris' };
+    const render = { mode: 'markdown', source: '[[Chuck Norris]]' } as const;
+    expect(editorSeedFor('text', stored, render)).toBe('[[Chuck Norris]]');
+  });
+
+  it('preserves an aliased wikilink verbatim (reconstruction from the display would corrupt it)', () => {
+    const stored: TypedValue = { kind: 'link', value: 'Chuck' };
+    const render = { mode: 'markdown', source: '[[People/Chuck Norris|Chuck]]' } as const;
+    expect(editorSeedFor('text', stored, render)).toBe('[[People/Chuck Norris|Chuck]]');
+  });
+
+  it('falls back to the stored string form for a text cell rendered as plain text', () => {
+    expect(editorSeedFor('text', text('Draft'), { mode: 'text', text: 'Draft' })).toBe('Draft');
+  });
+
+  it('falls back to the stored value when there is no render descriptor', () => {
+    expect(editorSeedFor('text', text('Draft'), undefined)).toBe('Draft');
+  });
+
+  it('ignores the markdown source for non-text kinds (number keeps the raw number)', () => {
+    const render = { mode: 'markdown', source: '42' } as const;
+    expect(editorSeedFor('number', num(42), render)).toBe(42);
+  });
+
+  it('seeds a single-value suggest cell with the markdown source too (link not dropped)', () => {
+    const stored: TypedValue = { kind: 'link', value: 'Chuck Norris' };
+    const render = { mode: 'markdown', source: '[[Chuck Norris]]' } as const;
+    expect(editorSeedFor('suggest', stored, render)).toBe('[[Chuck Norris]]');
+  });
+});
+
 describe('storedFlatValue', () => {
   it('restores the raw scalar for text/number/boolean', () => {
     expect(storedFlatValue(text('Draft'))).toBe('Draft');
@@ -599,8 +637,16 @@ describe('svarEditorConfigFor', () => {
     });
   });
 
-  it('maps text, number, and list to the text editor', () => {
-    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toBe('text');
+  it('maps text to the registered custom text editor (inline [[ autosuggest)', () => {
+    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toEqual({
+      type: OG_TEXT_EDITOR_TYPE,
+      config: {},
+    });
+  });
+
+  it('keeps number and list on the STOCK text editor (regression guard: no over-broad interception)', () => {
+    // number and list share the text-input fallback branch — they must NOT pick
+    // up the custom [[ editor (they carry no wikilinks and cast on commit).
     expect(svarEditorConfigFor('number', { dateLocale: 'en-US' })).toBe('text');
     expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toBe('text');
   });
@@ -697,8 +743,12 @@ describe('rowEditorConfig', () => {
   });
 
   it('returns the kind config for an editable row', () => {
+    // A text kind now resolves the custom editor; number stays on stock text.
     expect(
       rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text', { dateLocale: 'en-US' }),
+    ).toEqual({ type: OG_TEXT_EDITOR_TYPE, config: {} });
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'number', { dateLocale: 'en-US' }),
     ).toBe('text');
   });
 

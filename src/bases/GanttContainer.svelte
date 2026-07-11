@@ -62,8 +62,9 @@
     counterpartDate,
     dateRoleColumns,
     editorAttachedColumnIds,
-    editorSeedValue,
+    editorSeedFor,
     OG_SUGGEST_EDITOR_TYPE,
+    OG_TEXT_EDITOR_TYPE,
     resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
@@ -76,6 +77,7 @@
     type SvarRowLike,
   } from './cellEditCommit';
   import { appendListEntry, resolveSuggestionFetcher } from './taskNotesSuggest';
+  import { createVaultWikilinkFetcher } from './vaultWikilinkSuggest';
   import { bareProperty } from '../datasource/dateFieldMapping';
   import { ensureInlineEditorsRegistered } from './inlineEditors';
   import {
@@ -1358,7 +1360,25 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return withSuggestWiring(config, row);
+    return withTextEditorWiring(withSuggestWiring(config, row), row);
+  }
+
+  /**
+   * Attach the vault `[[` fetcher to a text editor config per open (parallel to
+   * {@link withSuggestWiring}): the fetcher enumerates the vault relative to the
+   * row's note path, so the component gets a fresh source each open. Non-text
+   * configs pass through untouched.
+   */
+  function withTextEditorWiring(
+    config: SvarEditorConfig,
+    row: SvarRowLike | undefined,
+  ): SvarEditorConfig {
+    if (typeof config === 'string' || config.type !== OG_TEXT_EDITOR_TYPE) return config;
+    const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
+    return {
+      type: OG_TEXT_EDITOR_TYPE,
+      config: { fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath) },
+    };
   }
 
   /**
@@ -1413,7 +1433,13 @@
         if (buildKind) {
           col.editor = (row) => resolveRowEditor(row, c.id);
           col.getter = (row) =>
-            editorSeedValue(editorKindByColumn.get(c.id) ?? buildKind, row?.custom?.properties?.[c.id]);
+            editorSeedFor(
+              editorKindByColumn.get(c.id) ?? buildKind,
+              row?.custom?.properties?.[c.id],
+              (row?.custom as { cellRenders?: Record<string, CellRender> } | undefined)?.cellRenders?.[
+                c.id
+              ],
+            );
         }
       }
       return col;
