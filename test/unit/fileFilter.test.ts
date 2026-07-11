@@ -201,6 +201,51 @@ describe('matchesFileFilter — property', () => {
       }),
     ).toBe(false);
   });
+
+  it('matches a numeric frontmatter property by its string form', () => {
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { priority: 3 } }), {
+        propertyKey: 'priority',
+        propertyValue: '3',
+      }),
+    ).toBe(true);
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { priority: 3 } }), {
+        propertyKey: 'priority',
+        propertyValue: '2',
+      }),
+    ).toBe(false);
+  });
+
+  it('matches a boolean frontmatter property by its string form', () => {
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { active: true } }), {
+        propertyKey: 'active',
+        propertyValue: 'true',
+      }),
+    ).toBe(true);
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { active: false } }), {
+        propertyKey: 'active',
+        propertyValue: 'true',
+      }),
+    ).toBe(false);
+  });
+
+  it('matches an object frontmatter property by its JSON form', () => {
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { ref: { id: 1 } } }), {
+        propertyKey: 'ref',
+        propertyValue: '{"id":1}',
+      }),
+    ).toBe(true);
+    expect(
+      matchesFileFilter(candidate({ frontmatter: { ref: { id: 1 } } }), {
+        propertyKey: 'ref',
+        propertyValue: '{"id":2}',
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('matchesFileFilter — combined dimensions', () => {

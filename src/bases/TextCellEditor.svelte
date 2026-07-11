@@ -62,10 +62,12 @@
   onMount(() => {
     node?.focus();
     node?.select();
-    // Fire-and-forget: the suggester lives on the input's event listeners and is
-    // GC'd with the input when the editor closes (the TaskNotes pattern).
     if (app && node && fetchSuggestions) {
-      new WikilinkInputSuggest(app, node, fetchSuggestions);
+      const suggest = new WikilinkInputSuggest(app, node, fetchSuggestions);
+      // The popover renders on document.body, outside this subtree; if the grid
+      // recycles the cell mid-edit the input's removal may not fire blur, so
+      // close it here to avoid a lingering popover and its captured keymap scope.
+      return () => suggest.close();
     }
   });
 

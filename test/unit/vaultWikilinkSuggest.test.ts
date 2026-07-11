@@ -212,3 +212,35 @@ describe('createVaultWikilinkFetcher — filter scoping', () => {
     expect(results.map((r) => r.display)).toEqual(['Alpha']);
   });
 });
+
+/** Attach a TaskNotes plugin whose settings expose an excludedFolders value. */
+function withExcludedFolders(app: App, excludedFolders: unknown): App {
+  (app as unknown as { plugins: unknown }).plugins = {
+    getPlugin: (id: string) => (id === 'tasknotes' ? { settings: { excludedFolders } } : null),
+  };
+  return app;
+}
+
+describe('createVaultWikilinkFetcher — TaskNotes excludedFolders', () => {
+  it('drops notes under a comma-string excludedFolders setting, ignoring blank entries', async () => {
+    const app = withExcludedFolders(
+      makeRichApp([{ path: 'Archive/Old.md' }, { path: 'Active/New.md' }]),
+      ' Archive , ',
+    );
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const results = await fetch('');
+    expect(results.map((r) => r.display)).toEqual(['New']);
+  });
+
+  it('drops notes under an array excludedFolders setting', async () => {
+    const app = withExcludedFolders(
+      makeRichApp([{ path: 'Archive/Old.md' }, { path: 'Active/New.md' }]),
+      ['Archive'],
+    );
+    const fetch = createVaultWikilinkFetcher(app, 'source.md');
+
+    const results = await fetch('');
+    expect(results.map((r) => r.display)).toEqual(['New']);
+  });
+});
