@@ -129,11 +129,18 @@
         return;
       }
       if (ev.key === 'Enter') {
-        // Pick the highlighted suggestion; never commit the cell while open.
         ev.preventDefault();
         ev.stopPropagation();
         const chosen = active >= 0 ? items[active] : undefined;
-        if (chosen) void pick(chosen);
+        if (chosen) {
+          // Pick the highlighted suggestion; don't commit the cell.
+          void pick(chosen);
+        } else {
+          // No suggestion to pick (e.g. the token matched nothing) — commit the
+          // typed text so Enter isn't a dead end for keyboard users.
+          onapply(text);
+          onsave();
+        }
         return;
       }
       if (ev.key === 'Escape') {

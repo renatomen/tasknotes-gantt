@@ -854,6 +854,43 @@ describe("Gantt (OG) inline cell editing", () => {
     });
   });
 
+  it("commits the typed text on Enter when the `[[` token matches no notes", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // A token that matches no vault note keeps the dropdown open on a "no
+    // matches" state; Enter must still commit the typed text, not be swallowed.
+    expect(await typeEditorToken("note [[Zzq", 10)).toBe(true);
+    await browser.waitUntil(
+      async () => (await readSuggestPanelOpen()) && (await readSuggestItems()).length === 0,
+      {
+        timeout: 10000,
+        timeoutMsg: "`[[` dropdown did not reach the no-matches state",
+      },
+    );
+
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Enter did not commit-and-close on the no-matches token",
+    });
+
+    let committed: unknown = "<unread>";
+    await browser.waitUntil(
+      async () => {
+        committed = await frontmatterValue(TASK_ROW, "effort");
+        return committed === "note [[Zzq";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `no-match Enter did not commit the typed text; frontmatter: ${JSON.stringify(committed)}`,
+      },
+    );
+  });
+
   it("closes the `[[` dropdown when the caret leaves the token so Enter commits instead of picking", async () => {
     expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
     await browser.waitUntil(async () => (await readEditState()).editorOpen, {
