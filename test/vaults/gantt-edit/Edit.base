@@ -3,6 +3,8 @@ filters:
     - 'file.ext == "md"'
     - 'file.name != "WS Alpha"'
     - 'file.name != "WS Beta"'
+    - 'file.name != "Q3 Roadmap"'
+    - 'file.name != "Q3 Retro"'
 formulas:
   label: 'if(effort, "has-effort", "no-effort")'
 views:

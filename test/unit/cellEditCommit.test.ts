@@ -17,6 +17,7 @@ import {
   dateRoleColumns,
   editorAttachedColumnIds,
   editorSeedValue,
+  OG_TEXT_EDITOR_TYPE,
   resolveCellEditCommit,
   rowEditorConfig,
   shippedEditorKind,
@@ -599,8 +600,16 @@ describe('svarEditorConfigFor', () => {
     });
   });
 
-  it('maps text, number, and list to the text editor', () => {
-    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toBe('text');
+  it('maps text to the registered custom text editor (inline [[ autosuggest)', () => {
+    expect(svarEditorConfigFor('text', { dateLocale: 'en-US' })).toEqual({
+      type: OG_TEXT_EDITOR_TYPE,
+      config: {},
+    });
+  });
+
+  it('keeps number and list on the STOCK text editor (regression guard: no over-broad interception)', () => {
+    // number and list share the text-input fallback branch — they must NOT pick
+    // up the custom [[ editor (they carry no wikilinks and cast on commit).
     expect(svarEditorConfigFor('number', { dateLocale: 'en-US' })).toBe('text');
     expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toBe('text');
   });
@@ -697,8 +706,12 @@ describe('rowEditorConfig', () => {
   });
 
   it('returns the kind config for an editable row', () => {
+    // A text kind now resolves the custom editor; number stays on stock text.
     expect(
       rowEditorConfig({ id: 't1', custom: { editable: true } }, 'text', { dateLocale: 'en-US' }),
+    ).toEqual({ type: OG_TEXT_EDITOR_TYPE, config: {} });
+    expect(
+      rowEditorConfig({ id: 't1', custom: { editable: true } }, 'number', { dateLocale: 'en-US' }),
     ).toBe('text');
   });
 

@@ -58,6 +58,13 @@ export const OG_DATE_EDITOR_TYPE = 'og-date';
 /** The inline-editor type the custom autosuggest editor registers under. */
 export const OG_SUGGEST_EDITOR_TYPE = 'og-suggest';
 
+/**
+ * The inline-editor type the custom text editor registers under. Replaces the
+ * stock `'text'` input for `text`-kind cells, adding inline `[[` wikilink
+ * autosuggest; `number`/`list` keep the bare stock text editor.
+ */
+export const OG_TEXT_EDITOR_TYPE = 'og-text';
+
 /** Narrow a resolved editor kind to a shipped one, or `null` when there is none. */
 export function shippedEditorKind(kind: CellEditorKind): ShippedEditorKind | null {
   return SHIPPED_KINDS.has(kind) ? (kind as ShippedEditorKind) : null;
@@ -142,12 +149,24 @@ export interface SuggestEditorConfig extends SuggestEditorChannel {
   commitListEntry?: (entry: string) => void;
 }
 
+/**
+ * What the text cell editor reads from `editor.config`: the vault `[[`
+ * suggestion source, attached per editor-open by the view (the base config
+ * carries none). Absent = plain text editing with no autosuggest dropdown.
+ */
+export interface TextEditorConfig {
+  fetchSuggestions?: (
+    query: string,
+  ) => Promise<Array<{ value: string; display: string; path?: string }>>;
+}
+
 /** A SVAR inline-editor config (`TEditorType | IColumnEditor`). */
 export type SvarEditorConfig =
   | string
   | { type: string; config: { options: ChoiceEditorOption[] } }
   | { type: string; config: { locale: string } }
-  | { type: string; config: SuggestEditorConfig };
+  | { type: string; config: SuggestEditorConfig }
+  | { type: string; config: TextEditorConfig };
 
 /** The context the per-kind editor configs are built from. */
 export interface EditorConfigContext {
@@ -166,7 +185,8 @@ export interface EditorConfigContext {
  * `editor.config`), choice kinds → richselect over the configured value set
  * (or `null` when the set is empty — a picker with nothing to pick is not
  * offered), suggest → the registered custom autosuggest editor carrying its
- * channel (or `null` without one), everything else → the stock text input.
+ * channel (or `null` without one), text → the registered custom text editor
+ * (inline `[[` autosuggest), and `number`/`list` → the stock text input.
  */
 export function svarEditorConfigFor(
   kind: ShippedEditorKind,
@@ -187,6 +207,11 @@ export function svarEditorConfigFor(
     if (!context.suggest) return null;
     return { type: OG_SUGGEST_EDITOR_TYPE, config: { ...context.suggest } };
   }
+  if (kind === 'text') {
+    // The view attaches the vault `[[` fetcher per open (withTextEditorWiring).
+    return { type: OG_TEXT_EDITOR_TYPE, config: {} };
+  }
+  // `number` and `list` share the stock text input (they cast on commit).
   return 'text';
 }
 

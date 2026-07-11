@@ -195,6 +195,35 @@ describe('TaskNotesInteractions.handleActivate', () => {
   });
 });
 
+describe('TaskNotesInteractions.openEditModal', () => {
+  it('opens the edit modal unconditionally, ignoring the configured click action', async () => {
+    // singleClickAction 'none' would make handleActivate no-op; the explicit
+    // affordance must still open the modal.
+    const env = makeEnv({ singleClickAction: 'none' });
+    await new TaskNotesInteractions(env.app).openEditModal('tasks/a.md');
+
+    expect(env.tasksGet).toHaveBeenCalledWith('tasks/a.md');
+    expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
+    expect(env.openFile).not.toHaveBeenCalled();
+  });
+
+  it('falls back to opening the note when the edit modal is unavailable', async () => {
+    const env = makeEnv({ hasEditModal: false });
+    await new TaskNotesInteractions(env.app).openEditModal('tasks/a.md');
+
+    expect(env.openFile).toHaveBeenCalledTimes(1); // fell back
+    expect(env.openTaskEditModal).not.toHaveBeenCalled();
+  });
+
+  it('falls back to opening the note when TaskNotes is absent', async () => {
+    const env = makeEnv({ present: false });
+    await new TaskNotesInteractions(env.app).openEditModal('tasks/a.md');
+
+    expect(env.openFile).toHaveBeenCalledTimes(1);
+    expect(env.openTaskEditModal).not.toHaveBeenCalled();
+  });
+});
+
 describe('TaskNotesInteractions.showContextMenu', () => {
   it('shows the native task menu for the path at the event', () => {
     const env = makeEnv({});

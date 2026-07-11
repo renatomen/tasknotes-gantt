@@ -37,7 +37,15 @@ import { fileURLToPath } from "node:url";
  *   - a list-shaped user field with an autosuggestFilter opens the custom
  *     suggest editor; against TaskNotes 4.11.0 (no reachable FileSuggestHelper)
  *     it renders the DEGRADED free-text state, and an Enter commit APPENDS the
- *     entry to the raw stored list via the direct (bridge-bypassing) path.
+ *     entry to the raw stored list via the direct (bridge-bypassing) path;
+ *   - a text-field cell opens the custom text editor: typing `[[Q3` surfaces
+ *     VAULT-sourced note suggestions (the fixture's Q3 notes, not TaskNotes),
+ *     and a mouse pick splices `[[Q3 Roadmap]]` at the caret preserving the
+ *     surrounding text WITHOUT being lost to the editor's clickOutside;
+ *   - committing markdown (`**ship**`) into a text cell re-renders decorated
+ *     (bold) after the confirming data pass (raw text shows optimistically);
+ *   - the managed text cell carries a view-mode edit-in-modal affordance that
+ *     opens TaskNotes' edit modal; a non-managed row's text cell has none.
  *
  * The display locale is forced to de-DE via `window.__tnGanttDebug.localeOverride`
  * BEFORE the view assembles data (and re-asserted on every readiness poll),
@@ -48,7 +56,11 @@ import { fileURLToPath } from "node:url";
  *    ":" for string ids) and `data-col-id` — match with endsWith in-page;
  *  - an OPEN inline editor is `.wx-cell.wx-editor` with an `input.wx-text`
  *    (text editor); Enter commits (grid `update-cell` → gantt `update-task`);
- *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`.
+ *  - our editable-cell cue is the `og-cell-editable` class on `.og-grid-cell`;
+ *  - the text editor's `[[` dropdown is PORTAL'd to the body: its rows are
+ *    `.og-suggest-item` (queried document-wide, like the richselect picker);
+ *  - the edit-in-modal affordance is a `.og-cell-edit-modal` button inside the
+ *    cell (opacity-hidden until hover, but present in the DOM + clickable).
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -66,6 +78,9 @@ const STATUS_COL = "note.status";
 const WORKSTREAM_COL = "note.workstream";
 /** Any de-DE numeric date (the fixture dates render dotted under the override). */
 const DE_DATE_PATTERN = /\d{1,2}\.\d{1,2}\.\d{4}/;
+/** Vault notes that back the `[[` autosuggest (excluded from the base rows). */
+const ROADMAP_LABEL = "Q3 Roadmap";
+const RETRO_LABEL = "Q3 Retro";
 
 interface EditGridState {
   mounted: boolean;
@@ -260,6 +275,162 @@ async function readConfiguredStatuses(): Promise<Array<{ value: string; label: s
 /** Whether the open suggest editor shows its degraded (free-text) hint. */
 async function readSuggestDegradedHint(): Promise<boolean> {
   return browser.execute(() => !!document.querySelector(".og-suggest-degraded"));
+}
+
+/**
+ * Set the open text editor's value and caret, then fire `input` so the editor
+ * runs its `[[`-token detection at that caret (setting `.value` alone leaves the
+ * caret at the end, which the mid-text cases need to override).
+ */
+async function typeEditorToken(value: string, caret: number): Promise<boolean> {
+  return browser.execute(
+    (v, c) => {
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!input) return false;
+      input.value = v;
+      input.setSelectionRange(c, c);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+      return true;
+    },
+    value,
+    caret,
+  );
+}
+
+/** The labels of the text editor's portal'd `[[` suggestion rows. */
+async function readSuggestItems(): Promise<string[]> {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).map((el) =>
+      (el.textContent ?? "").trim(),
+    ),
+  );
+}
+
+/** Whether the text editor's `[[` suggestion panel is currently rendered. */
+async function readSuggestPanelOpen(): Promise<boolean> {
+  return browser.execute(() => !!document.querySelector(".og-suggest-panel"));
+}
+
+/**
+ * Reposition the caret in the open editor and fire the caret key's keyup WITHOUT
+ * changing the text — the path that must re-sync the `[[` token state so the
+ * dropdown closes once the caret leaves the token.
+ */
+async function moveEditorCaret(caret: number, key: string): Promise<void> {
+  await browser.execute(
+    (c, k) => {
+      const input = document.querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input");
+      if (!input) return;
+      input.setSelectionRange(c, c);
+      input.dispatchEvent(new window.KeyboardEvent("keyup", { key: k, bubbles: true }));
+    },
+    caret,
+    key,
+  );
+}
+
+/**
+ * Pick a `[[` suggestion by label with a realistic gesture (mousemove + mousedown
+ * + click): the mousedown drives lib-dom's clickOutside bookkeeping so the pick's
+ * click is correctly classified as INSIDE the editor (via the portal'd-dropdown
+ * nested-listener exemption) and is not lost to a spurious commit.
+ */
+async function pickSuggestItem(label: string): Promise<boolean> {
+  return browser.execute((wanted) => {
+    const item = Array.from(document.querySelectorAll<HTMLElement>(".og-suggest-item")).find(
+      (el) => (el.textContent ?? "").trim() === wanted,
+    );
+    if (!item) return false;
+    item.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true }));
+    item.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    item.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    return true;
+  }, label);
+}
+
+/** Commit the open editor's CURRENT value with Enter (no value change). */
+async function pressEnterInEditor(): Promise<void> {
+  await browser.execute(() => {
+    document
+      .querySelector<HTMLInputElement>(".og-bases-gantt .wx-editor input")
+      ?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}
+
+/** The text of a `<strong>` rendered inside a cell (markdown decoration), or null. */
+async function readCellStrongText(rowSuffix: string, columnId: string): Promise<string | null> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return null;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      const strong = cell?.querySelector<HTMLElement>(".og-grid-cell strong");
+      return strong ? (strong.textContent ?? "").trim() : null;
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
+/** Whether a cell carries the edit-in-modal affordance button. */
+async function readAffordancePresent(rowSuffix: string, columnId: string): Promise<boolean> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return false;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      return !!cell?.querySelector(".og-cell-edit-modal");
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
+/** Click a cell's edit-in-modal affordance (opens TaskNotes' edit modal). */
+async function clickAffordance(rowSuffix: string, columnId: string): Promise<boolean> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return false;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      const btn = cell?.querySelector<HTMLElement>(".og-cell-edit-modal");
+      if (!btn) return false;
+      btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+      return true;
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
+/** Whether the installed TaskNotes build exposes the internal edit-modal opener. */
+async function taskNotesHasEditModal(): Promise<boolean> {
+  return browser.executeObsidian(({ app }) => {
+    const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.(
+      "tasknotes",
+    ) as { openTaskEditModal?: unknown } | undefined;
+    return typeof tn?.openTaskEditModal === "function";
+  });
+}
+
+/** Whether any Obsidian modal is currently open. */
+async function isModalOpen(): Promise<boolean> {
+  return browser.execute(() => !!document.querySelector(".modal-container"));
 }
 
 /** Close any TaskNotes modal a fall-through double-click activation opened. */
@@ -616,5 +787,137 @@ describe("Gantt (OG) inline cell editing", () => {
           `frontmatter workstream not appended; saw: ${JSON.stringify(lastWorkstream)}`,
       },
     );
+  });
+
+  it("closes the `[[` dropdown when the caret leaves the token so Enter commits instead of picking", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Open the dropdown with a mid-text token gesture.
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+    await browser.waitUntil(async () => readSuggestPanelOpen(), {
+      timeout: 10000,
+      timeoutMsg: "`[[` dropdown did not open on the typed token",
+    });
+
+    // Move the caret to the start with a keyup that fires no `input` — the caret
+    // no longer sits inside the `[[…` token, so the dropdown must close on its
+    // own rather than staying open and hijacking the next Enter.
+    await moveEditorCaret(0, "Home");
+    await browser.waitUntil(async () => !(await readSuggestPanelOpen()), {
+      timeout: 5000,
+      timeoutMsg: "`[[` dropdown did not close after the caret left the token",
+    });
+
+    // Dropdown closed → Enter commits the current text verbatim (never force-picks
+    // a suggestion) and the editor closes.
+    expect(await readEditorInputValue()).toBe("see [[Q3 later");
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not commit-and-close on Enter with the dropdown closed",
+    });
+  });
+
+  it("surfaces vault [[ suggestions in the text editor and a mouse pick splices at the caret (not lost to clickOutside)", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    // Mid-text token: caret sits right after "Q3" (offset 8) so a correct splice
+    // must preserve BOTH the leading "see " and the trailing " later".
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+
+    // Suggestions come from the VAULT (the fixture's Q3 notes), not TaskNotes —
+    // TaskNotes' helper is unreachable in the harness, so this proves R2.
+    let items: string[] = [];
+    await browser.waitUntil(
+      async () => {
+        items = await readSuggestItems();
+        return items.includes(ROADMAP_LABEL) && items.includes(RETRO_LABEL);
+      },
+      {
+        timeout: 10000,
+        timeoutMsg: () => `vault [[ suggestions did not appear; saw: ${JSON.stringify(items)}`,
+      },
+    );
+
+    expect(await pickSuggestItem(ROADMAP_LABEL)).toBe(true);
+
+    // The pick splices `[[Q3 Roadmap]]` at the token bounds (surrounding text
+    // preserved) AND the editor is STILL OPEN — the portal'd-dropdown click was
+    // not lost to the wrapper's clickOutside → commit.
+    let inputValue: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        inputValue = await readEditorInputValue();
+        return inputValue === "see [[Q3 Roadmap]] later";
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: () => `pick did not splice at the caret; input: ${JSON.stringify(inputValue)}`,
+      },
+    );
+    expect((await readEditState()).editorOpen).toBe(true);
+
+    // Commit the spliced value with Enter (dropdown already closed) to close the
+    // editor deterministically; the next test overwrites the effort value.
+    await pressEnterInEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not close after the Enter commit",
+    });
+  });
+
+  it("re-renders committed markdown decorated (bold) after the confirming pass", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    expect(await commitEditorValue("**ship** it")).toBe(true);
+
+    // KTD7: the optimistic apply shows RAW text on commit; the decorated
+    // `<strong>` appears only after the async confirming data pass — so POLL for
+    // it rather than asserting synchronously post-commit.
+    let boldText: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        boldText = await readCellStrongText(TASK_ROW, EFFORT_COL);
+        return boldText === "ship";
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `effort cell did not render <strong>ship</strong>; saw: ${JSON.stringify(boldText)}`,
+      },
+    );
+  });
+
+  it("opens TaskNotes' edit modal from the managed text cell's affordance", async function () {
+    if (!(await taskNotesHasEditModal())) {
+      // The installed TaskNotes build lacks the internal opener; the affordance
+      // would fall back to opening the note. Skip rather than assert a modal.
+      this.skip();
+    }
+    expect(await readAffordancePresent(TASK_ROW, EFFORT_COL)).toBe(true);
+    expect(await clickAffordance(TASK_ROW, EFFORT_COL)).toBe(true);
+
+    await browser.waitUntil(async () => isModalOpen(), {
+      timeout: 10000,
+      timeoutMsg: "TaskNotes' edit modal did not open from the affordance",
+    });
+    await dismissAnyModal();
+  });
+
+  it("shows no edit-in-modal affordance on a non-TaskNotes row's text cell", async () => {
+    expect(await readAffordancePresent(TASK_ROW, EFFORT_COL)).toBe(true);
+    expect(await readAffordancePresent(PLAIN_ROW, EFFORT_COL)).toBe(false);
   });
 });
