@@ -158,6 +158,15 @@
     void refreshFromCaret();
   }
 
+  function commitFromOutsideClick(): void {
+    // A genuine click elsewhere commits the current text (Enter is not required),
+    // matching grid convention. Unlike the suggest editor — whose pick commits
+    // immediately — a pick here only splices into `text`, so committing on blur
+    // is what keeps an inserted `[[Note]]` (or any typed text) from being lost.
+    onapply(text);
+    onsave(true);
+  }
+
   // Caret moves that fire no `input` (arrows, Home/End, a click inside the cell)
   // must re-sync the token state — otherwise the dropdown stays open after the
   // caret leaves the `[[…` span and Enter would force-pick instead of commit.
@@ -179,11 +188,11 @@
   }
 </script>
 
-<!-- clickOutside on the WRAPPER, exactly like SuggestCellEditor/DateCellEditor:
-     clicks in the input stay inside, clicks in the portal'd dropdown are
-     exempted by lib-dom's nested-listener check (so a mouse pick lands), and
-     only a genuinely-elsewhere click closes the editor (a noop downstream). -->
-<div class="og-text-editor" use:clickOutside={() => onsave(true)}>
+<!-- clickOutside on the WRAPPER, like SuggestCellEditor/DateCellEditor: clicks in
+     the input stay inside, clicks in the portal'd dropdown are exempted by
+     lib-dom's nested-listener check (so a mouse pick lands), and a
+     genuinely-elsewhere click commits the current text before closing. -->
+<div class="og-text-editor" use:clickOutside={commitFromOutsideClick}>
   <input
     bind:this={node}
     bind:value={text}

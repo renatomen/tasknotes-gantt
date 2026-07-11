@@ -312,6 +312,38 @@ async function readSuggestPanelOpen(): Promise<boolean> {
 }
 
 /**
+ * Simulate a genuine click OUTSIDE the open editor: mousedown then click on the
+ * document body (lib-dom's clickOutside arms on mousedown, fires on the click),
+ * so the editor's outside-click commit runs.
+ */
+async function clickOutsideEditor(): Promise<void> {
+  await browser.execute(() => {
+    document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    document.body.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+}
+
+/** The rendered text of a grid cell (markdown flattened to text), or null. */
+async function readCellRenderedText(rowSuffix: string, columnId: string): Promise<string | null> {
+  return browser.execute(
+    (row, col) => {
+      const root = document.querySelector(".og-bases-gantt");
+      if (!root) return null;
+      const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+      const cell = Array.from(root.querySelectorAll<HTMLElement>("[data-row-id][data-col-id]")).find(
+        (el) =>
+          (el.getAttribute("data-row-id") ?? "").endsWith(row) &&
+          strip(el.getAttribute("data-col-id") ?? "") === col,
+      );
+      const span = cell?.querySelector<HTMLElement>(".og-grid-cell");
+      return span ? (span.textContent ?? "").trim() : null;
+    },
+    rowSuffix,
+    columnId,
+  );
+}
+
+/**
  * Reposition the caret in the open editor and fire the caret key's keyup WITHOUT
  * changing the text — the path that must re-sync the `[[` token state so the
  * dropdown closes once the caret leaves the token.
@@ -896,6 +928,46 @@ describe("Gantt (OG) inline cell editing", () => {
       {
         timeout: 15000,
         timeoutMsg: () => `effort cell did not render <strong>ship</strong>; saw: ${JSON.stringify(boldText)}`,
+      },
+    );
+  });
+
+  it("commits a mouse-picked wikilink splice when the click lands outside the editor", async () => {
+    expect(await doubleClickCell(TASK_ROW, EFFORT_COL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditState()).editorOpen, {
+      timeout: 10000,
+      timeoutMsg: "Text editor did not open on the effort cell",
+    });
+
+    expect(await typeEditorToken("see [[Q3 later", 8)).toBe(true);
+    await browser.waitUntil(async () => (await readSuggestItems()).includes(ROADMAP_LABEL), {
+      timeout: 10000,
+      timeoutMsg: "vault [[ suggestions did not appear for the outside-click case",
+    });
+    expect(await pickSuggestItem(ROADMAP_LABEL)).toBe(true);
+    await browser.waitUntil(async () => (await readEditorInputValue()) === "see [[Q3 Roadmap]] later", {
+      timeout: 5000,
+      timeoutMsg: "pick did not splice before the outside click",
+    });
+
+    // Click elsewhere instead of pressing Enter — the spliced value must commit,
+    // not be discarded back to the seed.
+    await clickOutsideEditor();
+    await browser.waitUntil(async () => !(await readEditState()).editorOpen, {
+      timeout: 5000,
+      timeoutMsg: "Text editor did not close on the outside click",
+    });
+
+    let rendered: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        rendered = await readCellRenderedText(TASK_ROW, EFFORT_COL);
+        return rendered !== null && rendered.includes("Q3 Roadmap");
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: () => `outside click did not commit the splice; cell shows: ${JSON.stringify(rendered)}`,
       },
     );
   });
