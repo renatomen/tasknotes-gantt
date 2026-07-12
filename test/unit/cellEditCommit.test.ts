@@ -18,6 +18,7 @@ import {
   editorAttachedColumnIds,
   editorSeedFor,
   editorSeedValue,
+  OG_CHIPS_EDITOR_TYPE,
   OG_TEXT_EDITOR_TYPE,
   resolveCellEditCommit,
   rowEditorConfig,
@@ -644,11 +645,17 @@ describe('svarEditorConfigFor', () => {
     });
   });
 
-  it('keeps number and list on the STOCK text editor (regression guard: no over-broad interception)', () => {
-    // number and list share the text-input fallback branch — they must NOT pick
-    // up the custom [[ editor (they carry no wikilinks and cast on commit).
+  it('keeps number on the STOCK text editor (regression guard: no over-broad interception)', () => {
+    // number carries no wikilinks and casts on commit, so it must NOT pick up a
+    // custom editor — it stays on the stock text-input fallback branch.
     expect(svarEditorConfigFor('number', { dateLocale: 'en-US' })).toBe('text');
-    expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toBe('text');
+  });
+
+  it('routes an unfiltered list to the chips editor (no add-input filter)', () => {
+    expect(svarEditorConfigFor('list', { dateLocale: 'en-US' })).toEqual({
+      type: OG_CHIPS_EDITOR_TYPE,
+      config: {},
+    });
   });
 
   it('maps date to the registered custom editor, carrying the display locale', () => {
@@ -687,11 +694,12 @@ describe('svarEditorConfigFor', () => {
     });
   });
 
-  it('keeps a list-shaped suggest on the append editor, carrying the suggest channel', () => {
-    const suggest = { columnId: 'note.workstream', autosuggestFilter: { requiredTags: ['ws'] }, isList: true };
+  it('routes a list-shaped suggest to the chips editor, carrying its field filter', () => {
+    const autosuggestFilter = { requiredTags: ['ws'] };
+    const suggest = { columnId: 'note.workstream', autosuggestFilter, isList: true };
     expect(svarEditorConfigFor('suggest', { dateLocale: 'en-US', suggest })).toEqual({
-      type: 'og-suggest',
-      config: suggest,
+      type: OG_CHIPS_EDITOR_TYPE,
+      config: { autosuggestFilter },
     });
   });
 
