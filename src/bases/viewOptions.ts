@@ -230,6 +230,16 @@ function timelineOptions(): BasesOptions[] {
         month: 'Months',
       },
     },
+    // Weekend day-column shading. Default on — shading is the conventional
+    // reading of a gantt timeline; the toggle exists to opt out. Weekend days
+    // derive from the user's locale (see controller/availability). Sits in
+    // Timeline beside Default Scale: shading only renders at day/hour scales.
+    {
+      type: 'toggle',
+      displayName: 'Highlight weekends',
+      key: 'tngantt_highlightWeekends',
+      default: true,
+    },
     // Number → slider (the official Bases options union has no 'number' control;
     // 'slider' is the closest numeric input). Behavior-equivalent.
     {
@@ -319,15 +329,6 @@ function appearanceOptions(): BasesOptions[] {
       type: 'toggle',
       displayName: 'Show date-status indicators on bars',
       key: 'tngantt_showDateIndicators',
-      default: true,
-    },
-    // Weekend day-column shading in the timeline. Default on — shading is the
-    // conventional reading of a gantt timeline; the toggle exists to opt out.
-    // Weekend days derive from the user's locale (see controller/availability).
-    {
-      type: 'toggle',
-      displayName: 'Highlight weekends',
-      key: 'tngantt_highlightWeekends',
       default: true,
     },
     // Per-view toolbar visibility (plan 002 R2); default off. When on, the

@@ -81,7 +81,7 @@ describe("ganttViewOptions", () => {
     }
   });
 
-  it("exposes the Highlight weekends toggle, defaulting on, in Appearance, in both modes", () => {
+  it("exposes the Highlight weekends toggle, defaulting on, in Timeline, in both modes", () => {
     const toggle = byKey(options, "tngantt_highlightWeekends");
     expect(toggle.type).toBe("toggle");
     expect(toggle).toMatchObject({
@@ -90,10 +90,10 @@ describe("ganttViewOptions", () => {
       key: "tngantt_highlightWeekends",
       default: true,
     });
-    const appearance = groupsOf(options).find((g) => g.displayName === "Appearance");
-    expect(appearance).toBeDefined();
+    const timeline = groupsOf(options).find((g) => g.displayName === "Timeline");
+    expect(timeline).toBeDefined();
     expect(
-      appearance!.items.some((o) => "key" in o && o.key === "tngantt_highlightWeekends"),
+      timeline!.items.some((o) => "key" in o && o.key === "tngantt_highlightWeekends"),
     ).toBe(true);
     // Standalone (no TaskNotes) offers the toggle too — no companion dependency.
     const standalone = ganttViewOptions(false);
@@ -245,7 +245,7 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 8 Fields + 2 Progress + 3 Relationships
-    // + 6 Timeline + 9 Appearance = 28 (8 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
+    // + 7 Timeline + 8 Appearance = 28 (8 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
     expect(flattenLeaves(options)).toHaveLength(28);
   });
 
@@ -288,6 +288,7 @@ describe("ganttViewOptions", () => {
     ]);
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
+      "tngantt_highlightWeekends",
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
@@ -299,7 +300,6 @@ describe("ganttViewOptions", () => {
       "tngantt_barColorSource",
       "tngantt_barIcon",
       "tngantt_showDateIndicators",
-      "tngantt_highlightWeekends",
       "tngantt_showToolbar",
       "tngantt_minHeight",
       "tngantt_maxHeight",
