@@ -51,7 +51,9 @@ function resolveExcludedFolders(app: App): string[] {
   try {
     const plugins = (app as unknown as { plugins?: PluginRegistryLike }).plugins;
     const raw = plugins?.getPlugin?.('tasknotes')?.settings?.excludedFolders;
-    const parts = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+    let parts: unknown[] = [];
+    if (Array.isArray(raw)) parts = raw;
+    else if (typeof raw === 'string') parts = raw.split(',');
     return parts.filter((part): part is string => typeof part === 'string' && part.trim() !== '');
   } catch {
     return [];
