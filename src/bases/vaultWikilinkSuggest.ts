@@ -51,7 +51,9 @@ function resolveExcludedFolders(app: App): string[] {
   try {
     const plugins = (app as unknown as { plugins?: PluginRegistryLike }).plugins;
     const raw = plugins?.getPlugin?.('tasknotes')?.settings?.excludedFolders;
-    const parts = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+    let parts: unknown[] = [];
+    if (Array.isArray(raw)) parts = raw;
+    else if (typeof raw === 'string') parts = raw.split(',');
     return parts.filter((part): part is string => typeof part === 'string' && part.trim() !== '');
   } catch {
     return [];
@@ -70,6 +72,59 @@ function bestFieldMatch(
     if (result && (best === null || result.score > best.score)) best = result;
   }
   return best;
+}
+
+/** Loop-invariant inputs a single file's ranking pass reads, assembled once per query. */
+interface RankContext {
+  filter?: FileFilterConfig;
+  hasQuery: boolean;
+  scoreText: (text: string) => SearchResult | null;
+  excludedFolders: string[];
+  getFileCache?: (file: TFile) => CachedMetadata | null;
+  metadataCache?: MetadataCacheLike;
+  fileToLinktext: (file: TFile, sourcePath: string, omitMdExtension?: boolean) => string;
+  sourcePath: string;
+}
+
+function readWikilinkCandidate(
+  file: TFile,
+  cache: CachedMetadata | null,
+  filter: FileFilterConfig | undefined,
+  hasQuery: boolean,
+): FileFilterCandidate {
+  const frontmatter = (cache?.frontmatter ?? {}) as Record<string, unknown>;
+  return {
+    tags: filter !== undefined && cache ? (getAllTags(cache) ?? []) : [],
+    path: file.path,
+    frontmatter,
+    aliases: hasQuery ? (parseFrontMatterAliases(frontmatter) ?? []) : [],
+    title: hasQuery && typeof frontmatter.title === 'string' ? frontmatter.title : file.basename,
+  };
+}
+
+/** Filter + rank one file; `null` means the file is excluded or missed the query. */
+function rankWikilinkFile(file: TFile, ctx: RankContext): TaskNotesSuggestion | null {
+  // The metadata-cache lookup is skipped for an unfiltered, not-yet-typed `[[`
+  // — the common plain-text case scanning the whole vault.
+  const needsCache = ctx.filter !== undefined || ctx.hasQuery;
+  const cache =
+    needsCache && typeof ctx.getFileCache === 'function'
+      ? ctx.getFileCache.call(ctx.metadataCache, file)
+      : null;
+  const candidate = readWikilinkCandidate(file, cache, ctx.filter, ctx.hasQuery);
+  if (!matchesFileFilter(candidate, ctx.filter, ctx.excludedFolders)) return null;
+
+  const match = ctx.hasQuery
+    ? bestFieldMatch(ctx.scoreText, [file.basename, candidate.title, ...candidate.aliases])
+    : null;
+  if (ctx.hasQuery && match === null) return null;
+
+  return {
+    value: ctx.fileToLinktext.call(ctx.metadataCache, file, ctx.sourcePath, true),
+    display: file.basename,
+    path: file.path,
+    ...(match ? { match } : {}),
+  };
 }
 
 /**
@@ -93,43 +148,23 @@ export function createVaultWikilinkFetcher(
     if (typeof getMarkdownFiles !== 'function' || typeof fileToLinktext !== 'function') {
       return Promise.resolve([]);
     }
-    const getFileCache = metadataCache?.getFileCache;
 
     const needle = query.trim();
-    const hasQuery = needle !== '';
-    const scoreText = prepareFuzzySearch(needle);
+    const ctx: RankContext = {
+      filter,
+      hasQuery: needle !== '',
+      scoreText: prepareFuzzySearch(needle),
+      excludedFolders,
+      getFileCache: metadataCache?.getFileCache,
+      metadataCache,
+      fileToLinktext,
+      sourcePath,
+    };
 
     const ranked: TaskNotesSuggestion[] = [];
     for (const file of getMarkdownFiles.call(vault)) {
-      // Only the filter reads tags, and only a non-empty query reads title/aliases,
-      // so the metadata-cache lookup is skipped for an unfiltered, not-yet-typed
-      // `[[` — the common plain-text case scanning the whole vault.
-      const needsCache = filter !== undefined || hasQuery;
-      const cache =
-        needsCache && typeof getFileCache === 'function'
-          ? getFileCache.call(metadataCache, file)
-          : null;
-      const frontmatter = (cache?.frontmatter ?? {}) as Record<string, unknown>;
-      const candidate: FileFilterCandidate = {
-        tags: filter !== undefined && cache ? (getAllTags(cache) ?? []) : [],
-        path: file.path,
-        frontmatter,
-        aliases: hasQuery ? (parseFrontMatterAliases(frontmatter) ?? []) : [],
-        title: hasQuery && typeof frontmatter.title === 'string' ? frontmatter.title : file.basename,
-      };
-      if (!matchesFileFilter(candidate, filter, excludedFolders)) continue;
-
-      const match = hasQuery
-        ? bestFieldMatch(scoreText, [file.basename, candidate.title, ...candidate.aliases])
-        : null;
-      if (hasQuery && match === null) continue;
-
-      ranked.push({
-        value: fileToLinktext.call(metadataCache, file, sourcePath, true),
-        display: file.basename,
-        path: file.path,
-        ...(match ? { match } : {}),
-      });
+      const entry = rankWikilinkFile(file, ctx);
+      if (entry) ranked.push(entry);
     }
 
     ranked.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));

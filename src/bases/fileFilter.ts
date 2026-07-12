@@ -78,11 +78,12 @@ function matchesTagConditions(candidateTags: string[], conditionTags: string[]):
 }
 
 function normalizeFolder(folder: string): string {
-  return folder
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
+  const forward = folder.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+  // Trailing slashes stripped by a linear scan: the equivalent `/\/+$/` trips
+  // the ReDoS static-analysis check, and a manual scan is plainly linear.
+  let end = forward.length;
+  while (end > 0 && forward[end - 1] === '/') end--;
+  return forward.slice(0, end);
 }
 
 function isPathUnderFolder(path: string, folder: string): boolean {

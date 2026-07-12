@@ -1058,12 +1058,12 @@ export class GanttController {
       // timeEstimate field (note-prefixed). BasesSource reads matched entries from
       // this effective key; the resolver below reads companion-expanded tasks by
       // path from the same (bared) key.
-      const estimateReadKey =
-        (effectiveMappings.timeEstimateProperty ?? '').trim() !== ''
-          ? effectiveMappings.timeEstimateProperty!
-          : fieldConfig?.timeEstimateProp
-            ? toNoteProperty(fieldConfig.timeEstimateProp)
-            : null;
+      let estimateReadKey: string | null = null;
+      if ((effectiveMappings.timeEstimateProperty ?? '').trim() !== '') {
+        estimateReadKey = effectiveMappings.timeEstimateProperty!;
+      } else if (fieldConfig?.timeEstimateProp) {
+        estimateReadKey = toNoteProperty(fieldConfig.timeEstimateProp);
+      }
       // Expose the resolved key so the view folds it (not just the raw view
       // mapping) into the entry-refresh signature — otherwise a TaskNotes-field
       // estimate edit on a matched note leaves the signature unchanged and the

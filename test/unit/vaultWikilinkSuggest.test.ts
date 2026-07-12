@@ -103,7 +103,7 @@ describe('createVaultWikilinkFetcher', () => {
     const app = makeApp(paths);
     const fetch = createVaultWikilinkFetcher(app, 'source.md');
 
-    expect((await fetch('')).length).toBe(VAULT_SUGGEST_LIMIT);
+    expect(await fetch('')).toHaveLength(VAULT_SUGGEST_LIMIT);
   });
 
   it('uses the fileToLinktext form for the insert value, not the raw path', async () => {

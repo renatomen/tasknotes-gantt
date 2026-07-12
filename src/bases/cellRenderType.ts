@@ -71,21 +71,33 @@ export function resolveCellRenderType(propId: string, deps: RenderTypeDeps): Cel
   const name = dot === -1 ? propId : propId.slice(dot + 1);
 
   if (prefix === '' || prefix === 'note') {
-    const taskNotes = deps.taskNotesFieldType(name);
-    if (taskNotes) {
-      const display = TASKNOTES_MARKDOWN_TYPES.has(taskNotes.type) ? 'markdown' : 'conventional';
-      return { display, tags: false, fieldMeta: taskNotes };
-    }
-
-    const widget = deps.obsidianWidget(name);
-    if (widget) {
-      if (widget === 'tags') return { display: 'markdown', tags: true };
-      if (WIDGET_MARKDOWN_TYPES.has(widget)) return { display: 'markdown', tags: false };
-      return { display: 'conventional', tags: false };
-    }
+    const frontmatter = resolveFrontmatterRenderType(name, deps);
+    if (frontmatter) return frontmatter;
   }
 
   return MARKDOWN_VALUE_KINDS.has(deps.valueKind)
     ? { display: 'markdown', tags: false }
     : { display: 'conventional', tags: false };
+}
+
+/**
+ * Resolve a frontmatter column's render type via the TaskNotes → widget
+ * precedence, or `null` when neither source decides (caller falls back to the
+ * value shape).
+ */
+function resolveFrontmatterRenderType(name: string, deps: RenderTypeDeps): CellRenderType | null {
+  const taskNotes = deps.taskNotesFieldType(name);
+  if (taskNotes) {
+    const display = TASKNOTES_MARKDOWN_TYPES.has(taskNotes.type) ? 'markdown' : 'conventional';
+    return { display, tags: false, fieldMeta: taskNotes };
+  }
+
+  const widget = deps.obsidianWidget(name);
+  if (widget) {
+    if (widget === 'tags') return { display: 'markdown', tags: true };
+    if (WIDGET_MARKDOWN_TYPES.has(widget)) return { display: 'markdown', tags: false };
+    return { display: 'conventional', tags: false };
+  }
+
+  return null;
 }

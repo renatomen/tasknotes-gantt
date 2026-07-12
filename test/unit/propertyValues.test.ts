@@ -13,6 +13,8 @@ import {
   classifyTypedValue,
   buildEntryProperties,
   buildFetchedEntryProperties,
+  collectFetchedFileMetas,
+  stringifyScalar,
   type PropertyExtractor,
   type TypedValue,
 } from '../../src/bases/propertyValues';
@@ -180,5 +182,74 @@ describe('buildFetchedEntryProperties', () => {
       adapter,
     );
     expect(map.get('X.md')!['note.status'].kind).toBe('empty');
+  });
+});
+
+describe('collectFetchedFileMetas', () => {
+  const resolve = (path: string) => ({ basename: path.replace(/\.md$/, ''), frontmatter: null });
+
+  it('gathers metadata for unseen instance paths', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'B.md' }],
+      new Set<string>(),
+      resolve,
+    );
+    expect(metas).toEqual([
+      { path: 'A.md', basename: 'A', frontmatter: null },
+      { path: 'B.md', basename: 'B', frontmatter: null },
+    ]);
+  });
+
+  it('skips paths already in the seen set (matched rows)', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'B.md' }],
+      new Set<string>(['A.md']),
+      resolve,
+    );
+    expect(metas).toEqual([{ path: 'B.md', basename: 'B', frontmatter: null }]);
+  });
+
+  it('gathers each duplicate path only once and adds it to seen', () => {
+    const seen = new Set<string>();
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'A.md' }],
+      seen,
+      resolve,
+    );
+    expect(metas).toHaveLength(1);
+    expect(seen.has('A.md')).toBe(true);
+  });
+
+  it('skips a path the resolver rejects (folder or missing file)', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'folder' }, { sourcePath: 'B.md' }],
+      new Set<string>(),
+      (path) => (path.endsWith('.md') ? resolve(path) : null),
+    );
+    expect(metas).toEqual([{ path: 'B.md', basename: 'B', frontmatter: null }]);
+  });
+});
+
+describe('stringifyScalar', () => {
+  it('stringifies primitives verbatim (including 0 and false)', () => {
+    expect(stringifyScalar('x')).toBe('x');
+    expect(stringifyScalar(7)).toBe('7');
+    expect(stringifyScalar(0)).toBe('0');
+    expect(stringifyScalar(false)).toBe('false');
+  });
+
+  it('returns null for null and undefined', () => {
+    expect(stringifyScalar(null)).toBeNull();
+    expect(stringifyScalar(undefined)).toBeNull();
+  });
+
+  it('returns null for a plain object instead of "[object Object]"', () => {
+    expect(stringifyScalar({ nested: 'value' })).toBeNull();
+  });
+
+  it('keeps the string form of an object that has a meaningful one (Date, nested array)', () => {
+    const date = new Date('2024-01-02T00:00:00Z');
+    expect(stringifyScalar(date)).toBe(String(date));
+    expect(stringifyScalar([1, 2])).toBe('1,2');
   });
 });

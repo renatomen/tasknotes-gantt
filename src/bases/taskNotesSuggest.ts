@@ -10,6 +10,7 @@
  */
 
 import type { SearchResult } from 'obsidian';
+import { stringifyScalar } from './propertyValues';
 
 /** One suggestion served to the editor: the link text to store + display form. */
 export interface TaskNotesSuggestion {
@@ -40,11 +41,11 @@ export function normalizeStoredList(raw: unknown): string[] {
   if (Array.isArray(raw)) {
     const entries: string[] = [];
     for (const item of raw) {
-      if (item === null || item === undefined) continue;
-      const s = typeof item === 'string' ? item : String(item);
-      if (s !== '') entries.push(s);
+      const s = stringifyScalar(item);
+      if (s !== null && s !== '') entries.push(s);
     }
     return entries;
   }
-  return [String(raw)];
+  const s = stringifyScalar(raw);
+  return s === null ? [] : [s];
 }

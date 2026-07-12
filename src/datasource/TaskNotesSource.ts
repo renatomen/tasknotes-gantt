@@ -682,6 +682,23 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * Map one TaskNotes userField to a {@link CustomDateField}, or `null` when it
+   * is not an enabled, keyed `date` field. A falsy entry (defensive against the
+   * API) is dropped; a missing `enabled` flag means active.
+   */
+  private toCustomDateField(f: TaskNotesUserField | null | undefined): CustomDateField | null {
+    if (!f || f.enabled === false || f.type !== 'date' || typeof f.key !== 'string' || f.key.length === 0) {
+      return null;
+    }
+    return {
+      key: f.key,
+      id: typeof f.id === 'string' ? f.id : f.key,
+      displayName:
+        typeof f.displayName === 'string' && f.displayName.length > 0 ? f.displayName : f.key,
+    };
+  }
+
+  /**
    * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
    * the frontmatter property names for canonical `scheduled`/`due` (from
    * `model.config().fieldMapping`) and the enabled custom fields of type `date`
@@ -698,24 +715,8 @@ export class TaskNotesSource implements DataSource {
       const fieldMapping = config.fieldMapping ?? {};
       const dateFields: CustomDateField[] = [];
       for (const f of config.userFields ?? []) {
-        if (
-          f &&
-          // Persisted TaskNotes userFields carry no `enabled` flag — their
-          // presence means active. Only exclude an explicit `enabled: false`.
-          f.enabled !== false &&
-          f.type === 'date' &&
-          typeof f.key === 'string' &&
-          f.key.length > 0
-        ) {
-          dateFields.push({
-            key: f.key,
-            id: typeof f.id === 'string' ? f.id : f.key,
-            displayName:
-              typeof f.displayName === 'string' && f.displayName.length > 0
-                ? f.displayName
-                : f.key,
-          });
-        }
+        const field = this.toCustomDateField(f);
+        if (field) dateFields.push(field);
       }
       return {
         scheduledProp:
@@ -1015,6 +1016,37 @@ export class TaskNotesSource implements DataSource {
 }
 
 /**
+ * Progress persistence: write only when a resolved `progressWrite` target is
+ * present AND a value is supplied. A bare `progress` with no target is never
+ * written — that guards TaskNotes progress mode (read-only/computed) and any
+ * no-target caller. The value is coalesced to an integer 0–100, written to the
+ * top-level frontmatter key, matching the custom user-field write path.
+ */
+function applyProgressWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
+  if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
+    updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  }
+}
+
+/**
+ * Time Estimate persistence: write only when a resolved `estimateWrite` target
+ * is present AND a value is supplied — a bare `estimate` with no target is never
+ * written (guards `dont-update` mode). The value is a rounded, non-negative
+ * integer (minutes). `tasknotesField` writes through TaskNotes' canonical
+ * `timeEstimate`; `property` writes the resolved frontmatter key.
+ */
+function applyEstimateWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
+  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
+    const minutes = Math.max(0, Math.round(patch.estimate));
+    if (patch.estimateWrite.kind === 'tasknotesField') {
+      updates.timeEstimate = minutes;
+    } else {
+      updates[patch.estimateWrite.key] = minutes;
+    }
+  }
+}
+
+/**
  * Build the TaskNotes `tasks.update` field map from a {@link TaskPatch}.
  *
  * Only fields **present** in the patch are written, so a partial patch (e.g. a
@@ -1052,27 +1084,8 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   if (patch.priority !== undefined) {
     updates.priority = patch.priority;
   }
-  // Progress persistence (U6): write only when a resolved `progressWrite` target
-  // is present AND a value is supplied. A bare `progress` with no target is never
-  // written — that guards TaskNotes progress mode (read-only/computed) and any
-  // no-target caller. The value is coalesced to an integer 0–100 (R9). Written to
-  // the top-level frontmatter key, matching the custom user-field write path.
-  if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
-    updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
-  }
-  // Time Estimate persistence (U6): write only when a resolved `estimateWrite`
-  // target is present AND a value is supplied — a bare `estimate` with no target
-  // is never written (guards `dont-update` mode). The value is a rounded,
-  // non-negative integer (minutes). `tasknotesField` writes through TaskNotes'
-  // canonical `timeEstimate`; `property` writes the resolved frontmatter key.
-  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
-    const minutes = Math.max(0, Math.round(patch.estimate));
-    if (patch.estimateWrite.kind === 'tasknotesField') {
-      updates.timeEstimate = minutes;
-    } else {
-      updates[patch.estimateWrite.key] = minutes;
-    }
-  }
+  applyProgressWrite(updates, patch);
+  applyEstimateWrite(updates, patch);
   // Generic field write: verbatim under the resolved bare frontmatter key,
   // top-level — TaskNotes' frontmatter writer reads custom user fields from
   // `task[key]`, never a nested `userFields` object (confirmed vs 4.11.0).

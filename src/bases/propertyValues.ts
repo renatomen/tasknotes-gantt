@@ -48,6 +48,23 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
   return a.length === b.length && a.every((item, i) => item === b[i]);
 }
 
+/**
+ * String form of a scalar frontmatter value, or `null` when it has no
+ * meaningful single-token form. `null`/`undefined` yield `null`. A plain
+ * object/map coerces to the useless `[object Object]` and is dropped, but an
+ * object with a real string form (a YAML-parsed `Date`, a nested array's
+ * comma-joined items) keeps it — matching how those values rendered before.
+ * Primitives (string, number, boolean, bigint, symbol) stringify verbatim.
+ */
+export function stringifyScalar(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'object') {
+    const s = String(raw);
+    return s === '[object Object]' ? null : s;
+  }
+  return String(raw);
+}
+
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */
 export interface PropertyExtractor {
   extractValue(entry: unknown, propertyId: string): unknown;
@@ -215,6 +232,29 @@ export interface FetchedFileMeta {
   extension?: string;
   /** The note's frontmatter, or `null` when it has none. */
   frontmatter: Record<string, unknown> | null;
+}
+
+/**
+ * Gather {@link FetchedFileMeta} for the show-all *context* rows — instances
+ * whose path is not already in `seen` (the matched-row keys) and that `resolve`
+ * maps to a real file. Each new path is added to `seen` so it is gathered once,
+ * and a path `resolve` rejects (folder, missing file) is skipped. Pure: the
+ * Obsidian file/frontmatter lookup lives in the injected `resolve`.
+ */
+export function collectFetchedFileMetas(
+  instances: readonly { sourcePath: string }[],
+  seen: Set<string>,
+  resolve: (path: string) => Omit<FetchedFileMeta, 'path'> | null,
+): FetchedFileMeta[] {
+  const fetchedMetas: FetchedFileMeta[] = [];
+  for (const inst of instances) {
+    if (seen.has(inst.sourcePath)) continue;
+    seen.add(inst.sourcePath);
+    const meta = resolve(inst.sourcePath);
+    if (!meta) continue;
+    fetchedMetas.push({ path: inst.sourcePath, ...meta });
+  }
+  return fetchedMetas;
 }
 
 /**

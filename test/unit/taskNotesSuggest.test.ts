@@ -40,4 +40,12 @@ describe('normalizeStoredList', () => {
   it('drops null/undefined/empty holes while stringifying the rest', () => {
     expect(normalizeStoredList(['[[A]]', null, undefined, '', 3])).toEqual(['[[A]]', '3']);
   });
+
+  it('drops an object-shaped scalar instead of storing "[object Object]"', () => {
+    expect(normalizeStoredList({ nested: 'value' })).toEqual([]);
+  });
+
+  it('drops object entries within an array, keeping the displayable primitives', () => {
+    expect(normalizeStoredList(['[[A]]', { nested: 'value' }, 5])).toEqual(['[[A]]', '5']);
+  });
 });

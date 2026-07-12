@@ -322,12 +322,12 @@ function commitChoice(
   stored: TypedValue,
   choiceValues?: readonly string[],
 ): CellEditCommit {
-  const value =
-    typeof raw === 'string'
-      ? raw
-      : typeof raw === 'number' && Number.isFinite(raw)
-        ? recoverConfiguredValue(raw, choiceValues)
-        : null;
+  let value: string | null = null;
+  if (typeof raw === 'string') {
+    value = raw;
+  } else if (typeof raw === 'number' && Number.isFinite(raw)) {
+    value = recoverConfiguredValue(raw, choiceValues);
+  }
   if (value === null) {
     return { action: 'reject', reason: 'This field needs one of the configured values.' };
   }

@@ -34,7 +34,7 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { type FetchedFileMeta } from './propertyValues';
+import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
 import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
@@ -893,19 +893,15 @@ class ObsidianGanttBasesView extends BasesView {
     // back to empty). Matched rows already in the maps are never overwritten.
     if (visiblePropIds.length > 0) {
       const seen = new Set(propertyValues.keys());
-      const fetchedMetas: FetchedFileMeta[] = [];
-      for (const inst of instances) {
-        if (seen.has(inst.sourcePath)) continue;
-        seen.add(inst.sourcePath);
-        const file = this.app.vault.getAbstractFileByPath(inst.sourcePath);
-        if (!(file instanceof TFile)) continue;
-        fetchedMetas.push({
-          path: inst.sourcePath,
+      const fetchedMetas = collectFetchedFileMetas(instances, seen, (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) return null;
+        return {
           basename: file.basename,
           extension: file.extension,
           frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
-        });
-      }
+        };
+      });
       const fetched = buildFetchedCellData(fetchedMetas, visiblePropIds, cellDataContext);
       for (const [path, record] of fetched.cellRenders) cellRenders.set(path, record);
       for (const [path, record] of fetched.propertyValues) propertyValues.set(path, record);

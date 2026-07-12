@@ -111,6 +111,15 @@ describe('matchesFileFilter — folders', () => {
     ).toBe(true);
   });
 
+  it('normalizes many repeated leading/trailing slashes without pathological runtime', () => {
+    const start = Date.now();
+    const matched = matchesFileFilter(candidate({ path: 'Projects/Note.md' }), {
+      includeFolders: [`${'/'.repeat(5000)}Projects${'/'.repeat(5000)}`],
+    });
+    expect(matched).toBe(true);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   it('passes any path when includeFolders is empty', () => {
     expect(
       matchesFileFilter(candidate({ path: 'Anywhere/Note.md' }), { includeFolders: [] }),
