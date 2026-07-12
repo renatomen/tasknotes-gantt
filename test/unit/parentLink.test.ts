@@ -1,6 +1,6 @@
 /**
  * Shared parent-link resolver (single source of truth, previously duplicated
- * in PropertyMappingService and GanttTaskListView).
+ * across the Bases property-mapping and view layers).
  */
 import { describe, it, expect } from "@jest/globals";
 import type { App } from "obsidian";

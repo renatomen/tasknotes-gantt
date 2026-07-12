@@ -23,7 +23,6 @@ import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
-import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
@@ -73,7 +72,6 @@ import {
   readTimeEstimateMode,
   isProgressReadonly,
   isTimeEstimateWriteEnabled,
-  taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
@@ -1097,22 +1095,6 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     console.info(`[Gantt] Registered Bases view: ${VIEW_NAME}`);
   } else {
     console.warn('[Gantt] Failed to register Bases view - Bases plugin may not be enabled');
-  }
-
-  // Register the TaskList view (text-based hierarchy view for testing)
-  const registeredTaskList = plugin.registerBasesView('obsidianGanttTaskList', {
-    name: 'Gantt TaskList (OG)',
-    icon: 'list-tree',
-    factory: (controller: QueryController, containerEl: HTMLElement) => {
-      return new GanttTaskListView(controller, containerEl);
-    },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => taskListViewOptions(),
-  });
-
-  if (registeredTaskList) {
-    console.info('[Gantt] Registered Bases view: Gantt TaskList (OG)');
-  } else {
-    console.warn('[Gantt] Failed to register TaskList view - Bases plugin may not be enabled');
   }
 
   // Obsidian handles cleanup automatically via plugin lifecycle

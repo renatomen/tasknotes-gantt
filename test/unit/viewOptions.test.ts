@@ -22,7 +22,6 @@ import {
   readTimeEstimateMode,
   isProgressReadonly,
   isTimeEstimateWriteEnabled,
-  taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
 import type { FieldMappings } from "../../src/bases/types/field-mapping";
@@ -352,41 +351,6 @@ describe("ganttViewOptions", () => {
       min: 10,
       max: 100,
       step: 5,
-    });
-  });
-});
-
-describe("taskListViewOptions", () => {
-  const options = taskListViewOptions();
-
-  it("wraps the seven shared field-mapping property options in one Fields group", () => {
-    expect(options).toHaveLength(1);
-    const fields = groupsOf(options)[0];
-    expect(fields.displayName).toBe("Fields");
-    expect(fields.items.every((o) => o.type === "property")).toBe(true);
-    // TaskList keeps Progress Property in Fields (it has no Progress mode).
-    expect(fields.items.map((o) => ("key" in o ? o.key : undefined))).toEqual([
-      FIELD_MAPPING_KEYS.text,
-      FIELD_MAPPING_KEYS.start,
-      FIELD_MAPPING_KEYS.end,
-      FIELD_MAPPING_KEYS.progress,
-      FIELD_MAPPING_KEYS.parent,
-      FIELD_MAPPING_KEYS.status,
-      FIELD_MAPPING_KEYS.priority,
-    ]);
-  });
-
-  it("leaves the progress property unset by default (property-agnostic) with a guiding placeholder", () => {
-    const progress = byKey(options, FIELD_MAPPING_KEYS.progress);
-    expect(progress).toMatchObject({
-      type: "property",
-      displayName: "Progress Property",
-      default: "",
-      placeholder: "Select a progress property (0-100); optional",
-    });
-    expect(byKey(options, FIELD_MAPPING_KEYS.text)).toMatchObject({
-      default: "",
-      placeholder: "Select task name property (defaults to file name)",
     });
   });
 });

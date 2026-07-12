@@ -6,8 +6,8 @@
  * resolves relative paths and aliases) with a direct-vault-path fallback.
  * Returns the resolved file path, or `null` if it cannot be resolved.
  *
- * Single source of truth: previously duplicated verbatim in
- * PropertyMappingService and GanttTaskListView.
+ * Single source of truth: previously duplicated verbatim across the Bases
+ * property-mapping and view layers.
  *
  * @module bases/parentLink
  */

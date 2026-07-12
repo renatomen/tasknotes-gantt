@@ -164,8 +164,7 @@ export class BasesSource implements DataSource {
    *
    * Handles wikilinks `[[Page]]`/`[[Page|alias]]`, markdown links
    * `[text](path)`, and direct paths, via `metadataCache.getFirstLinkpathDest`
-   * — mirroring the resolution logic in
-   * `src/bases/views/GanttTaskListView.ts` `resolveParentLink`.
+   * — mirroring the shared `resolveParentLink` resolver.
    *
    * @param parentRef - The raw parent reference string.
    * @param sourcePath - The path of the note containing the reference (for
