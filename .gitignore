@@ -67,6 +67,3 @@ test/perf/.trend/
 # Vitest browser-mode artifacts (screenshots/attachments from failing runs)
 test/perf/**/__screenshots__/
 .vitest-attachments/
-
-# MkDocs build output (docs site is built in CI and deployed to Pages)
-website/site/
