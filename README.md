@@ -1,26 +1,44 @@
 # TaskNotes Gantt
 
-A **companion plugin for [TaskNotes](https://github.com/callumalpass/tasknotes)** that adds an interactive **Gantt timeline** to Obsidian. Point it at your TaskNotes tasks and get a live schedule with dependency arrows, drag-to-reschedule, and parent/child roll-up — changes are written straight back to your task notes through TaskNotes.
+A **companion plugin for [TaskNotes](https://github.com/callumalpass/tasknotes)** that adds an interactive **Gantt timeline** to Obsidian. Point it at your TaskNotes tasks and get a live schedule with dependency arrows, drag-to-reschedule, progress bars, inline editing, and parent/child roll-up — changes are written straight back to your task notes through TaskNotes.
 
 Built on [SVAR Svelte Gantt](https://svar.dev/svelte/gantt/) and registered as an **Obsidian Bases view**, so you drive it from a Base query and your existing note properties.
 
-> **Status:** early development (v0.0.x). Expect rough edges.
+| Light theme | Dark theme |
+| :---: | :---: |
+| ![A TaskNotes Gantt view in a light Obsidian theme: task bars with left-edge color strips and on-bar status/priority icon chips](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png) | ![The same view in a dark Obsidian theme, showing the color strips and icon chips adapt to the active theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-dark.png) |
+
+> **Status:** early development — currently in the **0.1.0 beta** series (install via BRAT). Expect rough edges.
 
 ## With TaskNotes (the main use case)
 
 When TaskNotes is installed, TaskNotes Gantt is a full read/write view of your tasks:
 
 - **Schedule** — bars from each task's `scheduled` → `due` dates; **drag to reschedule** and **resize to change duration**, persisted back to the task note.
+- **Progress on the bars** — per view, show completion from the checklist progress TaskNotes computes, or read a numeric property you map; in property mode you can **drag the progress handle** to write the value back.
+- **Inline editing in the grid** — double-click a cell (or press **F2**) to edit a task's properties without leaving the timeline. Editors are type-aware — text, numbers, checkboxes, locale-aware dates (with a calendar dropdown), status, priority, and multi-value list fields — and every edit is written through TaskNotes. Property cells render as real Obsidian markdown, so wikilinks are clickable and tags show as pills.
 - **Dependencies** — renders all four RFC 9253 relationship types (Finish-to-Start, Finish-to-Finish, Start-to-Start, Start-to-Finish) plus gap/lag, read from TaskNotes' `blockedBy`. **Create and delete** Finish-to-Start dependencies by dragging between bars. *(Authoring the other three types and editing reltype/gap is in progress.)*
 - **Parent / child roll-up** — subtasks nest under their parent; drag a parent and its whole subtree moves with it.
-- **Status colors** — bars are colored by your configured TaskNotes statuses.
+- **Bar colors & icons** — per view, choose how bars are colored (a hierarchy default of green parents / blue children, **By status**, **By priority**, or adapting to your Obsidian theme) and whether the color is a full fill or a left-edge strip, with optional on-bar status/priority icon chips.
 - **Native task editing** — bars behave like TaskNotes task cards. Click a bar to open the note or TaskNotes' **edit modal** (honoring your TaskNotes single-/double-click settings; ⌘/Ctrl-click opens the note in a new tab), and **right-click for TaskNotes' own task context menu** — change status, priority, contexts, tags, dates, and more, using the exact same UI as everywhere else in TaskNotes.
+- **Find & focus** — jump to any task in the chart from a fuzzy search (including tasks pulled in through relationships); the Gantt expands its parents, zooms, scrolls, and highlights it, without opening or editing it.
 
 TaskNotes is the system of record: every write goes through its API (or its own modal/menu), so the Gantt and the rest of TaskNotes stay in sync.
 
 ## Without TaskNotes (optional, read-only)
 
-You can also use it as a **read-only timeline** over any Obsidian Base, with no TaskNotes installed: map start/end date properties in the view options and it renders your notes as bars. In this mode there is **no write-back, no dependency arrows, and no status colors** — Bases has no task/dependency model to drive them. It's a viewer, not an editor.
+You can also use it as a **read-only timeline** over any Obsidian Base, with no TaskNotes installed: map start/end date properties in the view options and it renders your notes as bars. In this mode there is **no write-back, no dependency arrows, and no status/priority coloring or icons** — Bases has no task/dependency model to drive them. Bars still get the default hierarchy colors (or your Obsidian theme's), and the timeline & display features below all work. It's a viewer, not an editor.
+
+## Timeline & display (both modes)
+
+- **Zoom** the timeline by hours, days, weeks, or months, and **weekend columns are shaded** so a multi-day bar doesn't read as if the whole span were working time.
+
+![A Gantt timeline at the day scale with weekend day-columns shaded, following the reader's locale and Obsidian theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/weekend-shading.png)
+
+- **Maximize within Obsidian** — expand the chart to fill the window without pushing Obsidian's own modals, menus, command palette, or hover previews behind it.
+- **Resizable grid/timeline split** that remembers its width, a configurable min/max height, sortable grid columns, and a view-settings menu grouped into collapsible sections.
+- **Missing-date handling** — control how tasks with partial or no dates appear, with optional on-bar date-status indicators.
+- **In-app "What's New"** — after an update, the release notes for the new version open once inside Obsidian; reopen them any time with the **"Show release notes"** command.
 
 ## Requirements
 
