@@ -14,6 +14,7 @@ import {
   buildEntryProperties,
   buildFetchedEntryProperties,
   collectFetchedFileMetas,
+  stringifyScalar,
   type PropertyExtractor,
   type TypedValue,
 } from '../../src/bases/propertyValues';
@@ -226,5 +227,24 @@ describe('collectFetchedFileMetas', () => {
       (path) => (path.endsWith('.md') ? resolve(path) : null),
     );
     expect(metas).toEqual([{ path: 'B.md', basename: 'B', frontmatter: null }]);
+  });
+});
+
+describe('stringifyScalar', () => {
+  it('stringifies primitives verbatim (including 0 and false)', () => {
+    expect(stringifyScalar('x')).toBe('x');
+    expect(stringifyScalar(7)).toBe('7');
+    expect(stringifyScalar(0)).toBe('0');
+    expect(stringifyScalar(false)).toBe('false');
+  });
+
+  it('returns null for null and undefined', () => {
+    expect(stringifyScalar(null)).toBeNull();
+    expect(stringifyScalar(undefined)).toBeNull();
+  });
+
+  it('returns null for a non-null object instead of "[object Object]"', () => {
+    expect(stringifyScalar({ nested: 'value' })).toBeNull();
+    expect(stringifyScalar([1, 2])).toBeNull();
   });
 });

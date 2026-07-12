@@ -19,14 +19,16 @@
  */
 
 import type { CellRenderType } from './cellRenderType';
+import { stringifyScalar } from './propertyValues';
 
 /** Coerce a raw value into an array of string tokens (one per multi-value item). */
 function toTokens(raw: unknown): string[] {
   if (raw === null || raw === undefined) return [];
   if (Array.isArray(raw)) {
-    return raw.filter((item) => item !== null && item !== undefined).map(String);
+    return raw.map(stringifyScalar).filter((token): token is string => token !== null);
   }
-  return [String(raw)];
+  const token = stringifyScalar(raw);
+  return token === null ? [] : [token];
 }
 
 /** `#`-prefix a bare tag token, leaving an already-prefixed token untouched. */

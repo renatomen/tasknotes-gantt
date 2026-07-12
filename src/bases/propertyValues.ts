@@ -48,6 +48,19 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
   return a.length === b.length && a.every((item, i) => item === b[i]);
 }
 
+/**
+ * String form of a scalar frontmatter value, or `null` for anything without a
+ * meaningful single-token form: `null`/`undefined` and non-null objects (a
+ * nested-map frontmatter value). Guards against the default `[object Object]`
+ * coercion — an object has no displayable/storable token, so callers drop it.
+ * Primitives (string, number, boolean, bigint, symbol) stringify verbatim.
+ */
+export function stringifyScalar(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'object') return null;
+  return String(raw);
+}
+
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */
 export interface PropertyExtractor {
   extractValue(entry: unknown, propertyId: string): unknown;
