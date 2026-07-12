@@ -94,6 +94,12 @@
   import type { GridColumn } from './gridColumns';
   import { buildZoomConfig } from './zoomConfig';
   import {
+    buildAvailability,
+    localeWeekendSource,
+    resolveWeekendDays,
+    weekendHighlightClass,
+  } from '../controller/availability';
+  import {
     resolveHostHeight,
     DEFAULT_MAX_HEIGHT,
     GANTT_MIN_HEIGHT,
@@ -336,6 +342,12 @@
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
 
+  // "Highlight weekends", store-driven like showToolbar so the toggle is LIVE.
+  // Only the og-weekends-off root class reacts — the highlightTime seed prop
+  // stays fixed (SVAR reads it into store state at init; swapping it would
+  // re-init and drop zoom/scroll).
+  const highlightWeekends = $derived($data.highlightWeekends ?? true);
+
   // "Hide top-level subtasks" (#161), store-driven like showToolbar. Applied as a
   // SVAR filter-tasks DISPLAY filter (see the effect below), NOT by changing the
   // task set — so toggling it (or Bases oscillating the persisted value) hides/
@@ -574,6 +586,18 @@
   }
 
   const initialData = get(data);
+  // Weekend shading (availability seam): the weekend set resolves ONCE at mount
+  // from the assembly pass's display-locale snapshot — session-constant, the
+  // same rationale as the grid date-locale context below. The closure handed to
+  // <Gantt> is STABLE; the toggle gates visibility via CSS, never this prop.
+  // The day/hour unit gate lives in weekendHighlightClass: SVAR's own min-unit
+  // gate covers only the chart body, while the time-scale header calls this for
+  // every cell at every zoom.
+  const weekendAvailability = buildAvailability([
+    localeWeekendSource(resolveWeekendDays(initialData.dateLocale)),
+  ]);
+  const svarHighlightTime = (date: Date, unit: string): string =>
+    weekendHighlightClass(date, unit, weekendAvailability);
   // The assembly pass's display-locale snapshot, handed to grid cells for their
   // fallback formatting (SVAR can't pass cell props). Context is init-time by
   // design: the locale is session-constant (the Intl default can't change
@@ -2505,6 +2529,7 @@
   class="og-bases-gantt"
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
+  class:og-weekends-off={!highlightWeekends}
   bind:this={rootEl}
 >
   <!-- Per-view toolbar (plan 002 U4): rendered above the chart only when the
@@ -2601,6 +2626,7 @@
           {columns}
           gridWidth={initialGridWidth}
           zoom={zoomConfig}
+          highlightTime={svarHighlightTime}
           readonly={svarReadonly}
         />
       </Tooltip>
@@ -3140,6 +3166,18 @@
 
   .og-bases-gantt.og-progress-readonly :global(.wx-progress-wrapper) {
     pointer-events: none;
+  }
+
+  /*
+   * Weekend shading off-state. The highlightTime seed fn always classifies
+   * (swapping it would re-init SVAR's store); this class-gate suppresses the
+   * visuals instead, so the toggle is live with zoom/scroll intact. SVAR's
+   * scoped styles set BOTH background and color on `.wx-weekend` (chart-body
+   * cells and scale-header cells) — reset both, or header labels stay tinted.
+   */
+  .og-bases-gantt.og-weekends-off :global(.wx-weekend) {
+    background: transparent !important;
+    color: inherit !important;
   }
 
   /*
