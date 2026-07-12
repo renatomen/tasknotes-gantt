@@ -14,6 +14,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -78,6 +79,29 @@ describe("ganttViewOptions", () => {
       expect(toggle.type).toBe("toggle");
       expect(toggle).toMatchObject({ key, default: true });
     }
+  });
+
+  it("exposes the Highlight weekends toggle, defaulting on, in Appearance, in both modes", () => {
+    const toggle = byKey(options, "tngantt_highlightWeekends");
+    expect(toggle.type).toBe("toggle");
+    expect(toggle).toMatchObject({
+      type: "toggle",
+      displayName: "Highlight weekends",
+      key: "tngantt_highlightWeekends",
+      default: true,
+    });
+    const appearance = groupsOf(options).find((g) => g.displayName === "Appearance");
+    expect(appearance).toBeDefined();
+    expect(
+      appearance!.items.some((o) => "key" in o && o.key === "tngantt_highlightWeekends"),
+    ).toBe(true);
+    // Standalone (no TaskNotes) offers the toggle too — no companion dependency.
+    const standalone = ganttViewOptions(false);
+    expect(
+      flattenLeaves(standalone).some(
+        (o) => "key" in o && o.key === "tngantt_highlightWeekends",
+      ),
+    ).toBe(true);
   });
 
   it("exposes the show-toolbar toggle, defaulting off (plan 002 R2)", () => {
@@ -221,8 +245,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 8 Fields + 2 Progress + 3 Relationships
-    // + 6 Timeline + 8 Appearance = 27 (8 property + 9 dropdowns + 4 sliders + 5 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(27);
+    // + 6 Timeline + 9 Appearance = 28 (8 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(28);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -275,6 +299,7 @@ describe("ganttViewOptions", () => {
       "tngantt_barColorSource",
       "tngantt_barIcon",
       "tngantt_showDateIndicators",
+      "tngantt_highlightWeekends",
       "tngantt_showToolbar",
       "tngantt_minHeight",
       "tngantt_maxHeight",
@@ -377,6 +402,23 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
+  });
+});
+
+describe("readHighlightWeekends", () => {
+  it("defaults to true when the toggle is unset (default on)", () => {
+    expect(readHighlightWeekends(() => undefined)).toBe(true);
+  });
+
+  it("is false only for an explicit boolean false", () => {
+    expect(readHighlightWeekends((k) => ({ tngantt_highlightWeekends: false })[k])).toBe(
+      false,
+    );
+    // Falsy-but-not-false and junk values keep the default-on behavior.
+    expect(readHighlightWeekends(() => "no")).toBe(true);
+    expect(readHighlightWeekends(() => 0)).toBe(true);
+    expect(readHighlightWeekends(() => null)).toBe(true);
+    expect(readHighlightWeekends(() => true)).toBe(true);
   });
 });
 

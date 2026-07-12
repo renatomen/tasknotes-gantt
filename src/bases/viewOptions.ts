@@ -321,6 +321,15 @@ function appearanceOptions(): BasesOptions[] {
       key: 'tngantt_showDateIndicators',
       default: true,
     },
+    // Weekend day-column shading in the timeline. Default on — shading is the
+    // conventional reading of a gantt timeline; the toggle exists to opt out.
+    // Weekend days derive from the user's locale (see controller/availability).
+    {
+      type: 'toggle',
+      displayName: 'Highlight weekends',
+      key: 'tngantt_highlightWeekends',
+      default: true,
+    },
     // Per-view toolbar visibility (plan 002 R2); default off. When on, the
     // GanttToolbar renders above the chart with the Auto/Light/Dark theme
     // switch. The theme MODE itself (tngantt_themeMode) is persisted via the
@@ -441,6 +450,17 @@ export function ganttViewOptions(
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+/**
+ * Read the per-view "Highlight weekends" toggle, defaulting to on. Off only for
+ * an explicit boolean `false` (the `!== false` contract `showDateIndicators`
+ * uses). Pure (no Obsidian/DOM); mirrors {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readHighlightWeekends(get: (key: string) => unknown): boolean {
+  return get('tngantt_highlightWeekends') !== false;
 }
 
 /**

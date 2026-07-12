@@ -81,6 +81,7 @@ export async function assembleGanttData(
     arrowMode,
     showDateIndicators: true,
     showToolbar: false,
+    highlightWeekends: true,
     showUndatedTasks: true,
     showPartialDateTasks: true,
     maxHeight: options.maxHeight ?? DEFAULT_MAX_HEIGHT,
