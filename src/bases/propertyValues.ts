@@ -218,6 +218,29 @@ export interface FetchedFileMeta {
 }
 
 /**
+ * Gather {@link FetchedFileMeta} for the show-all *context* rows — instances
+ * whose path is not already in `seen` (the matched-row keys) and that `resolve`
+ * maps to a real file. Each new path is added to `seen` so it is gathered once,
+ * and a path `resolve` rejects (folder, missing file) is skipped. Pure: the
+ * Obsidian file/frontmatter lookup lives in the injected `resolve`.
+ */
+export function collectFetchedFileMetas(
+  instances: readonly { sourcePath: string }[],
+  seen: Set<string>,
+  resolve: (path: string) => Omit<FetchedFileMeta, 'path'> | null,
+): FetchedFileMeta[] {
+  const fetchedMetas: FetchedFileMeta[] = [];
+  for (const inst of instances) {
+    if (seen.has(inst.sourcePath)) continue;
+    seen.add(inst.sourcePath);
+    const meta = resolve(inst.sourcePath);
+    if (!meta) continue;
+    fetchedMetas.push({ path: inst.sourcePath, ...meta });
+  }
+  return fetchedMetas;
+}
+
+/**
  * Build grid property records for fetched (out-of-result) paths — the Show-all
  * *context* rows (U6), which are NOT in the Bases filter result and so have no
  * real Bases entry. Each path is given a *synthetic* entry (frontmatter + a

@@ -13,6 +13,7 @@ import {
   classifyTypedValue,
   buildEntryProperties,
   buildFetchedEntryProperties,
+  collectFetchedFileMetas,
   type PropertyExtractor,
   type TypedValue,
 } from '../../src/bases/propertyValues';
@@ -180,5 +181,50 @@ describe('buildFetchedEntryProperties', () => {
       adapter,
     );
     expect(map.get('X.md')!['note.status'].kind).toBe('empty');
+  });
+});
+
+describe('collectFetchedFileMetas', () => {
+  const resolve = (path: string) => ({ basename: path.replace(/\.md$/, ''), frontmatter: null });
+
+  it('gathers metadata for unseen instance paths', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'B.md' }],
+      new Set<string>(),
+      resolve,
+    );
+    expect(metas).toEqual([
+      { path: 'A.md', basename: 'A', frontmatter: null },
+      { path: 'B.md', basename: 'B', frontmatter: null },
+    ]);
+  });
+
+  it('skips paths already in the seen set (matched rows)', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'B.md' }],
+      new Set<string>(['A.md']),
+      resolve,
+    );
+    expect(metas).toEqual([{ path: 'B.md', basename: 'B', frontmatter: null }]);
+  });
+
+  it('gathers each duplicate path only once and adds it to seen', () => {
+    const seen = new Set<string>();
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'A.md' }, { sourcePath: 'A.md' }],
+      seen,
+      resolve,
+    );
+    expect(metas).toHaveLength(1);
+    expect(seen.has('A.md')).toBe(true);
+  });
+
+  it('skips a path the resolver rejects (folder or missing file)', () => {
+    const metas = collectFetchedFileMetas(
+      [{ sourcePath: 'folder' }, { sourcePath: 'B.md' }],
+      new Set<string>(),
+      (path) => (path.endsWith('.md') ? resolve(path) : null),
+    );
+    expect(metas).toEqual([{ path: 'B.md', basename: 'B', frontmatter: null }]);
   });
 });
