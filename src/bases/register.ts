@@ -65,6 +65,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -564,6 +565,11 @@ class ObsidianGanttBasesView extends BasesView {
     return readShowToolbar((key) => this.config.get(key));
   }
 
+  /** Read the per-view "Highlight weekends" toggle; default on. */
+  private getHighlightWeekends(): boolean {
+    return readHighlightWeekends((key) => this.config.get(key));
+  }
+
   /** Read the per-view max-height in px (plan 003 R1); default 400. */
   private getMaxHeight(): number {
     return readMaxHeight((key) => this.config.get(key));
@@ -938,6 +944,7 @@ class ObsidianGanttBasesView extends BasesView {
       arrowMode,
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
+      highlightWeekends: this.getHighlightWeekends(),
       // #161: read the SAME config key as before (UI + .base syntax unchanged), but
       // it now drives a view-level filter-tasks display filter, not the instance set.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),

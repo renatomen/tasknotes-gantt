@@ -43,6 +43,14 @@ export interface GanttData {
    */
   showToolbar: boolean;
   /**
+   * Per-view "Highlight weekends" toggle. Flows through the reactive data path
+   * (not a static mount prop) so toggling the option live shows/hides the
+   * weekend shading without a remount — same treatment as {@link showToolbar}.
+   * The view reflects it as a root CSS class; the `highlightTime` seed prop
+   * itself stays fixed at mount. Default on.
+   */
+  highlightWeekends: boolean;
+  /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
    * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows

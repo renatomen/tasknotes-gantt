@@ -2,6 +2,17 @@
 
 Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and ce-compound-refresh process learnings; direct edits are fine. Glossary only, not a spec or catch-all.
 
+## Calendar availability
+
+### Non-working day
+A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Non-working status is never carried by a calendar source itself — it is assigned by this plugin when a calendar is given that role.
+
+### Calendar role
+The plugin-side categorization a user assigns to a calendar to give it meaning for the gantt (e.g. "non-working days"; later possibly "working schedule"). Sources supply dated facts; roles supply semantics. One calendar can serve many views, and one view can apply many calendars with roles.
+
+### Availability seam
+The internal query boundary that answers "is this date non-working?" for a view, composed from that view's role-assigned calendars. All consumers — timeline shading now, scheduling decisions later — ask the seam; no consumer inspects a calendar source directly.
+
 ## Inline cell editing
 
 ### Grid cell-edit bridge

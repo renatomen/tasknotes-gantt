@@ -230,6 +230,16 @@ function timelineOptions(): BasesOptions[] {
         month: 'Months',
       },
     },
+    // Weekend day-column shading. Default on — shading is the conventional
+    // reading of a gantt timeline; the toggle exists to opt out. Weekend days
+    // derive from the user's locale (see controller/availability). Sits in
+    // Timeline beside Default Scale: shading only renders at day/hour scales.
+    {
+      type: 'toggle',
+      displayName: 'Highlight weekends',
+      key: 'tngantt_highlightWeekends',
+      default: true,
+    },
     // Number → slider (the official Bases options union has no 'number' control;
     // 'slider' is the closest numeric input). Behavior-equivalent.
     {
@@ -441,6 +451,17 @@ export function ganttViewOptions(
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+/**
+ * Read the per-view "Highlight weekends" toggle, defaulting to on. Off only for
+ * an explicit boolean `false` (the `!== false` contract `showDateIndicators`
+ * uses). Pure (no Obsidian/DOM); mirrors {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readHighlightWeekends(get: (key: string) => unknown): boolean {
+  return get('tngantt_highlightWeekends') !== false;
 }
 
 /**
