@@ -140,6 +140,6 @@ describe("Gantt (OG) locale-aware grid dates", () => {
   it("shows no ISO-formatted date cell while the locale override is active", async () => {
     const state = await readGridState();
     const isoCells = state.cellTexts.filter((t) => t.includes(ISO_DUE));
-    expect(isoCells.length).toBe(0);
+    expect(isoCells).toHaveLength(0);
   });
 });

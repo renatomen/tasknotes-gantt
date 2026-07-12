@@ -67,20 +67,20 @@ function buildPattern(locale: string): LocaleDatePattern | null {
     return null;
   }
 
-  let source = '^\\s*';
+  let source = String.raw`^\s*`;
   const order: DateField[] = [];
   for (const part of parts) {
     if (part.type === 'year' || part.type === 'month' || part.type === 'day') {
       order.push(part.type);
       // Two-digit years are rejected structurally: only a full 4-digit year
       // matches, so an ambiguous "3/20/26" never parses.
-      source += part.type === 'year' ? '(\\d{4})' : '(\\d{1,2})';
+      source += part.type === 'year' ? String.raw`(\d{4})` : String.raw`(\d{1,2})`;
     } else {
       source += literalPattern(part.value);
     }
   }
   if (order.length !== 3 || new Set(order).size !== 3) return null;
-  return { regex: new RegExp(source + '\\s*$'), order };
+  return { regex: new RegExp(source + String.raw`\s*$`), order };
 }
 
 /**
@@ -91,8 +91,8 @@ function buildPattern(locale: string): LocaleDatePattern | null {
  */
 function literalPattern(literal: string): string {
   const core = literal.replace(DIRECTIONAL_MARKS, '').trim();
-  if (core === '') return '\\s+';
-  return '\\s*' + core.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*';
+  if (core === '') return String.raw`\s+`;
+  return String.raw`\s*` + core.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`) + String.raw`\s*`;
 }
 
 /**

@@ -24,7 +24,7 @@ import type { CellRenderType } from './cellRenderType';
 function toTokens(raw: unknown): string[] {
   if (raw === null || raw === undefined) return [];
   if (Array.isArray(raw)) {
-    return raw.filter((item) => item !== null && item !== undefined).map((item) => String(item));
+    return raw.filter((item) => item !== null && item !== undefined).map(String);
   }
   return [String(raw)];
 }

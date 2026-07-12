@@ -427,8 +427,7 @@ export function ganttViewOptions(
   if (companionAvailable) {
     groups.push(group('Relationships', relationshipOptions()));
   }
-  groups.push(group('Timeline', timelineOptions()));
-  groups.push(group('Appearance', appearanceOptions()));
+  groups.push(group('Timeline', timelineOptions()), group('Appearance', appearanceOptions()));
   return groups;
 }
 
