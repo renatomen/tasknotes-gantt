@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLInputElement, KeyboardEvent */
+  /* global HTMLInputElement, KeyboardEvent, MouseEvent */
   /**
    * Custom inline date editor (locale-aware typed input + SVAR Calendar).
    *
@@ -78,6 +78,12 @@
     onapply(value instanceof Date ? value : '');
     onsave();
   }
+
+  function stopRowDragArming(ev: MouseEvent): void {
+    // A selection drag inside the input must stay a text selection — SVAR's
+    // row-reorder helper arms on any bubbling row mousedown.
+    ev.stopPropagation();
+  }
 </script>
 
 <!-- clickOutside lives on the WRAPPER (not the calendar div): clicks in the
@@ -93,6 +99,7 @@
     spellcheck="false"
     onkeydown={commitTyped}
     oninput={() => (invalid = false)}
+    onmousedowncapture={stopRowDragArming}
   />
   <Dropdown trackScroll={true} width="auto" {oncancel}>
     <div class="og-date-calendar">
