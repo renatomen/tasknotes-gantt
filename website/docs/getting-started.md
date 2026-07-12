@@ -8,8 +8,11 @@ This is the zero-to-working-chart path. It takes about five minutes.
 
 - **Obsidian 1.10.0+** (the Gantt is built on the official Bases API).
 - The core **Bases** plugin enabled (Settings → Core plugins → Bases).
-- **[TaskNotes](https://tasknotes.dev)** — required for the full companion
-  (read/write) experience; optional for the read-only timeline.
+- **[TaskNotes](https://tasknotes.dev)** — this plugin is built as a TaskNotes
+  companion, so TaskNotes is **strongly recommended**: it's required for
+  write-back, dependencies, colors, inline editing, and task menus. Without it
+  you get only a read-only timeline (see
+  [the two modes](core-concepts.md#the-two-modes)).
 
 ## 1. Install the plugin
 

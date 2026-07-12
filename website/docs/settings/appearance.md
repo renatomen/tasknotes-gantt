@@ -56,6 +56,6 @@ The chart grows to fit its content up to this cap, then scrolls internally.
 
 ## Table width (px)
 
-The width of the grid (table) side of the grid/timeline split. **Default:** empty
-— the placeholder shows and the width falls back to the first (name) column's
-width. You can also set it by **dragging the divider**; there's no fixed maximum.
+The width of the grid (table) side of the grid/timeline split. **Leave blank**
+for auto — the width falls back to the first (name) column's width. You can also
+set it by **dragging the divider**; there's no fixed maximum.

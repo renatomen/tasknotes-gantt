@@ -84,12 +84,14 @@ automatically.
 
 === "Standalone mode (no TaskNotes)"
 
-    A **read-only timeline** over any Obsidian Base. Map start/end (and optional
-    parent) date properties and your notes render as bars. There is **no
-    write-back, no dependency arrows, and no status/priority coloring or icons** —
-    Bases has no task or dependency model to drive them. Bars still get the
-    default hierarchy colors, and the timeline & display features all work. It's a
-    viewer, not an editor.
+    A **read-only timeline** over any Obsidian Base — and the **majority of the
+    plugin's features are unavailable** here. Map start/end (and optional parent)
+    date properties and your notes render as bars, but there is **no write-back,
+    no drag-to-reschedule, no dependency arrows, no status/priority coloring or
+    icons, no inline editing, and no task menus** — Bases has no task or
+    dependency model to drive them. Bars still get the default hierarchy colors,
+    and the timeline & display features (zoom, weekend shading, sizing) work. It's
+    a viewer, not an editor, and not the experience this plugin is built for.
 
 Throughout this documentation, companion-only features are marked so you always
 know which mode a setting applies to.

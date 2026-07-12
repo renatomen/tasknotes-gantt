@@ -2,10 +2,21 @@
 
 **The interactive Gantt timeline for your TaskNotes tasks in Obsidian.**
 
-Point it at a Base over your tasks and get a live schedule — dependency arrows,
-drag-to-reschedule, progress bars, inline editing, and parent/child roll-up —
-with every change written straight back to your notes through TaskNotes. It also
-works standalone as a read-only timeline over any Base.
+TaskNotes Gantt is built first and foremost as a **companion to
+[TaskNotes](https://tasknotes.dev)**. Point it at a Base over your tasks and get
+a live schedule — dependency arrows, drag-to-reschedule, progress bars, inline
+editing, and parent/child roll-up — with every change written straight back to
+your notes through TaskNotes.
+
+!!! warning "TaskNotes is the point"
+
+    This plugin is designed to make **TaskNotes tasks** interactive on a
+    timeline. **Without TaskNotes installed**, it still runs — but only as a
+    **read-only** timeline over any Base, and **most features are unavailable**:
+    no write-back, no dependency arrows, no status/priority colors or icons, no
+    inline editing, and no task menus. If you're not a TaskNotes user, the
+    standalone timeline is a viewer, not the tool this plugin is really for.
+    See [Core Concepts → The two modes](core-concepts.md#the-two-modes).
 
 <div class="tng-hero" markdown>
 ![A TaskNotes Gantt view in Obsidian: task bars with color strips and on-bar status icons, a resizable grid on the left and a shaded-weekend timeline on the right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png)

@@ -29,3 +29,10 @@ this reference. See [Core Concepts → The two modes](../core-concepts.md#the-tw
     The Gantt never hard-codes property names. Every "Property" setting under
     [Fields](fields.md) lets you point the Gantt at whatever property your notes
     (or TaskNotes) actually use.
+
+!!! tip "Leave a field blank to use its default"
+
+    You don't have to fill everything in. Any **Property** or text field you
+    leave **blank** falls back to the default documented for it — for example,
+    leave **Start Date Property** blank and the Gantt uses TaskNotes' `scheduled`.
+    Each field below states exactly what its blank/default behavior is.

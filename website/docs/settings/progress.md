@@ -5,8 +5,10 @@ comes from, and whether you can edit it.
 
 ## Progress Property
 
-A property holding a **0–100** progress value. **Default:** empty. Always shown
-(a standalone Gantt can still map it to draw progress bars). Optional.
+A property holding a **0–100** progress value. **Leave blank** for no mapped
+progress property (in *Property* mode there's then nothing to read or write).
+Always shown — a standalone Gantt can still map it to draw progress bars.
+Optional.
 
 ## Progress mode
 
