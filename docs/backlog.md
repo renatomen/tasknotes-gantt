@@ -86,6 +86,12 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - **Visual assets — capture for focus-on-task (0.1.0-beta.3)** — crosshair → fuzzy search → expand →
   zoom → scroll → highlight. Fixture: `test/specs/gantt-focus-task.e2e.ts`. Source: PR #189.
   (The earlier #189 PR GIF was catbox-hosted, which the convention now bans.)
+- **Visual assets — capture for markdown property cells (0.1.0-beta.8)** — wikilinks as clickable
+  internal links, tag values as pills. Fixture: `test/specs/gantt-markdown-cells.e2e.ts`. Source: PR #222.
+- **Visual assets — capture for chips list editor (0.1.0-beta.8)** — editing a list cell as removable
+  chips with the `[[` suggester; read-mode count badge. Fixture: `gantt-inline-edit.e2e.ts`. Source: PR #236.
+- **Visual assets — capture for Time Estimate ⇄ duration sync (0.1.0-beta.8)** — an estimate driving a
+  dateless bar's length, and a resize writing the span back. Source: PR #221.
 
 ---
 
