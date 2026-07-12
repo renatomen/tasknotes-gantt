@@ -10,6 +10,7 @@ export default [
     ignores: [
       "dist/**",
       "node_modules/**",
+      "website/site/**",
       "coverage/**",
       ".wdio-*",
       "**/.obsidian-cache/**",
