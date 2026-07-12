@@ -92,11 +92,15 @@
   function commit(): void {
     if (committed) return;
     committed = true;
-    // Fold any un-pushed draft into the list, then persist the whole raw array
-    // once through the direct path and close via oncancel — never the bridge,
-    // which can't represent a wikilink list (append-editor precedent).
+    // Fold any un-pushed draft into the list (deduped like pushRawChip — a blank
+    // or duplicate draft adds nothing), then persist the whole raw array once
+    // through the direct path and close via oncancel — never the bridge, which
+    // can't represent a wikilink list (append-editor precedent).
     const pending = draft.trim();
-    const finalChips = pending === '' ? chips : [...chips, chipFromRawEntry(pending)];
+    const finalChips =
+      pending === '' || chipsContainEntry(chips, pending)
+        ? chips
+        : [...chips, chipFromRawEntry(pending)];
     commitList?.(rawListFromChips(finalChips));
     oncancel();
   }
