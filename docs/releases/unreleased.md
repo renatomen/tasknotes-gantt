@@ -69,10 +69,6 @@ EXAMPLE (parent = one-line heading; details/thanks as single-line sub-bullets)
 
 ## Added
 
-- **Weekend day columns are now shaded in the timeline.**
-  - Weekend days follow your locale (e.g. Saturday/Sunday, or Friday/Saturday in many Middle East locales) and the shading follows the active light/dark theme. Visible at day and hour zoom levels.
-  - Turn it off per view with the new "Highlight weekends" toggle under Timeline — the toggle applies live, keeping your zoom and scroll position.
-
 ## Changed
 
 ## Fixed
