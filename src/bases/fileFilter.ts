@@ -79,8 +79,8 @@ function matchesTagConditions(candidateTags: string[], conditionTags: string[]):
 
 function normalizeFolder(folder: string): string {
   const forward = folder.trim().replace(/\\/g, '/').replace(/^\/+/, '');
-  // Strip trailing slashes with a linear scan rather than an anchored `/\/+$/`,
-  // whose greedy quantifier can backtrack super-linearly on long slash runs.
+  // Trailing slashes stripped by a linear scan: the equivalent `/\/+$/` trips
+  // the ReDoS static-analysis check, and a manual scan is plainly linear.
   let end = forward.length;
   while (end > 0 && forward[end - 1] === '/') end--;
   return forward.slice(0, end);

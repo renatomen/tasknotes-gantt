@@ -49,15 +49,19 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
 }
 
 /**
- * String form of a scalar frontmatter value, or `null` for anything without a
- * meaningful single-token form: `null`/`undefined` and non-null objects (a
- * nested-map frontmatter value). Guards against the default `[object Object]`
- * coercion — an object has no displayable/storable token, so callers drop it.
+ * String form of a scalar frontmatter value, or `null` when it has no
+ * meaningful single-token form. `null`/`undefined` yield `null`. A plain
+ * object/map coerces to the useless `[object Object]` and is dropped, but an
+ * object with a real string form (a YAML-parsed `Date`, a nested array's
+ * comma-joined items) keeps it — matching how those values rendered before.
  * Primitives (string, number, boolean, bigint, symbol) stringify verbatim.
  */
 export function stringifyScalar(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'object') return null;
+  if (typeof raw === 'object') {
+    const s = String(raw);
+    return s === '[object Object]' ? null : s;
+  }
   return String(raw);
 }
 

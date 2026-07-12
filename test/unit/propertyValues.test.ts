@@ -243,8 +243,13 @@ describe('stringifyScalar', () => {
     expect(stringifyScalar(undefined)).toBeNull();
   });
 
-  it('returns null for a non-null object instead of "[object Object]"', () => {
+  it('returns null for a plain object instead of "[object Object]"', () => {
     expect(stringifyScalar({ nested: 'value' })).toBeNull();
-    expect(stringifyScalar([1, 2])).toBeNull();
+  });
+
+  it('keeps the string form of an object that has a meaningful one (Date, nested array)', () => {
+    const date = new Date('2024-01-02T00:00:00Z');
+    expect(stringifyScalar(date)).toBe(String(date));
+    expect(stringifyScalar([1, 2])).toBe('1,2');
   });
 });

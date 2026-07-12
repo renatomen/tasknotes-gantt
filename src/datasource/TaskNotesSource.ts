@@ -682,14 +682,6 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
-   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
-   * the frontmatter property names for canonical `scheduled`/`due` (from
-   * `model.config().fieldMapping`) and the enabled custom fields of type `date`
-   * (from `model.config().userFields`). Custom fields without a `key` are
-   * dropped (the key is how the property is addressed). Guarded: a missing or
-   * throwing `model.config()` yields `null` so callers degrade to read-only.
-   */
-  /**
    * Map one TaskNotes userField to a {@link CustomDateField}, or `null` when it
    * is not an enabled, keyed `date` field. A falsy entry (defensive against the
    * API) is dropped; a missing `enabled` flag means active.
@@ -706,6 +698,14 @@ export class TaskNotesSource implements DataSource {
     };
   }
 
+  /**
+   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
+   * the frontmatter property names for canonical `scheduled`/`due` (from
+   * `model.config().fieldMapping`) and the enabled custom fields of type `date`
+   * (from `model.config().userFields`). Custom fields without a `key` are
+   * dropped (the key is how the property is addressed). Guarded: a missing or
+   * throwing `model.config()` yields `null` so callers degrade to read-only.
+   */
   public async getFieldConfig(): Promise<FieldConfig | null> {
     try {
       const config = this.api.model?.config?.();
@@ -1016,11 +1016,11 @@ export class TaskNotesSource implements DataSource {
 }
 
 /**
- * Progress persistence (U6): write only when a resolved `progressWrite` target
- * is present AND a value is supplied. A bare `progress` with no target is never
+ * Progress persistence: write only when a resolved `progressWrite` target is
+ * present AND a value is supplied. A bare `progress` with no target is never
  * written — that guards TaskNotes progress mode (read-only/computed) and any
- * no-target caller. The value is coalesced to an integer 0–100 (R9), written to
- * the top-level frontmatter key, matching the custom user-field write path.
+ * no-target caller. The value is coalesced to an integer 0–100, written to the
+ * top-level frontmatter key, matching the custom user-field write path.
  */
 function applyProgressWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
   if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
@@ -1029,11 +1029,11 @@ function applyProgressWrite(updates: Record<string, unknown>, patch: TaskPatch):
 }
 
 /**
- * Time Estimate persistence (U6): write only when a resolved `estimateWrite`
- * target is present AND a value is supplied — a bare `estimate` with no target
- * is never written (guards `dont-update` mode). The value is a rounded,
- * non-negative integer (minutes). `tasknotesField` writes through TaskNotes'
- * canonical `timeEstimate`; `property` writes the resolved frontmatter key.
+ * Time Estimate persistence: write only when a resolved `estimateWrite` target
+ * is present AND a value is supplied — a bare `estimate` with no target is never
+ * written (guards `dont-update` mode). The value is a rounded, non-negative
+ * integer (minutes). `tasknotesField` writes through TaskNotes' canonical
+ * `timeEstimate`; `property` writes the resolved frontmatter key.
  */
 function applyEstimateWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
   if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
