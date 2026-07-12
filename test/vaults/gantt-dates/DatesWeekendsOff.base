@@ -1,0 +1,15 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt Dates (weekends off)"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_progressProperty: note.progress
+    tngantt_defaultDuration: 1
+    tngantt_highlightWeekends: false
+    order:
+      - file.name
+      - note.start
+      - note.due

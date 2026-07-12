@@ -128,6 +128,29 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     });
   });
 
+  describe("weekend highlighting off", () => {
+    before(async () => {
+      await openBase("DatesWeekendsOff.base");
+    });
+
+    it("suppresses weekend shading when the toggle is off (weekend AE4 off-state)", async () => {
+      // The off state is the CSS-specificity path: highlightTime still
+      // classifies (the fn is a seed-once prop), so `.wx-weekend` cells remain
+      // in the DOM, but the `og-weekends-off` root class + scoped override must
+      // beat SVAR's compiled `.wx-weekend` styles. Assert both halves.
+      await expect($(".og-bases-gantt.og-weekends-off")).toBeExisting();
+      const weekendCells = await $$(".og-bases-gantt .wx-weekend");
+      expect(weekendCells.length).toBeGreaterThan(0);
+      const background = await browser.execute(() => {
+        const cell = document.querySelector(".og-bases-gantt .wx-weekend");
+        return cell ? window.getComputedStyle(cell).backgroundColor : null;
+      });
+      // transparent computes to rgba(0, 0, 0, 0); any shading means the
+      // override lost the specificity contest against SVAR's scoped styles.
+      expect(background).toBe("rgba(0, 0, 0, 0)");
+    });
+  });
+
   describe("hide-undated + indicators off", () => {
     before(async () => {
       await openBase("DatesHidden.base");
