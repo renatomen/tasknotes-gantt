@@ -103,6 +103,16 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(dueX).toBeLessThan(datelessX);
     });
 
+    it("shades weekend day columns by default at the day scale (weekend AE1/AE6)", async () => {
+      // The fixture sets no tngantt_defaultScale, so the view mounts at the day
+      // default where day cells render. Weekend shading defaults ON and this
+      // vault has no TaskNotes, so presence here is also the standalone proof.
+      // `.wx-weekend` appears on chart-body holiday cells and day-scale header
+      // cells; any ≥7-day visible window contains at least one weekend day.
+      const weekendCells = await $$(".og-bases-gantt .wx-weekend");
+      expect(weekendCells.length).toBeGreaterThan(0);
+    });
+
     it("flags non-complete bars and leaves the complete bar unflagged (R10)", async () => {
       const complete = await $(`.og-bases-gantt .wx-bar[data-id$="Complete.md"]`);
       const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
