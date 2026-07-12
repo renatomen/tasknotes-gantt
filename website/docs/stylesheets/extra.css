@@ -1,8 +1,0 @@
-/* Minimal overrides. The Material theme (cloned from tasknotes.dev) carries the
-   look; keep this file near-empty so MVP styling stays vanilla. */
-
-/* Slightly tighten the homepage hero image. */
-.tng-hero img {
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-}
