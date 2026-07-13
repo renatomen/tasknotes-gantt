@@ -27,8 +27,11 @@ showing its **Status** or **Priority** (companion only), or **None**.
 ## Date-status indicators { #date-status-indicators }
 
 **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
-adds small markers that flag date state (for example a task past its due date).
-On by default.
+gives a distinct **orange** treatment to any bar whose dates aren't fully
+specified — a task with **one date missing** (the other inferred), with **no
+dates** (placed at today as a placeholder), or with **start and end swapped**. A
+task with two valid dates is never flagged; there is **no "overdue" marker**. On
+by default.
 
 ## Weekend shading
 

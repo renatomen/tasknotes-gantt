@@ -31,8 +31,9 @@ A small icon on each bar. **Default:** None.
 
 ## Show date-status indicators on bars
 
-Small markers that flag date state (e.g. a task past its due date). **Default:**
-on.
+Gives a distinct **orange** treatment to bars whose dates aren't fully specified —
+one date missing (inferred), no dates (placeholder), or start/end swapped. A fully
+dated task is never flagged (there's no overdue marker). **Default:** on.
 
 ## Show toolbar
 
