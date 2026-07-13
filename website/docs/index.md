@@ -30,8 +30,19 @@ your notes through TaskNotes.
     See [Core Concepts → The two modes](core-concepts.md#the-two-modes).
 
 <div class="tng-hero" markdown>
-![A TaskNotes Gantt view in Obsidian: task bars with color strips and on-bar status icons, a resizable grid on the left and a shaded-weekend timeline on the right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png)
+![A TaskNotes Gantt view in Obsidian showing a kitchen-remodel project: a parent task with nested phases, dependency arrows linking them, priority color strips with on-bar icons, and shaded weekend columns](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/home-reno-overview-light.png)
 </div>
+
+## Standalone page or embedded — your call
+
+Run the Gantt as a **full-page Base** in its own tab, or drop it into any note as
+an embedded **`base`** code block. You can even put **several gantts, each with
+its own configuration, in the same note** — here one note carries a weekly,
+priority-coloured view *and* a monthly, status-coloured view of the same project:
+
+![A single Obsidian note with two embedded base code blocks, each rendering a Gantt at a different scale and colour configuration](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/embedded-dashboard-light.png)
+
+[:octicons-arrow-right-24: Add a view — standalone or embedded](getting-started.md)
 
 ## Where to start
 

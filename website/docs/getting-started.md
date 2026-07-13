@@ -67,8 +67,36 @@ notes that have date properties.
 
 ## 4. Add a TaskNotes Gantt view
 
-In the Base, add a new view and choose type **TaskNotes Gantt**. An empty (or
-partially populated) chart appears.
+You can add the Gantt **two ways** — pick whichever fits how you work.
+
+**A · A standalone Base view.** In the Base, add a new view and choose type
+**TaskNotes Gantt**. It fills its own tab — the natural home for a project's
+main timeline.
+
+**B · Embedded in a note.** Drop a `base` code block into any markdown note and
+give it an `obsidianGantt` view. The chart renders inline, right in the note:
+
+~~~markdown
+```base
+filters:
+  and:
+    - 'file.hasTag("project")'
+views:
+  - type: obsidianGantt
+    name: Timeline
+```
+~~~
+
+You can place **several such blocks in one note**, each with its own filter,
+scale, and colours — for example a weekly, priority-coloured view above a
+monthly, status-coloured view of the same project:
+
+| Light | Dark |
+| :---: | :---: |
+| ![A note with two embedded base blocks, each a Gantt at a different scale and colour configuration, in a light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/embedded-dashboard-light.png) | ![The same note in a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/embedded-dashboard-dark.png) |
+
+Either way, an empty (or partially populated) chart appears — the next step maps
+your dates.
 
 ## 5. Map your date properties
 

@@ -73,6 +73,16 @@ nav:
     - Development Cadence: development-cadence.md
     - Acknowledgements: acknowledgements.md
 
+# Adding `plugins:` disables the implicit default, so `search` is re-declared.
+plugins:
+  - search
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      zoomable: true
+      draggable: true
+
 markdown_extensions:
   - admonition
   - attr_list

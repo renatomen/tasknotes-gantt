@@ -15,6 +15,55 @@ Bars can be colored in a few ways, set per view under
 - **[Bar color mode](../settings/appearance.md#bar-color-mode)** — a full
   **Fill** or a left-edge **Strip** that leaves the bar body neutral.
 
+The same kitchen-remodel tasks under different **source × mode** combinations
+(click any image to zoom):
+
+=== "Strip · by status"
+
+    | Light | Dark |
+    | :---: | :---: |
+    | ![Bars with a left-edge strip coloured by TaskNotes status, carrying priority icons, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-strip-status-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-strip-status-dark.png) |
+
+    A left-edge **strip** coloured by **status** (green done, blue in-progress,
+    grey open), with **priority** icons on each bar.
+
+=== "Strip · by priority"
+
+    | Light | Dark |
+    | :---: | :---: |
+    | ![Bars with a left-edge strip coloured by priority, carrying status icons, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-strip-priority-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-strip-priority-dark.png) |
+
+    The same strip, now coloured by **priority**, with **status** icons — swap
+    which attribute the strip and the icon each show.
+
+=== "Fill · by status"
+
+    | Light | Dark |
+    | :---: | :---: |
+    | ![Bars fully filled with their status colour, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-dark.png) |
+
+    **Fill** mode floods the whole bar with the **status** colour instead of a
+    thin strip — bolder, when colour is the main signal you want.
+
+=== "Obsidian theme"
+
+    | Light | Dark |
+    | :---: | :---: |
+    | ![Bars coloured from the active Obsidian accent colour, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-theme-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-theme-dark.png) |
+
+    **Obsidian theme** colours by your **accent colour** — children the raw
+    accent, parents a higher-contrast tone. Change your accent and the bars
+    re-tint live.
+
+=== "Default palette"
+
+    | Light | Dark |
+    | :---: | :---: |
+    | ![Bars in the default palette: green parents and blue children, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-default-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-default-dark.png) |
+
+    The **Default** palette ignores your theme: **green parents, blue children**.
+    It looks the same in every vault.
+
 ### Default vs Obsidian theme
 
 Both color bars by **hierarchy** — parents one tone, children another — but they

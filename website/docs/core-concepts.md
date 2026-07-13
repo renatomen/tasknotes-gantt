@@ -45,6 +45,10 @@ Each task becomes a bar spanning its **start** → **end** dates. With TaskNotes
 these default to `scheduled` → `due`; you can map any TaskNotes date field
 instead (see [Settings → Fields](settings/fields.md)).
 
+| Light | Dark |
+| :---: | :---: |
+| ![A kitchen-remodel project as a Gantt in a light theme: parent task with nested phases, dependency arrows, priority strips and weekend shading](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/home-reno-overview-light.png) | ![The same chart in a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/home-reno-overview-dark.png) |
+
 - **Drag** a bar to reschedule it; **resize** an edge to change its duration.
   Both persist back to the note.
 - Tasks with only one date, or no dates, can still appear — controlled by
