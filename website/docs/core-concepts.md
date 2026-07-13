@@ -46,6 +46,15 @@ types (Finish-to-Start, Finish-to-Finish, Start-to-Start, Start-to-Finish) plus
 gap/lag. You can **create and delete Finish-to-Start** links by dragging between
 bars.
 
+!!! info "Why only Finish-to-Start authoring, for now?"
+
+    TaskNotes stores dependencies to the iCalendar **RFC 9253** model, so all four
+    types are supported *under the hood* — and this Gantt already **renders** every
+    one of them. What isn't built yet is the **UI to author** the other three:
+    today you can only create and delete **Finish-to-Start** by dragging. Full
+    authoring is on the roadmap — likely landing in TaskNotes itself (which I also
+    work on), and once it's there, the Gantt already draws it.
+
 Dependencies are a **companion-only** feature — Bases alone has no dependency
 model, so arrows never appear in standalone mode. See
 [Dependencies](features/dependencies.md).
