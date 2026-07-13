@@ -24,13 +24,14 @@ your notes through TaskNotes.
 
 !!! note "💜 A note on pace — please read"
 
-    This plugin is a labour of love, built in scarce spare time to scratch my own
-    itch. The features here are **solid and thoroughly tested** — but **support is
-    intentionally "beta"**: I may be slow to respond to bug reports and feature
-    requests, though I'll always do my best. My hope is to grow it more
-    community-driven over time and co-evolve with [TaskNotes](https://tasknotes.dev).
-    [Read the full note → Development Cadence](development-cadence.md), and
-    [what this plugin is *for* → Vision & Philosophy](vision-and-philosophy.md).
+    I built TaskNotes Gantt to scratch my own itch, and I'm glad to share it with
+    anyone it helps — but I have very little time for it, and I won't let a joyful
+    project turn into a burdensome one. I genuinely welcome feedback and requests;
+    I just can't promise to answer quickly, so please keep that in mind before you
+    rely on it. The plugin is **solid**, and moving slowly is precisely how I keep
+    it that way — the real reason for the Beta label.
+    [Read the full note → Development Cadence](development-cadence.md) ·
+    [What it's *for* → Vision & Philosophy](vision-and-philosophy.md)
 
 ## Where to start
 
