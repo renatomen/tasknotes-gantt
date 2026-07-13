@@ -12,13 +12,17 @@ TaskNotes these default to `scheduled` → `due`; map any other date field under
 
 ## Drag to reschedule, resize to change duration
 
-*(Companion mode — writes back through TaskNotes.)*
+*(Companion mode — writes back through TaskNotes. In standalone mode the timeline
+is read-only, so bars don't move.)*
 
-- **Drag** a bar left/right to move it. Both dates shift; the duration is kept.
-- **Resize** an edge to change just the start or the end.
+- **To move a task:** click the **middle of its bar** and drag left or right. Both
+  dates shift together, so the duration stays the same. Release to drop it — the
+  new dates save to the note immediately.
+- **To change its duration:** drag a bar's **left or right edge**. Only that end
+  moves, so you change just the start or just the end.
 
-Each change is persisted to the task note immediately. In standalone mode the
-timeline is read-only, so bars don't move.
+Dragging a **parent** bar moves its whole subtree — see
+[Parent / child roll-up](parent-child.md#dragging-a-parent-moves-the-whole-subtree).
 
 !!! note "📷 Demo image pending"
 

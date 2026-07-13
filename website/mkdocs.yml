@@ -54,6 +54,7 @@ nav:
   - Core Concepts: core-concepts.md
   - Getting Started: getting-started.md
   - Features:
+    - Chart controls: features/chart-controls.md
     - Scheduling & dates: features/scheduling.md
     - Dependencies: features/dependencies.md
     - Parent / child roll-up: features/parent-child.md

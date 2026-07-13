@@ -120,7 +120,7 @@ export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConf
 // ============================================================================
 
 const VIEW_TYPE_ID = 'obsidianGantt';
-const VIEW_NAME = 'Gantt (OG)';
+const VIEW_NAME = 'TaskNotes Gantt';
 const VIEW_ICON = 'calendar-range';
 
 /** Ephemeral state for preserving view state across refreshes */
@@ -851,7 +851,7 @@ class ObsidianGanttBasesView extends BasesView {
         this.containerEl.empty();
         this.containerEl.createDiv({
           cls: 'og-bases-gantt-error',
-          text: 'Gantt (OG): Failed to render chart. See console for details.',
+          text: 'TaskNotes Gantt: Failed to render chart. See console for details.',
         });
       }
     }

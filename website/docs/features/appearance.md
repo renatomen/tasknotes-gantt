@@ -126,10 +126,10 @@ Controlled by **[Highlight weekends](../settings/timeline.md#highlight-weekends)
 
 ## Maximize within Obsidian
 
-Expand the chart to fill the Obsidian window without pushing Obsidian's own
-modals, menus, command palette, or hover previews behind it.
-
-![Maximizing the Gantt while an Obsidian popup stays visible on top](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/fullscreen-popup-visibility.gif)
+The **⤢ button in the top-right corner** of the chart expands it to fill the
+Obsidian window — without pushing Obsidian's own modals, menus, command palette,
+or hover previews behind it. Full walkthrough (and how to exit) in
+[Chart controls → Full screen](chart-controls.md#full-screen).
 
 ## Layout
 
