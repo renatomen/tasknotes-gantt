@@ -7,8 +7,9 @@ through TaskNotes' own UI from the bars, and inline in the grid.
 
 ## Bars behave like TaskNotes task cards
 
-- **Click** a bar to open the note, or TaskNotes' **edit modal** — honoring your
-  TaskNotes single-/double-click settings.
+- **Click** a bar to select it; clicking it again (or double-clicking) opens the
+  note or TaskNotes' **edit modal**, honoring your TaskNotes single-/double-click
+  settings.
 - **⌘/Ctrl-click** opens the note in a new tab.
 - **Right-click** a bar for TaskNotes' **own task context menu** — change status,
   priority, contexts, tags, dates, and more, using the exact same UI as
@@ -22,8 +23,8 @@ editing a task anywhere else.
 Edit a task's properties without leaving the timeline:
 
 - **Double-click** a grid cell, or select it and press <kbd>F2</kbd>, to edit.
-- Editors are **type-aware** — text, numbers, checkboxes, locale-aware dates
-  (with a calendar dropdown), status, priority, and multi-value list fields.
+- Editors are **type-aware** — text, numbers, a true/false picker, locale-aware
+  dates (with a calendar dropdown), status, priority, and multi-value list fields.
 - Property cells render as real **Obsidian markdown**, so wikilinks are clickable
   and tags show as pills.
 

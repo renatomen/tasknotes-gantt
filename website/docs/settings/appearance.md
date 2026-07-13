@@ -21,7 +21,11 @@ What determines a bar's color. **Default:** Default.
 | **Default** | Structural hierarchy palette — green parents, blue children. |
 | **By status** | Colors by the TaskNotes status palette. *Companion only — falls back to Default standalone.* |
 | **By priority** | Colors by the TaskNotes priority palette. *Companion only — falls back to Default standalone.* |
-| **Obsidian theme** | Uses your active Obsidian theme's colors. |
+| **Obsidian theme** | Your Obsidian accent color (`--interactive-accent`) — children the raw accent, parents a higher-contrast tone. |
+
+Parent vs child is color-coded **only** under Default and Obsidian theme; under
+*By status* / *By priority* every bar colors by its own value. See
+[Colors → Default vs Obsidian theme](../features/appearance.md#default-vs-obsidian-theme).
 
 ## Task icon
 

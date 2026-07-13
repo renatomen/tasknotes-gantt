@@ -52,7 +52,8 @@ standalone is read-only.
 
 ## Expanded relationships (companion)
 
-TaskNotes can pull in related tasks that fall outside your Base's filter for
-context. How prominent those pulled-in rows are, and whether top-level subtasks
-are hidden, is controlled in
-[Settings → Relationships](../settings/relationships.md).
+In companion mode the Gantt can pull in related tasks that fall *outside* your
+Base's filter — a subtask of something you're viewing that the filter didn't
+match — and draw them as faded **context rows** so the full structure is visible.
+How prominent those rows are, and whether top-level subtasks are hidden, is
+controlled in [Settings → Relationships](../settings/relationships.md).

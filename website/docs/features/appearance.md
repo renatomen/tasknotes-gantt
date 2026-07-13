@@ -15,6 +15,22 @@ Bars can be colored in a few ways, set per view under
 - **[Bar color mode](../settings/appearance.md#bar-color-mode)** — a full
   **Fill** or a left-edge **Strip** that leaves the bar body neutral.
 
+### Default vs Obsidian theme
+
+Both color bars by **hierarchy** — parents one tone, children another — but they
+source that color differently:
+
+- **Default** uses a fixed palette that ignores your theme: **green parents, blue
+  children**. It looks the same in every vault.
+- **Obsidian theme** follows your **accent color** (Settings → Appearance → Accent
+  color, or whatever your theme sets). Children take the raw accent; parents a
+  higher-contrast tone of the same hue — so a yellow accent gives yellow bars, and
+  changing your accent or theme re-tints them live.
+
+Hierarchy coloring applies **only** to these two sources. Under **By status** and
+**By priority**, every bar is colored by its own value — parents and children
+alike.
+
 | Light theme | Dark theme |
 | :---: | :---: |
 | ![Bars with left-edge color strips and on-bar icons in a light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png) | ![The same, adapting to a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-dark.png) |
@@ -32,6 +48,17 @@ specified — a task with **one date missing** (the other inferred), with **no
 dates** (placed at today as a placeholder), or with **start and end swapped**. A
 task with two valid dates is never flagged; there is **no "overdue" marker**. On
 by default.
+
+## Reading bar decorations
+
+Three independent visual cues can appear on a bar — they're unrelated, and a bar
+can carry more than one at once:
+
+| Cue | What it means |
+| --- | --- |
+| **Orange bar** | The task's **dates aren't fully specified** — one date missing (the other inferred), no dates (placed at today), or start and end swapped. A fully-dated task is never orange. Toggled by **Show date-status indicators on bars**. |
+| **Diagonal hatch** | The **same task appears in more than one place** — e.g. a note shown under several parents. Every copy is hatched equally; none is the "real" one. This is about duplication, **not** dates. |
+| **Faded / muted bar** | A **context row** pulled in by [Show all](../settings/relationships.md) expansion that doesn't itself match the Base's filter — shown only for structure. Its faintness is the **Expanded items opacity** (55% by default). |
 
 ## Weekend shading
 

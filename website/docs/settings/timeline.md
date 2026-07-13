@@ -20,8 +20,10 @@ meaningful at week/month). See
 
 ## Default task duration (days)
 
-How long a bar is drawn when a task has a start but no end (and no time estimate
-to infer one). **Default:** 1. **Minimum:** 1.
+How long a bar is drawn whenever a date must be filled in and there's no time
+estimate to size it — a start-only task (end drawn forward), a due-only task
+(start drawn back), or a task with no dates (a placeholder bar at today).
+**Default:** 1. **Minimum:** 1.
 
 ## Dependency Arrows
 

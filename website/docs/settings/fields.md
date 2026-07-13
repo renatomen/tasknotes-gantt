@@ -1,11 +1,13 @@
 # Fields
 
-The **Fields** group maps note properties to the things the Gantt needs. All are
-optional except the dates — without a start/end mapping there's nothing to draw.
+The **Fields** group maps note properties to the things the Gantt needs. Each
+picker resolves against your own properties, and **every field can be left blank**
+— when it is, the Gantt uses the default noted for it.
 
-Each picker resolves against your own properties. **Every field here can be left
-blank** — when it is, the Gantt uses the default noted for it, so you only need
-to set the ones you want to override.
+In **companion mode** (TaskNotes installed) that's true even of the dates: leave
+**Start** / **End** blank and they default to TaskNotes' `scheduled` / `due`. In
+**standalone** mode you must map a start and end date property yourself, or
+there's nothing to draw.
 
 ## Task Name Property
 
@@ -24,9 +26,15 @@ The property that supplies each bar's **end**. **Leave blank** to use TaskNotes'
 
 ## Parent Property
 
-The property that links a task to its parent, enabling
+The property that links a task to its parent for **standalone / Base-derived**
 [parent/child roll-up](../features/parent-child.md). **Leave blank** for no
-roll-up (flat list). Optional.
+roll-up. Optional.
+
+!!! note "Companion mode uses TaskNotes' own relationships"
+
+    When TaskNotes is installed, nesting comes from TaskNotes' `projects`
+    (subtasks) relationships — so this **Parent Property** has no effect in
+    companion mode. It's for the standalone (Bases-only) hierarchy.
 
 ## Status Property
 
@@ -43,9 +51,9 @@ priority coloring.
 
 A property holding an estimate in **minutes**. It **drives a bar's length when a
 date is missing**, and is the write target in Property mode (below). **Leave
-blank** and, in TaskNotes-field mode, it resolves to TaskNotes' configured
-`timeEstimate` property. Reading the estimate for inference is always on,
-regardless of the write mode.
+blank** and, whenever TaskNotes is present (companion mode), it resolves to
+TaskNotes' configured `timeEstimate` property — regardless of the write mode.
+Reading the estimate for inference is always on.
 
 ## Time Estimate Update
 

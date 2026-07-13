@@ -30,8 +30,8 @@ timeline is read-only, so bars don't move.
 - **[Default Scale](../settings/timeline.md#default-scale)** sets the initial
   zoom — hours, days, weeks, or months.
 - **[Default task duration](../settings/timeline.md#default-task-duration-days)**
-  is how long a bar is drawn when a task has a start but no end (and no time
-  estimate to infer one).
+  is how long a bar is drawn whenever a date must be filled in with no time
+  estimate to size it — a start-only, due-only, or dateless (placeholder) task.
 
 ## Missing and partial dates
 

@@ -28,7 +28,11 @@ the rest of TaskNotes never drift apart.
 
 That single fact explains most of the plugin's behavior:
 
-- The Gantt never invents or bulk-edits data. It writes only the note you act on.
+- The Gantt writes only the notes you act on — usually just one. Two exceptions:
+  dragging a **parent** moves its whole subtree, writing each descendant; and the
+  [parent-date cascade](features/parent-child.md#a-childs-dates-can-reshape-its-parent)
+  can update a parent when a child's edit pushes past it. It never touches notes
+  unrelated to your action.
 - Anything TaskNotes doesn't model (dependencies, statuses) isn't available in the
   standalone mode below.
 - Property names are **not** hard-coded. The Gantt resolves which properties mean
