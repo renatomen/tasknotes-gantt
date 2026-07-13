@@ -10,7 +10,7 @@ Built on [SVAR Svelte Gantt](https://svar.dev/svelte/gantt/) and registered as a
 
 ## 💜 Status & pace — please read
 
-Currently in the **0.1.0 beta** series (install via BRAT). I built TaskNotes Gantt to scratch my own itch, and I'm glad to share it with anyone it helps — but I have very little time for it, and I won't let a joyful project turn into a burdensome one. I genuinely welcome feedback and requests; I just can't promise to answer quickly, so please keep that in mind before you rely on it. The plugin is **solid** (thoroughly unit- and integration-tested), and moving slowly is precisely how I keep it that way — that's the real reason for the Beta label. → **[The full note on development cadence »](https://renatomen.github.io/tasknotes-gantt/development-cadence/)** · **[Vision & philosophy »](https://renatomen.github.io/tasknotes-gantt/vision-and-philosophy/)**
+Currently in the **0.1.0 beta** series (install via BRAT). I built TaskNotes Gantt to scratch my own itch, and I'm glad to share it with anyone it helps — but I have very little time for it, and I won't let a joyful project turn into a burdensome one. I genuinely welcome feedback and requests; I just can't promise to answer quickly, so please keep that in mind before you rely on it. The plugin is **solid** (thoroughly unit- and integration-tested), and moving slowly is precisely how I keep it that way — that's the real reason for the Beta label. → **[The full note on development cadence »](https://tngantt.com/development-cadence/)** · **[Vision & philosophy »](https://tngantt.com/vision-and-philosophy/)**
 
 ## With TaskNotes (the main use case)
 
