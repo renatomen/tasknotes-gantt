@@ -1,6 +1,6 @@
 {
   "name": "tasknotes-gantt",
-  "version": "0.0.1",
+  "version": "0.1.0-beta.10",
   "private": true,
   "description": "Render SVAR Svelte Gantt charts from note properties and YAML frontmatter, with Bases and TaskNotes integration.",
   "author": "renatomen",
