@@ -93,7 +93,7 @@ The plugin registers two Obsidian commands. Open the command palette with
 
 | Command | What it does |
 | --- | --- |
-| **TaskNotes Gantt: Focus on task…** | The same jump-to-a-task search as the crosshair button. Available only while a Gantt view is the active tab. |
+| **TaskNotes Gantt: Focus on task…** | The same jump-to-a-task search as the crosshair button. Available whenever a Gantt view is open — it targets the active Gantt, or your **most recently opened** one if the active tab isn't a Gantt. |
 | **TaskNotes Gantt: Show release notes** | Opens the in-app "What's New" notes. |
 
 **Neither command has a default hotkey.** To add one, go to **Settings →

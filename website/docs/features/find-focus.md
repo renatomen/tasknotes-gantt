@@ -11,8 +11,9 @@ Open the task search one of two ways:
   chart (see [Chart controls](chart-controls.md#bottom-right-the-zoom-stack)); or
 - open the command palette (**`Ctrl/Cmd-P`**) and run **TaskNotes Gantt: Focus on
   task…**. This command has no default hotkey — if you focus often, assign one
-  under **Settings → Hotkeys** (search "TaskNotes Gantt"). It's available only
-  while a Gantt view is the active tab.
+  under **Settings → Hotkeys** (search "TaskNotes Gantt"). It's available whenever
+  a Gantt view is open — it acts on the active Gantt, or your most recently opened
+  one if the active tab isn't a Gantt.
 
 A search box opens (*"Search tasks by name or path…"*). Type part of a task's
 name, use the arrow keys to choose one, and press **Enter**. The Gantt then:
