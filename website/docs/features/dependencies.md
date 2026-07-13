@@ -30,9 +30,16 @@ Gap/lag is shown on the arrow where present.
 
 ## Create and delete a dependency
 
-Drag from one bar to another to create a **Finish-to-Start** link. Use the
-delete affordance on a drawn arrow to remove it. Both write through to
-TaskNotes' `blockedBy`.
+*(Companion mode; Finish-to-Start only — see the note above.)*
+
+- **To create a link:** hover the **predecessor** bar until its **link handle** (a
+  small connector dot on the bar) appears, then **drag from that handle onto the
+  successor** bar and release. A Finish-to-Start arrow is drawn and written to the
+  successor's TaskNotes `blockedBy`. If the drag would produce any other type, the
+  Gantt refuses it with a notice — *"Only Finish-to-Start links can be created for
+  now."*
+- **To delete a link:** **click the arrow** to select it, then press **`Delete`**
+  (or `Backspace`). The edge is removed from TaskNotes' `blockedBy`.
 
 !!! note "📷 Demo image pending"
 

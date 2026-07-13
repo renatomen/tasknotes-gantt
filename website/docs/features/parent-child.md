@@ -7,10 +7,21 @@ that surprise people most.
 
 ## Subtasks nest under their parent
 
-A parent row shows a chevron to expand/collapse its children. The parent's own bar
-shows **its own `scheduled` / `due` dates** — like any other task, **not** an
-auto-computed summary of its children. So a child can extend *beyond* the parent's
-bar until you choose to update the parent's dates (see below).
+The parent's own bar shows **its own `scheduled` / `due` dates** — like any other
+task, **not** an auto-computed summary of its children. So a child can extend
+*beyond* the parent's bar until you choose to update the parent's dates (see
+below).
+
+### Collapse and expand
+
+Each parent row has a **chevron (▸ / ▾)** to the left of its name in the grid:
+
+- **Click the chevron** to hide or show that parent's children.
+- To collapse or expand the **whole tree** at once, use the **Collapse all /
+  Expand all** button in the chart's bottom-right button stack.
+
+Collapse state is per-session and isn't saved to the Base. See
+[Chart controls → Collapse & expand](chart-controls.md#collapse-expand-the-tree).
 
 ## Dragging a parent moves the whole subtree
 
