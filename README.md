@@ -8,7 +8,7 @@ Built on [SVAR Svelte Gantt](https://svar.dev/svelte/gantt/) and registered as a
 | :---: | :---: |
 | ![A TaskNotes Gantt view in a light Obsidian theme: task bars with left-edge color strips and on-bar status/priority icon chips](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png) | ![The same view in a dark Obsidian theme, showing the color strips and icon chips adapt to the active theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-dark.png) |
 
-> **Status:** early development — currently in the **0.1.0 beta** series (install via BRAT). Expect rough edges.
+> **💜 Status & pace — please read.** Currently in the **0.1.0 beta** series (install via BRAT). The features here are **solid and thoroughly tested** — but this is a labour of love built in scarce spare time to scratch my own itch, so **support is intentionally "beta"**: I may be slow to respond to bug reports and feature requests, though I'll always do my best. My hope is to grow it more community-driven over time and co-evolve with [TaskNotes](https://github.com/callumalpass/tasknotes). → **[Read the full note on development cadence »](https://renatomen.github.io/tasknotes-gantt/development-cadence/)** · **[Vision & philosophy »](https://renatomen.github.io/tasknotes-gantt/vision-and-philosophy/)**
 
 ## With TaskNotes (the main use case)
 

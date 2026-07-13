@@ -68,6 +68,9 @@ nav:
     - Timeline: settings/timeline.md
     - Appearance: settings/appearance.md
   - Troubleshooting: troubleshooting.md
+  - About:
+    - Vision & Philosophy: vision-and-philosophy.md
+    - Development Cadence: development-cadence.md
 
 markdown_extensions:
   - admonition

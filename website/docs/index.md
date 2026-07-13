@@ -22,6 +22,16 @@ your notes through TaskNotes.
 ![A TaskNotes Gantt view in Obsidian: task bars with color strips and on-bar status icons, a resizable grid on the left and a shaded-weekend timeline on the right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png)
 </div>
 
+!!! note "💜 A note on pace — please read"
+
+    This plugin is a labour of love, built in scarce spare time to scratch my own
+    itch. The features here are **solid and thoroughly tested** — but **support is
+    intentionally "beta"**: I may be slow to respond to bug reports and feature
+    requests, though I'll always do my best. My hope is to grow it more
+    community-driven over time and co-evolve with [TaskNotes](https://tasknotes.dev).
+    [Read the full note → Development Cadence](development-cadence.md), and
+    [what this plugin is *for* → Vision & Philosophy](vision-and-philosophy.md).
+
 ## Where to start
 
 <div class="grid cards" markdown>
