@@ -94,11 +94,6 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
-  # Reusable cross-link snippets (e.g. the "New to TaskNotes?" bridge). The
-  # source lives outside docs_dir so --strict never flags it as an orphan page.
-  - pymdownx.snippets:
-      base_path:
-        - includes
 
 extra_css:
   - stylesheets/extra.css

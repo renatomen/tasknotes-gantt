@@ -2,14 +2,15 @@
 
 When your tasks have a parent relationship (mapped via
 [Settings → Fields → Parent Property](../settings/fields.md#parent-property)),
-subtasks **nest** under their parent in the grid and the parent's bar spans its
-children. This page covers the behaviors that surprise people most.
+subtasks **nest** under their parent in the grid. This page covers the behaviors
+that surprise people most.
 
-## Subtasks nest; parents summarize
+## Subtasks nest under their parent
 
-A parent row shows a chevron to expand/collapse its children. The parent's bar is
-a **summary** that spans from its earliest child to its latest — so a parent's
-dates reflect the work underneath it.
+A parent row shows a chevron to expand/collapse its children. The parent's own bar
+shows **its own `scheduled` / `due` dates** — like any other task, **not** an
+auto-computed summary of its children. So a child can extend *beyond* the parent's
+bar until you choose to update the parent's dates (see below).
 
 ## Dragging a parent moves the whole subtree
 
@@ -24,9 +25,9 @@ everything in that phase together.
 
 ## A child's dates can reshape its parent
 
-Because a parent's bar spans its children, moving or resizing a child so it falls
-outside the parent's current span means the parent needs to **grow** to contain
-it. What happens then is controlled by one setting:
+When you move or resize a child so it extends past the parent's own dates, the
+parent can **grow** to contain it — but only if you let it. What happens is
+controlled by one setting:
 
 **[Parent date updates](../settings/timeline.md#parent-date-updates)** —
 

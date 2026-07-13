@@ -5,7 +5,18 @@ but they interact — and some have real consequences (dragging a parent moves i
 children; a child's dates can reshape its parent). Understanding *how the chart
 thinks* makes every later setting obvious.
 
---8<-- "new-to-tasknotes.md"
+!!! tip "New to TaskNotes?"
+
+    TaskNotes Gantt is a companion to **[TaskNotes](https://tasknotes.dev)**, a
+    task-and-note plugin for Obsidian. TaskNotes is the *system of record*: it
+    owns what a task is, its `scheduled` / `due` dates, its `blockedBy`
+    dependencies, and its statuses — the Gantt just draws and edits them.
+
+    If those terms are new, skim the TaskNotes
+    **[Core Concepts](https://tasknotes.dev/core-concepts/)** and
+    **[Task Management](https://tasknotes.dev/features/task-management/)** pages
+    first. You can still use the Gantt as a read-only timeline *without*
+    TaskNotes — see [The two modes](#the-two-modes) below.
 
 ## TaskNotes owns your data; the Gantt draws it
 
@@ -70,7 +81,8 @@ blue children) or your Obsidian theme. See
 ## Parents and children roll up
 
 If your tasks have a parent relationship, subtasks **nest** under their parent in
-the grid, and the parent's bar spans its children. This is where the most
+the grid. The parent's bar shows **its own dates** — not a summary of its
+children, so a child can extend beyond it. This is where the most
 important consequence lives:
 
 - **Drag a parent** and its whole subtree moves with it.
