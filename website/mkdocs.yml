@@ -71,6 +71,7 @@ nav:
   - About:
     - Vision & Philosophy: vision-and-philosophy.md
     - Development Cadence: development-cadence.md
+    - Acknowledgements: acknowledgements.md
 
 markdown_extensions:
   - admonition
