@@ -46,7 +46,11 @@ controlled by one setting:
 
 ## Companion vs. standalone
 
-Roll-up works in both modes as long as a **Parent Property** is mapped. Date
+Roll-up works in both modes, but the **hierarchy comes from a different source**
+in each. In **companion mode** nesting follows TaskNotes' own `projects`
+(subtasks) relationships — the [Parent Property](../settings/fields.md#parent-property)
+is ignored. In **standalone** mode there are no TaskNotes relationships, so the
+Parent Property *is* the hierarchy: map it, or there's no roll-up. Date
 write-back (and therefore the cascade above) only applies in **companion mode**;
 standalone is read-only.
 

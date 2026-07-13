@@ -6,8 +6,10 @@ picker resolves against your own properties, and **every field can be left blank
 
 In **companion mode** (TaskNotes installed) that's true even of the dates: leave
 **Start** / **End** blank and they default to TaskNotes' `scheduled` / `due`. In
-**standalone** mode you must map a start and end date property yourself, or
-there's nothing to draw.
+**standalone** mode there are no such defaults — map a start and end date
+property yourself, or every task comes through dateless and renders as a
+placeholder bar piled at **today** (until you turn off
+[Show tasks with no dates](timeline.md#show-tasks-with-no-dates)).
 
 ## Task Name Property
 
