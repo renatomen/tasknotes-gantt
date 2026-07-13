@@ -8,6 +8,17 @@ a live schedule — dependency arrows, drag-to-reschedule, progress bars, inline
 editing, and parent/child roll-up — with every change written straight back to
 your notes through TaskNotes.
 
+!!! note "💜 A note on pace — please read"
+
+    I built TaskNotes Gantt to scratch my own itch, and I'm glad to share it with
+    anyone it helps — but I have very little time for it, and I won't let a joyful
+    project turn into a burdensome one. I genuinely welcome feedback and requests;
+    I just can't promise to answer quickly, so please keep that in mind before you
+    rely on it. The plugin is **solid**, and moving slowly is precisely how I keep
+    it that way — the real reason for the Beta label.
+    [Read the full note → Development Cadence](development-cadence.md) ·
+    [What it's *for* → Vision & Philosophy](vision-and-philosophy.md)
+
 !!! warning "TaskNotes is the point"
 
     This plugin is designed to make **TaskNotes tasks** interactive on a
@@ -21,17 +32,6 @@ your notes through TaskNotes.
 <div class="tng-hero" markdown>
 ![A TaskNotes Gantt view in Obsidian: task bars with color strips and on-bar status icons, a resizable grid on the left and a shaded-weekend timeline on the right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bar-treatments-light.png)
 </div>
-
-!!! note "💜 A note on pace — please read"
-
-    I built TaskNotes Gantt to scratch my own itch, and I'm glad to share it with
-    anyone it helps — but I have very little time for it, and I won't let a joyful
-    project turn into a burdensome one. I genuinely welcome feedback and requests;
-    I just can't promise to answer quickly, so please keep that in mind before you
-    rely on it. The plugin is **solid**, and moving slowly is precisely how I keep
-    it that way — the real reason for the Beta label.
-    [Read the full note → Development Cadence](development-cadence.md) ·
-    [What it's *for* → Vision & Philosophy](vision-and-philosophy.md)
 
 ## Where to start
 
