@@ -1,5 +1,5 @@
 /**
- * Bases view-options builders for the Gantt and TaskList views.
+ * Bases view-options builders for the Gantt view.
  *
  * Originally extracted verbatim from the inline `options:` arrows in
  * `register.ts` so the option arrays can be unit-tested. The Gantt options are
@@ -21,10 +21,9 @@ import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 
 /**
- * The shared field-mapping property options. The Gantt view splits these across
- * its Fields group (six mappings) and Progress group (Progress Property); the
- * TaskList view wraps all seven as-is in a single Fields group. Kept as a flat
- * leaf array so each view composes its own grouping.
+ * The field-mapping property options. The Gantt view splits these across its
+ * Fields group (six mappings) and Progress group (Progress Property). Kept as a
+ * flat leaf array so the view composes its own grouping.
  */
 function sharedFieldMappingOptions(): BasesOptions[] {
   return [
@@ -664,12 +663,3 @@ export function readContextOpacity(get: (key: string) => unknown): number {
   return Math.min(1, Math.max(MIN_CONTEXT_OPACITY, pct / 100));
 }
 
-/**
- * The TaskList view's Bases view options: the shared field-mapping property
- * options wrapped in a single collapsible "Fields" group. Progress Property
- * stays here (the TaskList view has no Progress mode), so this view is one
- * Fields group over all seven mappings.
- */
-export function taskListViewOptions(): BasesAllOptions[] {
-  return [group('Fields', sharedFieldMappingOptions())];
-}
