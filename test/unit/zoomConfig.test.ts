@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import {
   buildZoomConfig,
+  initialCellWidth,
   normalizeDefaultScale,
 } from "../../src/bases/zoomConfig";
 
@@ -45,5 +46,31 @@ describe("buildZoomConfig", () => {
       const config = buildZoomConfig(scale);
       expect(config.levels[config.level]).toBeDefined();
     }
+  });
+});
+
+describe("initialCellWidth", () => {
+  it("opens the day scale at the day level's minimum width (narrowest day)", () => {
+    const config = buildZoomConfig("day");
+    const dayLevelMin = config.levels[config.level]?.minCellWidth;
+
+    expect(initialCellWidth("day")).toBe(dayLevelMin);
+    expect(initialCellWidth("day")).toBe(30);
+  });
+
+  it("defaults (invalid/blank) resolve to day and open narrow", () => {
+    for (const value of [undefined, null, "", "quarter"]) {
+      expect(initialCellWidth(value)).toBe(30);
+    }
+  });
+
+  it("leaves every other scale at SVAR's default opening width", () => {
+    for (const scale of ["hour", "week", "month"] as const) {
+      expect(initialCellWidth(scale)).toBeUndefined();
+    }
+  });
+
+  it("is a fixed constant — identical regardless of call site (deterministic)", () => {
+    expect(initialCellWidth("day")).toBe(initialCellWidth("day"));
   });
 });

@@ -92,7 +92,7 @@
   import { CascadeConfirmModal } from './CascadeConfirmModal';
   import PropertyCell from './PropertyCell.svelte';
   import type { GridColumn } from './gridColumns';
-  import { buildZoomConfig } from './zoomConfig';
+  import { buildZoomConfig, initialCellWidth } from './zoomConfig';
   import {
     buildAvailability,
     localeWeekendSource,
@@ -2419,6 +2419,9 @@
   // SVAR, so ordinary data refreshes must never rebuild this configuration or
   // overwrite a zoom level the user selected with the floating controls.
   const zoomConfig = buildZoomConfig(initialData.defaultScale);
+  // Open the day scale at its narrowest day columns (see initialCellWidth); other
+  // scales keep SVAR's default opening width (undefined → prop omitted).
+  const seedCellWidth = initialCellWidth(initialData.defaultScale);
 
   // ── Focus on task (search → expand → zoom → scroll → highlight) ──────────
   // Best-effort track of the live zoom-ladder level so focus can step
@@ -2626,6 +2629,7 @@
           {columns}
           gridWidth={initialGridWidth}
           zoom={zoomConfig}
+          cellWidth={seedCellWidth}
           highlightTime={svarHighlightTime}
           readonly={svarReadonly}
         />
