@@ -3,14 +3,21 @@
 The common "why isn't this working" cases, and what to check first. Most come
 down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in.
 
-## No bars appear
+## The chart is empty
 
-- **Dates aren't mapped.** Set **Start Date Property** and **End Date Property**
-  under [Fields](settings/fields.md). Without them there's nothing to draw.
 - **The Base returns no notes.** Check the Base's query — the Gantt only shows
   what the Base returns.
-- **Undated tasks are hidden.** If your notes have no dates, turn on
-  [Show tasks with no dates](settings/timeline.md#show-tasks-with-no-dates).
+- **Undated tasks are hidden.** With no usable dates, tasks appear only when
+  [Show tasks with no dates](settings/timeline.md#show-tasks-with-no-dates) is on
+  (it is by default). If it's off and none of your tasks have dates, the chart
+  looks empty — turn it back on, or map real dates (below).
+
+## All bars pile up at today
+
+- **Dates aren't mapped, or aren't parsing.** Set **Start Date Property** and
+  **End Date Property** under [Fields](settings/fields.md). Until a task has a
+  usable date it's drawn as a **placeholder bar at today** — so a wall of bars on
+  today's column means the dates aren't coming through.
 
 ## No dependency arrows
 
