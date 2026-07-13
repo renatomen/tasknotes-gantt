@@ -15,7 +15,32 @@
 
 .tng-release-intro {
   color: var(--text-muted);
+  margin-bottom: var(--size-4-2, 0.5rem);
+}
+
+/* Links row (Documentation + GitHub) under the intro: icon + label chips. */
+.tng-release-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-4, 1rem);
   margin-bottom: var(--size-4-4, 1rem);
+}
+
+.tng-release-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1, 0.25rem);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.tng-release-link:hover {
+  color: var(--text-normal);
+}
+
+.tng-release-link svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Each release is a bordered, collapsible card. */

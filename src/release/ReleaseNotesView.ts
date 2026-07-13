@@ -14,9 +14,9 @@
  *
  * @module release/ReleaseNotesView
  */
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, WorkspaceLeaf, setIcon } from "obsidian";
 import { RELEASE_NOTES_BUNDLE, type ReleaseNoteVersion } from "../releaseNotes";
-import { REPO_URL, transformReleaseNoteIssueLinks } from "./releaseNoteLinks";
+import { DOCS_URL, REPO_URL, transformReleaseNoteIssueLinks } from "./releaseNoteLinks";
 import { defaultExpandedIndices } from "./releaseNotesExpand";
 import { formatReleaseDate } from "./formatReleaseDate";
 import "./release-notes.css";
@@ -55,6 +55,7 @@ export class ReleaseNotesView extends ItemView {
     }
 
     this.renderIntro(container);
+    this.renderLinks(container);
 
     const expanded = defaultExpandedIndices(this.bundle);
     for (let i = 0; i < this.bundle.length; i++) {
@@ -92,6 +93,19 @@ export class ReleaseNotesView extends ItemView {
     intro.appendText(", or ");
     intro.createEl("a", { text: "star it on GitHub", attr: { href: REPO_URL } });
     intro.appendText(".");
+  }
+
+  /** Icon links to the documentation website and the GitHub repository. */
+  private renderLinks(container: HTMLElement): void {
+    const links = container.createDiv({ cls: "tng-release-links" });
+
+    const docs = links.createEl("a", { cls: "tng-release-link", attr: { href: DOCS_URL } });
+    setIcon(docs.createSpan(), "book-open");
+    docs.createSpan({ text: "Documentation" });
+
+    const gh = links.createEl("a", { cls: "tng-release-link", attr: { href: REPO_URL } });
+    setIcon(gh.createSpan(), "github");
+    gh.createSpan({ text: "GitHub" });
   }
 
   private renderFooter(container: HTMLElement): void {

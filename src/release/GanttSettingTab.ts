@@ -7,6 +7,7 @@
  */
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ObsidianGanttPlugin from "../main";
+import { DOCS_URL, REPO_URL } from "./releaseNoteLinks";
 
 export class GanttSettingTab extends PluginSettingTab {
   private readonly plugin: ObsidianGanttPlugin;
@@ -19,6 +20,22 @@ export class GanttSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Documentation & source")
+      .setDesc("Setup guide, feature reference, and troubleshooting on the docs site; source and issues on GitHub.")
+      .addButton((button) =>
+        button
+          .setButtonText("Open documentation")
+          .setCta()
+          .onClick(() => window.open(DOCS_URL, "_blank")),
+      )
+      .addExtraButton((button) =>
+        button
+          .setIcon("github")
+          .setTooltip("GitHub repository")
+          .onClick(() => window.open(REPO_URL, "_blank")),
+      );
 
     new Setting(containerEl)
       .setName("Show release notes on update")

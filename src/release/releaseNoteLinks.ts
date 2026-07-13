@@ -8,6 +8,9 @@
 /** This plugin's GitHub repository, used to build issue links. */
 export const REPO_URL = "https://github.com/renatomen/tasknotes-gantt";
 
+/** This plugin's documentation website. */
+export const DOCS_URL = "https://tngantt.com";
+
 /** A parenthesized group of one or more `#N` issue refs, e.g. `(#12, #34)`. */
 const ISSUE_GROUP_RE = /\(#\d+(?:\s*,\s*#\d+)*\)/g;
 
