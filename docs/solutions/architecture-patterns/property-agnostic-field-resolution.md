@@ -160,11 +160,10 @@ and falls back when the sort key isn't a mapped field.
 }
 ```
 
-Mirrored in `fieldMappingConfig.ts` (`BASE_DEFAULTS.progressProperty = ''`), in the
+Mirrored in `fieldMappingConfig.ts` (`BASE_DEFAULTS.progressProperty = ''`) and in the
 controller's no-config date path (returns mappings unchanged instead of falling back
-to `note.start`/`note.due`), and in
-`GanttTaskListView.getFieldMappings` (calls `readFieldMappings(...)` with no
-date-property defaults).
+to `note.start`/`note.due`). Every view reader calls `readFieldMappings(...)` with no
+date-property defaults.
 
 **Verification (PR #154, commit `dcd99b4`):** 657 unit tests including a
 property-agnostic case (`note.banana` → start) and the Codex mismatch case;

@@ -91,7 +91,7 @@ await browser.waitUntil(
 console.log(`[PERF-E2E] time-to-first-render (post-index): ${Date.now() - renderStart}ms`);
 ```
 
-Gate on the signal your assertion **actually consumes**, not merely on "API ready." This render spec gates on "all files cached." The sibling `gantt-dependency-types.e2e.ts` needs a deeper signal — it waits until TaskNotes' `relationships.dependencies` resolve each dependent's `blockedBy` wikilink to a real predecessor *path*, because (per its own comment) "the metadata cache finishes building **asynchronously** after the API reports ready."
+Gate on the signal your assertion **actually consumes**, not merely on "API ready." This render spec gates on "all files cached" — and, once Show-all expansion became part of what it measures, it earned a **third** gate: it now also waits until TaskNotes' `relationships` resolve, because a warm metadataCache does not imply a warm relationship index. Each new thing the assertion consumes earns its own gate. The sibling `gantt-dependency-types.e2e.ts` needs a deeper signal for the same reason — it waits until TaskNotes' `relationships.dependencies` resolve each dependent's `blockedBy` wikilink to a real predecessor *path*, because (per its own comment) "the metadata cache finishes building **asynchronously** after the API reports ready."
 
 ## Why This Matters
 

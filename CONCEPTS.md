@@ -24,7 +24,18 @@ The resolved field mappings — the view's own choices with every unset field fi
 ### Round-trip symmetry
 The property a field's value is written to is the same one it is read from. It is the license to edit a field inline: the backing system persists status and priority through *its own* configured property, so a view mapped to a different property can only be read. Without symmetry an edit would land where the edited column cannot show it — appearing to save while changing nothing visible — so the field is read-only instead.
 
+## Refresh
+
+### Entry signature
+A fingerprint of the current Base result — the matched notes' paths plus the frontmatter values of the fields the view actually reads — recomputed on every notify and compared with the last one. Deliberately derived without touching the Base's value system, because reading through that system is itself what provokes the host into another notify.
+
+### Task reuse
+The decision, taken from an unchanged entry signature, to skip re-reading the Base and reuse the cached tasks — the loop-breaker for the host's re-notify storm. It releases (and a full re-read runs) whenever the signature moves, which makes the signature's watched-field set load-bearing: a field the signature does not watch is a field whose edits the chart will not see.
+
 ## Inline cell editing
+
+### Managed row
+A row whose note the backing system recognizes as a task. Only managed rows are editable inline — an unmanaged note matched by the same Base still renders and is read, but offers no editor and accepts no write.
 
 ### Grid cell-edit bridge
 The path by which the embedded grid re-emits an inline cell commit as a whole-row task update carrying a single, type-coerced field — there is no dedicated cell-edit event.

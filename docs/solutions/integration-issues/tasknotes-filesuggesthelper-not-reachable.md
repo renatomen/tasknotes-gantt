@@ -31,15 +31,17 @@ TaskNotes' `FileSuggestHelper.suggest(plugin, query, limit, filterConfig)` — t
 
 ## Solution
 
-A guarded per-edit adapter (`src/bases/taskNotesSuggest.ts`, PR #228): it probes `plugin.FileSuggestHelper` and `plugin.api.FileSuggestHelper` with the helper's exact call signature each time an editor opens, and returns a degrade signal when absent. The suggest editor renders a visible "suggestions unavailable" state and behaves as validated free text — the feature ships without the dependency, and the adapter lights up unchanged the day TaskNotes exports the helper.
+**First attempt (PR #228, since superseded):** a guarded per-edit adapter that probed `plugin.FileSuggestHelper` / `plugin.api.FileSuggestHelper` and degraded to a visible "suggestions unavailable" free-text state when absent. It let the feature ship without the dependency — but it left suggestions permanently dark, because the helper was never going to appear.
+
+**Current — don't wait for the export; reproduce the scope locally and source the suggestions from Obsidian.** `src/bases/fileFilter.ts` re-implements the file-filter predicate TaskNotes computes *inside* its bundled helper; `src/bases/vaultWikilinkSuggest.ts` enumerates the vault's markdown files, applies that predicate, and fuzzy-ranks over basename + title + aliases (the same field set TaskNotes' own suggester searches); `src/bases/wikilinkInputSuggest.ts` serves them through Obsidian's public `AbstractInputSuggest`. The vault is always reachable, so this path **never degrades** — only matches / no-matches apply.
 
 ## Why This Works
 
-Probing per edit (not cached at mount) means a TaskNotes upgrade or reload mid-session is picked up immediately, and the degraded state is explicit rather than a silently-empty dropdown. The plan treated autosuggest as an enhancement with a mandatory fallback, so unreachability degraded scope instead of blocking the feature.
+The unreachable surface was a **scope** dependency, never a **semantics** dependency. The filter config lives in TaskNotes' settings, which a companion *can* read; the candidate set is the vault, which Obsidian already exposes. Once that is seen, the helper is only a convenience — reproducing its predicate and ranking locally removes the dependency outright and turns a permanently-degraded feature into a working one. The intermediate degrade path was still the right first move: it let the feature ship while the reimplementation was scoped.
 
 ## Prevention
 
-- Upstream follow-up: export `FileSuggestHelper` (or a suggest surface on the runtime api) in the TaskNotes fork so companion suggestions light up.
+- **Ask what an unreachable surface actually _provides_ before asking for it to be exported.** Here it provided a filter predicate over vault files — both inputs were independently reachable, so a local reimplementation (with a unit-tested predicate) beat waiting on an upstream export.
 - Never treat a symbol visible in a source mirror as a runtime API — verify against the shipped `main.js` before building on it.
 - When a plan depends on a third-party surface, write the degrade path into the product contract up front (this feature's fallback requirement is why unreachability cost nothing).
 

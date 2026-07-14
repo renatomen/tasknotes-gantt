@@ -122,6 +122,7 @@ The pair is the proof: the *same* partial-index state yields opposite readiness 
 ## Related
 
 - [gate-e2e-on-cold-index-before-measuring-render.md](../developer-experience/gate-e2e-on-cold-index-before-measuring-render.md) — the *testing* sibling of this rule ("gate on the signal your assertion actually consumes, not merely 'API ready'"). This doc is the in-product generalization, plus the mode-aware refinement.
+- [../architecture-patterns/resolve-config-defaults-at-one-seam.md](../architecture-patterns/resolve-config-defaults-at-one-seam.md) — the same mismatch *in time* rather than in space: a gate must key on data that is not merely the right source but still *current* when the gate runs. Its corollary 2 is this rule's timing twin.
 - [column-sort-e2e-first-mount-header-race.md](../developer-experience/column-sort-e2e-first-mount-header-race.md) — depends on the six-instance Show-all gate requiring `childrenByPath` warm, i.e. the exact signal corrected here.
 - [svar-gantt-diff-sync-interactions.md](../integration-issues/svar-gantt-diff-sync-interactions.md) — context on the `BasesSource → companionResolve → resolveAndFilter` pipeline where the signal is keyed.
 - Issues: #167 (bounded readiness re-check — direct parent), #161 (umbrella render-loop/readiness work). Fix landed in PR #169 (mode-aware signal + 2 regression tests), found by a Codex code review.

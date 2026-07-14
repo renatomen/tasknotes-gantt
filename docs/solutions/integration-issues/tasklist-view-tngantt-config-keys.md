@@ -2,7 +2,8 @@
 title: TaskList Bases view read unprefixed config keys after the tngantt_ rename
 date: 2026-06-20
 category: docs/solutions/integration-issues
-module: bases/views/GanttTaskListView
+module: bases/fieldMappingConfig
+last_refreshed: 2026-07-14
 problem_type: integration_issue
 component: service_object
 symptoms:
@@ -17,6 +18,14 @@ tags: [obsidian-bases, field-mapping, config-keys, tngantt-prefix, silent-failur
 ---
 
 # TaskList Bases view read unprefixed config keys after the tngantt_ rename
+
+> **Status — historical incident, live rule.** The `obsidianGanttTaskList` view and its
+> source file were removed entirely (PR #249). The *vehicle* is gone; the *rule* is not.
+> The options-writer and the config-reader still must not drift, and the two guards this
+> incident produced are live and cited from the code: `src/bases/fieldMappingConfig.ts`
+> (`FIELD_MAPPING_KEYS` — one key definition shared by the options schema and the view's
+> reader) and `test/unit/noBarePluginConfigKeys.test.ts` (the bare-key guard). Read this
+> as *why those guards exist*, not as a description of current code.
 
 ## Problem
 
@@ -36,7 +45,7 @@ The `obsidianGanttTaskList` Bases view (`GanttTaskListView`) read its field-mapp
 
 ## Solution
 
-In [src/bases/views/GanttTaskListView.ts](../../../src/bases/views/GanttTaskListView.ts) (`getFieldMappings()`), prefix all five config keys with `tngantt_`. Key strings only — the `||` fallbacks are unchanged.
+In `src/bases/views/GanttTaskListView.ts` (`getFieldMappings()`) — since deleted along with the view — all five config keys were prefixed with `tngantt_`. Key strings only; the `||` fallbacks were unchanged.
 
 ```ts
 // Before — bare keys (never written by the options UI):
@@ -68,7 +77,7 @@ The view is registered with `options: () => sharedOptions`, and `sharedOptions` 
 
 - **Grep every call site on a key rename.** Before considering a config-key rename complete, search all `config.get(`/`config.set(` sites across `src/`, not just the known readers — e.g. `config[?]?\.(get|set)\(\s*['"]<key>`. This bug existed precisely because the rename touched the schema and one reader but missed a second.
 - **Add a guard.** ✓ #110 — [test/unit/noBarePluginConfigKeys.test.ts](../../../test/unit/noBarePluginConfigKeys.test.ts) walks `src/` and fails on any unprefixed plugin-key `get`/`set` (both `config.get('key')` and the standalone `get('key')` callback style), with a positive-control assertion so the guard itself can't silently rot.
-- **Remove the duplication.** ✓ #111 — [src/bases/fieldMappingConfig.ts](../../../src/bases/fieldMappingConfig.ts) holds `FIELD_MAPPING_KEYS` (canonical `tngantt_` key names) and `readFieldMappings(get, defaults?)`. Both readers and the `sharedOptions` schema reference it, so the keys the options UI writes and the keys a view reads share one definition and cannot diverge. The guard catches the *unprefixed* mistake; the shared constants catch the *wrong-prefix / divergence* mistake.
+- **Remove the duplication.** ✓ #111 — [src/bases/fieldMappingConfig.ts](../../../src/bases/fieldMappingConfig.ts) holds `FIELD_MAPPING_KEYS` (canonical `tngantt_` key names) and `readFieldMappings(get, defaults?)`. The options schema (`src/bases/viewOptions.ts`) and the view's reader (`buildFieldMappings` in `src/bases/register.ts`) both reference it, so the keys the options UI writes and the keys a view reads share one definition and cannot diverge — including for any future second view. The guard catches the *unprefixed* mistake; the shared constants catch the *wrong-prefix / divergence* mistake.
 
 ## Related Issues
 
