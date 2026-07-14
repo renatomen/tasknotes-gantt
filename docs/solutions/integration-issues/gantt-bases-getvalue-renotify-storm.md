@@ -76,7 +76,23 @@ What that does and does not change:
 - **Unchanged:** the flag experiments prove `getTasks()` is the engine, and the gate that skips it stops the storm. Both still hold.
 - **Sharpened:** "bulk `getValue`" (including this doc's title) is an *inference* about what inside `getTasks()` does the poking. The code only supports that inference for **formula-mapped** properties — which this doc already lists below as an unconfirmed real-vault candidate, so the leading hypothesis is now its own footnote.
 
-For the still-open **search→clear** residual (where the entry set genuinely changes, so the gate legitimately releases and cannot help), start by confirming what the real vault's `.base` actually maps. A formula mapping would close the loop. If it maps only `note.*`, the engine is something else inside `getTasks()` — per-entry `getFileCache` churn, or link resolution in `resolveParents` — and the `getValue` framing has been pointing at the wrong place.
+**There is no open residual here — don't go hunting one.** The `getValue`-re-poke story was
+stretched to cover the search→clear churn as well, and that was wrong on both counts:
+
+- The real vault was checked (2026-07-14). Its gantt base maps every field to `note.*` and lists
+  four *unprefixed* grid columns (`tags`, `status`, `scheduled`, `due`), which DO route through
+  `entry.getValue()` — roughly a thousand calls per notify, ungated by `reuseTasks` because the
+  grid cells are built outside it. **And there is no storm.** So bulk `getValue` does not, by
+  itself, provoke Bases into a re-notify loop. It is a perf characteristic, not an engine.
+- The search→clear churn was never a re-poke at all. Bases delivered a *constant* matched set;
+  the cost was our own diff re-applying the whole companion-expanded set per instance (~114k DOM
+  mutations, ~25s). Bulk-reseed bounded it to 781. Issue #161 is closed and the maintainer
+  validated it in the real vault.
+
+What survives is narrow and worth keeping: **the `reuseTasks` gate demonstrably stops the
+config-toggle storm** (its negative control fails without it). *Why* our re-read provokes Bases
+is still unexplained — `getValue` is the label, not the proven mechanism. If this ever returns,
+start from a fresh measurement, not from this doc's title.
 
 ## Why it won't reproduce in the test harness (both paths blocked)
 
