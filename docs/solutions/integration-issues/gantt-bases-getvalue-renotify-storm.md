@@ -59,7 +59,24 @@ So TaskNotes never routes a bulk read through `getValue`, and never storms. Our 
 - **The watched keys are a UNION, not a swap** (`watchedMappingValues`): the signature reads the view's raw mappings AND the controller's resolved mappings. The resolved half lets a field the user left unset watch the property it actually reads; the view half keeps a live re-mapping observable — the resolved set is only recomputed *during* the refresh this signature runs **before**, so reading it alone would leave a re-mapped field fingerprinting its old property, the signature would not move, `reuseTasks` would stay true, and the bars would keep the old property's values. Full rationale: [../architecture-patterns/resolve-config-defaults-at-one-seam.md](../architecture-patterns/resolve-config-defaults-at-one-seam.md) (corollary 2).
 - **Residual (narrowed).** The value-sensitive signature closed the original "value-only edit is missed" gap for the *watched* fields. What still isn't observed: a field outside `watchedMappingValues`, and any `formula.*` / `file.*` mapping — those have no frontmatter key, so `frontmatterSignatureKeys` drops them and that field degrades to path-only. Renames change the path; TaskNotes-field edits are covered by the source subscription.
 
-**Follow-up — mostly already true, and it reframes the root cause.** `BasesDataAdapter.extractValue` has taken a direct-frontmatter fast path for every `note.*` mapping since January 2026 — i.e. *before* this storm was documented. So a `note.*`-mapped base's `getTasks()` never calls `entry.getValue` at all, and the only surviving `getValue` route is a `formula.*` / computed / unprefixed mapping. The flag experiments prove `getTasks()` is the engine; the "bulk `getValue`" label is an inference the code only supports for formula-mapped properties — which this doc already lists below as an unconfirmed real-vault candidate. Before re-attacking this, confirm what the real vault's `.base` actually maps: a formula mapping would close the loop; if it maps only `note.*`, the engine is something else inside `getTasks()` (per-entry `getFileCache` churn, or link resolution in `resolveParents`).
+## The gate stays — a caution before reading the next section
+
+> **Do NOT remove or weaken the `reuseTasks` gate, and do not revert the signature to
+> paths-only.** The storm this doc describes is **fixed**, and the fix is proven
+> load-bearing by a *negative control*: disabling the gate (`__OG_DISABLE_REUSE`) makes
+> the storm spec fail. That the gate works is established independently of *why* the
+> re-read provokes Bases. The note below sharpens the mechanism's **label** and says
+> where to look for the one **remaining, unfixed** residual (search→clear). It is not a
+> finding against the shipped fix, and nothing in it licenses undoing any of it.
+
+**Where to look next — the mechanism label is imprecise.** `BasesDataAdapter.extractValue` has taken a direct-frontmatter fast path for every `note.*` mapping since January 2026 — *before* this storm was documented. So for a `note.*`-mapped base, `getTasks()` never calls `entry.getValue` at all, and the only surviving `getValue` route is a `formula.*` / computed / unprefixed mapping.
+
+What that does and does not change:
+
+- **Unchanged:** the flag experiments prove `getTasks()` is the engine, and the gate that skips it stops the storm. Both still hold.
+- **Sharpened:** "bulk `getValue`" (including this doc's title) is an *inference* about what inside `getTasks()` does the poking. The code only supports that inference for **formula-mapped** properties — which this doc already lists below as an unconfirmed real-vault candidate, so the leading hypothesis is now its own footnote.
+
+For the still-open **search→clear** residual (where the entry set genuinely changes, so the gate legitimately releases and cannot help), start by confirming what the real vault's `.base` actually maps. A formula mapping would close the loop. If it maps only `note.*`, the engine is something else inside `getTasks()` — per-entry `getFileCache` churn, or link resolution in `resolveParents` — and the `getValue` framing has been pointing at the wrong place.
 
 ## Why it won't reproduce in the test harness (both paths blocked)
 
