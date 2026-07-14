@@ -138,6 +138,30 @@ async function dismissAnyModal(): Promise<void> {
   });
 }
 
+/**
+ * Poll until a grid snapshot satisfies `predicate`, and return THAT snapshot.
+ *
+ * Returning the satisfying snapshot is the point: the editable cue is gated on the rows
+ * TaskNotes manages, and a refresh can transiently empty that set. Re-reading the grid
+ * after a separate readiness poll can therefore land in a window where nothing is
+ * editable — which would make a "not editable" assertion pass for the wrong reason.
+ */
+async function waitForGridState(
+  predicate: (state: GridState) => boolean,
+  timeoutMsg: string,
+): Promise<GridState> {
+  let last: GridState | null = null;
+  await browser.waitUntil(
+    async () => {
+      await activateBaseLeaf();
+      last = await readGridState();
+      return predicate(last);
+    },
+    { timeout: 30000, timeoutMsg: `${timeoutMsg}. Last observed: ${JSON.stringify(last)}` },
+  );
+  return last as unknown as GridState;
+}
+
 /** Wait until the grid is mounted and the managed row's scheduled cell is editable —
  * editability needs TaskNotes' task index to have warmed. */
 async function ensureGridReady(): Promise<void> {
@@ -212,13 +236,21 @@ describe("Gantt (OG) status mapped away from TaskNotes' field is read-only", () 
   });
 
   it("marks the divergently-mapped status cell read-only while dates stay editable", async () => {
-    const state = await readGridState();
+    // Assert on ONE snapshot in which the control holds, rather than polling for
+    // readiness and then re-reading. The editable cue is gated on the rows TaskNotes
+    // manages, and that set can transiently empty out across a refresh — so a snapshot
+    // taken after a separate readiness poll can catch a window where NO cell is
+    // editable, and the read-only assertions would then pass for the wrong reason.
+    const state = await waitForGridState(
+      (s) => s.cells[`${TASK_ROW}|${SCHEDULED_COL}`]?.editable === true,
+      "the date cell never became editable, so the read-only assertions would be vacuous",
+    );
 
     expect(state.cells[`${TASK_ROW}|${ASSIGNEE_COL}`]?.editable).toBe(false);
     // TaskNotes' own status property is not this view's status field either, so it is
     // no more editable than any other unmapped property.
     expect(state.cells[`${TASK_ROW}|${STATUS_COL}`]?.editable).toBe(false);
-    // Control: the view itself is writable — only the status field is withheld.
+    // The control itself: the view IS writable — only the status field is withheld.
     expect(state.cells[`${TASK_ROW}|${SCHEDULED_COL}`]?.editable).toBe(true);
   });
 

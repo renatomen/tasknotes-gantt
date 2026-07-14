@@ -210,10 +210,11 @@ export interface SvarTask {
 }
 
 /**
- * Shape every render instance into a SVAR task (parents → `summary`/open, leaves
- * → `task` composed with the date-status flag and/or status-color class). Pure;
- * the result order follows `instances`. Replaces the old reactive `tasks`
- * `$derived` in the component verbatim, so rendering is unchanged.
+ * Shape every render instance into a SVAR task. Parents render as ordinary task
+ * bars at their own dates, NOT as SVAR summaries (see the rationale on the `type`
+ * composition below); hierarchy comes from `parent`/`open`. Each bar's `type` is
+ * composed from its state classes (date-status flag, color treatment). Pure; the
+ * result order follows `instances`.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   const {
@@ -233,7 +234,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   } = input;
   const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
-  // Which instance ids are referenced as a parent → mark them summary/open.
+  // Which instance ids are referenced as a parent → they render expanded (`open`).
   const parentIds = new Set<string>();
   for (const inst of instances) {
     if (inst.parent) parentIds.add(inst.parent);
