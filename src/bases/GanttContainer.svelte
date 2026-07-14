@@ -2089,13 +2089,6 @@
   }
 
   /**
-   * Direct commit for a LIST-shaped suggest column: append the picked/typed
-   * entry to the note's RAW stored list and persist via the shared cell-edit
-   * pipeline, bypassing the grid bridge. The raw frontmatter is read at commit
-   * time because the grid's TypedValues carry only display forms — rebuilding
-   * the list from them would strip the existing entries' wikilink brackets.
-   */
-  /**
    * Direct commit for a chips list column: persist the whole edited RAW list once
    * (compared against the current raw frontmatter so an unchanged session writes
    * nothing). Reads the raw value at commit time because the grid's TypedValues
