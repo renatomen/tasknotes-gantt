@@ -34,9 +34,9 @@ progress / name / parent) at runtime. One vault's "scheduled" field is
 `note.scheduled`; another user might map start to `note.banana`. The plugin must
 never assume a property name — TaskNotes owns the mapping and exposes it, and the
 resolved mapping lives in `FieldMappings` (`src/bases/types/field-mapping.ts`).
-When TaskNotes is present, those mappings flow from its field config via
-`GanttController.applyDateFieldMapping` → `resolveDateMapping`; when it is absent,
-they come from the view config.
+When TaskNotes is present, those mappings flow from its field config via the
+controller's field-mapping resolution seam; when it is absent, they come from the
+view config.
 
 What prompted this writeup: `chatgpt-codex-connector` flagged a **P2** in the
 default-view interleave. `src/bases/sortKeyMapping.ts` shipped a hardcoded
@@ -90,22 +90,25 @@ export function mapSortPropertyToField(
 The interleave now sorts fetched rows by the *same property* Bases sorted matched
 rows by, and the Codex mismatch case correctly returns `null` → no positioning, no
 wrong slot. The resolved mappings are threaded from `GanttController.selectSource`
-(stored as `effectiveMappings`, set from `applyDateFieldMapping`) into
-`buildSnapshot`, then passed to `positionFetchedAmongMatched`.
+(stored as `effectiveMappings`) into `buildSnapshot`, then passed to
+`positionFetchedAmongMatched`.
 
 **Companion rules:**
 
 - **Defaults are "unset," never a property name.** `BASE_DEFAULTS` in
   `src/bases/fieldMappingConfig.ts` is all empty strings. An unset field resolves
   from TaskNotes/config, else yields *no value* — it never silently assumes
-  `note.progress`, `note.start`, etc.
+  `note.progress`, `note.start`, etc. **An unset field still has a resolved answer,
+  and every consumer must read it** — see
+  [resolve-config-defaults-at-one-seam.md](resolve-config-defaults-at-one-seam.md),
+  written after a consumer read the raw view config instead and silently killed
+  status coloring and inline editing.
 - **The only acceptable hardcoded literals are Obsidian built-ins** `file.name` /
   `file.basename`, used as the name-column fallback when `textProperty` is unset.
   These are not user-remappable TaskNotes fields, so hardcoding them is safe.
-- **The TaskNotes-absent path resolves from config, not from canonical names.**
-  `applyDateFieldMapping` with no `fieldConfig` returns `{ ...mappings }` unchanged
-  (empty when the user mapped nothing) — it does *not* fall back to
-  `note.start`/`note.due`.
+- **The TaskNotes-absent path resolves from config, not from canonical names.** The
+  resolution seam with no `fieldConfig` returns the mappings unchanged (empty when the
+  user mapped nothing) — it does *not* fall back to `note.start`/`note.due`.
 
 ## Why This Matters
 
@@ -158,8 +161,8 @@ and falls back when the sort key isn't a mapped field.
 ```
 
 Mirrored in `fieldMappingConfig.ts` (`BASE_DEFAULTS.progressProperty = ''`), in the
-no-config date path of `GanttController.applyDateFieldMapping` (returns mappings
-unchanged instead of falling back to `note.start`/`note.due`), and in
+controller's no-config date path (returns mappings unchanged instead of falling back
+to `note.start`/`note.due`), and in
 `GanttTaskListView.getFieldMappings` (calls `readFieldMappings(...)` with no
 date-property defaults).
 
