@@ -11,8 +11,7 @@
  * (`entry.getValue`) — that is exactly what re-pokes the storm. The caller supplies
  * `valueOf` reading Obsidian's metadata cache directly (frontmatter), so a genuine
  * field edit (status/priority/date/…) flips the signature and refreshes the bars,
- * while an identical re-notify keeps the same signature (reuse). See
- * `docs/solutions/integration-issues/gantt-bases-getvalue-renotify-storm.md`.
+ * while an identical re-notify keeps the same signature (reuse).
  *
  * Extracted from the `GanttView` glue so the signature rule is unit-testable in
  * isolation (no Obsidian) — per `register-ts-coverage-not-glue`.

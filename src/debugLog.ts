@@ -9,7 +9,7 @@
  * production vault once (a `config.set` wrapper capturing `new Error().stack` per
  * write). The guardrail: keep diagnostics off by default and keep payloads CHEAP —
  * counters and short strings only, NEVER `new Error().stack` or a large
- * `JSON.stringify`. See `docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md`.
+ * `JSON.stringify`.
  *
  * @module debugLog
  */

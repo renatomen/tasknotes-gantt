@@ -5,9 +5,9 @@
  * Both the Bases options schema (`sharedOptions` in `register.ts`) and the
  * gantt view's `buildFieldMappings` reference these constants, so the
  * `tngantt_`-prefixed key names cannot drift between what the options UI writes
- * and what the view reads.
- * That drift is exactly what caused the bug in PR #108 — see
- * docs/solutions/integration-issues/tasklist-view-tngantt-config-keys.md.
+ * and what the view reads. That drift once shipped silently: a rename updated the
+ * options schema and one reader but missed another, so every mapping in that view
+ * fell back to its default with no error — which is why the keys live here.
  *
  * @module bases/fieldMappingConfig
  */

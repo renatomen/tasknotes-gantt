@@ -2,7 +2,7 @@
  * Format a release date for display in the "What's New" view.
  *
  * The bundle stores the raw ISO date (`YYYY-MM-DD`) or `null`; the view formats
- * it here (adapters extract raw, views format — see docs/conventions/data-formatting.md).
+ * it here — adapters extract raw values, views format them for display.
  * The ISO string is parsed by hand rather than via `new Date(iso)` so the rendered
  * day never shifts under the local timezone.
  *

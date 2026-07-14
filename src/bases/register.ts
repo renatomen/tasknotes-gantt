@@ -303,7 +303,6 @@ class ObsidianGanttBasesView extends BasesView {
     // Bases-internal frames ⇒ autonomous re-notify; our-plugin frames ⇒ a feedback
     // loop. `new Error().stack` is EXPENSIVE per-event, so it is gated default-OFF
     // (set window.__tnGanttDebug=true) and capped — never always-on in production.
-    // See docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md.
     if (isGanttDebugEnabled() && this.dbgDataUpdates <= 6) {
       dlog(`[OGDBG] onDataUpdated-stack #${this.dbgDataUpdates}:\n${(new Error('og:onDataUpdated-stack').stack ?? '').split('\n').slice(1, 12).join('\n')}`);
     }
