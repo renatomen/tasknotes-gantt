@@ -465,6 +465,8 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       dueProp: 'due',
       dateFields: [{ key: 'start', id: 'fld_start', displayName: 'Start' }],
       timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
     });
   });
 
@@ -474,6 +476,26 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       userFields: [],
     });
     expect(cfg?.timeEstimateProp).toBe('estimate');
+  });
+
+  it('exposes the configured status/priority property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due', status: 'status', priority: 'priority' },
+      userFields: [],
+    });
+
+    expect(cfg?.statusProp).toBe('status');
+    expect(cfg?.priorityProp).toBe('priority');
+  });
+
+  it('honors TaskNotes-remapped status/priority property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { status: 'tn_state', priority: 'tn_urgency' },
+      userFields: [],
+    });
+
+    expect(cfg?.statusProp).toBe('tn_state');
+    expect(cfg?.priorityProp).toBe('tn_urgency');
   });
 
   it('includes a date field that has no `enabled` key (real TaskNotes settings shape)', async () => {
@@ -503,7 +525,14 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
   it('yields null props and empty dateFields when fieldMapping/userFields are absent', async () => {
     const cfg = await fieldConfigFrom({});
 
-    expect(cfg).toEqual({ scheduledProp: null, dueProp: null, dateFields: [], timeEstimateProp: null });
+    expect(cfg).toEqual({
+      scheduledProp: null,
+      dueProp: null,
+      dateFields: [],
+      timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
+    });
   });
 
   it('drops date fields missing a key (cannot address the frontmatter property)', async () => {

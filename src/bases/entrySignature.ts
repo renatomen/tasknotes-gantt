@@ -84,10 +84,57 @@ export function frontmatterSignatureKeys(
   const keys: string[] = [];
   for (const property of mappingValues) {
     if (!property) continue;
-    if (property.startsWith('note.')) keys.push(property.slice('note.'.length));
-    else if (property.startsWith('note:')) keys.push(property.slice('note:'.length));
+    const key = property.startsWith('note.')
+      ? property.slice('note.'.length)
+      : property.startsWith('note:')
+        ? property.slice('note:'.length)
+        : null;
+    if (key !== null && !keys.includes(key)) keys.push(key);
   }
   return keys;
+}
+
+/**
+ * The mapping values the signature watches: the view's own mappings UNIONED with
+ * the ones the controller resolved.
+ *
+ * Both halves are load-bearing. The RESOLVED values make a field the user left
+ * unset still watch the property it actually reads (TaskNotes' own), so an edit to
+ * it refreshes the bars. The VIEW values keep the signature sensitive to a live
+ * mapping change: the resolved set lags by one refresh — it is recomputed only when
+ * the source is re-selected, which happens AFTER the signature is compared — so
+ * watching it alone would leave a re-mapped field fingerprinting its old property,
+ * and the unchanged signature would reuse the cached tasks instead of re-reading.
+ */
+export function watchedMappingValues(
+  viewMappings: WatchedMappings,
+  resolvedMappings: WatchedMappings,
+  estimateReadKey: string | null,
+): Array<string | undefined> {
+  return [
+    viewMappings.startProperty,
+    resolvedMappings.startProperty,
+    viewMappings.endProperty,
+    resolvedMappings.endProperty,
+    viewMappings.progressProperty,
+    viewMappings.statusProperty,
+    resolvedMappings.statusProperty,
+    viewMappings.priorityProperty,
+    resolvedMappings.priorityProperty,
+    viewMappings.parentProperty,
+    estimateReadKey ?? viewMappings.timeEstimateProperty,
+  ];
+}
+
+/** The instance-driving mapping slice {@link watchedMappingValues} reads. */
+export interface WatchedMappings {
+  startProperty?: string;
+  endProperty?: string;
+  progressProperty?: string;
+  statusProperty?: string;
+  priorityProperty?: string;
+  parentProperty?: string;
+  timeEstimateProperty?: string;
 }
 
 /**

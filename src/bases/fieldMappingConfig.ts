@@ -39,10 +39,10 @@ export interface FieldMappingDefaults {
 
 /**
  * Default fallbacks: every property defaults to "unset" (empty). The plugins are
- * property-agnostic — they NEVER assume an Obsidian/TaskNotes property name. The
- * gantt controller resolves start/end from TaskNotes' field config when present
- * (see `GanttController.applyDateFieldMapping`); otherwise the user maps fields via
- * the view config. An unset property simply yields no value for that field.
+ * property-agnostic — they NEVER assume an Obsidian/TaskNotes property name. An
+ * unset property is resolved against TaskNotes' configured field when TaskNotes is
+ * present; otherwise the user maps fields via the view config. Unset on both sides
+ * simply yields no value for that field.
  */
 const BASE_DEFAULTS: FieldMappingDefaults = {
   textProperty: '',

@@ -699,8 +699,9 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
-   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
-   * the frontmatter property names for canonical `scheduled`/`due` (from
+   * Read TaskNotes' configured field surface as a {@link FieldConfig}: the
+   * frontmatter property names for the canonical fields the Gantt maps
+   * (`scheduled`/`due`/`status`/`priority`/`timeEstimate`, from
    * `model.config().fieldMapping`) and the enabled custom fields of type `date`
    * (from `model.config().userFields`). Custom fields without a `key` are
    * dropped (the key is how the property is addressed). Guarded: a missing or
@@ -718,13 +719,15 @@ export class TaskNotesSource implements DataSource {
         const field = this.toCustomDateField(f);
         if (field) dateFields.push(field);
       }
+      const configuredProp = (name: string): string | null =>
+        typeof fieldMapping[name] === 'string' ? fieldMapping[name] : null;
       return {
-        scheduledProp:
-          typeof fieldMapping.scheduled === 'string' ? fieldMapping.scheduled : null,
-        dueProp: typeof fieldMapping.due === 'string' ? fieldMapping.due : null,
+        scheduledProp: configuredProp('scheduled'),
+        dueProp: configuredProp('due'),
         dateFields,
-        timeEstimateProp:
-          typeof fieldMapping.timeEstimate === 'string' ? fieldMapping.timeEstimate : null,
+        timeEstimateProp: configuredProp('timeEstimate'),
+        statusProp: configuredProp('status'),
+        priorityProp: configuredProp('priority'),
       };
     } catch {
       return null;

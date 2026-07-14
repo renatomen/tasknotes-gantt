@@ -11,10 +11,55 @@ import {
   frontmatterSignatureKeys,
   progressModeSignatureTag,
   entryValueSignature,
+  watchedMappingValues,
   type SignatureEntry,
 } from '../../src/bases/entrySignature';
 
 const e = (path?: string): SignatureEntry => ({ file: path === undefined ? {} : { path } });
+
+describe('watchedMappingValues', () => {
+  it('watches the property an unset field resolves to', () => {
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues({}, { statusProperty: 'note.status' }, null),
+    );
+
+    expect(keys).toContain('status');
+  });
+
+  it('still watches the re-mapped property while the resolved mapping lags a refresh behind', () => {
+    // The signature is compared BEFORE the source is re-selected, so the resolved
+    // mappings still name the OLD property. Watching only those would fingerprint the
+    // old key, leave the signature unchanged, and reuse the cached tasks — the bars
+    // would keep rendering the previous mapping's values.
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues(
+        { statusProperty: 'note.workflow_state' },
+        { statusProperty: 'note.status' },
+        null,
+      ),
+    );
+
+    expect(keys).toContain('workflow_state');
+    expect(keys).toContain('status');
+  });
+
+  it('prefers the resolved estimate read key over the view mapping', () => {
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues({ timeEstimateProperty: 'note.old' }, {}, 'note.estimate'),
+    );
+
+    expect(keys).toContain('estimate');
+    expect(keys).not.toContain('old');
+  });
+
+  it('folds a key once when the view and resolved mappings agree', () => {
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues({ statusProperty: 'note.status' }, { statusProperty: 'note.status' }, null),
+    );
+
+    expect(keys).toEqual(['status']);
+  });
+});
 
 describe('frontmatterSignatureKeys', () => {
   it('strips the note. (dot) prefix from mapped properties', () => {
