@@ -38,6 +38,15 @@ export interface PropertyPatchOptions {
    * estimate property is refused, mirroring {@link PropertyPatchOptions.progressWritable}.
    */
   estimateWritable: boolean;
+  /**
+   * Whether the mapped status property is the one the backing system persists to.
+   * TaskNotes writes status through its OWN configured property, so when the view
+   * maps a different one the canonical patch would land somewhere the edited column
+   * does not show. Refuse instead — a write the user cannot see is worse than none.
+   */
+  statusWritable: boolean;
+  /** Whether the mapped priority property is the backing system's own. Mirrors {@link statusWritable}. */
+  priorityWritable: boolean;
 }
 
 /**
@@ -107,9 +116,19 @@ export function resolvePropertyPatch(
     return { text: asStringPatchValue(value, propertyId) };
   }
   if (key === bareProperty(mappings.statusProperty)) {
+    if (!options.statusWritable) {
+      throw new Error(
+        `Mapped status property ${propertyId} is not the field TaskNotes persists to; edit refused`,
+      );
+    }
     return { status: asStringPatchValue(value, propertyId) };
   }
   if (key === bareProperty(mappings.priorityProperty)) {
+    if (!options.priorityWritable) {
+      throw new Error(
+        `Mapped priority property ${propertyId} is not the field TaskNotes persists to; edit refused`,
+      );
+    }
     return { priority: asStringPatchValue(value, propertyId) };
   }
   if (key === bareProperty(mappings.progressProperty)) {

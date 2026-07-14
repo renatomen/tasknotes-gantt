@@ -955,6 +955,8 @@ class ObsidianGanttBasesView extends BasesView {
         mappings: effectiveMappings,
         progressWritable: !isProgressReadonly(viewMappings),
         estimateWritable: isTimeEstimateWriteEnabled(viewMappings),
+        statusWritable: controller.isStatusWritable(),
+        priorityWritable: controller.isPriorityWritable(),
         isNameColumn: column.isName,
       });
       if (descriptor) cellEditors.set(column.id, descriptor);

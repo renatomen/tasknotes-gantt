@@ -360,6 +360,14 @@ export class GanttController {
     progressProperty: '',
   };
   /**
+   * Whether the mapped status/priority property is the one the backing system
+   * persists to — set in {@link selectSource}. False without a field config (no
+   * backing system to write through) and when the view maps the field to a property
+   * other than the backing system's own, which makes it read-only.
+   */
+  private statusWritable = false;
+  private priorityWritable = false;
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getRelationshipIndex`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -790,6 +798,8 @@ export class GanttController {
       mappings: this.effectiveMappings,
       progressWritable: this.progressWriteTarget !== null,
       estimateWritable: this.estimateWriteTarget !== null,
+      statusWritable: this.statusWritable,
+      priorityWritable: this.priorityWritable,
     });
     await this.mutate(instanceId, patch);
   }
@@ -1006,6 +1016,8 @@ export class GanttController {
     this.progressWriteTarget = null;
     this.estimateWriteTarget = null;
     this.estimateReadKey = null;
+    this.statusWritable = false;
+    this.priorityWritable = false;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -1222,13 +1234,36 @@ export class GanttController {
       endReadProp: endRes.readProp,
     };
 
+    const statusProperty = resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp);
+    const priorityProperty = resolveMappedProperty(
+      mappings.priorityProperty,
+      fieldConfig.priorityProp,
+    );
+    // TaskNotes persists status/priority through ITS OWN configured property, so the
+    // canonical write only lands where the view reads when the two agree — which an
+    // unset mapping guarantees, since it resolves to exactly that property. A view
+    // pointed at a different property is READ-ONLY for that field: an editor there
+    // would write somewhere the edited column does not show.
+    this.statusWritable = writesToSameProperty(statusProperty, fieldConfig.statusProp);
+    this.priorityWritable = writesToSameProperty(priorityProperty, fieldConfig.priorityProp);
+
     return {
       ...mappings,
       startProperty: toNoteProperty(startRes.readProp),
       endProperty: toNoteProperty(endRes.readProp),
-      statusProperty: resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp),
-      priorityProperty: resolveMappedProperty(mappings.priorityProperty, fieldConfig.priorityProp),
+      statusProperty,
+      priorityProperty,
     };
+  }
+
+  /** Whether an inline edit of the mapped status property can persist where it is read. */
+  public isStatusWritable(): boolean {
+    return this.statusWritable;
+  }
+
+  /** Whether an inline edit of the mapped priority property can persist where it is read. */
+  public isPriorityWritable(): boolean {
+    return this.priorityWritable;
   }
 
   /**
@@ -1581,6 +1616,18 @@ function resolveMappedProperty(
   if ((configured ?? '').trim() !== '') return configured;
   const fallback = (fallbackProp ?? '').trim();
   return fallback !== '' ? toNoteProperty(fallback) : configured;
+}
+
+/**
+ * Whether a canonical write to the backing system's field would land on the very
+ * property the view reads — the only case where the round trip is symmetric, so the
+ * only case an inline edit may be offered. An unconfigured backing field (`null`)
+ * has nowhere to write, so it is never writable.
+ */
+function writesToSameProperty(readProperty: string | undefined, backingProp: string | null): boolean {
+  const backing = (backingProp ?? '').trim();
+  if (backing === '') return false;
+  return bareProperty(readProperty) === backing;
 }
 
 /**

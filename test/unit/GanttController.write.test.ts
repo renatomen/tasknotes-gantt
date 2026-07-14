@@ -461,6 +461,46 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.getEffectiveMappings().priorityProperty).toBeUndefined();
   });
 
+  it('treats a status/priority property mapped away from TaskNotes own field as read-only', async () => {
+    const { controller } = makeBasesScoped({
+      statusProperty: 'note.state',
+      priorityProperty: 'note.urgency',
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    // TaskNotes would persist the canonical write to `status`/`priority`, not to the
+    // properties this view reads — so the fields are read-only rather than silently
+    // writing where the user cannot see it.
+    expect(controller.isStatusWritable()).toBe(false);
+    expect(controller.isPriorityWritable()).toBe(false);
+    await expect(controller.mutateProperty('child.md', 'note.state', 'done')).rejects.toThrow();
+  });
+
+  it('treats an unset status/priority mapping as writable (it resolves to TaskNotes own field)', async () => {
+    const { controller } = makeBasesScoped({
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    expect(controller.isStatusWritable()).toBe(true);
+    expect(controller.isPriorityWritable()).toBe(true);
+  });
+
   it('refuses an estimate write on the resolved read property when no write target is mapped', async () => {
     // The resolved estimate property is a READ fallback: in Property mode with no
     // estimate property mapped there is nowhere to write it. The editor gate keys off
@@ -554,7 +594,21 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     });
 
     it('routes an edit on the mapped status property through the canonical status branch (FieldMappings, not a hardcoded name)', async () => {
-      const { controller, enrichment } = makeBasesScoped({ statusProperty: 'note.state' });
+      // The view names the same property TaskNotes persists to — the only mapping an
+      // edit may take, since the canonical write lands on TaskNotes' own field. The
+      // property is `state`, not `status`, so the routing still proves it follows the
+      // mapping rather than a hardcoded name.
+      const { controller, enrichment } = makeBasesScoped({
+        statusProperty: 'note.state',
+        fieldConfig: {
+          scheduledProp: 'scheduled',
+          dueProp: 'due',
+          dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+          timeEstimateProp: null,
+          statusProp: 'state',
+          priorityProp: 'priority',
+        },
+      });
       await controller.init();
 
       await controller.mutateProperty('child.md', 'note.state', 'done');

@@ -1,0 +1,16 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.name != "WS Alpha"'
+    - 'file.name != "WS Beta"'
+    - 'file.name != "Q3 Roadmap"'
+    - 'file.name != "Q3 Retro"'
+views:
+  - type: obsidianGantt
+    name: "Gantt (divergent status)"
+    tngantt_statusProperty: note.assignee
+    order:
+      - file.name
+      - note.assignee
+      - note.status
+      - note.scheduled

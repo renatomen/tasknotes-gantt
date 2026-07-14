@@ -8,9 +8,10 @@
  * computed columns (`file.*`/`formula.*`), the name column (the write bridge
  * cannot attribute name edits; title edits stay with the modal), and
  * unregistered `note.*` properties (TaskNotes' frontmatter writer silently
- * drops unknown keys). Progress/estimate editors are additionally gated on a
- * resolved write target, mirroring {@link import('../controller/propertyPatchResolution')}
- * so an editor is never offered where the write path would refuse.
+ * drops unknown keys). Status/priority/progress/estimate editors are additionally
+ * gated on a resolved write target, mirroring
+ * {@link import('../controller/propertyPatchResolution')} so an editor is never
+ * offered where the write path would refuse.
  *
  * Pure and dependency-free (no Obsidian/SVAR): lookups are injected, matching
  * {@link ./cellRenderType}.
@@ -63,6 +64,15 @@ export interface CellEditorDeps {
   progressWritable: boolean;
   /** Whether a Time Estimate write target is resolved (mode ≠ `dont-update`). */
   estimateWritable: boolean;
+  /**
+   * Whether the mapped status property is the one TaskNotes persists to. TaskNotes
+   * writes status through its OWN configured property, so a view mapped to a
+   * different one can only be read — an editor there would write somewhere the
+   * column does not show.
+   */
+  statusWritable: boolean;
+  /** Whether the mapped priority property is TaskNotes' own. Mirrors {@link statusWritable}. */
+  priorityWritable: boolean;
   /** `true` for the name/hierarchy column (never editable inline). */
   isNameColumn: boolean;
 }
@@ -86,8 +96,12 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
   if (key === bareProperty(mappings.endProperty)) {
     return { kind: 'date', dateRole: 'end' };
   }
-  if (key === bareProperty(mappings.statusProperty)) return { kind: 'choice-status' };
-  if (key === bareProperty(mappings.priorityProperty)) return { kind: 'choice-priority' };
+  if (key === bareProperty(mappings.statusProperty)) {
+    return deps.statusWritable ? { kind: 'choice-status' } : null;
+  }
+  if (key === bareProperty(mappings.priorityProperty)) {
+    return deps.priorityWritable ? { kind: 'choice-priority' } : null;
+  }
   if (key === bareProperty(mappings.progressProperty)) {
     return deps.progressWritable ? { kind: 'number' } : null;
   }

@@ -32,9 +32,38 @@ function deps(over: Partial<CellEditorDeps> = {}): CellEditorDeps {
     mappings: over.mappings ?? mappings(),
     progressWritable: over.progressWritable ?? false,
     estimateWritable: over.estimateWritable ?? false,
+    statusWritable: over.statusWritable ?? true,
+    priorityWritable: over.priorityWritable ?? true,
     isNameColumn: over.isNameColumn ?? false,
   };
 }
+
+describe('resolveCellEditor — status/priority mapped away from TaskNotes own field', () => {
+  it('offers no status editor when the mapped property is not the one TaskNotes writes', () => {
+    // TaskNotes persists status through ITS configured property, so a view that reads
+    // status from a different property could only be "edited" by writing somewhere the
+    // column does not show — the picker would look like it saved and change nothing.
+    const m = mappings({ statusProperty: 'note.state' });
+
+    expect(resolveCellEditor('note.state', deps({ mappings: m, statusWritable: false }))).toBeNull();
+  });
+
+  it('offers no priority editor when the mapped property is not the one TaskNotes writes', () => {
+    const m = mappings({ priorityProperty: 'note.urgency' });
+
+    expect(
+      resolveCellEditor('note.urgency', deps({ mappings: m, priorityWritable: false })),
+    ).toBeNull();
+  });
+
+  it('offers the status picker when the mapped property is the one TaskNotes writes', () => {
+    const m = mappings({ statusProperty: 'note.status' });
+
+    expect(resolveCellEditor('note.status', deps({ mappings: m, statusWritable: true }))).toEqual({
+      kind: 'choice-status',
+    });
+  });
+});
 
 /** A taskNotesFieldType lookup serving one registered field by bare key. */
 function registered(key: string, meta: TaskNotesFieldMeta): CellEditorDeps['taskNotesFieldType'] {
