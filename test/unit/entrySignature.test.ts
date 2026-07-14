@@ -12,10 +12,68 @@ import {
   progressModeSignatureTag,
   entryValueSignature,
   watchedMappingValues,
+  mappingSignatureTag,
   type SignatureEntry,
 } from '../../src/bases/entrySignature';
 
 const e = (path?: string): SignatureEntry => ({ file: path === undefined ? {} : { path } });
+
+describe('mappingSignatureTag', () => {
+  it('changes when a role is unmapped even though the watched frontmatter keys do not', () => {
+    // Two roles on the SAME property: start and end both read note.date. Unmapping end
+    // (standalone — no backing system to fall back to) leaves `date` still watched for
+    // start, so the frontmatter-key set is identical before and after. Without the
+    // mapping identity in the signature, the config change looks like no change at all:
+    // reuseTasks stays true, the Base is never re-read, and the bar keeps its old end.
+    const before = watchedMappingValues(
+      { startProperty: 'note.date', endProperty: 'note.date' },
+      { startProperty: 'note.date', endProperty: 'note.date' },
+      null,
+    );
+    const after = watchedMappingValues(
+      { startProperty: 'note.date' },
+      { startProperty: 'note.date' },
+      null,
+    );
+
+    expect(frontmatterSignatureKeys(after)).toEqual(frontmatterSignatureKeys(before));
+    expect(mappingSignatureTag(after)).not.toBe(mappingSignatureTag(before));
+  });
+
+  it('changes when a role moves between two already-watched properties (a swap)', () => {
+    const before = watchedMappingValues(
+      { startProperty: 'note.a', endProperty: 'note.b' },
+      { startProperty: 'note.a', endProperty: 'note.b' },
+      null,
+    );
+    const swapped = watchedMappingValues(
+      { startProperty: 'note.b', endProperty: 'note.a' },
+      { startProperty: 'note.b', endProperty: 'note.a' },
+      null,
+    );
+
+    expect(mappingSignatureTag(swapped)).not.toBe(mappingSignatureTag(before));
+  });
+
+  it('changes when a non-frontmatter mapping is re-pointed (no frontmatter key exists to watch)', () => {
+    // A formula/file mapping contributes NO frontmatter key, so the key set cannot see
+    // this change at all — only the mapping identity can.
+    const before = watchedMappingValues({ statusProperty: 'formula.a' }, {}, null);
+    const after = watchedMappingValues({ statusProperty: 'formula.b' }, {}, null);
+
+    expect(frontmatterSignatureKeys(before)).toEqual([]);
+    expect(frontmatterSignatureKeys(after)).toEqual([]);
+    expect(mappingSignatureTag(after)).not.toBe(mappingSignatureTag(before));
+  });
+
+  it('is stable while the mappings are unchanged (a config-only notify must still reuse)', () => {
+    const mappings = { startProperty: 'note.scheduled', statusProperty: 'note.status' };
+    const a = watchedMappingValues(mappings, mappings, null);
+    const b = watchedMappingValues(mappings, mappings, null);
+
+    expect(mappingSignatureTag(a)).toBe(mappingSignatureTag(b));
+  });
+});
 
 describe('watchedMappingValues', () => {
   it('watches the property an unset field resolves to', () => {

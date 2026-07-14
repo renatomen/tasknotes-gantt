@@ -105,6 +105,7 @@ import {
   progressModeSignatureTag,
   entryValueSignature,
   watchedMappingValues,
+  mappingSignatureTag,
 } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
@@ -391,13 +392,17 @@ class ObsidianGanttBasesView extends BasesView {
     // config. Reading a mode from them would leave a just-toggled mode fingerprinting
     // its old value, and the unchanged signature would reuse the cached tasks.
     const viewMappings = this.buildFieldMappings();
-    const fmKeys = frontmatterSignatureKeys(
-      watchedMappingValues(
-        viewMappings,
-        this.getEffectiveMappings(),
-        this.ganttController?.getEstimateReadKey() ?? null,
-      ),
+    const watched = watchedMappingValues(
+      viewMappings,
+      this.getEffectiveMappings(),
+      this.ganttController?.getEstimateReadKey() ?? null,
     );
+    const fmKeys = frontmatterSignatureKeys(watched);
+    // Fold in WHICH properties the roles are mapped to, not just the keys read from
+    // them. Two roles can share one property, so unmapping one leaves the key set
+    // unchanged and the re-read would be skipped; a formula/file mapping contributes
+    // no key at all. The mapping identity catches both.
+    const mappingTag = mappingSignatureTag(watched);
     // In TaskNotes progress mode the bar value comes from the note's checklist
     // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
     // fingerprint into the signature (U4/R5). Without it a checklist tick changes
@@ -411,10 +416,10 @@ class ObsidianGanttBasesView extends BasesView {
     // manual refresh.
     const modeTag = progressModeSignatureTag(viewMappings.progressMode);
     if (fmKeys.length === 0 && !tasknotesProgress) {
-      return modeTag + entriesSignature(entries);
+      return mappingTag + modeTag + entriesSignature(entries);
     }
     const app = this.app;
-    return modeTag + entriesSignature(entries, (e) => {
+    return mappingTag + modeTag + entriesSignature(entries, (e) => {
       const path = e.file?.path;
       if (!path) return '';
       const file = app.vault.getAbstractFileByPath(path);

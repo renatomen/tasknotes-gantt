@@ -126,6 +126,27 @@ export function watchedMappingValues(
   ];
 }
 
+/**
+ * A tag identifying WHICH properties the roles are mapped to, folded into the
+ * signature so that re-pointing a role always forces a re-read.
+ *
+ * The watched frontmatter keys alone cannot carry this. Two roles can share one
+ * property (start and end both on `note.date`), so unmapping one leaves the key set
+ * identical and the value fingerprint unchanged — the Base would never be re-read and
+ * the bar would keep rendering the old role's value. A role mapped to a
+ * `formula.*`/`file.*` property contributes no frontmatter key at all, so re-pointing
+ * it is invisible to the key set entirely. The mapping identity sees both.
+ *
+ * Derived from config, so it is constant across the notifies of an unchanged view — a
+ * config-only / echo notify still reuses, and the storm gate is unaffected.
+ */
+export function mappingSignatureTag(mappingValues: ReadonlyArray<string | undefined>): string {
+  // JSON-encoded rather than delimiter-joined: a property name may contain any
+  // character, so a separator could be forged and two different mappings could
+  // otherwise flatten to the same tag.
+  return JSON.stringify(mappingValues.map((property) => property ?? ''));
+}
+
 /** The instance-driving mapping slice {@link watchedMappingValues} reads. */
 export interface WatchedMappings {
   startProperty?: string;
