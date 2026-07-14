@@ -11,7 +11,9 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   resolveCellEditor,
+  resolveGridCellEditors,
   type CellEditorDeps,
+  type GridCellEditorDeps,
 } from '../../src/bases/cellEditability';
 import type { TaskNotesFieldMeta } from '../../src/bases/cellRenderType';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
@@ -219,5 +221,80 @@ describe('resolveCellEditor — everything else', () => {
 
   it('resolves an empty property id to no editor', () => {
     expect(resolveCellEditor('', deps())).toBeNull();
+  });
+});
+
+describe('resolveGridCellEditors — the grid-wide resolution', () => {
+  const col = (propId: string, isName = false) => ({ id: `c:${propId}`, propId, isName });
+
+  function gridDeps(over: Partial<GridCellEditorDeps> = {}): GridCellEditorDeps {
+    return {
+      taskNotesFieldType: over.taskNotesFieldType ?? (() => null),
+      mappings: over.mappings ?? mappings(),
+      progressWritable: over.progressWritable ?? false,
+      estimateWritable: over.estimateWritable ?? false,
+      statusWritable: over.statusWritable ?? true,
+      priorityWritable: over.priorityWritable ?? true,
+    };
+  }
+
+  it('keys each resolved editor by column id and omits read-only columns', () => {
+    const editors = resolveGridCellEditors(
+      [col('note.status'), col('file.name'), col('formula.x')],
+      gridDeps({ mappings: mappings({ statusProperty: 'note.status' }) }),
+    );
+
+    expect(editors.get('c:note.status')).toEqual({ kind: 'choice-status' });
+    expect(editors.has('c:file.name')).toBe(false);
+    expect(editors.has('c:formula.x')).toBe(false);
+  });
+
+  it('never offers an editor on the name column', () => {
+    const editors = resolveGridCellEditors(
+      [col('note.title', true)],
+      gridDeps({ taskNotesFieldType: () => ({ type: 'text' }) }),
+    );
+
+    expect(editors.size).toBe(0);
+  });
+
+  it('offers the editor for a field the user left unset, from the RESOLVED mappings', () => {
+    // The whole point of passing resolved mappings: an unset status field still resolves
+    // to the backing system's own property, so its column is editable.
+    const editors = resolveGridCellEditors(
+      [col('note.status')],
+      gridDeps({ mappings: mappings({ statusProperty: 'note.status' }) }),
+    );
+
+    expect(editors.get('c:note.status')).toEqual({ kind: 'choice-status' });
+  });
+
+  it('withholds the estimate editor when the resolved property has no write target', () => {
+    // The load-bearing pairing: identity comes from the RESOLVED mappings (so the column
+    // matches note.estimate), but writability comes from the RAW view config — in Property
+    // mode with no estimate property mapped there is nowhere to write. Gating on the
+    // resolved value instead would open a picker the write path refuses.
+    const editors = resolveGridCellEditors(
+      [col('note.estimate')],
+      gridDeps({
+        mappings: mappings({ timeEstimateProperty: 'note.estimate' }),
+        estimateWritable: false,
+      }),
+    );
+
+    expect(editors.has('c:note.estimate')).toBe(false);
+  });
+
+  it('withholds status/priority editors when the mapping diverges from the backing field', () => {
+    const editors = resolveGridCellEditors(
+      [col('note.state'), col('note.urgency')],
+      gridDeps({
+        mappings: mappings({ statusProperty: 'note.state', priorityProperty: 'note.urgency' }),
+        statusWritable: false,
+        priorityWritable: false,
+      }),
+    );
+
+    expect(editors.size).toBe(0);
   });
 });

@@ -6,6 +6,7 @@
  * an identical signature and the view reuses cached tasks.
  */
 
+import { jest } from '@jest/globals';
 import {
   entriesSignature,
   frontmatterSignatureKeys,
@@ -13,6 +14,7 @@ import {
   entryValueSignature,
   watchedMappingValues,
   mappingSignatureTag,
+  composeEntrySignature,
   type SignatureEntry,
 } from '../../src/bases/entrySignature';
 
@@ -237,5 +239,132 @@ describe('entryValueSignature', () => {
 
   it('returns empty for an entry with no frontmatter in property mode', () => {
     expect(entryValueSignature(['pct'], null, undefined, false)).toBe('');
+  });
+});
+
+describe('composeEntrySignature', () => {
+  const entry = (path: string): SignatureEntry => ({ file: { path } });
+  const cacheOf =
+    (fm: Record<string, Record<string, unknown>>) =>
+    (e: SignatureEntry) => {
+      const path = e.file?.path;
+      return path && fm[path] ? { frontmatter: fm[path]! } : null;
+    };
+
+  it('re-reads when a role is unmapped even though the watched key stays (the shared-property case)', () => {
+    // start and end BOTH on note.date; unmapping end leaves `date` watched for start,
+    // so the value fingerprint cannot see the change — only the mapping identity can.
+    const entries = [entry('a.md')];
+    const noteCacheOf = cacheOf({ 'a.md': { date: '2026-01-01' } });
+
+    const before = composeEntrySignature({
+      entries,
+      viewMappings: { startProperty: 'note.date', endProperty: 'note.date' },
+      resolvedMappings: { startProperty: 'note.date', endProperty: 'note.date' },
+      estimateReadKey: null,
+      noteCacheOf,
+    });
+    const afterUnmappingEnd = composeEntrySignature({
+      entries,
+      viewMappings: { startProperty: 'note.date' },
+      resolvedMappings: { startProperty: 'note.date' },
+      estimateReadKey: null,
+      noteCacheOf,
+    });
+
+    expect(afterUnmappingEnd).not.toBe(before);
+  });
+
+  it('reuses when nothing changed (a config-only / echo notify must not re-read)', () => {
+    const inputs = {
+      entries: [entry('a.md'), entry('b.md')],
+      viewMappings: { startProperty: 'note.scheduled', progressMode: 'property' as const },
+      resolvedMappings: { startProperty: 'note.scheduled' },
+      estimateReadKey: null,
+      noteCacheOf: cacheOf({ 'a.md': { scheduled: '2026-01-01' }, 'b.md': { scheduled: '2026-02-02' } }),
+    };
+
+    expect(composeEntrySignature(inputs)).toBe(composeEntrySignature(inputs));
+  });
+
+  it('re-reads when a watched frontmatter value is edited', () => {
+    const entries = [entry('a.md')];
+    const base = {
+      entries,
+      viewMappings: { statusProperty: 'note.status' },
+      resolvedMappings: { statusProperty: 'note.status' },
+      estimateReadKey: null,
+    };
+
+    const open = composeEntrySignature({ ...base, noteCacheOf: cacheOf({ 'a.md': { status: 'open' } }) });
+    const done = composeEntrySignature({ ...base, noteCacheOf: cacheOf({ 'a.md': { status: 'done' } }) });
+
+    expect(done).not.toBe(open);
+  });
+
+  it('watches the property an unset field resolves to, so editing it re-reads', () => {
+    const entries = [entry('a.md')];
+    const base = {
+      entries,
+      viewMappings: {},
+      resolvedMappings: { statusProperty: 'note.status' },
+      estimateReadKey: null,
+    };
+
+    const open = composeEntrySignature({ ...base, noteCacheOf: cacheOf({ 'a.md': { status: 'open' } }) });
+    const done = composeEntrySignature({ ...base, noteCacheOf: cacheOf({ 'a.md': { status: 'done' } }) });
+
+    expect(done).not.toBe(open);
+  });
+
+  it('re-reads when the Progress mode is switched', () => {
+    const entries = [entry('a.md')];
+    const noteCacheOf = cacheOf({ 'a.md': {} });
+
+    const property = composeEntrySignature({
+      entries,
+      viewMappings: { progressMode: 'property' },
+      resolvedMappings: {},
+      estimateReadKey: null,
+      noteCacheOf,
+    });
+    const tasknotes = composeEntrySignature({
+      entries,
+      viewMappings: { progressMode: 'tasknotes' },
+      resolvedMappings: {},
+      estimateReadKey: null,
+      noteCacheOf,
+    });
+
+    expect(tasknotes).not.toBe(property);
+  });
+
+  it('skips the per-entry read when nothing value-bearing is watched', () => {
+    const noteCacheOf = jest.fn(() => null);
+
+    const sig = composeEntrySignature({
+      entries: [entry('a.md')],
+      viewMappings: {},
+      resolvedMappings: {},
+      estimateReadKey: null,
+      noteCacheOf,
+    });
+
+    expect(noteCacheOf).not.toHaveBeenCalled();
+    expect(sig).toContain('a.md');
+  });
+
+  it('re-reads when the matched entry set changes', () => {
+    const inputs = {
+      viewMappings: {},
+      resolvedMappings: {},
+      estimateReadKey: null,
+      noteCacheOf: () => null,
+    };
+
+    const one = composeEntrySignature({ ...inputs, entries: [entry('a.md')] });
+    const two = composeEntrySignature({ ...inputs, entries: [entry('a.md'), entry('b.md')] });
+
+    expect(two).not.toBe(one);
   });
 });

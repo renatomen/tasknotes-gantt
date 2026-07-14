@@ -39,7 +39,7 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
-import { resolveCellEditor, type CellEditorDescriptor } from './cellEditability';
+import { resolveGridCellEditors } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
@@ -99,14 +99,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import {
-  entriesSignature,
-  frontmatterSignatureKeys,
-  progressModeSignatureTag,
-  entryValueSignature,
-  watchedMappingValues,
-  mappingSignatureTag,
-} from './entrySignature';
+import { composeEntrySignature, type SignatureEntry } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -386,46 +379,22 @@ class ObsidianGanttBasesView extends BasesView {
    * fields need no value read — a rename changes the path, already in the signature.
    */
   private computeEntrySignature(): string {
-    const entries = (this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>;
-    // The LIVE view config drives the modes: this runs BEFORE the refresh re-selects
-    // the source, so the controller's resolved mappings still describe the previous
-    // config. Reading a mode from them would leave a just-toggled mode fingerprinting
-    // its old value, and the unchanged signature would reuse the cached tasks.
-    const viewMappings = this.buildFieldMappings();
-    const watched = watchedMappingValues(
-      viewMappings,
-      this.getEffectiveMappings(),
-      this.ganttController?.getEstimateReadKey() ?? null,
-    );
-    const fmKeys = frontmatterSignatureKeys(watched);
-    // Fold in WHICH properties the roles are mapped to, not just the keys read from
-    // them. Two roles can share one property, so unmapping one leaves the key set
-    // unchanged and the re-read would be skipped; a formula/file mapping contributes
-    // no key at all. The mapping identity catches both.
-    const mappingTag = mappingSignatureTag(watched);
-    // In TaskNotes progress mode the bar value comes from the note's checklist
-    // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
-    // fingerprint into the signature (U4/R5). Without it a checklist tick changes
-    // no frontmatter key, the signature wouldn't flip, and reuseTasks would skip
-    // the re-read, leaving the bar stale.
-    const tasknotesProgress = viewMappings.progressMode === 'tasknotes';
-    // Fold the Progress mode into the signature so a mode switch always forces a
-    // re-read. Without it, a note with no checklist has an identical signature in
-    // both modes (its empty checklist fingerprint contributes nothing and the mapped
-    // property value is read in both), so its bar keeps the stale value until a
-    // manual refresh.
-    const modeTag = progressModeSignatureTag(viewMappings.progressMode);
-    if (fmKeys.length === 0 && !tasknotesProgress) {
-      return mappingTag + modeTag + entriesSignature(entries);
-    }
     const app = this.app;
-    return mappingTag + modeTag + entriesSignature(entries, (e) => {
-      const path = e.file?.path;
-      if (!path) return '';
-      const file = app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) return '';
-      const cache = app.metadataCache.getFileCache(file);
-      return entryValueSignature(fmKeys, cache?.frontmatter ?? null, cache?.listItems, tasknotesProgress);
+    return composeEntrySignature({
+      entries: (this.data?.data ?? []) as ReadonlyArray<SignatureEntry>,
+      // The LIVE view config: this runs BEFORE the refresh re-selects the source, so
+      // the controller's resolved mappings still describe the previous config.
+      viewMappings: this.buildFieldMappings(),
+      resolvedMappings: this.getEffectiveMappings(),
+      estimateReadKey: this.ganttController?.getEstimateReadKey() ?? null,
+      noteCacheOf: (entry) => {
+        const path = entry.file?.path;
+        if (!path) return null;
+        const file = app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) return null;
+        const cache = app.metadataCache.getFileCache(file);
+        return { frontmatter: cache?.frontmatter ?? null, listItems: cache?.listItems };
+      },
     });
   }
 
@@ -952,20 +921,17 @@ class ObsidianGanttBasesView extends BasesView {
     // estimate property is a READ fallback with no write target in Property mode,
     // so gating on it would open an editor the write path then refuses.
     const viewMappings = this.buildFieldMappings();
-    const effectiveMappings = this.getEffectiveMappings();
-    const cellEditors = new Map<string, CellEditorDescriptor>();
-    for (const column of gridColumns) {
-      const descriptor = resolveCellEditor(column.propId, {
-        taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
-        mappings: effectiveMappings,
-        progressWritable: !isProgressReadonly(viewMappings),
-        estimateWritable: isTimeEstimateWriteEnabled(viewMappings),
-        statusWritable: controller.isStatusWritable(),
-        priorityWritable: controller.isPriorityWritable(),
-        isNameColumn: column.isName,
-      });
-      if (descriptor) cellEditors.set(column.id, descriptor);
-    }
+    const cellEditors = resolveGridCellEditors(gridColumns, {
+      taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
+      // Identity from the RESOLVED mappings; the progress/estimate write gates from the
+      // RAW view config (their resolved property is a read-only fallback with no write
+      // target). resolveGridCellEditors documents and tests the pairing.
+      mappings: this.getEffectiveMappings(),
+      progressWritable: !isProgressReadonly(viewMappings),
+      estimateWritable: isTimeEstimateWriteEnabled(viewMappings),
+      statusWritable: controller.isStatusWritable(),
+      priorityWritable: controller.isPriorityWritable(),
+    });
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {

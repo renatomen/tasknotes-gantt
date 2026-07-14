@@ -147,6 +147,59 @@ export function mappingSignatureTag(mappingValues: ReadonlyArray<string | undefi
   return JSON.stringify(mappingValues.map((property) => property ?? ''));
 }
 
+/** The cached note data the signature fingerprints, read per matched entry. */
+export interface EntryNoteCache {
+  frontmatter: Record<string, unknown> | null;
+  listItems?: ReadonlyArray<ChecklistItemLike>;
+}
+
+/** Everything the composed signature decides against. */
+export interface EntrySignatureInputs {
+  entries: ReadonlyArray<SignatureEntry>;
+  /** The LIVE view mappings — see {@link watchedMappingValues} on why these, not the resolved ones, drive the modes. */
+  viewMappings: WatchedMappings & { progressMode?: ProgressMode };
+  /** The mappings the controller resolved on the previous refresh. */
+  resolvedMappings: WatchedMappings;
+  /** The controller's resolved Time Estimate read key, or `null` before it resolves. */
+  estimateReadKey: string | null;
+  /**
+   * Cache-safe per-entry read (Obsidian's metadata cache), or `null` when the note is
+   * unreadable. MUST NOT read through the Bases value system — that is what re-pokes
+   * the re-notify storm this signature exists to break.
+   */
+  noteCacheOf(entry: SignatureEntry): EntryNoteCache | null;
+}
+
+/**
+ * The whole entry signature: the mapping identity and Progress mode, followed by the
+ * matched entry set and (when there is anything value-bearing to watch) each entry's
+ * value fingerprint.
+ *
+ * Composed here rather than in the view so the rule is unit-testable without Obsidian
+ * — the caller injects the cache read. Skips the per-entry read entirely when no
+ * frontmatter key is watched and the checklist is not in play, keeping a config-only
+ * notify cheap.
+ */
+export function composeEntrySignature(input: EntrySignatureInputs): string {
+  const { entries, viewMappings, resolvedMappings, estimateReadKey } = input;
+  const watched = watchedMappingValues(viewMappings, resolvedMappings, estimateReadKey);
+  const fmKeys = frontmatterSignatureKeys(watched);
+  const prefix = mappingSignatureTag(watched) + progressModeSignatureTag(viewMappings.progressMode);
+  const tasknotesProgress = viewMappings.progressMode === 'tasknotes';
+
+  if (fmKeys.length === 0 && !tasknotesProgress) {
+    return prefix + entriesSignature(entries);
+  }
+  return (
+    prefix +
+    entriesSignature(entries, (entry) => {
+      const cache = input.noteCacheOf(entry);
+      if (!cache) return '';
+      return entryValueSignature(fmKeys, cache.frontmatter, cache.listItems, tasknotesProgress);
+    })
+  );
+}
+
 /** The instance-driving mapping slice {@link watchedMappingValues} reads. */
 export interface WatchedMappings {
   startProperty?: string;

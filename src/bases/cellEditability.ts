@@ -114,6 +114,49 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
   return field ? editorForUserField(field) : null;
 }
 
+/** A grid column the editor resolution is applied to. */
+export interface EditableColumn {
+  id: string;
+  propId: string;
+  isName: boolean;
+}
+
+/** The two mapping views the grid resolution decides against, plus the writability gates. */
+export interface GridCellEditorDeps extends Omit<CellEditorDeps, 'mappings' | 'isNameColumn'> {
+  /**
+   * The RESOLVED mappings — which property IS each field. A field the user left unset
+   * resolves to the backing system's own property, so its column offers the same editor
+   * as an explicitly selected one.
+   */
+  mappings: FieldMappings;
+}
+
+/**
+ * Resolve every grid column's inline editor, keyed by column id; a column absent from
+ * the result is read-only.
+ *
+ * The caller must pass the RESOLVED mappings for `mappings` (identity: which property
+ * is this field) but derive the progress/estimate writability gates from the RAW view
+ * config. The two differ deliberately: the resolved estimate property is a read-only
+ * fallback with no write target, so gating on it would offer an editor the write path
+ * then refuses. Keeping that pairing here — rather than in the view — is what makes it
+ * testable instead of a comment.
+ */
+export function resolveGridCellEditors(
+  columns: ReadonlyArray<EditableColumn>,
+  deps: GridCellEditorDeps,
+): Map<string, CellEditorDescriptor> {
+  const editors = new Map<string, CellEditorDescriptor>();
+  for (const column of columns) {
+    const descriptor = resolveCellEditor(column.propId, {
+      ...deps,
+      isNameColumn: column.isName,
+    });
+    if (descriptor) editors.set(column.id, descriptor);
+  }
+  return editors;
+}
+
 /** Map a registered TaskNotes user field's type to its editor descriptor. */
 function editorForUserField(field: TaskNotesFieldMeta): CellEditorDescriptor {
   switch (field.type) {
