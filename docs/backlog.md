@@ -27,15 +27,23 @@ Building it once unblocks all of them.
   `docs/plans/2026-06-19-001-feat-gantt-fs-link-authoring-plan.md`,
   `docs/plans/2026-06-20-001-feat-gantt-non-fs-dependency-authoring-plan.md`
 
-### P2 — Open render/index residuals (#161 tail)
-Both flagged OPEN in maintainer notes after the #161 render-loop work.
-- **(a) U6 toolbar-search re-poke** — clearing a Bases toolbar search (e.g. `6 → 261` rows) disarms
-  both #161 loop-breakers and triggers an unguarded bulk `getValue()` re-poke. Local repro spec:
-  `test/specs/_local-clone-search.e2e.ts`. Source:
-  `docs/plans/2026-06-27-001-fix-view-option-render-churn-plan.md` (U6).
-- **(b) Direct-frontmatter read** — read frontmatter directly to avoid bulk `entry.getValue()`
-  entirely (the renotify-storm's deeper follow-up). Source:
-  `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.
+### ~~P2 — Open render/index residuals (#161 tail)~~ — RETIRED 2026-07-14, both closed
+
+Kept as a record of what these entries got wrong, because the same wrong story was
+propagated into the learnings docs before anyone checked the PR that closed it.
+
+- **(a) U6 toolbar-search re-poke** — claimed that clearing a Bases toolbar search
+  disarms both loop-breakers and triggers "an unguarded bulk `getValue()` re-poke".
+  **This is not what the bug was.** PR #172 fixed it and states plainly that *Bases is
+  untouched — it delivers a constant matched set; the cost was our diff-sync*: each
+  resultset swing re-applied the whole companion-expanded set per-instance (~114k DOM
+  mutations, ~25s). Bulk-reseed bounded it to 781 mutations. Issue #161 is closed, and
+  the maintainer validated it in the real vault. Not reproducible on the released build.
+- **(b) Direct-frontmatter read** — mostly moot. `BasesDataAdapter.extractValue` has
+  fast-pathed every `note.*` / `file.*` property straight from frontmatter since
+  January 2026, so a `note.*`-mapped Base never routes a bulk read through
+  `entry.getValue()`. Only an *unprefixed* or `formula.*` column id still does — a perf
+  characteristic, not a bug: the real vault runs exactly that shape with no storm.
 
 ---
 
