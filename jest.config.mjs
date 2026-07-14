@@ -57,14 +57,13 @@ const config = {
     "!src/**/types.ts",
     "!src/**/index.ts",
     "!src/main.ts",
-    "!src/bases/GanttBasesView.ts",
     // Generated at build time (no source to test) — its only logic lives in the
     // generator, which IS unit-tested (test/unit/releaseNotesBundle.test.ts).
     "!src/releaseNotes.ts",
     // Thin Obsidian view/settings wiring, e2e-tested (test/specs/whats-new.e2e.ts),
     // with all decision logic extracted to tested pure modules
     // (releaseNotesExpand.ts, releaseNoteLinks.ts, settings.ts) — same category
-    // as GanttBasesView.ts above.
+    // as main.ts above.
     "!src/release/ReleaseNotesView.ts",
     "!src/release/GanttSettingTab.ts",
   ],
