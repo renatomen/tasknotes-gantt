@@ -36,8 +36,8 @@ A custom SVAR inline editor whose value cannot survive the grid's `update-cell` 
 Route every list-shaped field to a dedicated editor that never rides the bridge, with a three-part contract (PR #236, on top of #233's native suggester and #234's gesture work):
 
 1. **Route to the bypass editor.** `svarEditorConfigFor` maps `kind === 'list'` (`src/bases/cellEditCommit.ts:246`) and list-shaped `suggest` (`:231`) to `OG_CHIPS_EDITOR_TYPE` (`:74`) instead of the stock text input.
-2. **Seed from RAW frontmatter, not the TypedValue.** The view reads the note's verbatim stored list at editor-open (`seed: normalizeStoredList(rawStoredValueOf(rowId, columnId))`, `src/bases/GanttContainer.svelte:1429`) — the grid's TypedValues carry only display forms, so seeding from them would bake in the bracket-stripping. Untouched entries then round-trip byte-identically.
-3. **Commit the whole value once through the direct path, and own Tab.** An outside click or Tab composes the final raw `string[]` and calls `applyAndPersistCellEdit(...)` once (`handleChipsCommit`, `GanttContainer.svelte:2080`; `applyAndPersistCellEdit:2035`), never the bridge. The Tab handler commits directly and consumes the key so the grid hotkey's bridge close-commit never fires (`ChipsListEditor.svelte:122`):
+2. **Seed from RAW frontmatter, not the TypedValue.** The view reads the note's verbatim stored list at editor-open (`seed: normalizeStoredList(rawStoredValueOf(rowId, columnId))`, in `withChipsWiring` — `src/bases/GanttContainer.svelte`) — the grid's TypedValues carry only display forms, so seeding from them would bake in the bracket-stripping. Untouched entries then round-trip byte-identically.
+3. **Commit the whole value once through the direct path, and own Tab.** An outside click or Tab composes the final raw `string[]` and calls `applyAndPersistCellEdit(...)` once (`handleChipsCommit` → `applyAndPersistCellEdit` in `src/bases/GanttContainer.svelte`), never the bridge. The Tab handler commits directly and consumes the key so the grid hotkey's bridge close-commit never fires (`ChipsListEditor.svelte`):
 
    ```svelte
    if (ev.key === 'Tab') {

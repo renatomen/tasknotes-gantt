@@ -2,7 +2,7 @@
 title: "View-option toggle storms the Gantt: bulk entry.getValue() re-pokes Bases into an onDataUpdated re-notify loop"
 date: 2026-06-26
 category: docs/solutions/integration-issues
-last_refreshed: 2026-06-28
+last_refreshed: 2026-07-14
 module: bases-gantt
 problem_type: integration_issue
 component: datasource
@@ -54,10 +54,29 @@ So TaskNotes never routes a bulk read through `getValue`, and never storms. Our 
 
 ## The fix
 
-**Shipped now — entry-signature gate** (`GanttController` + `register.ts`): the view computes a cheap signature (entry count + `file.path`s — no `getValue`). When a notify carries the **same entries** (a config-only / echo notify), it passes `reuseTasks: true`; the controller **reuses cached base tasks and skips `source.getTasks()`** (breaking the feedback) while still re-running the cheap companion expansion against the fresh config (so the toggle still applies). A genuine entries change (filter/data) re-reads.
-- **Known narrow fragility:** a *value-only* edit to a **non-TaskNotes** field on an already-matched note (same paths) is missed until another refresh. TaskNotes-field edits are covered by the source subscription; renames change the path. Acceptable interim.
+**Shipped now — entry-signature gate** (`GanttController` + `register.ts` + the extracted, unit-tested `src/bases/entrySignature.ts`): the view computes a signature that never touches the Bases value system — entry count + `file.path`s, plus each entry's **frontmatter values** for the watched mapped fields (read from `metadataCache`, never `entry.getValue`), a Progress-mode tag, and (in TaskNotes progress mode) a checklist-completion fingerprint. When a notify carries the **same signature** (a config-only / echo notify), it passes `reuseTasks: true`; the controller **reuses cached base tasks and skips `source.getTasks()`** (breaking the feedback) while still re-running the cheap companion expansion against the fresh config (so the toggle still applies). A genuine change (filter/data/value) re-reads.
 
-**Follow-up (recommended) — direct frontmatter read** (TaskNotes-style): read mapped field values from frontmatter directly instead of bulk `entry.getValue()`. Removes the fragility and fixes the root read pattern. Bigger change to the hot path (handle formula-mapped properties + date/link conversion) — do it behind a real repro.
+- **The watched keys are a UNION, not a swap** (`watchedMappingValues`): the signature reads the view's raw mappings AND the controller's resolved mappings. The resolved half lets a field the user left unset watch the property it actually reads; the view half keeps a live re-mapping observable — the resolved set is only recomputed *during* the refresh this signature runs **before**, so reading it alone would leave a re-mapped field fingerprinting its old property, the signature would not move, `reuseTasks` would stay true, and the bars would keep the old property's values. Full rationale: [../architecture-patterns/resolve-config-defaults-at-one-seam.md](../architecture-patterns/resolve-config-defaults-at-one-seam.md) (corollary 2).
+- **Residual (narrowed).** The value-sensitive signature closed the original "value-only edit is missed" gap for the *watched* fields. What still isn't observed: a field outside `watchedMappingValues`, and any `formula.*` / `file.*` mapping — those have no frontmatter key, so `frontmatterSignatureKeys` drops them and that field degrades to path-only. Renames change the path; TaskNotes-field edits are covered by the source subscription.
+
+## The gate stays — a caution before reading the next section
+
+> **Do NOT remove or weaken the `reuseTasks` gate, and do not revert the signature to
+> paths-only.** The storm this doc describes is **fixed**, and the fix is proven
+> load-bearing by a *negative control*: disabling the gate (`__OG_DISABLE_REUSE`) makes
+> the storm spec fail. That the gate works is established independently of *why* the
+> re-read provokes Bases. The note below sharpens the mechanism's **label** and says
+> where to look for the one **remaining, unfixed** residual (search→clear). It is not a
+> finding against the shipped fix, and nothing in it licenses undoing any of it.
+
+**Where to look next — the mechanism label is imprecise.** `BasesDataAdapter.extractValue` has taken a direct-frontmatter fast path for every `note.*` mapping since January 2026 — *before* this storm was documented. So for a `note.*`-mapped base, `getTasks()` never calls `entry.getValue` at all, and the only surviving `getValue` route is a `formula.*` / computed / unprefixed mapping.
+
+What that does and does not change:
+
+- **Unchanged:** the flag experiments prove `getTasks()` is the engine, and the gate that skips it stops the storm. Both still hold.
+- **Sharpened:** "bulk `getValue`" (including this doc's title) is an *inference* about what inside `getTasks()` does the poking. The code only supports that inference for **formula-mapped** properties — which this doc already lists below as an unconfirmed real-vault candidate, so the leading hypothesis is now its own footnote.
+
+For the still-open **search→clear** residual (where the entry set genuinely changes, so the gate legitimately releases and cannot help), start by confirming what the real vault's `.base` actually maps. A formula mapping would close the loop. If it maps only `note.*`, the engine is something else inside `getTasks()` — per-entry `getFileCache` churn, or link resolution in `resolveParents` — and the `getValue` framing has been pointing at the wrong place.
 
 ## Why it won't reproduce in the test harness (both paths blocked)
 
@@ -66,7 +85,7 @@ Recorded so the next attempt doesn't repeat the dead ends:
 - **Synthetic vault does NOT trigger it.** A generated vault matching the config *shape* — `note.in` link parents, multi-view Gantt+Table, status sort, ~240 matched, standalone *and* companion modes — did **not** storm: with the fix disabled, `getTasks` ran but produced only ~2 bounded recomputes. So the trigger is **real-data-specific**, not config-shape. (Unconfirmed candidates: dangling/async-resolving links, formula-typed properties, or another plugin observing the metadataCache.) `emitVault` now supports `parentField:'in'` + `stormBase` to emit the shape, for a future attempt.
 - **Real vault can't run in WDIO here.** The `wdio-obsidian-service` copies the vault to `%TEMP%`; Norton AV scanning that fresh 537MB/6192-file copy throttled indexing to a stall (~222/6192). Even after AV-excluding `%TEMP%`, a chain of further walls blocked it: full-index gate timeouts, the multi-view base not activating the Gantt on open, `isActionable == true` matching 0 in the headless boot (the filter field is populated by a plugin not loaded), and fragile measurement (reading `leaf.view.data` finds the *outer* view, not the inner gantt `BasesView` at `leaf.view._children[0]._children[N]`). After ~6 successive harness walls (≈10 min/iteration) the path was abandoned per the maintainer's call.
 
-**Lesson:** when a third-party-boundary feedback bug only fires on real data AND the real vault can't be driven in the harness, the durable artifact is this triangulation writeup + the in-plugin diagnostic flags — not a green test. Reproduction capability here is the *technique*, not a committed spec.
+**Lesson (partly superseded — see the update above):** when a third-party-boundary feedback bug only fires on real data AND the real vault can't be driven in the harness, the durable artifact is this triangulation writeup + the in-plugin diagnostic flags rather than a green test. That held at the time; it is now *also* a committed spec — `test/specs/gantt-resultset-storm.perf.e2e.ts` drives the toggle against a faithfully generated vault, using `__OG_DISABLE_REUSE` as its fails-first control. What unlocked it was the technique, not a new insight: see [../developer-experience/vault-as-code-faithful-repro.md](../developer-experience/vault-as-code-faithful-repro.md).
 
 ## Related
 

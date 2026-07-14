@@ -67,7 +67,7 @@ options: {
 }
 ```
 
-This had silently affected the pre-existing `Default Scale` and `Dependency Arrows` dropdowns too; fixing the shared `DropdownViewOption` type repaired all of them (`src/bases/register.ts`).
+This had silently affected the pre-existing `Default Scale` and `Dependency Arrows` dropdowns too; fixing the shared dropdown option type repaired all of them. (The view-option descriptors have since moved to `src/bases/viewOptions.ts`, and the hand-rolled Bases types were replaced by the official ones Obsidian now ships — every dropdown there uses the `Record` form.)
 
 ## Related
 

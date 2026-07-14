@@ -52,7 +52,7 @@ This is the **second occurrence of the same class** — see the bug report's **F
 - Wrapping a hot third-party method (`config.set`, store setters, `emit`/`dispatch`) — you inherit *their* call frequency, including internal calls you don't control (Bases persist/reload churn).
 
 Rules:
-1. **Default off.** If you need this instrumentation, gate it behind an explicit, off-by-default debug flag — don't rely on remembering to remove it. (See `[[use-npm-run-build-installs-to-vault]]`-style "enforce with a mechanism, not memory".)
+1. **Default off.** If you need this instrumentation, gate it behind an explicit, off-by-default debug flag — don't rely on remembering to remove it. The mechanism now exists: `src/debugLog.ts`'s `dlog()` is a no-op unless the debug flag is set, so production is silent by construction rather than by memory.
 2. **Strip before install and before commit.** Diagnostics that escape into an installed build or a commit become the next person's mystery freeze.
 3. **Prefer cheap, bounded signals.** A monotonic counter (`recompute seq`, `onDataUpdated #N`) makes a real loop observable *without* per-event stack capture or stringify.
 4. **Assume the real vault exercises paths fixtures don't.** Event-volume-sensitive costs are invisible until real churn drives them.
@@ -91,7 +91,7 @@ Read the real config and diff committed-vs-working-tree **before** building a sc
 
 **The offending wrapper (removed):** the before/after above — a `config.set` override doing `new Error().stack` + `JSON.stringify(value)` per write, plus `new Error().stack` at every construct/unload and the first ~6 `onDataUpdated` calls. Fix: delete the wrapper and all four stack-capture sites; keep only cheap counter logs; rebuild → Gantt loads, no freeze (user-confirmed).
 
-**The contrast — cheap gated flags are fine.** The data-layer triangulation in `gantt-bases-getvalue-renotify-storm.md` used in-plugin diagnostic *flags* (`__OG_FREEZE`, `__OG_REUSE_TASKS`) as its durable artifact. Those are cheap and gated; the ban here is specifically on **heavy per-event capture** (`new Error().stack`, large `JSON.stringify`, hot-method wrappers), not on diagnostics in general.
+**The contrast — cheap gated flags are fine.** The data-layer triangulation in `gantt-bases-getvalue-renotify-storm.md` used in-plugin diagnostic *flags* as its durable artifact (the investigation-time `__OG_FREEZE` / `__OG_REUSE_TASKS` pair, since removed; what survives is the gated `dlog` / `[OGDBG]` counters and the lone `__OG_DISABLE_REUSE` fails-first control). Those are cheap and gated; the ban here is specifically on **heavy per-event capture** (`new Error().stack`, large `JSON.stringify`, hot-method wrappers), not on diagnostics in general.
 
 ## Related
 
