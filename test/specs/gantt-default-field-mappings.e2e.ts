@@ -320,16 +320,29 @@ describe("Gantt (OG) unset field mappings default to TaskNotes' properties", () 
   });
 
   it("opens the configured-statuses picker on the unmapped status cell", async () => {
-    expect(await doubleClickCell(TASK_ROW, STATUS_COL)).toBe(true);
-
-    await browser.waitUntil(async () => (await readGridState()).editorOpen, {
-      timeout: 5000,
-      timeoutMsg: "No editor opened on the unmapped status cell (the note opened instead?)",
-    });
-
+    // Read the expectation BEFORE opening the editor, and capture the labels in the
+    // same poll that observes them. An open editor is not a stable state — a refresh
+    // closes it — so confirming "the editor is open" and then reading the picker in a
+    // separate round-trip can find it already gone (the picker reads as null, which is
+    // indistinguishable from "no picker was ever offered").
     const configured = await readConfiguredStatuses();
     expect(configured.length).toBeGreaterThan(0);
-    expect(await readPickerLabels()).toEqual(configured.map((s) => s.label));
+
+    expect(await doubleClickCell(TASK_ROW, STATUS_COL)).toBe(true);
+
+    let labels: string[] | null = null;
+    await browser.waitUntil(
+      async () => {
+        labels = await readPickerLabels();
+        return (labels?.length ?? 0) > 0;
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "The status picker never listed any option (did the note open instead?)",
+      },
+    );
+
+    expect(labels).toEqual(configured.map((s) => s.label));
   });
 
   it("persists a status pick from the unmapped status cell to frontmatter", async () => {
@@ -339,11 +352,13 @@ describe("Gantt (OG) unset field mappings default to TaskNotes' properties", () 
     if (!target) throw new Error("Fixture needs at least two configured statuses");
 
     expect(await doubleClickCell(TASK_ROW, STATUS_COL)).toBe(true);
-    await browser.waitUntil(async () => (await readPickerLabels())?.length ? true : false, {
+    // Poll the PICK itself, not the picker's presence: an open editor is not a stable
+    // state, so a pick issued in a later round-trip can arrive after the editor closed.
+    // Retrying the click until it lands makes the wait and the action the same step.
+    await browser.waitUntil(async () => pickPickerItem(target.label), {
       timeout: 5000,
-      timeoutMsg: "Status picker did not open",
+      timeoutMsg: `The status picker never offered "${target.label}" to click`,
     });
-    expect(await pickPickerItem(target.label)).toBe(true);
 
     await browser.waitUntil(async () => (await frontmatterValue(TASK_ROW, "status")) === target.value, {
       timeout: 10000,
