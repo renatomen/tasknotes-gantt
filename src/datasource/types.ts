@@ -136,12 +136,15 @@ export interface CustomDateField {
 }
 
 /**
- * The backing system's (TaskNotes') configured date-field surface, used to map
- * the Gantt's start/end roles to concrete write targets and to populate/validate
- * the Bases config. `scheduledProp`/`dueProp` are the frontmatter property names
- * TaskNotes is configured to use for its canonical scheduled/due fields (or
- * `null` when unconfigured); `dateFields` are the enabled custom fields of type
- * `date`.
+ * The backing system's (TaskNotes') configured field surface, used to resolve the
+ * Gantt's roles (start/end/status/priority/estimate) to concrete read properties
+ * and write targets, and to populate/validate the Bases config. Every `*Prop` is
+ * the frontmatter property name TaskNotes is configured to use for that canonical
+ * field (or `null` when unconfigured); `dateFields` are the enabled custom fields
+ * of type `date`.
+ *
+ * A view mapping left empty resolves to the property named here, so an unset field
+ * behaves exactly as if the user had selected TaskNotes' own property.
  */
 export interface FieldConfig {
   scheduledProp: string | null;
@@ -154,6 +157,10 @@ export interface FieldConfig {
    * Estimate" property is left empty (R2/R6).
    */
   timeEstimateProp: string | null;
+  /** TaskNotes' configured `status` property; the unset "Status Property" fallback. */
+  statusProp: string | null;
+  /** TaskNotes' configured `priority` property; the unset "Priority Property" fallback. */
+  priorityProp: string | null;
 }
 
 /**

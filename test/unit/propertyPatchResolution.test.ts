@@ -20,7 +20,12 @@ import type { FieldMappings } from '../../src/bases/types/field-mapping';
 
 function makeOptions(
   mappings: Partial<FieldMappings> = {},
-  flags: { progressWritable?: boolean; estimateWritable?: boolean } = {},
+  flags: {
+    progressWritable?: boolean;
+    estimateWritable?: boolean;
+    statusWritable?: boolean;
+    priorityWritable?: boolean;
+  } = {},
 ): PropertyPatchOptions {
   return {
     mappings: {
@@ -32,8 +37,35 @@ function makeOptions(
     },
     progressWritable: flags.progressWritable ?? true,
     estimateWritable: flags.estimateWritable ?? true,
+    statusWritable: flags.statusWritable ?? true,
+    priorityWritable: flags.priorityWritable ?? true,
   };
 }
+
+describe('resolvePropertyPatch — status/priority mapped away from TaskNotes own field', () => {
+  it('refuses a status edit when the mapped property is not the one TaskNotes writes', () => {
+    // Failing closed matters more here than in the editor: the canonical patch would
+    // persist to TaskNotes' OWN property, silently diverging from the column the user
+    // edited. Refusing beats writing somewhere they cannot see.
+    expect(() =>
+      resolvePropertyPatch(
+        'note.state',
+        'done',
+        makeOptions({ statusProperty: 'note.state' }, { statusWritable: false }),
+      ),
+    ).toThrow();
+  });
+
+  it('refuses a priority edit when the mapped property is not the one TaskNotes writes', () => {
+    expect(() =>
+      resolvePropertyPatch(
+        'note.urgency',
+        'high',
+        makeOptions({ priorityProperty: 'note.urgency' }, { priorityWritable: false }),
+      ),
+    ).toThrow();
+  });
+});
 
 describe('resolvePropertyPatch — mapped branches', () => {
   it('routes the mapped start property to a start date patch', () => {

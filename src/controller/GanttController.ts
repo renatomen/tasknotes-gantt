@@ -360,6 +360,14 @@ export class GanttController {
     progressProperty: '',
   };
   /**
+   * Whether the mapped status/priority property is the one the backing system
+   * persists to — set in {@link selectSource}. False without a field config (no
+   * backing system to write through) and when the view maps the field to a property
+   * other than the backing system's own, which makes it read-only.
+   */
+  private statusWritable = false;
+  private priorityWritable = false;
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getRelationshipIndex`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -790,6 +798,8 @@ export class GanttController {
       mappings: this.effectiveMappings,
       progressWritable: this.progressWriteTarget !== null,
       estimateWritable: this.estimateWriteTarget !== null,
+      statusWritable: this.statusWritable,
+      priorityWritable: this.priorityWritable,
     });
     await this.mutate(instanceId, patch);
   }
@@ -1006,6 +1016,8 @@ export class GanttController {
     this.progressWriteTarget = null;
     this.estimateWriteTarget = null;
     this.estimateReadKey = null;
+    this.statusWritable = false;
+    this.priorityWritable = false;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -1026,7 +1038,7 @@ export class GanttController {
       const fieldConfig = enrichment
         ? (await enrichment.getFieldConfig?.()) ?? null
         : null;
-      const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      const effectiveMappings = this.applyFieldMappingDefaults(mappings, fieldConfig);
       // Remember the resolved mappings the source reads from: the default-view
       // interleave (buildSnapshot) inverts them to decide which Gantt field a Base
       // sort property corresponds to (never a hardcoded property name).
@@ -1101,7 +1113,7 @@ export class GanttController {
     }
     const { entries, mappings } = this.basesInput();
     // Apply the same legacy read defaults the bases-scoped no-config path uses.
-    return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
+    return this.createBasesSource(this.app, entries, this.applyFieldMappingDefaults(mappings, null));
   }
 
   /**
@@ -1169,13 +1181,22 @@ export class GanttController {
   }
 
   /**
-   * Resolve the Base's start/end property mappings against TaskNotes' field
-   * config: store the write targets, record validity/read-prop info, and return
-   * field mappings whose start/end **read** properties match the resolved
-   * targets (round-trip symmetry — R-D). With no field config, mappings pass
-   * through unchanged and no targets are set (writes pass start/end through).
+   * Resolve the Base's property mappings against TaskNotes' field config: store
+   * the date write targets, record validity/read-prop info, and return field
+   * mappings whose start/end **read** properties match the resolved targets
+   * (round-trip symmetry — R-D) and whose unset status/priority fall back to
+   * TaskNotes' configured properties.
+   *
+   * An unset mapping resolves to TaskNotes' own property, so it behaves exactly
+   * as if the user had selected it in the view settings — the value is read (and
+   * so drives bar color/icon treatments) and the write routes through the field's
+   * canonical branch rather than a generic fieldWrite, which `resolvePropertyPatch`
+   * refuses for canonical TaskNotes keys.
+   *
+   * With no field config, mappings pass through unchanged and no targets are set
+   * (writes pass start/end through).
    */
-  private applyDateFieldMapping(
+  private applyFieldMappingDefaults(
     mappings: FieldMappings,
     fieldConfig: FieldConfig | null,
   ): FieldMappings {
@@ -1186,10 +1207,10 @@ export class GanttController {
         startReadProp: null,
         endReadProp: null,
       };
-      // No TaskNotes field config (TaskNotes absent): no write targets. Read
-      // straight from the view-configured start/end properties — empty when the
-      // user mapped none. We do NOT assume note.start/note.due; the plugins are
-      // property-agnostic (a user's date field can be any property).
+      // No TaskNotes field config (TaskNotes absent): no write targets, and no
+      // property to default to. Read straight from the view-configured properties
+      // — empty when the user mapped none. We do NOT assume note.start/note.due;
+      // the plugins are property-agnostic (a user's field can be any property).
       return { ...mappings };
     }
 
@@ -1213,11 +1234,50 @@ export class GanttController {
       endReadProp: endRes.readProp,
     };
 
+    const statusProperty = resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp);
+    const priorityProperty = resolveMappedProperty(
+      mappings.priorityProperty,
+      fieldConfig.priorityProp,
+    );
+    // TaskNotes persists status/priority through ITS OWN configured property, so the
+    // canonical write only lands where the view reads when the two agree — which an
+    // unset mapping guarantees, since it resolves to exactly that property. A view
+    // pointed at a different property is READ-ONLY for that field: an editor there
+    // would write somewhere the edited column does not show.
+    this.statusWritable = writesToSameProperty(statusProperty, fieldConfig.statusProp);
+    this.priorityWritable = writesToSameProperty(priorityProperty, fieldConfig.priorityProp);
+
     return {
       ...mappings,
       startProperty: toNoteProperty(startRes.readProp),
       endProperty: toNoteProperty(endRes.readProp),
+      statusProperty,
+      priorityProperty,
     };
+  }
+
+  /** Whether an inline edit of the mapped status property can persist where it is read. */
+  public isStatusWritable(): boolean {
+    return this.statusWritable;
+  }
+
+  /** Whether an inline edit of the mapped priority property can persist where it is read. */
+  public isPriorityWritable(): boolean {
+    return this.priorityWritable;
+  }
+
+  /**
+   * The resolved field mappings the active source reads from — the view config
+   * with every unset field filled in from TaskNotes' configuration. Empty before
+   * {@link init}. Surfaces read this (rather than the raw view config) so an
+   * unset field is treated as the property it actually resolves to.
+   *
+   * Copied on read: selection keeps mutating the controller's own object (the
+   * estimate read key lands late), so handing out the reference would let a caller's
+   * assignment silently change what the source reads and where a write lands.
+   */
+  public getEffectiveMappings(): FieldMappings {
+    return { ...this.effectiveMappings };
   }
 
   /**
@@ -1542,6 +1602,32 @@ export class GanttController {
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
   return { expansion: expandInstances([]), sourceLinks: [], matchedEdgesResolved: false };
+}
+
+/**
+ * Resolve the property a field mapping reads: the view's own mapping when it sets
+ * one, else the backing system's configured property (note-prefixed to a Bases
+ * property id). Unset on both sides stays unset — no property name is assumed.
+ */
+function resolveMappedProperty(
+  configured: string | undefined,
+  fallbackProp: string | null,
+): string | undefined {
+  if ((configured ?? '').trim() !== '') return configured;
+  const fallback = (fallbackProp ?? '').trim();
+  return fallback !== '' ? toNoteProperty(fallback) : configured;
+}
+
+/**
+ * Whether a canonical write to the backing system's field would land on the very
+ * property the view reads — the only case where the round trip is symmetric, so the
+ * only case an inline edit may be offered. An unconfigured backing field (`null`)
+ * has nowhere to write, so it is never writable.
+ */
+function writesToSameProperty(readProperty: string | undefined, backingProp: string | null): boolean {
+  const backing = (backingProp ?? '').trim();
+  if (backing === '') return false;
+  return bareProperty(readProperty) === backing;
 }
 
 /**

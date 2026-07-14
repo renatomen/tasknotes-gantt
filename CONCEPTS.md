@@ -13,6 +13,17 @@ The plugin-side categorization a user assigns to a calendar to give it meaning f
 ### Availability seam
 The internal query boundary that answers "is this date non-working?" for a view, composed from that view's role-assigned calendars. All consumers — timeline shading now, scheduling decisions later — ask the seam; no consumer inspects a calendar source directly.
 
+## Field mapping
+
+### Field mapping
+The user's per-view assignment of one of their own Obsidian properties to a gantt field role (start, end, status, priority, progress, time estimate, parent, name). No property name is ever assumed: a role has meaning only through the property mapped to it.
+
+### Effective field mappings
+The resolved field mappings — the view's own choices with every unset field filled in from the backing system's configured property, so an unset field behaves exactly as if the user had selected it. This is the single answer to "which property IS this field?", and every consumer reads it rather than the raw view config. Distinct from the view config, which answers only "what did the user choose?" — the right question for gates about the user's intent, and the wrong one for identifying a field.
+
+### Round-trip symmetry
+The property a field's value is written to is the same one it is read from. It is the license to edit a field inline: the backing system persists status and priority through *its own* configured property, so a view mapped to a different property can only be read. Without symmetry an edit would land where the edited column cannot show it — appearing to save while changing nothing visible — so the field is read-only instead.
+
 ## Inline cell editing
 
 ### Grid cell-edit bridge
