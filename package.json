@@ -24,6 +24,7 @@
     "e2e:local": "node scripts/e2e-local.mjs",
     "perf:isolated": "vitest run --config test/perf/vitest.config.ts",
     "probe:svar": "vitest run --config test/probe/vitest.config.ts",
+    "demo:segments": "vite --config test/probe/demo/vite.config.ts",
     "perf:gen": "tsx scripts/perf-gen.mjs",
     "perf:e2e": "wdio run ./test/wdio/wdio.perf.conf.mts",
     "prepare": "husky"

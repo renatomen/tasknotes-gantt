@@ -22,6 +22,8 @@ export interface ScaleLike {
   start: Date;
   lengthUnit: string;
   diff: (a: Date, b: Date, unit: string, inclusive?: boolean) => number;
+  /** Pixels per length unit. Present on SVAR's scale; a fallback for cellWidth. */
+  lengthUnitWidth?: number;
 }
 
 export interface SegmentInput {
@@ -29,6 +31,10 @@ export interface SegmentInput {
   /** Length of the segment, expressed in `durationUnit`. */
   duration: number;
   text?: string;
+  /** Bar-relative offset, populated only by a Pro build's own layout pass. */
+  $x?: number;
+  /** Width in pixels, populated only by a Pro build's own layout pass. */
+  $w?: number;
 }
 
 export interface SegmentBox {
@@ -78,29 +84,26 @@ export function segmentBoxes(
 }
 
 /**
- * Share of a segment that is complete, mirroring SVAR's `getSegProgress`: the
+ * Percent-complete for every segment, mirroring SVAR's `getSegProgress`: the
  * task's overall progress is spent across segments in duration order, filling
- * earlier segments before later ones.
+ * earlier ones before later ones.
+ *
+ * Returned for the whole array in a single pass. SVAR's own helper is called
+ * per segment and rescans from the start each time, which is quadratic; this is
+ * the same semantics without that cost.
  */
-export function segmentProgress(
+export function segmentProgresses(
   segments: readonly SegmentInput[],
   taskProgress: number,
-  index: number,
-): number {
-  if (!taskProgress) return 0;
+): number[] {
   const total = segments.reduce((sum, s) => sum + s.duration, 0);
-  if (total <= 0) return 0;
-  const completed = (total * taskProgress) / 100;
+  if (!taskProgress || total <= 0) return segments.map(() => 0);
 
-  let consumed = 0;
-  for (let i = 0; i < segments.length; i += 1) {
-    const s = segments[i];
-    if (!s) break;
-    if (i === index) {
-      if (consumed >= completed) return 0;
-      return Math.min((completed - consumed) / s.duration, 1) * 100;
-    }
-    consumed += s.duration;
-  }
-  return 0;
+  let remaining = (total * taskProgress) / 100;
+  return segments.map((s) => {
+    if (remaining <= 0 || s.duration <= 0) return 0;
+    const filled = Math.min(remaining / s.duration, 1) * 100;
+    remaining -= s.duration;
+    return filled;
+  });
 }

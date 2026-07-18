@@ -12,6 +12,7 @@
   import { onMount } from 'svelte';
   import { Gantt, Willow } from '@svar-ui/svelte-gantt';
   import SegmentBar from './SegmentBar.svelte';
+  import './segments.css';
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   interface Props {
@@ -20,8 +21,10 @@
     cellWidth?: number;
     /** Grid is off by default so the chart fills the frame for screenshots. */
     columns?: any;
+    /** Receives SVAR's api so contract tests can inspect the real store. */
+    init?: (api: any) => void;
   }
-  const { tasks, scales, cellWidth = 40, columns = false }: Props = $props();
+  const { tasks, scales, cellWidth = 40, columns = false, init }: Props = $props();
 
   let hostEl: HTMLElement;
   const STABLE_FRAMES = 2;
@@ -64,24 +67,8 @@
   style="height: 320px; width: 1000px; position: relative;"
 >
   <Willow>
-    <Gantt {tasks} {cellWidth} {columns} scales={scales} taskTemplate={SegmentBar} readonly />
+    <Gantt {tasks} {cellWidth} {columns} {init} scales={scales} taskTemplate={SegmentBar} readonly />
   </Willow>
 </div>
 
-<style>
-  /* A bar that contains segments is the segmented one — blank its own body so the
-     segments are the visible pieces. Segments never contain `.wx-segments`, so
-     this cannot blank them. */
-  :global(.wx-bar:has(> .wx-segments)) {
-    background: transparent !important;
-    border-color: transparent !important;
-  }
-
-  /* SVAR suppresses its own whole-bar progress fill only when `splitTasks` is on,
-     and the MIT build forces that false — so it paints a fill spanning the entire
-     bar underneath our segments. Hide it; per-segment progress replaces it. The
-     child combinator matters: segment fills are nested deeper and must survive. */
-  :global(.wx-bar:has(> .wx-segments) > .wx-progress-wrapper) {
-    display: none !important;
-  }
-</style>
+<!-- The two global rules live in `segments.css`, imported above. -->

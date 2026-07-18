@@ -3,7 +3,7 @@ import {
   segmentBox,
   segmentBoxes,
   segmentEnd,
-  segmentProgress,
+  segmentProgresses,
   type ScaleLike,
 } from './segmentLayout';
 
@@ -101,30 +101,38 @@ describe('segmentBoxes', () => {
   });
 });
 
-describe('segmentProgress', () => {
+describe('segmentProgresses', () => {
   const segments = [
     { start: new Date(2026, 3, 2), duration: 4 },
     { start: new Date(2026, 3, 14), duration: 6 },
   ];
 
   it('is zero everywhere when the task has no progress', () => {
-    expect(segmentProgress(segments, 0, 0)).toBe(0);
-    expect(segmentProgress(segments, 0, 1)).toBe(0);
+    expect(segmentProgresses(segments, 0)).toEqual([0, 0]);
   });
 
   it('fills the earlier segment before the later one', () => {
     // 40% of 10 total duration units = 4 units, exactly the first segment.
-    expect(segmentProgress(segments, 40, 0)).toBe(100);
-    expect(segmentProgress(segments, 40, 1)).toBe(0);
+    expect(segmentProgresses(segments, 40)).toEqual([100, 0]);
   });
 
   it('partially fills the later segment once the earlier one is complete', () => {
     // 70% of 10 = 7 units: segment one full (4), 3 of segment two's 6 = 50%.
-    expect(segmentProgress(segments, 70, 0)).toBe(100);
-    expect(segmentProgress(segments, 70, 1)).toBe(50);
+    expect(segmentProgresses(segments, 70)).toEqual([100, 50]);
   });
 
-  it('caps a segment at fully complete', () => {
-    expect(segmentProgress(segments, 100, 1)).toBe(100);
+  it('caps every segment at fully complete', () => {
+    expect(segmentProgresses(segments, 100)).toEqual([100, 100]);
+  });
+
+  it('returns one entry per segment', () => {
+    expect(segmentProgresses(segments, 55)).toHaveLength(segments.length);
+  });
+
+  it('treats a zero-duration segment as unfilled rather than dividing by zero', () => {
+    const withEmpty = [{ start: new Date(2026, 3, 2), duration: 0 }, ...segments];
+    const result = segmentProgresses(withEmpty, 50);
+    expect(result[0]).toBe(0);
+    expect(result.every((n) => Number.isFinite(n))).toBe(true);
   });
 });
