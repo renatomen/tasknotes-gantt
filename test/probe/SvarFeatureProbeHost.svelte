@@ -24,6 +24,7 @@
     rollups?: any;
     criticalPath?: any;
     slack?: boolean;
+    init?: (api: any) => void;
   }
   const {
     tasks,
@@ -34,6 +35,7 @@
     rollups = false,
     criticalPath = null,
     slack = false,
+    init,
   }: Props = $props();
 
   let hostEl: HTMLElement;
@@ -86,5 +88,6 @@
     {rollups}
     {criticalPath}
     {slack}
+    {init}
   />
 </div>

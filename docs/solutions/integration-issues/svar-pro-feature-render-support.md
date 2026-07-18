@@ -2,7 +2,7 @@
 module: svar-gantt
 tags: [svar, pro-features, split-task, segments, markers, baselines, rollups, critical-path, slack, feasibility-spike]
 problem_type: integration-feasibility
-status: inconclusive
+status: resolved
 ---
 
 # SVAR "Pro"-gated feature render support in the bundled free build
@@ -11,40 +11,49 @@ status: inconclusive
 
 Can the plugin render SVAR-Gantt "Pro"-documented features — split-task/`segments`, `markers`, `baselines`, `rollups`, `criticalPath`, `slack` — using the bundled free/OSS `@svar-ui/svelte-gantt@^2.7.0`, without a commercial licence? Motivated by wanting to draw a discontinuous task (e.g. a recurring series) as spaced segments in one row.
 
-## Method
+## Answer: no via config — the free store hard-disables them at init
 
-An isolated probe (`test/probe/`, run via `npm run probe:svar`) mounts the **raw** SVAR `<Gantt>` with SVAR's default templates (no plugin `taskTemplate`) in headless Chromium (`vitest-browser` + playwright), feeds each feature the documented input + config prop, and records which SVAR DOM hooks appear. Hard-gated: harness sanity (a plain task draws `.wx-bar`) and a negative control. Per-feature verdicts are soft-recorded to `test/probe/.results/verdicts.json`, so "does-not-render" is data, not a failure.
+The free build **ignores** every advanced/"Pro" config key. `@svar-ui/gantt-store`'s `DataStore.init(t)` unconditionally overwrites the caller's config before it reaches state (`node_modules/@svar-ui/gantt-store/dist/index.js`):
 
-## Result — code ships, but minimal repro did not trigger it (INCONCLUSIVE)
+```js
+init(t){ /* ... */
+  t.unscheduledTasks=!1, t.baselines=!1, t.markers=[], t._markers=[],
+  t.undo=!1, t.schedule={}, t.criticalPath=null, t.splitTasks=!1,
+  t.summary={}, t.rollups=!1, t._rollups={}, t.slack=!1,
+  t.resources=null, t._resources=[], t.assignments=[],
+  t.calendar=null, t.calendars=[], t.groupBy=null, t.wbs=null;
+  /* ... then applies t to state ... */
+}
+```
 
-The "Pro" features are **not stripped** from the free npm package. The rendering code is fully present and wired end-to-end:
+These are unconditional assignments (a flat comma-sequence, no guard), so no matter what you pass to `<Gantt splitTasks markers baselines rollups criticalPath slack ...>`, the store forces them to their off-defaults. The rendering code ships but is **dead code** in the free build: `BarSegments.svelte` only renders under `{:else if $splitTasks && task.segments}`, and `$splitTasks` can never become true because the store reset it.
 
-- Components ship: `node_modules/@svar-ui/svelte-gantt/src/components/chart/BarSegments.svelte`, `chart/Rollups.svelte`, `editor/Segments.svelte`. `Bars.svelte` renders segments at the conditional `{:else if $splitTasks && task.segments}` and adds `wx-split` / `wx-baseline` / `wx-critical` / `wx-slack` under their own gates.
-- The store processes them: `@svar-ui/gantt-store/dist` handles `splitTasks` and `segments` (segment layout computed in the `_tasks` derivation); no licence / trial / watermark gate was found anywhere in the component or store source.
-- Props flow: `Gantt.svelte` passes `splitTasks`, `markers`, `baselines`, `rollups`, `criticalPath`, `slack` straight into `dataStore.init`.
+This is the mechanism behind SVAR marketing these as "Pro" features while the OSS package still contains their source: the gate lives in `gantt-store.init`, not in stripped components.
 
-**But** the isolated raw-`<Gantt>` probe produced **no** feature DOM for any of the six features — across two runs (props via spread, then explicit named props) the rendered `wx-*` vocabulary was identical with and without each feature enabled (only base `wx-bar` / `wx-row` / `wx-summary` / `wx-progress-marker`). The render condition `$splitTasks && task.segments` stayed false despite `splitTasks={true}` and a `segments` array on the task.
+## Evidence (two independent confirmations)
 
-Conclusion: enabling these is **not** "just set the documented prop + data" in a bare harness — there is an additional trigger (likely a data-shape or store/init-timing detail matching SVAR's own demo) that the minimal probe does not satisfy. Feasibility is therefore **encouraging but unproven**: the code exists in the free build, but we do not yet have a working repro that renders it.
+1. **Empirical (store state).** An isolated probe (`test/probe/`, `npm run probe:svar`) mounts the raw `<Gantt>` in headless Chromium (`vitest-browser` + playwright) and reads `api.getState()`. Even a direct `<Gantt tasks={[{...,segments:[...] }]} splitTasks={true}>` yields `state.splitTasks === false` and `$splitTasks === false`; the task keeps its `segments` array but the segments never get `$x`/`$w` (layout only runs them when `splitTasks` is true), so one plain bar renders. Captured in `test/probe/.results/diag.json`.
+2. **Source (the gate).** The `init(t)` reset above, read directly from the installed `gantt-store` dist. The component/store rendering code is present (`svelte-gantt/src/components/chart/BarSegments.svelte`, `chart/Rollups.svelte`, `Bars.svelte` `.wx-baseline`/`.wx-critical`/`.wx-slack` gates) but unreachable.
 
-## Per-feature verdicts (isolated probe, minimal inputs)
+## Per-feature verdicts (isolated probe)
 
-| Feature | Prop + input supplied | Rendered in probe | Code present in OSS build |
+| Feature | Prop + input supplied | Renders in free build | Why |
 |---|---|---|---|
-| split-task / `segments` | `splitTasks` + `segments[]` | no | yes (`BarSegments.svelte`) |
-| split-task, no flag | `segments[]` only | no | n/a (flag off is expected off) |
-| `markers` | `markers[]` | no | yes (store handles `markers`) |
-| `baselines` | `baselines` + `base_start/end` | no | yes (`Bars.svelte` `.wx-baseline`) |
-| `rollups` | `rollups` + `rollup:true` children | no | yes (`Rollups.svelte`) |
-| `criticalPath` | `criticalPath` + linked tasks | no | yes (`.wx-critical` gate) |
-| `slack` | `slack` + `criticalPath` | no | yes (`.wx-slack` gate) |
+| split-task / `segments` | `splitTasks` + `segments[]` | no | store `init` forces `splitTasks=false` |
+| `markers` | `markers[]` | no | store `init` forces `markers=[]` |
+| `baselines` | `baselines` + `base_start/end` | no | store `init` forces `baselines=false` |
+| `rollups` | `rollups` + `rollup:true` children | no | store `init` forces `rollups=false` |
+| `criticalPath` | `criticalPath` + linked tasks | no | store `init` forces `criticalPath=null` |
+| `slack` | `slack` + `criticalPath` | no | store `init` forces `slack=false` |
 
-Because Step 1 produced no confirmed survivor, the planned Step-2 real-Obsidian confirmation (through `GanttContainer`'s custom `taskTemplate`) was not run — there was nothing to confirm.
+The planned Step-2 real-Obsidian confirmation (through `GanttContainer`'s custom `taskTemplate`) is moot: with zero features reachable at the store level, our template is not the suppressor, so there is nothing to confirm.
 
-## Open thread (next repro step)
+## Options to actually get spaced segments
 
-Reproduce SVAR's own split-task demo setup exactly (its published example enables `splitTasks`) and diff it against this probe to find the missing trigger — candidates: required segment fields beyond `start`/`end`, a `$effect`/re-init timing issue in the isolated mount, or a theme/scale/`cellWidth` prerequisite for segment `$x`/`$w` layout. Only once a feature renders in the probe does the Step-2 template-suppression question become meaningful.
+1. **SVAR commercial/Pro distribution** — presumably ships a `gantt-store` without the `init` reset. Cost + licence change; verify the Pro package actually removes the gate before committing.
+2. **Patch/fork the free store** — override `DataStore.init` to stop resetting the keys. Fragile (breaks on upgrade), and shipping a patched Pro-feature is the same licence question as buying Pro — likely not permitted. Not recommended.
+3. **Hand-roll spaced sub-bars ourselves** — draw the segments in a custom `taskTemplate` / `BarContent` overlay (absolute-positioned sub-bars inside one row), fed by our own data (e.g. expanded recurrence occurrences). This is independent of SVAR's gated split-task, licence-clean, and the only route that fits the plugin's existing custom-bar rendering. It is a real feature project, not a config flag — this is where the deferred recurring-as-segments product design would land.
 
-## Licence caveat (unresolved, separate from rendering)
+## Licence caveat
 
-Rendering feasibility is distinct from ship-ability: the code being present in the GPL-licensed OSS package does not by itself establish that shipping these features in the plugin is permitted under SVAR's terms. Out of scope for this spike.
+Rendering feasibility is distinct from ship-ability. Even where code exists in the GPL-licensed OSS package, enabling Pro features by patching the store may violate SVAR's terms. The DIY overlay (option 3) avoids this because it does not use SVAR's gated feature at all. Legal confirmation is out of scope for this spike.
