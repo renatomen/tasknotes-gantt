@@ -1,7 +1,21 @@
 <!--
   Split-task bar template: draws a task's `segments` as spaced sub-bars in one
-  row, reproducing the DOM that SVAR's Pro-only BarSegments emits so a move to
-  the paid build is a drop-in.
+  row, reproducing the DOM of SVAR's Pro-only BarSegments so a move to the paid
+  build is a drop-in.
+
+  There is no pixel math here — THE BAR IS THE RULER. SVAR already solved
+  date→pixel for this row when it laid the bar out, so each segment is a
+  proportion of the bar's date span, rendered as CSS percentages. The browser
+  scales them against whatever width the bar actually has, which makes zoom and
+  resize tracking free. A Pro build that lays segments out itself ($x/$w px) is
+  honoured verbatim, keeping the migration a drop-in.
+
+  All SVAR-internal access lives in `svarContract.ts` (one runtime-validated
+  snapshot); this component otherwise consumes public ITask fields. The bar is
+  made transparent by stamping SVAR's own `wx-split` class (see markBarSplit) —
+  satisfying the library's designed condition rather than overriding its CSS.
+  If SVAR internals ever move, `pieces` becomes null and the bar falls back to
+  its ordinary continuous form — the feature switches off, nothing breaks.
 
   Markup and the segments-container CSS are adapted from `@svar-ui/svelte-gantt`
   `src/components/chart/BarSegments.svelte`:
@@ -16,25 +30,12 @@
     notice and this permission notice shall be included in all copies or
     substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
     WITHOUT WARRANTY OF ANY KIND.
-
-  DEPENDS ON SVAR INTERNALS — every item here is pinned by
-  `test/probe/svar-contract.probe.ts`, which fails loudly if an upgrade moves it:
-    - `task.$x` / `task.$w`      computed bar geometry (`$`-prefixed = internal)
-    - `getReactiveState()._scales` the timeline scale (`_`-prefixed = private)
-    - `_scales.diff(a, b, unit, inclusive)` signature and semantics
-    - the `.wx-*` class names this markup emits
-    - our template rendering as a DIRECT CHILD of `.wx-bar` (see segments.css)
 -->
 <script lang="ts">
-  import { fromStore } from 'svelte/store';
+  /* global Element */
   import type { IApi, ITask } from '@svar-ui/svelte-gantt';
-  import {
-    segmentBox,
-    segmentProgresses,
-    type DurationUnit,
-    type ScaleLike,
-    type SegmentInput,
-  } from './segmentLayout';
+  import { scaleSnapshot } from './svarContract';
+  import { isSegmentSpan, segmentPieces, type SegmentPiece } from './segmentLayout';
 
   /** Exactly SVAR's taskTemplate contract — it always passes all three. */
   interface Props {
@@ -44,63 +45,55 @@
   }
   const { data, api }: Props = $props();
 
-  // `fromStore` is the idiomatic Svelte 5 bridge for stores obtained at runtime
-  // (these come from an API call, so the `$store` prefix form does not apply).
-  // Reading `api` once is deliberate: SVAR hands the template a stable api for
-  // the lifetime of the mount, so there is no later value to react to.
-  // svelte-ignore state_referenced_locally
-  const state = api.getReactiveState();
-  const scales = fromStore(state._scales as unknown as import('svelte/store').Readable<ScaleLike>);
-  const cellWidth = fromStore(state.cellWidth as unknown as import('svelte/store').Readable<number>);
-  const durationUnit = fromStore(
-    state.durationUnit as unknown as import('svelte/store').Readable<DurationUnit>,
-  );
+  // Recomputed whenever SVAR hands us a new task object — which it does for
+  // every layout-affecting change, so the snapshot read is always current.
+  const pieces = $derived.by(() => {
+    const segments = (data.segments ?? []).filter(isSegmentSpan);
+    if (!segments.length || !data.start || !data.end) return null;
+    const scale = scaleSnapshot(api);
+    if (!scale) return null;
+    return segmentPieces(segments, data.start, data.end, data.progress ?? 0, scale);
+  });
 
-  const segments = $derived(
-    Array.isArray(data.segments) && data.segments.length > 0
-      ? (data.segments as SegmentInput[])
-      : null,
-  );
+  const pct = (fraction: number): string => `${(fraction * 100).toFixed(4)}%`;
 
-  /** Pixels per scale length-unit — the same factor SVAR lays tasks out with. */
-  const pxPerUnit = $derived(cellWidth.current || scales.current?.lengthUnitWidth || 0);
+  /** Pro layout wins when present; otherwise proportions of the bar. */
+  function segmentStyle({ seg, left, width }: SegmentPiece): string {
+    return typeof seg.$x === 'number' && typeof seg.$w === 'number'
+      ? `left:${seg.$x}px;top:0px;width:${seg.$w}px;height:100%;`
+      : `left:${pct(left)};top:0px;width:${pct(width)};height:100%;`;
+  }
 
-  const laidOut = $derived(!!segments && !!scales.current?.diff && pxPerUnit > 0);
-
-  const boxes = $derived(
-    laidOut && segments
-      ? segments.map((seg) =>
-          // A Pro build lays segments out itself — honour that when present.
-          typeof seg.$x === 'number' && typeof seg.$w === 'number'
-            ? { left: seg.$x, width: seg.$w }
-            : segmentBox(seg, data.$x ?? 0, scales.current, pxPerUnit, durationUnit.current),
-        )
-      : [],
-  );
-
-  /** One pass for the whole array rather than a rescan per segment. */
-  const progresses = $derived(
-    segments ? segmentProgresses(segments, data.progress ?? 0) : [],
-  );
+  /**
+   * Stamp SVAR's own `wx-split` class onto the bar we render inside — the exact
+   * class Pro's Bars.svelte binds via `class:wx-split={$splitTasks && task.segments}`
+   * (unreachable in the MIT build, where splitTasks is forced false). This makes
+   * SVAR's stylesheet treat the bar as a split bar: its fill rule
+   * `.wx-task:not(.wx-split)` disarms itself, and its own
+   * `.wx-bars .wx-split.wx-bar { background: transparent }` takes over — no
+   * transparency CSS of ours, no !important, no specificity contest. We satisfy
+   * the library's designed condition instead of fighting its cascade.
+   */
+  function markBarSplit(node: Element): (() => void) | undefined {
+    const bar = node.parentElement;
+    if (!bar?.classList.contains('wx-bar')) return undefined;
+    bar.classList.add('wx-split');
+    return () => bar.classList.remove('wx-split');
+  }
 </script>
 
-{#if laidOut && segments}
-  <div class="wx-segments">
-    {#each segments as seg, i (i)}
-      <div
-        class="wx-segment wx-bar wx-task"
-        data-segment={i}
-        style="left:{boxes[i]!.left}px;top:0px;width:{boxes[i]!.width}px;height:100%;"
-      >
+{#if pieces}
+  <div class="wx-segments" {@attach markBarSplit}>
+    {#each pieces as piece, i (i)}
+      <div class="wx-segment wx-bar wx-task" data-segment={i} style={segmentStyle(piece)}>
         <!-- Gated on the TASK's progress, not the segment's, so an empty segment
-             still emits a 0%-wide wrapper — exactly what SVAR's BarSegments does.
-             Fidelity matters more here than skipping an empty node. -->
+             still emits a 0%-wide wrapper — exactly what SVAR's BarSegments does. -->
         {#if data.progress}
           <div class="wx-progress-wrapper">
-            <div class="wx-progress-percent" style="width:{progresses[i]}%"></div>
+            <div class="wx-progress-percent" style="width:{piece.fill}%"></div>
           </div>
         {/if}
-        <div class="wx-content">{seg.text ?? ''}</div>
+        <div class="wx-content">{piece.seg.text ?? ''}</div>
       </div>
     {/each}
   </div>

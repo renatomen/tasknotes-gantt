@@ -1,37 +1,20 @@
 /*
- * The two global rules split-task rendering needs, in one place.
+ * One rule. The transparency SVAR Pro applies to split bars needs no CSS from
+ * us at all: the template stamps SVAR's own `wx-split` class onto its bar (see
+ * SegmentBar.svelte), which simultaneously
+ *   - disarms SVAR's fill rule, whose selector is `.wx-task:not(.wx-split)`, and
+ *   - arms SVAR's own `.wx-bars .wx-split.wx-bar { background: transparent }`.
+ * We satisfy the library's designed condition instead of fighting its cascade —
+ * no !important, no specificity games, and the split-aware selection styling
+ * comes along for free.
  *
- * Both reach into SVAR's own bar element, so they are deliberately NOT scoped to
- * a component — a Svelte scoped block cannot style an ancestor it does not own.
- * Every selector keys on `:has(> .wx-segments)`, which identifies exactly the
- * bar whose body our template replaced with segments. A `.wx-segment` never
- * contains a segments container, so these can never match the segments
- * themselves — that structural impossibility is what makes the approach safe,
- * and `test/probe/svar-contract.probe.ts` pins it.
+ * What remains is the one thing Pro handles in markup that we cannot: SVAR only
+ * skips rendering the whole-bar progress fill when `splitTasks` is on, and the
+ * MIT build forces that false — so it paints a fill spanning the ENTIRE bar
+ * underneath our segments. Hide it. The child combinator is load-bearing:
+ * per-segment fills are nested inside `.wx-segment` and must survive.
+ * (Global on purpose: a Svelte scoped block cannot style an ancestor's child.)
  */
-
-/*
- * Blank the segmented bar's own body so the segments are the visible pieces.
- *
- * `!important` is REQUIRED here, and that is measured rather than assumed:
- * removing it makes `CONTRACT: the transparency rule beats SVAR's own
- * background` fail, because SVAR's `.wx-task:not(.wx-split)` background has
- * equal specificity and wins on source order. Note the sibling rule below needs
- * no `!important` — do not add one there out of symmetry.
- */
-.wx-bar:has(> .wx-segments) {
-  background: transparent !important;
-  border-color: transparent !important;
-}
-
-/*
- * Suppress SVAR's whole-bar progress fill on a segmented bar.
- *
- * SVAR only skips rendering it when `splitTasks` is on, and the MIT build forces
- * that false — so it paints a fill spanning the ENTIRE bar underneath our
- * segments. The child combinator is load-bearing: per-segment fills are nested
- * inside `.wx-segment` and must survive.
- */
-.wx-bar:has(> .wx-segments) > .wx-progress-wrapper {
+.wx-bars .wx-bar.wx-split > .wx-progress-wrapper {
   display: none;
 }

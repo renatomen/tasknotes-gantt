@@ -1,109 +1,105 @@
 /**
- * Spike: bar-relative pixel geometry for a split-task segment.
+ * Pure geometry for split-task segments: where each piece sits WITHIN its bar.
  *
- * Mirrors the SVAR store's own task layout so hand-rolled segments land exactly
- * where SVAR's Pro renderer would put them:
- *   $x = round(diff(start, scaleStart, lengthUnit) * pxPerLengthUnit)
- *   $w = round(diff(end,   start,      lengthUnit, inclusive) * pxPerLengthUnit)
- * then each segment is rebased against its parent bar (`s.$x -= task.$x`), which
- * is why SVAR's markup can use the value directly as `left` inside the
- * relatively-positioned segments container.
+ * The core idea — THE BAR IS THE RULER. SVAR already solved date→pixel for this
+ * row when it laid the bar out, so a segment needs no pixel math of its own: it
+ * is a proportion of the bar's date span, rendered as a CSS percentage. That
+ * gives us:
+ *   - nothing to reproduce, so no formula that can drift from SVAR's;
+ *   - zoom/resize tracking for free — when the bar resizes, percentages follow;
+ *   - unit-semantics independence: the `inclusive` flag mirrors how SVAR sizes
+ *     bars, and because numerator and denominator use the same flag, a segment
+ *     spanning the whole task is exactly 1 WHATEVER that flag means (proved in
+ *     segmentLayout.test.ts under two different diff semantics).
  *
- * The width is derived from an END DATE, never from `duration * pxPerLengthUnit`:
- * a segment's `duration` is expressed in the store's `durationUnit` while the
- * pixel scale is per `lengthUnit`. Multiplying the two is wrong as soon as the
- * two units differ (e.g. an hour-scaled chart with day durations).
+ * The only borrowed arithmetic is SVAR's own `diff` (see svarContract.ts), so
+ * calendar units and DST behave exactly as in the chart these draw into.
  */
 
 export type DurationUnit = 'day' | 'hour';
 
-/** The slice of SVAR's `_scales` this needs. */
-export interface ScaleLike {
-  start: Date;
+/** SVAR's `_scales.diff` signature (see svarContract.ts). */
+export type DiffFn = (a: Date, b: Date, unit: string, inclusive?: boolean) => number;
+
+/** The slice of SVAR state the geometry needs, captured per render. */
+export interface ScaleSnapshot {
+  diff: DiffFn;
   lengthUnit: string;
-  diff: (a: Date, b: Date, unit: string, inclusive?: boolean) => number;
-  /** Pixels per length unit. Present on SVAR's scale; a fallback for cellWidth. */
-  lengthUnitWidth?: number;
+  durationUnit: DurationUnit;
 }
 
-export interface SegmentInput {
+/** SVAR's canonical segment shape ({start, duration}); `end` wins if present. */
+export interface SegmentSpan {
   start: Date;
-  /** Length of the segment, expressed in `durationUnit`. */
+  /** Length in `durationUnit`s — the shape SVAR's Pro editor authors. */
   duration: number;
+  end?: Date;
   text?: string;
-  /** Bar-relative offset, populated only by a Pro build's own layout pass. */
+  /** Populated only by a Pro build's own layout pass; honoured when present. */
   $x?: number;
-  /** Width in pixels, populated only by a Pro build's own layout pass. */
   $w?: number;
 }
 
-export interface SegmentBox {
+/** One segment's render model: fractions of the bar (0..1) plus progress fill. */
+export interface SegmentPiece {
+  seg: SegmentSpan;
+  /** Offset from the bar's left edge, as a fraction of the bar's width. */
   left: number;
+  /** Width as a fraction of the bar's width. */
   width: number;
+  /** Percent-complete of this segment, task progress spent in duration order. */
+  fill: number;
+}
+
+/** Narrowing guard: SVAR types segments as Partial<ITask>, we need start+duration. */
+export function isSegmentSpan(x: unknown): x is SegmentSpan {
+  const s = x as { start?: unknown; duration?: unknown } | null;
+  return s != null && s.start instanceof Date && typeof s.duration === 'number';
 }
 
 const MS_PER_HOUR = 3_600_000;
-const HOURS_PER_DAY = 24;
 
-/** Segment end date = start advanced by `duration` in `durationUnit`. */
+/** Segment end: calendar-day addition for days (DST-proof), ms for hours. */
 export function segmentEnd(start: Date, duration: number, unit: DurationUnit): Date {
-  const hours = unit === 'day' ? duration * HOURS_PER_DAY : duration;
-  return new Date(start.getTime() + hours * MS_PER_HOUR);
+  if (unit === 'hour') return new Date(start.getTime() + duration * MS_PER_HOUR);
+  const end = new Date(start);
+  end.setDate(end.getDate() + duration);
+  return end;
 }
 
 /**
- * Bar-relative box for one segment. `barX` is the parent bar's own absolute
- * offset (SVAR's `task.$x`), subtracted so the result is relative to the bar.
+ * Build every segment's render model in one pass: proportional box plus the
+ * duration-ordered progress spend (SVAR's getSegProgress semantics, without its
+ * per-segment rescan).
  */
-export function segmentBox(
-  segment: SegmentInput,
-  barX: number,
-  scale: ScaleLike,
-  pxPerLengthUnit: number,
-  durationUnit: DurationUnit = 'day',
-): SegmentBox {
-  const end = segmentEnd(segment.start, segment.duration, durationUnit);
-  const absoluteLeft = Math.round(
-    scale.diff(segment.start, scale.start, scale.lengthUnit) * pxPerLengthUnit,
-  );
-  const width = Math.round(
-    scale.diff(end, segment.start, scale.lengthUnit, true) * pxPerLengthUnit,
-  );
-  return { left: absoluteLeft - barX, width: Math.max(0, width) };
-}
-
-/** Boxes for every segment on a task, in source order. */
-export function segmentBoxes(
-  segments: readonly SegmentInput[],
-  barX: number,
-  scale: ScaleLike,
-  pxPerLengthUnit: number,
-  durationUnit: DurationUnit = 'day',
-): SegmentBox[] {
-  return segments.map((s) => segmentBox(s, barX, scale, pxPerLengthUnit, durationUnit));
-}
-
-/**
- * Percent-complete for every segment, mirroring SVAR's `getSegProgress`: the
- * task's overall progress is spent across segments in duration order, filling
- * earlier ones before later ones.
- *
- * Returned for the whole array in a single pass. SVAR's own helper is called
- * per segment and rescans from the start each time, which is quadratic; this is
- * the same semantics without that cost.
- */
-export function segmentProgresses(
-  segments: readonly SegmentInput[],
+export function segmentPieces(
+  segments: readonly SegmentSpan[],
+  taskStart: Date,
+  taskEnd: Date,
   taskProgress: number,
-): number[] {
-  const total = segments.reduce((sum, s) => sum + s.duration, 0);
-  if (!taskProgress || total <= 0) return segments.map(() => 0);
+  { diff, lengthUnit, durationUnit }: ScaleSnapshot,
+): SegmentPiece[] {
+  const span = diff(taskEnd, taskStart, lengthUnit, true);
 
-  let remaining = (total * taskProgress) / 100;
-  return segments.map((s) => {
-    if (remaining <= 0 || s.duration <= 0) return 0;
-    const filled = Math.min(remaining / s.duration, 1) * 100;
-    remaining -= s.duration;
-    return filled;
+  const totalDuration = segments.reduce((sum, s) => sum + s.duration, 0);
+  let remaining = totalDuration > 0 ? (totalDuration * taskProgress) / 100 : 0;
+
+  return segments.map((seg) => {
+    const end = seg.end ?? segmentEnd(seg.start, seg.duration, durationUnit);
+    const box =
+      span > 0
+        ? {
+            left: diff(seg.start, taskStart, lengthUnit) / span,
+            width: Math.max(0, diff(end, seg.start, lengthUnit, true) / span),
+          }
+        : { left: 0, width: 0 };
+
+    let fill = 0;
+    if (remaining > 0 && seg.duration > 0) {
+      fill = Math.min(remaining / seg.duration, 1) * 100;
+      remaining -= seg.duration;
+    }
+
+    return { seg, left: box.left, width: box.width, fill };
   });
 }

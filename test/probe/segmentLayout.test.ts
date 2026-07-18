@@ -1,137 +1,160 @@
 import { describe, it, expect } from '@jest/globals';
 import {
-  segmentBox,
-  segmentBoxes,
+  isSegmentSpan,
   segmentEnd,
-  segmentProgresses,
-  type ScaleLike,
+  segmentPieces,
+  type DiffFn,
+  type ScaleSnapshot,
 } from './segmentLayout';
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 /**
- * Stand-in for SVAR's `_scales`. Day differences are rounded because SVAR's diff
- * is calendar-based; a raw millisecond division drifts by an hour across a DST
- * boundary and would make these assertions timezone-dependent.
+ * Two diff doubles with DIFFERENT semantics. SVAR's `inclusive` flag is not
+ * publicly documented, so the geometry must not depend on what it means — the
+ * invariant tests below run under both.
  */
-function scaleAt(start: Date, lengthUnit: 'day' | 'hour'): ScaleLike {
-  return {
-    start,
-    lengthUnit,
-    diff: (a, b, unit) => {
-      const ms = a.getTime() - b.getTime();
-      return unit === 'hour' ? ms / MS_PER_HOUR : Math.round(ms / MS_PER_DAY);
-    },
-  };
-}
+const plainDiff: DiffFn = (a, b, unit) => {
+  const ms = a.getTime() - b.getTime();
+  // Day counts are rounded because calendar diffs are DST-immune; a raw ms
+  // division drifts by an hour across a DST boundary.
+  return unit === 'hour' ? ms / MS_PER_HOUR : Math.round(ms / MS_PER_DAY);
+};
+const inclusivePlusOneDiff: DiffFn = (a, b, unit, inclusive) =>
+  plainDiff(a, b, unit) + (inclusive ? 1 : 0);
 
-const scaleStart = new Date(2026, 3, 1);
-const dayScale = scaleAt(scaleStart, 'day');
+const snap = (diff: DiffFn): ScaleSnapshot => ({ diff, lengthUnit: 'day', durationUnit: 'day' });
+
+const d = (day: number): Date => new Date(2026, 3, day); // April 2026
 
 describe('segmentEnd', () => {
-  it('advances by whole days when the duration unit is day', () => {
-    expect(segmentEnd(new Date(2026, 3, 2), 3, 'day')).toEqual(new Date(2026, 3, 5));
+  it('advances by calendar days, crossing month boundaries', () => {
+    expect(segmentEnd(new Date(2026, 3, 28), 5, 'day')).toEqual(new Date(2026, 4, 3));
   });
 
   it('advances by hours when the duration unit is hour', () => {
-    expect(segmentEnd(new Date(2026, 3, 2), 6, 'hour')).toEqual(
-      new Date(new Date(2026, 3, 2).getTime() + 6 * MS_PER_HOUR),
+    expect(segmentEnd(d(2), 6, 'hour')).toEqual(new Date(d(2).getTime() + 6 * MS_PER_HOUR));
+  });
+});
+
+describe('isSegmentSpan', () => {
+  it('accepts SVAR-shaped segments and rejects malformed ones', () => {
+    expect(isSegmentSpan({ start: d(2), duration: 3 })).toBe(true);
+    expect(isSegmentSpan({ start: '2026-04-02', duration: 3 })).toBe(false);
+    expect(isSegmentSpan({ start: d(2) })).toBe(false);
+    expect(isSegmentSpan(null)).toBe(false);
+  });
+});
+
+describe('segmentPieces — geometry', () => {
+  it('a segment spanning the whole task fills the whole bar under EITHER diff semantics', () => {
+    // The semantics-independence proof: numerator and denominator share the
+    // inclusive flag, so the ratio is exactly 1 whatever the flag means.
+    for (const diff of [plainDiff, inclusivePlusOneDiff]) {
+      const [piece] = segmentPieces(
+        [{ start: d(2), duration: 8 }],
+        d(2),
+        d(10),
+        0,
+        snap(diff),
+      );
+      expect(piece!.left).toBe(0);
+      expect(piece!.width).toBe(1);
+    }
+  });
+
+  it('offsets a later segment by its fraction of the span', () => {
+    const [piece] = segmentPieces([{ start: d(7), duration: 2 }], d(2), d(12), 0, snap(plainDiff));
+    expect(piece!.left).toBeCloseTo(0.5); // 5 days into a 10-day span
+  });
+
+  it('sizes a segment by its own span, not its raw duration number', () => {
+    // durationUnit day, chart scaled in hours: a 1-day segment must occupy
+    // 24 hour-units of a 48-hour span = half the bar.
+    const hourSnap: ScaleSnapshot = { diff: plainDiff, lengthUnit: 'hour', durationUnit: 'day' };
+    const [piece] = segmentPieces(
+      [{ start: d(2), duration: 1 }],
+      d(2),
+      d(4),
+      0,
+      hourSnap,
     );
-  });
-});
-
-describe('segmentBox', () => {
-  it('places a segment starting at the bar start at offset zero', () => {
-    const barStart = new Date(2026, 3, 2);
-    const barX = Math.round(dayScale.diff(barStart, scaleStart, 'day') * 20);
-    const box = segmentBox({ start: barStart, duration: 2 }, barX, dayScale, 20);
-    expect(box.left).toBe(0);
+    expect(piece!.width).toBeCloseTo(0.5);
   });
 
-  it('offsets a later segment by the scaled difference from the bar start', () => {
-    const barX = Math.round(dayScale.diff(new Date(2026, 3, 2), scaleStart, 'day') * 20);
-    // Segment starts 5 days after the bar start, at 20px per day.
-    const box = segmentBox({ start: new Date(2026, 3, 7), duration: 2 }, barX, dayScale, 20);
-    expect(box.left).toBe(100);
-  });
-
-  it('derives width from the segment end measured in the scale length unit, not the raw duration', () => {
-    // The trap: durationUnit is `day` but the chart is scaled in `hour`.
-    // A 1-day segment must be 24 hour-units wide, not 1.
-    const hourScale = scaleAt(scaleStart, 'hour');
-    const box = segmentBox({ start: scaleStart, duration: 1 }, 0, hourScale, 2, 'day');
-    expect(box.width).toBe(48); // 24 hours * 2px
-  });
-
-  it('scales offset and width together when pixels per unit doubles', () => {
-    const seg = { start: new Date(2026, 3, 7), duration: 3 };
-    const at20 = segmentBox(seg, 0, dayScale, 20);
-    const at40 = segmentBox(seg, 0, dayScale, 40);
-    expect(at40.left).toBe(at20.left * 2);
-    expect(at40.width).toBe(at20.width * 2);
-  });
-
-  it('returns bar-relative offsets, not timeline-absolute ones', () => {
-    const seg = { start: new Date(2026, 3, 7), duration: 2 };
-    const absolute = segmentBox(seg, 0, dayScale, 20);
-    const relative = segmentBox(seg, 60, dayScale, 20);
-    expect(relative.left).toBe(absolute.left - 60);
-  });
-
-  it('never yields a negative width for a zero-length segment', () => {
-    const box = segmentBox({ start: new Date(2026, 3, 7), duration: 0 }, 0, dayScale, 20);
-    expect(box.width).toBeGreaterThanOrEqual(0);
-  });
-});
-
-describe('segmentBoxes', () => {
-  it('leaves a visible gap between two spaced segments', () => {
-    const boxes = segmentBoxes(
+  it('leaves a visible gap between spaced segments', () => {
+    const pieces = segmentPieces(
       [
-        { start: new Date(2026, 3, 2), duration: 4 },
-        { start: new Date(2026, 3, 14), duration: 6 },
+        { start: d(2), duration: 4 },
+        { start: d(16), duration: 6 },
       ],
-      Math.round(dayScale.diff(new Date(2026, 3, 2), scaleStart, 'day') * 20),
-      dayScale,
-      20,
+      d(2),
+      d(24),
+      0,
+      snap(plainDiff),
     );
-    expect(boxes).toHaveLength(2);
-    expect(boxes[1].left).toBeGreaterThan(boxes[0].left + boxes[0].width);
+    expect(pieces).toHaveLength(2);
+    expect(pieces[1]!.left).toBeGreaterThan(pieces[0]!.left + pieces[0]!.width);
+  });
+
+  it('honours an explicit end over the duration', () => {
+    const [piece] = segmentPieces(
+      [{ start: d(2), duration: 99, end: d(4) }],
+      d(2),
+      d(12),
+      0,
+      snap(plainDiff),
+    );
+    expect(piece!.width).toBeCloseTo(0.2); // 2 of 10 days, duration ignored
+  });
+
+  it('yields finite zeros for a zero-length task span', () => {
+    const [piece] = segmentPieces([{ start: d(2), duration: 1 }], d(2), d(2), 50, snap(plainDiff));
+    expect(piece!.left).toBe(0);
+    expect(piece!.width).toBe(0);
+    expect(Number.isFinite(piece!.fill)).toBe(true);
+  });
+
+  it('never yields a negative width', () => {
+    const [piece] = segmentPieces(
+      [{ start: d(10), duration: 0, end: d(8) }],
+      d(2),
+      d(24),
+      0,
+      snap(plainDiff),
+    );
+    expect(piece!.width).toBeGreaterThanOrEqual(0);
   });
 });
 
-describe('segmentProgresses', () => {
+describe('segmentPieces — progress spend', () => {
   const segments = [
-    { start: new Date(2026, 3, 2), duration: 4 },
-    { start: new Date(2026, 3, 14), duration: 6 },
+    { start: d(2), duration: 4 },
+    { start: d(14), duration: 6 },
   ];
+  const fills = (progress: number): number[] =>
+    segmentPieces(segments, d(2), d(24), progress, snap(plainDiff)).map((p) => p.fill);
 
   it('is zero everywhere when the task has no progress', () => {
-    expect(segmentProgresses(segments, 0)).toEqual([0, 0]);
+    expect(fills(0)).toEqual([0, 0]);
   });
 
   it('fills the earlier segment before the later one', () => {
-    // 40% of 10 total duration units = 4 units, exactly the first segment.
-    expect(segmentProgresses(segments, 40)).toEqual([100, 0]);
+    expect(fills(40)).toEqual([100, 0]); // 40% of 10 units = exactly segment one
   });
 
   it('partially fills the later segment once the earlier one is complete', () => {
-    // 70% of 10 = 7 units: segment one full (4), 3 of segment two's 6 = 50%.
-    expect(segmentProgresses(segments, 70)).toEqual([100, 50]);
+    expect(fills(70)).toEqual([100, 50]); // 7 units: 4 full + 3 of 6
   });
 
   it('caps every segment at fully complete', () => {
-    expect(segmentProgresses(segments, 100)).toEqual([100, 100]);
-  });
-
-  it('returns one entry per segment', () => {
-    expect(segmentProgresses(segments, 55)).toHaveLength(segments.length);
+    expect(fills(100)).toEqual([100, 100]);
   });
 
   it('treats a zero-duration segment as unfilled rather than dividing by zero', () => {
-    const withEmpty = [{ start: new Date(2026, 3, 2), duration: 0 }, ...segments];
-    const result = segmentProgresses(withEmpty, 50);
+    const withEmpty = [{ start: d(2), duration: 0 }, ...segments];
+    const result = segmentPieces(withEmpty, d(2), d(24), 50, snap(plainDiff)).map((p) => p.fill);
     expect(result[0]).toBe(0);
     expect(result.every((n) => Number.isFinite(n))).toBe(true);
   });

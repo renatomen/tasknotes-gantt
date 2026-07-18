@@ -1,7 +1,8 @@
 /**
- * Spike proof: a hand-rolled bar template renders SVAR-style split-task segments
- * — spaced sub-bars in one row — against the MIT build, with no Obsidian.
- * Captures a screenshot so the result can be judged visually.
+ * Behaviour probe: the hand-rolled split-task template renders SVAR-style
+ * spaced segments — structure, gaps, connector, progress, fallback — against
+ * the MIT build, with no Obsidian. Captures a screenshot for visual judgement.
+ * (The private-API assumptions behind this live in svar-contract.probe.ts.)
  */
 import { test, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
@@ -9,7 +10,7 @@ import { page, server } from 'vitest/browser';
 import SegmentsProbeHost from './SegmentsProbeHost.svelte';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* global Element, getComputedStyle */
+/* global DOMRect, Element, getComputedStyle */
 
 const d = (day: number): Date => new Date(2026, 3, day);
 
@@ -33,6 +34,18 @@ const PLAIN_TASK = [
   { id: 1, text: 'Ordinary task', type: 'task', start: d(2), end: d(10), progress: 40 },
 ];
 
+/** A Pro build supplies segment $x/$w itself; the template must honour them. */
+const PRO_LAID_OUT_TASK = [
+  {
+    id: 1,
+    text: 'Pro',
+    type: 'task',
+    start: d(2),
+    end: d(24),
+    segments: [{ start: d(2), duration: 4, $x: 52, $w: 77 }],
+  },
+];
+
 async function mount(tasks: any[]): Promise<HTMLElement> {
   const screen = render(SegmentsProbeHost, { props: { tasks } });
   const container = screen.container as HTMLElement;
@@ -48,24 +61,13 @@ async function mount(tasks: any[]): Promise<HTMLElement> {
   return container;
 }
 
-function boxOf(el: Element): { left: number; width: number } {
-  const style = (el as HTMLElement).style;
-  return { left: parseFloat(style.left || '0'), width: parseFloat(style.width || '0') };
-}
+const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 
 test('a split task renders one sub-bar per segment inside a single row', async () => {
   const container = await mount(SPLIT_TASK);
 
-  const rows = container.querySelectorAll('.wx-row');
-  const outerBars = container.querySelectorAll('.wx-bars > .wx-bar');
-  const segments = container.querySelectorAll('.wx-segment');
-
-  console.log(
-    `[SPIKE] rows=${rows.length} outerBars=${outerBars.length} segments=${segments.length}`,
-  );
-
-  expect(outerBars.length).toBe(1); // one row, one bar
-  expect(segments.length).toBe(2); // drawn as two pieces
+  expect(container.querySelectorAll('.wx-bars > .wx-bar').length).toBe(1);
+  expect(container.querySelectorAll('.wx-segment').length).toBe(2);
 });
 
 test('segments are index-addressable and visibly spaced', async () => {
@@ -74,24 +76,23 @@ test('segments are index-addressable and visibly spaced', async () => {
 
   expect(segments.map((s) => s.getAttribute('data-segment'))).toEqual(['0', '1']);
 
-  const first = boxOf(segments[0]);
-  const second = boxOf(segments[1]);
-  console.log(`[SPIKE] segment boxes: ${JSON.stringify([first, second])}`);
+  const first = rect(segments[0]!);
+  const second = rect(segments[1]!);
+  console.log(
+    `[SPIKE] segments: [${first.left.toFixed(1)}w${first.width.toFixed(1)}] [${second.left.toFixed(1)}w${second.width.toFixed(1)}]`,
+  );
 
   expect(first.width).toBeGreaterThan(0);
   expect(second.width).toBeGreaterThan(0);
   // The gap is the whole point: piece two starts after piece one ends.
-  expect(second.left).toBeGreaterThan(first.left + first.width);
+  expect(second.left).toBeGreaterThan(first.right);
 });
 
 test('the dashed connector runs behind the segments', async () => {
   const container = await mount(SPLIT_TASK);
   const segmentsBox = container.querySelector('.wx-segments') as HTMLElement;
   expect(segmentsBox).not.toBeNull();
-
-  const before = getComputedStyle(segmentsBox, '::before');
-  console.log(`[SPIKE] connector borderTop=${before.borderTopStyle} ${before.borderTopWidth}`);
-  expect(before.borderTopStyle).toBe('dashed');
+  expect(getComputedStyle(segmentsBox, '::before').borderTopStyle).toBe('dashed');
 });
 
 test('the outer bar is blanked while the segments keep their fill', async () => {
@@ -99,24 +100,16 @@ test('the outer bar is blanked while the segments keep their fill', async () => 
   const outer = container.querySelector('.wx-bars > .wx-bar') as HTMLElement;
   const segment = container.querySelector('.wx-segment') as HTMLElement;
 
-  const outerBg = getComputedStyle(outer).backgroundColor;
-  const segmentBg = getComputedStyle(segment).backgroundColor;
-  console.log(`[SPIKE] outerBg=${outerBg} segmentBg=${segmentBg}`);
-
-  // Fully transparent outer body, opaque segments.
-  expect(outerBg === 'rgba(0, 0, 0, 0)' || outerBg === 'transparent').toBe(true);
-  expect(segmentBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(getComputedStyle(outer).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+  expect(getComputedStyle(segment).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
 });
 
 test("SVAR's own whole-bar progress fill is suppressed on a segmented bar", async () => {
   const container = await mount(SPLIT_TASK);
   const outer = container.querySelector('.wx-bars > .wx-bar') as HTMLElement;
 
-  // SVAR renders this because `splitTasks` is forced false in the MIT build; it
-  // would otherwise paint a fill spanning the WHOLE bar under our segments.
   const outerFill = outer.querySelector(':scope > .wx-progress-wrapper');
   const visible = outerFill ? getComputedStyle(outerFill).display !== 'none' : false;
-  console.log(`[SPIKE] outer progress wrapper present=${!!outerFill} visible=${visible}`);
   expect(visible).toBe(false);
 
   // The per-segment fills must survive.
@@ -125,14 +118,20 @@ test("SVAR's own whole-bar progress fill is suppressed on a segmented bar", asyn
 
 test('progress fills the earlier segment before the later one', async () => {
   const container = await mount(SPLIT_TASK);
-  const fills = Array.from(container.querySelectorAll('.wx-segment .wx-progress-percent'));
-  const widths = fills.map((f) => (f as HTMLElement).style.width);
-  console.log(`[SPIKE] progress fills=${JSON.stringify(widths)}`);
+  const widths = Array.from(
+    container.querySelectorAll('.wx-segment .wx-progress-percent'),
+  ).map((f) => (f as HTMLElement).style.width);
 
-  expect(fills.length).toBe(2);
   // 40% of 10 duration units = 4 units = exactly the first segment.
-  expect(parseFloat(widths[0])).toBe(100);
-  expect(parseFloat(widths[1])).toBe(0);
+  expect(widths.map((w) => Number.parseFloat(w))).toEqual([100, 0]);
+});
+
+test('Pro-supplied segment $x/$w are honoured verbatim (drop-in path)', async () => {
+  const container = await mount(PRO_LAID_OUT_TASK);
+  const segment = container.querySelector('.wx-segment') as HTMLElement;
+
+  expect(segment.style.left).toBe('52px');
+  expect(segment.style.width).toBe('77px');
 });
 
 test('an unsegmented task is untouched — one ordinary bar, no segments container', async () => {
@@ -143,8 +142,25 @@ test('an unsegmented task is untouched — one ordinary bar, no segments contain
   expect(container.querySelector('.wx-segment')).toBeNull();
 
   const outer = container.querySelector('.wx-bar') as HTMLElement;
-  // The :has() rule must not blank an ordinary bar.
+  // The :has() rules must not blank an ordinary bar.
   expect(getComputedStyle(outer).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+});
+
+test('a malformed segment is skipped while valid siblings render', async () => {
+  const container = await mount([
+    {
+      id: 1,
+      text: 'Mixed',
+      type: 'task',
+      start: d(2),
+      end: d(24),
+      segments: [
+        { start: '2026-04-02', duration: 4 }, // not a Date — rejected
+        { start: d(16), duration: 6 },
+      ],
+    },
+  ]);
+  expect(container.querySelectorAll('.wx-segment').length).toBe(1);
 });
 
 test('SCREENSHOT: capture the segmented render for visual judgement', async () => {
