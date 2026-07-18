@@ -15,16 +15,17 @@ execution: code
 
 - **Objective:** Render a task as spaced segments in a single Gantt row — a faithful hand-rolled equivalent of SVAR's Pro-gated split-task rendering — plus a minimal explicit segment source so it is demoable in a real vault.
 - **Product authority:** Maintainer (Renato). Product Contract below is authoritative over the Planning Contract.
-- **Execution profile:** Test-first for the pure layers (range parsing, position math, state-key encoding); rendering is proved by the isolated probe harness and a real-Obsidian e2e rather than by unit assertions.
+- **Execution profile:** Test-first for the pure layers (range parsing, segment geometry, state-key encoding); rendering is proved by porting the spike's isolated probes and a real-Obsidian e2e rather than by unit assertions.
+- **Reference implementation:** The spike on this branch (`test/probe/`, `npm run probe:svar`, `npm run demo:segments`) already built and proved the renderer. This plan ports it into `src/` behind a real data source. The reusable technique is captured in `docs/solutions/design-patterns/reproducing-gated-svar-gantt-features.md`.
 - **Landing:** Local commits only. Do not open a pull request — the maintainer verifies segments rendering in a vault first.
-- **Stop conditions:** Stop and surface if segments cannot be carried through the existing three-stage pipeline without a side channel, or if making the outer bar transparent would require changing shipped bar rendering for unsegmented tasks.
+- **Stop conditions:** Stop and surface if segments cannot be carried through the existing three-stage pipeline without a side channel, or if the interim data source cannot resolve its property through the configured field mapping.
 - **Open blockers:** None.
 
 ---
 
 ## Product Contract
 
-Product Contract unchanged from the requirements-only source. Planning added the Planning Contract, Implementation Units, Verification Contract, and Definition of Done, and resolved two questions that were parked for planning.
+Product Contract preserved from the requirements-only source, with three corrections the spike proved and this reconciliation folded in — changed: R4 (connector spans the segment run, not the whole bar, because a full-width connector trails a bare dash past the last segment when the task span exceeds its segments), R8 (reframed from a summary/milestone type-guard, which can never fire since the plugin only emits `type:'task'` bars, to a data-source responsibility), R10 (positioning is a fraction of the already-laid-out bar, not a reproduction of SVAR's pixel formula). Planning added the Planning Contract, Implementation Units, Verification Contract, and Definition of Done.
 
 ### Summary
 
@@ -38,9 +39,9 @@ SVAR solves this with split-task rendering, but that feature is Pro-gated: our i
 
 ### Key Decisions
 
-- **Clone SVAR's output rather than invent our own.** The segment data shape, DOM structure, class names, and coordinate convention all match SVAR's split-task. This costs a small amount of position math and buys a near-seamless path to the Pro build if we ever take it.
-- **Positions come from the store when available, from us when not.** The open build never computes segment positions, so the renderer computes them from the timeline scale; if a build ever supplies them, the renderer prefers those. This single fallback is the whole migration seam.
-- **"Remove the overlay and enable the flag" is not the migration.** The plugin's custom bar template always takes precedence over SVAR's native segment rendering, so our renderer stays in play even on a Pro build. Migration means the data and DOM stay put and the position helper goes away.
+- **Clone SVAR's data shape and DOM rather than invent our own.** The segment array, DOM structure, class names, and coordinate convention all match SVAR's split-task, so a future move to the paid build is near-drop-in.
+- **The bar is the ruler — no pixel math.** SVAR already solved date-to-pixel when it laid the bar out, so each segment is a fraction of the bar's date span rendered as a CSS percentage. This is what makes zoom tracking free and keeps the renderer independent of SVAR's internal rounding. A Pro build's own segment positions, if present, are honoured verbatim — the whole migration seam.
+- **Satisfy SVAR's own condition instead of overriding its CSS.** The bar is made transparent by stamping SVAR's own `wx-split` class, which disarms its fill rule and arms its own transparent rule. No cue-type registration, no injected transparency CSS, no `!important`.
 - **Render and light interaction only.** Structural editing is excluded because the eventual segment source is computed occurrences, where dragging one segment has no defensible meaning.
 - **Stay inside the MIT grant.** Both installed SVAR packages are MIT, so adapting their segment markup is permitted with the notice retained; the paid build and any un-gating of the community reset are out.
 
@@ -53,18 +54,18 @@ SVAR solves this with split-task rendering, but that feature is Pro-gated: our i
 
 **Rendering fidelity**
 
-- R3. A task with segments renders SVAR's split-task DOM: a segments container holding one segment element per entry, each addressable by its index and positioned by an explicit offset and width within the bar.
-- R4. A dashed connector spans the full width of the bar behind the segments, matching SVAR's treatment.
+- R3. A task with segments renders SVAR's split-task DOM: a segments container holding one segment element per entry, each addressable by its index and positioned within the bar.
+- R4. A dashed connector runs behind the segments from the first segment's start to the last segment's end, matching SVAR's treatment for Pro-shaped data and leaving no bare tail when the task span is wider.
 - R5. The outer bar renders transparent when segmented, so the segments are the only visible pieces.
 - R6. The task's overall progress is distributed across segments in proportion to their durations, and the whole-bar progress fill is suppressed when segmented.
 - R7. Segments inherit the parent task's bar treatment — colour and icon chip — so a segmented bar still reads as one task.
-- R8. Only ordinary tasks segment; a segments array on a summary or milestone is ignored.
+- R8. The renderer draws segments for any task carrying them; the segment sources attach segments only to leaf task notes, not to aggregate or parent rows.
 - R9. A task without segments renders exactly as it does today.
 
 **Positioning**
 
-- R10. Each segment's offset and width derive from the timeline scale using the same date-to-pixel relationship SVAR uses, expressed relative to the parent bar's left edge.
-- R11. The renderer prefers store-supplied segment positions when present and computes them otherwise.
+- R10. Each segment is positioned as a fraction of the parent bar's own date span, so it lands where SVAR would draw a bar covering the same dates.
+- R11. The renderer prefers store-supplied segment positions when present and computes the fraction otherwise.
 - R12. Segment positions stay aligned with the bar across zoom and scale changes.
 
 **Interaction**
@@ -89,30 +90,29 @@ Rendered structure of a segmented bar — what R3 through R7 produce:
 
 ```mermaid
 flowchart TB
-  BAR["outer bar — transparent when segmented"]
-  BAR --> SEGS["segments container — dashed connector behind"]
-  SEGS --> S0["segment 0 — offset + width, index-addressable"]
+  BAR["outer bar — carries SVAR's own wx-split class, so SVAR renders it transparent"]
+  BAR --> SEGS["segments container — dashed connector spans first-start to last-end"]
+  SEGS --> S0["segment 0 — fraction of the bar, index-addressable"]
   SEGS --> S1["segment 1"]
   S0 --> P0["progress share, by duration"]
-  S0 --> T0["segment text"]
 ```
 
-Where segment positions come from — the migration seam in R10 and R11:
+Where a segment's position comes from — the migration seam in R10 and R11:
 
 ```mermaid
 flowchart TB
-  NEED["segment offset + width"] --> Q{"store supplied them?"}
-  Q -->|"no — open build today"| CALC["compute from timeline scale"]
-  Q -->|"yes — a Pro build"| USE["use store values"]
-  CALC --> DRAW["draw segment"]
-  USE --> DRAW
+  NEED["segment position"] --> Q{"segment carries store $x/$w?"}
+  Q -->|"yes — a Pro build"| USE["use store pixels verbatim"]
+  Q -->|"no — open build today"| FRAC["fraction of the bar's date span (CSS %)"]
+  USE --> DRAW["draw segment"]
+  FRAC --> DRAW
 ```
 
 ### Acceptance Examples
 
 - AE1. Two segments, one row.
-  - **Given:** a task with two segments separated by a gap.
-  - **Then:** two segment elements render inside one row, the outer bar is transparent, and the dashed connector spans the gap.
+  - **Given:** a task with two segments separated by a gap, its span ending at the last segment's end.
+  - **Then:** two segment elements render inside one row, the outer bar is transparent, and the dashed connector spans the gap with no tail past the last segment.
   - **Covers R3, R4, R5.**
 - AE2. Progress spans segments.
   - **Given:** a segmented task that is partially complete.
@@ -120,11 +120,11 @@ flowchart TB
   - **Covers R6.**
 - AE3. No segments, no change.
   - **Given:** a task with no segments array.
-  - **Then:** the bar renders exactly as it does today, with no segments container present.
+  - **Then:** the bar renders exactly as it does today, with no segments container present and no `wx-split` class added.
   - **Covers R9.**
-- AE4. Segments ignored on non-tasks.
-  - **Given:** a summary or milestone carrying a segments array.
-  - **Then:** it renders as it does today, unsegmented.
+- AE4. Aggregate rows are not segmented.
+  - **Given:** a parent or aggregate row.
+  - **Then:** the sources give it no segments, so it renders as an ordinary bar.
   - **Covers R8.**
 - AE5. Zoom keeps alignment.
   - **Given:** a segmented task, and the timeline zoom changes.
@@ -135,11 +135,15 @@ flowchart TB
   - **When:** a segment is clicked.
   - **Then:** the underlying note opens, as clicking the bar does today.
   - **Covers R15.**
+- AE7. Connector leaves no tail.
+  - **Given:** a task whose end date is later than its last segment's end.
+  - **Then:** the dashed connector stops at the last segment, not at the bar's right edge.
+  - **Covers R4.**
 
 ### Success Criteria
 
 - A segmented bar is visually indistinguishable from SVAR's split-task rendering of the same data.
-- Adopting a Pro build would require enabling the flag and deleting the position fallback — no change to the segment data or the rendered DOM.
+- Adopting a Pro build would require enabling the flag and deleting the fraction fallback — no change to the segment data or the rendered DOM.
 - Unsegmented bars are unchanged, visually and behaviourally.
 
 ### Scope Boundaries
@@ -154,7 +158,8 @@ flowchart TB
 
 - Both installed SVAR packages are MIT licensed with no commercial carve-out found, so adapting their segment markup with the notice retained is permitted. This is a reading of the shipped licence files, not legal advice.
 - The plugin keeps a custom bar template, so our renderer remains the one drawing segments even if the underlying build changes.
-- The open build does not compute segment positions, so the renderer must.
+- The production `GanttContainer` already mounts within a SVAR theme, so the CSS-variable dependency the spike hit only in its bare isolated harness does not arise in the plugin.
+- The open build does not compute segment positions, so the renderer computes fractions itself.
 - Segments inherit the parent task's treatment rather than carrying their own.
 
 ### Outstanding Questions
@@ -168,33 +173,20 @@ flowchart TB
 
 ## Planning Contract
 
-> **Parked pending the spike.** This plan is the production feature, deferred while `docs/plans/2026-07-18-003-chore-split-task-render-spike-plan.md` answers the elegance question. The spike proved the rendering works and corrected several decisions below — see "Spike findings" at the end of this contract before executing.
+The Key Technical Decisions below are what the spike proved, folded in place — there is no separate "findings" layer to reconcile against. Where a decision reads differently from the first draft of this plan, the spike is why.
 
 ### Key Technical Decisions
 
-- KTD1. **Segments ride the existing three-stage pipeline as a top-level field.** A segment value flows `SourceTask` → `RenderInstance` → `SvarTask.segments`, the same route every other display value takes. It must sit on the task's **top-level `segments` field, not under `custom`**: SVAR reads `task.segments` for its split class, its segment branch, and the store's layout recursion, so any other carrier silently destroys the Pro-migration seam.
-- KTD2. **Authors declare inclusive date ranges; the internal shape stays SVAR's.** The note property holds a list of `start..end` ranges, which the parser converts to SVAR's `{ start, duration }` segment shape. Ranges are what an author can write correctly; duration is what SVAR positions with, so the conversion happens once at the edge and the stored shape stays Pro-identical (R1, R17).
-- KTD3. **The segments property name is configured, never hardcoded.** It joins `FIELD_MAPPING_KEYS` with a `tngantt_` prefix, gets a `''` default, and is surfaced as a view option — mirroring `timeEstimateProperty`. Required by `docs/solutions/architecture-patterns/property-agnostic-field-resolution.md`, and the `noBarePluginConfigKeys` guard test enforces the prefix.
-- KTD4. **Read the property from the metadata cache, never through the Bases value system.** `BasesSource` resolves the bare key and reads `metadataCache` frontmatter, as `extractEstimateMinutes` does. Reading via `entry.getValue` re-triggers the notify storm documented in `docs/solutions/integration-issues/gantt-bases-getvalue-renotify-storm.md`. The property must also join the values feeding `frontmatterSignatureKeys`, or edits will not refresh the chart.
-- KTD5. **`taskStateKey` folds a deterministic segment encoding.** The diff fingerprint must include segments so an edit re-issues the task, but the encoding uses formatted values rather than raw `Date` objects — `ganttSync.ts` warns that non-deterministic serialization makes every refresh look like a change and causes a re-render storm. Stability across identical refreshes is a required test, not just change detection.
-- KTD6. **Positions are computed in the template from the live scale, not at sync time.** Segment offsets depend on zoom, which changes after a sync, so computing them in `ganttSync` would go stale. `BarContent` already receives SVAR's `api` prop (declared, currently unused) and can read the reactive scale directly. The renderer prefers store-supplied positions when present, which is the Pro migration seam (R10, R11, R12).
-- KTD7. **Adapt SVAR's `BarSegments` markup rather than reimplementing it.** Both packages are MIT, so adapting with the copyright and permission notice retained is permitted and yields exact DOM fidelity (R19).
-- KTD8. **Transparency of the outer bar comes from a registered cue class, not from editing shipped bar CSS.** SVAR whole-string-matches registered task types, so a segmented cue folded into `type` must also be registered alongside the existing instance-cue types; the accompanying rule follows the plugin's existing injected-stylesheet approach. This keeps unsegmented bars byte-unchanged (R9).
-
-### Spike findings that supersede decisions above
-
-The spike (`test/probe/`, run with `npm run probe:svar`; reference files `segmentLayout.ts`, `svarContract.ts`, `SegmentBar.svelte`, `segments.css`, `svar-contract.probe.ts`) built and proved the renderer, then hardened it into the reference implementation the port should copy. Apply these before executing this plan:
-
-- **The bar is the ruler — no pixel formula at all.** Do not reproduce SVAR's `diff * cellWidth` layout (the first cut did, and needed `_scales.start`, `cellWidth`, `task.$x`, and SVAR's rounding to be right). Each segment is a *proportion of its bar's date span*, rendered as CSS percentages; the browser scales them against whatever width the bar has. This supersedes KTD6 and most of U4: the pure helper computes fractions, not pixels. Zoom tracking becomes a CSS property, not a recompute, and the `inclusive`-diff ambiguity cancels (same flag in numerator and denominator — a full-span segment is exactly 100% under any semantics; unit tests prove it under two different diff doubles).
-- **Transparency by stamping SVAR's own `wx-split` class, not by CSS override.** SVAR's fill rule is `.wx-task:not(.wx-split)` and it ships `.wx-bars .wx-split.wx-bar { background: transparent }` for Pro split bars — the off-switch is designed in. The template stamps `wx-split` on its parent bar (a Svelte attachment; Pro's own `class:wx-split={$splitTasks && task.segments}` binding is unreachable in the MIT build). This deletes the transparency CSS entirely, needs no `!important`, no `:has()`, and inherits SVAR's split-aware selection styling. It fully supersedes KTD8's registered-cue-type machinery. (Earned-specificity via extra ancestor classes does NOT work: Svelte scoping hashes lift SVAR's rules to equal specificity.)
-- **All internals behind one runtime-validated snapshot.** The only private API left is `getState()._scales.diff` + `.lengthUnit` (plus the documented `durationUnit`), read through a single `scaleSnapshot()` helper that validates shape and returns null when SVAR moves — the template then degrades to an ordinary continuous bar. An upgrade can switch the feature off; it can never break the chart. Snapshot-not-subscription is safe because SVAR re-creates task objects on every layout-affecting change.
-- **Contract tests use SVAR as its own oracle.** The load-bearing test renders a plain task over dates D and asserts a segment covering D lands on exactly the same pixels — no formula knowledge, so any SVAR layout change diverges loudly. Sibling contracts pin: template-is-direct-child-of-bar, the whole-bar progress wrapper we suppress, the `wx-split` rule pair, and zoom keeping the segment/bar ratio invariant.
-- **SVAR's whole-bar progress fill must be suppressed explicitly.** SVAR only skips its own progress wrapper when `splitTasks` is true — forced false here — so it paints a fill spanning the whole bar under the segments. One global rule (`.wx-bars .wx-bar.wx-split > .wx-progress-wrapper { display: none }`); the child combinator preserves per-segment fills. This is the only CSS the feature owns.
-- **The segments container CSS must be adapted, but segment CSS is inherited.** `.wx-segments` and the dashed connector live in `BarSegments.svelte`'s scoped block and do not apply to our markup; the `.wx-bar :global(.wx-segment)` rules in `Bars.svelte` do apply through the bar ancestor.
-- **A theme wrapper is required.** Without `Willow` (or the dark variant) the SVAR CSS variables are undefined and every bar computes to transparent.
-- **Date math must be calendar-aware.** Segment `end = start + duration` uses calendar-day addition (`setDate`), never milliseconds — a ms-based day drifts across DST. All other arithmetic is SVAR's own `diff`.
-- **Segment shape guard at the boundary.** SVAR types `segments` as `Partial<ITask>[]`; a tiny `isSegmentSpan` guard (start is a Date, duration is a number) filters malformed entries so one bad segment cannot break its siblings. A Pro build's own `$x`/`$w`, when present, are honoured verbatim — that is the entire migration seam.
-- **The connector spans the segment run, not the whole bar.** SVAR draws its dashed connector at `width: 100%`, which is exact only because Pro derives the bar's span from its segments. Our span is the task's own dates, which can be wider — so `100%` trails a bare dash past the last segment. Measure first-segment-start→last-segment-end (`connectorRun`) instead: identical to Pro when the data agrees, correct when it does not. This matters for the recurrence source too, where the task's due date will routinely sit past the last occurrence.
+- KTD1. **Segments ride the existing three-stage pipeline as a top-level field.** A segment value flows `SourceTask` → `RenderInstance` → `SvarTask.segments` — a new **top-level** field on `SvarTask`, not under `custom`. SVAR reads `task.segments` for its split class, its segment branch, and (on a Pro build) its layout recursion, so any other carrier silently destroys the migration seam. A side channel would also bypass instance expansion and break for replicated rows.
+- KTD2. **Authors declare inclusive date ranges; the internal shape stays SVAR's.** The note property holds a list of `start..end` ranges, which the parser converts once to SVAR's `{ start, duration }` segment shape. Ranges are what an author writes correctly; duration is SVAR's shape. Duration is measured in calendar days, and the renderer's `end = start + duration` uses calendar-day addition, never milliseconds, so a segment does not drift across a DST boundary (R1, R17).
+- KTD3. **The segments property name is configured, never hardcoded.** It joins `FIELD_MAPPING_KEYS` with a `tngantt_` prefix, gets a `''` default, and is surfaced as a view option — mirroring `timeEstimateProperty` end to end. Required by `docs/solutions/architecture-patterns/property-agnostic-field-resolution.md`, and the `noBarePluginConfigKeys` guard test enforces the prefix.
+- KTD4. **Read the property from the metadata cache, and add it to the signature in `register.ts`.** `BasesSource` resolves the bare key and reads `metadataCache` frontmatter, as `extractEstimateMinutes` does — never `entry.getValue`, which re-triggers the notify storm in `docs/solutions/integration-issues/gantt-bases-getvalue-renotify-storm.md`. The property must also join the mapping values passed to `frontmatterSignatureKeys` in `register.ts`'s `computeEntrySignature` (not `entrySignature.ts`, which only holds generic helpers), or edits will not refresh the chart.
+- KTD5. **`taskStateKey` folds a deterministic segment encoding.** Fold the segments into the diff fingerprint so an edit re-issues the task, encoding each as an ISO date plus its numeric duration (deterministic — the storm risk is real for `TypedValue` wrappers but a plain `{ start: Date, duration: number }` already serialises stably). A stability test across identical refreshes is cheap insurance, not optional.
+- KTD6. **The bar is the ruler: geometry is a fraction of the bar, computed in the template.** Do not reproduce SVAR's `diff * cellWidth` pixel formula (it would couple to `_scales.start`, `cellWidth`, `task.$x`, and SVAR's rounding). Each segment's offset and width are its date span as a fraction of the bar's date span, emitted as CSS percentages; the browser rescales them on zoom for free. The one borrowed internal is `getState()._scales.diff` + `.lengthUnit`, read through a single validated `scaleSnapshot()` helper that returns null when SVAR moves it, so the bar degrades to its continuous form rather than breaking. Store-supplied `$x`/`$w` are preferred when present (R10, R11, R12).
+- KTD7. **Adapt SVAR's `BarSegments` markup and its container CSS.** Both packages are MIT, so adapting with the copyright and permission notice retained is permitted and yields exact DOM fidelity. `.wx-segments` and the dashed connector live in `BarSegments.svelte`'s scoped block and must be copied; the `.wx-bar :global(.wx-segment)` rules in `Bars.svelte` apply through the bar ancestor and are inherited free (R19).
+- KTD8. **Transparency by stamping SVAR's own `wx-split` class, not by a cue type or an override.** The template adds `wx-split` to its parent bar — the exact class Pro's own `class:wx-split={$splitTasks && task.segments}` binding would set. SVAR's fill rule `.wx-task:not(.wx-split)` then disarms and its own `.wx-bars .wx-split.wx-bar { background: transparent }` applies. This needs no registered cue task-type, no injected transparency rule, and no `!important` — earned-specificity was tried and fails because Svelte scoping hashes equalise SVAR's rules. Unsegmented bars never get the class, so they are byte-unchanged (R5, R9).
+- KTD9. **The one CSS rule the feature owns suppresses SVAR's whole-bar progress fill.** SVAR only skips its own progress wrapper when `splitTasks` is true, forced false here, so it paints a fill spanning the whole bar under the segments. A single global rule (`.wx-bars .wx-bar.wx-split > .wx-progress-wrapper { display: none }`) hides it; the child combinator preserves the per-segment fills nested deeper (R6).
+- KTD10. **Contract tests use SVAR's own rendering as the oracle.** The load-bearing verification renders a plain task over dates D and asserts a segment covering D lands on the same pixels — no formula knowledge, so any SVAR layout change diverges loudly. Sibling contract tests pin: the reactive-state keys `scaleSnapshot` reads, the direct-child-of-`.wx-bar` DOM assumption behind the `wx-split` stamp and the progress-suppression rule, and that SVAR still emits the wrapper KTD9 hides.
 
 ### High-Level Technical Design
 
@@ -205,8 +197,8 @@ flowchart TB
   FM["note frontmatter — configured property, list of ranges"]
   FM --> ST["SourceTask.segments — parsed to start + duration"]
   ST --> RI["RenderInstance.segments — survives expansion + replication"]
-  RI --> SV["SvarTask.custom.segments — folded into taskStateKey"]
-  SV --> BC["BarContent — reads live scale, draws SVAR segment DOM"]
+  RI --> SV["SvarTask.segments — top-level field, folded into taskStateKey"]
+  SV --> BC["BarContent — reads scale snapshot, draws SVAR segment DOM as bar fractions"]
 ```
 
 ### Assumptions
@@ -214,11 +206,11 @@ flowchart TB
 - The authored range list is small per note (a handful of ranges), so parsing cost is irrelevant and no caching layer is needed.
 - Segment display text is not authored in this feature; segments render without text, matching SVAR's behaviour when a segment carries none.
 - A segment tooltip shows the segment's own date range; the task-level tooltip content is otherwise unchanged.
-- Overlapping or unsorted authored ranges are tolerated rather than rejected — they are sorted by start and drawn as given.
+- Overlapping or unsorted authored ranges are tolerated rather than rejected — they are sorted by start and drawn as given, and a malformed entry is skipped without breaking its siblings.
 
 ### Sequencing
 
-U1 → U2 → U3 establish the data path. U4 is independent and can proceed in parallel. U5 depends on U3 and U4. U6 and U7 both depend on U5.
+U1 → U2 → U3 establish the data path. U4 (pure geometry) is independent and can proceed in parallel. U5 depends on U3 and U4 and carries its own isolated-probe proof. U6 (real-Obsidian e2e) and U7 (interaction) both depend on U5.
 
 ---
 
@@ -244,10 +236,10 @@ U1 → U2 → U3 establish the data path. U4 is independent and can proceed in p
 - **Goal:** Turn the configured property's authored ranges into a `segments` value on `SourceTask`.
 - **Requirements:** R1, R17, R18.
 - **Dependencies:** U1.
-- **Files:** `src/datasource/noteSegments.ts` (new), `src/datasource/types.ts`, `src/datasource/BasesSource.ts`, `src/bases/entrySignature.ts`, `test/unit/noteSegments.test.ts` (new), `test/unit/BasesSource.test.ts`, `test/unit/entrySignature.test.ts`.
-- **Approach:** A pure parser coerces the authored list of inclusive `start..end` ranges into SVAR-shaped `{ start, duration }` entries, sorted by start, skipping malformed entries. `BasesSource` resolves the bare property key and reads the value from the metadata cache, never through the Bases value system. Add the property to the values feeding the frontmatter signature so edits refresh.
+- **Files:** `src/datasource/noteSegments.ts` (new), `src/datasource/types.ts`, `src/datasource/BasesSource.ts`, `src/bases/register.ts`, `test/unit/noteSegments.test.ts` (new), `test/unit/BasesSource.test.ts`.
+- **Approach:** A pure parser coerces the authored list of inclusive `start..end` ranges into SVAR-shaped `{ start, duration }` entries, sorted by start, skipping malformed entries (mirroring the spike's `isSegmentSpan` guard). `BasesSource` resolves the bare property key and reads the value from the metadata cache, never through the Bases value system. Add the segments mapping value to the `frontmatterSignatureKeys([...])` array in `register.ts`'s `computeEntrySignature` so edits refresh.
 - **Execution note:** Write the parser test-first; its edge cases are the substance of this unit.
-- **Patterns to follow:** `src/datasource/noteEstimate.ts` for the coercion module shape, and `extractEstimateMinutes` in `BasesSource` for the cache-safe read.
+- **Patterns to follow:** `src/datasource/noteEstimate.ts` for the coercion module shape; `extractEstimateMinutes` in `BasesSource` for the cache-safe read; the `timeEstimateProperty` line in `computeEntrySignature` for the signature fold; `test/probe/segmentLayout.ts` `isSegmentSpan` for the guard.
 - **Test scenarios:**
   - A two-range list parses to two segments with correct start and duration.
   - An absent or empty property yields no segments.
@@ -260,11 +252,11 @@ U1 → U2 → U3 establish the data path. U4 is independent and can proceed in p
 
 ### U3. Carry segments to the chart task
 
-- **Goal:** Thread the segment value through instance expansion onto the SVAR task without destabilising the diff fingerprint.
-- **Requirements:** R1, R2, R8.
+- **Goal:** Thread the segment value through instance expansion onto the top-level `SvarTask.segments` field without destabilising the diff fingerprint.
+- **Requirements:** R1, R2.
 - **Dependencies:** U2.
 - **Files:** `src/controller/InstanceExpansion.ts`, `src/bases/ganttSync.ts`, `test/unit/InstanceExpansion.test.ts`, `test/unit/ganttSync.test.ts`.
-- **Approach:** Add the segment value to `RenderInstance` and to `SvarTask.custom`, and fold a deterministic formatted encoding of it into `taskStateKey`. Ignore segments for summary and milestone rows.
+- **Approach:** Add the segment value to `RenderInstance` and to a new **top-level** `segments` field on `SvarTask` (not `custom`), and fold a deterministic ISO-plus-duration encoding into `taskStateKey`.
 - **Execution note:** Add the state-key stability test before wiring the fold — a non-deterministic encoding is the failure this unit exists to avoid.
 - **Patterns to follow:** how `barIcon` is folded into `taskStateKey`, and the existing warning there about non-deterministic serialization.
 - **Test scenarios:**
@@ -273,74 +265,76 @@ U1 → U2 → U3 establish the data path. U4 is independent and can proceed in p
   - `taskStateKey` is byte-identical across two syncs of unchanged segments.
   - `taskStateKey` changes when a segment's start or duration changes.
   - A task with no segments produces the same state key as before this change.
-  - Covers AE4. A summary or milestone carrying segments is not marked segmented.
 - **Verification:** Expansion and sync tests pass, including the state-key stability case.
 
-### U4. Segment position math
+### U4. Segment geometry (port the spike's pure helper)
 
-- **Goal:** Convert a segment's dates plus the live timeline scale into a bar-relative offset and width.
-- **Requirements:** R10, R12.
+- **Goal:** Convert a task's segments plus the timeline scale into per-segment bar-fraction boxes, progress spend, and the connector run — no pixel math.
+- **Requirements:** R4, R6, R10, R12.
 - **Dependencies:** none.
 - **Files:** `src/bases/segmentLayout.ts` (new), `test/unit/segmentLayout.test.ts` (new).
-- **Approach:** A pure function mirroring SVAR's date-to-pixel relationship — the scale's difference function against the scale start, multiplied by cell width — then rebased against the parent bar's own offset so the result is relative to the bar, matching SVAR's segment coordinate convention.
-- **Execution note:** Implement test-first; correctness here is entirely arithmetic and cheap to pin.
-- **Patterns to follow:** the store's task-layout computation, whose formula this mirrors.
+- **Approach:** Port `test/probe/segmentLayout.ts` verbatim in spirit. Each segment's `left`/`width` is `scale.diff(segStart, taskStart, lengthUnit) / scale.diff(taskEnd, taskStart, lengthUnit, inclusive)` — a fraction, not pixels. `segmentProgresses` spends the task's progress across segments in duration order in one pass. `connectorRun` returns first-start to last-end. `segmentEnd` uses calendar-day addition. `isSegmentSpan` guards the shape.
+- **Execution note:** This is a straight port of proven, tested code — bring its test suite with it, including the two-diff-semantics independence proof.
+- **Patterns to follow:** `test/probe/segmentLayout.ts` and `test/probe/segmentLayout.test.ts`.
 - **Test scenarios:**
-  - A segment starting at the bar start yields a zero offset.
-  - A segment starting later yields an offset matching the scaled date difference.
-  - Width follows the segment's duration at the current cell width.
-  - Doubling cell width doubles both offset and width, proving zoom rescaling.
-  - Results are bar-relative, not timeline-absolute.
-  - A zero or negative duration yields a non-negative width rather than an inverted box.
-- **Verification:** The layout tests pass, including the zoom-rescaling case.
+  - A full-span segment fills the whole bar under two different `diff` semantics (inclusive-flag independence).
+  - A later segment's offset is its fraction of the span; width follows its own span measured in the scale's length unit, not the raw duration number.
+  - Progress fills earlier segments before later ones; a zero-duration segment does not divide by zero.
+  - `connectorRun` spans first-start to last-end and stops short of the bar when the task span is wider.
+  - A malformed entry is rejected by `isSegmentSpan`.
+- **Verification:** The ported layout tests pass.
 
-### U5. Render segments in the bar template
+### U5. Render segments in the bar template (port the spike's renderer)
 
-- **Goal:** Draw SVAR's split-task DOM for a segmented task inside the plugin's own bar template.
+- **Goal:** Draw SVAR's split-task DOM for a segmented task inside the plugin's own bar template, with its own isolated-probe proof.
 - **Requirements:** R3, R4, R5, R6, R7, R9, R11, R19.
 - **Dependencies:** U3, U4.
-- **Files:** `src/bases/BarContent.svelte`, `src/bases/ganttSync.ts`, `src/bases/barTreatment.ts`, `test/unit/barTreatment.test.ts`.
-- **Approach:** `BarContent` branches when the task carries segments: it reads the reactive scale through the `api` prop it already receives, computes each segment's box via the U4 helper, and emits SVAR's segments container with one indexed segment element each, per-segment progress distributed by duration, and the dashed connector. It prefers store-supplied positions when present. A registered cue class marks the bar as segmented so the injected stylesheet can render the outer bar transparent, leaving unsegmented bars untouched.
-- **Execution note:** Adapt SVAR's `BarSegments` markup directly, retaining its MIT copyright and permission notice in the adapted file.
-- **Patterns to follow:** SVAR's `BarSegments.svelte` for the DOM and progress distribution; the existing instance-cue task-type registration for the segmented cue; the injected-stylesheet approach in `barTreatment.ts` for the transparency rule.
-- **Test scenarios:**
-  - The segmented cue class is registered as a task type, so SVAR emits it.
-  - The injected stylesheet contains the outer-bar transparency rule scoped to the segmented cue.
-  - The transparency rule does not match an unsegmented bar.
-  - Per-segment progress distribution fills earlier segments before later ones for a partially complete task.
-- **Verification:** Treatment tests pass, and a segmented task renders segment elements in the probe harness (U6).
+- **Files:** `src/bases/BarContent.svelte`, `src/bases/svarContract.ts` (new), `src/bases/segments.css` (new), `test/probe/segments-render.probe.ts`, `test/probe/svar-contract.probe.ts` (both already exist from the spike; adapt to import from `src/`).
+- **Approach:** Port `test/probe/SegmentBar.svelte` into `BarContent`: when the task carries segments (guarded by `isSegmentSpan`), read `scaleSnapshot(api)`, compute pieces via U4, and emit SVAR's `.wx-segments` container with one indexed segment each, per-segment progress, and the connector positioned to `connectorRun` via CSS vars. Stamp SVAR's `wx-split` class on the parent bar with an attachment (KTD8). Prefer store-supplied `$x`/`$w`. `segments.css` carries the single progress-suppression rule (KTD9). `svarContract.ts` is the one internals choke-point. No cue-type registration, no `barTreatment.ts` change, no injected transparency rule.
+- **Execution note:** Adapt SVAR's `BarSegments` markup and container CSS directly, retaining the MIT copyright and permission notice in the adapted file. Verify `BarContent`'s existing icon-chip path (R7) still renders on a segmented bar.
+- **Patterns to follow:** `test/probe/SegmentBar.svelte`, `test/probe/svarContract.ts`, `test/probe/segments.css`; the reusable technique in `docs/solutions/design-patterns/reproducing-gated-svar-gantt-features.md`.
+- **Test scenarios (isolated probe, self-contained — no Obsidian):**
+  - A two-segment task renders two indexed `.wx-segment` elements in one row, visibly spaced.
+  - The outer bar carries `wx-split` and computes transparent; the segments keep their fill.
+  - The oracle: a segment covering dates D lands on the same pixels as a plain bar covering D.
+  - SVAR's whole-bar progress wrapper is present but suppressed; per-segment fills survive and fill earlier segments first.
+  - The connector stops at the last segment when the task span is wider (no tail).
+  - An unsegmented task gets no `wx-segments` and no `wx-split`.
+  - A Pro-supplied `$x`/`$w` is honoured verbatim.
+- **Verification:** `npm run probe:svar` passes (render probe + contract probe) against `BarContent`.
 
-### U6. Prove the rendering
+### U6. Prove the rendering in real Obsidian
 
-- **Goal:** Verify segmented rendering in the isolated harness and in real Obsidian.
-- **Requirements:** R3, R4, R5, R6, R8, R9, R12.
+- **Goal:** Verify segmented rendering end to end in a real vault.
+- **Requirements:** R3, R4, R5, R9, R12, R17.
 - **Dependencies:** U5.
-- **Files:** `test/probe/segments-render.probe.ts` (new), `test/vaults/gantt-segments/` (new fixture notes and base view), `test/specs/gantt-segments.e2e.ts` (new).
-- **Approach:** A probe spec mounts the plugin's container over a segmented task and asserts the SVAR-shaped segment DOM. A fixture vault with a note declaring ranges plus a base view drives the real-Obsidian e2e, which asserts the same structure end to end and checks an unsegmented control note is unchanged.
-- **Patterns to follow:** `test/probe/` for the isolated mount, and `test/specs/gantt-bar-treatments.e2e.ts` for the fixture-vault and base-opening pattern.
+- **Files:** `test/vaults/gantt-segments/` (new fixture notes and base view), `test/specs/gantt-segments.e2e.ts` (new).
+- **Approach:** A fixture vault with a note declaring ranges plus a base view drives the e2e, which asserts the SVAR segment structure end to end, that an unsegmented control note is unchanged, and that the connector leaves no tail.
+- **Patterns to follow:** `test/vaults/gantt-estimate/` and `test/specs/gantt-time-estimate.e2e.ts` for the fixture-vault-plus-configured-property pattern; `test/specs/gantt-bar-treatments.e2e.ts` for base opening.
 - **Test scenarios:**
   - Covers AE1. A two-range note renders two segment elements in one row with the connector present and the outer bar transparent.
+  - Covers AE7. The connector stops at the last segment when the note's due date is later.
   - Covers AE3. A control note without the property renders one ordinary bar and no segments container.
-  - Covers AE4. A parent row carrying ranges renders unsegmented.
-  - Covers AE5. After a zoom change, segment offsets and widths rescale and stay within the bar.
+  - Covers AE5. After a zoom change, segments stay aligned and within the bar.
   - Covers AE2. A partially complete segmented task fills earlier segments first.
-- **Verification:** The probe spec and the new e2e both pass against a real Obsidian instance.
+- **Verification:** `npm run e2e:local` passes the `gantt-segments` spec.
 
 ### U7. Per-segment hover and click
 
-- **Goal:** Make each segment an individually addressable hover and click target routed through existing behaviour.
+- **Goal:** Make each segment an individually addressable hover and click target routed through existing behaviour, without letting SVAR's inherited drag path fire.
 - **Requirements:** R13, R14, R15, R16.
 - **Dependencies:** U5.
-- **Files:** `src/bases/GanttContainer.svelte`, `src/bases/taskNotesInteractions.ts`, `test/unit/taskNotesInteractions.test.ts`, `test/specs/gantt-segments.e2e.ts`.
-- **Approach:** Resolve the segment index from the clicked element and route activation through the existing click-activation path, targeting the parent task's note. The tooltip resolves the hovered segment and shows its date range. No drag, resize, split, or write-back is wired.
-- **Patterns to follow:** the existing click-activation resolution and tooltip wiring in `GanttContainer`.
+- **Files:** `src/bases/GanttContainer.svelte`, `src/bases/taskNotesInteractions.ts`, `src/bases/DependencyTooltip.svelte`, `test/unit/taskNotesInteractions.test.ts`, `test/specs/gantt-segments.e2e.ts`.
+- **Approach:** Resolve the segment index from the clicked element and route activation through the existing click-activation path, targeting the parent task's note. The tooltip shows the hovered segment's date range. In companion (write-capable) mode SVAR is not readonly and its `getMoveMode` re-targets to the nearest `data-segment` node, so a drag started on a segment would resize the whole task — suppress that (R16) by stopping the gesture on segment elements in the container's existing capture-phase listener, or by not exposing `data-segment` to SVAR's drag path.
+- **Execution note:** Confirm the tooltip content component's actual prop shape before building segment copy on it — SVAR's default resolver passes `{ api, data: { task, segmentIndex } }`, which differs from how the current tooltip destructures `data`.
+- **Patterns to follow:** the existing click-activation resolution and tooltip wiring in `GanttContainer` and `DependencyTooltip.svelte`.
 - **Test scenarios:**
   - Clicking within a segment resolves to the parent task's activation target.
   - Clicking the transparent outer bar outside any segment resolves to the same target.
-  - Segment elements expose their index so a hover can identify which segment is under the cursor.
+  - Hovering a segment shows a tooltip carrying that segment's date range.
+  - A drag gesture starting inside a segment produces no `update-task` or date write.
   - Covers AE6. In the e2e, clicking a segment opens the underlying note.
-  - No drag or resize handler is attached to segment elements.
-- **Verification:** Interaction unit tests pass and the e2e click case opens the note.
+- **Verification:** Interaction unit tests pass and the e2e click and no-write cases hold.
 
 ---
 
@@ -348,26 +342,26 @@ U1 → U2 → U3 establish the data path. U4 is independent and can proceed in p
 
 | Gate | Command | Applies to | Done signal |
 |---|---|---|---|
-| Unit tests | `npm test` | U1–U5, U7 | All pass, including state-key stability and zoom rescaling |
+| Unit tests | `npm test` | U1–U4, U7 | All pass, including state-key stability and the geometry semantics-independence proof |
+| Isolated render | `npm run probe:svar` | U5 | Render probe + contract oracle pass against `BarContent` |
+| Real Obsidian | `npm run e2e:local` | U6, U7 | `gantt-segments` spec passes; control note unchanged; no connector tail |
 | Typecheck | `npm run typecheck` | all units | No new errors |
 | Lint | `npm run lint` | all units | Clean |
-| Isolated render | `npm run probe:svar` | U5, U6 | Segment DOM present for a segmented task |
-| Real Obsidian | `npm run e2e` | U6, U7 | `gantt-segments` spec passes, control note unchanged |
 | Build | `npm run build` | all units | Bundle builds |
 
-`.svelte` and `.mts` files fall outside parts of the typecheck and lint coverage, so the probe and e2e runs are the real proof for the rendering units rather than static analysis alone.
+`.mts` WDIO files fall outside typecheck and lint; `.svelte` files are typechecked and linted, but static analysis cannot prove rendered DOM — the probe and e2e runs are the real proof for the rendering units. `npm run e2e:local` (build + install + drive) is the gate, not bare `npm run e2e`.
 
 ---
 
 ## Definition of Done
 
 - Every requirement R1–R19 is satisfied or explicitly deferred in Scope Boundaries.
-- Acceptance examples AE1–AE6 are covered by the probe spec or the e2e spec.
-- A note declaring ranges renders spaced segments in a real vault, matching SVAR's split-task appearance.
-- A note without the configured property renders exactly as before, and the segments cue does not appear in its markup.
+- Acceptance examples AE1–AE7 are covered by the isolated probe (U5) or the e2e (U6).
+- A note declaring ranges renders spaced segments in a real vault, matching SVAR's split-task appearance, with no connector tail.
+- A note without the configured property renders exactly as before — no `wx-segments`, no `wx-split` class.
 - The segments property is configurable, defaults to empty, and no Obsidian property name is hardcoded.
 - `taskStateKey` is stable across refreshes of unchanged segments — no re-render storm.
-- Adapted SVAR markup retains its MIT copyright and permission notice.
+- Adapted SVAR markup retains its MIT copyright and permission notice; no cue-type registration or injected transparency CSS was added.
 - Dead-end or experimental code from abandoned approaches is removed before declaring done.
 - Work is committed locally; no pull request is opened.
 
@@ -375,13 +369,13 @@ U1 → U2 → U3 establish the data path. U4 is independent and can proceed in p
 
 ## Sources / Research
 
+- `docs/solutions/design-patterns/reproducing-gated-svar-gantt-features.md` — the reusable technique proven by the spike (wx-split judo, bar-as-ruler, contract choke-point, library-as-oracle, connector run). The primary reference for U4/U5.
 - `docs/solutions/integration-issues/svar-pro-feature-render-support.md` — why split-task is unreachable in the installed edition, and the three routes considered.
 - `docs/solutions/architecture-patterns/property-agnostic-field-resolution.md` — the governing rule behind KTD3.
 - `docs/solutions/integration-issues/gantt-bases-getvalue-renotify-storm.md` — why KTD4 reads the metadata cache instead of the Bases value system.
 - `docs/solutions/integration-issues/svar-gantt-diff-sync-interactions.md` — diff-sync behaviour that KTD5's state-key fold must respect.
-- `docs/solutions/tooling-decisions/svar-gantt-summary-type-constraints.md` — parents render as ordinary tasks, which is why R8 excludes summaries from segmenting.
-- `docs/solutions/integration-issues/svar-gantt-injected-css-scoped-specificity.md` and `svar-shared-classname-selector-leak.md` — constraints on the KTD8 transparency rule.
+- `docs/solutions/tooling-decisions/svar-gantt-summary-type-constraints.md` — parents render as ordinary tasks, which is why R8 is a data-source responsibility rather than a type-guard.
+- `docs/solutions/integration-issues/svar-gantt-injected-css-scoped-specificity.md` and `svar-shared-classname-selector-leak.md` — context for why earned-specificity fails and the `wx-split` stamp is used instead.
+- Reference implementation on this branch: `test/probe/segmentLayout.ts`, `svarContract.ts`, `SegmentBar.svelte`, `segments.css`, `svar-contract.probe.ts`, `segments-render.probe.ts`, `demo/`.
 - SVAR's split-task rendering, for the shape being cloned: `node_modules/@svar-ui/svelte-gantt/src/components/chart/BarSegments.svelte` and `chart/Bars.svelte`.
-- Segment coordinate convention and date-to-pixel relationship: the layout function in `node_modules/@svar-ui/gantt-store/dist/index.js`.
-- Plugin-side seams: `src/bases/BarContent.svelte`, `src/bases/GanttContainer.svelte`, `src/bases/ganttSync.ts`, `src/bases/barTreatment.ts`, `src/datasource/BasesSource.ts`, `src/bases/fieldMappingConfig.ts`, `src/bases/viewOptions.ts`, `src/bases/entrySignature.ts`.
-- `test/probe/` — the isolated SVAR harness, reusable for asserting rendered segment structure.
+- Plugin-side seams: `src/bases/BarContent.svelte`, `src/bases/GanttContainer.svelte`, `src/bases/ganttSync.ts`, `src/datasource/BasesSource.ts`, `src/bases/fieldMappingConfig.ts`, `src/bases/viewOptions.ts`, `src/bases/register.ts`.
