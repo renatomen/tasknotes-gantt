@@ -11,29 +11,28 @@ status: resolved
 
 Can the plugin render SVAR-Gantt "Pro"-documented features — split-task/`segments`, `markers`, `baselines`, `rollups`, `criticalPath`, `slack` — using the bundled free/OSS `@svar-ui/svelte-gantt@^2.7.0`, without a commercial licence? Motivated by wanting to draw a discontinuous task (e.g. a recurring series) as spaced segments in one row.
 
-## Answer: no via config — the free store hard-disables them at init
+## Answer: no via config — this is the MIT "open" edition, which disables Pro features at store init
 
-The free build **ignores** every advanced/"Pro" config key. `@svar-ui/gantt-store`'s `DataStore.init(t)` unconditionally overwrites the caller's config before it reaches state (`node_modules/@svar-ui/gantt-store/dist/index.js`):
+The installed packages (`@svar-ui/svelte-gantt` + `@svar-ui/gantt-store` 2.7.0) are the **MIT-licensed "open/community" edition**; split-task/segments, markers, baselines, rollups, `criticalPath`, and `slack` are **PRO-only** features (`svelte-gantt/readme.md` lists "Split tasks" under "### PRO Edition"). The open build gates them two ways:
 
-```js
-init(t){ /* ... */
-  t.unscheduledTasks=!1, t.baselines=!1, t.markers=[], t._markers=[],
-  t.undo=!1, t.schedule={}, t.criticalPath=null, t.splitTasks=!1,
-  t.summary={}, t.rollups=!1, t._rollups={}, t.slack=!1,
-  t.resources=null, t._resources=[], t.assignments=[],
-  t.calendar=null, t.calendars=[], t.groupBy=null, t.wbs=null;
-  /* ... then applies t to state ... */
-}
-```
+1. **The store forces the flags off.** `DataStore.init` runs a community gate — recovered from the sourcemap as `if (isCommunity()) { … state.splitTasks = false; state.baselines = false; state.markers = []; state.criticalPath = null; state.rollups = false; state.slack = false; … }` — and in the shipped dist `isCommunity()` folds to true at build time, so the reset is unconditional. In minified form (`node_modules/@svar-ui/gantt-store/dist/index.js`):
 
-These are unconditional assignments (a flat comma-sequence, no guard), so no matter what you pass to `<Gantt splitTasks markers baselines rollups criticalPath slack ...>`, the store forces them to their off-defaults. The rendering code ships but is **dead code** in the free build: `BarSegments.svelte` only renders under `{:else if $splitTasks && task.segments}`, and `$splitTasks` can never become true because the store reset it.
+   ```js
+   t.unscheduledTasks=!1, t.baselines=!1, t.markers=[], t._markers=[],
+   t.undo=!1, t.schedule={}, t.criticalPath=null, t.splitTasks=!1,
+   t.summary={}, t.rollups=!1, t._rollups={}, t.slack=!1, ...
+   ```
 
-This is the mechanism behind SVAR marketing these as "Pro" features while the OSS package still contains their source: the gate lives in `gantt-store.init`, not in stripped components.
+   `getReactive()` returns `this._state`, so `api.getReactiveState().splitTasks` is a real store — but committed as hardcoded `false`. `Bars.svelte:562` only renders `<BarSegments>` under `{:else if $splitTasks && task.segments}`, so it falls through to one plain `wx-content` bar.
+
+2. **The Pro positioning code is compiled out.** The segment date/layout logic (`calcSplitDates`, `pro/splitTasks`) sits behind `// #if [!(WX_PACKAGE_TYPE=open)]` fences and is stripped from the open build (`calcSplitDates` = 0 occurrences in the dist; no `pro/` sources in the sourcemap). So even if the flag were forced true, there is no code to compute each segment's `$x`/`$w`.
+
+`BarSegments.svelte` ships only because it is plain Svelte source under `src/`; it is dead code in this edition.
 
 ## Evidence (two independent confirmations)
 
 1. **Empirical (store state).** An isolated probe (`test/probe/`, `npm run probe:svar`) mounts the raw `<Gantt>` in headless Chromium (`vitest-browser` + playwright) and reads `api.getState()`. Even a direct `<Gantt tasks={[{...,segments:[...] }]} splitTasks={true}>` yields `state.splitTasks === false` and `$splitTasks === false`; the task keeps its `segments` array but the segments never get `$x`/`$w` (layout only runs them when `splitTasks` is true), so one plain bar renders. Captured in `test/probe/.results/diag.json`.
-2. **Source (the gate).** The `init(t)` reset above, read directly from the installed `gantt-store` dist. The component/store rendering code is present (`svelte-gantt/src/components/chart/BarSegments.svelte`, `chart/Rollups.svelte`, `Bars.svelte` `.wx-baseline`/`.wx-critical`/`.wx-slack` gates) but unreachable.
+2. **Source (the gate).** The `init(t)` reset above, read directly from the installed `gantt-store` dist, plus the `isCommunity()` / `WX_PACKAGE_TYPE=open` fences recovered from `gantt-store/dist/index.js.map` (`DataStore.ts` `init`, `normalizeDates.ts` split branch). The component rendering code is present (`svelte-gantt/src/components/chart/BarSegments.svelte`, `chart/Rollups.svelte`, `Bars.svelte` `.wx-baseline`/`.wx-critical`/`.wx-slack` gates) but unreachable, and the Pro positioning code (`calcSplitDates`) is absent from the dist. Cross-checked by three independent source passes.
 
 ## Per-feature verdicts (isolated probe)
 
@@ -50,10 +49,10 @@ The planned Step-2 real-Obsidian confirmation (through `GanttContainer`'s custom
 
 ## Options to actually get spaced segments
 
-1. **SVAR commercial/Pro distribution** — presumably ships a `gantt-store` without the `init` reset. Cost + licence change; verify the Pro package actually removes the gate before committing.
-2. **Patch/fork the free store** — override `DataStore.init` to stop resetting the keys. Fragile (breaks on upgrade), and shipping a patched Pro-feature is the same licence question as buying Pro — likely not permitted. Not recommended.
-3. **Hand-roll spaced sub-bars ourselves** — draw the segments in a custom `taskTemplate` / `BarContent` overlay (absolute-positioned sub-bars inside one row), fed by our own data (e.g. expanded recurrence occurrences). This is independent of SVAR's gated split-task, licence-clean, and the only route that fits the plugin's existing custom-bar rendering. It is a real feature project, not a config flag — this is where the deferred recurring-as-segments product design would land.
+1. **SVAR commercial/Pro edition** — the Pro `@svar-ui/svelte-gantt` + `gantt-store` build has `isCommunity()` false and includes `pro/splitTasks` (`calcSplitDates`), so the config value survives and segments position correctly. Cost + licence purchase; verify the Pro package before committing. On Pro, shape each segment as `{ id, text, start, duration }` (not `{ start, end }`) with the parent keeping its own `start` + `segments`, matching `editor/Segments.svelte` and `calcSplitDates`.
+2. **Patch/fork the open store** — not viable. Un-resetting the flag is not enough: the Pro positioning code (`calcSplitDates`) is compiled out of the open build, so you would have to reimplement segment layout as well, and shipping a re-enabled Pro feature is the same licence question as buying Pro. Do not pursue.
+3. **Hand-roll spaced sub-bars ourselves** — draw the segments in a custom `taskTemplate` / `BarContent` overlay (absolute-positioned sub-bars inside one row), fed by our own data (e.g. expanded recurrence occurrences). This is independent of SVAR's gated split-task, licence-clean, and the only route that fits the plugin's existing custom-bar rendering. It is a real feature project, not a config flag — this is where the deferred recurring-as-segments product design would land. **Recommended** if the feature is pursued.
 
-## Licence caveat
+## Licence note
 
-Rendering feasibility is distinct from ship-ability. Even where code exists in the GPL-licensed OSS package, enabling Pro features by patching the store may violate SVAR's terms. The DIY overlay (option 3) avoids this because it does not use SVAR's gated feature at all. Legal confirmation is out of scope for this spike.
+The installed edition is **MIT** (`@svar-ui/svelte-gantt` + `gantt-store` `"license": "MIT"`), so the base gantt is freely usable, but split-task/segments and the other Pro features are not available in it. The DIY overlay (option 3) is licence-clean because it does not use SVAR's gated feature at all; option 1 requires a SVAR Pro licence; option 2 is both technically incomplete and licence-questionable.
