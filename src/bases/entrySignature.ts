@@ -11,8 +11,7 @@
  * (`entry.getValue`) — that is exactly what re-pokes the storm. The caller supplies
  * `valueOf` reading Obsidian's metadata cache directly (frontmatter), so a genuine
  * field edit (status/priority/date/…) flips the signature and refreshes the bars,
- * while an identical re-notify keeps the same signature (reuse). See
- * `docs/solutions/integration-issues/gantt-bases-getvalue-renotify-storm.md`.
+ * while an identical re-notify keeps the same signature (reuse).
  *
  * Extracted from the `GanttView` glue so the signature rule is unit-testable in
  * isolation (no Obsidian) — per `register-ts-coverage-not-glue`.
@@ -84,10 +83,131 @@ export function frontmatterSignatureKeys(
   const keys: string[] = [];
   for (const property of mappingValues) {
     if (!property) continue;
-    if (property.startsWith('note.')) keys.push(property.slice('note.'.length));
-    else if (property.startsWith('note:')) keys.push(property.slice('note:'.length));
+    const key = property.startsWith('note.')
+      ? property.slice('note.'.length)
+      : property.startsWith('note:')
+        ? property.slice('note:'.length)
+        : null;
+    if (key !== null && !keys.includes(key)) keys.push(key);
   }
   return keys;
+}
+
+/**
+ * The mapping values the signature watches: the view's own mappings UNIONED with
+ * the ones the controller resolved.
+ *
+ * Both halves are load-bearing. The RESOLVED values make a field the user left
+ * unset still watch the property it actually reads (TaskNotes' own), so an edit to
+ * it refreshes the bars. The VIEW values keep the signature sensitive to a live
+ * mapping change: the resolved set lags by one refresh — it is recomputed only when
+ * the source is re-selected, which happens AFTER the signature is compared — so
+ * watching it alone would leave a re-mapped field fingerprinting its old property,
+ * and the unchanged signature would reuse the cached tasks instead of re-reading.
+ */
+export function watchedMappingValues(
+  viewMappings: WatchedMappings,
+  resolvedMappings: WatchedMappings,
+  estimateReadKey: string | null,
+): Array<string | undefined> {
+  return [
+    viewMappings.startProperty,
+    resolvedMappings.startProperty,
+    viewMappings.endProperty,
+    resolvedMappings.endProperty,
+    viewMappings.progressProperty,
+    viewMappings.statusProperty,
+    resolvedMappings.statusProperty,
+    viewMappings.priorityProperty,
+    resolvedMappings.priorityProperty,
+    viewMappings.parentProperty,
+    estimateReadKey ?? viewMappings.timeEstimateProperty,
+  ];
+}
+
+/**
+ * A tag identifying WHICH properties the roles are mapped to, folded into the
+ * signature so that re-pointing a role always forces a re-read.
+ *
+ * The watched frontmatter keys alone cannot carry this. Two roles can share one
+ * property (start and end both on `note.date`), so unmapping one leaves the key set
+ * identical and the value fingerprint unchanged — the Base would never be re-read and
+ * the bar would keep rendering the old role's value. A role mapped to a
+ * `formula.*`/`file.*` property contributes no frontmatter key at all, so re-pointing
+ * it is invisible to the key set entirely. The mapping identity sees both.
+ *
+ * Derived from config, so it is constant across the notifies of an unchanged view — a
+ * config-only / echo notify still reuses, and the storm gate is unaffected.
+ */
+export function mappingSignatureTag(mappingValues: ReadonlyArray<string | undefined>): string {
+  // JSON-encoded rather than delimiter-joined: a property name may contain any
+  // character, so a separator could be forged and two different mappings could
+  // otherwise flatten to the same tag.
+  return JSON.stringify(mappingValues.map((property) => property ?? ''));
+}
+
+/** The cached note data the signature fingerprints, read per matched entry. */
+export interface EntryNoteCache {
+  frontmatter: Record<string, unknown> | null;
+  listItems?: ReadonlyArray<ChecklistItemLike>;
+}
+
+/** Everything the composed signature decides against. */
+export interface EntrySignatureInputs {
+  entries: ReadonlyArray<SignatureEntry>;
+  /** The LIVE view mappings — see {@link watchedMappingValues} on why these, not the resolved ones, drive the modes. */
+  viewMappings: WatchedMappings & { progressMode?: ProgressMode };
+  /** The mappings the controller resolved on the previous refresh. */
+  resolvedMappings: WatchedMappings;
+  /** The controller's resolved Time Estimate read key, or `null` before it resolves. */
+  estimateReadKey: string | null;
+  /**
+   * Cache-safe per-entry read (Obsidian's metadata cache), or `null` when the note is
+   * unreadable. MUST NOT read through the Bases value system — that is what re-pokes
+   * the re-notify storm this signature exists to break.
+   */
+  noteCacheOf(entry: SignatureEntry): EntryNoteCache | null;
+}
+
+/**
+ * The whole entry signature: the mapping identity and Progress mode, followed by the
+ * matched entry set and (when there is anything value-bearing to watch) each entry's
+ * value fingerprint.
+ *
+ * Composed here rather than in the view so the rule is unit-testable without Obsidian
+ * — the caller injects the cache read. Skips the per-entry read entirely when no
+ * frontmatter key is watched and the checklist is not in play, keeping a config-only
+ * notify cheap.
+ */
+export function composeEntrySignature(input: EntrySignatureInputs): string {
+  const { entries, viewMappings, resolvedMappings, estimateReadKey } = input;
+  const watched = watchedMappingValues(viewMappings, resolvedMappings, estimateReadKey);
+  const fmKeys = frontmatterSignatureKeys(watched);
+  const prefix = mappingSignatureTag(watched) + progressModeSignatureTag(viewMappings.progressMode);
+  const tasknotesProgress = viewMappings.progressMode === 'tasknotes';
+
+  if (fmKeys.length === 0 && !tasknotesProgress) {
+    return prefix + entriesSignature(entries);
+  }
+  return (
+    prefix +
+    entriesSignature(entries, (entry) => {
+      const cache = input.noteCacheOf(entry);
+      if (!cache) return '';
+      return entryValueSignature(fmKeys, cache.frontmatter, cache.listItems, tasknotesProgress);
+    })
+  );
+}
+
+/** The instance-driving mapping slice {@link watchedMappingValues} reads. */
+export interface WatchedMappings {
+  startProperty?: string;
+  endProperty?: string;
+  progressProperty?: string;
+  statusProperty?: string;
+  priorityProperty?: string;
+  parentProperty?: string;
+  timeEstimateProperty?: string;
 }
 
 /**

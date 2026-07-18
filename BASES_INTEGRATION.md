@@ -48,41 +48,17 @@ Complete implementation of data extraction from Bases following TaskNotes patter
    - Tests: extractValue, extractText, extractDate, extractProgress, extractParents
    - 12 tests covering all Gantt data mapping requirements
 
-### 3. TaskList View (`GanttTaskListView.ts`)
+### 3. View Registration
 
-Simple text-based hierarchical view demonstrating the data layer works:
+**One Bases view registered:**
 
-**Features:**
-- Extracts tasks using BasesDataAdapter
-- Builds parent-child hierarchy from parent references
-- Renders tasks with text indentation to show hierarchy levels
-- Shows task metadata: dates, progress
-- Clickable tasks that open notes in Obsidian
-- Proper scroll state preservation
-- Error and empty state handling
-
-**Why This View?**
-- Proves the data layer works before integrating with Gantt chart
-- Shows hierarchy clearly through nested text (user requirement)
-- Simple DOM-based rendering (no framework complexity)
-- Can be used for debugging/testing data extraction
-
-### 4. View Registration
-
-**Two Bases views registered:**
-
-1. **"Gantt (OG)"** - The visual Gantt chart view (existing)
+1. **"Gantt (OG)"** - The visual Gantt chart view
    - Uses Svelte for rendering
    - View ID: `obsidianGantt`
    - Icon: `calendar-range`
 
-2. **"Gantt TaskList (OG)"** - Text-based hierarchy view (new)
-   - Uses DOM manipulation for rendering
-   - View ID: `obsidianGanttTaskList`
-   - Icon: `list-tree`
-
-**Shared Configuration:**
-Both views share the same field mapping options:
+**Configuration:**
+The view's field mapping options:
 - Task Name Property (defaults to file name)
 - Start Date Property (defaults to `note.start`)
 - End Date Property (defaults to `note.due`)
@@ -99,7 +75,7 @@ Ensure Obsidian Bases plugin is enabled in your vault (requires Obsidian 1.10.0+
 
 1. Open command palette (Cmd/Ctrl+P)
 2. Run "Bases: Create new view"
-3. Choose "Gantt TaskList (OG)" from the view type dropdown
+3. Choose "Gantt (OG)" from the view type dropdown
 
 ### 3. Configure Query
 
@@ -132,7 +108,7 @@ Click on any task to open its note.
 
 ### Immediate
 1. ✅ Data layer complete - all tests passing
-2. ✅ TaskList view working - shows hierarchy
+2. ✅ Gantt view working - renders the timeline
 3. 🔄 Test with real vault data
 4. 🔄 User feedback on data extraction patterns
 
@@ -154,13 +130,9 @@ BasesDataAdapter.extractDataItems()
        ↓
 Array<BasesDataItem>
        ↓
-GanttTaskListView.extractTasks()
+ObsidianGanttBasesView (register.ts) → GanttController
        ↓
-Array<GanttTask>
-       ↓
-buildHierarchy() → Nested task structure
-       ↓
-renderTasks() → DOM elements
+GanttContainer.svelte → SVAR Gantt chart
 ```
 
 ### Key Design Decisions
@@ -203,5 +175,5 @@ Expected output:
 - TaskNotes implementation: `<your-tasknotes-clone>/src/bases/`
 - Obsidian Bases API: https://docs.obsidian.md/Plugins/Guides/Build+a+Bases+view
 - BasesDataAdapter: `src/bases/services/BasesDataAdapter.ts`
-- GanttTaskListView: `src/bases/views/GanttTaskListView.ts`
+- Gantt view root: `src/bases/GanttContainer.svelte`
 - Registration: `src/bases/register.ts`

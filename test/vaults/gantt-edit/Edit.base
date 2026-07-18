@@ -1,0 +1,25 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.name != "WS Alpha"'
+    - 'file.name != "WS Beta"'
+    - 'file.name != "Q3 Roadmap"'
+    - 'file.name != "Q3 Retro"'
+formulas:
+  label: 'if(effort, "has-effort", "no-effort")'
+views:
+  - type: obsidianGantt
+    name: "Gantt (OG)"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_statusProperty: note.status
+    order:
+      - file.name
+      - note.effort
+      - note.assignee
+      - note.points
+      - note.status
+      - note.workstream
+      - note.scheduled
+      - note.due
+      - formula.label

@@ -354,6 +354,83 @@ describe('TaskNotesSource — getPriorityColors', () => {
   });
 });
 
+describe('TaskNotesSource — getChoiceOptions', () => {
+  async function makeSource(opts: FakeApiOptions): Promise<TaskNotesSource> {
+    const { api } = makeApi(opts);
+    const source = await TaskNotesSource.create(makeApp(api));
+    if (!source) throw new Error('expected a source');
+    return source;
+  }
+
+  it('maps catalog.statuses() to {value, label} options for the status role', async () => {
+    const source = await makeSource({
+      statuses: [
+        { value: 'open', label: 'Open', color: '#fff' },
+        { value: 'done', label: 'Done', color: '#0f0', isCompleted: true },
+      ],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([
+      { value: 'open', label: 'Open' },
+      { value: 'done', label: 'Done' },
+    ]);
+  });
+
+  it('maps catalog.priorities() for the priority role', async () => {
+    const source = await makeSource({
+      priorities: [{ value: 'high', label: 'High', color: '#f00' }],
+    });
+
+    expect(await source.getChoiceOptions('priority')).toEqual([{ value: 'high', label: 'High' }]);
+  });
+
+  it('keeps a colorless entry (options need only a value) and falls back label → value', async () => {
+    const source = await makeSource({
+      statuses: [{ value: 'waiting' }, { value: 'done', label: '' }],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([
+      { value: 'waiting', label: 'waiting' },
+      { value: 'done', label: 'done' },
+    ]);
+  });
+
+  it('drops entries with no usable value', async () => {
+    const source = await makeSource({
+      statuses: [{ label: 'ghost', color: '#000' }, { value: 'ok' }],
+    });
+
+    expect(await source.getChoiceOptions('status')).toEqual([{ value: 'ok', label: 'ok' }]);
+  });
+
+  it('falls back to model.config() when catalog is absent', async () => {
+    const { api } = makeApi({});
+    api.model = {
+      config: () => ({
+        statuses: [{ value: 'X', color: '#abc' }],
+        priorities: [{ value: 'urgent', label: 'Urgent' }],
+      }),
+    };
+    const source = await TaskNotesSource.create(makeApp(api));
+    expect(await source!.getChoiceOptions('status')).toEqual([{ value: 'X', label: 'X' }]);
+    expect(await source!.getChoiceOptions('priority')).toEqual([{ value: 'urgent', label: 'Urgent' }]);
+  });
+
+  it('returns [] when no catalog is exposed or the accessor throws', async () => {
+    const bare = await makeSource({});
+    expect(await bare.getChoiceOptions('status')).toEqual([]);
+
+    const { api } = makeApi({});
+    api.catalog = {
+      statuses: () => {
+        throw new Error('boom');
+      },
+    };
+    const throwing = await TaskNotesSource.create(makeApp(api));
+    expect(await throwing!.getChoiceOptions('status')).toEqual([]);
+  });
+});
+
 describe('TaskNotesSource — getFieldConfig (U1)', () => {
   /** Build an api whose model.config() returns the given fieldMapping + userFields. */
   function makeConfigApi(config: {
@@ -388,6 +465,8 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       dueProp: 'due',
       dateFields: [{ key: 'start', id: 'fld_start', displayName: 'Start' }],
       timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
     });
   });
 
@@ -397,6 +476,26 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       userFields: [],
     });
     expect(cfg?.timeEstimateProp).toBe('estimate');
+  });
+
+  it('exposes the configured status/priority property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', due: 'due', status: 'status', priority: 'priority' },
+      userFields: [],
+    });
+
+    expect(cfg?.statusProp).toBe('status');
+    expect(cfg?.priorityProp).toBe('priority');
+  });
+
+  it('honors TaskNotes-remapped status/priority property names', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { status: 'tn_state', priority: 'tn_urgency' },
+      userFields: [],
+    });
+
+    expect(cfg?.statusProp).toBe('tn_state');
+    expect(cfg?.priorityProp).toBe('tn_urgency');
   });
 
   it('includes a date field that has no `enabled` key (real TaskNotes settings shape)', async () => {
@@ -426,7 +525,14 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
   it('yields null props and empty dateFields when fieldMapping/userFields are absent', async () => {
     const cfg = await fieldConfigFrom({});
 
-    expect(cfg).toEqual({ scheduledProp: null, dueProp: null, dateFields: [], timeEstimateProp: null });
+    expect(cfg).toEqual({
+      scheduledProp: null,
+      dueProp: null,
+      dateFields: [],
+      timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
+    });
   });
 
   it('drops date fields missing a key (cannot address the frontmatter property)', async () => {
@@ -534,6 +640,35 @@ describe('TaskNotesSource', () => {
 
       // Act / Assert
       await expect(TaskNotesSource.create(app)).resolves.toBeNull();
+    });
+  });
+
+  describe('getManagedPaths()', () => {
+    it('returns the task paths TaskNotes identifies via tasks.list()', async () => {
+      // Arrange
+      const { api } = makeApi({
+        tasks: [
+          { path: 'tasks/a.md', title: 'A' },
+          { path: 'tasks/b.md', title: 'B' },
+        ],
+      });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      const managed = await source!.getManagedPaths();
+
+      // Assert — identification is TaskNotes' computation, consumed verbatim.
+      expect(managed).toEqual(new Set(['tasks/a.md', 'tasks/b.md']));
+    });
+
+    it('returns an empty set when the tasks API is unavailable', async () => {
+      // Arrange
+      const { api } = makeApi();
+      (api as { tasks?: unknown }).tasks = undefined;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act + Assert
+      expect(await source!.getManagedPaths()).toEqual(new Set());
     });
   });
 
@@ -982,6 +1117,18 @@ describe('TaskNotesSource', () => {
       );
     });
 
+    it('mutate() maps a priority patch to canonical updates.priority', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { priority: 'high' });
+
+      // Assert — canonical key; TaskNotes maps it to the configured property.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { priority: 'high' }, undefined);
+    });
+
     it('mutate() forwards an explicit null date to clear the field', async () => {
       // Arrange
       const { api, updateSpy } = makeApi({ hasWrite: true });
@@ -1167,6 +1314,120 @@ describe('TaskNotesSource', () => {
     });
   });
 
+  describe('write path — generic field writes (U2)', () => {
+    // The row is TaskNotes-managed: tasks.get resolves task info for it.
+    const managedTask = { path: 't.md', title: 'T' };
+
+    it('mutate() applies a fieldWrite as a top-level frontmatter key (real writer shape, never nested under userFields)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate(
+        't.md',
+        { fieldWrite: { key: 'effort', value: 'high' } },
+        { source: 'obsidian-gantt', correlationId: 'f1' },
+      );
+
+      // Assert — TaskNotes' mapToFrontmatter reads custom-field values from the
+      // TOP LEVEL of updates by frontmatter `key` (confirmed vs 4.11.0).
+      expect(updateSpy).toHaveBeenCalledWith(
+        't.md',
+        { effort: 'high' },
+        { source: 'obsidian-gantt', correlationId: 'f1' },
+      );
+    });
+
+    it('mutate() forwards a null fieldWrite value to clear the property', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { fieldWrite: { key: 'effort', value: null } });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { effort: null }, undefined);
+    });
+
+    it('mutate() forwards an empty list fieldWrite value as []', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { fieldWrite: { key: 'contexts', value: [] } });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { contexts: [] }, undefined);
+    });
+
+    it('mutate() does not let a fieldWrite clobber other patched fields', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', {
+        fieldWrite: { key: 'effort', value: 'high' },
+        status: 'doing',
+      });
+
+      // Assert
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { effort: 'high', status: 'doing' }, undefined);
+    });
+
+    it('mutate() refuses a fieldWrite for a path with no TaskNotes task info — no update attempted', async () => {
+      // Arrange — tasks.get resolves nothing for this path (plain note, not a task).
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('plain-note.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow(/no TaskNotes task/i);
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('mutate() refuses a fieldWrite when task info cannot be resolved (tasks.get unavailable) — fails closed', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      delete (api.tasks as { get?: unknown }).get;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('t.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('mutate() does NOT gate non-fieldWrite patches on task info (regression: drags on plain rows unchanged)', async () => {
+      // Arrange — no task info resolvable, but the patch carries no fieldWrite.
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [] });
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act
+      await source!.mutate('t.md', { status: 'doing' });
+
+      // Assert — existing write behavior is unchanged.
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { status: 'doing' }, undefined);
+    });
+
+    it('mutate() propagates a fieldWrite update failure (so callers can revert)', async () => {
+      // Arrange
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      updateSpy.mockRejectedValueOnce(new Error('disk full'));
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      // Act / Assert
+      await expect(
+        source!.mutate('t.md', { fieldWrite: { key: 'effort', value: 'high' } }),
+      ).rejects.toThrow('disk full');
+    });
+  });
+
   describe('subscribe()', () => {
     it('registers a handler for every change event and fires it on emit', async () => {
       // Arrange
@@ -1245,5 +1506,22 @@ describe('buildTaskUpdates — time estimate write (U6)', () => {
   it('writes only the estimate — no other fields — for a bare estimate patch', () => {
     const updates = buildTaskUpdates({ estimate: 1440, estimateWrite: { kind: 'property', key: 'est' } });
     expect(updates).toEqual({ est: 1440 });
+  });
+});
+
+describe('buildTaskUpdates — generic field write (U2)', () => {
+  it('lands the value as a top-level key by frontmatter key (not nested under userFields)', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'effort', value: 'high' } });
+    expect(updates).toEqual({ effort: 'high' });
+  });
+
+  it('a null value clears the property', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'effort', value: null } });
+    expect(updates).toEqual({ effort: null });
+  });
+
+  it('an empty list value writes []', () => {
+    const updates = buildTaskUpdates({ fieldWrite: { key: 'contexts', value: [] } });
+    expect(updates).toEqual({ contexts: [] });
   });
 });

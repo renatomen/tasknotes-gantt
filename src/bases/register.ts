@@ -23,7 +23,6 @@ import { writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
-import { GanttTaskListView } from './views/GanttTaskListView';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
@@ -34,11 +33,13 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
-import { type FetchedFileMeta } from './propertyValues';
+import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
+import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
+import { resolveGridCellEditors } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
@@ -63,6 +64,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -70,7 +72,6 @@ import {
   readTimeEstimateMode,
   isProgressReadonly,
   isTimeEstimateWriteEnabled,
-  taskListViewOptions,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 
@@ -98,12 +99,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import {
-  entriesSignature,
-  frontmatterSignatureKeys,
-  progressModeSignatureTag,
-  entryValueSignature,
-} from './entrySignature';
+import { composeEntrySignature, type SignatureEntry } from './entrySignature';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -119,7 +115,7 @@ export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConf
 // ============================================================================
 
 const VIEW_TYPE_ID = 'obsidianGantt';
-const VIEW_NAME = 'Gantt (OG)';
+const VIEW_NAME = 'TaskNotes Gantt';
 const VIEW_ICON = 'calendar-range';
 
 /** Ephemeral state for preserving view state across refreshes */
@@ -307,7 +303,6 @@ class ObsidianGanttBasesView extends BasesView {
     // Bases-internal frames ⇒ autonomous re-notify; our-plugin frames ⇒ a feedback
     // loop. `new Error().stack` is EXPENSIVE per-event, so it is gated default-OFF
     // (set window.__tnGanttDebug=true) and capped — never always-on in production.
-    // See docs/solutions/developer-experience/no-heavy-diagnostics-on-hot-paths.md.
     if (isGanttDebugEnabled() && this.dbgDataUpdates <= 6) {
       dlog(`[OGDBG] onDataUpdated-stack #${this.dbgDataUpdates}:\n${(new Error('og:onDataUpdated-stack').stack ?? '').split('\n').slice(1, 12).join('\n')}`);
     }
@@ -383,46 +378,22 @@ class ObsidianGanttBasesView extends BasesView {
    * fields need no value read — a rename changes the path, already in the signature.
    */
   private computeEntrySignature(): string {
-    const entries = (this.data?.data ?? []) as ReadonlyArray<{ file?: { path?: string } }>;
-    const m = this.buildFieldMappings();
-    const fmKeys = frontmatterSignatureKeys([
-      m.startProperty,
-      m.endProperty,
-      m.progressProperty,
-      m.statusProperty,
-      m.priorityProperty,
-      m.parentProperty,
-      // The Time Estimate drives the bar span, so a matched entry's estimate edit
-      // must flip the signature and force a re-read — otherwise reuseTasks would
-      // skip it and the bar stays stale. Fold the controller's RESOLVED read key
-      // (view property, else TaskNotes' configured field) rather than the raw view
-      // mapping, so an edit to the TaskNotes-field fallback is observed too. Falls
-      // back to the raw mapping before the controller has resolved (first mount).
-      this.ganttController?.getEstimateReadKey() ?? m.timeEstimateProperty,
-    ]);
-    // In TaskNotes progress mode the bar value comes from the note's checklist
-    // (metadata-cache listItems), not frontmatter — so fold a checklist-completion
-    // fingerprint into the signature (U4/R5). Without it a checklist tick changes
-    // no frontmatter key, the signature wouldn't flip, and reuseTasks would skip
-    // the re-read, leaving the bar stale.
-    const tasknotesProgress = m.progressMode === 'tasknotes';
-    // Fold the resolved Progress mode into the signature so a mode switch always
-    // forces a re-read. Without it, a note with no checklist has an identical
-    // signature in both modes (its empty checklist fingerprint contributes
-    // nothing and the mapped property value is read in both), so its bar keeps
-    // the stale value until a manual refresh.
-    const modeTag = progressModeSignatureTag(m.progressMode);
-    if (fmKeys.length === 0 && !tasknotesProgress) {
-      return modeTag + entriesSignature(entries);
-    }
     const app = this.app;
-    return modeTag + entriesSignature(entries, (e) => {
-      const path = e.file?.path;
-      if (!path) return '';
-      const file = app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) return '';
-      const cache = app.metadataCache.getFileCache(file);
-      return entryValueSignature(fmKeys, cache?.frontmatter ?? null, cache?.listItems, tasknotesProgress);
+    return composeEntrySignature({
+      entries: (this.data?.data ?? []) as ReadonlyArray<SignatureEntry>,
+      // The LIVE view config: this runs BEFORE the refresh re-selects the source, so
+      // the controller's resolved mappings still describe the previous config.
+      viewMappings: this.buildFieldMappings(),
+      resolvedMappings: this.getEffectiveMappings(),
+      estimateReadKey: this.ganttController?.getEstimateReadKey() ?? null,
+      noteCacheOf: (entry) => {
+        const path = entry.file?.path;
+        if (!path) return null;
+        const file = app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) return null;
+        const cache = app.metadataCache.getFileCache(file);
+        return { frontmatter: cache?.frontmatter ?? null, listItems: cache?.listItems };
+      },
     });
   }
 
@@ -502,11 +473,15 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /**
-   * Build the FieldMappings from the current view config (OG-87).
+   * Build the RAW FieldMappings from the current view config — every unmapped field
+   * stays "unset" (empty).
    *
-   * start/end default to "unset" (empty): the controller then resolves them to
-   * TaskNotes' configured scheduled/due when TaskNotes is present, else to the
-   * legacy note.start/note.due (see GanttController.applyDateFieldMapping).
+   * This is the controller's input, not the resolved answer: the controller fills an
+   * unset field in from TaskNotes' configured property. Surfaces that must treat an
+   * unset field as the property it resolves to (cell editors, refresh signatures)
+   * read {@link getEffectiveMappings} instead. Read this one where the user's own
+   * choice is what matters — the progress/estimate write gates, which must not open
+   * an editor on a property the write path has no target for.
    */
   private buildFieldMappings(): FieldMappings {
     const get = (key: string) => this.config.get(key);
@@ -527,6 +502,21 @@ class ObsidianGanttBasesView extends BasesView {
     // whether a resize writes it back. Default `dont-update`.
     const timeEstimateMode = readTimeEstimateMode(get, { companionAvailable });
     return { ...base, progressMode, timeEstimateMode };
+  }
+
+  /**
+   * The field mappings as resolved by the active controller: the view config with
+   * every unset field filled in from TaskNotes' configured property. Read this
+   * wherever an unset field must behave as the property it resolves to (which editor
+   * a cell offers, which frontmatter keys a refresh watches) rather than as "no
+   * property at all".
+   *
+   * The controller only publishes these once source selection has run, so with no
+   * controller yet they degrade to the raw view config — every field then reads as
+   * the user left it, which is the same answer for a view that maps everything.
+   */
+  private getEffectiveMappings(): FieldMappings {
+    return this.ganttController?.getEffectiveMappings() ?? this.buildFieldMappings();
   }
 
   /**
@@ -560,6 +550,11 @@ class ObsidianGanttBasesView extends BasesView {
   /** Read the per-view "show toolbar" toggle (plan 002 R2); default off. */
   private getShowToolbar(): boolean {
     return readShowToolbar((key) => this.config.get(key));
+  }
+
+  /** Read the per-view "Highlight weekends" toggle; default on. */
+  private getHighlightWeekends(): boolean {
+    return readHighlightWeekends((key) => this.config.get(key));
   }
 
   /** Read the per-view max-height in px (plan 003 R1); default 400. */
@@ -748,6 +743,12 @@ class ObsidianGanttBasesView extends BasesView {
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch: TaskPatch) => controller.mutate(instanceId, patch),
+          // Inline cell-edit persistence: a committed grid editor value routes
+          // to the controller's property write (mapped fields via their
+          // resolved branches, user fields as a generic fieldWrite). Rejects
+          // without writing where the resolution refuses.
+          onMutateProperty: (instanceId: string, propertyId: string, value: unknown) =>
+            controller.mutateProperty(instanceId, propertyId, value),
           // FS dependency authoring (M2): drag-to-create / delete a link route to
           // the controller, which resolves both endpoints → source and writes
           // blockedBy through TaskNotes.
@@ -839,7 +840,7 @@ class ObsidianGanttBasesView extends BasesView {
         this.containerEl.empty();
         this.containerEl.createDiv({
           cls: 'og-bases-gantt-error',
-          text: 'Gantt (OG): Failed to render chart. See console for details.',
+          text: 'TaskNotes Gantt: Failed to render chart. See console for details.',
         });
       }
     }
@@ -848,12 +849,16 @@ class ObsidianGanttBasesView extends BasesView {
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors, priorityColors] = await Promise.all([
-      controller.getInstances(),
-      controller.getLinks(arrowMode),
-      controller.getStatusColors(),
-      controller.getPriorityColors(),
-    ]);
+    const [instances, links, statusColors, priorityColors, managedPaths, statusOptions, priorityOptions] =
+      await Promise.all([
+        controller.getInstances(),
+        controller.getLinks(arrowMode),
+        controller.getStatusColors(),
+        controller.getPriorityColors(),
+        controller.getManagedPaths(),
+        controller.getChoiceOptions('status'),
+        controller.getChoiceOptions('priority'),
+      ]);
     // Resolve the visible property columns once; share between the per-task
     // value map (U1) and the column descriptors (U2).
     const visiblePropIds = this.getVisiblePropertyIds();
@@ -866,11 +871,14 @@ class ObsidianGanttBasesView extends BasesView {
         obsidianWidget: (name) => getObsidianPropertyWidget(this.app, name),
         valueKind,
       });
+    // Snapshot the display locale ONCE per assembly pass and thread it down, so
+    // every cell of this pass (matched + fetched) formats dates identically.
+    const dateLocale = resolveDateLocale();
+    const cellDataContext = { extractor: this.gridAdapter, resolveRenderType, dateLocale };
     const { cellRenders, propertyValues } = buildCellData(
       this.data?.data ?? [],
       visiblePropIds,
-      this.gridAdapter,
-      resolveRenderType,
+      cellDataContext,
     );
     // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
     // result, so the matched-only maps above leave their grid cells blank. Fill
@@ -878,25 +886,16 @@ class ObsidianGanttBasesView extends BasesView {
     // back to empty). Matched rows already in the maps are never overwritten.
     if (visiblePropIds.length > 0) {
       const seen = new Set(propertyValues.keys());
-      const fetchedMetas: FetchedFileMeta[] = [];
-      for (const inst of instances) {
-        if (seen.has(inst.sourcePath)) continue;
-        seen.add(inst.sourcePath);
-        const file = this.app.vault.getAbstractFileByPath(inst.sourcePath);
-        if (!(file instanceof TFile)) continue;
-        fetchedMetas.push({
-          path: inst.sourcePath,
+      const fetchedMetas = collectFetchedFileMetas(instances, seen, (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) return null;
+        return {
           basename: file.basename,
           extension: file.extension,
           frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter ?? null,
-        });
-      }
-      const fetched = buildFetchedCellData(
-        fetchedMetas,
-        visiblePropIds,
-        this.gridAdapter,
-        resolveRenderType,
-      );
+        };
+      });
+      const fetched = buildFetchedCellData(fetchedMetas, visiblePropIds, cellDataContext);
       for (const [path, record] of fetched.cellRenders) cellRenders.set(path, record);
       for (const [path, record] of fetched.propertyValues) propertyValues.set(path, record);
     }
@@ -907,6 +906,31 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
+    // Per-column inline editors (inline cell editing): resolve each grid
+    // column's editor descriptor against the same mappings + writability the
+    // write path (`mutateProperty` → `resolvePropertyPatch`) enforces, so an
+    // editor is never offered where the write would refuse.
+    //
+    // Which property IS the status/start/… field comes from the controller's
+    // RESOLVED mappings, so a field left unset in the view settings offers the
+    // same editor as an explicitly selected one (it resolves to TaskNotes'
+    // configured property, and the write routes through that field's canonical
+    // branch). The progress/estimate writability gates stay on the RAW view
+    // config, mirroring the controller's write-target resolution: the resolved
+    // estimate property is a READ fallback with no write target in Property mode,
+    // so gating on it would open an editor the write path then refuses.
+    const viewMappings = this.buildFieldMappings();
+    const cellEditors = resolveGridCellEditors(gridColumns, {
+      taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
+      // Identity from the RESOLVED mappings; the progress/estimate write gates from the
+      // RAW view config (their resolved property is a read-only fallback with no write
+      // target). resolveGridCellEditors documents and tests the pairing.
+      mappings: this.getEffectiveMappings(),
+      progressWritable: !isProgressReadonly(viewMappings),
+      estimateWritable: isTimeEstimateWriteEnabled(viewMappings),
+      statusWritable: controller.isStatusWritable(),
+      priorityWritable: controller.isPriorityWritable(),
+    });
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     return {
@@ -916,6 +940,7 @@ class ObsidianGanttBasesView extends BasesView {
       arrowMode,
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
+      highlightWeekends: this.getHighlightWeekends(),
       // #161: read the SAME config key as before (UI + .base syntax unchanged), but
       // it now drives a view-level filter-tasks display filter, not the instance set.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
@@ -928,6 +953,7 @@ class ObsidianGanttBasesView extends BasesView {
       contextOpacity: this.getContextOpacity(),
       statusColors,
       priorityColors,
+      choiceOptions: { status: statusOptions, priority: priorityOptions },
       barColorMode: this.getBarColorMode(),
       barColorSource: this.getBarColorSource(),
       barIcon: this.getBarIcon(),
@@ -942,6 +968,9 @@ class ObsidianGanttBasesView extends BasesView {
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
+      dateLocale,
+      managedPaths,
+      cellEditors,
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
@@ -1064,22 +1093,6 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     console.info(`[Gantt] Registered Bases view: ${VIEW_NAME}`);
   } else {
     console.warn('[Gantt] Failed to register Bases view - Bases plugin may not be enabled');
-  }
-
-  // Register the TaskList view (text-based hierarchy view for testing)
-  const registeredTaskList = plugin.registerBasesView('obsidianGanttTaskList', {
-    name: 'Gantt TaskList (OG)',
-    icon: 'list-tree',
-    factory: (controller: QueryController, containerEl: HTMLElement) => {
-      return new GanttTaskListView(controller, containerEl);
-    },
-    options: (_config: BasesViewConfig): BasesAllOptions[] => taskListViewOptions(),
-  });
-
-  if (registeredTaskList) {
-    console.info('[Gantt] Registered Bases view: Gantt TaskList (OG)');
-  } else {
-    console.warn('[Gantt] Failed to register TaskList view - Bases plugin may not be enabled');
   }
 
   // Obsidian handles cleanup automatically via plugin lifecycle

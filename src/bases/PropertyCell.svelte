@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, MouseEvent */
+  /* global HTMLElement, MouseEvent, ResizeObserver, MutationObserver */
   /**
    * Generic type-aware grid cell.
    *
@@ -16,7 +16,13 @@
   import { Component, MarkdownRenderer } from 'obsidian';
   import type { App } from 'obsidian';
   import type { CellRender } from './cellRender';
-  import { GRID_APP_CONTEXT_KEY } from './gridContext';
+  import { resolveDateLocale } from './dateLocale';
+  import {
+    GRID_APP_CONTEXT_KEY,
+    GRID_DATE_LOCALE_CONTEXT_KEY,
+    GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
+    type GridEditableColumnsContext,
+  } from './gridContext';
   import { formatPropertyValue } from './propertyFormat';
   import type { TypedValue } from './propertyValues';
 
@@ -27,6 +33,10 @@
   let { row, column }: { row: any; column: any } = $props();
 
   const app = getContext<App | undefined>(GRID_APP_CONTEXT_KEY);
+  // The assembly pass's locale snapshot; a cell mounted without the container
+  // context re-resolves from the same source, so the two can't disagree.
+  const dateLocale =
+    getContext<string | undefined>(GRID_DATE_LOCALE_CONTEXT_KEY) ?? resolveDateLocale();
 
   const render = $derived(
     (row?.custom?.cellRenders as Record<string, CellRender> | undefined)?.[column.id as string],
@@ -38,6 +48,7 @@
   const fallbackText = $derived(
     formatPropertyValue(
       (row?.custom?.properties as Record<string, TypedValue> | undefined)?.[column.id as string],
+      dateLocale,
     ),
   );
 
@@ -45,7 +56,56 @@
   const displayText = $derived(render?.mode === 'text' ? render.text : fallbackText);
   const sourcePath = $derived((row?.custom?.sourceTaskId as string | undefined) ?? '');
 
+  // Editable-cell cue (inline cell editing): a text cursor marks cells whose
+  // column carries an inline editor AND whose row TaskNotes can persist —
+  // mirroring the editor-open gate, so the cue never points at a dead end.
+  const getEditableColumns = getContext<GridEditableColumnsContext | undefined>(
+    GRID_EDITABLE_COLUMNS_CONTEXT_KEY,
+  );
+  const isEditable = $derived(
+    !!row?.custom?.editable && !!getEditableColumns?.().has(column.id as string),
+  );
+
   let el: HTMLElement | undefined = $state();
+
+  // How many items a list cell holds (0 for non-list values). Read from the typed
+  // value's array length — the display forms differ from the raw entries but the
+  // count is the same.
+  const itemCount = $derived.by(() => {
+    const typed = (row?.custom?.properties as Record<string, TypedValue> | undefined)?.[
+      column.id as string
+    ];
+    return typed?.kind === 'list' ? (typed.value as string[]).length : 0;
+  });
+
+  // Whether the rendered content is clipped by the cell's ellipsis. Recomputed on
+  // column resize and when the async markdown render settles.
+  let overflowing = $state(false);
+  // A multi-item list whose content is truncated shows a total-count badge next to
+  // the ellipsis — the ellipsis signals "more", the count gives the precise total.
+  const showCount = $derived(overflowing && itemCount >= 2);
+
+  $effect(() => {
+    const node = el;
+    // Only a multi-item list can show the badge, so only those cells need the
+    // overflow observers — single links and plain cells skip the mount-time work.
+    if (!useMarkdown || !node || itemCount < 2) {
+      overflowing = false;
+      return;
+    }
+    const measure = (): void => {
+      overflowing = node.scrollWidth > node.clientWidth + 1;
+    };
+    const ro = new ResizeObserver(measure);
+    const mo = new MutationObserver(measure);
+    ro.observe(node);
+    mo.observe(node, { childList: true, subtree: true, characterData: true });
+    measure();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  });
 
   /** Open Obsidian's global search for a tag (mirrors a tag click in a note). */
   function openTagSearch(currentApp: App, tag: string): void {
@@ -59,7 +119,7 @@
       ).internalPlugins?.getPluginById?.('global-search')?.instance;
       gs?.openGlobalSearch?.(`tag:#${tag}`);
     } catch {
-      /* global search unavailable — no-op (never fall back to the row modal) */
+      /* Global-search plugin unavailable — no-op (never fall back to the row modal) */
     }
   }
 
@@ -141,9 +201,15 @@
 </script>
 
 {#if useMarkdown}
-  <span class="og-grid-cell og-grid-cell--md" title={fallbackText} bind:this={el}></span>
+  <span class="og-md-cell" title={fallbackText}>
+    <span class="og-grid-cell og-grid-cell--md" class:og-cell-editable={isEditable} bind:this={el}
+    ></span>
+    {#if showCount}<span class="og-count-badge" aria-hidden="true">{itemCount}</span>{/if}
+  </span>
 {:else}
-  <span class="og-grid-cell" title={displayText}>{displayText}</span>
+  <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
+    >{displayText}</span
+  >
 {/if}
 
 <style>
@@ -152,6 +218,33 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A markdown list cell: the rendered links clip with ellipsis (flex-1, min-width
+     0) and, when truncated, a total-count badge sits after them (flex-none). */
+  .og-md-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  .og-md-cell > .og-grid-cell--md {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .og-count-badge {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 0.75em;
+    line-height: 1.5;
+    background: var(--background-modifier-hover, rgba(127, 127, 127, 0.2));
+    color: var(--text-muted, var(--wx-color-font));
+    pointer-events: none;
+  }
+  .og-cell-editable {
+    cursor: text;
   }
   /* Markdown cells can hold multi-value/list content; clamp to the row so a
      rendered list or wrapping links can never grow the fixed SVAR row height

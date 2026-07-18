@@ -14,6 +14,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -21,7 +22,6 @@ import {
   readTimeEstimateMode,
   isProgressReadonly,
   isTimeEstimateWriteEnabled,
-  taskListViewOptions,
   DEFAULT_CONTEXT_OPACITY,
 } from "../../src/bases/viewOptions";
 import type { FieldMappings } from "../../src/bases/types/field-mapping";
@@ -78,6 +78,29 @@ describe("ganttViewOptions", () => {
       expect(toggle.type).toBe("toggle");
       expect(toggle).toMatchObject({ key, default: true });
     }
+  });
+
+  it("exposes the Highlight weekends toggle, defaulting on, in Timeline, in both modes", () => {
+    const toggle = byKey(options, "tngantt_highlightWeekends");
+    expect(toggle.type).toBe("toggle");
+    expect(toggle).toMatchObject({
+      type: "toggle",
+      displayName: "Highlight weekends",
+      key: "tngantt_highlightWeekends",
+      default: true,
+    });
+    const timeline = groupsOf(options).find((g) => g.displayName === "Timeline");
+    expect(timeline).toBeDefined();
+    expect(
+      timeline!.items.some((o) => "key" in o && o.key === "tngantt_highlightWeekends"),
+    ).toBe(true);
+    // Standalone (no TaskNotes) offers the toggle too — no companion dependency.
+    const standalone = ganttViewOptions(false);
+    expect(
+      flattenLeaves(standalone).some(
+        (o) => "key" in o && o.key === "tngantt_highlightWeekends",
+      ),
+    ).toBe(true);
   });
 
   it("exposes the show-toolbar toggle, defaulting off (plan 002 R2)", () => {
@@ -221,8 +244,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 8 Fields + 2 Progress + 3 Relationships
-    // + 6 Timeline + 8 Appearance = 27 (8 property + 9 dropdowns + 4 sliders + 5 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(27);
+    // + 7 Timeline + 8 Appearance = 28 (8 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(28);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -264,6 +287,7 @@ describe("ganttViewOptions", () => {
     ]);
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
+      "tngantt_highlightWeekends",
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
@@ -331,41 +355,6 @@ describe("ganttViewOptions", () => {
   });
 });
 
-describe("taskListViewOptions", () => {
-  const options = taskListViewOptions();
-
-  it("wraps the seven shared field-mapping property options in one Fields group", () => {
-    expect(options).toHaveLength(1);
-    const fields = groupsOf(options)[0];
-    expect(fields.displayName).toBe("Fields");
-    expect(fields.items.every((o) => o.type === "property")).toBe(true);
-    // TaskList keeps Progress Property in Fields (it has no Progress mode).
-    expect(fields.items.map((o) => ("key" in o ? o.key : undefined))).toEqual([
-      FIELD_MAPPING_KEYS.text,
-      FIELD_MAPPING_KEYS.start,
-      FIELD_MAPPING_KEYS.end,
-      FIELD_MAPPING_KEYS.progress,
-      FIELD_MAPPING_KEYS.parent,
-      FIELD_MAPPING_KEYS.status,
-      FIELD_MAPPING_KEYS.priority,
-    ]);
-  });
-
-  it("leaves the progress property unset by default (property-agnostic) with a guiding placeholder", () => {
-    const progress = byKey(options, FIELD_MAPPING_KEYS.progress);
-    expect(progress).toMatchObject({
-      type: "property",
-      displayName: "Progress Property",
-      default: "",
-      placeholder: "Select a progress property (0-100); optional",
-    });
-    expect(byKey(options, FIELD_MAPPING_KEYS.text)).toMatchObject({
-      default: "",
-      placeholder: "Select task name property (defaults to file name)",
-    });
-  });
-});
-
 describe("readShowToolbar", () => {
   it("defaults to false when the toggle is unset (R2 default off)", () => {
     expect(readShowToolbar(() => undefined)).toBe(false);
@@ -377,6 +366,23 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
+  });
+});
+
+describe("readHighlightWeekends", () => {
+  it("defaults to true when the toggle is unset (default on)", () => {
+    expect(readHighlightWeekends(() => undefined)).toBe(true);
+  });
+
+  it("is false only for an explicit boolean false", () => {
+    expect(readHighlightWeekends((k) => ({ tngantt_highlightWeekends: false })[k])).toBe(
+      false,
+    );
+    // Falsy-but-not-false and junk values keep the default-on behavior.
+    expect(readHighlightWeekends(() => "no")).toBe(true);
+    expect(readHighlightWeekends(() => 0)).toBe(true);
+    expect(readHighlightWeekends(() => null)).toBe(true);
+    expect(readHighlightWeekends(() => true)).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * Bases view-options builders for the Gantt and TaskList views.
+ * Bases view-options builders for the Gantt view.
  *
  * Originally extracted verbatim from the inline `options:` arrows in
  * `register.ts` so the option arrays can be unit-tested. The Gantt options are
@@ -21,10 +21,9 @@ import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 
 /**
- * The shared field-mapping property options. The Gantt view splits these across
- * its Fields group (six mappings) and Progress group (Progress Property); the
- * TaskList view wraps all seven as-is in a single Fields group. Kept as a flat
- * leaf array so each view composes its own grouping.
+ * The field-mapping property options. The Gantt view splits these across its
+ * Fields group (six mappings) and Progress group (Progress Property). Kept as a
+ * flat leaf array so the view composes its own grouping.
  */
 function sharedFieldMappingOptions(): BasesOptions[] {
   return [
@@ -230,6 +229,16 @@ function timelineOptions(): BasesOptions[] {
         month: 'Months',
       },
     },
+    // Weekend day-column shading. Default on — shading is the conventional
+    // reading of a gantt timeline; the toggle exists to opt out. Weekend days
+    // derive from the user's locale (see controller/availability). Sits in
+    // Timeline beside Default Scale: shading only renders at day/hour scales.
+    {
+      type: 'toggle',
+      displayName: 'Highlight weekends',
+      key: 'tngantt_highlightWeekends',
+      default: true,
+    },
     // Number → slider (the official Bases options union has no 'number' control;
     // 'slider' is the closest numeric input). Behavior-equivalent.
     {
@@ -427,8 +436,7 @@ export function ganttViewOptions(
   if (companionAvailable) {
     groups.push(group('Relationships', relationshipOptions()));
   }
-  groups.push(group('Timeline', timelineOptions()));
-  groups.push(group('Appearance', appearanceOptions()));
+  groups.push(group('Timeline', timelineOptions()), group('Appearance', appearanceOptions()));
   return groups;
 }
 
@@ -442,6 +450,17 @@ export function ganttViewOptions(
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+/**
+ * Read the per-view "Highlight weekends" toggle, defaulting to on. Off only for
+ * an explicit boolean `false` (the `!== false` contract `showDateIndicators`
+ * uses). Pure (no Obsidian/DOM); mirrors {@link readShowToolbar}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readHighlightWeekends(get: (key: string) => unknown): boolean {
+  return get('tngantt_highlightWeekends') !== false;
 }
 
 /**
@@ -644,12 +663,3 @@ export function readContextOpacity(get: (key: string) => unknown): number {
   return Math.min(1, Math.max(MIN_CONTEXT_OPACITY, pct / 100));
 }
 
-/**
- * The TaskList view's Bases view options: the shared field-mapping property
- * options wrapped in a single collapsible "Fields" group. Progress Property
- * stays here (the TaskList view has no Progress mode), so this view is one
- * Fields group over all seven mappings.
- */
-export function taskListViewOptions(): BasesAllOptions[] {
-  return [group('Fields', sharedFieldMappingOptions())];
-}

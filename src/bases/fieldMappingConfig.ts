@@ -2,12 +2,12 @@
  * Single source of truth for the plugin's field-mapping view-config keys and
  * how they are read from a Bases view config.
  *
- * Both the Bases options schema (`sharedOptions` in `register.ts`) and every
- * reader (the gantt view's `buildFieldMappings`, the task-list view's
- * `getFieldMappings`) reference these constants, so the `tngantt_`-prefixed key
- * names cannot drift between what the options UI writes and what a view reads.
- * That drift is exactly what caused the bug in PR #108 — see
- * docs/solutions/integration-issues/tasklist-view-tngantt-config-keys.md.
+ * Both the Bases options schema (`sharedOptions` in `register.ts`) and the
+ * gantt view's `buildFieldMappings` reference these constants, so the
+ * `tngantt_`-prefixed key names cannot drift between what the options UI writes
+ * and what the view reads. That drift once shipped silently: a rename updated the
+ * options schema and one reader but missed another, so every mapping in that view
+ * fell back to its default with no error — which is why the keys live here.
  *
  * @module bases/fieldMappingConfig
  */
@@ -39,10 +39,10 @@ export interface FieldMappingDefaults {
 
 /**
  * Default fallbacks: every property defaults to "unset" (empty). The plugins are
- * property-agnostic — they NEVER assume an Obsidian/TaskNotes property name. The
- * gantt controller resolves start/end from TaskNotes' field config when present
- * (see `GanttController.applyDateFieldMapping`); otherwise the user maps fields via
- * the view config. An unset property simply yields no value for that field.
+ * property-agnostic — they NEVER assume an Obsidian/TaskNotes property name. An
+ * unset property is resolved against TaskNotes' configured field when TaskNotes is
+ * present; otherwise the user maps fields via the view config. Unset on both sides
+ * simply yields no value for that field.
  */
 const BASE_DEFAULTS: FieldMappingDefaults = {
   textProperty: '',

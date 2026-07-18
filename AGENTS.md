@@ -16,6 +16,7 @@ Project guidelines for both AI agents and human collaborators. This is the alway
 This project uses the **compound-engineering** flow: brainstorm → plan → work → review.
 - Requirements live in `docs/brainstorms/`, plans in `docs/plans/`, durable learnings in `docs/solutions/`.
 - Check `docs/solutions/` for prior learnings before starting work in a documented area — organized by category (e.g. `integration-issues/`, `logic-errors/`) with YAML frontmatter (`module`, `tags`, `problem_type`) for searching.
+- Shared domain vocabulary lives in [`CONCEPTS.md`](CONCEPTS.md) (repo root) — entities, named processes, and status concepts with project-specific meaning; relevant when orienting or discussing domain terms.
 - **Deferred & residual work** is parked in [`docs/backlog.md`](docs/backlog.md) (not GitHub Issues, by choice while solo). Check it before starting new work; promote an entry to a GitHub issue when you pick it up, then delete it from the backlog. GitHub Issues = active work; the backlog = parked work.
 
 **Agent skills** — Pinned in `skills-lock.json` (committed); the fetched content lives in `.agents/skills/` and `.claude/skills/` (gitignored, like `node_modules`). Managed by the [`skills`](https://github.com/vercel-labs/skills) CLI. After a fresh clone, restore with:
@@ -35,7 +36,7 @@ npx skills add svar-widgets/skills --skill svar-svelte
 
 **TypeScript** — `strict` on, no `any`, interfaces for complex objects, barrel exports. Type Obsidian API interactions properly. → [typescript.md](docs/conventions/typescript.md)
 
-**Architecture** — Modular, low-coupling, dependency injection over globals. **Data adapters extract raw values; views format for display.** New to the `src/` tree? Start with the [source topology map](docs/architecture/overview.md). → [architecture.md](docs/conventions/architecture.md), [data-formatting.md](docs/conventions/data-formatting.md)
+**Architecture** — Modular, low-coupling, dependency injection over globals. **Data adapters extract raw values; views format for display.** **Calendar-domain semantics (dependencies, dates, availability, scheduling) must map losslessly to the iCalendar standards family (RFC 5545 / 7953 / 9253) at every boundary** — see [standards-alignment.md](docs/architecture/standards-alignment.md). New to the `src/` tree? Start with the [source topology map](docs/architecture/overview.md). → [architecture.md](docs/conventions/architecture.md), [data-formatting.md](docs/conventions/data-formatting.md)
 
 **Naming** — Code as communication: intention-revealing names, verb-based function names, no cryptic abbreviations, named constants over magic values. → [naming.md](docs/conventions/naming.md)
 

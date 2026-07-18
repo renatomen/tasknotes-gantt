@@ -116,4 +116,13 @@ describe("Gantt (OG) read-only render", () => {
     const firstScaleRow = await $(".og-bases-gantt .wx-scale .wx-row");
     await expect(firstScaleRow).toHaveText(expect.stringContaining("Q"));
   });
+
+  it("renders no weekend shading at coarse zoom (weekend AE3)", async () => {
+    // The fixture pins Months, so no day/hour cells exist — the highlightTime
+    // closure's unit gate must keep every cell (headers included) unshaded.
+    // Deterministic complement to the day-scale presence assertion in
+    // gantt-date-handling.e2e.ts.
+    const weekendCells = await $$(".og-bases-gantt .wx-weekend");
+    expect(weekendCells).toHaveLength(0);
+  });
 });

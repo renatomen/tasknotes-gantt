@@ -47,7 +47,7 @@ The Bases layer is broad; the load-bearing entry points are:
 
 - [register.ts](../../src/bases/register.ts) — `registerBasesGantt()`, the
   `ObsidianGanttBasesView` class (mount + **refresh-in-place** lifecycle, the #161
-  data-update-storm guards), and the TaskList view registration.
+  data-update-storm guards).
 - [GanttContainer.svelte](../../src/bases/GanttContainer.svelte) — the SVAR Gantt
   root; siblings `GanttToolbar`, `BarContent`, `PropertyCell`, `DependencyTooltip`.
 - [services/BasesDataAdapter.ts](../../src/bases/services/BasesDataAdapter.ts) —

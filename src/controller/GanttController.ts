@@ -64,6 +64,8 @@ import {
   resolveDateMapping,
   bareProperty,
   toNoteProperty,
+  type ChoiceOption,
+  type ChoiceRole,
   type DataSource,
   type DataSourceCapabilities,
   type DateWrite,
@@ -90,6 +92,7 @@ import {
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
 import { minutesToSpanDays } from './durationConversion';
+import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
@@ -357,6 +360,14 @@ export class GanttController {
     progressProperty: '',
   };
   /**
+   * Whether the mapped status/priority property is the one the backing system
+   * persists to — set in {@link selectSource}. False without a field config (no
+   * backing system to write through) and when the view maps the field to a property
+   * other than the backing system's own, which makes it read-only.
+   */
+  private statusWritable = false;
+  private priorityWritable = false;
+  /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getRelationshipIndex`
    * (TaskNotes present). `null` in standalone mode → no companion expansion.
@@ -376,6 +387,19 @@ export class GanttController {
   private relationshipIndex: RelationshipIndex | null = null;
   private readonly dependencyCache = new Map<string, SourceDependency[]>();
   private enrichmentDirty = true;
+  /**
+   * Task-identified paths, cached like the relationship index: the set only
+   * changes on a genuine TaskNotes data change (which flips `enrichmentDirty`),
+   * so plain Bases notifies reuse it instead of re-running a full task list.
+   */
+  private cachedManagedPaths: ReadonlySet<string> | null = null;
+  /**
+   * Restricted-choice value sets per role, cached like the managed paths: they
+   * only change on a genuine TaskNotes data/config change (which flips
+   * `enrichmentDirty`), so plain Bases notifies reuse them instead of re-reading
+   * the TaskNotes catalog.
+   */
+  private readonly cachedChoiceOptions = new Map<ChoiceRole, ChoiceOption[]>();
   /** [OGDBG #161 fix-prototype] last base tasks read, for the reuse experiment. */
   private cachedRawTasks: readonly SourceTask[] | null = null;
 
@@ -661,6 +685,40 @@ export class GanttController {
   }
 
   /**
+   * The active source's task-identified note paths (TaskNotes computes task
+   * identification per the user's tag/property configuration), or an empty set.
+   * The view reads this for per-row inline editability. Source-agnostic,
+   * mirroring {@link getStatusColors}. Cached across plain Bases notifies and
+   * invalidated with the other enrichment caches on a TaskNotes data change, so
+   * echo/config refreshes never re-run a full task list.
+   */
+  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+    if (this.cachedManagedPaths !== null) {
+      return this.cachedManagedPaths;
+    }
+    const paths = (await this.activeSource?.getManagedPaths?.()) ?? new Set<string>();
+    this.cachedManagedPaths = paths;
+    return paths;
+  }
+
+  /**
+   * The active source's configured value set for a restricted-choice role
+   * (TaskNotes statuses/priorities), or `[]`. The view reads this to build the
+   * status/priority cell pickers. Cached per role across plain Bases notifies
+   * and invalidated with the other enrichment caches on a TaskNotes data
+   * change, mirroring {@link getManagedPaths}.
+   */
+  public async getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+    const cached = this.cachedChoiceOptions.get(role);
+    if (cached) {
+      return cached;
+    }
+    const options = (await this.activeSource?.getChoiceOptions?.(role)) ?? [];
+    this.cachedChoiceOptions.set(role, options);
+    return options;
+  }
+
+  /**
    * Subscribe to snapshot changes. The listener fires whenever a recompute
    * produces a snapshot that differs (value-inequality) from the previous one —
    * source change events and reactive re-selection both flow through here.
@@ -712,6 +770,38 @@ export class GanttController {
       this.clearInFlight(context.correlationId);
       throw err;
     }
+  }
+
+  /**
+   * Persist a single property edit (inline cell edit) to the source task behind
+   * a render instance. Delegates resolution to {@link resolvePropertyPatch}: a
+   * property that IS one of the configured field mappings routes through its
+   * existing resolved branch (start/end via date write targets, text/status via
+   * their canonical fields, progress/estimate via their resolved targets), so
+   * the write always lands where the mapping says — never a hardcoded property
+   * name. Any other property becomes a generic {@link TaskPatch.fieldWrite} by
+   * bare key, which the source applies only to TaskNotes-managed rows
+   * (defensive row gate). Rejects (without writing) for non-note property ids
+   * (`file.*`/`formula.*`), value types a mapped field cannot accept, edits on
+   * a non-writable progress/estimate mapping, and canonical TaskNotes keys.
+   *
+   * @param instanceId - The render-row id being edited.
+   * @param propertyId - The edited column's property id (the caller supplies it).
+   * @param value - The raw new value; `null` clears, `[]` writes an empty list.
+   */
+  public async mutateProperty(
+    instanceId: string,
+    propertyId: string,
+    value: unknown,
+  ): Promise<void> {
+    const patch = resolvePropertyPatch(propertyId, value, {
+      mappings: this.effectiveMappings,
+      progressWritable: this.progressWriteTarget !== null,
+      estimateWritable: this.estimateWriteTarget !== null,
+      statusWritable: this.statusWritable,
+      priorityWritable: this.priorityWritable,
+    });
+    await this.mutate(instanceId, patch);
   }
 
   /**
@@ -926,6 +1016,8 @@ export class GanttController {
     this.progressWriteTarget = null;
     this.estimateWriteTarget = null;
     this.estimateReadKey = null;
+    this.statusWritable = false;
+    this.priorityWritable = false;
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -946,7 +1038,7 @@ export class GanttController {
       const fieldConfig = enrichment
         ? (await enrichment.getFieldConfig?.()) ?? null
         : null;
-      const effectiveMappings = this.applyDateFieldMapping(mappings, fieldConfig);
+      const effectiveMappings = this.applyFieldMappingDefaults(mappings, fieldConfig);
       // Remember the resolved mappings the source reads from: the default-view
       // interleave (buildSnapshot) inverts them to decide which Gantt field a Base
       // sort property corresponds to (never a hardcoded property name).
@@ -978,12 +1070,12 @@ export class GanttController {
       // timeEstimate field (note-prefixed). BasesSource reads matched entries from
       // this effective key; the resolver below reads companion-expanded tasks by
       // path from the same (bared) key.
-      const estimateReadKey =
-        (effectiveMappings.timeEstimateProperty ?? '').trim() !== ''
-          ? effectiveMappings.timeEstimateProperty!
-          : fieldConfig?.timeEstimateProp
-            ? toNoteProperty(fieldConfig.timeEstimateProp)
-            : null;
+      let estimateReadKey: string | null = null;
+      if ((effectiveMappings.timeEstimateProperty ?? '').trim() !== '') {
+        estimateReadKey = effectiveMappings.timeEstimateProperty!;
+      } else if (fieldConfig?.timeEstimateProp) {
+        estimateReadKey = toNoteProperty(fieldConfig.timeEstimateProp);
+      }
       // Expose the resolved key so the view folds it (not just the raw view
       // mapping) into the entry-refresh signature — otherwise a TaskNotes-field
       // estimate edit on a matched note leaves the signature unchanged and the
@@ -1021,7 +1113,7 @@ export class GanttController {
     }
     const { entries, mappings } = this.basesInput();
     // Apply the same legacy read defaults the bases-scoped no-config path uses.
-    return this.createBasesSource(this.app, entries, this.applyDateFieldMapping(mappings, null));
+    return this.createBasesSource(this.app, entries, this.applyFieldMappingDefaults(mappings, null));
   }
 
   /**
@@ -1089,13 +1181,22 @@ export class GanttController {
   }
 
   /**
-   * Resolve the Base's start/end property mappings against TaskNotes' field
-   * config: store the write targets, record validity/read-prop info, and return
-   * field mappings whose start/end **read** properties match the resolved
-   * targets (round-trip symmetry — R-D). With no field config, mappings pass
-   * through unchanged and no targets are set (writes pass start/end through).
+   * Resolve the Base's property mappings against TaskNotes' field config: store
+   * the date write targets, record validity/read-prop info, and return field
+   * mappings whose start/end **read** properties match the resolved targets
+   * (round-trip symmetry — R-D) and whose unset status/priority fall back to
+   * TaskNotes' configured properties.
+   *
+   * An unset mapping resolves to TaskNotes' own property, so it behaves exactly
+   * as if the user had selected it in the view settings — the value is read (and
+   * so drives bar color/icon treatments) and the write routes through the field's
+   * canonical branch rather than a generic fieldWrite, which `resolvePropertyPatch`
+   * refuses for canonical TaskNotes keys.
+   *
+   * With no field config, mappings pass through unchanged and no targets are set
+   * (writes pass start/end through).
    */
-  private applyDateFieldMapping(
+  private applyFieldMappingDefaults(
     mappings: FieldMappings,
     fieldConfig: FieldConfig | null,
   ): FieldMappings {
@@ -1106,10 +1207,10 @@ export class GanttController {
         startReadProp: null,
         endReadProp: null,
       };
-      // No TaskNotes field config (TaskNotes absent): no write targets. Read
-      // straight from the view-configured start/end properties — empty when the
-      // user mapped none. We do NOT assume note.start/note.due; the plugins are
-      // property-agnostic (a user's date field can be any property).
+      // No TaskNotes field config (TaskNotes absent): no write targets, and no
+      // property to default to. Read straight from the view-configured properties
+      // — empty when the user mapped none. We do NOT assume note.start/note.due;
+      // the plugins are property-agnostic (a user's field can be any property).
       return { ...mappings };
     }
 
@@ -1133,11 +1234,50 @@ export class GanttController {
       endReadProp: endRes.readProp,
     };
 
+    const statusProperty = resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp);
+    const priorityProperty = resolveMappedProperty(
+      mappings.priorityProperty,
+      fieldConfig.priorityProp,
+    );
+    // TaskNotes persists status/priority through ITS OWN configured property, so the
+    // canonical write only lands where the view reads when the two agree — which an
+    // unset mapping guarantees, since it resolves to exactly that property. A view
+    // pointed at a different property is READ-ONLY for that field: an editor there
+    // would write somewhere the edited column does not show.
+    this.statusWritable = writesToSameProperty(statusProperty, fieldConfig.statusProp);
+    this.priorityWritable = writesToSameProperty(priorityProperty, fieldConfig.priorityProp);
+
     return {
       ...mappings,
       startProperty: toNoteProperty(startRes.readProp),
       endProperty: toNoteProperty(endRes.readProp),
+      statusProperty,
+      priorityProperty,
     };
+  }
+
+  /** Whether an inline edit of the mapped status property can persist where it is read. */
+  public isStatusWritable(): boolean {
+    return this.statusWritable;
+  }
+
+  /** Whether an inline edit of the mapped priority property can persist where it is read. */
+  public isPriorityWritable(): boolean {
+    return this.priorityWritable;
+  }
+
+  /**
+   * The resolved field mappings the active source reads from — the view config
+   * with every unset field filled in from TaskNotes' configuration. Empty before
+   * {@link init}. Surfaces read this (rather than the raw view config) so an
+   * unset field is treated as the property it actually resolves to.
+   *
+   * Copied on read: selection keeps mutating the controller's own object (the
+   * estimate read key lands late), so handing out the reference would let a caller's
+   * assignment silently change what the source reads and where a write lands.
+   */
+  public getEffectiveMappings(): FieldMappings {
+    return { ...this.effectiveMappings };
   }
 
   /**
@@ -1316,6 +1456,8 @@ export class GanttController {
     if (this.enrichmentDirty) {
       this.relationshipIndex = null;
       this.dependencyCache.clear();
+      this.cachedManagedPaths = null;
+      this.cachedChoiceOptions.clear();
       this.enrichmentDirty = false;
     }
 
@@ -1460,6 +1602,32 @@ export class GanttController {
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
   return { expansion: expandInstances([]), sourceLinks: [], matchedEdgesResolved: false };
+}
+
+/**
+ * Resolve the property a field mapping reads: the view's own mapping when it sets
+ * one, else the backing system's configured property (note-prefixed to a Bases
+ * property id). Unset on both sides stays unset — no property name is assumed.
+ */
+function resolveMappedProperty(
+  configured: string | undefined,
+  fallbackProp: string | null,
+): string | undefined {
+  if ((configured ?? '').trim() !== '') return configured;
+  const fallback = (fallbackProp ?? '').trim();
+  return fallback !== '' ? toNoteProperty(fallback) : configured;
+}
+
+/**
+ * Whether a canonical write to the backing system's field would land on the very
+ * property the view reads — the only case where the round trip is symmetric, so the
+ * only case an inline edit may be offered. An unconfigured backing field (`null`)
+ * has nowhere to write, so it is never writable.
+ */
+function writesToSameProperty(readProperty: string | undefined, backingProp: string | null): boolean {
+  const backing = (backingProp ?? '').trim();
+  if (backing === '') return false;
+  return bareProperty(readProperty) === backing;
 }
 
 /**

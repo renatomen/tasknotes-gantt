@@ -247,6 +247,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     endProperty?: string;
     progressProperty?: string;
     progressMode?: 'tasknotes' | 'property';
+    statusProperty?: string;
+    priorityProperty?: string;
     timeEstimateProperty?: string;
     timeEstimateMode?: 'dont-update' | 'tasknotes' | 'property';
     fieldConfig?: FieldConfig | null;
@@ -265,6 +267,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
           endProperty: opts.endProperty,
           progressProperty: opts.progressProperty,
           progressMode: opts.progressMode,
+          statusProperty: opts.statusProperty,
+          priorityProperty: opts.priorityProperty,
           timeEstimateProperty: opts.timeEstimateProperty,
           timeEstimateMode: opts.timeEstimateMode,
         } as FieldMappings,
@@ -416,6 +420,136 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.getEstimateReadKey()).toBe('note.estimate');
   });
 
+  it('defaults an unset status/priority mapping to TaskNotes’ configured properties', async () => {
+    const { controller, getBaseMappings } = makeBasesScoped({
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    // The source READS from the resolved properties, so status/priority values —
+    // and the bar color/icon treatments they drive — work with the view mapping left
+    // empty, exactly as if the user had picked the property themselves.
+    expect(getBaseMappings()?.statusProperty).toBe('note.status');
+    expect(getBaseMappings()?.priorityProperty).toBe('note.priority');
+    expect(controller.getEffectiveMappings().statusProperty).toBe('note.status');
+    expect(controller.getEffectiveMappings().priorityProperty).toBe('note.priority');
+  });
+
+  it('honors a TaskNotes-remapped status property when the view mapping is unset', async () => {
+    const { controller } = makeBasesScoped({
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'tn_state',
+        priorityProp: null,
+      },
+    });
+    await controller.init();
+
+    expect(controller.getEffectiveMappings().statusProperty).toBe('note.tn_state');
+    // TaskNotes configures no priority property → nothing to default to, so it stays
+    // unset rather than resolving to a property name we invented.
+    expect(controller.getEffectiveMappings().priorityProperty).toBeUndefined();
+  });
+
+  it('treats a status/priority property mapped away from TaskNotes own field as read-only', async () => {
+    const { controller } = makeBasesScoped({
+      statusProperty: 'note.state',
+      priorityProperty: 'note.urgency',
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    // TaskNotes would persist the canonical write to `status`/`priority`, not to the
+    // properties this view reads — so the fields are read-only rather than silently
+    // writing where the user cannot see it.
+    expect(controller.isStatusWritable()).toBe(false);
+    expect(controller.isPriorityWritable()).toBe(false);
+    await expect(controller.mutateProperty('child.md', 'note.state', 'done')).rejects.toThrow();
+  });
+
+  it('treats an unset status/priority mapping as writable (it resolves to TaskNotes own field)', async () => {
+    const { controller } = makeBasesScoped({
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    expect(controller.isStatusWritable()).toBe(true);
+    expect(controller.isPriorityWritable()).toBe(true);
+  });
+
+  it('refuses an estimate write on the resolved read property when no write target is mapped', async () => {
+    // The resolved estimate property is a READ fallback: in Property mode with no
+    // estimate property mapped there is nowhere to write it. The editor gate keys off
+    // the raw view config for exactly this reason — resolving it would offer a picker
+    // the write path then refuses.
+    const { controller } = makeBasesScoped({
+      timeEstimateMode: 'property',
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: 'estimate',
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    expect(controller.getEffectiveMappings().timeEstimateProperty).toBe('note.estimate');
+    await expect(controller.mutateProperty('child.md', 'note.estimate', 60)).rejects.toThrow();
+  });
+
+  it('keeps an explicit view status/priority mapping over TaskNotes’ configured properties', async () => {
+    const { controller } = makeBasesScoped({
+      statusProperty: 'note.mystate',
+      priorityProperty: 'note.myurgency',
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: null,
+        statusProp: 'status',
+        priorityProp: 'priority',
+      },
+    });
+    await controller.init();
+
+    expect(controller.getEffectiveMappings().statusProperty).toBe('note.mystate');
+    expect(controller.getEffectiveMappings().priorityProperty).toBe('note.myurgency');
+  });
+
+  it('leaves status/priority unset with no field config (standalone stays property-agnostic)', async () => {
+    const { controller, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
+    await controller.init();
+
+    expect(getBaseMappings()?.statusProperty).toBeUndefined();
+    expect(controller.getEffectiveMappings().statusProperty).toBeUndefined();
+  });
+
   it('forces read-only (no writes) when there is no field config; date props pass through unchanged (no hardcoded fallback) (R-F)', async () => {
     const { controller, enrichment, getBaseMappings } = makeBasesScoped({ fieldConfig: null });
     await controller.init();
@@ -430,6 +564,186 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     expect(controller.capabilities.write).toBe(false);
     await expect(controller.mutate('child.md', { start: new Date(2026, 5, 1) })).rejects.toThrow();
     expect(enrichment.mutateCalls).toHaveLength(0);
+  });
+
+  describe('mutateProperty — generic field writes (U2)', () => {
+    it('routes an unmapped property to a resolved fieldWrite by bare frontmatter key', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.effort', 'high');
+
+      expect(enrichment.mutateCalls).toHaveLength(1);
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.fieldWrite).toEqual({ key: 'effort', value: 'high' });
+      expect(patch.dateWrites).toBeUndefined();
+      expect(patch.status).toBeUndefined();
+    });
+
+    it('routes an edit on the mapped start property through the resolved date target, not a raw key write', async () => {
+      const { controller, enrichment } = makeBasesScoped({ startProperty: 'note.start' });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.start', new Date(2026, 5, 1));
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.dateWrites).toEqual([
+        { target: { kind: 'userField', key: 'start', id: 'uf_start' }, value: new Date(2026, 5, 1) },
+      ]);
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('routes an edit on the mapped status property through the canonical status branch (FieldMappings, not a hardcoded name)', async () => {
+      // The view names the same property TaskNotes persists to — the only mapping an
+      // edit may take, since the canonical write lands on TaskNotes' own field. The
+      // property is `state`, not `status`, so the routing still proves it follows the
+      // mapping rather than a hardcoded name.
+      const { controller, enrichment } = makeBasesScoped({
+        statusProperty: 'note.state',
+        fieldConfig: {
+          scheduledProp: 'scheduled',
+          dueProp: 'due',
+          dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+          timeEstimateProp: null,
+          statusProp: 'state',
+          priorityProp: 'priority',
+        },
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.state', 'done');
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.status).toBe('done');
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('routes an edit on an UNSET status mapping through the canonical status branch (TaskNotes default)', async () => {
+      // Without the default resolution the key would fall to a generic fieldWrite,
+      // which is refused outright as a canonical TaskNotes key — so the edit could
+      // never persist, no matter what the editor offered.
+      const { controller, enrichment } = makeBasesScoped({
+        fieldConfig: {
+          scheduledProp: 'scheduled',
+          dueProp: 'due',
+          dateFields: [],
+          timeEstimateProp: null,
+          statusProp: 'status',
+          priorityProp: 'priority',
+        },
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.status', 'done');
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.status).toBe('done');
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('routes an edit on an UNSET priority mapping through the canonical priority branch', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        fieldConfig: {
+          scheduledProp: 'scheduled',
+          dueProp: 'due',
+          dateFields: [],
+          timeEstimateProp: null,
+          statusProp: 'status',
+          priorityProp: 'priority',
+        },
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.priority', 'high');
+
+      const patch = enrichment.mutateCalls[0]!.patch;
+      expect(patch.priority).toBe('high');
+      expect(patch.fieldWrite).toBeUndefined();
+    });
+
+    it('passes a null value through the fieldWrite (property clear)', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.effort', null);
+
+      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'effort', value: null });
+    });
+
+    it('passes an empty list value through the fieldWrite', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.labels', []);
+
+      expect(enrichment.mutateCalls[0]!.patch.fieldWrite).toEqual({ key: 'labels', value: [] });
+    });
+
+    it('rejects a non-note property id without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await expect(controller.mutateProperty('child.md', 'file.name', 'x')).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('refuses a fieldWrite to a canonical TaskNotes TaskInfo key without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({});
+      await controller.init();
+
+      await expect(controller.mutateProperty('child.md', 'note.contexts', [])).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('resolves a Property-mode progress cell edit through the progress branch', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'property',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await controller.mutateProperty('child.md', 'note.percent', 80);
+
+      expect(enrichment.mutateCalls).toHaveLength(1);
+      expect(enrichment.mutateCalls[0]!.patch.progress).toBe(80);
+      expect(enrichment.mutateCalls[0]!.patch.progressWrite).toEqual({ key: 'percent' });
+    });
+
+    it('fails CLOSED on a progress cell edit in TaskNotes mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        progressMode: 'tasknotes',
+        progressProperty: 'note.percent',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.percent', 80),
+      ).rejects.toThrow(/not writable/);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('fails CLOSED on an estimate cell edit in dont-update mode — rejects, zero writes (no phantom success)', async () => {
+      const { controller, enrichment } = makeBasesScoped({
+        timeEstimateMode: 'dont-update',
+        timeEstimateProperty: 'note.estimate',
+      });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.estimate', 4320),
+      ).rejects.toThrow(/not writable/);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
+
+    it('rejects a non-Date value for a mapped date property without writing', async () => {
+      const { controller, enrichment } = makeBasesScoped({ startProperty: 'note.start' });
+      await controller.init();
+
+      await expect(
+        controller.mutateProperty('child.md', 'note.start', 'tomorrow'),
+      ).rejects.toThrow(TypeError);
+      expect(enrichment.mutateCalls).toHaveLength(0);
+    });
   });
 });
 

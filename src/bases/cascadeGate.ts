@@ -10,6 +10,9 @@
  * - {@link normalizeCascadeMode} — resolve the per-view mode (default `ask`).
  * - {@link classifyUpdateEvent} — user gesture vs our echo vs programmatic
  *   refresh vs a SVAR action-tagged event vs unknown.
+ * - {@link classifyCellEdit} / {@link classifyUpdateGesture} — recognize an
+ *   inline grid cell edit (value-diff against the stored properties) so it
+ *   never misroutes into the reschedule path.
  * - {@link computeMoveExtensions} — every NON-moved ancestor that the moved
  *   tasks now exceed, extend-only, deduped by source note. Works tree-wide: for
  *   each non-moved ancestor it unions the new ranges of the moved tasks beneath
@@ -20,6 +23,13 @@
  *
  * @module bases/cascadeGate
  */
+
+import {
+  classifyTypedValue,
+  EMPTY_TYPED_VALUE,
+  listsEqual,
+  type TypedValue,
+} from './propertyValues';
 
 /** Per-view cascade behavior. */
 export type CascadeMode = 'ask' | 'auto' | 'never';
@@ -318,6 +328,131 @@ export function classifyUpdateEvent(
   if (source == null) return 'user-gesture';
   if (CASCADE_EVENT_SOURCES.has(source)) return 'action';
   return 'ignore';
+}
+
+/**
+ * How a committed inline grid cell edit should be treated. `cell-edit-ambiguous`
+ * means more than one configured column diffs from the stored values, so the
+ * freshly-edited column cannot be told apart from a stale committed flat key
+ * over an externally-changed note — callers must not write (and should reseed
+ * the grid from the store instead).
+ */
+export type CellEditClass =
+  | { kind: 'cell-edit'; columnId: string; value: unknown }
+  | { kind: 'cell-edit-noop' }
+  | { kind: 'cell-edit-ambiguous' };
+
+/** An `update-task` event class with the cell-edit gestures folded in. */
+export type UpdateGesture = { kind: UpdateEventClass } | CellEditClass;
+
+/**
+ * SVAR's grid bridge coerces a numeric-looking edited string to a number before
+ * emitting, so a committed `"2026"` arrives as `2026` while the stored value
+ * stays text — same string form means nothing actually changed.
+ */
+function numberMatchesText(a: TypedValue, b: TypedValue): boolean {
+  return a.kind === 'number' && b.kind === 'text' && String(a.value) === b.value;
+}
+
+/**
+ * SVAR's update-cell coercion (`v * 1`) also converts a boolean (`true`→1,
+ * `false`→0), so a flat 1/0 whose truth value matches the stored boolean is the
+ * unchanged form of it — a genuine flip (e.g. stored `false`, flat 1) still diffs.
+ */
+function numberMatchesBoolean(a: TypedValue, b: TypedValue): boolean {
+  return (
+    a.kind === 'number' &&
+    b.kind === 'boolean' &&
+    a.value === (b.value === true ? 1 : 0)
+  );
+}
+
+/**
+ * SVAR's update-cell coercion (`v * 1`) converts an empty array to 0, so a flat
+ * 0 against a stored EMPTY list means nothing changed; a non-empty stored list
+ * still diffs.
+ */
+function zeroMatchesEmptyList(a: TypedValue, b: TypedValue): boolean {
+  return (
+    a.kind === 'number' &&
+    a.value === 0 &&
+    b.kind === 'list' &&
+    (b.value as string[]).length === 0
+  );
+}
+
+function typedValuesEqual(a: TypedValue, b: TypedValue): boolean {
+  if (a.kind !== b.kind) {
+    return (
+      numberMatchesText(a, b) ||
+      numberMatchesText(b, a) ||
+      numberMatchesBoolean(a, b) ||
+      numberMatchesBoolean(b, a) ||
+      zeroMatchesEmptyList(a, b) ||
+      zeroMatchesEmptyList(b, a)
+    );
+  }
+  if (a.kind === 'date') return (a.value as Date).getTime() === (b.value as Date).getTime();
+  if (a.kind === 'list') return listsEqual(a.value as string[], b.value as string[]);
+  return a.value === b.value;
+}
+
+/**
+ * Classify a committed grid cell edit from an `update-task` payload, or `null`
+ * when the payload carries none of the configured column ids (a reschedule /
+ * progress gesture, not a cell edit).
+ *
+ * The grid's `update-cell` bridge emits a shallow copy of the WHOLE task with
+ * one flat `[columnId]` key set — the copy always carries `start`/`end`, and
+ * committed flat keys persist across edits, so neither date presence nor key
+ * presence identifies the edit. The edited column is instead the one whose flat
+ * value DIFFERS from the row's stored {@link TypedValue} (type-aware, so a
+ * bridge-coerced number still matches its stored string form). Zero diffs mean
+ * the user re-committed the current value — a no-op the caller must not write.
+ * Should MORE THAN ONE key diff (a stale committed flat key alongside an
+ * externally-changed note), the edit is `cell-edit-ambiguous`: picking either
+ * key could write the stale flat value back over the external change and drop
+ * the user's edit, so the caller must not write and should reseed instead.
+ */
+export function classifyCellEdit(
+  taskCopy: Readonly<Record<string, unknown>> | undefined,
+  columnIds: ReadonlyArray<string>,
+  storedProperties: Readonly<Record<string, TypedValue>> | undefined,
+): CellEditClass | null {
+  if (!taskCopy) return null;
+  let sawColumnKey = false;
+  let edited: CellEditClass | null = null;
+  for (const columnId of columnIds) {
+    if (!(columnId in taskCopy)) continue;
+    sawColumnKey = true;
+    const flat = classifyTypedValue(taskCopy[columnId]);
+    const stored = storedProperties?.[columnId] ?? EMPTY_TYPED_VALUE;
+    if (typedValuesEqual(flat, stored)) continue;
+    if (edited) return { kind: 'cell-edit-ambiguous' };
+    edited = { kind: 'cell-edit', columnId, value: taskCopy[columnId] };
+  }
+  if (!sawColumnKey) return null;
+  return edited ?? { kind: 'cell-edit-noop' };
+}
+
+/**
+ * {@link classifyUpdateEvent} with cell-edit detection folded in. Echo, syncing,
+ * action, and ignore classifications keep precedence — only a plain user
+ * gesture is inspected for a cell edit, so a programmatic write carrying flat
+ * column keys can never masquerade as one.
+ */
+export function classifyUpdateGesture(
+  ev: { eventSource?: string | null; task?: Record<string, unknown> },
+  opts: {
+    echoSource: string;
+    syncing: boolean;
+    cellEditColumnIds: ReadonlyArray<string>;
+    storedProperties: Readonly<Record<string, TypedValue>> | undefined;
+  },
+): UpdateGesture {
+  const base = classifyUpdateEvent(ev, opts);
+  if (base !== 'user-gesture') return { kind: base };
+  return classifyCellEdit(ev.task, opts.cellEditColumnIds, opts.storedProperties) ?? { kind: 'user-gesture' };
 }
 
 /**

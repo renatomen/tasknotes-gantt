@@ -13,6 +13,10 @@ Structural guidelines for maintainable architecture.
 - Keep data, business logic, and presentation in distinct layers.
 - **Data adapters extract raw values; views format for display.** See [data-formatting.md](./data-formatting.md).
 
+## Standards alignment (calendar domain)
+
+- **Every calendar-domain semantic — dependencies, dates, availability, scheduling — must map losslessly to the iCalendar standards family (RFC 5545 / 7953 / 9253).** Internal models may be pragmatic; boundary shapes (persisted config, imports, subscriptions, exports) must have a documented standards mapping established when introduced, and proven with a test. Foundational statement + worked precedents: [standards-alignment.md](../architecture/standards-alignment.md).
+
 ## Error Handling
 
 - Use explicit error types instead of a generic `Error`.

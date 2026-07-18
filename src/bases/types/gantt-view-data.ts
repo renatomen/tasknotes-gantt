@@ -16,9 +16,10 @@ import type {
   RenderLink,
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
-import type { PriorityColor, StatusColor } from '../../datasource/types';
+import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
+import type { CellEditorDescriptor } from '../cellEditability';
 import type { TypedValue } from '../propertyValues';
 import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
@@ -41,6 +42,14 @@ export interface GanttData {
    * the toolbar without a remount — same treatment as {@link showDateIndicators}.
    */
   showToolbar: boolean;
+  /**
+   * Per-view "Highlight weekends" toggle. Flows through the reactive data path
+   * (not a static mount prop) so toggling the option live shows/hides the
+   * weekend shading without a remount — same treatment as {@link showToolbar}.
+   * The view reflects it as a root CSS class; the `highlightTime` seed prop
+   * itself stays fixed at mount. Default on.
+   */
+  highlightWeekends: boolean;
   /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
@@ -137,6 +146,35 @@ export interface GanttData {
    * a cell renders Obsidian markdown (wikilinks, tag pills) or conventional text.
    */
   cellRenders: Map<string, Record<string, CellRender>>;
+  /**
+   * The display-locale snapshot taken for this assembly pass. Every date the
+   * pass formatted (the `cellRenders` text) used it; the view hands it to grid
+   * cells (context) so their fallback formatting agrees with the pass.
+   */
+  dateLocale: string;
+  /**
+   * Source paths TaskNotes manages, resolved per assembly pass (inline cell
+   * editing). Rides `buildSvarTasks` onto each row as `custom.editable` so the
+   * grid offers editors only where TaskNotes can persist. Empty when TaskNotes
+   * is unavailable — every row read-only.
+   */
+  managedPaths: ReadonlySet<string>;
+  /**
+   * The configured restricted-choice value sets (TaskNotes statuses/priorities),
+   * resolved per assembly pass alongside the color palettes. The view builds the
+   * status/priority cell pickers from them; empty sets offer no picker (the
+   * cell stays read-only rather than opening an unconstrained editor). Optional
+   * so data assembled without a choice-capable source omits it cleanly.
+   */
+  choiceOptions?: { status: ChoiceOption[]; priority: ChoiceOption[] };
+  /**
+   * Per-column inline editor descriptors (inline cell editing), keyed by grid
+   * column id. Resolved per assembly pass from the field mappings + registered
+   * TaskNotes user fields ({@link import('../cellEditability').resolveCellEditor});
+   * a column absent here is read-only. The view attaches SVAR editors for the
+   * kinds it ships and gates each open on the row's `custom.editable`.
+   */
+  cellEditors: Map<string, CellEditorDescriptor>;
   /**
    * Grid column descriptors derived from the Base config (U2): name column
    * first, then the visible properties in order. The view turns these into SVAR

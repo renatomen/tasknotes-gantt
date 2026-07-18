@@ -321,6 +321,75 @@ describe("Gantt (OG) companion expansion + sorting", () => {
     const state = await readGanttState();
     expect(state.hostHeight).toBeGreaterThanOrEqual(112);
   });
+
+  it("does not collapse a parent when its row is drag-reordered (chevron still toggles)", async () => {
+    // SVAR's reorder gesture collapses a parent (startReorder) before dragging
+    // it, so a drag that begins on a parent cell used to fold the row. Drive the
+    // real gesture — a cell mousedown plus >5px of movement arms the helper — and
+    // assert the parent stays expanded, with a positive control that the gesture
+    // actually engaged (else the veto assertion would pass vacuously).
+    const dragParentCell = async (): Promise<{ armed: boolean; ghostVisible: boolean }> =>
+      browser.execute(() => {
+        const root = document.querySelector(".og-bases-gantt");
+        if (!root) return { armed: false, ghostVisible: false };
+        const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+        const row = Array.from(root.querySelectorAll<HTMLElement>(".wx-table [data-id]")).find(
+          (el) => strip(el.getAttribute("data-id") ?? "") === "Project A.md",
+        );
+        const cell = Array.from(row?.querySelectorAll<HTMLElement>(".wx-cell") ?? []).find(
+          (c) => !c.querySelector(".wx-toggle-icon"),
+        );
+        if (!cell) return { armed: false, ghostVisible: false };
+        const rect = cell.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const at = (y: number) => ({ bubbles: true, button: 0, clientX: x, clientY: y });
+        cell.dispatchEvent(new window.MouseEvent("mousedown", at(rect.top + 4)));
+        cell.dispatchEvent(new window.MouseEvent("mousemove", at(rect.top + 30)));
+        cell.dispatchEvent(new window.MouseEvent("mousemove", at(rect.top + 60)));
+        const ghost = root.querySelector<HTMLElement>(".wx-table .wx-reorder-task");
+        const result = {
+          armed: !!ghost,
+          ghostVisible: !!ghost && window.getComputedStyle(ghost).display !== "none",
+        };
+        cell.dispatchEvent(new window.MouseEvent("mouseup", at(rect.top + 60)));
+        return result;
+      });
+
+    const drag = await dragParentCell();
+    expect(drag.armed).toBe(true); // positive control: the reorder gesture engaged
+    expect(drag.ghostVisible).toBe(false); // the drag ghost is hidden, not snapping back
+    await browser.pause(300);
+    expect(missingNames((await readGanttState()).ids)).toEqual([]); // parent stayed expanded
+
+    // The chevron still toggles: collapse hides Project A's subtree...
+    const clickChevron = async (): Promise<boolean> =>
+      browser.execute(() => {
+        const root = document.querySelector(".og-bases-gantt");
+        const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+        const row = Array.from(root?.querySelectorAll<HTMLElement>(".wx-table [data-id]") ?? []).find(
+          (el) => strip(el.getAttribute("data-id") ?? "") === "Project A.md",
+        );
+        const chevron = row?.querySelector<HTMLElement>(".wx-toggle-icon");
+        if (!chevron) return false;
+        chevron.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+        chevron.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+        chevron.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0 }));
+        return true;
+      });
+
+    expect(await clickChevron()).toBe(true);
+    await browser.waitUntil(
+      async () => instancesOf((await readGanttState()).ids, "Sub A1.md") === 0,
+      { timeout: 10000, timeoutMsg: "Chevron click did not collapse Project A" },
+    );
+
+    // ...and expand restores every instance (also restores the suite invariant).
+    expect(await clickChevron()).toBe(true);
+    await browser.waitUntil(
+      async () => missingNames((await readGanttState()).ids).length === 0,
+      { timeout: 10000, timeoutMsg: "Chevron click did not re-expand Project A" },
+    );
+  });
 });
 
 describe("Gantt (OG) standalone mode does not expand", () => {

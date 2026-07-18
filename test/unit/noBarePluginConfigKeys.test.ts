@@ -3,7 +3,7 @@
  * through their `tngantt_` prefix.
  *
  * Background: PR #104 renamed every plugin Base-view config key to a
- * `tngantt_` prefix, but missed a second reader in GanttTaskListView, which
+ * `tngantt_` prefix, but a second reader (in the since-removed TaskList view)
  * silently read the bare keys the options UI no longer writes (PR #108). See
  * docs/solutions/integration-issues/tasklist-view-tngantt-config-keys.md.
  *

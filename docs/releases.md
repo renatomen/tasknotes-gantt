@@ -6,6 +6,9 @@ Release notes for TaskNotes Gantt, one file per version. Each entry lists what c
 
 ### Early versions (0.x) (current)
 
+- [0.1.0-beta.10](releases/0.1.0-beta.10.md)
+- [0.1.0-beta.9](releases/0.1.0-beta.9.md)
+- [0.1.0-beta.8](releases/0.1.0-beta.8.md)
 - [0.1.0-beta.7](releases/0.1.0-beta.7.md)
 - [0.1.0-beta.6](releases/0.1.0-beta.6.md)
 - [0.1.0-beta.5](releases/0.1.0-beta.5.md)

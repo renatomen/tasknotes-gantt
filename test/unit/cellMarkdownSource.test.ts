@@ -71,3 +71,18 @@ describe('buildCellMarkdownSource — empties', () => {
     expect(buildCellMarkdownSource([], TAGS)).toBe('');
   });
 });
+
+describe('buildCellMarkdownSource — value coercion', () => {
+  it('renders a primitive number/boolean value as its string form', () => {
+    expect(buildCellMarkdownSource(0, MD)).toBe('0');
+    expect(buildCellMarkdownSource(false, MD)).toBe('false');
+  });
+
+  it('drops an object-shaped value instead of rendering "[object Object]"', () => {
+    expect(buildCellMarkdownSource({ nested: 'value' }, MD)).toBe('');
+  });
+
+  it('drops object entries within a list, rendering only the primitives', () => {
+    expect(buildCellMarkdownSource(['[[Justin]]', { nested: 'value' }], MD)).toBe('[[Justin]]');
+  });
+});

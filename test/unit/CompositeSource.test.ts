@@ -295,10 +295,61 @@ describe('CompositeSource — status colors', () => {
     const composite = new CompositeSource(new FakeSource([]), null);
     expect(await composite.getStatusColors()).toEqual([]);
   });
+});
+
+describe('CompositeSource — managed paths', () => {
+  it('delegates getManagedPaths to the enrichment', async () => {
+    const enrichment = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getManagedPaths: async () => new Set(['tasks/a.md']),
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getManagedPaths()).toEqual(new Set(['tasks/a.md']));
+  });
+
+  it('returns an empty set when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getManagedPaths()).toEqual(new Set());
+  });
 
   it('returns [] when the enrichment exposes no getStatusColors', async () => {
     const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
     expect(await composite.getStatusColors()).toEqual([]);
+  });
+});
+
+describe('CompositeSource — choice options', () => {
+  const options = [{ value: 'open', label: 'Open' }];
+
+  it('delegates getChoiceOptions to the enrichment, forwarding the role', async () => {
+    const seen: string[] = [];
+    const enrichment = {
+      capabilities: { write: false },
+      getTasks: async () => [],
+      getDependencies: async () => [],
+      getChoiceOptions: async (role: string) => {
+        seen.push(role);
+        return options;
+      },
+    } as unknown as DataSource;
+    const composite = new CompositeSource(new FakeSource([]), enrichment);
+
+    expect(await composite.getChoiceOptions('status')).toEqual(options);
+    expect(await composite.getChoiceOptions('priority')).toEqual(options);
+    expect(seen).toEqual(['status', 'priority']);
+  });
+
+  it('returns [] when there is no enrichment', async () => {
+    const composite = new CompositeSource(new FakeSource([]), null);
+    expect(await composite.getChoiceOptions('status')).toEqual([]);
+  });
+
+  it('returns [] when the enrichment exposes no getChoiceOptions', async () => {
+    const composite = new CompositeSource(new FakeSource([]), new FakeSource([]));
+    expect(await composite.getChoiceOptions('priority')).toEqual([]);
   });
 });
 

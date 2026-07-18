@@ -34,7 +34,10 @@
 
 import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
+import { toYmd } from './dateFieldMapping';
 import type {
+  ChoiceOption,
+  ChoiceRole,
   CustomDateField,
   DataSource,
   DataSourceCapabilities,
@@ -429,6 +432,32 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * The note paths TaskNotes identifies as tasks. Identification is
+   * user-configurable (task tag OR a chosen property+value) and computed by
+   * TaskNotes — this consumes `api.tasks.list()` verbatim, never inferring
+   * taskness from tags or frontmatter. Empty set on any failure.
+   */
+  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+    try {
+      if (!this.api.tasks || typeof this.api.tasks.list !== 'function') {
+        return new Set();
+      }
+      const tasks = await this.api.tasks.list();
+      if (!Array.isArray(tasks)) {
+        return new Set();
+      }
+      const paths = new Set<string>();
+      for (const task of tasks) {
+        const path = (task as { path?: unknown }).path;
+        if (typeof path === 'string' && path !== '') paths.add(path);
+      }
+      return paths;
+    } catch {
+      return new Set();
+    }
+  }
+
+  /**
    * Read the `blockedBy` dependency edges for a task and map them to
    * {@link SourceDependency}.
    *
@@ -618,8 +647,61 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
-   * Read TaskNotes' configured date-field surface as a {@link FieldConfig}:
-   * the frontmatter property names for canonical `scheduled`/`due` (from
+   * Read TaskNotes' configured value set for a restricted-choice role as
+   * {@link ChoiceOption}s — the SAME catalog the color palettes come from
+   * (`api.catalog.statuses()`/`priorities()`, `model.config()` fallback), but
+   * keeping every entry with a usable `value` (a color is not required to be
+   * pickable) and carrying the display `label` (value fallback). Guarded → `[]`
+   * on any failure, so pickers degrade to "no editor offered".
+   */
+  public async getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+    try {
+      const raw =
+        role === 'status'
+          ? this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses
+          : this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      const options: ChoiceOption[] = [];
+      for (const entry of raw) {
+        if (entry && typeof entry.value === 'string' && entry.value.length > 0) {
+          options.push({
+            value: entry.value,
+            label:
+              typeof entry.label === 'string' && entry.label.length > 0
+                ? entry.label
+                : entry.value,
+          });
+        }
+      }
+      return options;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Map one TaskNotes userField to a {@link CustomDateField}, or `null` when it
+   * is not an enabled, keyed `date` field. A falsy entry (defensive against the
+   * API) is dropped; a missing `enabled` flag means active.
+   */
+  private toCustomDateField(f: TaskNotesUserField | null | undefined): CustomDateField | null {
+    if (!f || f.enabled === false || f.type !== 'date' || typeof f.key !== 'string' || f.key.length === 0) {
+      return null;
+    }
+    return {
+      key: f.key,
+      id: typeof f.id === 'string' ? f.id : f.key,
+      displayName:
+        typeof f.displayName === 'string' && f.displayName.length > 0 ? f.displayName : f.key,
+    };
+  }
+
+  /**
+   * Read TaskNotes' configured field surface as a {@link FieldConfig}: the
+   * frontmatter property names for the canonical fields the Gantt maps
+   * (`scheduled`/`due`/`status`/`priority`/`timeEstimate`, from
    * `model.config().fieldMapping`) and the enabled custom fields of type `date`
    * (from `model.config().userFields`). Custom fields without a `key` are
    * dropped (the key is how the property is addressed). Guarded: a missing or
@@ -634,32 +716,18 @@ export class TaskNotesSource implements DataSource {
       const fieldMapping = config.fieldMapping ?? {};
       const dateFields: CustomDateField[] = [];
       for (const f of config.userFields ?? []) {
-        if (
-          f &&
-          // Persisted TaskNotes userFields carry no `enabled` flag — their
-          // presence means active. Only exclude an explicit `enabled: false`.
-          f.enabled !== false &&
-          f.type === 'date' &&
-          typeof f.key === 'string' &&
-          f.key.length > 0
-        ) {
-          dateFields.push({
-            key: f.key,
-            id: typeof f.id === 'string' ? f.id : f.key,
-            displayName:
-              typeof f.displayName === 'string' && f.displayName.length > 0
-                ? f.displayName
-                : f.key,
-          });
-        }
+        const field = this.toCustomDateField(f);
+        if (field) dateFields.push(field);
       }
+      const configuredProp = (name: string): string | null =>
+        typeof fieldMapping[name] === 'string' ? fieldMapping[name] : null;
       return {
-        scheduledProp:
-          typeof fieldMapping.scheduled === 'string' ? fieldMapping.scheduled : null,
-        dueProp: typeof fieldMapping.due === 'string' ? fieldMapping.due : null,
+        scheduledProp: configuredProp('scheduled'),
+        dueProp: configuredProp('due'),
         dateFields,
-        timeEstimateProp:
-          typeof fieldMapping.timeEstimate === 'string' ? fieldMapping.timeEstimate : null,
+        timeEstimateProp: configuredProp('timeEstimate'),
+        statusProp: configuredProp('status'),
+        priorityProp: configuredProp('priority'),
       };
     } catch {
       return null;
@@ -715,6 +783,16 @@ export class TaskNotesSource implements DataSource {
     const tasks = this.api.tasks;
     if (!tasks || typeof tasks.update !== 'function') {
       throw new Error('TaskNotes API does not support task updates');
+    }
+
+    // Row gate: a fieldWrite grafts frontmatter onto whatever note
+    // `tasks.update` touches, so it may only land on a TaskNotes-managed row.
+    // Fails closed when task info cannot be resolved at all.
+    if (patch.fieldWrite) {
+      const info = typeof tasks.get === 'function' ? await tasks.get(path) : null;
+      if (!info) {
+        throw new Error(`Refusing field write: no TaskNotes task at ${path}`);
+      }
     }
 
     const updates = buildTaskUpdates(patch);
@@ -941,6 +1019,37 @@ export class TaskNotesSource implements DataSource {
 }
 
 /**
+ * Progress persistence: write only when a resolved `progressWrite` target is
+ * present AND a value is supplied. A bare `progress` with no target is never
+ * written — that guards TaskNotes progress mode (read-only/computed) and any
+ * no-target caller. The value is coalesced to an integer 0–100, written to the
+ * top-level frontmatter key, matching the custom user-field write path.
+ */
+function applyProgressWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
+  if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
+    updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  }
+}
+
+/**
+ * Time Estimate persistence: write only when a resolved `estimateWrite` target
+ * is present AND a value is supplied — a bare `estimate` with no target is never
+ * written (guards `dont-update` mode). The value is a rounded, non-negative
+ * integer (minutes). `tasknotesField` writes through TaskNotes' canonical
+ * `timeEstimate`; `property` writes the resolved frontmatter key.
+ */
+function applyEstimateWrite(updates: Record<string, unknown>, patch: TaskPatch): void {
+  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
+    const minutes = Math.max(0, Math.round(patch.estimate));
+    if (patch.estimateWrite.kind === 'tasknotesField') {
+      updates.timeEstimate = minutes;
+    } else {
+      updates[patch.estimateWrite.key] = minutes;
+    }
+  }
+}
+
+/**
  * Build the TaskNotes `tasks.update` field map from a {@link TaskPatch}.
  *
  * Only fields **present** in the patch are written, so a partial patch (e.g. a
@@ -975,26 +1084,17 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   if (patch.status !== undefined) {
     updates.status = patch.status;
   }
-  // Progress persistence (U6): write only when a resolved `progressWrite` target
-  // is present AND a value is supplied. A bare `progress` with no target is never
-  // written — that guards TaskNotes progress mode (read-only/computed) and any
-  // no-target caller. The value is coalesced to an integer 0–100 (R9). Written to
-  // the top-level frontmatter key, matching the custom user-field write path.
-  if (patch.progressWrite && typeof patch.progress === 'number' && Number.isFinite(patch.progress)) {
-    updates[patch.progressWrite.key] = clampProgressPercent(patch.progress);
+  if (patch.priority !== undefined) {
+    updates.priority = patch.priority;
   }
-  // Time Estimate persistence (U6): write only when a resolved `estimateWrite`
-  // target is present AND a value is supplied — a bare `estimate` with no target
-  // is never written (guards `dont-update` mode). The value is a rounded,
-  // non-negative integer (minutes). `tasknotesField` writes through TaskNotes'
-  // canonical `timeEstimate`; `property` writes the resolved frontmatter key.
-  if (patch.estimateWrite && typeof patch.estimate === 'number' && Number.isFinite(patch.estimate)) {
-    const minutes = Math.max(0, Math.round(patch.estimate));
-    if (patch.estimateWrite.kind === 'tasknotesField') {
-      updates.timeEstimate = minutes;
-    } else {
-      updates[patch.estimateWrite.key] = minutes;
-    }
+  applyProgressWrite(updates, patch);
+  applyEstimateWrite(updates, patch);
+  // Generic field write: verbatim under the resolved bare frontmatter key,
+  // top-level — TaskNotes' frontmatter writer reads custom user fields from
+  // `task[key]`, never a nested `userFields` object (confirmed vs 4.11.0).
+  // `null` clears the property (matching the date-clear convention).
+  if (patch.fieldWrite) {
+    updates[patch.fieldWrite.key] = patch.fieldWrite.value;
   }
 
   return updates;
@@ -1023,20 +1123,4 @@ function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): voi
   } else {
     updates[write.target.key] = value;
   }
-}
-
-/**
- * Format a `Date` as a `yyyy-MM-dd` calendar string using its **local**
- * components.
- *
- * The write path receives day-snapped, local-midnight `Date`s (from a SVAR drag
- * commit or a `yyyy-MM-dd` date input parsed locally). Using UTC here would
- * shift the day by one for users west of UTC, so local Y/M/D is the correct
- * basis — TaskNotes stores `scheduled`/`due` as calendar dates.
- */
-function toYmd(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }

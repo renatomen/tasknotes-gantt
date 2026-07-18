@@ -32,7 +32,7 @@ import {
 } from './barTreatment';
 import type { TypedValue } from './propertyValues';
 import { cellRenderKey, type CellRender } from './cellRender';
-import { formatPropertyValue } from './propertyFormat';
+import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 
 /**
@@ -123,6 +123,13 @@ export interface SvarTaskInputs {
    * on `open`, and the diff never fights a persisted collapse. Omitted → all open.
    */
   collapsedIds?: ReadonlySet<string>;
+  /**
+   * Source paths TaskNotes manages (inline cell editing). An instance whose
+   * `sourcePath` is in the set renders editable (`custom.editable`); rows backed
+   * by plain notes — and every row when omitted (TaskNotes absent, pure-task
+   * test contexts) — render read-only.
+   */
+  managedPaths?: ReadonlySet<string>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -193,14 +200,21 @@ export interface SvarTask {
      * must be precomputed here rather than read off the links at hover time.
      */
     incomingDeps: IncomingDep[];
+    /**
+     * The row's source note is TaskNotes-managed, so its cells may offer inline
+     * editors (per-row half of the editability model). `false` for rows backed
+     * by plain notes — the write path would refuse them.
+     */
+    editable: boolean;
   };
 }
 
 /**
- * Shape every render instance into a SVAR task (parents → `summary`/open, leaves
- * → `task` composed with the date-status flag and/or status-color class). Pure;
- * the result order follows `instances`. Replaces the old reactive `tasks`
- * `$derived` in the component verbatim, so rendering is unchanged.
+ * Shape every render instance into a SVAR task. Parents render as ordinary task
+ * bars at their own dates, NOT as SVAR summaries (see the rationale on the `type`
+ * composition below); hierarchy comes from `parent`/`open`. Each bar's `type` is
+ * composed from its state classes (date-status flag, color treatment). Pure; the
+ * result order follows `instances`.
  */
 export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   const {
@@ -216,10 +230,11 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     propertyValues,
     cellRenders,
     collapsedIds,
+    managedPaths,
   } = input;
   const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
-  // Which instance ids are referenced as a parent → mark them summary/open.
+  // Which instance ids are referenced as a parent → they render expanded (`open`).
   const parentIds = new Set<string>();
   for (const inst of instances) {
     if (inst.parent) parentIds.add(inst.parent);
@@ -337,6 +352,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         cellRenders: cellRenders?.get(inst.sourcePath) ?? {},
         // Incoming dependency edges for the tooltip (U3). `[]` when none.
         incomingDeps: incomingByTargetId.get(inst.id) ?? [],
+        editable: managedPaths?.has(inst.sourcePath) ?? false,
       },
     };
     if (inst.parent) task.parent = inst.parent;
@@ -406,10 +422,12 @@ export function taskStateKey(t: SvarTask): string {
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
     // Displayed property values (visible columns only — `properties` is already
-    // scoped to them). Fold the *formatted* strings, not the raw values: a raw
-    // Date/ISO-string/wrapper serializes non-deterministically and would make
-    // every refresh look like a change (re-render storm). The formatted output
-    // is stable, so a cell refreshes on an external edit without churn.
+    // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
+    // values: a raw Date/ISO-string/wrapper serializes non-deterministically and
+    // would make every refresh look like a change (re-render storm). The
+    // canonical formatter is locale-independent, so the display locale can never
+    // perturb this key; the locale-formatted cell text is folded separately via
+    // cellRendersKey, which re-issues the task when the rendered text changes.
     propertiesKey(t.custom.properties),
     // Rendered cell descriptors: fold the markdown source / text so an external
     // edit that changes what the cell renders (e.g. a wikilink target) re-issues
@@ -419,6 +437,9 @@ export function taskStateKey(t: SvarTask): string {
     // reltype/gap edit re-issues the task (the tooltip would otherwise go
     // stale — the task-side analogue of the gap-in-link-id fix, KTD6).
     incomingDepsKey(t.custom.incomingDeps),
+    // Row editability gates the inline editors; fold it so a note converted
+    // to/from a TaskNotes task re-issues the row with the right affordance.
+    t.custom.editable,
   ]);
 }
 
@@ -445,7 +466,7 @@ function propertiesKey(properties: Record<string, TypedValue> | undefined): stri
   if (!properties) return '';
   return Object.keys(properties)
     .sort((a, b) => a.localeCompare(b))
-    .map((k) => `${k}=${formatPropertyValue(properties[k])}`)
+    .map((k) => `${k}=${fingerprintPropertyValue(properties[k])}`)
     .join('|');
 }
 

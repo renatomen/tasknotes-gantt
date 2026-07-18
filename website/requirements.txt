@@ -1,0 +1,7 @@
+# Documentation site toolchain (Material for MkDocs).
+# Used by CI (.github/workflows/docs.yml) and for local preview:
+#   pip install -r website/requirements.txt
+#   mkdocs serve -f website/mkdocs.yml
+mkdocs-material>=9.5,<10
+# Clickable/zoomable content images (lightbox).
+mkdocs-glightbox>=0.4,<1

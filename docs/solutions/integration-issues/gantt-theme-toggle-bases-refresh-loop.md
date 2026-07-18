@@ -61,10 +61,15 @@ export function persistGridWidth(
 ): void {
   const next = nextPersistableWidth(rawWidth, currentPersisted);
   if (next === null) return;                        // unchanged → don't write → no re-render
-  try { set('tngantt_tableWidth', next); }
+  // STRING, not number: the key is surfaced as a Bases `text` option whose input binds a
+  // string. Writing a number leaves the option unable to bind it and Bases clears it to
+  // empty — so a divider drag would wipe the setting.
+  try { set(TABLE_WIDTH_KEY, String(next)); }
   catch (error) { console.warn('[Gantt] Failed to persist grid width:', error); }
 }
 ```
+
+The same module owns the seed read (`resolveInitialGridWidth`, clamped to a minimum width). It must never be fed back as `currentPersisted`: an unset view would then look "set to the fallback", and the unchanged-write guard above would be defeated.
 
 ```ts
 // src/bases/register.ts — onGridWidthChange becomes a one-line delegation

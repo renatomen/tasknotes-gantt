@@ -1,0 +1,111 @@
+site_name: TaskNotes Gantt Documentation
+site_url: https://tngantt.com/
+site_description: Interactive Gantt timeline for your TaskNotes tasks in Obsidian — setup guide and full feature reference.
+site_author: renatomen
+repo_name: renatomen/tasknotes-gantt
+repo_url: https://github.com/renatomen/tasknotes-gantt
+
+# The site sources live under website/; docs_dir resolves to website/docs so the
+# repo's engineering docs/ tree (plans, conventions, solutions) is never ingested.
+docs_dir: docs
+
+# Theme configuration cloned from tasknotes.dev (Material for MkDocs) so this
+# site reads as a sibling of the TaskNotes docs. Authoring stays pure Markdown.
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  font:
+    text: Lexend
+    code: JetBrains Mono
+  palette:
+  - media: "(prefers-color-scheme)"
+    primary: deep purple
+    accent: purple
+    toggle:
+      icon: material/brightness-auto
+      name: Switch to light mode
+  - media: "(prefers-color-scheme: light)"
+    scheme: default
+    primary: deep purple
+    accent: purple
+    toggle:
+      icon: material/brightness-7
+      name: Switch to dark mode
+  - media: "(prefers-color-scheme: dark)"
+    scheme: slate
+    primary: deep purple
+    accent: purple
+    toggle:
+      icon: material/brightness-4
+      name: Switch to system preference
+
+nav:
+  - Home: index.md
+  - Core Concepts: core-concepts.md
+  - Getting Started: getting-started.md
+  - Features:
+    - Chart controls: features/chart-controls.md
+    - Scheduling & dates: features/scheduling.md
+    - Dependencies: features/dependencies.md
+    - Parent / child roll-up: features/parent-child.md
+    - Colors, icons & weekends: features/appearance.md
+    - Editing tasks: features/editing.md
+    - Find & focus: features/find-focus.md
+  - Settings & View Options:
+    - Overview: settings/index.md
+    - Fields: settings/fields.md
+    - Progress: settings/progress.md
+    - Relationships: settings/relationships.md
+    - Timeline: settings/timeline.md
+    - Appearance: settings/appearance.md
+  - Troubleshooting: troubleshooting.md
+  - About:
+    - Vision & Philosophy: vision-and-philosophy.md
+    - Development Cadence: development-cadence.md
+    - Acknowledgements: acknowledgements.md
+
+# Adding `plugins:` disables the implicit default, so `search` is re-declared.
+plugins:
+  - search
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      zoomable: true
+      draggable: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra_css:
+  - stylesheets/extra.css

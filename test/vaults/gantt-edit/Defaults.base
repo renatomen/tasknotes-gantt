@@ -1,0 +1,18 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.name != "WS Alpha"'
+    - 'file.name != "WS Beta"'
+    - 'file.name != "Q3 Roadmap"'
+    - 'file.name != "Q3 Retro"'
+views:
+  - type: obsidianGantt
+    name: "Gantt (defaults)"
+    tngantt_barColorSource: status
+    tngantt_barIcon: status
+    order:
+      - file.name
+      - note.status
+      - note.priority
+      - note.scheduled
+      - note.due

@@ -104,6 +104,23 @@ export interface PriorityColor {
   icon?: string;
 }
 
+/** The restricted-choice roles a backing system configures value sets for. */
+export type ChoiceRole = 'status' | 'priority';
+
+/**
+ * One selectable value of a restricted-choice field (e.g. a TaskNotes custom
+ * status), sourced from the backing system's configuration. `value` is what is
+ * stored/persisted (matches {@link SourceTask.status}/{@link SourceTask.priority});
+ * `label` is the human-readable form for pickers. Unlike {@link StatusColor}
+ * this carries no color — it feeds editors, not bar styling.
+ */
+export interface ChoiceOption {
+  /** The stored value string. */
+  value: string;
+  /** Display label (falls back to the value when unconfigured). */
+  label: string;
+}
+
 /**
  * A custom (user-defined) date field exposed by the backing system, addressable
  * by its frontmatter `key`. `id` is the system's internal field id (some write
@@ -119,12 +136,15 @@ export interface CustomDateField {
 }
 
 /**
- * The backing system's (TaskNotes') configured date-field surface, used to map
- * the Gantt's start/end roles to concrete write targets and to populate/validate
- * the Bases config. `scheduledProp`/`dueProp` are the frontmatter property names
- * TaskNotes is configured to use for its canonical scheduled/due fields (or
- * `null` when unconfigured); `dateFields` are the enabled custom fields of type
- * `date`.
+ * The backing system's (TaskNotes') configured field surface, used to resolve the
+ * Gantt's roles (start/end/status/priority/estimate) to concrete read properties
+ * and write targets, and to populate/validate the Bases config. Every `*Prop` is
+ * the frontmatter property name TaskNotes is configured to use for that canonical
+ * field (or `null` when unconfigured); `dateFields` are the enabled custom fields
+ * of type `date`.
+ *
+ * A view mapping left empty resolves to the property named here, so an unset field
+ * behaves exactly as if the user had selected TaskNotes' own property.
  */
 export interface FieldConfig {
   scheduledProp: string | null;
@@ -137,6 +157,10 @@ export interface FieldConfig {
    * Estimate" property is left empty (R2/R6).
    */
   timeEstimateProp: string | null;
+  /** TaskNotes' configured `status` property; the unset "Status Property" fallback. */
+  statusProp: string | null;
+  /** TaskNotes' configured `priority` property; the unset "Priority Property" fallback. */
+  priorityProp: string | null;
 }
 
 /**
@@ -179,6 +203,7 @@ export interface TaskPatch {
   estimate?: number;
   text?: string;
   status?: string;
+  priority?: string;
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
   dateWrites?: DateWrite[];
   /**
@@ -197,6 +222,16 @@ export interface TaskPatch {
    * mode and no-target callers never persist the estimate).
    */
   estimateWrite?: EstimateWriteTarget;
+  /**
+   * Resolved generic field write: persist `value` under the bare frontmatter
+   * `key`, written verbatim as a TOP-LEVEL update key — TaskNotes' frontmatter
+   * writer reads custom user fields from `task[key]`, never a nested `userFields`
+   * object. `null` clears the property; `[]` writes an empty list. The controller
+   * resolves the key from the edited property id (mapped fields route through
+   * their dedicated members instead). Applied only to TaskNotes-managed rows —
+   * the source refuses it when no task info resolves at the path.
+   */
+  fieldWrite?: { key: string; value: unknown };
 }
 
 /**
@@ -249,6 +284,23 @@ export interface DataSource {
    * {@link DataSource.getStatusColors}.
    */
   getPriorityColors?(): Promise<PriorityColor[]>;
+
+  /**
+   * The configured value set for a restricted-choice role (statuses/priorities),
+   * or `[]`. Present only on sources that expose one (TaskNotes reads the same
+   * catalog its palettes come from); the view then offers pickers restricted to
+   * these values. Mirrors {@link DataSource.getStatusColors}.
+   */
+  getChoiceOptions?(role: ChoiceRole): Promise<ChoiceOption[]>;
+
+  /**
+   * The note paths the backing system identifies as tasks (e.g. TaskNotes,
+   * whose task identification is user-configurable — by tag or by a chosen
+   * property+value — and computed by TaskNotes itself), or an empty set.
+   * Present only on sources that can answer; the view treats absence as
+   * "no rows are managed". Mirrors {@link DataSource.getStatusColors}.
+   */
+  getManagedPaths?(): Promise<ReadonlySet<string>>;
 
   /**
    * The backing system's configured date-field surface ({@link FieldConfig}) —

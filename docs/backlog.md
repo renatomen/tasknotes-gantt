@@ -27,15 +27,23 @@ Building it once unblocks all of them.
   `docs/plans/2026-06-19-001-feat-gantt-fs-link-authoring-plan.md`,
   `docs/plans/2026-06-20-001-feat-gantt-non-fs-dependency-authoring-plan.md`
 
-### P2 — Open render/index residuals (#161 tail)
-Both flagged OPEN in maintainer notes after the #161 render-loop work.
-- **(a) U6 toolbar-search re-poke** — clearing a Bases toolbar search (e.g. `6 → 261` rows) disarms
-  both #161 loop-breakers and triggers an unguarded bulk `getValue()` re-poke. Local repro spec:
-  `test/specs/_local-clone-search.e2e.ts`. Source:
-  `docs/plans/2026-06-27-001-fix-view-option-render-churn-plan.md` (U6).
-- **(b) Direct-frontmatter read** — read frontmatter directly to avoid bulk `entry.getValue()`
-  entirely (the renotify-storm's deeper follow-up). Source:
-  `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.
+### ~~P2 — Open render/index residuals (#161 tail)~~ — RETIRED 2026-07-14, both closed
+
+Kept as a record of what these entries got wrong, because the same wrong story was
+propagated into the learnings docs before anyone checked the PR that closed it.
+
+- **(a) U6 toolbar-search re-poke** — claimed that clearing a Bases toolbar search
+  disarms both loop-breakers and triggers "an unguarded bulk `getValue()` re-poke".
+  **This is not what the bug was.** PR #172 fixed it and states plainly that *Bases is
+  untouched — it delivers a constant matched set; the cost was our diff-sync*: each
+  resultset swing re-applied the whole companion-expanded set per-instance (~114k DOM
+  mutations, ~25s). Bulk-reseed bounded it to 781 mutations. Issue #161 is closed, and
+  the maintainer validated it in the real vault. Not reproducible on the released build.
+- **(b) Direct-frontmatter read** — mostly moot. `BasesDataAdapter.extractValue` has
+  fast-pathed every `note.*` / `file.*` property straight from frontmatter since
+  January 2026, so a `note.*`-mapped Base never routes a bulk read through
+  `entry.getValue()`. Only an *unprefixed* or `formula.*` column id still does — a perf
+  characteristic, not a bug: the real vault runs exactly that shape with no storm.
 
 ---
 
@@ -86,6 +94,12 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - **Visual assets — capture for focus-on-task (0.1.0-beta.3)** — crosshair → fuzzy search → expand →
   zoom → scroll → highlight. Fixture: `test/specs/gantt-focus-task.e2e.ts`. Source: PR #189.
   (The earlier #189 PR GIF was catbox-hosted, which the convention now bans.)
+- **Visual assets — capture for markdown property cells (0.1.0-beta.8)** — wikilinks as clickable
+  internal links, tag values as pills. Fixture: `test/specs/gantt-markdown-cells.e2e.ts`. Source: PR #222.
+- **Visual assets — capture for chips list editor (0.1.0-beta.8)** — editing a list cell as removable
+  chips with the `[[` suggester; read-mode count badge. Fixture: `gantt-inline-edit.e2e.ts`. Source: PR #236.
+- **Visual assets — capture for Time Estimate ⇄ duration sync (0.1.0-beta.8)** — an estimate driving a
+  dateless bar's length, and a resize writing the span back. Source: PR #221.
 
 ---
 
@@ -107,7 +121,7 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   Source: `docs/plans/2026-06-21-003-feat-gantt-viewport-sizing-plan.md`.
 - True divider min-width guard / tune SVAR's hard-coded 50–800px clamp (frozen-columns alternative).
   Source: `docs/plans/2026-06-18-002-feat-gantt-frozen-columns-and-divider-plan.md`.
-- Inline cell editing of property values; column sorting persistence. Source:
+- Column sorting persistence. Source:
   `docs/plans/2026-06-18-001-feat-gantt-grid-bases-columns-plan.md`.
 
 ### P8 — e2e / CI infra
@@ -161,3 +175,4 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **Dependabot deferred re-evaluations** — vite/svelte-plugin majors (#163), js-yaml 3.x istanbul instance — revisit when upstreams ship non-breaking patched lines — `2026-06-28-003`, `2026-06-29-002`.
 - **Update #161 bug report** stale SVAR version refs (2.3.0 → 2.7.0) — `2026-06-25-001` (#161 closed; low value).
 - **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (already recorded as #53 scope wall; long-horizon).
+- **Visual assets — day-scale before/after** (0.1.0-beta.10, #252): a short before/after (wide vs compact day columns) for the "Day opens at its narrowest columns" change; skipped in the release-notes draft as marginal/subtle, capture with the deferred motion-GIF batch (maximized window).

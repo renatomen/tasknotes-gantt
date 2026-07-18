@@ -18,7 +18,7 @@ Data Layer (BasesDataAdapter)
 ├─ Role: Data extraction and type conversion only
 └─ NO formatting, NO localization, NO display logic
 
-Presentation Layer (Views: GanttTaskListView, etc.)
+Presentation Layer (the Gantt view)
 ├─ Receives: Raw data from adapter
 ├─ Role: Format data for user display
 ├─ Handles:
@@ -47,7 +47,7 @@ extractProgress(entry: BasesEntry, progressProperty: BasesPropertyId): number | 
 }
 ```
 
-### View Layer (`GanttTaskListView.ts`, etc.)
+### View Layer (the Gantt view)
 
 ```typescript
 // ✅ Formatting happens in the presentation layer
@@ -68,7 +68,7 @@ if (task.start || task.end) {
 ## Why
 
 1. **Single responsibility** — adapter extracts/converts; views format/display.
-2. **Reusability** — the same raw value renders differently per context (Gantt bar vs. task-list row).
+2. **Reusability** — the same raw value renders differently per context (Gantt bar vs. grid cell).
 3. **Testability** — extraction and formatting are tested independently; raw data is easy to mock.
 4. **Localization-ready** — formatting is centralized in views (`format(date, "yyyy-MM-dd", { locale })`).
 5. **Performance** — extraction runs once per load; views can cache formatted strings.
