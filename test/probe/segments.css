@@ -1,0 +1,20 @@
+/*
+ * One rule. The transparency SVAR Pro applies to split bars needs no CSS from
+ * us at all: the template stamps SVAR's own `wx-split` class onto its bar (see
+ * SegmentBar.svelte), which simultaneously
+ *   - disarms SVAR's fill rule, whose selector is `.wx-task:not(.wx-split)`, and
+ *   - arms SVAR's own `.wx-bars .wx-split.wx-bar { background: transparent }`.
+ * We satisfy the library's designed condition instead of fighting its cascade —
+ * no !important, no specificity games, and the split-aware selection styling
+ * comes along for free.
+ *
+ * What remains is the one thing Pro handles in markup that we cannot: SVAR only
+ * skips rendering the whole-bar progress fill when `splitTasks` is on, and the
+ * MIT build forces that false — so it paints a fill spanning the ENTIRE bar
+ * underneath our segments. Hide it. The child combinator is load-bearing:
+ * per-segment fills are nested inside `.wx-segment` and must survive.
+ * (Global on purpose: a Svelte scoped block cannot style an ancestor's child.)
+ */
+.wx-bars .wx-bar.wx-split > .wx-progress-wrapper {
+  display: none;
+}
