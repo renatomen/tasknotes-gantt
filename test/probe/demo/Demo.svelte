@@ -22,12 +22,15 @@
       end: d(3, 12),
       progress: 60,
     },
+    // A task's span should cover its segments — SVAR Pro guarantees this by
+    // deriving the span from them. Here it is the author's job, so each `end`
+    // below is the last segment's end.
     {
       id: 2,
       text: '8-week course — class every 2 weeks',
       type: 'task',
       start: d(3, 1),
-      end: d(4, 27),
+      end: d(4, 28), // Class 5 starts May 27 and runs one day
       progress: 35,
       segments: [
         { start: d(3, 1), duration: 1, text: 'Class 1' },
@@ -42,7 +45,7 @@
       text: 'Two work blocks with a gap',
       type: 'task',
       start: d(3, 2),
-      end: d(3, 24),
+      end: d(3, 22), // Block 2 starts Apr 16 and runs six days
       progress: 40,
       segments: [
         { start: d(3, 2), duration: 4, text: 'Block 1' },

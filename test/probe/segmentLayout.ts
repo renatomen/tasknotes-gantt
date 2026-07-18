@@ -51,6 +51,23 @@ export interface SegmentPiece {
   fill: number;
 }
 
+/**
+ * Extent of the dashed connector: first segment's start to last segment's end.
+ *
+ * SVAR Pro draws this at `width: 100%` of the bar, which is exact for it because
+ * `calcSplitDates` derives the parent's span FROM the segments. Our span comes
+ * from the task's own dates, which may not agree — a task ending after its last
+ * segment would trail a bare dashed line past the final piece. Measuring the run
+ * itself is identical to Pro whenever the data is Pro-shaped, and correct when
+ * it is not.
+ */
+export function connectorRun(pieces: readonly SegmentPiece[]): { left: number; width: number } {
+  if (!pieces.length) return { left: 0, width: 0 };
+  const left = Math.min(...pieces.map((p) => p.left));
+  const right = Math.max(...pieces.map((p) => p.left + p.width));
+  return { left, width: Math.max(0, right - left) };
+}
+
 /** Narrowing guard: SVAR types segments as Partial<ITask>, we need start+duration. */
 export function isSegmentSpan(x: unknown): x is SegmentSpan {
   const s = x as { start?: unknown; duration?: unknown } | null;

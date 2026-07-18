@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 import {
+  connectorRun,
   isSegmentSpan,
   segmentEnd,
   segmentPieces,
@@ -125,6 +126,40 @@ describe('segmentPieces — geometry', () => {
       snap(plainDiff),
     );
     expect(piece!.width).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('connectorRun', () => {
+  it('spans first segment start to last segment end, not the whole bar', () => {
+    // The task runs Apr 2..24 but its segments stop at Apr 22 — the connector
+    // must not trail a bare dash across the leftover span.
+    const pieces = segmentPieces(
+      [
+        { start: d(2), duration: 4 },
+        { start: d(16), duration: 6 },
+      ],
+      d(2),
+      d(24),
+      0,
+      snap(plainDiff),
+    );
+    const run = connectorRun(pieces);
+    const last = pieces[1]!;
+
+    expect(run.left).toBeCloseTo(pieces[0]!.left);
+    expect(run.left + run.width).toBeCloseTo(last.left + last.width);
+    expect(run.left + run.width).toBeLessThan(1); // stops short of the bar end
+  });
+
+  it('spans the full bar when the task span matches its segments', () => {
+    const pieces = segmentPieces([{ start: d(2), duration: 8 }], d(2), d(10), 0, snap(plainDiff));
+    const run = connectorRun(pieces);
+    expect(run.left).toBe(0);
+    expect(run.width).toBeCloseTo(1);
+  });
+
+  it('is empty for no segments', () => {
+    expect(connectorRun([])).toEqual({ left: 0, width: 0 });
   });
 });
 

@@ -35,7 +35,12 @@
   /* global Element */
   import type { IApi, ITask } from '@svar-ui/svelte-gantt';
   import { scaleSnapshot } from './svarContract';
-  import { isSegmentSpan, segmentPieces, type SegmentPiece } from './segmentLayout';
+  import {
+    connectorRun,
+    isSegmentSpan,
+    segmentPieces,
+    type SegmentPiece,
+  } from './segmentLayout';
 
   /** Exactly SVAR's taskTemplate contract — it always passes all three. */
   interface Props {
@@ -83,7 +88,12 @@
 </script>
 
 {#if pieces}
-  <div class="wx-segments" {@attach markBarSplit}>
+  {@const run = connectorRun(pieces)}
+  <div
+    class="wx-segments"
+    style="--wx-seg-run-left:{pct(run.left)};--wx-seg-run-width:{pct(run.width)};"
+    {@attach markBarSplit}
+  >
     {#each pieces as piece, i (i)}
       <div class="wx-segment wx-bar wx-task" data-segment={i} style={segmentStyle(piece)}>
         <!-- Gated on the TASK's progress, not the segment's, so an empty segment
@@ -112,13 +122,18 @@
     height: 100%;
   }
 
-  /* The dashed run connecting the spaced pieces. */
+  /* The dashed run connecting the spaced pieces.
+
+     SVAR draws this at `left:0; width:100%`, which is exact for Pro because it
+     derives the bar's span from the segments. Ours spans the measured segment
+     run instead (see connectorRun): identical whenever the task's dates match
+     its segments, and free of a trailing dash when they do not. */
   .wx-segments::before {
     content: '';
     position: absolute;
     top: 50%;
-    left: 0;
-    width: 100%;
+    left: var(--wx-seg-run-left, 0);
+    width: var(--wx-seg-run-width, 100%);
     height: 0;
     border-top: 1px dashed #7f7f7f;
     transform: translateY(-50%);

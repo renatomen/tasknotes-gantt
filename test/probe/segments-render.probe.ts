@@ -95,6 +95,22 @@ test('the dashed connector runs behind the segments', async () => {
   expect(getComputedStyle(segmentsBox, '::before').borderTopStyle).toBe('dashed');
 });
 
+test('the connector stops at the last segment — no dashed tail past it', async () => {
+  // SPLIT_TASK deliberately ends Apr 24 while its last segment ends Apr 22.
+  // SVAR Pro cannot produce that state (it derives the bar span from the
+  // segments), so its `width:100%` connector is exact; ours measures the run.
+  const container = await mount(SPLIT_TASK);
+  const box = container.querySelector('.wx-segments') as HTMLElement;
+  const segments = Array.from(container.querySelectorAll('.wx-segment'));
+  const lastRight = Math.max(...segments.map((s) => rect(s).right));
+
+  const before = getComputedStyle(box, '::before');
+  const runRight = rect(box).left + Number.parseFloat(before.left) + Number.parseFloat(before.width);
+
+  expect(Math.abs(runRight - lastRight)).toBeLessThanOrEqual(1.5);
+  expect(runRight).toBeLessThan(rect(box).right - 1); // genuinely short of the bar end
+});
+
 test('the outer bar is blanked while the segments keep their fill', async () => {
   const container = await mount(SPLIT_TASK);
   const outer = container.querySelector('.wx-bars > .wx-bar') as HTMLElement;
