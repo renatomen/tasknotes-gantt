@@ -194,6 +194,7 @@ The spike (`test/probe/`, run with `npm run probe:svar`; reference files `segmen
 - **A theme wrapper is required.** Without `Willow` (or the dark variant) the SVAR CSS variables are undefined and every bar computes to transparent.
 - **Date math must be calendar-aware.** Segment `end = start + duration` uses calendar-day addition (`setDate`), never milliseconds — a ms-based day drifts across DST. All other arithmetic is SVAR's own `diff`.
 - **Segment shape guard at the boundary.** SVAR types `segments` as `Partial<ITask>[]`; a tiny `isSegmentSpan` guard (start is a Date, duration is a number) filters malformed entries so one bad segment cannot break its siblings. A Pro build's own `$x`/`$w`, when present, are honoured verbatim — that is the entire migration seam.
+- **The connector spans the segment run, not the whole bar.** SVAR draws its dashed connector at `width: 100%`, which is exact only because Pro derives the bar's span from its segments. Our span is the task's own dates, which can be wider — so `100%` trails a bare dash past the last segment. Measure first-segment-start→last-segment-end (`connectorRun`) instead: identical to Pro when the data agrees, correct when it does not. This matters for the recurrence source too, where the task's due date will routinely sit past the last occurrence.
 
 ### High-Level Technical Design
 
