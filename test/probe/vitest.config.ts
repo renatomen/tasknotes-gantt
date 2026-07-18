@@ -25,6 +25,8 @@ export default defineConfig({
       enabled: true,
       provider: playwright(),
       headless: true,
+      // Wide enough that a chart-area screenshot captures the bars, not just the grid.
+      viewport: { width: 1280, height: 640 },
       instances: [{ browser: 'chromium' }],
       api: { allowWrite: true },
     },
