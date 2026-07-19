@@ -44,6 +44,7 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DE
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
+import { createMountCalendarWatch, type CalendarWatch } from './calendarWatch';
 import {
   createReadinessWindow,
   DEFAULT_READINESS_WINDOW_CONFIG,
@@ -205,6 +206,13 @@ class ObsidianGanttBasesView extends BasesView {
   private ganttController: GanttController | null = null;
 
   /**
+   * Calendar-note liveness (edits/renames/deletions of marked notes refresh the
+   * chart without a Bases notify). Created per mount; unwired on unload/remount.
+   */
+  private calendarWatch: CalendarWatch | null = null;
+  private unwireCalendarWatch: (() => void) | null = null;
+
+  /**
    * Reactive store of the dynamic render data. Mounted once into the view; each
    * controller change re-`set`s it, so the SVAR instance persists and keeps its
    * view state (zoom, scroll, selection) across data changes instead of being
@@ -265,6 +273,9 @@ class ObsidianGanttBasesView extends BasesView {
     dlog(`[OGDBG] GanttView onunload #${this.dbgInstanceId}`);
     this.refreshCoalescer?.cancel();
     this.readinessOrchestrator?.cancel();
+    this.unwireCalendarWatch?.();
+    this.unwireCalendarWatch = null;
+    this.calendarWatch = null;
     this.restoreConfigChangeHook?.();
     this.restoreConfigChangeHook = null;
     this.unmountGantt();
@@ -394,6 +405,9 @@ class ObsidianGanttBasesView extends BasesView {
         const cache = app.metadataCache.getFileCache(file);
         return { frontmatter: cache?.frontmatter ?? null, listItems: cache?.listItems };
       },
+      // Calendar-note edits change no task entry; the watch epoch flips the
+      // signature so the refresh re-reads instead of reusing stale calendar state.
+      calendarStateTag: `cal:${this.calendarWatch?.epoch() ?? 0}|`,
     });
   }
 
@@ -702,6 +716,18 @@ class ObsidianGanttBasesView extends BasesView {
       }, GANTT_REFRESH_DEBOUNCE_MS);
       // Native edit interaction (plan 004): resolves bar clicks to TaskNotes
       // actions (open note / native edit modal / task menu). Holds only `app`.
+      // Calendar-note liveness: a marked note's edit/rename/deletion re-runs the
+      // same coalesced refresh; the epoch (folded into the entry signature) makes
+      // that refresh a genuine re-read rather than a cached-task reuse.
+      this.unwireCalendarWatch?.();
+      const mountWatch = createMountCalendarWatch({
+        app: this.app,
+        isConnected: () => !!this.containerEl?.isConnected,
+        scheduleRefresh: () => this.refreshCoalescer?.schedule(),
+      });
+      this.calendarWatch = mountWatch.watch;
+      this.unwireCalendarWatch = mountWatch.unwire;
+
       const interactions = new TaskNotesInteractions(this.app);
 
       const data = await this.buildGanttData(controller);
