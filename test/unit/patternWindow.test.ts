@@ -118,9 +118,36 @@ describe('blockingComplement', () => {
   });
 });
 
+describe('evaluatePattern — embedded DTSTART/TZID neutralization', () => {
+  it('yields floating-convention dates even when the rule text embeds a zoned DTSTART', () => {
+    const plain = okDates('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', TWO_WEEKS);
+    const zoned = evaluatePattern(
+      'DTSTART;TZID=America/New_York:20260401T000000\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+      undefined,
+      TWO_WEEKS,
+    );
+    if (zoned.kind !== 'ok') throw new Error(`expected ok, got: ${zoned.reason}`);
+    expect([...zoned.dates].sort()).toEqual(plain);
+  });
+
+  it('never throws on an unknown embedded zone name', () => {
+    expect(() =>
+      evaluatePattern(
+        'DTSTART;TZID=Not/AZone:20260401T000000\nRRULE:FREQ=WEEKLY;BYDAY=MO',
+        undefined,
+        TWO_WEEKS,
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe('validatePattern', () => {
   it('accepts a normal weekly pattern', () => {
     expect(validatePattern('FREQ=WEEKLY;BYDAY=MO,WE', undefined)).toBeNull();
+  });
+
+  it('accepts a leap-day-only pattern (probe covers a full leap cycle)', () => {
+    expect(validatePattern('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29', undefined)).toBeNull();
   });
 
   it('rejects a pattern matching zero days in a representative window', () => {

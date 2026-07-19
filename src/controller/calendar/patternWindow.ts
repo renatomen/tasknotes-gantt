@@ -37,22 +37,23 @@ export function evaluatePattern(
     };
   }
 
-  let parsed: RRule;
   try {
     const options = RRule.parseString(rule);
     options.dtstart = utcMidnight(patternStart ?? window.startDate);
-    parsed = new RRule(options);
+    // An authored DTSTART/TZID inside the rule text would re-zone every
+    // occurrence off the floating convention (or throw on an unknown zone).
+    options.tzid = null;
+    const parsed = new RRule(options);
+    const firstDay = utcMidnight(window.startDate);
+    const lastDay = new Date(utcMidnight(window.endDateExclusive).getTime() - DAY_MS);
+    const dates = new Set<string>();
+    for (const occurrence of parsed.between(firstDay, lastDay, true)) {
+      dates.add(toIso(occurrence));
+    }
+    return { kind: 'ok', dates };
   } catch (error) {
     return { kind: 'invalid', reason: `not a valid RRULE: ${describe(error)}` };
   }
-
-  const firstDay = utcMidnight(window.startDate);
-  const lastDay = new Date(utcMidnight(window.endDateExclusive).getTime() - DAY_MS);
-  const dates = new Set<string>();
-  for (const occurrence of parsed.between(firstDay, lastDay, true)) {
-    dates.add(toIso(occurrence));
-  }
-  return { kind: 'ok', dates };
 }
 
 /** The window days the pattern does NOT match — the blocking non-working complement. */
@@ -70,16 +71,19 @@ export function blockingComplement(
   return { kind: 'ok', dates };
 }
 
-const REPRESENTATIVE_WINDOW_DAYS = 366;
+// A full leap cycle, so quadrennial (leap-day) patterns are never falsely rejected.
+const REPRESENTATIVE_WINDOW_DAYS = 4 * 366 + 1;
+// Arbitrary fixed Monday: probes stay deterministic, never wall-clock-derived.
+const FALLBACK_PROBE_ANCHOR = '2026-01-05';
 
 /**
  * Validity probe backing the fail-visible contract (an invalid calendar is
  * flagged and inert, never silently wrong): null when the pattern is
- * evaluable and matches at least one day in a representative year from its
- * anchor; otherwise the reason to surface.
+ * evaluable and matches at least one day in a representative leap cycle from
+ * its anchor; otherwise the reason to surface.
  */
 export function validatePattern(rule: string, patternStart: string | undefined): string | null {
-  const anchor = patternStart ?? '2026-01-05';
+  const anchor = patternStart ?? FALLBACK_PROBE_ANCHOR;
   const result = evaluatePattern(rule, patternStart, {
     startDate: anchor,
     endDateExclusive: addDaysIso(anchor, REPRESENTATIVE_WINDOW_DAYS),
