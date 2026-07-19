@@ -1,0 +1,23 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'note.start || note.due'
+views:
+  - type: obsidianGantt
+    name: "Gantt Calendar Picker"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_calendarProperty: note.calendar
+    tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    tngantt_displayCalendars:
+      default: true
+      entries:
+        - link: "[[NZ Holidays]]"
+          enabled: true
+        - link: "[[Sun Thu]]"
+          enabled: true
+    order:
+      - file.name
+      - note.start
+      - note.due

@@ -90,25 +90,3 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
 }
 
-export interface ConflictMemo {
-  compute(
-    selectionKey: string,
-    window: EvaluationWindow,
-    produce: () => string[],
-  ): string[];
-}
-
-/** Skip-if-unchanged memo: selection change and window move are the only invalidators. */
-export function createConflictMemo(): ConflictMemo {
-  let lastKey: string | null = null;
-  let lastDates: string[] = [];
-  return {
-    compute(selectionKey, window, produce) {
-      const key = `${selectionKey}|${window.startDate}|${window.endDateExclusive}`;
-      if (key === lastKey) return lastDates;
-      lastKey = key;
-      lastDates = produce();
-      return lastDates;
-    },
-  };
-}

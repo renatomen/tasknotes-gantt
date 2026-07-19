@@ -3489,7 +3489,10 @@
     box-shadow: none;
     cursor: pointer;
     text-align: left;
-    font: inherit;
+    /* font-family only: the `font` shorthand would reset the size/line-height
+       the shared banner class sets, so the two banners would not match. */
+    font-family: inherit;
+    color: inherit;
   }
 
   .og-readonly-icon {

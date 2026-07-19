@@ -1,10 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
-import {
-  buildCalendarNotice,
-  conflictDates,
-  createConflictMemo,
-} from '../../src/bases/calendarConflicts';
+import { buildCalendarNotice, conflictDates } from '../../src/bases/calendarConflicts';
 
 const WINDOW = { startDate: '2026-04-06', endDateExclusive: '2026-04-13' }; // Mon..Sun
 
@@ -76,20 +72,18 @@ describe('buildCalendarNotice', () => {
   });
 });
 
-describe('createConflictMemo', () => {
-  it('recomputes only when the selection key or window moves', () => {
-    let computes = 0;
-    const memo = createConflictMemo();
-    const produce = () => {
-      computes++;
-      return conflictDates([monToFri, sunToThu], WINDOW);
-    };
-    const first = memo.compute('a|b', WINDOW, produce);
-    expect(memo.compute('a|b', WINDOW, produce)).toBe(first);
-    expect(computes).toBe(1);
-    memo.compute('a|b|c', WINDOW, produce);
-    expect(computes).toBe(2);
-    memo.compute('a|b|c', { ...WINDOW, endDateExclusive: '2026-04-20' }, produce);
-    expect(computes).toBe(3);
+describe('self-conflict immunity', () => {
+  it('a calendar whose dated holiday falls on its own covered day never conflicts alone', () => {
+    const withHolidayOnWorkday = calendar({
+      pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+      non_working: ['2026-04-08'],
+    });
+    expect(conflictDates([withHolidayOnWorkday], WINDOW)).toEqual([]);
+  });
+
+  it('an invalid pattern covers nothing, so it cannot manufacture a conflict', () => {
+    const invalidPattern = calendar({ pattern: 'FREQ=NONSENSE', non_working: ['2026-04-08'] });
+    // It still blocks its dated day, but contributes no coverage of its own.
+    expect(conflictDates([invalidPattern], WINDOW)).toEqual([]);
   });
 });
