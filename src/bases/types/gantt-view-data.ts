@@ -23,6 +23,7 @@ import type { CellEditorDescriptor } from '../cellEditability';
 import type { TypedValue } from '../propertyValues';
 import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
+import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
 
 export interface GanttData {
@@ -64,6 +65,12 @@ export interface GanttData {
    * banner opens the calendar picker.
    */
   calendarNotice?: string | null;
+  /**
+   * Flagged calendar events for the marker overlay. Markers render as
+   * date-anchored vertical lines (never column shading), so they stay visible
+   * at zoom levels where SVAR creates no per-column cells.
+   */
+  calendarMarkers?: MarkerInput[];
   /**
    * Working-day counter for the resize write path under working-time stretch:
    * the estimate persists the WORKING days of the resized span. Absent (or a
