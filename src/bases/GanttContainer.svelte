@@ -204,6 +204,8 @@
      * active Gantt leaf. Called with the opener on mount and `null` on teardown.
      */
     onFocusEntryReady?: (entry: (() => void) | null) => void;
+    /** Open the calendar picker (the banner's click-through). */
+    onOpenCalendarPicker?: () => void;
     /**
      * Register a callback the host calls to re-assert the persisted divider width
      * when the view is revealed/reattached (Obsidian's `onResize`). SVAR can
@@ -234,6 +236,7 @@
     themeMode = 'auto',
     onThemeModeChange,
     onFocusEntryReady,
+    onOpenCalendarPicker,
     onReassertGridWidthReady,
   }: Props = $props();
 
@@ -335,6 +338,8 @@
   // again by `readOnly` at the write site so standalone never writes.
   const timeEstimateWriteEnabled = $derived($data.timeEstimateWriteEnabled ?? false);
   const dateMappingNotice = $derived($data.dateMappingNotice);
+  // Calendar-status banner text (store-driven, so selection changes are live).
+  const calendarNotice = $derived($data.calendarNotice ?? null);
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
   // data — like showDateIndicators — makes the `tngantt_showToolbar` option a
@@ -2600,6 +2605,20 @@
     </div>
   {/if}
 
+  <!-- Calendar-status banner: multi-calendar display, conflicts, invalid
+       calendar notes, unresolved selection links. A button, not a passive
+       status line — it is the picker's in-view shortcut. -->
+  {#if calendarNotice && onOpenCalendarPicker}
+    <button
+      type="button"
+      class="og-readonly-banner og-calendar-banner"
+      onclick={() => onOpenCalendarPicker?.()}
+    >
+      <span class="og-readonly-icon" use:lucideIcon={'calendar-days'}></span>
+      <span class="og-readonly-text">{calendarNotice} — click to manage</span>
+    </button>
+  {/if}
+
   <!-- Invalid date-mapping notice (U4/R-C): a configured start/end property
        isn't a writable TaskNotes date field, so it fell back to the default. -->
   {#if dateMappingNotice}
@@ -3457,6 +3476,20 @@
     color: var(--text-muted);
     background: var(--background-secondary);
     border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  /* The calendar banner is a real button (the picker's shortcut) — strip the
+     native button chrome so it reads as the same banner strip, with a cursor
+     affordance for its click-through. */
+  .og-calendar-banner {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--background-modifier-border);
+    border-radius: 0;
+    box-shadow: none;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
   }
 
   .og-readonly-icon {
