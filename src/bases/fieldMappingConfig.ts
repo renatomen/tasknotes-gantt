@@ -23,6 +23,7 @@ export const FIELD_MAPPING_KEYS = {
   status: 'tngantt_statusProperty',
   priority: 'tngantt_priorityProperty',
   timeEstimate: 'tngantt_timeEstimateProperty',
+  calendar: 'tngantt_calendarProperty',
 } as const;
 
 /** Per-view fallback values used when a mapping key is unset. */
@@ -35,6 +36,7 @@ export interface FieldMappingDefaults {
   statusProperty: string;
   priorityProperty: string;
   timeEstimateProperty: string;
+  calendarProperty: string;
 }
 
 /**
@@ -53,6 +55,7 @@ const BASE_DEFAULTS: FieldMappingDefaults = {
   statusProperty: '',
   priorityProperty: '',
   timeEstimateProperty: '',
+  calendarProperty: '',
 };
 
 /**
@@ -76,5 +79,6 @@ export function readFieldMappings(
     statusProperty: (get(FIELD_MAPPING_KEYS.status) as string) || d.statusProperty,
     priorityProperty: (get(FIELD_MAPPING_KEYS.priority) as string) || d.priorityProperty,
     timeEstimateProperty: (get(FIELD_MAPPING_KEYS.timeEstimate) as string) || d.timeEstimateProperty,
+    calendarProperty: (get(FIELD_MAPPING_KEYS.calendar) as string) || d.calendarProperty,
   };
 }
