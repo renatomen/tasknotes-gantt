@@ -33,6 +33,11 @@ const NOTES: CalendarNoteInput[] = [
     frontmatter: { tngantt: 'calendar-set', calendars: ['[[APAC]]', '[[NZ Holidays]]'] },
   },
   {
+    path: 'Calendars/Empty Set.md',
+    basename: 'Empty Set',
+    frontmatter: { tngantt: 'calendar-set', calendars: ['[[Ghost]]'] },
+  },
+  {
     path: 'Calendars/Broken.md',
     basename: 'Broken',
     frontmatter: { tngantt: 'calendar', pattern: 'BYDAY=MO' },
@@ -54,7 +59,11 @@ describe('buildCalendarRegistry', () => {
       'Calendars/NZ Holidays.md',
       'Calendars/AU Holidays.md',
     ]);
-    expect([...registry.sets.keys()]).toEqual(['Calendars/APAC.md', 'Calendars/Nested Set.md']);
+    expect([...registry.sets.keys()]).toEqual([
+      'Calendars/APAC.md',
+      'Calendars/Nested Set.md',
+      'Calendars/Empty Set.md',
+    ]);
     expect([...registry.invalid.keys()]).toEqual(['Calendars/Broken.md']);
   });
 
@@ -112,6 +121,14 @@ describe('resolveTaskCalendar', () => {
     expect(resolved.calendars.map((record) => record.name)).toEqual(['NZ Holidays', 'AU Holidays']);
   });
 
+  it('treats a set whose members all dropped as valid with zero blocking time (nothing to suspend)', () => {
+    const resolved = resolveTaskCalendar(registry, '[[Empty Set]]', 'Tasks/T.md', resolveByBasename);
+    expect(resolved.identity?.name).toBe('Empty Set');
+    expect(resolved.calendars).toEqual([]);
+    expect(resolved.schedulingSuspended).toBe(false);
+    expect(resolved.flags.length).toBeGreaterThan(0);
+  });
+
   it('flags a dangling link, keeps default display, and suspends scheduling', () => {
     const resolved = resolveTaskCalendar(registry, '[[Ghost]]', 'Tasks/T.md', resolveByBasename);
     expect(resolved.identity).toBeUndefined();
@@ -143,6 +160,7 @@ describe('stripSubpath', () => {
     expect(stripSubpath('[[Cal#Section]]')).toBe('[[Cal]]');
     expect(stripSubpath('[[Cal#^block|alias]]')).toBe('[[Cal|alias]]');
     expect(stripSubpath('[[Cal|alias]]')).toBe('[[Cal|alias]]');
+    expect(stripSubpath('[[Cal|ali#as]]')).toBe('[[Cal|ali#as]]');
     expect(stripSubpath('Cal#Section')).toBe('Cal');
   });
 });

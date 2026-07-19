@@ -111,12 +111,9 @@ export interface ResolvedAssociation {
   schedulingSuspended: boolean;
 }
 
-const DEFAULT_ASSOCIATION: ResolvedAssociation = {
-  identity: undefined,
-  calendars: [],
-  flags: [],
-  schedulingSuspended: false,
-};
+function defaultAssociation(): ResolvedAssociation {
+  return { identity: undefined, calendars: [], flags: [], schedulingSuspended: false };
+}
 
 export function resolveTaskCalendar(
   registry: CalendarRegistry,
@@ -124,10 +121,10 @@ export function resolveTaskCalendar(
   taskPath: string,
   resolveLink: LinkResolver,
 ): ResolvedAssociation {
-  if (associationValue === undefined || associationValue === null) return DEFAULT_ASSOCIATION;
+  if (associationValue === undefined || associationValue === null) return defaultAssociation();
   if (typeof associationValue !== 'string' || associationValue.trim() === '') {
     return associationValue === ''
-      ? DEFAULT_ASSOCIATION
+      ? defaultAssociation()
       : broken(`calendar association is not a link: ${String(associationValue)}`);
   }
 
