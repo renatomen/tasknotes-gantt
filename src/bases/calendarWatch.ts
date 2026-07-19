@@ -51,7 +51,10 @@ export function createCalendarWatch(config: CalendarWatchConfig): CalendarWatch 
       knownPaths.add(path);
       return true;
     }
-    return knownPaths.has(path);
+    // delete() is true exactly once for a demoted note: the marker-removal edit
+    // still fires the retiring re-resolve, then the path is released so later
+    // edits to the now-plain note stop defeating the reuse gate.
+    return knownPaths.delete(path);
   }
 
   function bumpAndSchedule(): void {

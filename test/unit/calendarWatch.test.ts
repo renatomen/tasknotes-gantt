@@ -81,6 +81,10 @@ describe('createCalendarWatch', () => {
     calendarPaths.length = 0;
     watch.notifyChanged('Calendars/NZ.md');
     expect(watch.epoch()).toBe(2);
+    // The demotion released the path: further edits to the now-plain note are
+    // ignored (the reuse gate is not permanently defeated).
+    watch.notifyChanged('Calendars/NZ.md');
+    expect(watch.epoch()).toBe(2);
   });
 
   it('triggers on rename of a known calendar note (old path tracked)', () => {
