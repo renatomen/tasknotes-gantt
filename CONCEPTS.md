@@ -4,14 +4,26 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 
 ## Calendar availability
 
-### Non-working day
-A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Non-working status is never carried by a calendar source itself — it is assigned by this plugin when a calendar is given that role.
+### Calendar note
+A vault note a user marks as a calendar, declaring its own availability: a recurring working pattern plus dated exceptions (holidays, extra working days, display-only events). The calendar is the authority on when work can happen; views decide only how that availability is applied.
 
-### Calendar role
-The plugin-side categorization a user assigns to a calendar to give it meaning for the gantt (e.g. "non-working days"; later possibly "working schedule"). Sources supply dated facts; roles supply semantics. One calendar can serve many views, and one view can apply many calendars with roles.
+### Non-working day
+A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Declared by a calendar note — as the complement of its working pattern or as a dated exception.
+
+### Calendar association
+The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association follows the view's default calendar, which may declare no non-working time at all.
+
+### Calendar mode
+The per-view choice of how calendar availability affects the timeline: shading tints non-working time in the background and never touches dates; stretch additionally extends duration-derived bars across blocked days.
+
+### Working-time stretch
+The extension of a bar whose span is derived from a working-duration estimate: blocked days consume none of the estimate, so the bar stretches across them until the working time fits. Only inferred dates move — an authored date is an anchor and always renders as authored — and a stretch that reaches its safety ceiling falls back to the unstretched span and is flagged.
+
+### Ghost run
+A contiguous run of blocked days inside a stretched bar, rendered as a dimmed piece of the bar so the pause is visible without splitting the task. Ghost runs degrade gracefully: at zoom levels where faithful piece tiling cannot be guaranteed, the bar renders in its continuous form instead.
 
 ### Availability seam
-The internal query boundary that answers "is this date non-working?" for a view, composed from that view's role-assigned calendars. All consumers — timeline shading now, scheduling decisions later — ask the seam; no consumer inspects a calendar source directly.
+The internal query boundary that answers "is this date blocked for this task?" for a view, composed from the task's associated calendar and the view's displayed calendars. All consumers — timeline shading, stretching, scheduling decisions later — ask the seam; no consumer inspects a calendar note directly.
 
 ## Field mapping
 
@@ -51,3 +63,7 @@ A list or property value in its verbatim stored form, including wikilink bracket
 
 ### Display form
 The human-facing rendering of a stored value with wikilink brackets stripped and aliases resolved to their label. Distinct from the raw entry: seeding or committing an editor from the display form silently discards the underlying link, so raw entries are the source of truth for editing.
+
+## Flagged ambiguities
+
+- "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.

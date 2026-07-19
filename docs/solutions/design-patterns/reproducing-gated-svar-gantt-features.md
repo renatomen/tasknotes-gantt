@@ -1,6 +1,7 @@
 ---
 title: Reproducing a Pro-gated SVAR Gantt feature against the MIT build
 date: 2026-07-19
+last_updated: 2026-07-20
 category: design-patterns
 module: svar-gantt
 problem_type: design_pattern
@@ -18,7 +19,7 @@ related_components: [obsidian-gantt, svelte]
 
 ## Context
 
-SVAR Svelte Gantt's MIT "open" edition force-disables its Pro features in the store's `init` and strips their layout code (see [svar-pro-feature-render-support.md](../integration-issues/svar-pro-feature-render-support.md) for the gate mechanism). Since the plugin already owns the bar body via a custom `taskTemplate`, a Pro-gated feature can be rebuilt in that seam. The split-task spike (`test/probe/`, branch `chore/svar-pro-feature-probe`) did exactly this and, across three passes, converged on a small set of techniques that make such a rebuild clean rather than a pile of overrides. Capture them so the next gated feature — and the real Obsidian port — reuse the approach instead of rediscovering it.
+SVAR Svelte Gantt's MIT "open" edition force-disables its Pro features in the store's `init` and strips their layout code (see [svar-pro-feature-render-support.md](../integration-issues/svar-pro-feature-render-support.md) for the gate mechanism). Since the plugin already owns the bar body via a custom `taskTemplate`, a Pro-gated feature can be rebuilt in that seam. The split-task spike (`test/probe/`) did exactly this and, across three passes, converged on a small set of techniques that make such a rebuild clean rather than a pile of overrides. The techniques have since shipped to production: the calendar ghost rendering (slice S1 of the multi-calendar feature, PRs #267–#273) runs on this substrate, promoted to `src/render/`. Capture them so the next gated feature reuses the approach instead of rediscovering it.
 
 ## Guidance
 
@@ -38,6 +39,8 @@ function markBarSplit(node: Element) {
 ```
 
 **2. Let the bar be the ruler — don't reproduce the library's pixel math.** The first cut reimplemented SVAR's `diff(date, scaleStart, lengthUnit) * cellWidth` formula, which pulled in `_scales.start`, `cellWidth`, `task.$x`, and its exact rounding. Instead, express geometry as **fractions of the already-laid-out bar**, rendered as CSS percentages. The browser scales them against whatever width the bar has, so zoom tracking is free and the undocumented `inclusive`-diff flag cancels (numerator and denominator share it — a full-span child is exactly 100% under any semantics).
+
+**Sub-span caveat:** the cancellation argument is exact only for a *full-span* piece. Contiguous *sub-span* pieces tile gap/overlap-free only when the scale's `lengthUnit` is linear (`day`/`hour`) — at coarser zoom units (week/month/quarter) SVAR's `diff` snaps boundaries to unit starts and normalizes by variable divisors, so piece widths no longer sum to the bar. Gate sub-span tiling behind `canTileSubSpans` (`src/render/segmentLayout.ts`) and degrade to the continuous bar when it fails, mirroring the choke-point's feature-off philosophy in technique 3. Precedent for the day/hour-only self-gate: [svar-gantt-highlighttime-header-cell-zoom-gating.md](../integration-issues/svar-gantt-highlighttime-header-cell-zoom-gating.md); the full set of shipped geometry conventions lives in [svar-gantt-bar-geometry-and-fill-conventions.md](../conventions/svar-gantt-bar-geometry-and-fill-conventions.md).
 
 **3. Funnel unavoidable internals through one runtime-validated choke-point.** Whatever private state remains (here, `getState()._scales.diff` + `.lengthUnit`) lives in a single helper that validates shape and returns `null` when the library moves it — the template then falls back to the ordinary rendering. An upgrade can switch the feature *off*; it can never break the chart.
 
@@ -67,7 +70,7 @@ The naive rebuild — override the CSS, reproduce the math, read internals inlin
 
 ## Examples
 
-Reference implementation (branch `chore/svar-pro-feature-probe`, `test/probe/`): `segmentLayout.ts` (fractions + progress + connector run), `svarContract.ts` (choke-point), `SegmentBar.svelte` (template + `wx-split` stamp), `segments.css` (the one remaining rule), `svar-contract.probe.ts` (oracle + contracts). Run it: `npm run probe:svar`; see it: `npm run demo:segments`.
+Production implementation (on `main` since slice S1): `src/render/segmentLayout.ts` (fractions + progress + connector run + `canTileSubSpans`), `src/render/svarContract.ts` (choke-point), `src/bases/BarContent.svelte` (production template — `wx-split` stamp + gated ghost pieces). The probe harness remains the oracle: `test/probe/SegmentBar.svelte` (spike template), `test/probe/segments.css`, `test/probe/svar-contract.probe.ts` (oracle + contracts, now importing from `src/render/`). Run it: `npm run probe:svar`; see it: `npm run demo:segments`.
 
 Before/after in one line — transparency:
 
