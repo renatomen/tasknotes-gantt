@@ -91,6 +91,19 @@ export interface GhostRunSpan {
 }
 
 /**
+ * Whether contiguous sub-span pieces tile faithfully under this scale. Only
+ * the linear day/hour length units cancel piece-for-piece; SVAR's coarser
+ * units snap to unit starts and normalize by variable divisors, which breaks
+ * the widths-sum-to-the-bar guarantee for internal pieces (a full-span piece
+ * is exactly 1 under any semantics — sub-spans are not). Callers degrade to
+ * the continuous bar when this is false — graceful feature-off, never
+ * silently wrong.
+ */
+export function canTileSubSpans(snapshot: ScaleSnapshot): boolean {
+  return snapshot.lengthUnit === 'day' || snapshot.lengthUnit === 'hour';
+}
+
+/**
  * Decompose a stretched bar's span into ordered alternating runs — working
  * (solid) and blocked (ghost) — as segment spans the piece geometry consumes.
  * The calendar ghost and split-task segments share this one code path: the

@@ -3227,7 +3227,9 @@
     top: 0;
     height: 100%;
     box-sizing: border-box;
-    background-color: var(--wx-gantt-task-color, #3d8de6);
+    /* Inherit the fill treatment's colour when one applies (set as
+       --og-ghost-fill on the treated bar); default task colour otherwise. */
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
     border-radius: var(--wx-gantt-bar-border-radius, 2px);
   }
   /* Blocked stretches: the 15% ghost — the shaded background reads through. */

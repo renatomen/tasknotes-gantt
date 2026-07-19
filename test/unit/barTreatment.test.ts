@@ -142,6 +142,9 @@ describe('buildTreatmentStyle', () => {
     });
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important;`);
     expect(css).toContain('background-color: #00d26a !important;');
+    // Ghost pieces re-read the fill through this property (a wx-split bar's own
+    // background is transparent, so without it a stretched bar loses its colour).
+    expect(css).toContain('--og-ghost-fill: #f8312f;');
     expect(css).toContain('text-shadow:'); // readable label on the fill
     expect(css).not.toContain('#123456'); // Unused: not present
     expect(css).not.toContain('padding-left'); // no strip in fill mode → no extra inset

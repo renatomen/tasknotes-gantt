@@ -20,7 +20,12 @@
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
   import { scaleSnapshot } from '../render/svarContract';
-  import { ghostRunSegments, segmentPieces, type GhostRunSpan } from '../render/segmentLayout';
+  import {
+    canTileSubSpans,
+    ghostRunSegments,
+    segmentPieces,
+    type GhostRunSpan,
+  } from '../render/segmentLayout';
 
   // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
   // three so the assignment typechecks. Fields are optional/loose so SVAR's
@@ -46,7 +51,7 @@
       return null;
     }
     const snapshot = scaleSnapshot(api as IApi);
-    if (!snapshot) return null;
+    if (!snapshot || !canTileSubSpans(snapshot)) return null;
     const segments = ghostRunSegments(runs, data.start, data.end);
     return segmentPieces(segments, data.start, data.end, 0, snapshot).map((piece, index) => ({
       left: piece.left,

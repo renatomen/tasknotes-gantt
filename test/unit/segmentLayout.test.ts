@@ -7,7 +7,7 @@ import {
   type DiffFn,
   type ScaleSnapshot,
 } from '../../src/render/segmentLayout';
-import { ghostRunSegments } from '../../src/render/segmentLayout';
+import { canTileSubSpans, ghostRunSegments } from '../../src/render/segmentLayout';
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -93,6 +93,19 @@ describe('ghostRunSegments — stretched-bar decomposition', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]?.blocked).toBe(false);
     expect(runs[0]?.duration).toBe(3);
+  });
+
+  it('sub-span tiling is gated to the linear day/hour length units', () => {
+    const snap = (lengthUnit: string) => ({
+      diff: () => 0,
+      lengthUnit,
+      durationUnit: 'day' as const,
+    });
+    expect(canTileSubSpans(snap('day'))).toBe(true);
+    expect(canTileSubSpans(snap('hour'))).toBe(true);
+    expect(canTileSubSpans(snap('week'))).toBe(false);
+    expect(canTileSubSpans(snap('month'))).toBe(false);
+    expect(canTileSubSpans(snap('quarter'))).toBe(false);
   });
 });
 
