@@ -28,6 +28,18 @@ function byId(instances: readonly RenderInstance[], id: string): RenderInstance 
   return found;
 }
 
+describe('expandInstances — ghost-run carry-through', () => {
+  it('carries ghostRuns and stretchFlagged from the source task onto every instance', () => {
+    const ghostRuns = [{ startDate: '2026-08-08', days: 2 }];
+    const result = expandInstances([
+      { ...task({ path: 'T.md' }), ghostRuns, stretchFlagged: true },
+    ]);
+    const instance = byId(result.instances, 'T.md');
+    expect(instance.ghostRuns).toEqual(ghostRuns);
+    expect(instance.stretchFlagged).toBe(true);
+  });
+});
+
 describe('expandInstances — alsoTopLevel + isFetched (U4)', () => {
   it('alsoTopLevel adds a bare-path root instance in addition to the nested one', () => {
     const result = expandInstances([
