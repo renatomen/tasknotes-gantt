@@ -64,6 +64,12 @@ export interface FieldMappings {
    * TaskNotes' configured `timeEstimate` field.
    */
   timeEstimateProperty?: string;
+  /**
+   * Property ID for the task's calendar association — a wikilink to a calendar
+   * or calendar-set note. Empty string / unset = the built-in display-only
+   * default. Authored on the task note itself; never a hardcoded name.
+   */
+  calendarProperty?: string;
 }
 
 /**

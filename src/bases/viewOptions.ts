@@ -76,6 +76,13 @@ function sharedFieldMappingOptions(): BasesOptions[] {
       default: '',
       placeholder: 'Select priority property (colors bars by TaskNotes priority)',
     },
+    {
+      type: 'property' as const,
+      displayName: 'Calendar Property',
+      key: FIELD_MAPPING_KEYS.calendar,
+      default: '',
+      placeholder: 'Wikilink to a calendar or calendar-set note (optional)',
+    },
   ];
 }
 

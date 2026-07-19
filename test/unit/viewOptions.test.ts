@@ -229,6 +229,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
+      FIELD_MAPPING_KEYS.calendar,
       // Time Estimate property lives in the Fields group (before the Progress group).
       FIELD_MAPPING_KEYS.timeEstimate,
       FIELD_MAPPING_KEYS.progress,
@@ -243,9 +244,9 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // Five groups; flattened leaves = 8 Fields + 2 Progress + 3 Relationships
-    // + 7 Timeline + 8 Appearance = 28 (8 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(28);
+    // Five groups; flattened leaves = 9 Fields + 2 Progress + 3 Relationships
+    // + 7 Timeline + 8 Appearance = 29 (9 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(29);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -274,6 +275,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.parent,
       FIELD_MAPPING_KEYS.status,
       FIELD_MAPPING_KEYS.priority,
+      FIELD_MAPPING_KEYS.calendar,
       FIELD_MAPPING_KEYS.timeEstimate,
       "tngantt_timeEstimateMode",
     ]);

@@ -25,6 +25,7 @@ describe("readFieldMappings", () => {
       statusProperty: "",
       priorityProperty: "",
       timeEstimateProperty: "",
+      calendarProperty: "",
     });
   });
 
@@ -62,6 +63,7 @@ describe("readFieldMappings", () => {
       statusProperty: "note.status",
       priorityProperty: "note.priority",
       timeEstimateProperty: "",
+      calendarProperty: "",
     });
   });
 
