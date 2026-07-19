@@ -64,7 +64,8 @@
     "webdriverio": "^9.19.2"
   },
   "dependencies": {
-    "@svar-ui/svelte-gantt": "^2.7.0"
+    "@svar-ui/svelte-gantt": "^2.7.0",
+    "rrule": "^2.8.1"
   },
   "overrides": {
     "@babel/core": "^7.29.6",
