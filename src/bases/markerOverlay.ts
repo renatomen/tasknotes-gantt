@@ -100,9 +100,13 @@ function byPosition(a: PlacedMarker, b: PlacedMarker): number {
 /**
  * Markers whose rendered labels would overlap collapse into one entry — the
  * rule is rendered proximity, not identical dates, so adjacent days collide at
- * month zoom while staying separate at day zoom. Exact-position ties stack
- * instead of collapsing, so same-day markers from different calendars stay
- * individually readable.
+ * month zoom while staying separate at day zoom.
+ *
+ * A cluster of markers all sharing one position is the exception: they cannot
+ * be separated horizontally at any zoom, so they stack vertically and stay
+ * individually readable. Once a cluster mixes positions, stacking would leave
+ * near-neighbours overlapping anyway, so the whole cluster collapses to a
+ * count and the tooltip carries the members.
  */
 function groupByProximity(placed: readonly PlacedMarker[], widthPx: number): MarkerOverlayEntry[] {
   const entries: MarkerOverlayEntry[] = [];

@@ -363,15 +363,31 @@
   });
 
   /**
-   * The chart span lives in SVAR state, which Svelte cannot track, so a zoom
-   * change has to announce itself. The data path already re-derives on every
-   * store push, covering autoScale range moves.
+   * The chart span lives in SVAR state, which Svelte cannot track, so every
+   * way it can move has to announce itself: zoom, a scroll that extends an
+   * auto-scaled range, and a container resize (which also changes the pixel
+   * width the label-proximity grouping is measured in).
+   *
+   * Scroll fires per frame, so the tick is gated on the span actually having
+   * changed — otherwise the overlay would re-derive on every scrolled pixel.
    */
+  let lastSpanKey = '';
+  function refreshMarkerGeometry(): void {
+    if (!api) return;
+    const span = chartSpanSnapshot(api as unknown as IApi);
+    const key = span
+      ? `${span.start.getTime()}|${span.end.getTime()}|${span.widthPx}`
+      : 'none';
+    if (key === lastSpanKey) return;
+    lastSpanKey = key;
+    markerTick += 1;
+  }
+
   function wireMarkerRecompute(ganttApi: GanttAPI): void {
     if (typeof ganttApi?.on !== 'function') return;
-    ganttApi.on('zoom-scale', () => {
-      markerTick += 1;
-    });
+    for (const event of ['zoom-scale', 'scroll-chart', 'resize-chart']) {
+      ganttApi.on(event, () => refreshMarkerGeometry());
+    }
   }
 
   /** Host the overlay inside SVAR's own content area so it scrolls with it. */
@@ -3569,6 +3585,10 @@
   .og-marker-label {
     position: absolute;
     left: 4px;
+    /* The layer is inert so it can never swallow a bar drag, but the label
+       itself must be hoverable — its title is the only place a collapsed
+       group's members are listed. */
+    pointer-events: auto;
     white-space: nowrap;
     font-size: 10px;
     line-height: 14px;

@@ -84,6 +84,24 @@ describe('buildMarkerOverlay', () => {
     expect(entries.every((e) => e.groupedCount === 1)).toBe(true);
   });
 
+  it('collapses a cluster that mixes same-date ties with a near neighbour', () => {
+    // Stacking would leave the near neighbour overlapping the ties anyway, so
+    // the honest rendering is one count carrying every member.
+    const entries = buildMarkerOverlay({
+      markers: [
+        marker({ date: '2026-04-10', calendarId: 'A.md', name: 'Tie one' }),
+        marker({ date: '2026-04-10', calendarId: 'B.md', name: 'Tie two' }),
+        marker({ date: '2026-04-11', calendarId: 'C.md', name: 'Neighbour' }),
+      ],
+      span: { ...span(1, 400), widthPx: 1000 },
+      today: null,
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.groupedCount).toBe(3);
+    expect(entries[0]?.title).toContain('Tie one');
+    expect(entries[0]?.title).toContain('Neighbour');
+  });
+
   it('collapses a crowded group to a count with the members in its tooltip', () => {
     const crowded = Array.from({ length: 5 }, (_, i) =>
       marker({ date: `2026-04-1${i}`, name: `M${i}` }),
