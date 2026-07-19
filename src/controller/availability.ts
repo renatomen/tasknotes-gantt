@@ -142,3 +142,30 @@ export function weekendHighlightClass(
   if (unit !== "day" && unit !== "hour") return "";
   return availability.isNonWorkingDay(date) ? "wx-weekend" : "";
 }
+
+/** Static identity class of a cell's LOCAL calendar day, e.g. `og-d-2026-04-10`. */
+export function dateIdentityClass(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `og-d-${year}-${month}-${day}`;
+}
+
+/**
+ * The calendar-aware cell classifier: the theme-native weekend class plus
+ * STATIC per-date identity classes. The identity classes carry no meaning of
+ * their own — the injected calendar stylesheet decides which dates shade, so
+ * shading changes apply to already-rendered cells with no SVAR repaint (the
+ * closure handed to the chart stays frozen). `og-cal-cell` is the layout base
+ * every identity cell shares (the weekend class carries its own layout).
+ * Same day/hour gate as {@link weekendHighlightClass}, same rationale.
+ */
+export function calendarCellClass(
+  date: Date,
+  unit: string,
+  availability: Availability,
+): string {
+  if (unit !== "day" && unit !== "hour") return "";
+  const weekend = availability.isNonWorkingDay(date) ? "wx-weekend " : "";
+  return `${weekend}og-cal-cell ${dateIdentityClass(date)}`;
+}

@@ -51,6 +51,14 @@ export interface GanttData {
    */
   highlightWeekends: boolean;
   /**
+   * The generated calendar-shading stylesheet (layout base rule + one grouped
+   * shade rule per refresh). Flows through the reactive data path so a
+   * calendar edit re-shades already-rendered cells via CSS alone — the
+   * `highlightTime` seed prop stays fixed at mount and stamps only static
+   * per-date identity classes. Empty/absent = base rule only (today's look).
+   */
+  calendarShadingCss?: string;
+  /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
    * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows
