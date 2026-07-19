@@ -14,8 +14,8 @@
   /* eslint-disable @typescript-eslint/no-explicit-any */
   /* global Element */
   import SegmentBar from '../SegmentBar.svelte';
-  import { scaleSnapshot } from '../svarContract';
-  import { segmentPieces } from '../segmentLayout';
+  import { scaleSnapshot } from '../../../src/render/svarContract';
+  import { segmentPieces } from '../../../src/render/segmentLayout';
 
   interface Props {
     data: any;

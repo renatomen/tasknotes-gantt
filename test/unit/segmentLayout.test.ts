@@ -6,7 +6,8 @@ import {
   segmentPieces,
   type DiffFn,
   type ScaleSnapshot,
-} from './segmentLayout';
+} from '../../src/render/segmentLayout';
+import { ghostRunSegments } from '../../src/render/segmentLayout';
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -45,6 +46,53 @@ describe('isSegmentSpan', () => {
     expect(isSegmentSpan({ start: '2026-04-02', duration: 3 })).toBe(false);
     expect(isSegmentSpan({ start: d(2) })).toBe(false);
     expect(isSegmentSpan(null)).toBe(false);
+  });
+});
+
+describe('ghostRunSegments — stretched-bar decomposition', () => {
+  const local = (month: number, day: number): Date => new Date(2026, month - 1, day);
+  const endOfDay = (month: number, day: number): Date =>
+    new Date(2026, month - 1, day, 23, 59, 59, 999);
+
+  it('decomposes a stretched span into alternating working/blocked runs (inclusive end day)', () => {
+    const runs = ghostRunSegments(
+      [{ startDate: '2026-04-11', days: 2 }],
+      local(4, 10),
+      endOfDay(4, 14),
+    );
+    expect(runs.map((run) => [run.start.getDate(), run.duration, run.blocked])).toEqual([
+      [10, 1, false],
+      [11, 2, true],
+      [13, 2, false],
+    ]);
+  });
+
+  it('handles a blocked anchor (run starts blocked)', () => {
+    const runs = ghostRunSegments(
+      [{ startDate: '2026-04-10', days: 3 }],
+      local(4, 10),
+      endOfDay(4, 15),
+    );
+    expect(runs.map((run) => [run.start.getDate(), run.duration, run.blocked])).toEqual([
+      [10, 3, true],
+      [13, 3, false],
+    ]);
+  });
+
+  it('total duration equals the inclusive day count of the span', () => {
+    const runs = ghostRunSegments(
+      [{ startDate: '2026-04-11', days: 2 }],
+      local(4, 10),
+      endOfDay(4, 14),
+    );
+    expect(runs.reduce((sum, run) => sum + run.duration, 0)).toBe(5);
+  });
+
+  it('a span with no ghosts is one working run', () => {
+    const runs = ghostRunSegments([], local(4, 10), endOfDay(4, 12));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.blocked).toBe(false);
+    expect(runs[0]?.duration).toBe(3);
   });
 });
 

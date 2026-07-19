@@ -3203,6 +3203,43 @@
   }
 
   /*
+   * Working-time ghost bars (shared substrate with the split-task follow-up).
+   * The host bar carries SVAR's own `wx-split` class (stamped by BarContent),
+   * which arms the library's transparent rule; the transparent override also
+   * outranks any generated fill-treatment rule (higher specificity, both
+   * !important), so the pieces below are the bar's only visible body. SVAR
+   * suppresses its whole-bar progress wrapper only when its Pro splitTasks
+   * flag is on, so the community build needs the explicit suppression rule.
+   */
+  .og-bases-gantt :global(.wx-bar.wx-split) {
+    background-color: transparent !important;
+  }
+  .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
+    display: none;
+  }
+  .og-bases-gantt :global(.og-ghost-runs) {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .og-bases-gantt :global(.og-ghost-run) {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    box-sizing: border-box;
+    background-color: var(--wx-gantt-task-color, #3d8de6);
+    border-radius: var(--wx-gantt-bar-border-radius, 2px);
+  }
+  /* Blocked stretches: the 15% ghost — the shaded background reads through. */
+  .og-bases-gantt :global(.og-ghost-run.og-ghost-blocked) {
+    opacity: 0.15;
+  }
+  .og-bases-gantt :global(.og-ghost-label) {
+    position: relative;
+    z-index: 2;
+  }
+
+  /*
    * Instance cues (U6). SVAR emits a registered task type as a bare class on the
    * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
    * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no

@@ -34,13 +34,13 @@
 <script lang="ts">
   /* global Element */
   import type { IApi, ITask } from '@svar-ui/svelte-gantt';
-  import { scaleSnapshot } from './svarContract';
+  import { scaleSnapshot } from '../../src/render/svarContract';
   import {
     connectorRun,
     isSegmentSpan,
     segmentPieces,
     type SegmentPiece,
-  } from './segmentLayout';
+  } from '../../src/render/segmentLayout';
 
   /** Exactly SVAR's taskTemplate contract — it always passes all three. */
   interface Props {

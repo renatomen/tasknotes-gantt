@@ -36,7 +36,6 @@ export function scaleSnapshot(api: IApi): ScaleSnapshot | null {
   if (typeof diff !== 'function' || typeof lengthUnit !== 'string') {
     if (!warned) {
       warned = true;
-      // eslint-disable-next-line no-console
       console.warn(
         '[segments] SVAR internals moved (_scales.diff / _scales.lengthUnit); split-task rendering disabled, bars fall back to their continuous form.',
       );

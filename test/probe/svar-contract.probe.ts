@@ -22,7 +22,7 @@ import { test, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { IApi } from '@svar-ui/svelte-gantt';
 import SegmentsProbeHost from './SegmentsProbeHost.svelte';
-import { scaleSnapshot } from './svarContract';
+import { scaleSnapshot } from '../../src/render/svarContract';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* global DOMRect, Element, getComputedStyle */

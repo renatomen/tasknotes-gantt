@@ -70,7 +70,10 @@ export function applyWorkingTimeStretch(inputs: StretchInputs): StretchResult | 
   const endIso = forward ? boundary : localIso(anchor);
   return {
     start: forward ? inputs.start : isoToLocalDate(startIso),
-    end: forward ? isoToLocalDate(endIso) : inputs.end,
+    // A derived end keeps the date policy's end-of-day convention — every
+    // other bar's end is 23:59:59.999 of its last day, and a midnight end
+    // would render the stretched bar one column short.
+    end: forward ? isoToLocalEndOfDay(endIso) : inputs.end,
     ghostRuns: collectGhostRuns(startIso, endIso, inputs.isBlocked),
     flagged: false,
   };
@@ -86,7 +89,7 @@ function collectGhostRuns(
   let runDays = 0;
   for (let day = startIso; day <= endIso; day = shiftIso(day, 1)) {
     if (isBlocked(day)) {
-      if (runStart === null) runStart = day;
+      runStart ??= day;
       runDays += 1;
     } else if (runStart !== null) {
       runs.push({ startDate: runStart, days: runDays });
@@ -117,4 +120,9 @@ function shiftIso(iso: string, days: number): string {
 function isoToLocalDate(iso: string): Date {
   const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
   return new Date(year, month - 1, day);
+}
+
+function isoToLocalEndOfDay(iso: string): Date {
+  const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(year, month - 1, day, 23, 59, 59, 999);
 }
