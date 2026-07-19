@@ -124,6 +124,13 @@ function parseCalendar(source: Record<string, unknown>): CalendarDefinition | In
   };
 
   readDatedList(source['non_working'], 'non_working', diagnostics, (entry, path) => {
+    if (entry.rrule !== undefined) {
+      diagnostics.push({
+        path,
+        message: 'recurring patterns are not supported in non_working; use the calendar pattern or events',
+      });
+      return;
+    }
     if (entry.marker) {
       diagnostics.push({ path, message: 'marker flags are display-only; kept as blocking' });
     }
@@ -300,8 +307,8 @@ function readDatedEntry(value: unknown): DatedEntry | undefined {
   const name = readOptionalString(entry['name']);
   const marker = entry['marker'] === true;
 
-  const rrule = typeof entry['pattern'] === 'string' ? entry['pattern'].trim()
-    : typeof entry['rrule'] === 'string' ? entry['rrule'].trim() : undefined;
+  const rruleSource = entry['pattern'] ?? entry['rrule'];
+  const rrule = typeof rruleSource === 'string' ? rruleSource.trim() : undefined;
   if (rrule !== undefined) {
     if (!HAS_FREQ.test(rrule)) return undefined;
     return { span: undefined, rrule, name, marker };

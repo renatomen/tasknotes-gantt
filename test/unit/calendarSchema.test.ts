@@ -126,6 +126,16 @@ describe('parseCalendarFrontmatter — calendars', () => {
     expect(cal.diagnostics).toHaveLength(1);
   });
 
+  it('drops a non_working entry carrying a recurring pattern, with a diagnostic (fail-visible)', () => {
+    const cal = parseCalendar({
+      tngantt: 'calendar',
+      non_working: [{ pattern: 'FREQ=WEEKLY;BYDAY=FR' }, '2026-12-25'],
+    });
+    expect(cal.nonWorking).toHaveLength(1);
+    expect(cal.diagnostics).toHaveLength(1);
+    expect(cal.diagnostics[0]?.path).toBe('non_working[0]');
+  });
+
   it('keeps a non_working entry carrying a marker flag as blocking, with a diagnostic', () => {
     const cal = parseCalendar({
       tngantt: 'calendar',

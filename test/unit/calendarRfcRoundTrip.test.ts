@@ -108,6 +108,8 @@ describe('round-trip', () => {
   it('round-trips every authored construct through the RFC model unchanged', () => {
     const original = definition();
     const back = fromRfcCalendar(toRfcCalendar(original));
+    expect(back.description).toBe(original.description);
+    expect(back.color).toBe(original.color);
     expect(back.pattern).toBe(original.pattern);
     expect(back.patternStart).toBe(original.patternStart);
     expect(back.timezone).toBe(original.timezone);
@@ -117,6 +119,21 @@ describe('round-trip', () => {
     expect(back.events).toEqual(original.events);
     expect(back.markers).toEqual(original.markers);
     expect(back.recurringEvents).toEqual(original.recurringEvents);
+  });
+
+  it('round-trips an availability-only calendar without inventing a uniform pattern', () => {
+    const parsed = parseCalendarFrontmatter({
+      tngantt: 'calendar',
+      availability: [
+        { pattern: 'FREQ=WEEKLY;BYDAY=TU,TH', hours: ['09:00-17:00'] },
+        { pattern: 'FREQ=WEEKLY;BYDAY=MO,WE,FR', hours: ['09:00-12:00'] },
+      ],
+    });
+    if (parsed?.kind !== 'calendar') throw new Error('fixture must parse');
+    const back = fromRfcCalendar(toRfcCalendar(parsed));
+    expect(back.pattern).toBeUndefined();
+    expect(back.workingHours).toEqual([]);
+    expect(back.availability).toEqual(parsed.availability);
   });
 
   it('round-trips a minimal date-only calendar', () => {

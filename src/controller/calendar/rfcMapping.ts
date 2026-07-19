@@ -35,8 +35,14 @@ export interface RfcEvent {
   marker: boolean;
 }
 
-/** VAVAILABILITY AVAILABLE projection: an rrule paired with hour ranges. */
+/**
+ * VAVAILABILITY AVAILABLE projection: an rrule paired with hour ranges.
+ * The role discriminant survives the trip — array position alone cannot
+ * distinguish the uniform working pattern from per-day blocks once a
+ * pattern-less, availability-only calendar passes through.
+ */
 export interface RfcAvailableBlock {
+  role: 'uniform' | 'per-day';
   rrule: string;
   hours: TimeRange[];
   dtstart: RfcDatedProperty | undefined;
@@ -47,6 +53,8 @@ export interface RfcAvailability {
 }
 
 export interface RfcCalendarModel {
+  description: string | undefined;
+  color: string | undefined;
   timezone: string | undefined;
   availability: RfcAvailability | undefined;
   events: RfcEvent[];
@@ -105,16 +113,19 @@ export function toRfcCalendar(definition: CalendarDefinition): RfcCalendarModel 
   const available: RfcAvailableBlock[] = [];
   if (definition.pattern !== undefined) {
     available.push({
+      role: 'uniform',
       rrule: definition.pattern,
       hours: definition.workingHours,
       dtstart: definition.patternStart ? dateProperty(definition.patternStart) : undefined,
     });
   }
   for (const block of definition.availability) {
-    available.push({ rrule: block.pattern, hours: block.hours, dtstart: undefined });
+    available.push({ role: 'per-day', rrule: block.pattern, hours: block.hours, dtstart: undefined });
   }
 
   return {
+    description: definition.description,
+    color: definition.color,
     timezone: definition.timezone,
     availability: available.length > 0 ? { available } : undefined,
     events,
@@ -124,8 +135,8 @@ export function toRfcCalendar(definition: CalendarDefinition): RfcCalendarModel 
 export function fromRfcCalendar(model: RfcCalendarModel): CalendarDefinition {
   const definition: CalendarDefinition = {
     kind: 'calendar',
-    description: undefined,
-    color: undefined,
+    description: model.description,
+    color: model.color,
     pattern: undefined,
     patternStart: undefined,
     timezone: model.timezone,
@@ -139,13 +150,15 @@ export function fromRfcCalendar(model: RfcCalendarModel): CalendarDefinition {
   };
 
   const available = model.availability?.available ?? [];
-  const [uniform, ...perDay] = available;
+  const uniform = available.find((block) => block.role === 'uniform');
   if (uniform) {
     definition.pattern = uniform.rrule;
     definition.workingHours = uniform.hours;
     definition.patternStart = uniform.dtstart?.value;
-    definition.availability = perDay.map(toAvailabilityBlock);
   }
+  definition.availability = available
+    .filter((block) => block.role === 'per-day')
+    .map(toAvailabilityBlock);
 
   for (const event of model.events) {
     if (event.rrule !== undefined) {
