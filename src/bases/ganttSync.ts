@@ -194,6 +194,13 @@ export interface SvarTask {
      */
     cellRenders?: Record<string, CellRender>;
     /**
+     * Blocked stretches inside a working-time-stretched span, read by the
+     * `BarContent` ghost branch. Absent = solid continuous bar. Folded into
+     * {@link taskStateKey} so a moved holiday re-issues the task even when the
+     * span itself is unchanged.
+     */
+    ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.
      * SVAR's tooltip receives the task, not the link, so the per-task summary
@@ -340,6 +347,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isContext,
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
+        ghostRuns: inst.ghostRuns,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -421,6 +429,10 @@ export function taskStateKey(t: SvarTask): string {
     // Icon-chip spec (U4): fold so toggling the icon source or a config icon
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
+    // Ghost runs: a holiday moved inside an unchanged span alters only these —
+    // without the fold the diff-sync would skip the update and the ghost would
+    // render on the wrong days until an unrelated edit.
+    ghostRunsKey(t.custom.ghostRuns),
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
     // values: a raw Date/ISO-string/wrapper serializes non-deterministically and
@@ -454,6 +466,12 @@ function barIconKey(icon: IconSpec | null): string {
   if (!icon) return '';
   const completedFlag = icon.completed ? 'c' : '';
   return `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${completedFlag}`;
+}
+
+/** Deterministic fingerprint of a bar's ghost runs (order-preserving). */
+function ghostRunsKey(runs: ReadonlyArray<{ startDate: string; days: number }> | undefined): string {
+  if (!runs?.length) return '';
+  return runs.map((run) => `${run.startDate}~${run.days}`).join('|');
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */

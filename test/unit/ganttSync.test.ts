@@ -54,6 +54,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     priority: over.priority ?? null,
     isFetched: over.isFetched ?? false,
     isTopLevelPlacement: over.isTopLevelPlacement ?? false,
+    ghostRuns: over.ghostRuns,
   };
 }
 
@@ -668,6 +669,21 @@ describe('taskStateKey', () => {
     const [a] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', start: new Date(2026, 0, 1) })] }));
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', start: new Date(2026, 0, 5) })] }));
     expect(taskStateKey(a)).not.toBe(taskStateKey(b));
+  });
+
+  it('changes when a ghost run moves inside an unchanged span (moved-holiday fingerprint)', () => {
+    const build = (startDate: string) =>
+      buildSvarTasks(
+        inputs({ instances: [inst({ id: 'a', ghostRuns: [{ startDate, days: 1 }] })] }),
+      )[0];
+    expect(taskStateKey(build('2026-04-14'))).not.toBe(taskStateKey(build('2026-04-16')));
+    expect(taskStateKey(build('2026-04-14'))).toBe(taskStateKey(build('2026-04-14')));
+  });
+
+  it('threads ghostRuns onto SvarTask.custom for the bar template', () => {
+    const ghostRuns = [{ startDate: '2026-04-11', days: 2 }];
+    const [built] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', ghostRuns })] }));
+    expect(built?.custom.ghostRuns).toEqual(ghostRuns);
   });
 
   it('is identical for identical content', () => {

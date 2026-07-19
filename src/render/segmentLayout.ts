@@ -84,6 +84,91 @@ export function segmentEnd(start: Date, duration: number, unit: DurationUnit): D
   return end;
 }
 
+/** A working-time ghost input: a blocked stretch in whole local days. */
+export interface GhostRunSpan {
+  startDate: string;
+  days: number;
+}
+
+/**
+ * Whether contiguous sub-span pieces tile faithfully under this scale. Only
+ * the linear day/hour length units cancel piece-for-piece; SVAR's coarser
+ * units snap to unit starts and normalize by variable divisors, which breaks
+ * the widths-sum-to-the-bar guarantee for internal pieces (a full-span piece
+ * is exactly 1 under any semantics — sub-spans are not). Callers degrade to
+ * the continuous bar when this is false — graceful feature-off, never
+ * silently wrong.
+ */
+export function canTileSubSpans(snapshot: ScaleSnapshot): boolean {
+  return snapshot.lengthUnit === 'day' || snapshot.lengthUnit === 'hour';
+}
+
+/**
+ * Decompose a stretched bar's span into ordered alternating runs — working
+ * (solid) and blocked (ghost) — as segment spans the piece geometry consumes.
+ * The calendar ghost and split-task segments share this one code path: the
+ * ghost paints the same pieces solid-plus-translucent where split-task paints
+ * them separated.
+ */
+export function ghostRunSegments(
+  ghostRuns: readonly GhostRunSpan[],
+  taskStart: Date,
+  taskEnd: Date,
+): Array<SegmentSpan & { blocked: boolean }> {
+  const blocked = new Set<string>();
+  for (const run of ghostRuns) {
+    let day = run.startDate;
+    for (let i = 0; i < run.days; i += 1) {
+      blocked.add(day);
+      day = nextDayIso(day);
+    }
+  }
+
+  const runs: Array<SegmentSpan & { blocked: boolean }> = [];
+  const endIso = localDayIso(taskEnd);
+  let runStartIso: string | null = null;
+  let runBlocked = false;
+  let runDays = 0;
+  for (let day = localDayIso(taskStart); day <= endIso; day = nextDayIso(day)) {
+    const isBlocked = blocked.has(day);
+    if (runStartIso !== null && isBlocked === runBlocked) {
+      runDays += 1;
+      continue;
+    }
+    if (runStartIso !== null) {
+      runs.push({ start: isoToLocalDate(runStartIso), duration: runDays, blocked: runBlocked });
+    }
+    runStartIso = day;
+    runBlocked = isBlocked;
+    runDays = 1;
+  }
+  if (runStartIso !== null) {
+    runs.push({ start: isoToLocalDate(runStartIso), duration: runDays, blocked: runBlocked });
+  }
+  return runs;
+}
+
+function localDayIso(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function nextDayIso(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
+  const shifted = new Date(Date.UTC(year, month - 1, day) + 86_400_000);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isoToLocalDate(iso: string): Date {
+  const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(year, month - 1, day);
+}
+
 /**
  * Build every segment's render model in one pass: proportional box plus the
  * duration-ordered progress spend (SVAR's getSegProgress semantics, without its

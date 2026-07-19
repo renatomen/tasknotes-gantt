@@ -424,7 +424,11 @@ function buildValueRules(
  * flag's own `!important` background (coexistence).
  */
 function fillBodyRule(selector: string, color: string): string {
-  return `${selector} { background-color: ${color} !important; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
+  // --og-ghost-fill: the bar's own background is forced transparent when it
+  // renders as ghost pieces (wx-split), so the pieces re-read the treatment
+  // colour through this inherited property — a stretched bar keeps its
+  // status/priority/theme fill instead of reverting to the default colour.
+  return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
 }
 
 /**
