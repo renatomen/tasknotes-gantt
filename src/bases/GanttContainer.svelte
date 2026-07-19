@@ -2217,10 +2217,17 @@
     // In a write-enabled Time Estimate mode, persist the new span as the estimate
     // (minutes) alongside the dates — one commit writes start + end + estimate.
     // Gated by `readOnly` so a standalone timeline never writes. The estimate is
-    // NOT mirrored onto sibling rows (it isn't a rendered bar property).
+    // NOT mirrored onto sibling rows (it isn't a rendered bar property). Under
+    // working-time stretch the estimate counts WORKING days of the resized span
+    // (a stretched bar includes blocked days that carry no work), keeping the
+    // read/write round-trip honest; without an associated calendar the count
+    // falls back to plain calendar days.
     const patch: TaskPatch = { start: newStart, end: newEnd };
     if (timeEstimateWriteEnabled && !readOnly) {
-      patch.estimate = spanDaysToMinutes(inclusiveDaySpan(newStart, newEnd));
+      const workingDays = sourcePath
+        ? $data.countWorkingDays?.(sourcePath, newStart, newEnd)
+        : undefined;
+      patch.estimate = spanDaysToMinutes(workingDays ?? inclusiveDaySpan(newStart, newEnd));
     }
 
     try {

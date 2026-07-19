@@ -186,6 +186,108 @@ export function createShadingCssCache(): ShadingCssCache {
   };
 }
 
+export interface TaskBlockingQuery {
+  isBlocked(dayIso: string): boolean;
+  /** Widest blocked run (days) across the task's calendars — ceiling headroom. */
+  maxBlockedRunDays: number;
+}
+
+export interface TaskBlockingInputs {
+  markedNotes: readonly CalendarNoteInput[];
+  resolveLink: LinkResolver;
+  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
+  taskSpans: ReadonlyArray<{ start: Date | null; end: Date | null }>;
+  /** Window headroom beyond the task extent (covers the scan ceiling). */
+  extraWindowDays: number;
+}
+
+/**
+ * Per-task blocking lookup for working-time stretch: each calendar's BLOCKING
+ * days (non-working spans plus the working pattern's complement — display
+ * events never block) materialize once over the padded window; a task's query
+ * unions its calendars' sets by reference. Days beyond the materialized
+ * window read as working, so an extreme span degrades toward the authored
+ * calendar-day placement rather than guessing. A broken or absent association
+ * yields null — such tasks never stretch.
+ */
+export function computeTaskBlocking(
+  inputs: TaskBlockingInputs,
+): (taskPath: string) => TaskBlockingQuery | null {
+  const window = shadingWindow(inputs.taskSpans, 62 + inputs.extraWindowDays);
+  if (window === null) return () => null;
+
+  const registry = buildCalendarRegistry(inputs.markedNotes, inputs.resolveLink);
+  const blockedByCalendar = new Map<string, { days: Set<string>; maxRun: number }>();
+  const calendarsByTask = new Map<string, CalendarRecord[]>();
+
+  for (const association of inputs.associations) {
+    const resolved = resolveTaskCalendar(
+      registry,
+      association.value,
+      association.taskPath,
+      inputs.resolveLink,
+    );
+    if (resolved.schedulingSuspended || resolved.calendars.length === 0) continue;
+    calendarsByTask.set(association.taskPath, resolved.calendars);
+    for (const record of resolved.calendars) {
+      if (!blockedByCalendar.has(record.path)) {
+        blockedByCalendar.set(record.path, materializeBlocking(record.definition, window));
+      }
+    }
+  }
+
+  return (taskPath) => {
+    const records = calendarsByTask.get(taskPath);
+    if (!records) return null;
+    const sets = records
+      .map((record) => blockedByCalendar.get(record.path))
+      .filter((entry): entry is { days: Set<string>; maxRun: number } => entry !== undefined);
+    // Runs from different calendars can abut, so the union's widest run is
+    // over-approximated by the sum — generous ceiling headroom, still bounded.
+    const maxBlockedRunDays = Math.min(
+      366,
+      sets.reduce((total, entry) => total + entry.maxRun, 0),
+    );
+    return {
+      isBlocked: (dayIso) => sets.some((entry) => entry.days.has(dayIso)),
+      maxBlockedRunDays,
+    };
+  };
+}
+
+/** Inclusive working-day count of a local span (floor 1 — a bar is never zero). */
+export function countWorkingDaysInSpan(
+  blocking: TaskBlockingQuery,
+  start: Date,
+  end: Date,
+): number {
+  let count = 0;
+  const endIso = localIso(end);
+  for (let day = localIso(start); day <= endIso; day = addDaysIso(day, 1)) {
+    if (!blocking.isBlocked(day)) count += 1;
+  }
+  return Math.max(1, count);
+}
+
+function materializeBlocking(
+  definition: CalendarDefinition,
+  window: EvaluationWindow,
+): { days: Set<string>; maxRun: number } {
+  const days = new Set<string>();
+  for (const span of definition.nonWorking) addSpanDates(days, span, window);
+  addPatternComplement(days, definition, window);
+
+  let maxRun = 0;
+  let run = 0;
+  let previous: string | null = null;
+  for (const day of [...days].sort((a, b) => a.localeCompare(b))) {
+    run = previous !== null && addDaysIso(previous, 1) === day ? run + 1 : 1;
+    if (run > maxRun) maxRun = run;
+    previous = day;
+  }
+  return { days, maxRun };
+}
+
 function addSpanDates(dates: Set<string>, span: DatedSpan, window: EvaluationWindow): void {
   const start = span.startDate > window.startDate ? span.startDate : window.startDate;
   const end =

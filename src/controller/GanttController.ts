@@ -91,6 +91,7 @@ import {
   type SourceLink,
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
+import { applyWorkingTimeStretch, type GhostRun } from './calendar/stretch';
 import { minutesToSpanDays } from './durationConversion';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -110,6 +111,35 @@ import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
 export interface DatePolicyConfig {
   /** Bar length (days) for partial/placeholder tasks; `1` → single-day bars. */
   defaultDuration: number;
+  /**
+   * Working-time stretch (opt-in per view): duration-derived spans skip their
+   * calendar's blocked days. Built from the raw tasks of the SAME derivation
+   * pass, so the blocking window always covers the exact spans being resolved.
+   * Absent = today's calendar-day behaviour.
+   */
+  workingTimeStretch?: WorkingTimeStretchConfig;
+}
+
+/** A task's blocking query, materialized over a bounded window. */
+export interface TaskBlocking {
+  isBlocked(dayIso: string): boolean;
+  /** Widest authored blocked run (days) — feeds the scan ceiling. */
+  maxBlockedRunDays: number;
+}
+
+export interface StretchTaskInput {
+  path: string;
+  start: Date | null;
+  end: Date | null;
+  estimateMinutes: number | null;
+}
+
+export interface WorkingTimeStretchConfig {
+  /**
+   * Resolve the pass's blocking lookup from its raw tasks. Returns a per-task
+   * query (null = no association / broken association → never stretches).
+   */
+  blockingForTasks(tasks: readonly StretchTaskInput[]): (taskPath: string) => TaskBlocking | null;
 }
 
 /**
@@ -1569,7 +1599,15 @@ export class GanttController {
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration } = this.policyConfigProvider();
+    const { defaultDuration, workingTimeStretch } = this.policyConfigProvider();
+    const blockingOf = workingTimeStretch?.blockingForTasks(
+      rawTasks.map((task) => ({
+        path: task.path,
+        start: task.start,
+        end: task.end,
+        estimateMinutes: task.estimate ?? null,
+      })),
+    );
 
     const resolved: ExpandableTask[] = [];
     for (const task of rawTasks) {
@@ -1578,11 +1616,31 @@ export class GanttController {
       // duration only fills a MISSING date — a fully-dated task uses its dates
       // as-is, so a stored estimate that disagrees is ignored (dates win).
       const duration = task.estimate != null ? minutesToSpanDays(task.estimate) : defaultDuration;
-      const { start, end, dateStatus } = applyDatePolicy(
+      const policy = applyDatePolicy(
         { start: task.start, end: task.end },
         { defaultDuration: duration, today },
       );
-      resolved.push({ ...task, start, end, dateStatus });
+      let { start, end } = policy;
+      let ghostRuns: GhostRun[] | undefined;
+      let stretchFlagged: boolean | undefined;
+      const blocking = blockingOf?.(task.path);
+      if (blocking) {
+        const stretched = applyWorkingTimeStretch({
+          start,
+          end,
+          dateStatus: policy.dateStatus,
+          durationDays: duration,
+          isBlocked: blocking.isBlocked,
+          ceilingDays: 8 * Math.max(1, duration) + blocking.maxBlockedRunDays,
+        });
+        if (stretched) {
+          start = stretched.start;
+          end = stretched.end;
+          if (stretched.ghostRuns.length > 0) ghostRuns = stretched.ghostRuns;
+          if (stretched.flagged) stretchFlagged = true;
+        }
+      }
+      resolved.push({ ...task, start, end, dateStatus: policy.dateStatus, ghostRuns, stretchFlagged });
     }
     return resolved;
   }

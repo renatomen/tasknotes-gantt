@@ -29,6 +29,13 @@ import { isoDurationToDays } from './dateGap';
 export type ExpandableTask = SourceTask & {
   dateStatus?: DateStatus;
   /**
+   * Blocked stretches inside a working-time-stretched span (whole local days),
+   * carried to the bar template's 15%-ghost rendering. Absent = solid bar.
+   */
+  ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+  /** True when the stretch scan hit its ceiling and fell back to calendar days. */
+  stretchFlagged?: boolean;
+  /**
    * When true, the expander emits an extra **root** instance in addition to the
    * per-parent nested instances — a matched, also-nested task under hide-off, so
    * it appears both at top level and under its parent (origin AE1). Produced by
@@ -110,6 +117,10 @@ export interface RenderInstance {
    * real nested copies and for genuine roots (tasks with no visible parent).
    */
   isTopLevelPlacement: boolean;
+  /** Blocked stretches inside a working-time-stretched span (ghost rendering). */
+  ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+  /** True when the stretch scan hit its ceiling and fell back to calendar days. */
+  stretchFlagged?: boolean;
 }
 
 /** A source-level dependency link between two note paths. */
@@ -492,6 +503,8 @@ function makeInstance(
     priority: task.priority,
     isFetched: task.isFetched ?? false,
     isTopLevelPlacement,
+    ghostRuns: task.ghostRuns,
+    stretchFlagged: task.stretchFlagged,
   };
 }
 

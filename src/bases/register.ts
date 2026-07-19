@@ -29,6 +29,8 @@ import {
   GanttController,
   type DatePolicyConfig,
   type DateMappingInfo,
+  type StretchTaskInput,
+  type TaskBlocking,
 } from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
@@ -66,6 +68,7 @@ import {
   readMinHeight,
   readShowToolbar,
   readHighlightWeekends,
+  readCalendarMode,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -100,9 +103,12 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
+import { minutesToSpanDays } from '../controller/durationConversion';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
+  computeTaskBlocking,
+  countWorkingDaysInSpan,
   createShadingCssCache,
   shadingCacheKey,
   shadingWindow,
@@ -561,8 +567,68 @@ class ObsidianGanttBasesView extends BasesView {
 
   /** Build the date-policy + visibility config from the per-view options (U3). */
   private buildDatePolicyConfig(): DatePolicyConfig {
-    return readDatePolicyConfig((key) => this.config.get(key));
+    const base = readDatePolicyConfig((key) => this.config.get(key));
+    if (readCalendarMode((key) => this.config.get(key)) !== 'stretch') return base;
+    return {
+      ...base,
+      workingTimeStretch: {
+        blockingForTasks: (tasks) => this.buildTaskBlocking(tasks),
+      },
+    };
   }
+
+  /**
+   * Per-pass blocking lookup for working-time stretch, assembled from the same
+   * cache-safe inputs as the shading stylesheet and memoized the same way —
+   * an unrelated refresh reuses the previous lookup without re-walking the
+   * vault. The window headroom covers the scan ceiling (8× the longest
+   * duration in the pass plus authored blocked runs).
+   */
+  private buildTaskBlocking(
+    tasks: readonly StretchTaskInput[],
+  ): (taskPath: string) => TaskBlocking | null {
+    const app = this.app;
+    const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
+    const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    if (!frontmatterKey) return () => null;
+    const associations = tasks.flatMap((task) => {
+      const file = app.vault.getAbstractFileByPath(task.path);
+      if (!(file instanceof TFile)) return [];
+      const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
+      return value === undefined ? [] : [{ value, taskPath: task.path }];
+    });
+    const defaultDuration = readDatePolicyConfig((key) => this.config.get(key)).defaultDuration;
+    const maxDurationDays = tasks.reduce(
+      (max, task) =>
+        Math.max(max, task.estimateMinutes != null ? minutesToSpanDays(task.estimateMinutes) : defaultDuration),
+      1,
+    );
+    const key = shadingCacheKey({
+      epoch: this.calendarWatch?.epoch() ?? 0,
+      calendarProperty,
+      window: shadingWindow(tasks, 62 + 8 * maxDurationDays + 366),
+      associations,
+    });
+    if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
+    const markedNotes = app.vault.getMarkdownFiles().flatMap((file) => {
+      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+      return matchesCalendarMarker(frontmatter) !== null
+        ? [{ path: file.path, basename: file.basename, frontmatter }]
+        : [];
+    });
+    this.lastBlockingKey = key;
+    this.lastBlockingLookup = computeTaskBlocking({
+      markedNotes,
+      resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
+      associations,
+      taskSpans: tasks,
+      extraWindowDays: 8 * maxDurationDays + 366,
+    });
+    return this.lastBlockingLookup;
+  }
+
+  private lastBlockingKey: string | null = null;
+  private lastBlockingLookup: ((taskPath: string) => TaskBlocking | null) | null = null;
 
   /** Read the per-view "show date-status indicators" toggle (R11); default on. */
   private getShowDateIndicators(): boolean {
@@ -1009,6 +1075,13 @@ class ObsidianGanttBasesView extends BasesView {
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
       calendarShadingCss: this.buildCalendarShadingCss(instances),
+      countWorkingDays:
+        readCalendarMode((key) => this.config.get(key)) === 'stretch'
+          ? (taskPath, start, end) => {
+              const blocking = this.lastBlockingLookup?.(taskPath);
+              return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
+            }
+          : undefined,
     };
   }
 
