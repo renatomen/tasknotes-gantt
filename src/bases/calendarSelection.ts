@@ -70,8 +70,11 @@ function parseMembers(value: unknown): MemberToggles | undefined {
   return toggles;
 }
 
+/** The persisted (YAML-serializable) shape of a stored selection. */
+export type StoredSelectionValue = Record<string, unknown>;
+
 /** The persisted shape; an auto selection omits `entries` so auto survives. */
-export function serializeSelection(selection: DisplaySelection): unknown {
+export function serializeSelection(selection: DisplaySelection): StoredSelectionValue {
   return selection.auto
     ? { default: selection.defaultRow }
     : {
@@ -83,7 +86,7 @@ export function serializeSelection(selection: DisplaySelection): unknown {
 }
 
 export interface SelectionWrites {
-  displayCalendars: unknown;
+  displayCalendars: StoredSelectionValue;
   highlightWeekends: boolean;
 }
 
@@ -108,7 +111,7 @@ export function setDefaultRow(
 export function reconcileLegacyFlip(
   selection: DisplaySelection,
   legacyValue: unknown,
-): { selection: DisplaySelection; write: unknown | null } {
+): { selection: DisplaySelection; write: StoredSelectionValue | null } {
   if (!selection.stored || legacyValue === undefined || legacyValue === null) {
     return { selection, write: null };
   }
@@ -122,7 +125,7 @@ export function setEntryEnabled(
   selection: DisplaySelection,
   link: string,
   enabled: boolean,
-): { selection: DisplaySelection; write: unknown | null } {
+): { selection: DisplaySelection; write: StoredSelectionValue | null } {
   const existing = selection.entries.find((entry) => entry.link === link);
   if (existing?.enabled === enabled) return { selection, write: null };
   const entries = existing
@@ -136,7 +139,7 @@ export function setMemberEnabled(
   setLink: string,
   memberLink: string,
   enabled: boolean,
-): { selection: DisplaySelection; write: unknown | null } {
+): { selection: DisplaySelection; write: StoredSelectionValue | null } {
   const existing = selection.entries.find((entry) => entry.link === setLink);
   if (existing?.members?.[memberLink] === enabled) return { selection, write: null };
   const entries = existing
@@ -149,10 +152,31 @@ export function setMemberEnabled(
   return withEntries(selection, entries);
 }
 
+/**
+ * Enable a set entry with every member on (member toggles cleared) — the
+ * "click an indeterminate or unchecked set" gesture. No-op when the entry is
+ * already enabled with no member excluded.
+ */
+export function setEntryAllMembers(
+  selection: DisplaySelection,
+  link: string,
+): { selection: DisplaySelection; write: StoredSelectionValue | null } {
+  const existing = selection.entries.find((entry) => entry.link === link);
+  if (existing?.enabled && !Object.values(existing.members ?? {}).includes(false)) {
+    return { selection, write: null };
+  }
+  const entries = existing
+    ? selection.entries.map((entry) =>
+        entry.link === link ? { link: entry.link, enabled: true } : entry,
+      )
+    : [...selection.entries, { link, enabled: true }];
+  return withEntries(selection, entries);
+}
+
 function withEntries(
   selection: DisplaySelection,
   entries: SelectionEntry[],
-): { selection: DisplaySelection; write: unknown } {
+): { selection: DisplaySelection; write: StoredSelectionValue } {
   const updated: DisplaySelection = { ...selection, auto: false, stored: true, entries };
   return { selection: updated, write: serializeSelection(updated) };
 }

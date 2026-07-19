@@ -54,4 +54,8 @@ describe("resolveParentLink", () => {
   it("returns null when there is no source path", () => {
     expect(resolveParentLink(echoApp(), "[[Parent]]", undefined)).toBeNull();
   });
+
+  it("resolves vault-wide with an empty source path (no anchoring file)", () => {
+    expect(resolveParentLink(echoApp(), "[[Parent Page]]", "")).toBe("Parent Page");
+  });
 });
