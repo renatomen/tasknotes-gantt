@@ -6,7 +6,12 @@
 
 import { describe, expect, it, jest } from '@jest/globals';
 import { App, FakeElement } from 'obsidian';
-import { buildCalendarRegistry, type CalendarNoteInput } from '../../src/controller/calendar/resolveCalendars';
+import {
+  buildCalendarRegistry,
+  stripSubpath,
+  type CalendarNoteInput,
+} from '../../src/controller/calendar/resolveCalendars';
+import { resolveParentLink } from '../../src/bases/parentLink';
 import { parseCalendarFrontmatter } from '../../src/controller/calendar/schema';
 import { readDisplaySelection, type DisplaySelection } from '../../src/bases/calendarSelection';
 import {
@@ -92,6 +97,34 @@ describe('buildPickerRows', () => {
     const rows = buildPickerRows(context(readDisplaySelection(undefined, true), ['Calendars/NZ.md']));
     expect(rows).toContainEqual(expect.objectContaining({ kind: 'calendar', name: 'NZ', checked: true }));
     expect(rows).toContainEqual(expect.objectContaining({ kind: 'calendar', name: 'AU', checked: false }));
+  });
+
+  it('a stored selection resolves through the real resolver with the vault-wide anchor', () => {
+    // Pins the production seam: buildPickerContext resolves entry links via
+    // resolveParentLink with an EMPTY source path (no anchoring file). A
+    // falsy-source refusal here renders every stored row unchecked and flags
+    // valid entries as broken.
+    const app = {
+      metadataCache: {
+        getFirstLinkpathDest: (linkpath: string) => {
+          const note = NOTES.find((candidate) => candidate.basename === linkpath);
+          return note ? { path: note.path } : null;
+        },
+      },
+      vault: { getAbstractFileByPath: () => null },
+    } as unknown as App;
+    const sel = explicitSelection([{ link: '[[NZ]]', enabled: true }]);
+    const rows = buildPickerRows({
+      registry,
+      selection: sel,
+      resolveLink: (link) => resolveParentLink(app, stripSubpath(link), ''),
+      linkFor: (path) => `[[${path}]]`,
+      autoDisplayedPaths: new Set(),
+    });
+    expect(rows).toContainEqual(
+      expect.objectContaining({ kind: 'calendar', name: 'NZ', checked: true }),
+    );
+    expect(rows).not.toContainEqual(expect.objectContaining({ kind: 'flagged', label: '[[NZ]]' }));
   });
 
   it('a partially-enabled set is indeterminate (partial state)', () => {
@@ -285,5 +318,27 @@ describe('CalendarPickerModal wiring', () => {
     await Promise.resolve();
     expect(createCalendar).toHaveBeenCalledTimes(1);
     expect(modal.closed).toBe(true);
+  });
+
+  it('a failed create keeps the modal open', async () => {
+    const modal = new CalendarPickerModal(new App(), {
+      getContext: () => ({
+        registry: buildCalendarRegistry([], () => null),
+        selection: readDisplaySelection(undefined, true),
+        resolveLink: () => null,
+        linkFor: (path) => `[[${path}]]`,
+        autoDisplayedPaths: new Set(),
+      }),
+      persist: () => {},
+      createCalendar: jest.fn(async () => {
+        throw new Error('vault says no');
+      }),
+    });
+    modal.open();
+    const contentEl = modal.contentEl as unknown as FakeElement;
+    contentEl.query((el) => el.tagName === 'BUTTON')?.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(modal.closed).toBe(false);
   });
 });

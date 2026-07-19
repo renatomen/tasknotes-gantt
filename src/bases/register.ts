@@ -10,6 +10,7 @@
 /* global MouseEvent */
 import {
   BasesView,
+  Notice,
   TFile,
   type Plugin,
   type BasesViewConfig,
@@ -701,15 +702,21 @@ class ObsidianGanttBasesView extends BasesView {
         }
       },
       createCalendar: async () => {
-        const vault = this.app.vault;
-        if (!vault.getAbstractFileByPath('Calendars')) {
-          await vault.createFolder('Calendars').catch(() => undefined);
+        try {
+          const vault = this.app.vault;
+          if (!vault.getAbstractFileByPath('Calendars')) {
+            await vault.createFolder('Calendars').catch(() => undefined);
+          }
+          const path = uniqueCalendarPath(
+            (candidate) => vault.getAbstractFileByPath(candidate) !== null,
+          );
+          const file = await vault.create(path, calendarSkeletonText());
+          await this.app.workspace.getLeaf(true).openFile(file);
+        } catch (error) {
+          console.error('[Gantt] Failed to create a calendar note:', error);
+          new Notice("Couldn't create the calendar note — see console for details.");
+          throw error;
         }
-        const path = uniqueCalendarPath(
-          (candidate) => vault.getAbstractFileByPath(candidate) !== null,
-        );
-        const file = await vault.create(path, calendarSkeletonText());
-        await this.app.workspace.getLeaf(true).openFile(file);
       },
     }).open();
   }

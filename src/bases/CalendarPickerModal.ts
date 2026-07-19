@@ -144,9 +144,7 @@ export class CalendarPickerModal extends Modal {
   ): HTMLInputElement {
     const row = parent.createDiv({ cls: 'og-cal-picker-row' });
     const label = row.createEl('label', { cls: 'og-cal-picker-row-main' });
-    const checkbox = label.createEl('input', {
-      attr: { type: 'checkbox' },
-    }) as unknown as HTMLInputElement;
+    const checkbox = label.createEl('input', { attr: { type: 'checkbox' } });
     checkbox.checked = options.checked;
     checkbox.indeterminate = options.indeterminate === true;
     checkbox.addEventListener('change', options.onToggle);
@@ -173,9 +171,7 @@ export class CalendarPickerModal extends Modal {
   private renderFlaggedRow(list: HTMLElement, label: string, reason: string): void {
     const row = list.createDiv({ cls: 'og-cal-picker-row og-cal-picker-row-flagged' });
     const main = row.createEl('label', { cls: 'og-cal-picker-row-main' });
-    const checkbox = main.createEl('input', {
-      attr: { type: 'checkbox' },
-    }) as unknown as HTMLInputElement;
+    const checkbox = main.createEl('input', { attr: { type: 'checkbox' } });
     checkbox.disabled = true;
     main.createEl('span', { cls: 'og-cal-picker-name', text: label });
     row.createEl('small', { cls: 'og-cal-picker-desc', text: reason });
@@ -190,7 +186,12 @@ export class CalendarPickerModal extends Modal {
       text: 'Create calendar',
     });
     button.addEventListener('click', () => {
-      void this.deps.createCalendar().then(() => this.close());
+      // Close only on success; a failed create keeps the modal (and its
+      // action) available — the dep surfaces the failure to the user.
+      void this.deps
+        .createCalendar()
+        .then(() => this.close())
+        .catch(() => undefined);
     });
     button.focus();
   }

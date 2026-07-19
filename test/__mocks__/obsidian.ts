@@ -10,6 +10,14 @@
  * Add exports here only as units under test require them.
  */
 
+/** Stub of Obsidian's toast; records the message for assertions. */
+export class Notice {
+  message: string;
+  constructor(message = '') {
+    this.message = message;
+  }
+}
+
 /** Stub host app. */
 export class App {
   /** Marker so the mock isn't an empty class (S2094); the real App has many members. */

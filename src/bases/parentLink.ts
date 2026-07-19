@@ -6,6 +6,10 @@
  * resolves relative paths and aliases) with a direct-vault-path fallback.
  * Returns the resolved file path, or `null` if it cannot be resolved.
  *
+ * An empty `sourcePath` is a legitimate vault-wide lookup (no anchoring
+ * file — the metadata cache resolves from the vault root); only an
+ * undefined source refuses to resolve.
+ *
  * Single source of truth: previously duplicated verbatim across the Bases
  * property-mapping and view layers.
  *
@@ -18,7 +22,7 @@ export function resolveParentLink(
   parentRef: string,
   sourcePath: string | undefined
 ): string | null {
-  if (!sourcePath) return null;
+  if (sourcePath === undefined) return null;
   if (!parentRef) return null;
 
   const trimmed = parentRef.trim();
