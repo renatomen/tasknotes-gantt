@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calendar editor paradigms — decision sketch</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --ink: #1d2733; --line: #c9cfd8; --pane: #ffffff;
+    --side: #e8eaef; --accent: #4a7bd0; --teal: #2a9d8f; --dim: #8a93a3;
+    --blocked: #3c4657;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); padding: 22px; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .note { font-size: 12.5px; color: var(--dim); max-width: 95ch; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 1200px) { .grid { grid-template-columns: 1fr; } }
+
+  .card h2 { font-size: 13.5px; margin: 0 0 2px; }
+  .card .sub { font-size: 11.5px; color: var(--dim); margin: 0 0 8px; min-height: 46px; }
+
+  /* mini Obsidian window */
+  .win { border: 1px solid var(--line); border-radius: 8px; background: var(--pane); overflow: hidden; box-shadow: 0 2px 8px rgba(20,30,50,.07); position: relative; }
+  .titlebar { height: 20px; background: var(--side); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #c6ccd6; }
+  .body { display: flex; min-height: 330px; }
+  .sidebar { width: 118px; background: var(--side); border-right: 1px solid var(--line); padding: 8px 6px; font-size: 10.5px; color: #55617a; flex-shrink: 0; }
+  .sidebar .hdr { font-weight: 600; margin: 6px 0 3px; font-size: 9.5px; letter-spacing: .04em; color: var(--dim); }
+  .sidebar div { padding: 2px 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; }
+  .sidebar .sel { background: #d5ddec; color: #21365e; font-weight: 600; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .tabbar { display: flex; border-bottom: 1px solid var(--line); background: #fafbfc; font-size: 10.5px; }
+  .tab { padding: 5px 12px; border-right: 1px solid var(--line); color: var(--dim); }
+  .tab.on { background: var(--pane); color: var(--ink); font-weight: 600; }
+  .content { flex: 1; padding: 12px; font-size: 11px; position: relative; }
+
+  /* rich editor form bits (shared) */
+  .field { margin-bottom: 10px; }
+  .lab { font-size: 9.5px; font-weight: 700; letter-spacing: .05em; color: var(--dim); margin-bottom: 3px; }
+  .week { display: flex; gap: 4px; }
+  .day { width: 30px; height: 26px; border: 1px solid var(--line); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; background: #fff; }
+  .day.blk { background: var(--blocked); border-color: var(--blocked); color: #fff; }
+  .hours { display: inline-block; border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px; background: #fff; }
+  .holi { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; margin-bottom: 4px; background: #fff; }
+  .chip { font-size: 9px; border-radius: 3px; padding: 1px 5px; color: #fff; }
+  .chip.b { background: var(--blocked); }
+  .chip.d { background: var(--dim); }
+  .swatch { width: 16px; height: 16px; border-radius: 4px; background: var(--teal); display: inline-block; vertical-align: middle; }
+  .btn { display: inline-block; border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; background: #fff; font-size: 10px; color: #3c4a63; }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cornertool { position: absolute; top: 8px; right: 10px; font-size: 9.5px; color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; background: #fff; }
+
+  /* raw markdown look */
+  .raw { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: #45506b; white-space: pre; line-height: 1.55; }
+  .raw .fm { color: #9aa3b5; }
+
+  /* modal overlay */
+  .backdrop { position: absolute; inset: 0; background: rgba(25,32,45,.42); display: flex; align-items: center; justify-content: center; }
+  .modal { width: 78%; background: var(--pane); border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: 0 8px 30px rgba(10,20,40,.35); }
+  .modal h3 { margin: 0 0 8px; font-size: 12px; }
+  .modal .row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+
+  /* manager rows */
+  .mrow { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; background: #fff; }
+  .mrow .nm { font-weight: 600; min-width: 88px; }
+  .mrow .meta { color: var(--dim); font-size: 10px; flex: 1; }
+  .mrow.open { flex-direction: column; align-items: stretch; background: #fbfcff; border-color: var(--accent); }
+  .mrow.open .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+  .verdict { font-size: 11px; color: #55617a; margin-top: 8px; line-height: 1.5; }
+  .verdict b { color: var(--ink); }
+</style>
+</head>
+<body>
+  <h1>Where does calendar editing live? — three paradigms, same calendar</h1>
+  <p class="note">Directional wireframes — judge <b>where editing happens</b>, not colours or exact controls. Same data everywhere: calendar “Engineering”, Mon–Fri 09:00–17:00, two holidays, teal colour.</p>
+
+  <div class="grid">
+
+    <!-- 1: note opens as editor -->
+    <section class="card">
+      <h2>1 · Note opens as the editor (Kanban / Bases pattern)</h2>
+      <p class="sub">You click <b>Engineering.md</b> in the file explorer — the note pane itself renders as a visual editor. “Open as markdown” shows the raw YAML any time.</p>
+      <div class="win">
+        <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="body">
+          <div class="sidebar">
+            <div class="hdr">VAULT</div>
+            <div>Projects/</div>
+            <div class="hdr">CALENDARS</div>
+            <div class="sel">Engineering.md</div>
+            <div>NZ Holidays.md</div>
+            <div>AU Holidays.md</div>
+            <div>APAC (set).md</div>
+            <div class="hdr">TASKS</div>
+            <div>Design course.md</div>
+          </div>
+          <div class="main">
+            <div class="tabbar"><div class="tab on">Engineering</div><div class="tab">Gantt.base</div></div>
+            <div class="content">
+              <div class="cornertool">&lt;/&gt; open as markdown</div>
+              <div class="field"><div class="lab">NAME &amp; COLOUR</div>Engineering &nbsp;<span class="swatch"></span></div>
+              <div class="field"><div class="lab">WORKING WEEK</div>
+                <div class="week">
+                  <div class="day">Mo</div><div class="day">Tu</div><div class="day">We</div><div class="day">Th</div><div class="day">Fr</div><div class="day blk">Sa</div><div class="day blk">Su</div>
+                </div>
+              </div>
+              <div class="field"><div class="lab">WORKING HOURS</div><span class="hours">09:00 – 17:00</span></div>
+              <div class="field"><div class="lab">HOLIDAYS &amp; EXCEPTIONS</div>
+                <div class="holi">25 Dec 2026 <span class="chip b">blocking</span></div>
+                <div class="holi">06 Feb 2026 — Waitangi <span class="chip d">display-only</span></div>
+                <span class="btn">+ add date</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="verdict"><b>Feel:</b> the note <i>is</i> the thing. Discovery = the file explorer. No extra surfaces to build; renames, links, search all behave like any note.</p>
+    </section>
+
+    <!-- 2: modal -->
+    <section class="card">
+      <h2>2 · Modal editor (TaskNotes pattern)</h2>
+      <p class="sub">The note stays plain markdown. You run a command (or hit “edit” in the calendar picker) — a dialog opens <b>over</b> the workspace; Save writes the YAML back.</p>
+      <div class="win">
+        <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="body">
+          <div class="sidebar">
+            <div class="hdr">VAULT</div>
+            <div>Projects/</div>
+            <div class="hdr">CALENDARS</div>
+            <div class="sel">Engineering.md</div>
+            <div>NZ Holidays.md</div>
+            <div>AU Holidays.md</div>
+            <div>APAC (set).md</div>
+          </div>
+          <div class="main">
+            <div class="tabbar"><div class="tab on">Engineering</div></div>
+            <div class="content">
+              <div class="raw"><span class="fm">---</span>
+work_days: [MO,TU,WE,TH,FR]
+work_hours: "09:00-17:00"
+holidays:
+  - 2026-12-25
+color: "#2a9d8f"
+<span class="fm">---</span></div>
+              <div class="backdrop">
+                <div class="modal">
+                  <h3>Edit calendar — Engineering</h3>
+                  <div class="field"><div class="lab">WORKING WEEK</div>
+                    <div class="week">
+                      <div class="day">Mo</div><div class="day">Tu</div><div class="day">We</div><div class="day">Th</div><div class="day">Fr</div><div class="day blk">Sa</div><div class="day blk">Su</div>
+                    </div>
+                  </div>
+                  <div class="field"><div class="lab">HOURS</div><span class="hours">09:00 – 17:00</span> &nbsp;&nbsp;<span class="lab" style="display:inline">COLOUR</span> <span class="swatch"></span></div>
+                  <div class="field"><div class="lab">HOLIDAYS</div>
+                    <div class="holi">25 Dec 2026 <span class="chip b">blocking</span></div>
+                    <span class="btn">+ add date</span>
+                  </div>
+                  <div class="row"><span class="btn">Cancel</span><span class="btn pri">Save</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="verdict"><b>Feel:</b> editing is a task you invoke, then leave. The note itself never looks special — opening it shows YAML text.</p>
+    </section>
+
+    <!-- 3: manager -->
+    <section class="card">
+      <h2>3 · Central manager view</h2>
+      <p class="sub">A dedicated “Calendars” tab lists <b>every</b> calendar and set with inline editing. You manage everything from one control panel and rarely open the notes.</p>
+      <div class="win">
+        <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="body">
+          <div class="sidebar">
+            <div class="hdr">VAULT</div>
+            <div>Projects/</div>
+            <div>Calendars/</div>
+            <div class="hdr">VIEWS</div>
+            <div class="sel">☰ Calendars</div>
+            <div>Gantt.base</div>
+          </div>
+          <div class="main">
+            <div class="tabbar"><div class="tab on">Calendars</div></div>
+            <div class="content">
+              <div class="mrow open">
+                <div class="head"><span class="nm">Engineering</span><span class="swatch"></span><span class="meta">Mo–Fr · 09:00–17:00 · 1 holiday</span></div>
+                <div class="week" style="margin-bottom:8px">
+                  <div class="day">Mo</div><div class="day">Tu</div><div class="day">We</div><div class="day">Th</div><div class="day">Fr</div><div class="day blk">Sa</div><div class="day blk">Su</div>
+                </div>
+                <div class="holi">25 Dec 2026 <span class="chip b">blocking</span></div>
+              </div>
+              <div class="mrow"><span class="nm">NZ Holidays</span><span class="meta">12 dates · display+blocking</span><span class="btn">edit</span></div>
+              <div class="mrow"><span class="nm">AU Holidays</span><span class="meta">11 dates</span><span class="btn">edit</span></div>
+              <div class="mrow"><span class="nm">APAC <span class="chip d">set</span></span><span class="meta">NZ + AU + Birthdays</span><span class="btn">edit</span></div>
+              <div><span class="btn">+ new calendar</span> <span class="btn">+ new set</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="verdict"><b>Feel:</b> a settings-app inside Obsidian. Great overview of many calendars; but it duplicates the file explorer, and notes become storage you never look at.</p>
+    </section>
+
+  </div>
+</body>
+</html>
