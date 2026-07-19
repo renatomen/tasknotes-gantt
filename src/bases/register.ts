@@ -44,8 +44,7 @@ import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DE
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import type { TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
-import { createCalendarWatch, wireCalendarWatch, type CalendarWatch } from './calendarWatch';
-import { matchesCalendarMarker } from '../controller/calendar/schema';
+import { createMountCalendarWatch, type CalendarWatch } from './calendarWatch';
 import {
   createReadinessWindow,
   DEFAULT_READINESS_WINDOW_CONFIG,
@@ -276,7 +275,6 @@ class ObsidianGanttBasesView extends BasesView {
     this.readinessOrchestrator?.cancel();
     this.unwireCalendarWatch?.();
     this.unwireCalendarWatch = null;
-    this.calendarWatch?.dispose();
     this.calendarWatch = null;
     this.restoreConfigChangeHook?.();
     this.restoreConfigChangeHook = null;
@@ -720,26 +718,15 @@ class ObsidianGanttBasesView extends BasesView {
       // actions (open note / native edit modal / task menu). Holds only `app`.
       // Calendar-note liveness: a marked note's edit/rename/deletion re-runs the
       // same coalesced refresh; the epoch (folded into the entry signature) makes
-      // that refresh a genuine re-read rather than a cached-task reuse. Uses the
-      // metadata cache for the marker probe — never the Bases value system.
+      // that refresh a genuine re-read rather than a cached-task reuse.
       this.unwireCalendarWatch?.();
-      this.calendarWatch?.dispose();
-      this.calendarWatch = createCalendarWatch({
-        isCalendarNote: (path) => {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          if (!(file instanceof TFile)) return false;
-          const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-          return matchesCalendarMarker(frontmatter) !== null;
-        },
-        onReResolve: () => {
-          if (!this.containerEl?.isConnected) return;
-          this.refreshCoalescer?.schedule();
-        },
+      const mountWatch = createMountCalendarWatch({
+        app: this.app,
+        isConnected: () => !!this.containerEl?.isConnected,
+        scheduleRefresh: () => this.refreshCoalescer?.schedule(),
       });
-      this.unwireCalendarWatch = wireCalendarWatch(
-        { metadataCache: this.app.metadataCache, vault: this.app.vault },
-        this.calendarWatch,
-      );
+      this.calendarWatch = mountWatch.watch;
+      this.unwireCalendarWatch = mountWatch.unwire;
 
       const interactions = new TaskNotesInteractions(this.app);
 

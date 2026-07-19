@@ -16,6 +16,9 @@
  * refresh re-reads instead of reusing cached tasks.
  */
 
+import { TFile, type App } from 'obsidian';
+
+import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { defaultScheduler, type TimerScheduler } from './scheduler';
 
 export interface CalendarWatchConfig {
@@ -125,5 +128,51 @@ export function wireCalendarWatch(
     sources.metadataCache.offref(changedRef);
     sources.vault.offref(renameRef);
     sources.vault.offref(deleteRef);
+  };
+}
+
+/** Marker probe against the metadata cache — never the Bases value system. */
+export function isMarkedCalendarNote(app: App, path: string): boolean {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  return matchesCalendarMarker(app.metadataCache.getFileCache(file)?.frontmatter) !== null;
+}
+
+export interface MountCalendarWatch {
+  watch: CalendarWatch;
+  unwire: () => void;
+}
+
+/**
+ * The view's whole watch assembly: marker-probed relevance, a connectedness
+ * guard so a refresh queued past teardown drops, and the event wiring — one
+ * factory so the mount site stays a single covered call.
+ */
+export function createMountCalendarWatch(options: {
+  app: App;
+  isConnected(): boolean;
+  scheduleRefresh(): void;
+  scheduler?: TimerScheduler;
+  debounceMs?: number;
+}): MountCalendarWatch {
+  const watch = createCalendarWatch({
+    isCalendarNote: (path) => isMarkedCalendarNote(options.app, path),
+    onReResolve: () => {
+      if (!options.isConnected()) return;
+      options.scheduleRefresh();
+    },
+    scheduler: options.scheduler,
+    debounceMs: options.debounceMs,
+  });
+  const unwireEvents = wireCalendarWatch(
+    { metadataCache: options.app.metadataCache, vault: options.app.vault },
+    watch,
+  );
+  return {
+    watch,
+    unwire: () => {
+      unwireEvents();
+      watch.dispose();
+    },
   };
 }

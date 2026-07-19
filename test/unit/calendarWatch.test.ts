@@ -1,5 +1,9 @@
+import { TFile, type App } from 'obsidian';
+
 import {
   createCalendarWatch,
+  createMountCalendarWatch,
+  isMarkedCalendarNote,
   wireCalendarWatch,
   type CalendarWatch,
   type WatchEventSource,
@@ -164,6 +168,65 @@ describe('wireCalendarWatch', () => {
       { source: 'vault', event: 'rename' },
       { source: 'vault', event: 'delete' },
     ]);
+  });
+
+  it('mount factory wires the app surfaces, guards disconnected refreshes, and unwires+disposes', () => {
+    const registrations: Registration[] = [];
+    const offed: unknown[] = [];
+    const refreshes: number[] = [];
+    let connected = true;
+    const fake = fakeScheduler();
+    const file = new TFile();
+    file.path = 'Calendars/NZ.md';
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path: string) => (path === file.path ? file : null),
+        ...fakeSource('vault', registrations, offed),
+      },
+      metadataCache: {
+        getFileCache: () => ({ frontmatter: { tngantt: 'calendar' } }),
+        ...fakeSource('metadataCache', registrations, offed),
+      },
+    } as unknown as App;
+
+    const mount = createMountCalendarWatch({
+      app,
+      isConnected: () => connected,
+      scheduleRefresh: () => refreshes.push(1),
+      scheduler: fake.scheduler,
+      debounceMs: 500,
+    });
+
+    expect(registrations.map((registration) => registration.event)).toEqual([
+      'changed',
+      'rename',
+      'delete',
+    ]);
+    mount.watch.notifyChanged('Calendars/NZ.md');
+    fake.fireLast();
+    expect(refreshes).toHaveLength(1);
+
+    connected = false;
+    mount.watch.notifyChanged('Calendars/NZ.md');
+    fake.fireLast();
+    expect(refreshes).toHaveLength(1);
+
+    mount.unwire();
+    expect(offed).toHaveLength(3);
+  });
+
+  it('isMarkedCalendarNote probes the metadata cache marker and rejects non-files', () => {
+    const file = new TFile();
+    file.path = 'Calendars/NZ.md';
+    const app = {
+      vault: { getAbstractFileByPath: (path: string) => (path === file.path ? file : null) },
+      metadataCache: {
+        getFileCache: () => ({ frontmatter: { tngantt: 'calendar' } }),
+      },
+    } as unknown as App;
+
+    expect(isMarkedCalendarNote(app, 'Calendars/NZ.md')).toBe(true);
+    expect(isMarkedCalendarNote(app, 'missing.md')).toBe(false);
   });
 
   it('unsubscribes every registration on unwire', () => {
