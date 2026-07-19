@@ -19,10 +19,17 @@ import {
 import {
   buildCalendarRegistry,
   resolveTaskCalendar,
+  stripSubpath,
   type CalendarNoteInput,
   type CalendarRecord,
   type LinkResolver,
 } from '../controller/calendar/resolveCalendars';
+import { conflictDates } from './calendarConflicts';
+import {
+  effectiveDisplayPaths,
+  type DisplaySelection,
+  type ResolvedTarget,
+} from './calendarSelection';
 
 /** Layout base for every identity cell; shading paints on top of it. */
 const CELL_BASE_RULE =
@@ -33,6 +40,12 @@ const CELL_BASE_RULE =
 // weekend — calendar shading must survive that toggle (adding a calendar
 // only ever adds shading; the legacy toggle gates only the built-in default).
 const SHADE_DECLARATION = '{background:var(--wx-gantt-holiday-background)!important;}';
+
+// Disagreement stripes: one displayed calendar blocks the day, another's
+// working pattern covers it. Emitted after the shade rule so it wins at
+// equal specificity.
+const CONFLICT_DECLARATION =
+  '{background:repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)!important;}';
 
 /**
  * The evaluation window for shading: the tasks' pre-stretch span padded by a
@@ -102,13 +115,26 @@ function addRecurringEvents(
   }
 }
 
-/** The generated stylesheet: the layout base rule plus one grouped shade rule. */
-export function buildCalendarShadingCss(shadedDates: readonly string[]): string {
-  if (shadedDates.length === 0) return CELL_BASE_RULE;
-  const selectors = shadedDates
-    .map((date) => `.og-bases-gantt .wx-gantt-holidays .og-d-${date}`)
-    .join(',');
-  return `${CELL_BASE_RULE}\n${selectors}${SHADE_DECLARATION}`;
+/**
+ * The generated stylesheet: the layout base rule, one grouped shade rule, and
+ * (after it, so it wins) one grouped conflict-stripes rule.
+ */
+export function buildCalendarShadingCss(
+  shadedDates: readonly string[],
+  conflicts: readonly string[] = [],
+): string {
+  const parts = [CELL_BASE_RULE];
+  if (shadedDates.length > 0) {
+    parts.push(`${dateSelectors(shadedDates)}${SHADE_DECLARATION}`);
+  }
+  if (conflicts.length > 0) {
+    parts.push(`${dateSelectors(conflicts)}${CONFLICT_DECLARATION}`);
+  }
+  return parts.join('\n');
+}
+
+function dateSelectors(dates: readonly string[]): string {
+  return dates.map((date) => `.og-bases-gantt .wx-gantt-holidays .og-d-${date}`).join(',');
 }
 
 export interface ShadingAssemblyInputs {
@@ -120,32 +146,92 @@ export interface ShadingAssemblyInputs {
   /** Pre-stretch task spans driving the evaluation window. */
   taskSpans: ReadonlyArray<{ start: Date | null; end: Date | null }>;
   marginDays?: number;
+  /**
+   * The view's display selection; resolved here against the registry. An
+   * absent/auto selection displays the association union.
+   */
+  displaySelection?: DisplaySelection | null;
+}
+
+/** The assembly result: the stylesheet plus the facts the banner reads. */
+export interface ShadingComputation {
+  css: string;
+  displayedCount: number;
+  conflictCount: number;
+  invalidCount: number;
+  /** Selected entries whose links no longer resolve. */
+  flaggedCount: number;
 }
 
 /**
- * The whole S1 shading assembly: registry over marked notes, the union of the
- * calendars the current result's tasks associate (auto-display until the
- * explicit picker lands), windowed evaluation, stylesheet. The locale-weekend
- * default stays with the classifier — it needs no dated rules.
+ * The whole shading assembly: registry over marked notes, the displayed set
+ * (the picker's explicit selection when stored, else the union of the
+ * calendars the current result's tasks associate), windowed evaluation,
+ * conflict classification across the displayed set, stylesheet. The
+ * locale-weekend default stays with the classifier — it needs no dated rules.
+ * The union is monotonic: a superset selection can only add shaded dates.
  */
-export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): string {
-  const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
-  if (window === null) return buildCalendarShadingCss([]);
-
+export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): ShadingComputation {
   const registry = buildCalendarRegistry(inputs.markedNotes, inputs.resolveLink);
+  const invalidCount = registry.invalid.size;
+  const display = inputs.displaySelection
+    ? effectiveDisplayPaths(inputs.displaySelection, (link) =>
+        registryTarget(registry, inputs.resolveLink, link),
+      )
+    : null;
+  const flaggedCount = display?.flagged.length ?? 0;
+  const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
+  if (window === null) {
+    return {
+      css: buildCalendarShadingCss([]),
+      displayedCount: 0,
+      conflictCount: 0,
+      invalidCount,
+      flaggedCount,
+    };
+  }
+
   const displayed = new Map<string, CalendarRecord>();
-  for (const association of inputs.associations) {
-    const resolved = resolveTaskCalendar(
-      registry,
-      association.value,
-      association.taskPath,
-      inputs.resolveLink,
-    );
-    for (const record of resolved.calendars) displayed.set(record.path, record);
+  if (display !== null) {
+    for (const path of display.paths) {
+      const record = registry.calendars.get(path);
+      if (record) displayed.set(path, record);
+    }
+  } else {
+    for (const association of inputs.associations) {
+      const resolved = resolveTaskCalendar(
+        registry,
+        association.value,
+        association.taskPath,
+        inputs.resolveLink,
+      );
+      for (const record of resolved.calendars) displayed.set(record.path, record);
+    }
   }
 
   const definitions = [...displayed.values()].map((record) => record.definition);
-  return buildCalendarShadingCss(collectShadedDates(definitions, window));
+  const conflicts = definitions.length >= 2 ? conflictDates(definitions, window) : [];
+  return {
+    css: buildCalendarShadingCss(collectShadedDates(definitions, window), conflicts),
+    displayedCount: displayed.size,
+    conflictCount: conflicts.length,
+    invalidCount,
+    flaggedCount,
+  };
+}
+
+/** Resolve a selection entry's link to its calendar/set registry target. */
+function registryTarget(
+  registry: ReturnType<typeof buildCalendarRegistry>,
+  resolveLink: LinkResolver,
+  link: string,
+): ResolvedTarget {
+  const path = resolveLink(stripSubpath(link), '');
+  if (path === null) return null;
+  if (registry.calendars.has(path)) return { kind: 'calendar', path };
+  const set = registry.sets.get(path);
+  if (set) return { kind: 'set', path, members: set.members };
+  return null;
 }
 
 /**
@@ -159,29 +245,32 @@ export function shadingCacheKey(inputs: {
   calendarProperty: string;
   window: EvaluationWindow | null;
   associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
+  /** Sorted displayed paths for an explicit selection; '' while auto. */
+  selectionKey?: string;
 }): string {
   return JSON.stringify([
     inputs.epoch,
     inputs.calendarProperty,
     inputs.window,
     inputs.associations.map((association) => [association.taskPath, association.value]),
+    inputs.selectionKey ?? '',
   ]);
 }
 
 export interface ShadingCssCache {
-  compute(key: string, produce: () => string): string;
+  compute(key: string, produce: () => ShadingComputation): ShadingComputation;
 }
 
-/** Skip-if-unchanged memo for the generated stylesheet (one per view). */
+/** Skip-if-unchanged memo for the shading assembly (one per view). */
 export function createShadingCssCache(): ShadingCssCache {
   let lastKey: string | null = null;
-  let lastCss = '';
+  let lastValue: ShadingComputation | null = null;
   return {
     compute(key, produce) {
-      if (key === lastKey) return lastCss;
+      if (key === lastKey && lastValue !== null) return lastValue;
       lastKey = key;
-      lastCss = produce();
-      return lastCss;
+      lastValue = produce();
+      return lastValue;
     },
   };
 }

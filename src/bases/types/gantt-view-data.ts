@@ -59,6 +59,12 @@ export interface GanttData {
    */
   calendarShadingCss?: string;
   /**
+   * Calendar-status banner line (multi-calendar display, conflicts, invalid
+   * notes, unresolved selection links); null/absent = no banner. Clicking the
+   * banner opens the calendar picker.
+   */
+  calendarNotice?: string | null;
+  /**
    * Working-day counter for the resize write path under working-time stretch:
    * the estimate persists the WORKING days of the resized span. Absent (or a
    * null return for a task with no associated calendar) = plain calendar days.

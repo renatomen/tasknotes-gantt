@@ -49,6 +49,20 @@ propagated into the learnings docs before anyone checked the PR that closed it.
 
 ## Medium priority
 
+### P2b — Calendar: runtime-invalid RRULEs are silently inert (fail-visible gap)
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (KTD11). Found during the
+U10 review; pre-dates U10 (present since the S1 shading path).
+
+A calendar `pattern` is validated at parse time only (`FREQ` present; anchored grammar needs
+`pattern_start`). A pattern that passes those checks but still throws inside the rrule wrapper at
+evaluation time — e.g. a malformed `BYDAY` code — yields a *valid* calendar whose pattern then
+silently contributes nothing to shading, conflicts, or task blocking: no banner count, no flagged
+picker row. That contradicts the documented fail-visible contract.
+
+`validatePattern` (`src/controller/calendar/patternWindow.ts`) exists precisely to catch this and is
+currently unused in production. Wiring it into `buildCalendarRegistry` so a runtime-invalid pattern
+lands in `registry.invalid` (banner + disabled picker row with the reason) is the fix.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

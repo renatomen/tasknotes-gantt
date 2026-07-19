@@ -210,7 +210,7 @@ describe('computeCalendarShadingCss', () => {
   const taskSpans = [{ start: new Date(2026, 3, 6), end: new Date(2026, 3, 14) }];
 
   it('shades the union of task-associated calendars only', () => {
-    const css = computeCalendarShadingCss({
+    const { css, displayedCount } = computeCalendarShadingCss({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -218,10 +218,11 @@ describe('computeCalendarShadingCss', () => {
     });
     expect(css).toContain('.og-d-2026-04-10');
     expect(css).not.toContain('.og-d-2026-04-13');
+    expect(displayedCount).toBe(1);
   });
 
   it('emits the base rule only when no task associates a calendar', () => {
-    const css = computeCalendarShadingCss({
+    const { css } = computeCalendarShadingCss({
       markedNotes,
       resolveLink,
       associations: [],
@@ -231,7 +232,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('emits the base rule only when there are no dated tasks to window against', () => {
-    const css = computeCalendarShadingCss({
+    const { css } = computeCalendarShadingCss({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -241,12 +242,106 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
-    const css = computeCalendarShadingCss({
+    const { css } = computeCalendarShadingCss({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[Ghost]]', taskPath: 'Tasks/T.md' }],
       taskSpans,
     });
     expect(css).not.toContain('og-d-');
+  });
+
+  const explicit = (links: string[]) => ({
+    auto: false,
+    stored: true,
+    defaultRow: true,
+    entries: links.map((link) => ({ link, enabled: true })),
+  });
+
+  it('an explicit displayed set overrides the association union', () => {
+    const { css, displayedCount } = computeCalendarShadingCss({
+      markedNotes,
+      resolveLink,
+      associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
+      taskSpans,
+      displaySelection: explicit(['[[AU]]']),
+    });
+    expect(css).toContain('.og-d-2026-04-13');
+    expect(css).not.toContain('.og-d-2026-04-10');
+    expect(displayedCount).toBe(1);
+  });
+
+  it('the union is monotonic: a superset selection shades a superset of dates', () => {
+    const one = computeCalendarShadingCss({
+      markedNotes,
+      resolveLink,
+      associations: [],
+      taskSpans,
+      displaySelection: explicit(['[[NZ]]']),
+    });
+    const both = computeCalendarShadingCss({
+      markedNotes,
+      resolveLink,
+      associations: [],
+      taskSpans,
+      displaySelection: explicit(['[[NZ]]', '[[AU]]']),
+    });
+    expect(one.css).toContain('.og-d-2026-04-10');
+    expect(both.css).toContain('.og-d-2026-04-10');
+    expect(both.css).toContain('.og-d-2026-04-13');
+  });
+
+  it('a two-calendar disagreement emits conflict stripes after the shade rule', () => {
+    const notes = [
+      ...markedNotes,
+      {
+        path: 'Calendars/Week.md',
+        basename: 'Week',
+        frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
+      },
+    ];
+    const resolveAmongNotes: LinkResolver = (linkText) => {
+      const inner = linkText.startsWith('[[') ? linkText.slice(2, -2).split('|')[0] : linkText;
+      const note = notes.find((candidate) => candidate.basename === inner);
+      return note ? note.path : null;
+    };
+    const { css, conflictCount } = computeCalendarShadingCss({
+      markedNotes: notes,
+      resolveLink: resolveAmongNotes,
+      associations: [],
+      taskSpans,
+      // NZ blocks Fri 2026-04-10; Week's pattern covers it → conflict.
+      displaySelection: explicit(['[[NZ]]', '[[Week]]']),
+    });
+    expect(conflictCount).toBeGreaterThan(0);
+    expect(css).toContain('repeating-linear-gradient');
+    expect(css.indexOf('repeating-linear-gradient')).toBeGreaterThan(
+      css.indexOf('--wx-gantt-holiday-background'),
+    );
+  });
+
+  it('flags a dangling selected link without dropping the rest', () => {
+    const { flaggedCount, displayedCount } = computeCalendarShadingCss({
+      markedNotes,
+      resolveLink,
+      associations: [],
+      taskSpans,
+      displaySelection: explicit(['[[Ghost]]', '[[NZ]]']),
+    });
+    expect(flaggedCount).toBe(1);
+    expect(displayedCount).toBe(1);
+  });
+
+  it('counts invalid calendar notes for the banner', () => {
+    const { invalidCount } = computeCalendarShadingCss({
+      markedNotes: [
+        ...markedNotes,
+        { path: 'Calendars/Bad.md', basename: 'Bad', frontmatter: { tngantt: 'calendar', pattern: 'BYDAY=MO' } },
+      ],
+      resolveLink,
+      associations: [],
+      taskSpans,
+    });
+    expect(invalidCount).toBe(1);
   });
 });

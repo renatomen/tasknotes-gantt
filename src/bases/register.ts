@@ -115,7 +115,12 @@ import {
   shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
-import { readDisplaySelection, reconcileLegacyFlip } from './calendarSelection';
+import {
+  readDisplaySelection,
+  reconcileLegacyFlip,
+  serializeSelection,
+} from './calendarSelection';
+import { buildCalendarNotice } from './calendarConflicts';
 import { buildCalendarRegistry, stripSubpath } from '../controller/calendar/resolveCalendars';
 import { CalendarPickerModal } from './CalendarPickerModal';
 import {
@@ -972,6 +977,7 @@ class ObsidianGanttBasesView extends BasesView {
           // mount and retracts it on teardown, so the plugin command targets the
           // active Gantt view. Tracked per-view so one view's teardown never
           // clears another live view's entry.
+          onOpenCalendarPicker: () => this.openCalendarPicker(),
           onFocusEntryReady: (entry: (() => void) | null) => {
             if (entry) {
               this.focusEntryKey = this.containerEl;
@@ -1139,6 +1145,7 @@ class ObsidianGanttBasesView extends BasesView {
     });
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
+    const calendarShading = this.buildCalendarShading(instances);
     return {
       instances,
       links,
@@ -1180,7 +1187,8 @@ class ObsidianGanttBasesView extends BasesView {
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
-      calendarShadingCss: this.buildCalendarShadingCss(instances),
+      calendarShadingCss: calendarShading.css,
+      calendarNotice: calendarShading.notice,
       countWorkingDays:
         readCalendarMode((key) => this.config.get(key)) === 'stretch'
           ? (taskPath, start, end) => {
@@ -1201,9 +1209,9 @@ class ObsidianGanttBasesView extends BasesView {
    * inputs (associations, window, watch epoch) build the staleness key; the
    * whole-vault enumeration and evaluation run only when the key changes.
    */
-  private buildCalendarShadingCss(
+  private buildCalendarShading(
     instances: ReadonlyArray<{ start: Date | null; end: Date | null }>,
-  ): string {
+  ): { css: string; notice: string | null } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
@@ -1217,21 +1225,35 @@ class ObsidianGanttBasesView extends BasesView {
           return value === undefined ? [] : [{ value, taskPath: path }];
         })
       : [];
+    const selection = readDisplaySelection(
+      readDisplayCalendars((key) => this.config.get(key)),
+      this.config.get('tngantt_highlightWeekends'),
+    );
     const key = shadingCacheKey({
       epoch: this.calendarWatch?.epoch() ?? 0,
       calendarProperty,
       window: shadingWindow(instances),
       associations,
+      selectionKey: selection.auto ? '' : JSON.stringify(serializeSelection(selection)),
     });
-    return this.shadingCssCache.compute(key, () => {
-      const markedNotes = this.collectMarkedCalendarNotes();
-      return computeCalendarShadingCss({
-        markedNotes,
+    const computed = this.shadingCssCache.compute(key, () =>
+      computeCalendarShadingCss({
+        markedNotes: this.collectMarkedCalendarNotes(),
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
         associations,
         taskSpans: instances,
-      });
-    });
+        displaySelection: selection,
+      }),
+    );
+    return {
+      css: computed.css,
+      notice: buildCalendarNotice({
+        displayedCount: computed.displayedCount,
+        conflictCount: computed.conflictCount,
+        invalidCount: computed.invalidCount,
+        flaggedCount: computed.flaggedCount,
+      }),
+    };
   }
 
   /**
