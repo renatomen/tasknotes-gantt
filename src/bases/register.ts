@@ -69,6 +69,7 @@ import {
   readShowToolbar,
   readHighlightWeekends,
   readCalendarMode,
+  readDisplayCalendars,
   readBarColorMode,
   readBarColorSource,
   readBarIcon,
@@ -113,6 +114,7 @@ import {
   shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
+import { readDisplaySelection, reconcileLegacyFlip } from './calendarSelection';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from './parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -645,6 +647,19 @@ class ObsidianGanttBasesView extends BasesView {
     return readHighlightWeekends((key) => this.config.get(key));
   }
 
+  /**
+   * Two-way weekend alias: the legacy toggle and the stored selection's
+   * default row are one state with two keys. A legacy flip observed here is
+   * written back to the selection key; guarded, so agreement never writes and
+   * the refresh a write triggers converges on the next pass.
+   */
+  private reconcileCalendarSelectionAlias(): void {
+    const legacy = this.config.get('tngantt_highlightWeekends');
+    const stored = readDisplaySelection(readDisplayCalendars((key) => this.config.get(key)), legacy);
+    const { write } = reconcileLegacyFlip(stored, legacy);
+    if (write !== null) this.config.set('tngantt_displayCalendars', write);
+  }
+
   /** Read the per-view max-height in px (plan 003 R1); default 400. */
   private getMaxHeight(): number {
     return readMaxHeight((key) => this.config.get(key));
@@ -948,6 +963,7 @@ class ObsidianGanttBasesView extends BasesView {
 
   /** Compute the current dynamic render data from the controller + view config. */
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
+    this.reconcileCalendarSelectionAlias();
     const arrowMode = this.getArrowMode();
     const [instances, links, statusColors, priorityColors, managedPaths, statusOptions, priorityOptions] =
       await Promise.all([

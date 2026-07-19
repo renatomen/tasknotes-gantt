@@ -74,6 +74,14 @@ describe('buildCalendarRegistry', () => {
     ]);
   });
 
+  it('preserves the authored link text alongside each resolved member path', () => {
+    expect(registry.sets.get('Calendars/APAC.md')?.members).toEqual([
+      { link: '[[NZ Holidays]]', path: 'Calendars/NZ Holidays.md' },
+      { link: '[[AU Holidays]]', path: 'Calendars/AU Holidays.md' },
+    ]);
+    expect(registry.sets.get('Calendars/Empty Set.md')?.members).toEqual([]);
+  });
+
   it('drops a set-typed member with a flag while remaining members take effect (flat sets)', () => {
     const nested = registry.sets.get('Calendars/Nested Set.md');
     expect(nested?.memberPaths).toEqual(['Calendars/NZ Holidays.md']);
