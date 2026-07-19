@@ -1,6 +1,10 @@
 
 import { Plugin, WorkspaceLeaf } from 'obsidian';
-import { registerBasesGantt, getActiveGanttFocusEntry } from './bases/register';
+import {
+  registerBasesGantt,
+  getActiveGanttFocusEntry,
+  getActiveGanttCalendarPickerEntry,
+} from './bases/register';
 import { ReleaseNotesView, RELEASE_NOTES_VIEW_TYPE } from './release/ReleaseNotesView';
 import { RELEASE_NOTES_BUNDLE, type ReleaseNoteVersion } from './releaseNotes';
 import {
@@ -85,6 +89,20 @@ export default class ObsidianGanttPlugin extends Plugin {
       checkCallback: (checking: boolean) => {
         const activeContainer = this.app.workspace.activeLeaf?.view?.containerEl ?? null;
         const entry = getActiveGanttFocusEntry(activeContainer);
+        if (!entry) return false;
+        if (!checking) entry();
+        return true;
+      },
+    });
+    // Select which calendars shade the active Gantt view (opens the picker).
+    // Same activation shape as focus-task: available only while a Gantt (OG)
+    // view is mounted.
+    this.addCommand({
+      id: 'select-calendars',
+      name: 'Select calendars…',
+      checkCallback: (checking: boolean) => {
+        const activeContainer = this.app.workspace.activeLeaf?.view?.containerEl ?? null;
+        const entry = getActiveGanttCalendarPickerEntry(activeContainer);
         if (!entry) return false;
         if (!checking) entry();
         return true;

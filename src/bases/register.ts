@@ -115,6 +115,14 @@ import {
   shadingWindow,
 } from './calendarShading';
 import { readDisplaySelection, reconcileLegacyFlip } from './calendarSelection';
+import { buildCalendarRegistry, stripSubpath } from '../controller/calendar/resolveCalendars';
+import { CalendarPickerModal } from './CalendarPickerModal';
+import {
+  autoDisplayedPathsFrom,
+  calendarSkeletonText,
+  uniqueCalendarPath,
+  type PickerContext,
+} from './calendarPickerModel';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from './parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -164,6 +172,19 @@ export function getActiveGanttFocusEntry(
   activeContainer?: HTMLElement | null,
 ): (() => void) | null {
   return pickActiveFocusEntry(liveFocusEntries, activeContainer);
+}
+
+/**
+ * Live calendar-picker openers, one per mounted Gantt view — same registry
+ * shape and active-leaf resolution as the focus entries above.
+ */
+const livePickerEntries = new Map<HTMLElement, () => void>();
+
+/** The calendar-picker opener for the active Gantt leaf, or null when none. */
+export function getActiveGanttCalendarPickerEntry(
+  activeContainer?: HTMLElement | null,
+): (() => void) | null {
+  return pickActiveFocusEntry(livePickerEntries, activeContainer);
 }
 
 class ObsidianGanttBasesView extends BasesView {
@@ -612,12 +633,7 @@ class ObsidianGanttBasesView extends BasesView {
       associations,
     });
     if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
-    const markedNotes = app.vault.getMarkdownFiles().flatMap((file) => {
-      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
-      return matchesCalendarMarker(frontmatter) !== null
-        ? [{ path: file.path, basename: file.basename, frontmatter }]
-        : [];
-    });
+    const markedNotes = this.collectMarkedCalendarNotes();
     this.lastBlockingKey = key;
     this.lastBlockingLookup = computeTaskBlocking({
       markedNotes,
@@ -631,6 +647,72 @@ class ObsidianGanttBasesView extends BasesView {
 
   private lastBlockingKey: string | null = null;
   private lastBlockingLookup: ((taskPath: string) => TaskBlocking | null) | null = null;
+
+  /** Every vault note bearing the calendar/calendar-set marker, cache-safely. */
+  private collectMarkedCalendarNotes(): { path: string; basename: string; frontmatter: unknown }[] {
+    const app = this.app;
+    return app.vault.getMarkdownFiles().flatMap((file) => {
+      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+      return matchesCalendarMarker(frontmatter) !== null
+        ? [{ path: file.path, basename: file.basename, frontmatter }]
+        : [];
+    });
+  }
+
+  /**
+   * The picker's resolution snapshot, rebuilt fresh on every render so rows
+   * always reflect the vault's present (live re-resolution).
+   */
+  private buildPickerContext(): PickerContext {
+    const app = this.app;
+    const resolve = (linkText: string, fromPath: string) => resolveParentLink(app, linkText, fromPath);
+    const registry = buildCalendarRegistry(this.collectMarkedCalendarNotes(), resolve);
+    const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
+    const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    const associations = frontmatterKey
+      ? (this.data?.data ?? []).flatMap((entry) => {
+          const path = (entry as SignatureEntry).file?.path;
+          if (!path) return [];
+          const file = app.vault.getAbstractFileByPath(path);
+          if (!(file instanceof TFile)) return [];
+          const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
+          return value === undefined ? [] : [{ value, taskPath: path }];
+        })
+      : [];
+    return {
+      registry,
+      selection: readDisplaySelection(
+        readDisplayCalendars((key) => this.config.get(key)),
+        this.config.get('tngantt_highlightWeekends'),
+      ),
+      resolveLink: (link) => resolve(stripSubpath(link), ''),
+      linkFor: (path) => `[[${path.replace(/^.*\//, '').replace(/\.md$/, '')}]]`,
+      autoDisplayedPaths: autoDisplayedPathsFrom(registry, associations, resolve),
+    };
+  }
+
+  private openCalendarPicker(): void {
+    new CalendarPickerModal(this.app, {
+      getContext: () => this.buildPickerContext(),
+      persist: (writes) => {
+        this.config.set('tngantt_displayCalendars', writes.displayCalendars);
+        if (writes.highlightWeekends !== undefined) {
+          this.config.set('tngantt_highlightWeekends', writes.highlightWeekends);
+        }
+      },
+      createCalendar: async () => {
+        const vault = this.app.vault;
+        if (!vault.getAbstractFileByPath('Calendars')) {
+          await vault.createFolder('Calendars').catch(() => undefined);
+        }
+        const path = uniqueCalendarPath(
+          (candidate) => vault.getAbstractFileByPath(candidate) !== null,
+        );
+        const file = await vault.create(path, calendarSkeletonText());
+        await this.app.workspace.getLeaf(true).openFile(file);
+      },
+    }).open();
+  }
 
   /** Read the per-view "show date-status indicators" toggle (R11); default on. */
   private getShowDateIndicators(): boolean {
@@ -840,6 +922,7 @@ class ObsidianGanttBasesView extends BasesView {
 
       // One reactive store, mounted once; controller changes re-set it in place.
       this.dataStore = writable(data);
+      livePickerEntries.set(this.containerEl, () => this.openCalendarPicker());
       const tMountStart = performance.now(); // [OGDBG #161]
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
@@ -1134,12 +1217,7 @@ class ObsidianGanttBasesView extends BasesView {
       associations,
     });
     return this.shadingCssCache.compute(key, () => {
-      const markedNotes = app.vault.getMarkdownFiles().flatMap((file) => {
-        const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
-        return matchesCalendarMarker(frontmatter) !== null
-          ? [{ path: file.path, basename: file.basename, frontmatter }]
-          : [];
-      });
+      const markedNotes = this.collectMarkedCalendarNotes();
       return computeCalendarShadingCss({
         markedNotes,
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
@@ -1170,6 +1248,7 @@ class ObsidianGanttBasesView extends BasesView {
   private unmountGantt(): void {
     // Invalidate any in-flight async mount so it does not resurrect the view.
     this.mountToken++;
+    livePickerEntries.delete(this.containerEl);
 
     // Cancel the readiness window so a pending re-check can't fire against the
     // controller we're about to dispose (R6).
