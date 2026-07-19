@@ -59,6 +59,12 @@ export interface GanttData {
    */
   calendarShadingCss?: string;
   /**
+   * Working-day counter for the resize write path under working-time stretch:
+   * the estimate persists the WORKING days of the resized span. Absent (or a
+   * null return for a task with no associated calendar) = plain calendar days.
+   */
+  countWorkingDays?: (taskPath: string, start: Date, end: Date) => number | null;
+  /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
    * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows

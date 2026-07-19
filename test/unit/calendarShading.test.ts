@@ -2,6 +2,8 @@ import {
   buildCalendarShadingCss,
   collectShadedDates,
   computeCalendarShadingCss,
+  computeTaskBlocking,
+  countWorkingDaysInSpan,
   createShadingCssCache,
   shadingCacheKey,
   shadingWindow,
@@ -108,6 +110,52 @@ describe('buildCalendarShadingCss', () => {
   it('paints with !important so calendar shading survives the weekends-off toggle', () => {
     const css = buildCalendarShadingCss(['2026-04-11']);
     expect(css).toContain('var(--wx-gantt-holiday-background)!important');
+  });
+});
+
+describe('computeTaskBlocking + countWorkingDaysInSpan', () => {
+  const markedNotes: CalendarNoteInput[] = [
+    {
+      path: 'Calendars/NZ.md',
+      basename: 'NZ',
+      frontmatter: {
+        tngantt: 'calendar',
+        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+        non_working: [{ start: '2026-04-15', end: '2026-04-16' }],
+      },
+    },
+  ];
+  const resolveLink: LinkResolver = (linkText) =>
+    linkText.includes('NZ') ? 'Calendars/NZ.md' : null;
+  const taskSpans = [{ start: new Date(2026, 3, 6), end: new Date(2026, 3, 20) }];
+
+  const blockingOf = computeTaskBlocking({
+    markedNotes,
+    resolveLink,
+    associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
+    taskSpans,
+    extraWindowDays: 30,
+  });
+
+  it('blocks pattern-complement days and authored spans; working days pass', () => {
+    const blocking = blockingOf('Tasks/T.md');
+    if (!blocking) throw new Error('expected blocking for the associated task');
+    expect(blocking.isBlocked('2026-04-11')).toBe(true);
+    expect(blocking.isBlocked('2026-04-15')).toBe(true);
+    expect(blocking.isBlocked('2026-04-16')).toBe(true);
+    expect(blocking.isBlocked('2026-04-14')).toBe(false);
+    expect(blocking.maxBlockedRunDays).toBeGreaterThanOrEqual(2);
+  });
+
+  it('returns null for a task with no association', () => {
+    expect(blockingOf('Tasks/Other.md')).toBeNull();
+  });
+
+  it('counts inclusive working days for the resize write path', () => {
+    const blocking = blockingOf('Tasks/T.md');
+    if (!blocking) throw new Error('expected blocking');
+    // Fri 10 .. Tue 14: Fri + Mon + Tue working, Sat + Sun blocked.
+    expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
   });
 });
 

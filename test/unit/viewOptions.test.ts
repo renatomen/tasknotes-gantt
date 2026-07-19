@@ -14,6 +14,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readCalendarMode,
   readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
@@ -245,8 +246,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 9 Fields + 2 Progress + 3 Relationships
-    // + 7 Timeline + 8 Appearance = 29 (9 property + 9 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(29);
+    // + 8 Timeline + 8 Appearance = 30 (9 property + 10 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(30);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -290,6 +291,7 @@ describe("ganttViewOptions", () => {
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
       "tngantt_highlightWeekends",
+      "tngantt_calendarMode",
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
@@ -368,6 +370,18 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
+  });
+});
+
+describe("readCalendarMode", () => {
+  it("defaults to shade when unset or unrecognized (fail-toward-today's-behaviour)", () => {
+    expect(readCalendarMode(() => undefined)).toBe("shade");
+    expect(readCalendarMode(() => "schedule")).toBe("shade");
+    expect(readCalendarMode(() => 42)).toBe("shade");
+  });
+
+  it("returns stretch only for the explicit stretch value", () => {
+    expect(readCalendarMode((k) => ({ tngantt_calendarMode: "stretch" })[k])).toBe("stretch");
   });
 });
 

@@ -246,6 +246,21 @@ function timelineOptions(): BasesOptions[] {
       key: 'tngantt_highlightWeekends',
       default: true,
     },
+    // The calendar functionality ladder: shading only (default, today's
+    // behaviour made calendar-aware) or stretching duration-derived bars over
+    // the associated calendar's blocked days. Each rung includes the ones
+    // below; the experimental full-scheduling rung arrives only after its own
+    // planning cycle.
+    {
+      type: 'dropdown',
+      displayName: 'Calendar mode',
+      key: 'tngantt_calendarMode',
+      default: 'shade',
+      options: {
+        shade: 'Shading only',
+        stretch: 'Stretch over non-working time',
+      },
+    },
     // Number → slider (the official Bases options union has no 'number' control;
     // 'slider' is the closest numeric input). Behavior-equivalent.
     {
@@ -468,6 +483,18 @@ export function readShowToolbar(get: (key: string) => unknown): boolean {
  */
 export function readHighlightWeekends(get: (key: string) => unknown): boolean {
   return get('tngantt_highlightWeekends') !== false;
+}
+
+/** The shipped calendar-functionality rungs; the experimental scheduling rung is future. */
+export type CalendarMode = 'shade' | 'stretch';
+
+/**
+ * Read the per-view calendar mode; any unrecognized/absent value is the
+ * default `shade` rung (fail-toward-today's-behaviour). Pure; mirrors
+ * {@link readHighlightWeekends}.
+ */
+export function readCalendarMode(get: (key: string) => unknown): CalendarMode {
+  return get('tngantt_calendarMode') === 'stretch' ? 'stretch' : 'shade';
 }
 
 /**
