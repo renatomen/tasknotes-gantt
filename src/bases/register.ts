@@ -100,7 +100,10 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { composeEntrySignature, type SignatureEntry } from './entrySignature';
+import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
+import { computeCalendarShadingCss } from './calendarShading';
+import { matchesCalendarMarker } from '../controller/calendar/schema';
+import { resolveParentLink } from './parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -1000,7 +1003,43 @@ class ObsidianGanttBasesView extends BasesView {
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
+      calendarShadingCss: this.buildCalendarShadingCss(instances),
     };
+  }
+
+  /**
+   * The S1 calendar-shading assembly inputs, gathered cache-safely (marked
+   * notes and association values via the metadata cache, never the Bases value
+   * system) and handed to the pure `computeCalendarShadingCss`.
+   */
+  private buildCalendarShadingCss(
+    instances: ReadonlyArray<{ start: Date | null; end: Date | null }>,
+  ): string {
+    const app = this.app;
+    const markedNotes = app.vault.getMarkdownFiles().flatMap((file) => {
+      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+      return matchesCalendarMarker(frontmatter) !== null
+        ? [{ path: file.path, basename: file.basename, frontmatter }]
+        : [];
+    });
+    const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
+    const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    const associations = frontmatterKey
+      ? (this.data?.data ?? []).flatMap((entry) => {
+          const path = (entry as SignatureEntry).file?.path;
+          if (!path) return [];
+          const file = app.vault.getAbstractFileByPath(path);
+          if (!(file instanceof TFile)) return [];
+          const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
+          return value === undefined ? [] : [{ value, taskPath: path }];
+        })
+      : [];
+    return computeCalendarShadingCss({
+      markedNotes,
+      resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
+      associations,
+      taskSpans: instances,
+    });
   }
 
   /**

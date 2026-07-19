@@ -5,6 +5,8 @@ import {
   isoDayFromByday,
   localeWeekendSource,
   resolveWeekendDays,
+  calendarCellClass,
+  dateIdentityClass,
   weekendHighlightClass,
   type AvailabilitySource,
 } from "../../src/controller/availability";
@@ -158,6 +160,36 @@ describe("weekendHighlightClass (KTD2 unit gate)", () => {
       expect(weekendHighlightClass(SUNDAY, unit, weekend)).toBe("");
     }
   );
+});
+
+describe("calendarCellClass (static identity classes)", () => {
+  const weekend = buildAvailability([
+    localeWeekendSource(resolveWeekendDays("en-US")),
+  ]);
+
+  it("stamps the weekend class plus the identity classes on a weekend day cell", () => {
+    expect(calendarCellClass(SUNDAY, "day", weekend)).toBe(
+      `wx-weekend og-cal-cell ${dateIdentityClass(SUNDAY)}`
+    );
+  });
+
+  it("stamps only the identity classes on a weekday", () => {
+    expect(calendarCellClass(MONDAY, "day", weekend)).toBe(
+      `og-cal-cell ${dateIdentityClass(MONDAY)}`
+    );
+  });
+
+  it.each(["week", "month", "quarter", "year"])(
+    "returns empty for a %s cell (ungated header calls)",
+    (unit) => {
+      expect(calendarCellClass(SATURDAY, unit, weekend)).toBe("");
+    }
+  );
+
+  it("identity class encodes the LOCAL calendar day", () => {
+    expect(dateIdentityClass(localDate(2026, 4, 10, 23))).toBe("og-d-2026-04-10");
+    expect(dateIdentityClass(localDate(2026, 4, 3, 0))).toBe("og-d-2026-04-03");
+  });
 });
 
 describe("RFC 7953 BYDAY projection (R12)", () => {

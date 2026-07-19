@@ -95,9 +95,9 @@
   import { buildZoomConfig, initialCellWidth } from './zoomConfig';
   import {
     buildAvailability,
+    calendarCellClass,
     localeWeekendSource,
     resolveWeekendDays,
-    weekendHighlightClass,
   } from '../controller/availability';
   import {
     resolveHostHeight,
@@ -459,6 +459,21 @@
     styleEl.textContent = css;
   });
 
+  // The calendar-shading stylesheet (same managed-element pattern as the
+  // treatment sheet above): the per-date identity classes are static in the
+  // DOM, so re-assigning this text is the entire live re-shade path.
+  $effect(() => {
+    const css = $data.calendarShadingCss ?? '';
+    if (!rootEl) return;
+    let styleEl = rootEl.querySelector('style[data-og-calendar]') as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.setAttribute('data-og-calendar', '');
+      rootEl.appendChild(styleEl);
+    }
+    if (styleEl.textContent !== css) styleEl.textContent = css;
+  });
+
   // Drive the Show-all context-bar opacity (U6) as a CSS custom property on the
   // view root; the `.og-context` rule reads `var(--og-context-opacity)`. Reactive
   // on the slider value so it re-tints live (rootEl is bound by the time this runs).
@@ -590,14 +605,17 @@
   // from the assembly pass's display-locale snapshot — session-constant, the
   // same rationale as the grid date-locale context below. The closure handed to
   // <Gantt> is STABLE; the toggle gates visibility via CSS, never this prop.
-  // The day/hour unit gate lives in weekendHighlightClass: SVAR's own min-unit
+  // The day/hour unit gate lives in calendarCellClass: SVAR's own min-unit
   // gate covers only the chart body, while the time-scale header calls this for
-  // every cell at every zoom.
+  // every cell at every zoom. The closure stamps the weekend class plus STATIC
+  // per-date identity classes; what the identity classes mean (which dates are
+  // calendar-shaded) lives entirely in the injected calendar stylesheet, which
+  // regenerates per refresh — shading stays live with zero SVAR repaints.
   const weekendAvailability = buildAvailability([
     localeWeekendSource(resolveWeekendDays(initialData.dateLocale)),
   ]);
   const svarHighlightTime = (date: Date, unit: string): string =>
-    weekendHighlightClass(date, unit, weekendAvailability);
+    calendarCellClass(date, unit, weekendAvailability);
   // The assembly pass's display-locale snapshot, handed to grid cells for their
   // fallback formatting (SVAR can't pass cell props). Context is init-time by
   // design: the locale is session-constant (the Intl default can't change
