@@ -111,6 +111,33 @@ describe('buildCalendarShadingCss', () => {
     const css = buildCalendarShadingCss(['2026-04-11']);
     expect(css).toContain('var(--wx-gantt-holiday-background)!important');
   });
+
+  it('shades the scale header as well as the chart body', () => {
+    // SVAR stamps the identity classes in both places (Chart cells and
+    // TimeScale header cells); painting only the body left holiday columns
+    // with an unshaded header while weekends were dimmed in both.
+    const css = buildCalendarShadingCss(['2026-04-10']);
+    expect(css).toContain('.wx-gantt-holidays .og-d-2026-04-10');
+    expect(css).toContain('.wx-scale .og-d-2026-04-10');
+  });
+
+  it('shades conflicts in both scopes too', () => {
+    const css = buildCalendarShadingCss(['2026-04-10'], ['2026-04-10']);
+    const stripeRule = css.split('\n').find((line) => line.includes('repeating-linear-gradient'));
+    expect(stripeRule).toBeDefined();
+    expect(stripeRule).toContain(`${'.wx-gantt-holidays'} .og-d-2026-04-10`);
+    expect(stripeRule).toContain('.wx-scale .og-d-2026-04-10');
+  });
+
+  it('keeps the absolute-positioning layout rule body-only', () => {
+    // Header cells are normal-flow with explicit widths — absolute
+    // positioning there would collapse the scale row.
+    const css = buildCalendarShadingCss(['2026-04-10']);
+    const baseRule = css.split('\n')[0] ?? '';
+    expect(baseRule).toContain('position:absolute');
+    expect(baseRule).toContain('.wx-gantt-holidays');
+    expect(baseRule).not.toContain('.wx-scale');
+  });
 });
 
 describe('computeTaskBlocking + countWorkingDaysInSpan', () => {

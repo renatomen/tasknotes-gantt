@@ -31,9 +31,18 @@ import {
   type ResolvedTarget,
 } from './calendarSelection';
 
+/**
+ * SVAR stamps the classifier's identity classes in two places — the chart
+ * body's holiday overlay cells and the scale header's own cells — so shading
+ * paints in both scopes. Only the body cells are absolutely-positioned
+ * overlays; header cells are normal-flow with explicit widths, so the layout
+ * base rule stays body-scoped.
+ */
+const BODY_SCOPE = '.og-bases-gantt .wx-gantt-holidays';
+const HEADER_SCOPE = '.og-bases-gantt .wx-scale';
+
 /** Layout base for every identity cell; shading paints on top of it. */
-const CELL_BASE_RULE =
-  '.og-bases-gantt .wx-gantt-holidays .og-cal-cell{position:absolute;top:0;height:100%;}';
+const CELL_BASE_RULE = `${BODY_SCOPE} .og-cal-cell{position:absolute;top:0;height:100%;}`;
 
 // !important: the weekends-off neutralization rule strips `.wx-weekend`
 // backgrounds with !important, and a calendar-shaded date can fall on a
@@ -134,7 +143,9 @@ export function buildCalendarShadingCss(
 }
 
 function dateSelectors(dates: readonly string[]): string {
-  return dates.map((date) => `.og-bases-gantt .wx-gantt-holidays .og-d-${date}`).join(',');
+  return dates
+    .flatMap((date) => [`${BODY_SCOPE} .og-d-${date}`, `${HEADER_SCOPE} .og-d-${date}`])
+    .join(',');
 }
 
 export interface ShadingAssemblyInputs {

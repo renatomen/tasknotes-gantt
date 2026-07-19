@@ -67,6 +67,14 @@ async function cellBackground(dateClass: string): Promise<string | null> {
   }, dateClass);
 }
 
+/** The scale-header cell for a date — SVAR stamps identity classes there too. */
+async function headerCellBackground(dateClass: string): Promise<string | null> {
+  return browser.execute((cls: string) => {
+    const cell = document.querySelector(`.og-bases-gantt .wx-scale .${cls}`);
+    return cell ? window.getComputedStyle(cell).backgroundColor : null;
+  }, dateClass);
+}
+
 describe("Gantt (OG) calendar-aware shading", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-e2e");
@@ -86,6 +94,18 @@ describe("Gantt (OG) calendar-aware shading", () => {
       },
       { timeout: 30000, timeoutMsg: "holiday column never shaded" }
     );
+  });
+
+  it("shades the holiday's scale-header cell to match the body column", async () => {
+    await browser.waitUntil(
+      async () => {
+        const background = await headerCellBackground("og-d-2026-04-10");
+        return background !== null && !TRANSPARENT.has(background);
+      },
+      { timeout: 30000, timeoutMsg: "holiday header cell never shaded" }
+    );
+    const ordinary = await headerCellBackground("og-d-2026-04-08");
+    expect(ordinary === null || TRANSPARENT.has(ordinary)).toBe(true);
   });
 
   it("leaves an ordinary weekday identity cell unpainted (upgrade-invisible)", async () => {
