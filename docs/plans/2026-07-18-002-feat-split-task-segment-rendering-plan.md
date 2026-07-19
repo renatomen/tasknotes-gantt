@@ -272,7 +272,7 @@ U1 → U2 → U3 establish the data path. U4 (pure geometry) is independent and 
 - **Goal:** Convert a task's segments plus the timeline scale into per-segment bar-fraction boxes, progress spend, and the connector run — no pixel math.
 - **Requirements:** R4, R6, R10, R12.
 - **Dependencies:** none.
-- **Files:** `src/bases/segmentLayout.ts` (new), `test/unit/segmentLayout.test.ts` (new).
+- **Files:** `src/render/segmentLayout.ts` (shared substrate home — reconciled with the multi-calendar plan, `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md`, whose U7 promotes this module first; if it already exists when this unit runs, this becomes reuse plus any split-task-specific additions), `test/unit/segmentLayout.test.ts`.
 - **Approach:** Port `test/probe/segmentLayout.ts` verbatim in spirit. Each segment's `left`/`width` is `scale.diff(segStart, taskStart, lengthUnit) / scale.diff(taskEnd, taskStart, lengthUnit, inclusive)` — a fraction, not pixels. `segmentProgresses` spends the task's progress across segments in duration order in one pass. `connectorRun` returns first-start to last-end. `segmentEnd` uses calendar-day addition. `isSegmentSpan` guards the shape.
 - **Execution note:** This is a straight port of proven, tested code — bring its test suite with it, including the two-diff-semantics independence proof.
 - **Patterns to follow:** `test/probe/segmentLayout.ts` and `test/probe/segmentLayout.test.ts`.
@@ -289,7 +289,7 @@ U1 → U2 → U3 establish the data path. U4 (pure geometry) is independent and 
 - **Goal:** Draw SVAR's split-task DOM for a segmented task inside the plugin's own bar template, with its own isolated-probe proof.
 - **Requirements:** R3, R4, R5, R6, R7, R9, R11, R19.
 - **Dependencies:** U3, U4.
-- **Files:** `src/bases/BarContent.svelte`, `src/bases/svarContract.ts` (new), `src/bases/segments.css` (new), `test/probe/segments-render.probe.ts`, `test/probe/svar-contract.probe.ts` (both already exist from the spike; adapt to import from `src/`).
+- **Files:** `src/bases/BarContent.svelte`, `src/render/svarContract.ts` (shared substrate home — reconciled with the multi-calendar plan, whose U7 promotes it first; reuse if already landed), `src/bases/segments.css` (new), `test/probe/segments-render.probe.ts`, `test/probe/svar-contract.probe.ts` (both already exist from the spike; adapt to import from `src/`).
 - **Approach:** Port `test/probe/SegmentBar.svelte` into `BarContent`: when the task carries segments (guarded by `isSegmentSpan`), read `scaleSnapshot(api)`, compute pieces via U4, and emit SVAR's `.wx-segments` container with one indexed segment each, per-segment progress, and the connector positioned to `connectorRun` via CSS vars. Stamp SVAR's `wx-split` class on the parent bar with an attachment (KTD8). Prefer store-supplied `$x`/`$w`. `segments.css` carries the single progress-suppression rule (KTD9). `svarContract.ts` is the one internals choke-point. No cue-type registration, no `barTreatment.ts` change, no injected transparency rule.
 - **Execution note:** Adapt SVAR's `BarSegments` markup and container CSS directly, retaining the MIT copyright and permission notice in the adapted file. Verify `BarContent`'s existing icon-chip path (R7) still renders on a segmented bar.
 - **Patterns to follow:** `test/probe/SegmentBar.svelte`, `test/probe/svarContract.ts`, `test/probe/segments.css`; the reusable technique in `docs/solutions/design-patterns/reproducing-gated-svar-gantt-features.md`.
