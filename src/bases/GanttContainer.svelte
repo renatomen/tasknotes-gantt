@@ -4,7 +4,7 @@
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
   // theme around the chart (plan 002 U2) so the theme applies completely.
-  import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes } from '@svar-ui/svelte-gantt';
+  import { Gantt, Tooltip, Willow, WillowDark, defaultTaskTypes, type IApi } from '@svar-ui/svelte-gantt';
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
@@ -20,6 +20,8 @@
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildTreatmentStyle } from './barTreatment';
+  import { buildMarkerOverlay } from './markerOverlay';
+  import { chartSpanSnapshot } from '../render/svarContract';
   import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
@@ -340,6 +342,64 @@
   const dateMappingNotice = $derived($data.dateMappingNotice);
   // Calendar-status banner text (store-driven, so selection changes are live).
   const calendarNotice = $derived($data.calendarNotice ?? null);
+
+  /**
+   * Marker overlay (calendar markers + the generated today line). SVAR's own
+   * marker feature is force-disabled in the MIT build, and cell-class markers
+   * would vanish at the zooms people plan at, so markers are a plugin-owned
+   * layer positioned from the contract choke-point's chart span.
+   *
+   * `markerTick` is the recompute signal: the span is SVAR state, invisible to
+   * Svelte's reactivity, so zoom changes bump it explicitly.
+   */
+  let markerTick = $state(0);
+  const markerEntries = $derived.by(() => {
+    void markerTick;
+    return buildMarkerOverlay({
+      markers: $data.calendarMarkers ?? [],
+      span: api ? chartSpanSnapshot(api as unknown as IApi) : null,
+      today: new Date(),
+    });
+  });
+
+  /**
+   * The chart span lives in SVAR state, which Svelte cannot track, so every
+   * way it can move has to announce itself: zoom, a scroll that extends an
+   * auto-scaled range, and a container resize (which also changes the pixel
+   * width the label-proximity grouping is measured in).
+   *
+   * Scroll fires per frame, so the tick is gated on the span actually having
+   * changed — otherwise the overlay would re-derive on every scrolled pixel.
+   */
+  let lastSpanKey = '';
+  function refreshMarkerGeometry(): void {
+    if (!api) return;
+    const span = chartSpanSnapshot(api as unknown as IApi);
+    const key = span
+      ? `${span.start.getTime()}|${span.end.getTime()}|${span.widthPx}`
+      : 'none';
+    if (key === lastSpanKey) return;
+    lastSpanKey = key;
+    markerTick += 1;
+  }
+
+  function wireMarkerRecompute(ganttApi: GanttAPI): void {
+    if (typeof ganttApi?.on !== 'function') return;
+    for (const event of ['zoom-scale', 'scroll-chart', 'resize-chart']) {
+      ganttApi.on(event, () => refreshMarkerGeometry());
+    }
+  }
+
+  /** Host the overlay inside SVAR's own content area so it scrolls with it. */
+  function hostInChartArea(node: Element): (() => void) | undefined {
+    const area = rootEl?.querySelector('.wx-area');
+    if (!area || node.parentElement === area) return undefined;
+    const origin = node.parentElement;
+    area.appendChild(node);
+    return () => {
+      if (origin && node.parentElement === area) origin.appendChild(node);
+    };
+  }
   const taskNotesPresent = $derived($data.taskNotesPresent);
   // Toolbar visibility is store-driven (FIX A): reading it from the reactive
   // data — like showDateIndicators — makes the `tngantt_showToolbar` option a
@@ -1631,6 +1691,7 @@
     api = ganttApi;
     wireColumnResizePersistence(ganttApi);
     wireGridWidthPersistence(ganttApi);
+    wireMarkerRecompute(ganttApi);
     // Restore the persisted divider width after the initial column recompute.
     applyPersistedGridWidth();
 
@@ -2605,6 +2666,25 @@
     </div>
   {/if}
 
+  <!-- Marker overlay: date-anchored vertical lines (calendar markers + the
+       generated today line), reparented into SVAR's own chart content area so
+       they scroll with it and survive every zoom level. -->
+  {#if markerEntries.length > 0}
+    <div class="og-marker-overlay" {@attach hostInChartArea}>
+      {#each markerEntries as entry (entry.id)}
+        <div
+          class="og-marker"
+          class:og-marker-today={entry.isToday}
+          style="left:{entry.xFraction * 100}%; --og-marker-color:{entry.color};"
+          title={entry.title}
+          data-og-marker={entry.isToday ? 'today' : entry.label}
+        >
+          <span class="og-marker-label" style="top:{entry.stackIndex * 18}px">{entry.label}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Calendar-status banner: multi-calendar display, conflicts, invalid
        calendar notes, unresolved selection links. A button, not a passive
        status line — it is the picker's in-view shortcut. -->
@@ -3476,6 +3556,51 @@
     color: var(--text-muted);
     background: var(--background-secondary);
     border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  /* Marker overlay: absolutely positioned inside SVAR's chart content area
+     (reparented there on mount), so lines track content scroll and full width.
+     Non-interactive — it must never intercept a bar drag or a cell click. */
+  .og-marker-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+  }
+
+  .og-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px dashed var(--og-marker-color, var(--text-accent));
+  }
+
+  .og-marker-today {
+    border-left-style: solid;
+    border-left-width: 2px;
+  }
+
+  .og-marker-label {
+    position: absolute;
+    left: 4px;
+    /* The layer is inert so it can never swallow a bar drag, but the label
+       itself must be hoverable — its title is the only place a collapsed
+       group's members are listed. */
+    pointer-events: auto;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 0 4px;
+    border-radius: 3px;
+    color: var(--og-marker-color, var(--text-accent));
+    background: var(--background-primary);
+    border: 1px solid var(--og-marker-color, var(--text-accent));
+    /* Tooltips carry the full text, so a label may be clipped, never wrapped. */
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* The calendar banner is a real button (the picker's shortcut) — strip the

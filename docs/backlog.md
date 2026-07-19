@@ -63,6 +63,33 @@ picker row. That contradicts the documented fail-visible contract.
 currently unused in production. Wiring it into `buildCalendarRegistry` so a runtime-invalid pattern
 lands in `registry.invalid` (banner + disabled picker row with the reason) is the fix.
 
+### P2c — Calendar: per-calendar colour for column shading (decide after U12/U13)
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md`. Maintainer question
+during S2 review: shaded columns all paint the same neutral colour regardless of each calendar's
+configured `color`.
+
+Current behaviour is deliberate — shading paints `--wx-gantt-holiday-background` so it matches the
+weekend look in every theme. Calendar colour currently reaches only the picker's row swatches;
+U11 (markers), U12 (bar colour source) and U13 (row tint) are where it reaches the chart.
+
+**Mechanically cheap** (~30–60 lines + tests): the pipeline is already per-date — the frozen
+`highlightTime` closure stamps a static `og-d-<date>` class and the injected stylesheet assigns
+meaning, so `computeCalendarShadingCss` would group dates by owning calendar and emit one rule per
+colour instead of one rule for all. It already holds the displayed records with their colours.
+
+**Constraint:** SVAR renders one overlay cell per date column, so overlapping calendars share a
+single paint surface — an overlap must resolve to one value (pick by order, `color-mix` blend, or a
+new treatment; stripes are already spent on conflicts).
+
+**Open decisions:** saturation (authored colours at full strength would swamp bars/text — wants a
+low-percentage `color-mix` tint through the existing `isSafeColor` guard); overlap resolution; and
+whether it applies at all below two displayed calendars.
+
+**Why deferred:** U12 and U13 both encode calendar identity as colour (bars, rows). Adding columns
+makes three surfaces competing on the same channel. Judge it once those are on screen. If wanted
+then, the likely shape is a low-percentage tint applied only at 2+ displayed calendars, plus
+conflict stripes upgraded to the two disagreeing calendars' colours.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

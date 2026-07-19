@@ -25,6 +25,7 @@ import {
   type LinkResolver,
 } from '../controller/calendar/resolveCalendars';
 import { conflictDates } from './calendarConflicts';
+import type { MarkerInput } from './markerOverlay';
 import {
   effectiveDisplayPaths,
   type DisplaySelection,
@@ -172,6 +173,8 @@ export interface ShadingComputation {
   invalidCount: number;
   /** Selected entries whose links no longer resolve. */
   flaggedCount: number;
+  /** Flagged events of the displayed calendars, for the marker overlay. */
+  markers: MarkerInput[];
 }
 
 /**
@@ -199,6 +202,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       conflictCount: 0,
       invalidCount,
       flaggedCount,
+      markers: [],
     };
   }
 
@@ -228,7 +232,25 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     conflictCount: conflicts.length,
     invalidCount,
     flaggedCount,
+    markers: collectMarkers([...displayed.values()]),
   };
+}
+
+/**
+ * Flagged events of the displayed calendars. Markers render as lines, never as
+ * column shading, so they are collected separately from the shaded dates and
+ * are not windowed — the overlay drops whatever falls outside the drawn span.
+ */
+function collectMarkers(records: readonly CalendarRecord[]): MarkerInput[] {
+  return records.flatMap((record) =>
+    record.definition.markers.map((marker) => ({
+      date: marker.date,
+      name: marker.name,
+      calendarId: record.path,
+      calendarName: record.name,
+      color: record.definition.color,
+    })),
+  );
 }
 
 /** Resolve a selection entry's link to its calendar/set registry target. */
