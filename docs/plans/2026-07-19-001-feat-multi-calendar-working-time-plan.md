@@ -259,7 +259,7 @@ The experimental full-scheduling rung keeps its own later planning cycle regardl
 - The sticky-banner + notice pattern for surfacing multiple calendars already exists in the plugin (the retained-ancestors notice); the multi-select modal is new surface.
 - The note-as-editor (R5) rides Kanban-style markdown-view routing keyed on the `tngantt: calendar` frontmatter marker — a real, proven Obsidian mechanism, but not a clean registration like Bases `.base` views. Two risks planning must own: coexistence when another installed plugin also claims frontmatter-routed markdown views, and raw markdown as the guaranteed floor if the routing pattern ever breaks.
 - The bar treatment system already supports fill and strip colour modes keyed on a colour source (status/priority/theme) — "calendar" joins as a source rather than inventing a styling mechanism.
-- Decision-sketch renders that drove the treatment choice live at `test/probe/demo/` (`CalendarDemo.svelte` and companions), currently uncommitted.
+- Decision-sketch renders that drove the treatment choice live at `test/probe/demo/` (`CalendarDemo.svelte` and companions).
 
 ### Outstanding Questions
 
