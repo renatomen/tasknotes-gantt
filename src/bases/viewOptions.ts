@@ -498,6 +498,15 @@ export function readCalendarMode(get: (key: string) => unknown): CalendarMode {
 }
 
 /**
+ * Read the raw per-view calendar display selection. Parsing/validation lives
+ * in `calendarSelection.ts` (`readDisplaySelection`); this reader only pins
+ * the prefixed key. Pure; mirrors {@link readCalendarMode}.
+ */
+export function readDisplayCalendars(get: (key: string) => unknown): unknown {
+  return get('tngantt_displayCalendars');
+}
+
+/**
  * Read the per-view bar color mode (U5), defaulting to `fill`. Any value other
  * than the explicit `strip` maps to `fill`. Pure (no Obsidian/DOM); mirrors
  * {@link readShowToolbar}.

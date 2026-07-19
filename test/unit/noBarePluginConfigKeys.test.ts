@@ -31,6 +31,8 @@ const PLUGIN_CONFIG_KEYS = [
   "showPartialDateTasks",
   "showDateIndicators",
   "tableWidth",
+  "highlightWeekends",
+  "displayCalendars",
 ];
 
 /**
