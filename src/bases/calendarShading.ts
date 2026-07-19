@@ -28,7 +28,11 @@ import {
 const CELL_BASE_RULE =
   '.og-bases-gantt .wx-gantt-holidays .og-cal-cell{position:absolute;top:0;height:100%;}';
 
-const SHADE_DECLARATION = '{background:var(--wx-gantt-holiday-background);}';
+// !important: the weekends-off neutralization rule strips `.wx-weekend`
+// backgrounds with !important, and a calendar-shaded date can fall on a
+// weekend — calendar shading must survive that toggle (adding a calendar
+// only ever adds shading; the legacy toggle gates only the built-in default).
+const SHADE_DECLARATION = '{background:var(--wx-gantt-holiday-background)!important;}';
 
 /**
  * The evaluation window for shading: the tasks' pre-stretch span padded by a
@@ -142,6 +146,44 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): string
 
   const definitions = [...displayed.values()].map((record) => record.definition);
   return buildCalendarShadingCss(collectShadedDates(definitions, window));
+}
+
+/**
+ * Staleness key for the shading assembly: when nothing calendar-relevant
+ * changed — the watch epoch (calendar-note contents), the mapped association
+ * property, the window, the associations — the whole vault walk and
+ * evaluation are skipped and the cached stylesheet is reused.
+ */
+export function shadingCacheKey(inputs: {
+  epoch: number;
+  calendarProperty: string;
+  window: EvaluationWindow | null;
+  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
+}): string {
+  return JSON.stringify([
+    inputs.epoch,
+    inputs.calendarProperty,
+    inputs.window,
+    inputs.associations.map((association) => [association.taskPath, association.value]),
+  ]);
+}
+
+export interface ShadingCssCache {
+  compute(key: string, produce: () => string): string;
+}
+
+/** Skip-if-unchanged memo for the generated stylesheet (one per view). */
+export function createShadingCssCache(): ShadingCssCache {
+  let lastKey: string | null = null;
+  let lastCss = '';
+  return {
+    compute(key, produce) {
+      if (key === lastKey) return lastCss;
+      lastKey = key;
+      lastCss = produce();
+      return lastCss;
+    },
+  };
 }
 
 function addSpanDates(dates: Set<string>, span: DatedSpan, window: EvaluationWindow): void {

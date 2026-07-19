@@ -2,6 +2,8 @@ import {
   buildCalendarShadingCss,
   collectShadedDates,
   computeCalendarShadingCss,
+  createShadingCssCache,
+  shadingCacheKey,
   shadingWindow,
 } from '../../src/bases/calendarShading';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
@@ -101,6 +103,41 @@ describe('buildCalendarShadingCss', () => {
     expect(css).toContain('.og-d-2026-04-10');
     expect(css).toContain('.og-d-2026-04-13');
     expect(css).toContain('var(--wx-gantt-holiday-background)');
+  });
+
+  it('paints with !important so calendar shading survives the weekends-off toggle', () => {
+    const css = buildCalendarShadingCss(['2026-04-11']);
+    expect(css).toContain('var(--wx-gantt-holiday-background)!important');
+  });
+});
+
+describe('shading cache (skip-if-unchanged gate)', () => {
+  const window = { startDate: '2026-04-01', endDateExclusive: '2026-05-01' };
+  const associations = [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }];
+
+  it('key is stable for identical inputs and differs when any input changes', () => {
+    const base = shadingCacheKey({ epoch: 1, calendarProperty: 'note.calendar', window, associations });
+    expect(shadingCacheKey({ epoch: 1, calendarProperty: 'note.calendar', window, associations })).toBe(base);
+    expect(shadingCacheKey({ epoch: 2, calendarProperty: 'note.calendar', window, associations })).not.toBe(base);
+    expect(shadingCacheKey({ epoch: 1, calendarProperty: 'note.cal2', window, associations })).not.toBe(base);
+    expect(shadingCacheKey({ epoch: 1, calendarProperty: 'note.calendar', window: null, associations })).not.toBe(base);
+    expect(
+      shadingCacheKey({ epoch: 1, calendarProperty: 'note.calendar', window, associations: [] }),
+    ).not.toBe(base);
+  });
+
+  it('skips the producer on an unchanged key and recomputes when the key changes', () => {
+    const cache = createShadingCssCache();
+    let produced = 0;
+    const produce = (): string => {
+      produced += 1;
+      return `css-${produced}`;
+    };
+    expect(cache.compute('a', produce)).toBe('css-1');
+    expect(cache.compute('a', produce)).toBe('css-1');
+    expect(produced).toBe(1);
+    expect(cache.compute('b', produce)).toBe('css-2');
+    expect(produced).toBe(2);
   });
 });
 
