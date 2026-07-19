@@ -36,6 +36,12 @@ export interface CalendarSetRecord {
   name: string;
   definition: CalendarSetDefinition;
   memberPaths: string[];
+  /**
+   * Valid members with their authored link text preserved — selection member
+   * toggles are keyed by link text, so consumers need the pairing without
+   * re-running resolution.
+   */
+  members: { link: string; path: string }[];
   flags: string[];
 }
 
@@ -71,14 +77,14 @@ export function buildCalendarRegistry(
   // that is itself a set (or invalid, or missing) drops with a flag while the
   // rest still union.
   for (const { note, definition } of parsedSets) {
-    const memberPaths: string[] = [];
+    const members: { link: string; path: string }[] = [];
     const flags = definition.diagnostics.map((d) => `${d.path}: ${d.message}`);
     for (const memberLink of definition.members) {
       const memberPath = resolveLink(stripSubpath(memberLink), note.path);
       if (memberPath === null) {
         flags.push(`member does not resolve: ${memberLink}`);
       } else if (registry.calendars.has(memberPath)) {
-        memberPaths.push(memberPath);
+        members.push({ link: memberLink, path: memberPath });
       } else {
         flags.push(`member is not a valid calendar (sets are flat): ${memberLink}`);
       }
@@ -87,7 +93,8 @@ export function buildCalendarRegistry(
       path: note.path,
       name: note.basename,
       definition,
-      memberPaths,
+      memberPaths: members.map((member) => member.path),
+      members,
       flags,
     });
   }
