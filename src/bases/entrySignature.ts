@@ -122,6 +122,8 @@ export function watchedMappingValues(
     resolvedMappings.priorityProperty,
     viewMappings.parentProperty,
     estimateReadKey ?? viewMappings.timeEstimateProperty,
+    viewMappings.calendarProperty,
+    resolvedMappings.calendarProperty,
   ];
 }
 
@@ -167,6 +169,12 @@ export interface EntrySignatureInputs {
    * the re-notify storm this signature exists to break.
    */
   noteCacheOf(entry: SignatureEntry): EntryNoteCache | null;
+  /**
+   * State of the calendar-note layer (the watch's epoch). A calendar-note edit
+   * changes no task entry, so without this tag the signature would be identical
+   * and the refresh would reuse cached tasks — stale stretch/shading inputs.
+   */
+  calendarStateTag?: string;
 }
 
 /**
@@ -183,7 +191,10 @@ export function composeEntrySignature(input: EntrySignatureInputs): string {
   const { entries, viewMappings, resolvedMappings, estimateReadKey } = input;
   const watched = watchedMappingValues(viewMappings, resolvedMappings, estimateReadKey);
   const fmKeys = frontmatterSignatureKeys(watched);
-  const prefix = mappingSignatureTag(watched) + progressModeSignatureTag(viewMappings.progressMode);
+  const prefix =
+    mappingSignatureTag(watched) +
+    progressModeSignatureTag(viewMappings.progressMode) +
+    (input.calendarStateTag ?? '');
   const tasknotesProgress = viewMappings.progressMode === 'tasknotes';
 
   if (fmKeys.length === 0 && !tasknotesProgress) {
@@ -208,6 +219,7 @@ export interface WatchedMappings {
   priorityProperty?: string;
   parentProperty?: string;
   timeEstimateProperty?: string;
+  calendarProperty?: string;
 }
 
 /**

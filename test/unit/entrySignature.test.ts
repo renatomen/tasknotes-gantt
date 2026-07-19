@@ -119,6 +119,14 @@ describe('watchedMappingValues', () => {
 
     expect(keys).toEqual(['status']);
   });
+
+  it('watches the calendar association property so an association edit re-reads', () => {
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues({ calendarProperty: 'note.calendar' }, {}, null),
+    );
+
+    expect(keys).toContain('calendar');
+  });
 });
 
 describe('frontmatterSignatureKeys', () => {
@@ -250,6 +258,23 @@ describe('composeEntrySignature', () => {
       const path = e.file?.path;
       return path && fm[path] ? { frontmatter: fm[path]! } : null;
     };
+
+  it('changes when the calendar state tag flips (a calendar-note edit re-reads)', () => {
+    const entries = [entry('a.md')];
+    const noteCacheOf = cacheOf({});
+    const base = {
+      entries,
+      viewMappings: {},
+      resolvedMappings: {},
+      estimateReadKey: null,
+      noteCacheOf,
+    };
+
+    const beforeEdit = composeEntrySignature({ ...base, calendarStateTag: 'cal:1|' });
+    const afterEdit = composeEntrySignature({ ...base, calendarStateTag: 'cal:2|' });
+
+    expect(afterEdit).not.toBe(beforeEdit);
+  });
 
   it('re-reads when a role is unmapped even though the watched key stays (the shared-property case)', () => {
     // start and end BOTH on note.date; unmapping end leaves `date` watched for start,
