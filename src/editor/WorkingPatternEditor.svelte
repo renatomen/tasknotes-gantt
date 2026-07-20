@@ -1,3 +1,9 @@
+<script module lang="ts">
+  // A per-instance counter so each editor's radio group has a unique name;
+  // otherwise two mounted editors would share one radio group.
+  let instanceCount = 0;
+</script>
+
 <script lang="ts">
   /**
    * A visual builder for the working-pattern RRULE, so authors pick frequency,
@@ -46,9 +52,26 @@
   ];
 
   const unit = $derived(FREQUENCIES.find((f) => f.value === model.frequency)?.unit ?? 'weeks');
+  const monthlyGroup = `og-monthly-mode-${instanceCount++}`;
 
   function commit(): void {
     value = formatPattern(model);
+  }
+
+  /** Clamp a possibly-empty/invalid number input to an integer in [min, max]. */
+  function clampInt(raw: number, min: number, max: number, fallback: number): number {
+    if (!Number.isFinite(raw)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(raw)));
+  }
+
+  function commitInterval(): void {
+    model.interval = clampInt(model.interval, 1, 999, 1);
+    commit();
+  }
+
+  function commitMonthDay(): void {
+    model.monthDay = clampInt(model.monthDay, 1, 31, 1);
+    commit();
   }
 
   function toggleWeekday(code: WeekdayCode): void {
@@ -113,7 +136,7 @@
           type="number"
           min="1"
           bind:value={model.interval}
-          onchange={commit}
+          onchange={commitInterval}
         />
         {unit}
       </label>
@@ -137,7 +160,7 @@
         <label class="og-rrule-radio">
           <input
             type="radio"
-            name="monthly-mode"
+            name={monthlyGroup}
             checked={model.monthlyMode === 'day-of-month'}
             onchange={() => {
               model.monthlyMode = 'day-of-month';
@@ -152,14 +175,14 @@
             max="31"
             bind:value={model.monthDay}
             disabled={model.monthlyMode !== 'day-of-month'}
-            onchange={commit}
+            onchange={commitMonthDay}
           />
           of the month
         </label>
         <label class="og-rrule-radio">
           <input
             type="radio"
-            name="monthly-mode"
+            name={monthlyGroup}
             checked={model.monthlyMode === 'nth-weekday'}
             onchange={() => {
               model.monthlyMode = 'nth-weekday';
@@ -198,6 +221,33 @@
 </div>
 
 <style>
+  /* The shared field-control look, local to this component: Svelte scopes styles
+     per component, so the form's `.og-cal-*` rules do not reach here. */
+  .og-cal-control {
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
+    font-size: var(--font-ui-small, 0.8125rem);
+    color: var(--text-normal);
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 4px);
+  }
+  .og-cal-control:hover {
+    border-color: var(--background-modifier-border-hover);
+  }
+  .og-cal-control:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+  }
+  .og-cal-narrow {
+    inline-size: auto;
+    min-inline-size: 8rem;
+  }
+  .og-cal-mono {
+    inline-size: 100%;
+    font-family: var(--font-monospace);
+  }
+
   .og-rrule {
     display: flex;
     flex-direction: column;
