@@ -18,6 +18,8 @@ Version-control conventions for this repo.
 
 ## PRs & Merge
 
+- **Small, focused PRs — always.** Prefer many small PRs over one large one. A plan *unit* is a scope ceiling, not a floor: when a unit has a separable, independently-valuable, independently-testable part (a pure module before the UI that consumes it, a shared helper, a serializer), ship it as its own PR rather than holding it back to land the whole unit at once. A smaller review surface is a feature — it is where reviewers and the second-opinion bots (SonarCloud, Codex) actually catch things. Never batch unrelated changes to save a round-trip.
+- Splitting a unit across PRs is the default, not a decision to escalate. Keep going autonomously; do not stop to ask whether to split.
 - Open a PR for review; require **passing CI** (build, unit, e2e) before merge.
 - **Squash-merge** to keep `main` history linear and one-commit-per-change.
 - Delete the branch after merge; sync local `main`.
