@@ -226,9 +226,13 @@ export class CalendarEditorView extends ItemView {
     path: string | null,
     changes: Record<string, FrontmatterValue>,
   ): Promise<void> {
-    if (path === null) return;
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return;
+    const file = path === null ? null : this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      // The note was deleted or moved out from under the editor. Fail loudly so
+      // the form keeps the unsaved edits instead of treating this as a success.
+      new Notice("Couldn't save the calendar note — it no longer exists.");
+      throw new Error(`Calendar note not found: ${path ?? '(no path)'}`);
+    }
     try {
       // Atomic read-modify-write: the transform runs on the freshest content, so
       // an external write landing between read and write can't be clobbered by a

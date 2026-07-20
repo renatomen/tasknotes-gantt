@@ -383,6 +383,37 @@ describe("Gantt (OG) calendar editor routing", () => {
     await browser.pause(300);
   });
 
+  it("keeps the edit and does not clear dirty when the note is deleted before saving", async () => {
+    // A save that cannot find its file must fail, not silently succeed: the
+    // form has to keep the unsaved edit rather than advance its baseline.
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Edit before delete");
+
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      await app.vault.delete(file as never);
+    });
+    await browser.pause(400);
+
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.click();
+    await browser.pause(600);
+
+    // The save failed, so the form is still dirty — Save stays enabled.
+    expect(await save.isEnabled()).toBe(true);
+
+    // Recreate the fixture for the tests that follow.
+    await browser.executeObsidian(async ({ app }) => {
+      await app.vault.create("NZ Holidays.md", "---\ntngantt: calendar\ndescription: Recreated\n---\n");
+    });
+    await browser.pause(300);
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {
