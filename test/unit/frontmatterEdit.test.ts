@@ -55,7 +55,7 @@ describe('editFrontmatterKeys — targeted, comment-preserving key edits', () =>
     const next = editFrontmatterKeys(original, {
       non_working: [{ date: '2026-12-25', name: 'Christmas' }],
     });
-    expect(next).toContain('  - date: 2026-12-25');
+    expect(next).toContain('  - date: "2026-12-25"');
     expect(next).not.toContain('2026-01-01');
     expect(next).not.toContain('2026-02-06');
     // The key AFTER the list is preserved intact.
@@ -119,7 +119,7 @@ describe('Codex-found data-loss cases', () => {
     expect(next).not.toContain('2026-01-01');
     expect(next).not.toContain('2026-02-06');
     expect(next).not.toContain('mid-list hand note');
-    expect(next).toContain('  - date: 2026-12-25');
+    expect(next).toContain('  - date: "2026-12-25"');
     expect(next).toContain('color: "#000000"');
   });
 
@@ -130,6 +130,23 @@ describe('Codex-found data-loss cases', () => {
     // *literal* newline there folds to a space in YAML, silently losing the break.
     expect(next).toContain('description: "First line\\nSecond line"');
     expect(next).not.toContain('description: "First line\nSecond line"');
+  });
+
+  it('quotes a string YAML would retype as bool/null/number/date so it stays a string', () => {
+    const original = doc('tngantt: calendar');
+    expect(editFrontmatterKeys(original, { description: 'true' })).toContain('description: "true"');
+    expect(editFrontmatterKeys(original, { description: 'null' })).toContain('description: "null"');
+    expect(editFrontmatterKeys(original, { description: '2026-04-10' })).toContain(
+      'description: "2026-04-10"',
+    );
+    expect(editFrontmatterKeys(original, { description: '42' })).toContain('description: "42"');
+  });
+
+  it('serializes a scalar or null list item without throwing', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { non_working: [null, { date: '2026-01-01' }] });
+    expect(next).toContain('  - null');
+    expect(next).toContain('  - date: "2026-01-01"');
   });
 
   it('keeps a comment that trails the whole frontmatter with the block after it', () => {

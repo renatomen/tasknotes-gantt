@@ -124,14 +124,17 @@ function isIndentedContent(line: string): boolean {
 function serializeKey(key: string, value: FrontmatterValue): string {
   if (Array.isArray(value)) {
     if (value.length === 0) return `${key}: []`;
+    // Records serialize as `- k: v`; any scalar or null item (including a raw
+    // passthrough that is not an object) goes through quoteScalar so it never
+    // reaches Object.entries.
     const items = value.map((item) =>
-      typeof item === 'string'
-        ? `  - ${quoteScalar(item)}`
-        : serializeRecord(item as Record<string, unknown>),
+      item !== null && typeof item === 'object'
+        ? serializeRecord(item as Record<string, unknown>)
+        : `  - ${quoteScalar(item)}`,
     );
     return `${key}:\n${items.join('\n')}`;
   }
-  return `${key}: ${quoteScalar(value as string | number | boolean)}`;
+  return `${key}: ${quoteScalar(value)}`;
 }
 
 /** One list item that is a flat record: `- k: v` then `  k2: v2`. */
@@ -140,23 +143,35 @@ function serializeRecord(record: Record<string, unknown>): string {
   return entries
     .map(([k, v], index) => {
       const prefix = index === 0 ? '  - ' : '    ';
-      return `${prefix}${k}: ${quoteScalar(v as string | number | boolean)}`;
+      return `${prefix}${k}: ${quoteScalar(v)}`;
     })
     .join('\n');
 }
+
+// Tokens YAML silently retypes from an unquoted string into a bool, null,
+// number, or date. A string value matching one has to be quoted to survive the
+// round-trip as a string rather than reload as the wrong type (and read empty).
+const YAML_IMPLICIT = /^(?:true|false|yes|no|on|off|y|n|null|~|\.nan|[-+]?\.inf)$/i;
+const YAML_NUMBER = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:[eE][-+]?\d+)?$/;
+const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
 
 /**
  * Quote a scalar when YAML would otherwise misread it; pass clean values raw.
  * The leading-flow-indicator check is load-bearing: a set member `[[Note]]`
  * left bare parses as a nested flow sequence, not the string the schema needs.
+ * Non-string values (a raw passthrough number/boolean/null) render as-is.
  */
-function quoteScalar(value: string | number | boolean): string {
+function quoteScalar(value: unknown): string {
+  if (value === null) return 'null';
   if (typeof value !== 'string') return String(value);
   const needsQuote =
     value === '' ||
     /[:#"'\n,]/.test(value) ||
     /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
-    /\s$/.test(value);
+    /\s$/.test(value) ||
+    YAML_IMPLICIT.test(value) ||
+    YAML_NUMBER.test(value) ||
+    YAML_DATELIKE.test(value);
   if (!needsQuote) return value;
   // Escape for a YAML double-quoted scalar. Backslash first, so the escapes we
   // add below are not themselves re-escaped. A literal newline inside the quotes

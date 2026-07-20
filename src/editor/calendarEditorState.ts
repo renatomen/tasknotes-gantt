@@ -58,7 +58,9 @@ export function formFromFrontmatter(frontmatter: Record<string, unknown>): Edito
     description: readString(frontmatter.description),
     color: readString(frontmatter.color),
     pattern: readString(frontmatter.pattern),
-    patternStart: readString(frontmatter.pattern_start),
+    // Obsidian parses an unquoted anchor date as a Date; normalize it the same
+    // way the schema does so the anchor field is populated, not empty.
+    patternStart: toIsoDate(frontmatter.pattern_start) ?? '',
     timezone: readString(frontmatter.timezone),
     workingHours: readStringList(frontmatter.working_hours),
     nonWorking: readDatedList(frontmatter.non_working),

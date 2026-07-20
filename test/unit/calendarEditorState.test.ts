@@ -199,6 +199,18 @@ describe('Codex-found round-trip losses', () => {
     expect(form.nonWorking[0]).toEqual({ date: '2026-01-01', name: '' });
   });
 
+  it('normalizes a Date-typed pattern_start into the anchor field', () => {
+    // Obsidian parses an unquoted `pattern_start: 2026-01-05` as a Date; read as
+    // a bare string it would be empty, blocking every save with a missing-anchor
+    // error on an INTERVAL/COUNT/UNTIL pattern.
+    const form = formFromFrontmatter({
+      tngantt: 'calendar',
+      pattern: 'FREQ=WEEKLY;INTERVAL=2',
+      pattern_start: new Date(Date.UTC(2026, 0, 5)),
+    });
+    expect(form.patternStart).toBe('2026-01-05');
+  });
+
   it('preserves a null list item as raw rather than crashing on its date', () => {
     // A hand-authored empty dash (`- `) parses as null; it must not throw while
     // building the form, just round-trip untouched for markdown editing.
