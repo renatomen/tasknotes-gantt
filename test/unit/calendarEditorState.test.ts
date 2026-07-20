@@ -3,9 +3,11 @@ import {
   changedFrontmatter,
   fieldErrors,
   formFromFrontmatter,
+  frontmatterFromForm,
   isDirty,
   type EditorFormState,
 } from '../../src/editor/calendarEditorState';
+import { parseCalendarFrontmatter } from '../../src/controller/calendar/schema';
 
 const CALENDAR = {
   tngantt: 'calendar',
@@ -135,6 +137,41 @@ describe('fieldErrors — inline validation mirroring R26', () => {
 
   it('accepts a clean calendar with no errors', () => {
     expect(fieldErrors(base)).toEqual({});
+  });
+});
+
+describe('frontmatterFromForm — live definition for the preview tabs', () => {
+  it('produces frontmatter that parses back into the edited calendar', () => {
+    const form = formFromFrontmatter(CALENDAR);
+    const parsed = parseCalendarFrontmatter(frontmatterFromForm(form));
+    expect(parsed?.kind).toBe('calendar');
+    if (parsed?.kind !== 'calendar') throw new Error('expected a calendar');
+    expect(parsed.pattern).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR');
+    expect(parsed.patternStart).toBe('2026-01-05');
+    expect(parsed.nonWorking).toHaveLength(1);
+    expect(parsed.nonWorking[0]?.startDate).toBe('2026-04-10');
+  });
+
+  it('reflects an unsaved edit without a save', () => {
+    const form: EditorFormState = {
+      ...formFromFrontmatter(CALENDAR),
+      pattern: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+    };
+    const parsed = parseCalendarFrontmatter(frontmatterFromForm(form));
+    if (parsed?.kind !== 'calendar') throw new Error('expected a calendar');
+    expect(parsed.pattern).toBe('FREQ=WEEKLY;BYDAY=MO,WE,FR');
+  });
+
+  it('omits empty fields and carries the set members for a set', () => {
+    const setForm = formFromFrontmatter({
+      tngantt: 'calendar-set',
+      calendars: ['[[NZ Holidays]]'],
+    });
+    const frontmatter = frontmatterFromForm(setForm);
+    expect(frontmatter.tngantt).toBe('calendar-set');
+    expect(frontmatter.calendars).toEqual(['[[NZ Holidays]]']);
+    expect(frontmatter.pattern).toBeUndefined();
+    expect(frontmatter.description).toBeUndefined();
   });
 });
 

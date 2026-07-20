@@ -13,11 +13,15 @@
   import {
     changedFrontmatter,
     fieldErrors,
+    frontmatterFromForm,
     isDirty,
     type DatedEntry,
     type EditorFormState,
   } from './calendarEditorState';
   import type { FrontmatterValue } from './frontmatterEdit';
+  import { parseCalendarFrontmatter } from '../controller/calendar/schema';
+  import { yearLayoutFor } from './yearGridLayout';
+  import YearGrid from './YearGrid.svelte';
 
   interface Props {
     initial: EditorFormState;
@@ -58,6 +62,18 @@
   const errors = $derived(fieldErrors(form));
   const dirty = $derived(isDirty(baseline, form));
   const hasErrors = $derived(Object.keys(errors).length > 0);
+
+  // Preview tabs render the LIVE definition — parsed exactly as the chart does —
+  // so unsaved edits reflect without a save. The derived is lazy: it only
+  // evaluates while a preview tab is showing.
+  type Tab = 'edit' | 'year';
+  let activeTab = $state<Tab>('edit');
+  let previewYear = $state(new Date().getFullYear());
+  const definition = $derived(parseCalendarFrontmatter(frontmatterFromForm(form)));
+  const yearLayout = $derived(yearLayoutFor(definition, previewYear));
+  function stepYear(delta: number): void {
+    previewYear += delta;
+  }
 
   let descriptionEl: HTMLTextAreaElement | undefined;
   $effect(() => {
@@ -110,6 +126,30 @@
     </div>
   {/if}
 
+  {#if form.kind === 'calendar'}
+    <div class="og-cal-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        class="og-cal-tab"
+        class:og-cal-tab-active={activeTab === 'edit'}
+        aria-selected={activeTab === 'edit'}
+        onclick={() => (activeTab = 'edit')}
+      >Edit</button>
+      <button
+        type="button"
+        role="tab"
+        class="og-cal-tab"
+        class:og-cal-tab-active={activeTab === 'year'}
+        aria-selected={activeTab === 'year'}
+        onclick={() => (activeTab = 'year')}
+      >Year</button>
+    </div>
+  {/if}
+
+  {#if activeTab === 'year' && form.kind === 'calendar'}
+    <YearGrid layout={yearLayout} year={previewYear} onYear={stepYear} />
+  {:else}
   <section class="og-cal-group">
     <h3 class="og-cal-group-title">Identity</h3>
 
@@ -271,6 +311,7 @@
     </button>
     {#if hasErrors}<span class="og-cal-error">Fix the flagged fields before saving.</span>{/if}
   </div>
+  {/if}
 </div>
 
 <style>
@@ -287,6 +328,30 @@
     max-width: 44rem;
     margin: 0 auto;
     padding: 0.5rem 0 2rem;
+  }
+
+  /* Tab strip separating the editable form from the read-only preview(s). */
+  .og-cal-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+  .og-cal-tab {
+    padding: 0.4rem 0.9rem;
+    font-size: var(--font-ui-small, 0.8125rem);
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+  }
+  .og-cal-tab:hover {
+    color: var(--text-normal);
+  }
+  .og-cal-tab-active {
+    color: var(--text-normal);
+    border-bottom-color: var(--interactive-accent);
   }
 
   .og-cal-group {
