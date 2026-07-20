@@ -129,22 +129,36 @@ export function resolveTaskCalendar(
   resolveLink: LinkResolver,
 ): ResolvedAssociation {
   if (associationValue === undefined || associationValue === null) return defaultAssociation();
-  if (typeof associationValue !== 'string' || associationValue.trim() === '') {
-    return associationValue === ''
-      ? defaultAssociation()
-      : broken(`calendar association is not a link: ${String(associationValue)}`);
+
+  // A link property is a LIST in Obsidian by default, so the value arrives as
+  // an array far more often than as a bare string. A task follows one
+  // calendar: the first entry wins and any extras are flagged.
+  const extraFlags: string[] = [];
+  let value = associationValue;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return defaultAssociation();
+    if (value.length > 1) {
+      extraFlags.push('a task follows one calendar; only the first entry is used');
+    }
+    value = value[0];
   }
 
-  const linkText = stripSubpath(associationValue.trim());
+  if (typeof value !== 'string' || value.trim() === '') {
+    return value === ''
+      ? defaultAssociation()
+      : broken(`calendar association is not a link: ${String(value)}`);
+  }
+
+  const linkText = stripSubpath(value.trim());
   const path = resolveLink(linkText, taskPath);
-  if (path === null) return broken(`calendar link does not resolve: ${associationValue.trim()}`);
+  if (path === null) return broken(`calendar link does not resolve: ${value.trim()}`);
 
   const calendar = registry.calendars.get(path);
   if (calendar) {
     return {
       identity: { id: calendar.path, name: calendar.name, color: calendar.definition.color },
       calendars: [calendar],
-      flags: [],
+      flags: extraFlags,
       schedulingSuspended: false,
     };
   }
@@ -157,7 +171,7 @@ export function resolveTaskCalendar(
       calendars: set.memberPaths
         .map((memberPath) => registry.calendars.get(memberPath))
         .filter((record): record is CalendarRecord => record !== undefined),
-      flags: set.flags,
+      flags: [...extraFlags, ...set.flags],
       schedulingSuspended: false,
     };
   }

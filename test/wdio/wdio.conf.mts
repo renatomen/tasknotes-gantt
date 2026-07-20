@@ -7,7 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pluginRoot = process.env.PLUGIN_DIR || path.resolve(__dirname, "../../");
 const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
-const vaultPath = process.env.OBSIDIAN_TEST_VAULT || defaultVault;
+// OBSIDIAN_TEST_VAULT may list several `;`-separated vaults (the build installs
+// into every one). The FIRST is the primary: the base this harness copies from,
+// so a later entry can be a real working vault without e2e ever touching it.
+const vaultPath =
+  (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
 
 // Ensure vault directory exists to avoid service failures in CI/local
 try {
