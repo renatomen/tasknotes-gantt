@@ -57,10 +57,9 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
   const lastDay = `${pad4(year)}-12-31`;
   const window: EvaluationWindow = { startDate: firstDay, endDateExclusive: `${pad4(year + 1)}-01-01` };
 
+  const markers = markerDays(definition);
   const blocking = blockingDays(definition, window);
   const events = eventDays(definition, window);
-  const markers = new Set(definition.markers.map((marker) => marker.date));
-  const names = dayNames(definition);
 
   const start = mondayOf(firstDay);
   const end = sundayOf(lastDay);
@@ -69,79 +68,95 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
   let index = 0;
   for (let day = start; day <= end; day = addDaysIso(day, 1)) {
     const inYear = day >= firstDay && day <= lastDay;
+    const classified = inYear
+      ? classify(day, markers, blocking, events)
+      : { dayClass: 'working' as const, name: undefined };
     cells.push({
       date: day,
       row: index % 7, // start is a Monday, so the offset is the weekday directly
       column: Math.floor(index / 7),
       inYear,
-      dayClass: inYear ? classify(day, blocking, events, markers) : 'working',
-      name: inYear ? names.get(day) : undefined,
+      dayClass: classified.dayClass,
+      name: classified.name,
     });
     index += 1;
   }
   return { year, columns: Math.ceil(index / 7), cells, invalid: undefined };
 }
 
+/** A day set with the entry name that produced each day (for hover labels). */
+interface ClassifiedDays {
+  days: Set<string>;
+  names: Map<string, string>;
+}
+
+/**
+ * The winning class AND its own entry's name — read from the same source the
+ * class was chosen from, so an unnamed higher-precedence entry never inherits a
+ * lower one's label.
+ */
 function classify(
   day: string,
-  blocking: Set<string>,
-  events: Set<string>,
-  markers: Set<string>,
-): DayClass {
-  if (markers.has(day)) return 'marker';
-  if (blocking.has(day)) return 'blocking';
-  if (events.has(day)) return 'event';
-  return 'working';
+  markers: ClassifiedDays,
+  blocking: ClassifiedDays,
+  events: ClassifiedDays,
+): { dayClass: DayClass; name: string | undefined } {
+  if (markers.days.has(day)) return { dayClass: 'marker', name: markers.names.get(day) };
+  if (blocking.days.has(day)) return { dayClass: 'blocking', name: blocking.names.get(day) };
+  if (events.days.has(day)) return { dayClass: 'event', name: events.names.get(day) };
+  return { dayClass: 'working', name: undefined };
+}
+
+function markerDays(definition: CalendarDefinition): ClassifiedDays {
+  const days = new Set<string>();
+  const names = new Map<string, string>();
+  for (const marker of definition.markers) {
+    days.add(marker.date);
+    if (marker.name !== undefined) names.set(marker.date, marker.name);
+  }
+  return { days, names };
 }
 
 /** Non-working days: the pattern's blocking complement plus explicit spans. */
-function blockingDays(definition: CalendarDefinition, window: EvaluationWindow): Set<string> {
-  const days = new Set<string>();
+function blockingDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
+  const result: ClassifiedDays = { days: new Set(), names: new Map() };
   if (definition.pattern !== undefined) {
     const complement = blockingComplement(definition.pattern, definition.patternStart, window);
-    if (complement.kind === 'ok') for (const day of complement.dates) days.add(day);
+    if (complement.kind === 'ok') for (const day of complement.dates) result.days.add(day);
   }
-  addSpanDays(definition.nonWorking, window, days);
-  return days;
+  addSpanDays(definition.nonWorking, window, result);
+  return result;
 }
 
 /** Display-only days: dated event spans plus recurring-event occurrences. */
-function eventDays(definition: CalendarDefinition, window: EvaluationWindow): Set<string> {
-  const days = new Set<string>();
-  addSpanDays(definition.events, window, days);
+function eventDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
+  const result: ClassifiedDays = { days: new Set(), names: new Map() };
+  addSpanDays(definition.events, window, result);
   for (const event of definition.recurringEvents) {
-    const result = evaluatePattern(event.rrule, undefined, window);
-    if (result.kind === 'ok') for (const day of result.dates) days.add(day);
+    // Anchor to the calendar's pattern_start, matching the live shading path, so
+    // an anchored (INTERVAL/COUNT/UNTIL) recurrence is not silently dropped.
+    const occurrences = evaluatePattern(event.rrule, definition.patternStart, window);
+    if (occurrences.kind !== 'ok') continue;
+    for (const day of occurrences.dates) {
+      result.days.add(day);
+      if (event.name !== undefined) result.names.set(day, event.name);
+    }
   }
-  return days;
+  return result;
 }
 
 function addSpanDays(
-  spans: ReadonlyArray<{ startDate: string; endDateExclusive: string }>,
+  spans: ReadonlyArray<{ startDate: string; endDateExclusive: string; name: string | undefined }>,
   window: EvaluationWindow,
-  into: Set<string>,
+  into: ClassifiedDays,
 ): void {
   for (const span of spans) {
     for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) {
-      if (day >= window.startDate && day < window.endDateExclusive) into.add(day);
+      if (day < window.startDate || day >= window.endDateExclusive) continue;
+      into.days.add(day);
+      if (span.name !== undefined) into.names.set(day, span.name);
     }
   }
-}
-
-/** Name per day, higher-precedence entries overwriting lower ones. */
-function dayNames(definition: CalendarDefinition): Map<string, string> {
-  const names = new Map<string, string>();
-  const put = (day: string, name: string | undefined): void => {
-    if (name !== undefined) names.set(day, name);
-  };
-  for (const span of definition.events) {
-    for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) put(day, span.name);
-  }
-  for (const span of definition.nonWorking) {
-    for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) put(day, span.name);
-  }
-  for (const marker of definition.markers) put(marker.date, marker.name);
-  return names;
 }
 
 function pad4(year: number): string {

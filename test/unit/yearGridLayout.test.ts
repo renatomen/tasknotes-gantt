@@ -102,6 +102,43 @@ describe('buildYearGrid', () => {
     expect(grid.cells.find((c) => c.date === '2025-12-25')?.name).toBe('Christmas');
   });
 
+  it('labels a recurring-event occurrence with its name', () => {
+    const grid = buildYearGrid(
+      base({
+        recurringEvents: [{ rrule: 'FREQ=MONTHLY;BYMONTHDAY=1', name: 'Invoicing' }],
+      }),
+      2025,
+    );
+    expect(classOf(grid, '2025-04-01')).toBe('event');
+    expect(grid.cells.find((c) => c.date === '2025-04-01')?.name).toBe('Invoicing');
+  });
+
+  it('anchors an INTERVAL recurring event to pattern_start (matching the chart)', () => {
+    const grid = buildYearGrid(
+      base({
+        patternStart: '2025-01-06',
+        recurringEvents: [{ rrule: 'FREQ=WEEKLY;INTERVAL=2', name: 'Fortnightly' }],
+      }),
+      2025,
+    );
+    // Anchored to Jan 6 (Mon); every second Monday is an occurrence, not dropped.
+    expect(classOf(grid, '2025-01-06')).toBe('event');
+    expect(classOf(grid, '2025-01-20')).toBe('event');
+    expect(classOf(grid, '2025-01-13')).toBe('working'); // the off-week
+  });
+
+  it('does not inherit a lower-precedence name when the winning entry is unnamed', () => {
+    const grid = buildYearGrid(
+      base({
+        events: [span('2025-05-05', '2025-05-06', 'Town hall')],
+        nonWorking: [span('2025-05-05', '2025-05-06')], // unnamed, higher precedence
+      }),
+      2025,
+    );
+    expect(classOf(grid, '2025-05-05')).toBe('blocking');
+    expect(grid.cells.find((c) => c.date === '2025-05-05')?.name).toBeUndefined();
+  });
+
   it('flags an invalid pattern instead of rendering a stale grid', () => {
     const grid = buildYearGrid(base({ pattern: 'FREQ=NONSENSE' }), 2025);
     expect(grid.invalid).toBeDefined();
