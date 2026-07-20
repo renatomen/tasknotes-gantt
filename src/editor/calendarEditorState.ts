@@ -14,6 +14,7 @@
  */
 
 import { isSafeColor } from '../bases/barTreatment';
+import { toIsoDate } from '../controller/calendar/schema';
 import type { FrontmatterValue } from './frontmatterEdit';
 
 export interface DatedEntry {
@@ -169,20 +170,25 @@ function readStringList(value: unknown): string[] {
 function readDatedList(value: unknown): DatedEntry[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => {
-    if (typeof item === 'string') return { date: item, name: '' };
+    // A bare date, as a string or a Date (Obsidian parses an unquoted ISO date
+    // as a Date). Normalize the same way the schema does, so a valid entry stays
+    // editable and reserializes as ISO rather than a String(Date) dump.
+    const bare = toIsoDate(item);
+    if (bare !== undefined) return { date: bare, name: '' };
     const record = item as { date?: unknown; name?: unknown; marker?: unknown };
+    const date = toIsoDate(record.date);
     // Only a simple single-date entry is editable in the form; anything else
     // (a {start, end} range, an rrule) round-trips verbatim so it is not lost.
     const isSimple =
       item !== null &&
       typeof item === 'object' &&
-      typeof record.date === 'string' &&
+      date !== undefined &&
       !('start' in record) &&
       !('pattern' in record) &&
       !('rrule' in record);
     if (!isSimple) return { date: '', name: '', raw: item };
     const entry: DatedEntry = {
-      date: record.date as string,
+      date,
       name: typeof record.name === 'string' ? record.name : '',
     };
     if (record.marker === true) entry.marker = true;

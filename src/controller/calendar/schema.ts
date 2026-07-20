@@ -340,7 +340,7 @@ function dayCountOf(span: DatedSpan): number {
   return Math.round((end - start) / 86_400_000);
 }
 
-function toIsoDate(value: unknown): string | undefined {
+export function toIsoDate(value: unknown): string | undefined {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const year = value.getUTCFullYear();
     const month = String(value.getUTCMonth() + 1).padStart(2, '0');

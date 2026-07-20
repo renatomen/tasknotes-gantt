@@ -172,6 +172,33 @@ describe('Codex-found round-trip losses', () => {
     expect(written).toContainEqual({ date: '2026-06-01', name: 'Added' });
   });
 
+  it('keeps a Date-typed exception editable and reserializes it as an ISO date', () => {
+    // Obsidian parses an unquoted `date: 2026-04-10` as a Date. The form must
+    // normalize it, not treat it as an opaque passthrough — otherwise a later
+    // list edit reserializes the Date via String() and the calendar drops it.
+    const original = formFromFrontmatter({
+      tngantt: 'calendar',
+      non_working: [{ date: new Date(Date.UTC(2026, 3, 10)), name: 'Good Friday' }],
+    });
+    expect(original.nonWorking[0]).toEqual({ date: '2026-04-10', name: 'Good Friday' });
+    expect(original.nonWorking[0]?.raw).toBeUndefined();
+
+    const next: EditorFormState = {
+      ...original,
+      nonWorking: [...original.nonWorking, { date: '2026-06-01', name: 'Added' }],
+    };
+    const written = changedFrontmatter(original, next).non_working as unknown[];
+    expect(written).toContainEqual({ date: '2026-04-10', name: 'Good Friday' });
+  });
+
+  it('normalizes a bare Date list item to an ISO date', () => {
+    const form = formFromFrontmatter({
+      tngantt: 'calendar',
+      non_working: [new Date(Date.UTC(2026, 0, 1))],
+    });
+    expect(form.nonWorking[0]).toEqual({ date: '2026-01-01', name: '' });
+  });
+
   it('rejects a reversed or zero-length working-hours range', () => {
     const base = formFromFrontmatter(CALENDAR);
     expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toBeDefined();
