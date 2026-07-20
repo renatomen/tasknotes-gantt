@@ -105,6 +105,21 @@ KTD11 promises these are fail-visible. Options: fold an association-flag count i
 (cheapest, consistent with the existing notice), and/or a per-bar cue for the affected tasks. Needs a
 decision on which, since the banner is view-level and the problem is task-level.
 
+### P2e — Bar colouring: mode/source combinations render the wrong treatment
+Maintainer-reported 2026-07-20 while testing the calendar work; raised for triage **after** plan
+2026-07-19-001 completes, at the maintainer's request. Two symptoms, observed in a real vault:
+
+1. **Strip + By status colours the whole bar** instead of only the left accent strip. Non-calendar,
+   and predates the calendar work — `buildTreatmentStyle`'s strip path emits `stripBodyRule()` (a
+   neutral body) plus a `::before` accent; something is filling the body with the accent instead.
+2. **Fill + By calendar also draws a strip.** Calendar-scoped, so possibly a U12 regression: the
+   calendar branch emits the default role rules as a base and then per-calendar rules on top, so a
+   strip could leak in if the base is built for the wrong mode, or the observed "strip" may be the
+   progress fill taking the default child colour rather than the calendar's.
+
+Investigate together — they may share one cause in how the role base and per-value rules compose.
+The maintainer's standing constraint: do not alter non-calendar bar styling as a side effect.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

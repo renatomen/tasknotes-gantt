@@ -103,4 +103,24 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     }, PLAIN_BAR);
     expect(plainClass).not.toContain("wx-split");
   });
+
+  it("draws no body outline around a ghost bar in strip mode", async () => {
+    // Strip mode outlines every bar body with !important. A ghost bar's body is
+    // transparent — the pieces carry the visuals — so that outline would box the
+    // whole authored span, blocked days included.
+    await openBase("CalendarStretchStrip.base");
+    await browser.waitUntil(
+      async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
+      { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
+    );
+    const border = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) return null;
+      const s = window.getComputedStyle(bar);
+      return { color: s.borderTopColor, shadow: s.boxShadow };
+    }, STRETCH_BAR);
+    expect(border).not.toBeNull();
+    expect((border as { color: string }).color).toBe("rgba(0, 0, 0, 0)");
+    expect((border as { shadow: string }).shadow).toBe("none");
+  });
 });
