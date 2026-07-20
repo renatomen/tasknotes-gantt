@@ -148,6 +148,15 @@ function serializeRecord(record: Record<string, unknown>): string {
     .join('\n');
 }
 
+/** A Date rendered as its UTC calendar day, `YYYY-MM-DD` (matches the schema). */
+function isoDay(value: Date): string | undefined {
+  if (Number.isNaN(value.getTime())) return undefined;
+  const year = value.getUTCFullYear();
+  const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(value.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Tokens YAML silently retypes from an unquoted string into a bool, null,
 // number, or date. A string value matching one has to be quoted to survive the
 // round-trip as a string rather than reload as the wrong type (and read empty).
@@ -163,6 +172,12 @@ const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
  */
 function quoteScalar(value: unknown): string {
   if (value === null) return 'null';
+  // Obsidian parses an unquoted YAML date as a Date; a raw passthrough entry can
+  // still carry one. Emit it as a quoted ISO day, never a JS Date string.
+  if (value instanceof Date) {
+    const iso = isoDay(value);
+    return iso !== undefined ? `"${iso}"` : String(value);
+  }
   if (typeof value !== 'string') return String(value);
   const needsQuote =
     value === '' ||

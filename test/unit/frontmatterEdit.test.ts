@@ -142,6 +142,24 @@ describe('Codex-found data-loss cases', () => {
     expect(editFrontmatterKeys(original, { description: '42' })).toContain('description: "42"');
   });
 
+  it('serializes a Date value as an ISO date, not a JS Date string', () => {
+    // Obsidian hands unquoted range dates back as Date objects; a raw {start,end}
+    // passthrough must reserialize them as ISO, or the schema rejects the range.
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      non_working: [
+        {
+          start: new Date(Date.UTC(2026, 11, 29)),
+          end: new Date(Date.UTC(2027, 0, 2)),
+          name: 'Shutdown',
+        },
+      ],
+    });
+    expect(next).toContain('start: "2026-12-29"');
+    expect(next).toContain('end: "2027-01-02"');
+    expect(next).not.toContain('GMT');
+  });
+
   it('serializes a scalar or null list item without throwing', () => {
     const original = doc('tngantt: calendar');
     const next = editFrontmatterKeys(original, { non_working: [null, { date: '2026-01-01' }] });
