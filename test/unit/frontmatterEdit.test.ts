@@ -91,3 +91,47 @@ describe('editFrontmatterKeys — targeted, comment-preserving key edits', () =>
     expect(next).toContain('description: B');
   });
 });
+
+describe('Codex-found data-loss cases', () => {
+  it('quotes a wikilink set member so YAML reads it as a string, not a flow seq', () => {
+    const original = doc('tngantt: calendar-set');
+    const next = editFrontmatterKeys(original, { calendars: ['[[NZ Holidays]]'] });
+    expect(next).toContain('  - "[[NZ Holidays]]"');
+    expect(next).not.toContain('  - [[NZ Holidays]]');
+  });
+
+  it('swallows a comment INSIDE a list when replacing it, leaving no orphan items', () => {
+    const original = doc(
+      [
+        'tngantt: calendar',
+        'non_working:',
+        '  - date: 2026-01-01',
+        '  # mid-list hand note',
+        '  - date: 2026-02-06',
+        'color: "#000000"',
+      ].join('\n'),
+    );
+    const next = editFrontmatterKeys(original, {
+      non_working: [{ date: '2026-12-25', name: 'Christmas' }],
+    });
+    // The old entries — and the stranded comment — are gone; nothing YAML would
+    // still read as a list item survives.
+    expect(next).not.toContain('2026-01-01');
+    expect(next).not.toContain('2026-02-06');
+    expect(next).not.toContain('mid-list hand note');
+    expect(next).toContain('  - date: 2026-12-25');
+    expect(next).toContain('color: "#000000"');
+  });
+
+  it('keeps a comment that trails the whole frontmatter with the block after it', () => {
+    // A comment that belongs to the NEXT key must not be swallowed by the key
+    // before it.
+    const original = doc(
+      ['tngantt: calendar', 'description: A', '# belongs to color', 'color: "#111"'].join('\n'),
+    );
+    const next = editFrontmatterKeys(original, { description: 'B' });
+    expect(next).toContain('# belongs to color');
+    expect(next).toContain('color: "#111"');
+    expect(next).toContain('description: B');
+  });
+});

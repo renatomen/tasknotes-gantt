@@ -87,21 +87,36 @@ interface KeySpan {
 }
 
 /**
- * The line range `[start, end)` a top-level key owns — its own line plus any
- * indented continuation (a block list or nested mapping). A comment or blank
- * line ends the block, so it stays attached to what follows, never swallowed.
+ * The line range `[start, end)` a top-level key owns — its own line plus every
+ * line belonging to its block: indented continuations AND any comment or blank
+ * line nested BETWEEN them. A comment inside a list is part of that list's
+ * block; leaving it behind would strand the old items after a replacement, so
+ * they must be swallowed together. A trailing comment/blank that is followed by
+ * the next top-level key belongs to that key, so it is excluded.
  */
 function keySpan(lines: string[], key: string): KeySpan | null {
   const head = new RegExp(`^${escapeRegExp(key)}:`);
   const start = lines.findIndex((line) => head.test(line));
   if (start === -1) return null;
   let end = start + 1;
-  while (end < lines.length && isContinuation(lines[end] ?? '')) end++;
-  return { start, end };
+  let lastContent = start + 1; // one past the last indented content line
+  while (end < lines.length) {
+    const line = lines[end] ?? '';
+    if (isIndentedContent(line)) {
+      end++;
+      lastContent = end;
+    } else if (line.trim() === '' || line.trimStart().startsWith('#')) {
+      end++; // provisionally part of the block; only kept if more content follows
+    } else {
+      break; // a top-level key ends the block
+    }
+  }
+  // Trailing blanks/comments with no further content belong to what comes next.
+  return { start, end: lastContent };
 }
 
-/** An indented, non-comment, non-blank line continues the key above it. */
-function isContinuation(line: string): boolean {
+/** A non-blank, non-comment line indented under the key above it. */
+function isIndentedContent(line: string): boolean {
   if (line.trim() === '' || line.trimStart().startsWith('#')) return false;
   return /^\s/.test(line);
 }
@@ -130,10 +145,18 @@ function serializeRecord(record: Record<string, unknown>): string {
     .join('\n');
 }
 
-/** Quote a scalar when YAML would otherwise misread it; pass clean values raw. */
+/**
+ * Quote a scalar when YAML would otherwise misread it; pass clean values raw.
+ * The leading-flow-indicator check is load-bearing: a set member `[[Note]]`
+ * left bare parses as a nested flow sequence, not the string the schema needs.
+ */
 function quoteScalar(value: string | number | boolean): string {
   if (typeof value !== 'string') return String(value);
-  const needsQuote = value === '' || /[:#"'\n]|^[\s>|@`&*!%]|[\s]$|,/.test(value);
+  const needsQuote =
+    value === '' ||
+    /[:#"'\n,]/.test(value) ||
+    /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
+    /\s$/.test(value);
   return needsQuote ? `"${value.replace(/"/g, '\\"')}"` : value;
 }
 
