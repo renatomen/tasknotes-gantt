@@ -18,6 +18,44 @@ export class Notice {
   }
 }
 
+/**
+ * Stub of Obsidian's `WorkspaceLeaf` — just enough for the calendar editor's
+ * `setViewState` prototype patch to capture, replace and restore the method.
+ * Records the last state each instance received.
+ */
+export class WorkspaceLeaf {
+  lastState: unknown = null;
+  private root: unknown;
+  constructor(root?: unknown) {
+    this.root = root;
+  }
+  setViewState(state: unknown): Promise<void> {
+    this.lastState = state;
+    return Promise.resolve();
+  }
+  getRoot(): unknown {
+    return this.root;
+  }
+}
+
+/**
+ * Stub of Obsidian's `ItemView`, enough to let `CalendarEditorView` extend it
+ * and be imported in a Node test (the view's own behaviour is e2e-tested).
+ */
+export class ItemView {
+  leaf: WorkspaceLeaf;
+  app: App;
+  contentEl = new FakeElement('div');
+  constructor(leaf: WorkspaceLeaf) {
+    this.leaf = leaf;
+    this.app = (leaf as unknown as { app?: App }).app ?? new App();
+  }
+  registerEvent(): void {}
+  getState(): Record<string, unknown> {
+    return {};
+  }
+}
+
 /** Stub host app. */
 export class App {
   /** Marker so the mock isn't an empty class (S2094); the real App has many members. */

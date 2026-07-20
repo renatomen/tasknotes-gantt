@@ -66,6 +66,11 @@ const config = {
     // as main.ts above.
     "!src/release/ReleaseNotesView.ts",
     "!src/release/GanttSettingTab.ts",
+    // Thin Obsidian ItemView shell — every routing/heal decision is extracted
+    // to editor/calendarEditorRouting.ts (unit-tested) and the view behaviour
+    // is e2e-tested (test/specs/gantt-calendar-editor.e2e.ts). Same category as
+    // ReleaseNotesView above.
+    "!src/editor/CalendarEditorView.ts",
   ],
 };
 
