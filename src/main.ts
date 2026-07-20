@@ -14,12 +14,15 @@ import {
   type GanttPluginSettings,
 } from './release/settings';
 import { GanttSettingTab } from './release/GanttSettingTab';
+import { registerCalendarEditor } from './editor/registerCalendarEditor';
+import { CalendarEditorView } from './editor/CalendarEditorView';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
 
 export default class ObsidianGanttPlugin extends Plugin {
   private unregisterBases: (() => void) | null = null;
+  private unregisterCalendarEditor: (() => void) | null = null;
   settings: GanttPluginSettings = { ...DEFAULT_SETTINGS };
   /** Overridable so tests/e2e don't race the real timer. */
   whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
@@ -69,6 +72,14 @@ export default class ObsidianGanttPlugin extends Plugin {
       console.warn('[Gantt] Failed to start Bases registration', e);
     }
 
+    // Calendar notes open in a visual editor; markdown stays the floor, so a
+    // failure here must never stop the rest of the plugin loading.
+    try {
+      this.unregisterCalendarEditor = registerCalendarEditor(this);
+    } catch (e) {
+      console.warn('[Gantt] Failed to register the calendar editor', e);
+    }
+
     // In-app "What's New": register the view + a command to open it on demand.
     this.registerView(
       RELEASE_NOTES_VIEW_TYPE,
@@ -108,6 +119,22 @@ export default class ObsidianGanttPlugin extends Plugin {
         return true;
       },
     });
+    // The always-available escape hatch from the calendar editor back to the
+    // markdown floor, as a command as well as the pane menu.
+    this.addCommand({
+      id: 'open-calendar-as-markdown',
+      name: 'Open calendar note as markdown',
+      checkCallback: (checking: boolean) => {
+        const view = this.app.workspace.getActiveViewOfType(CalendarEditorView);
+        if (!view) return false;
+        if (!checking) {
+          view.openAsMarkdown().catch((e) => {
+            console.warn('[Gantt] Failed to open the calendar note as markdown', e);
+          });
+        }
+        return true;
+      },
+    });
     this.addSettingTab(new GanttSettingTab(this.app, this));
 
     // Auto-open once after an update, after the layout settles.
@@ -125,6 +152,8 @@ export default class ObsidianGanttPlugin extends Plugin {
       this.versionCheckTimer = null;
     }
     try { this.unregisterBases?.(); } catch {}
+    // Restores the patched setViewState and drops open editors to markdown.
+    try { this.unregisterCalendarEditor?.(); } catch {}
   }
 
   async saveSettings(): Promise<void> {
