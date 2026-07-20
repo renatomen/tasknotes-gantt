@@ -29,7 +29,7 @@ import type { PriorityColor, StatusColor } from '../datasource/types';
 export type BarColorMode = 'fill' | 'strip';
 
 /** Per-view color source: none, TaskNotes status/priority, or Obsidian theme. */
-export type BarColorSource = 'default' | 'status' | 'priority' | 'theme';
+export type BarColorSource = 'default' | 'status' | 'priority' | 'theme' | 'calendar';
 
 /** Per-view icon source: none, or the status/priority icon (independent of color). */
 export type BarIconSource = 'none' | 'status' | 'priority';
@@ -39,6 +39,13 @@ export const STATUS_CLASS_PREFIX = 'og-status-';
 
 /** Prefix for the per-priority bar class, namespaced to this plugin. */
 export const PRIORITY_CLASS_PREFIX = 'og-prio-';
+
+/**
+ * Prefix for the per-calendar bar class. Deliberately not `og-cal-`, which the
+ * shading cells and picker rows already use — a calendar note named "cell"
+ * would otherwise slug straight onto `og-cal-cell`.
+ */
+export const CALENDAR_CLASS_PREFIX = 'og-calendar-';
 
 /** Role class marking a parent bar in the role-based (`default`/`theme`) sources. */
 export const PARENT_ROLE_CLASS = 'og-parent';
@@ -190,12 +197,24 @@ export function isSafeColor(color: string | null | undefined): boolean {
 export interface Palettes {
   status: ReadonlyArray<StatusColor>;
   priority: ReadonlyArray<PriorityColor>;
+  /**
+   * The vault's calendars as a palette — `value` is the calendar (or set) id,
+   * `color` its authored colour. Companion-independent: calendars never depend
+   * on TaskNotes being installed.
+   */
+  calendar?: ReadonlyArray<{ value: string; color: string }>;
 }
 
 /** The bar-relevant slice of a render instance the resolvers read. */
 export interface TreatmentInstance {
   status: string | null;
   priority: string | null;
+  /**
+   * Resolved calendar identity — the calendar's own id for a direct link, the
+   * SET's id for a set-linked task, so a set's colour wins. Absent/null for an
+   * unassociated task, which then takes the default role treatment.
+   */
+  calendarId?: string | null;
 }
 
 /**
@@ -271,6 +290,16 @@ export function prioritySlug(value: string): string {
   return slug(PRIORITY_CLASS_PREFIX, value);
 }
 
+/** A CSS-safe, stable class token for a calendar id (prefix `og-calendar-`). */
+export function calendarSlug(value: string): string {
+  return slug(CALENDAR_CLASS_PREFIX, value);
+}
+
+/** The role-source class: parents are marked, children take the base rule. */
+function roleClass(isParent: boolean): string | null {
+  return isParent ? PARENT_ROLE_CLASS : null;
+}
+
 /** Whether a palette contains `value` with a usable, safe color. */
 function hasSafeColor(palette: ReadonlyArray<{ value: string; color: string }>, value: string): boolean {
   return palette.some((c) => c.value === value && isSafeColor(c.color));
@@ -287,6 +316,7 @@ function hasSafeColor(palette: ReadonlyArray<{ value: string; color: string }>, 
 function effectiveSource(source: BarColorSource, palettes: Palettes): BarColorSource {
   if (source === 'status' && palettes.status.length === 0) return 'default';
   if (source === 'priority' && palettes.priority.length === 0) return 'default';
+  if (source === 'calendar' && (palettes.calendar?.length ?? 0) === 0) return 'default';
   return source;
 }
 
@@ -318,9 +348,16 @@ export function resolveTreatmentClass(
       return instance.priority && hasSafeColor(palettes.priority, instance.priority)
         ? prioritySlug(instance.priority)
         : null;
+    case 'calendar':
+      // A task with no calendar (or a colourless one) has no colour to take,
+      // so it falls back to the default role treatment, not a plain bar.
+      if (instance.calendarId && hasSafeColor(palettes.calendar ?? [], instance.calendarId)) {
+        return calendarSlug(instance.calendarId);
+      }
+      return roleClass(isParent);
     case 'theme':
     case 'default':
-      return isParent ? PARENT_ROLE_CLASS : null;
+      return roleClass(isParent);
     default:
       return null;
   }
@@ -335,6 +372,9 @@ export function treatmentClassRegistry(palettes: Palettes): string[] {
   for (const { value, color } of palettes.priority) {
     if (isSafeColor(color)) ids.add(prioritySlug(value));
   }
+  for (const { value, color } of palettes.calendar ?? []) {
+    if (isSafeColor(color)) ids.add(calendarSlug(value));
+  }
   return [...ids];
 }
 
@@ -343,7 +383,10 @@ export interface TreatmentStyleInput {
   mode: BarColorMode;
   source: BarColorSource;
   palettes: Palettes;
-  /** Render instances — only `.status`/`.priority` are read (present-value set). */
+  /**
+   * Render instances — the active source decides which field is read for the
+   * present-value set (`.status`, `.priority`, or `.calendarId`).
+   */
   instances: ReadonlyArray<TreatmentInstance>;
 }
 
@@ -365,17 +408,21 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   if (source === 'default') return buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return buildRoleStyle(mode, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
 
-  const isStatus = source === 'status';
-  const palette: ReadonlyArray<{ value: string; color: string }> = isStatus ? palettes.status : palettes.priority;
-  const slugOf = isStatus ? statusSlug : prioritySlug;
+  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
 
   const present = new Set<string>();
   for (const inst of instances) {
-    const v = isStatus ? inst.status : inst.priority;
-    if (v) present.add(v);
+    const value = valueOf(inst);
+    if (value) present.add(value);
   }
 
   const rules = buildValueRules(mode, palette, present, slugOf);
+  // Calendar bars sit on top of the default role rules, so an unassociated
+  // task keeps the hierarchy treatment instead of rendering as a plain bar.
+  if (source === 'calendar') {
+    const base = buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+    return rules.length === 0 ? base : [base, ...rules].join('\n');
+  }
   if (rules.length === 0) return '';
   // Strip mode: neutralize EVERY bar body to a theme surface with readable text +
   // a visible outline (the accent is the left strip), and widen the content inset
@@ -389,6 +436,28 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
     );
   }
   return rules.join('\n');
+}
+
+/** The palette, class-slug and per-instance value reader for a value source. */
+function paletteFor(
+  source: BarColorSource,
+  palettes: Palettes,
+): {
+  palette: ReadonlyArray<{ value: string; color: string }>;
+  slugOf: (value: string) => string;
+  valueOf: (instance: TreatmentInstance) => string | null | undefined;
+} {
+  if (source === 'calendar') {
+    return {
+      palette: palettes.calendar ?? [],
+      slugOf: calendarSlug,
+      valueOf: (instance) => instance.calendarId,
+    };
+  }
+  if (source === 'status') {
+    return { palette: palettes.status, slugOf: statusSlug, valueOf: (i) => i.status };
+  }
+  return { palette: palettes.priority, slugOf: prioritySlug, valueOf: (i) => i.priority };
 }
 
 /**

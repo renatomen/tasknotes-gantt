@@ -88,6 +88,10 @@ export interface SvarTaskInputs {
    * intentionally absent from these inputs.
    */
   barColorSource?: BarColorSource;
+  /** The vault's calendars as a colour palette (id → colour). */
+  calendarPalette?: ReadonlyArray<{ value: string; color: string }>;
+  /** Each task note's resolved calendar identity, keyed by source path. */
+  calendarBySource?: ReadonlyMap<string, string>;
   /** Per-view icon source (default `none`). Named `...Source` to disambiguate from
    * the resolved {@link SvarTask.custom.barIcon} ({@link IconSpec}) it produces. */
   barIconSource?: BarIconSource;
@@ -238,8 +242,14 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     cellRenders,
     collapsedIds,
     managedPaths,
+    calendarPalette = [],
+    calendarBySource,
   } = input;
-  const palettes: Palettes = { status: statusColors, priority: priorityColors };
+  const palettes: Palettes = {
+    status: statusColors,
+    priority: priorityColors,
+    calendar: calendarPalette,
+  };
 
   // Which instance ids are referenced as a parent → they render expanded (`open`).
   const parentIds = new Set<string>();
@@ -321,7 +331,14 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     let type = 'task';
     const classes: string[] = [];
     if (flagged) classes.push(DATE_STATUS_TYPE);
-    const treatmentClass = resolveTreatmentClass(barColorSource, inst, isParent, palettes);
+    // The calendar identity is per SOURCE NOTE, not per instance — a task
+    // duplicated across parents follows the same calendar in every copy.
+    const treatmentClass = resolveTreatmentClass(
+      barColorSource,
+      { ...inst, calendarId: calendarBySource?.get(inst.sourcePath) ?? null },
+      isParent,
+      palettes,
+    );
     if (treatmentClass) classes.push(treatmentClass);
     // Instance cues come AFTER the state classes, replicated before context. This
     // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the

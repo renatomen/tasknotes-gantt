@@ -505,8 +505,15 @@
     buildTreatmentStyle({
       mode: barColorMode,
       source: barColorSource,
-      palettes: { status: statusColors, priority: priorityColors },
-      instances,
+      palettes: {
+        status: statusColors,
+        priority: priorityColors,
+        calendar: $data.calendarPalette ?? [],
+      },
+      instances: instances.map((inst) => ({
+        ...inst,
+        calendarId: $data.calendarBySource?.get(inst.sourcePath) ?? null,
+      })),
     }),
   );
 
@@ -648,6 +655,8 @@
       statusColors: d.statusColors ?? [],
       priorityColors: d.priorityColors ?? [],
       barColorSource: d.barColorSource ?? 'default',
+      calendarPalette: d.calendarPalette ?? [],
+      calendarBySource: d.calendarBySource,
       barIconSource: d.barIcon ?? 'none',
       showDateIndicators: d.showDateIndicators ?? true,
       arrowMode: d.arrowMode,
@@ -751,6 +760,12 @@
   const treatmentTaskTypes = buildTreatmentTaskTypes({
     status: initialData.statusColors ?? [],
     priority: initialData.priorityColors ?? [],
+    // Whole-vault calendars, so switching the display selection (or the colour
+    // source itself) never needs a re-register. A calendar note CREATED while
+    // the view is open is not in this set, so its bars stay on the default
+    // treatment until reopen — the same reopen-to-pick-up rule the status and
+    // priority palettes carry.
+    calendar: initialData.calendarPalette ?? [],
   });
   const svarTaskTypes = [
     ...defaultTaskTypes,

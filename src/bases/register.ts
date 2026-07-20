@@ -1191,6 +1191,8 @@ class ObsidianGanttBasesView extends BasesView {
       calendarShadingCss: calendarShading.css,
       calendarNotice: calendarShading.notice,
       calendarMarkers: calendarShading.markers,
+      calendarPalette: calendarShading.calendarPalette,
+      calendarBySource: calendarShading.calendarBySource,
       countWorkingDays:
         readCalendarMode((key) => this.config.get(key)) === 'stretch'
           ? (taskPath, start, end) => {
@@ -1213,7 +1215,13 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private buildCalendarShading(
     instances: ReadonlyArray<{ start: Date | null; end: Date | null }>,
-  ): { css: string; notice: string | null; markers: MarkerInput[] } {
+  ): {
+    css: string;
+    notice: string | null;
+    markers: MarkerInput[];
+    calendarPalette: { value: string; color: string }[];
+    calendarBySource: Map<string, string>;
+  } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
@@ -1250,6 +1258,8 @@ class ObsidianGanttBasesView extends BasesView {
     return {
       css: computed.css,
       markers: computed.markers,
+      calendarPalette: computed.calendarPalette,
+      calendarBySource: computed.calendarBySource,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,
