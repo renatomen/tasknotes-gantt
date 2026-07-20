@@ -29,6 +29,10 @@ export interface PatternModel {
 }
 
 const WEEKDAY_SET = new Set<string>(WEEKDAY_CODES);
+// The only RRULE parts the visual model represents. A rule carrying anything
+// else (COUNT, UNTIL, WKST, BYMONTH, BYSETPOS…) is edited as raw text, never
+// silently rewritten — parsePattern returns null so the field falls back.
+const REPRESENTED_PARTS = new Set(['FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY']);
 
 export function defaultPattern(): PatternModel {
   return {
@@ -48,11 +52,21 @@ export function parsePattern(rule: string): PatternModel | null {
   const freq = parts.get('FREQ');
   if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY') return null;
 
+  // Any clause the model cannot round-trip (COUNT, UNTIL, WKST, BYMONTH…) forces
+  // the raw fallback rather than a lossy edit.
+  for (const key of parts.keys()) {
+    if (!REPRESENTED_PARTS.has(key)) return null;
+  }
+
+  const interval = readInterval(parts.get('INTERVAL'));
+  if (interval === null) return null; // an explicit invalid interval must fail visibly
+
   const model = defaultPattern();
   model.frequency = freq;
-  model.interval = readInterval(parts.get('INTERVAL'));
+  model.interval = interval;
 
   if (freq === 'WEEKLY') {
+    if (parts.has('BYMONTHDAY')) return null;
     const weekdays = readWeekdays(parts.get('BYDAY'));
     if (weekdays === null) return null;
     model.weekdays = weekdays;
@@ -83,6 +97,9 @@ export function formatPattern(model: PatternModel): string {
 
 function parseMonthly(parts: Map<string, string>, model: PatternModel): PatternModel | null {
   const byMonthDay = parts.get('BYMONTHDAY');
+  const byDayPart = parts.get('BYDAY');
+  // A combined by-date AND by-weekday monthly rule is beyond the visual model.
+  if (byMonthDay !== undefined && byDayPart !== undefined) return null;
   if (byMonthDay !== undefined) {
     const day = Number(byMonthDay);
     if (!Number.isInteger(day) || day < 1 || day > 31) return null;
@@ -115,9 +132,11 @@ function parseParts(rule: string): Map<string, string> {
   return parts;
 }
 
-function readInterval(raw: string | undefined): number {
+/** The interval: absent means 1; an explicitly invalid value means null (reject). */
+function readInterval(raw: string | undefined): number | null {
+  if (raw === undefined) return 1;
   const value = Number(raw);
-  return Number.isInteger(value) && value >= 1 ? value : 1;
+  return Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 /** Plain weekday codes, or null if any entry is positioned/unknown. */

@@ -51,6 +51,23 @@ describe('workingPatternModel', () => {
     expect(parsePattern('')).toBeNull();
   });
 
+  it('rejects a rule carrying a clause the model cannot round-trip', () => {
+    // Dropping COUNT/UNTIL/WKST/BYMONTH would silently change the rule's meaning.
+    expect(parsePattern('FREQ=WEEKLY;COUNT=2;BYDAY=MO')).toBeNull();
+    expect(parsePattern('FREQ=WEEKLY;UNTIL=20261231T000000Z;BYDAY=MO')).toBeNull();
+    expect(parsePattern('FREQ=WEEKLY;WKST=SU;BYDAY=MO')).toBeNull();
+    // A combined monthly by-date AND by-weekday rule is not representable.
+    expect(parsePattern('FREQ=MONTHLY;BYMONTHDAY=15;BYDAY=MO')).toBeNull();
+  });
+
+  it('rejects an explicitly invalid interval instead of silently fixing it', () => {
+    expect(parsePattern('FREQ=DAILY;INTERVAL=0')).toBeNull();
+    expect(parsePattern('FREQ=WEEKLY;INTERVAL=-1;BYDAY=MO')).toBeNull();
+    expect(parsePattern('FREQ=WEEKLY;INTERVAL=abc;BYDAY=MO')).toBeNull();
+    // An absent interval still defaults to 1 (not an error).
+    expect(parsePattern('FREQ=WEEKLY;BYDAY=MO')?.interval).toBe(1);
+  });
+
   it('formats each frequency back to a canonical RRULE', () => {
     expect(formatPattern({ ...defaultPattern(), weekdays: ['MO', 'WE', 'FR'] })).toBe(
       'FREQ=WEEKLY;BYDAY=MO,WE,FR',
