@@ -26,6 +26,7 @@ function makePlugin(markedPaths: string[]) {
         return {};
       },
       offref: jest.fn(),
+      detachLeavesOfType: jest.fn(),
     },
     vault: {
       getAbstractFileByPath: (path: string) => {
@@ -83,8 +84,10 @@ function fakeLeaf(viewType: string) {
 const primaryLeaf = (root: unknown) => new WorkspaceLeaf(root);
 
 const original = WorkspaceLeaf.prototype.setViewState;
+const originalDetach = WorkspaceLeaf.prototype.detach;
 afterEach(() => {
   WorkspaceLeaf.prototype.setViewState = original;
+  WorkspaceLeaf.prototype.detach = originalDetach;
 });
 
 describe('registerCalendarEditor', () => {
@@ -179,6 +182,33 @@ describe('registerCalendarEditor', () => {
       leaf.setViewState({ type: 'markdown', state: { file: 'Calendars/NZ.md' } }),
     );
     expect((leaf.lastState as { type: string }).type).toBe('markdown');
+    teardown();
+  });
+
+  it('patches leaf detach and the workspace bulk-detach, restoring both on teardown', () => {
+    const { plugin } = makePlugin([]);
+    const beforeDetach = WorkspaceLeaf.prototype.detach;
+    const beforeBulk = plugin.app.workspace.detachLeavesOfType;
+
+    const teardown = registerCalendarEditor(plugin);
+    expect(WorkspaceLeaf.prototype.detach).not.toBe(beforeDetach);
+    expect(plugin.app.workspace.detachLeavesOfType).not.toBe(beforeBulk);
+
+    teardown();
+    expect(WorkspaceLeaf.prototype.detach).toBe(beforeDetach);
+    expect(plugin.app.workspace.detachLeavesOfType).toBe(beforeBulk);
+  });
+
+  it('detaches an ordinary (non-editor) leaf without prompting', () => {
+    const { plugin, rootSplit } = makePlugin([]);
+    const teardown = registerCalendarEditor(plugin);
+
+    const leaf = new WorkspaceLeaf(rootSplit);
+    // A plain markdown leaf, not a calendar editor — the guard must let it go.
+    (leaf as unknown as { view: unknown }).view = { getViewType: () => 'markdown' };
+    leaf.detach();
+    expect((leaf as unknown as { detached: boolean }).detached).toBe(true);
+
     teardown();
   });
 

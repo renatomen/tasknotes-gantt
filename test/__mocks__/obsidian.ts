@@ -25,6 +25,10 @@ export class Notice {
  */
 export class WorkspaceLeaf {
   lastState: unknown = null;
+  /** The view this leaf hosts — the close-guard patch reads it to decide. */
+  view: unknown = null;
+  /** Records that the original `detach` ran, for the guard-passthrough tests. */
+  detached = false;
   private root: unknown;
   constructor(root?: unknown) {
     this.root = root;
@@ -32,6 +36,9 @@ export class WorkspaceLeaf {
   setViewState(state: unknown): Promise<void> {
     this.lastState = state;
     return Promise.resolve();
+  }
+  detach(): void {
+    this.detached = true;
   }
   getRoot(): unknown {
     return this.root;

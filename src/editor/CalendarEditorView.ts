@@ -30,11 +30,14 @@ import { editFrontmatterKeys, type FrontmatterValue } from './frontmatterEdit';
 import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
 import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
 import { TimezoneInputSuggest } from '../bases/timezoneInputSuggest';
+import { UnsavedCalendarModal } from './UnsavedCalendarModal';
 
 /** The imperative surface the form exports to its host (see the .svelte file). */
 interface FormHandle {
   markExternalChange?: () => void;
   hasUnsavedEdits?: () => boolean;
+  canSave?: () => boolean;
+  save?: () => Promise<void>;
 }
 
 export class CalendarEditorView extends ItemView {
@@ -151,6 +154,31 @@ export class CalendarEditorView extends ItemView {
     if (!(file instanceof TFile)) return false;
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
     return matchesCalendarMarker(frontmatter) !== null;
+  }
+
+  /** Whether the open form has edits not yet written — the close guard reads
+      this to decide whether to prompt before the leaf detaches. */
+  hasUnsavedEdits(): boolean {
+    return this.form?.hasUnsavedEdits?.() ?? false;
+  }
+
+  /**
+   * Offer the unsaved-changes choice, then run `proceed` (the actual detach)
+   * only when the edits are resolved. Save failures keep the editor open with
+   * the edits intact rather than closing over a write that never landed.
+   */
+  async confirmClose(proceed: () => void): Promise<void> {
+    const canSave = this.form?.canSave?.() ?? false;
+    const choice = await new UnsavedCalendarModal(this.app, canSave).openAndGetChoice();
+    if (choice === 'cancel') return;
+    if (choice === 'save') {
+      try {
+        await this.form?.save?.();
+      } catch {
+        return;
+      }
+    }
+    proceed();
   }
 
   async onClose(): Promise<void> {

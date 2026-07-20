@@ -73,6 +73,11 @@
   export function hasUnsavedEdits(): boolean {
     return dirty;
   }
+  /** Whether a save would go through right now — the close guard disables its
+      Save button otherwise, so an errored or mid-save form can't offer it. */
+  export function canSave(): boolean {
+    return dirty && !hasErrors && !saving;
+  }
 
   const errors = $derived(fieldErrors(form));
   const dirty = $derived(isDirty(baseline, form));
@@ -103,7 +108,7 @@
     if (autofocus) void tick().then(() => descriptionEl?.focus());
   });
 
-  async function save(): Promise<void> {
+  export async function save(): Promise<void> {
     if (!dirty || hasErrors || saving) return;
     saving = true;
     // Snapshot what is being written BEFORE awaiting: edits made during a slow
