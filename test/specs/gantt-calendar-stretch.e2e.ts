@@ -104,23 +104,24 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(plainClass).not.toContain("wx-split");
   });
 
-  it("draws no body outline around a ghost bar in strip mode", async () => {
-    // Strip mode outlines every bar body with !important. A ghost bar's body is
-    // transparent — the pieces carry the visuals — so that outline would box the
-    // whole authored span, blocked days included.
+  it("keeps the inferred-date border visible on a stretched bar", async () => {
+    // DELIBERATE, and pinned so it cannot be quietly removed: a stretched task's
+    // end is derived from its estimate, and the date-status border is currently
+    // the only cue that a date was computed rather than authored. It is visually
+    // heavy — it boxes the whole authored span, blocked days included — but the
+    // annoyance stays until a provenance-aware cue replaces it. Removing this
+    // border without a replacement leaves derived dates indistinguishable from
+    // authored ones.
     await openBase("CalendarStretchStrip.base");
     await browser.waitUntil(
       async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
     );
-    const border = await browser.execute((selector: string) => {
+    const borderColor = await browser.execute((selector: string) => {
       const bar = document.querySelector(selector);
-      if (!bar) return null;
-      const s = window.getComputedStyle(bar);
-      return { color: s.borderTopColor, shadow: s.boxShadow };
+      return bar ? window.getComputedStyle(bar).borderTopColor : null;
     }, STRETCH_BAR);
-    expect(border).not.toBeNull();
-    expect((border as { color: string }).color).toBe("rgba(0, 0, 0, 0)");
-    expect((border as { shadow: string }).shadow).toBe("none");
+    expect(borderColor).not.toBeNull();
+    expect(borderColor).not.toBe("rgba(0, 0, 0, 0)");
   });
 });
