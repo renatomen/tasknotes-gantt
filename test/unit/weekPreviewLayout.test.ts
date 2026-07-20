@@ -75,4 +75,26 @@ describe('buildWeekPreview', () => {
     expect(week.invalid).toBeDefined();
     expect(week.days).toHaveLength(0);
   });
+
+  it('shows a monthly pattern by picking a week that contains an occurrence', () => {
+    // A fixed week could miss the 15th entirely and falsely show no working days.
+    const week = buildWeekPreview(base({ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15' }));
+    expect(week.days.some((d) => d.isWorking)).toBe(true);
+    expect(week.days[3]?.isWorking).toBe(true); // 2026-01-15 is a Thursday
+  });
+
+  it('shows a pattern whose anchor is far from the default week', () => {
+    const week = buildWeekPreview(
+      base({ pattern: 'FREQ=WEEKLY;BYDAY=MO;INTERVAL=2', patternStart: '2026-03-02' }),
+    );
+    expect(week.days[0]?.isWorking).toBe(true); // the anchored Monday
+  });
+
+  it('flags an invalid availability-block pattern rather than a blank week', () => {
+    const week = buildWeekPreview(
+      base({ availability: [{ pattern: 'FREQ=NONSENSE', hours: [hours('09:00', '17:00')] }] }),
+    );
+    expect(week.invalid).toBeDefined();
+    expect(week.days).toHaveLength(0);
+  });
 });

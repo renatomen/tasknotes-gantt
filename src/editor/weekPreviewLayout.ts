@@ -34,9 +34,11 @@ export interface WeekPreviewLayout {
 }
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-// A fixed Monday, so the representative week is deterministic and never derived
-// from wall-clock time.
+// A fixed fallback Monday, deterministic and never derived from wall-clock time.
 const WEEK_ANCHOR = '2026-01-05';
+// A full leap cycle, so the first occurrence of any valid rule (incl. quadrennial
+// leap-day patterns) is found when picking the representative week.
+const SEARCH_DAYS = 4 * 366 + 1;
 
 export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLayout {
   const invalid =
@@ -46,8 +48,16 @@ export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLay
   if (invalid !== null) {
     return { days: [], invalid };
   }
+  // Availability blocks are fail-visible too: a bad block pattern flags the week
+  // rather than silently vanishing into no availability.
+  for (const block of definition.availability) {
+    const blockInvalid = validatePattern(block.pattern, undefined);
+    if (blockInvalid !== null) return { days: [], invalid: blockInvalid };
+  }
 
-  const week: EvaluationWindow = { startDate: WEEK_ANCHOR, endDateExclusive: addDaysIso(WEEK_ANCHOR, 7) };
+  // A fixed week can miss a monthly or anchored-weekly recurrence entirely; anchor
+  // the preview to the week that contains the pattern's first occurrence.
+  const week = representativeWeek(definition);
   const perDay =
     definition.availability.length > 0
       ? availabilityHours(definition.availability, week)
@@ -94,6 +104,29 @@ function uniformHours(definition: CalendarDefinition, week: EvaluationWindow): D
     const isWorking = working.has(weekday);
     return { isWorking, hours: isWorking ? definition.workingHours : [] };
   });
+}
+
+/** The Monday-aligned week that contains the pattern's first occurrence. */
+function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
+  if (definition.pattern === undefined) return weekFrom(WEEK_ANCHOR);
+  const anchor = definition.patternStart ?? WEEK_ANCHOR;
+  const probe = evaluatePattern(definition.pattern, definition.patternStart, {
+    startDate: anchor,
+    endDateExclusive: addDaysIso(anchor, SEARCH_DAYS),
+  });
+  const first = probe.kind === 'ok' ? earliest(probe.dates) : undefined;
+  return weekFrom(first ?? WEEK_ANCHOR);
+}
+
+function weekFrom(iso: string): EvaluationWindow {
+  const monday = addDaysIso(iso, -isoWeekday(iso));
+  return { startDate: monday, endDateExclusive: addDaysIso(monday, 7) };
+}
+
+function earliest(dates: Set<string>): string | undefined {
+  let min: string | undefined;
+  for (const date of dates) if (min === undefined || date < min) min = date;
+  return min;
 }
 
 /** The weekdays (0=Mon..6=Sun) a pattern matches within the representative week. */
