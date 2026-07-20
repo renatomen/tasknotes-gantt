@@ -178,13 +178,15 @@ export class CalendarEditorView extends ItemView {
         onSave: (changes: Record<string, FrontmatterValue>) => this.persist(savePath, changes),
         onReload: () => this.render(),
         attachMemberSuggest: (input: HTMLInputElement) => {
-          // Fire-and-forget: the suggester attaches to the input and is GC'd
-          // with it (matches the cell-editor callers).
-          void new WikilinkInputSuggest(
+          // The suggester's popover and keymap scope live on document.body, so
+          // they outlive the input unless closed — return a disposer the form
+          // calls when the row unmounts (matches TextCellEditor's teardown).
+          const suggest = new WikilinkInputSuggest(
             this.app,
             input,
             createVaultWikilinkFetcher(this.app, this.filePath ?? ''),
           );
+          return () => suggest.close();
         },
       },
     }) as ReturnType<typeof mount> & FormHandle;
@@ -212,9 +214,13 @@ export class CalendarEditorView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
     try {
-      const original = await this.app.vault.read(file);
-      const updated = editFrontmatterKeys(original, changes);
-      await this.app.vault.modify(file, updated);
+      // Atomic read-modify-write: the transform runs on the freshest content, so
+      // an external write landing between read and write can't be clobbered by a
+      // stale snapshot. editFrontmatterKeys rewrites only the changed keys and
+      // leaves unrelated frontmatter, comments, and body intact.
+      const updated = await this.app.vault.process(file, (data) =>
+        editFrontmatterKeys(data, changes),
+      );
       // Our own write is now the disk truth; keep it out of external detection.
       this.lastContent = updated;
     } catch (error) {

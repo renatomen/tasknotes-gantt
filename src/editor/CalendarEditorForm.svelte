@@ -22,8 +22,11 @@
   interface Props {
     initial: EditorFormState;
     onSave: (changes: Record<string, FrontmatterValue>) => Promise<void>;
-    /** Attach the vault `[[` suggester to a member input once it mounts. */
-    attachMemberSuggest?: (input: HTMLInputElement, index: number) => void;
+    /**
+     * Attach the vault `[[` suggester to a member input once it mounts,
+     * returning a disposer that tears the suggester down when the input goes.
+     */
+    attachMemberSuggest?: (input: HTMLInputElement, index: number) => (() => void) | void;
     /** Discard the in-progress edits and reload from disk. */
     onReload?: () => void;
   }
@@ -78,9 +81,15 @@
 
   const blankDated = (): DatedEntry => ({ date: '', name: '' });
 
-  /** Svelte action: wire the vault `[[` suggester onto a member input. */
-  function memberSuggest(node: HTMLInputElement, index: number): void {
-    attachMemberSuggest?.(node, index);
+  /** Svelte action: wire the vault `[[` suggester onto a member input, and
+      close it when the input unmounts so no popover or keymap scope lingers. */
+  function memberSuggest(node: HTMLInputElement, index: number) {
+    const dispose = attachMemberSuggest?.(node, index);
+    return {
+      destroy() {
+        dispose?.();
+      },
+    };
   }
 </script>
 

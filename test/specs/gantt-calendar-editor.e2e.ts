@@ -273,6 +273,48 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(await (await $(".og-cal-notice")).isDisplayed()).toBe(false);
   });
 
+  it("preserves a concurrent external edit when the dirty form is saved", async () => {
+    // Keeping edits and saving must merge, not clobber: the save writes only the
+    // fields the form changed onto the freshest disk contents, so an unrelated
+    // external edit survives rather than being overwritten by a stale snapshot.
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Kept local edit");
+
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      const body = await app.vault.read(file as never);
+      await app.vault.modify(file as never, `${body as string}\nExternal-only marker line.\n`);
+    });
+
+    await (await $(".og-cal-notice")).waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: "no notice appeared for the concurrent external edit",
+    });
+
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled" });
+    await save.click();
+
+    const readNote = async (): Promise<string> =>
+      browser.executeObsidian(async ({ app }) => {
+        const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+        return file ? ((await app.vault.read(file as never)) as string) : "";
+      });
+
+    await browser.waitUntil(async () => (await readNote()).includes("description: Kept local edit"), {
+      timeout: 20000,
+      timeoutMsg: "the local edit never reached the frontmatter",
+    });
+    const saved = await readNote();
+    expect(saved).toContain("description: Kept local edit"); // the form's edit applied
+    expect(saved).toContain("External-only marker line."); // the concurrent external edit survived
+  });
+
   it("does not nag when the note changes on disk and the form is clean", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
