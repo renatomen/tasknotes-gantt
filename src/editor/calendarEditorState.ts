@@ -103,7 +103,11 @@ export interface FieldErrors {
   patternStart?: string;
   timezone?: string;
   workingHours?: string;
+  dates?: string;
+  members?: string;
 }
+
+const WIKILINK = /^\[\[.+\]\]$/;
 
 /** Inline validation, wording mirroring the schema's fail-visible messages (R26). */
 export function fieldErrors(form: EditorFormState): FieldErrors {
@@ -122,6 +126,16 @@ export function fieldErrors(form: EditorFormState): FieldErrors {
   }
   if (form.workingHours.some((range) => !isValidHoursRange(range))) {
     errors.workingHours = 'Expected HH:MM-HH:MM with start before end';
+  }
+  // An editable dated entry with no date serializes `date: ""`, which the
+  // schema drops — so it must not be savable.
+  const missingDate = (entry: DatedEntry): boolean =>
+    entry.raw === undefined && entry.date.trim() === '';
+  if (form.nonWorking.some(missingDate) || form.events.some(missingDate)) {
+    errors.dates = 'Every entry needs a date';
+  }
+  if (form.kind === 'calendar-set' && form.members.some((member) => !WIKILINK.test(member.trim()))) {
+    errors.members = 'Every member must be a [[wikilink]] to a calendar note';
   }
   return errors;
 }

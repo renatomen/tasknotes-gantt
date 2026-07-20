@@ -52,7 +52,9 @@ export class CalendarEditorView extends ItemView {
 
   async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const file = (state as { file?: unknown } | null)?.file;
-    this.filePath = typeof file === 'string' ? file : null;
+    // Only a string file changes the target; an ephemeral setState (scroll,
+    // focus) carries no file and must NOT wipe the path the form saves against.
+    if (typeof file === 'string') this.filePath = file;
     await super.setState(state, result);
     // Heal before rendering, so a markerless note never flashes the editor.
     if (shouldHealToMarkdown(this.filePath, this.filePath !== null && this.hasMarker(this.filePath))) {
@@ -152,11 +154,14 @@ export class CalendarEditorView extends ItemView {
     if (!(file instanceof TFile)) return;
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
 
+    // Capture the path for the save closure so it is immune to a later
+    // setState nulling the field.
+    const savePath = this.filePath;
     this.form = mount(CalendarEditorForm, {
       target: contentEl,
       props: {
         initial: formFromFrontmatter(frontmatter),
-        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(changes),
+        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(savePath, changes),
         attachMemberSuggest: (input: HTMLInputElement) => {
           // Fire-and-forget: the suggester attaches to the input and is GC'd
           // with it (matches the cell-editor callers).
@@ -171,9 +176,12 @@ export class CalendarEditorView extends ItemView {
   }
 
   /** Write the form's change set through the comment-preserving editor. */
-  private async persist(changes: Record<string, FrontmatterValue>): Promise<void> {
-    if (this.filePath === null) return;
-    const file = this.app.vault.getAbstractFileByPath(this.filePath);
+  private async persist(
+    path: string | null,
+    changes: Record<string, FrontmatterValue>,
+  ): Promise<void> {
+    if (path === null) return;
+    const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
     try {
       const original = await this.app.vault.read(file);

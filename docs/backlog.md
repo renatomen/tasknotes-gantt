@@ -153,6 +153,14 @@ so at equal stacking it painted *above* the bars rather than below.
 would be a fourth surface encoding calendar identity by colour (after bars, columns and markers);
 whether it earns that channel is a question that redesign should answer first.
 
+### P2g — Calendar editor: availability-block editing
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (U15). The editor form
+edits every calendar field EXCEPT per-pattern `availability` blocks (pattern + hours per block). They
+are **preserved** across a save (carried verbatim as `availabilityRaw`) and the form shows a
+read-only "edit as markdown" row when present, so nothing is lost — but they are not yet editable in
+the form. Deferred to keep the form PR small; add the nested block editor (pattern + hours list per
+block) as its own unit. Flagged by Codex during U15 review.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

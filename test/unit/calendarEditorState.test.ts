@@ -179,3 +179,29 @@ describe('Codex-found round-trip losses', () => {
     expect(fieldErrors({ ...base, workingHours: ['09:00-17:00'] }).workingHours).toBeUndefined();
   });
 });
+
+describe('Codex-found save-bad-data validation', () => {
+  const base = formFromFrontmatter(CALENDAR);
+
+  it('flags a dated entry with no date so an empty exception cannot be saved', () => {
+    expect(fieldErrors({ ...base, nonWorking: [{ date: '', name: 'x' }] }).dates).toBeDefined();
+    expect(fieldErrors({ ...base, events: [{ date: '', name: '' }] }).dates).toBeDefined();
+    expect(fieldErrors(base).dates).toBeUndefined();
+  });
+
+  it('ignores a raw passthrough entry when checking dates', () => {
+    const withRaw = { ...base, nonWorking: [{ date: '', name: '', raw: { start: 'a', end: 'b' } }] };
+    expect(fieldErrors(withRaw).dates).toBeUndefined();
+  });
+
+  it('flags a set member that is empty or not a wikilink', () => {
+    const set = formFromFrontmatter({ tngantt: 'calendar-set', calendars: ['[[A]]'] });
+    expect(fieldErrors({ ...set, members: ['[[A]]', ''] }).members).toBeDefined();
+    expect(fieldErrors({ ...set, members: ['plain text'] }).members).toBeDefined();
+    expect(fieldErrors({ ...set, members: ['[[A]]', '[[B]]'] }).members).toBeUndefined();
+  });
+
+  it('does not flag members on a plain calendar', () => {
+    expect(fieldErrors(base).members).toBeUndefined();
+  });
+});
