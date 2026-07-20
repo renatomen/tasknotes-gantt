@@ -175,6 +175,10 @@ export interface ShadingComputation {
   flaggedCount: number;
   /** Flagged events of the displayed calendars, for the marker overlay. */
   markers: MarkerInput[];
+  /** Every valid calendar/set in the vault as a bar-colour palette. */
+  calendarPalette: { value: string; color: string }[];
+  /** Each associated task's resolved calendar identity, by source path. */
+  calendarBySource: Map<string, string>;
 }
 
 /**
@@ -195,6 +199,8 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     : null;
   const flaggedCount = display?.flagged.length ?? 0;
   const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
+  const calendarPalette = buildCalendarPalette(registry);
+  const calendarBySource = resolveCalendarIdentities(registry, inputs);
   if (window === null) {
     return {
       css: buildCalendarShadingCss([]),
@@ -203,6 +209,8 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       invalidCount,
       flaggedCount,
       markers: [],
+      calendarPalette,
+      calendarBySource,
     };
   }
 
@@ -233,7 +241,49 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     invalidCount,
     flaggedCount,
     markers: collectMarkers([...displayed.values()]),
+    calendarPalette,
+    calendarBySource,
   };
+}
+
+/**
+ * Every valid calendar and set in the vault, as a colour palette. Deliberately
+ * the whole vault rather than the displayed set: the bar-colour classes are
+ * registered with SVAR once at mount, and re-registering would re-init its
+ * store — so the registered superset must not shrink when a selection changes.
+ */
+function buildCalendarPalette(
+  registry: ReturnType<typeof buildCalendarRegistry>,
+): { value: string; color: string }[] {
+  const palette: { value: string; color: string }[] = [];
+  for (const record of registry.calendars.values()) {
+    if (record.definition.color) palette.push({ value: record.path, color: record.definition.color });
+  }
+  for (const set of registry.sets.values()) {
+    if (set.definition.color) palette.push({ value: set.path, color: set.definition.color });
+  }
+  return palette;
+}
+
+/**
+ * Each associated task's calendar identity — the SET's id for a set-linked
+ * task, so a set's colour wins over its members'.
+ */
+function resolveCalendarIdentities(
+  registry: ReturnType<typeof buildCalendarRegistry>,
+  inputs: ShadingAssemblyInputs,
+): Map<string, string> {
+  const bySource = new Map<string, string>();
+  for (const association of inputs.associations) {
+    const resolved = resolveTaskCalendar(
+      registry,
+      association.value,
+      association.taskPath,
+      inputs.resolveLink,
+    );
+    if (resolved.identity) bySource.set(association.taskPath, resolved.identity.id);
+  }
+  return bySource;
 }
 
 /**

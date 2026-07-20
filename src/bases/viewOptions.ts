@@ -337,7 +337,15 @@ function appearanceOptions(): BasesOptions[] {
       default: 'default',
       // By status / By priority need the TaskNotes companion palette; they degrade
       // to Default in standalone (Bases-only) mode rather than being hidden.
-      options: { default: 'Default', status: 'By status', priority: 'By priority', theme: 'Obsidian theme' },
+      // By calendar is companion-independent and degrades the same way when the
+      // vault holds no coloured calendars.
+      options: {
+        default: 'Default',
+        status: 'By status',
+        priority: 'By priority',
+        calendar: 'By calendar',
+        theme: 'Obsidian theme',
+      },
     },
     {
       type: 'dropdown',
@@ -526,7 +534,9 @@ export function readBarColorMode(get: (key: string) => unknown): BarColorMode {
  */
 export function readBarColorSource(get: (key: string) => unknown): BarColorSource {
   const raw = get('tngantt_barColorSource');
-  return raw === 'status' || raw === 'priority' || raw === 'theme' ? raw : 'default';
+  return raw === 'status' || raw === 'priority' || raw === 'theme' || raw === 'calendar'
+    ? raw
+    : 'default';
 }
 
 /**

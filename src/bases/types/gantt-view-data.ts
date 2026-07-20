@@ -72,6 +72,14 @@ export interface GanttData {
    */
   calendarMarkers?: MarkerInput[];
   /**
+   * The vault's calendars as a bar-colour palette, for the `calendar` colour
+   * source. Whole-vault (not just displayed) because the treatment classes are
+   * registered with SVAR once at mount.
+   */
+  calendarPalette?: { value: string; color: string }[];
+  /** Each associated task's calendar identity, keyed by its source path. */
+  calendarBySource?: Map<string, string>;
+  /**
    * Working-day counter for the resize write path under working-time stretch:
    * the estimate persists the WORKING days of the resized span. Absent (or a
    * null return for a task with no associated calendar) = plain calendar days.

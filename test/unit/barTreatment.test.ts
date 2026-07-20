@@ -9,6 +9,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   statusSlug,
   prioritySlug,
+  calendarSlug,
   resolveTreatmentClass,
   treatmentClassRegistry,
   buildTreatmentStyle,
@@ -347,5 +348,94 @@ describe('resolveIconSpec', () => {
   it('falls back to currentColor for a CSS-keyword color (transparent)', () => {
     const p: Palettes = { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] };
     expect(resolveIconSpec('status', inst('x'), p)).toEqual({ kind: 'status', color: 'currentColor' });
+  });
+});
+
+describe('calendar color source (U12)', () => {
+  const calendarPalette = [
+    { value: 'Calendars/NZ.md', color: '#2a9d8f' },
+    { value: 'Calendars/APAC.md', color: '#e76f51' },
+    { value: 'Calendars/Unsafe.md', color: 'url(evil)' },
+  ];
+  const withCalendars: Palettes = { ...palettes, calendar: calendarPalette };
+  const calInst = (calendarId: string | null) => ({ status: null, priority: null, calendarId });
+
+  it('emits a fill rule per present calendar colour', () => {
+    const css = buildTreatmentStyle({
+      mode: 'fill',
+      source: 'calendar',
+      palettes: withCalendars,
+      instances: [calInst('Calendars/NZ.md'), calInst('Calendars/APAC.md')],
+    });
+    expect(css).toContain(`.wx-bar.${calendarSlug('Calendars/NZ.md')} { background-color: #2a9d8f !important;`);
+    expect(css).toContain('background-color: #e76f51 !important;');
+  });
+
+  it('emits a strip rule per present calendar colour', () => {
+    const css = buildTreatmentStyle({
+      mode: 'strip',
+      source: 'calendar',
+      palettes: withCalendars,
+      instances: [calInst('Calendars/NZ.md')],
+    });
+    expect(css).toContain(`.wx-bar.${calendarSlug('Calendars/NZ.md')}::before`);
+    expect(css).toContain('background-color: #2a9d8f;');
+  });
+
+  it('keeps the default role rules so an unassociated task is still treated', () => {
+    const css = buildTreatmentStyle({
+      mode: 'fill',
+      source: 'calendar',
+      palettes: withCalendars,
+      instances: [calInst('Calendars/NZ.md'), calInst(null)],
+    });
+    expect(css).toContain(PARENT_ROLE_CLASS);
+  });
+
+  it('resolves a set-linked task to the set id, so the set colour wins', () => {
+    // The resolver is identity-driven: a set-linked task carries the SET's id.
+    expect(resolveTreatmentClass('calendar', calInst('Calendars/APAC.md'), false, withCalendars)).toBe(
+      calendarSlug('Calendars/APAC.md'),
+    );
+  });
+
+  it('falls back to the default treatment for an unassociated task', () => {
+    expect(resolveTreatmentClass('calendar', calInst(null), false, withCalendars)).toBeNull();
+    expect(resolveTreatmentClass('calendar', calInst(null), true, withCalendars)).toBe(PARENT_ROLE_CLASS);
+  });
+
+  it('ignores a calendar whose authored colour is unsafe', () => {
+    expect(resolveTreatmentClass('calendar', calInst('Calendars/Unsafe.md'), false, withCalendars)).toBeNull();
+    const css = buildTreatmentStyle({
+      mode: 'fill',
+      source: 'calendar',
+      palettes: withCalendars,
+      instances: [calInst('Calendars/Unsafe.md')],
+    });
+    expect(css).not.toContain('url(evil)');
+  });
+
+  it('degrades to the default source when the vault has no calendars', () => {
+    const css = buildTreatmentStyle({
+      mode: 'fill',
+      source: 'calendar',
+      palettes,
+      instances: [calInst('Calendars/NZ.md')],
+    });
+    expect(css).toContain(PARENT_ROLE_CLASS);
+    expect(css).not.toContain('og-calendar-');
+  });
+
+  it('registers calendar classes so SVAR can match the composed bar type', () => {
+    const registry = treatmentClassRegistry(withCalendars);
+    expect(registry).toContain(calendarSlug('Calendars/NZ.md'));
+    expect(registry).toContain(calendarSlug('Calendars/APAC.md'));
+    expect(registry).not.toContain(calendarSlug('Calendars/Unsafe.md'));
+  });
+
+  it('slugs a vault path into a CSS-safe class distinct from the shading cell class', () => {
+    expect(calendarSlug('Calendars/NZ.md')).toMatch(/^og-calendar-[a-z0-9_-]+$/i);
+    // A calendar literally named "cell" must not collide with `og-cal-cell`.
+    expect(calendarSlug('cell')).not.toBe('og-cal-cell');
   });
 });
