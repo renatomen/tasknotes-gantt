@@ -29,6 +29,7 @@ import { formFromFrontmatter } from './calendarEditorState';
 import { editFrontmatterKeys, type FrontmatterValue } from './frontmatterEdit';
 import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
 import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
+import { TimezoneInputSuggest } from '../bases/timezoneInputSuggest';
 
 /** The imperative surface the form exports to its host (see the .svelte file). */
 interface FormHandle {
@@ -202,6 +203,10 @@ export class CalendarEditorView extends ItemView {
             input,
             createVaultWikilinkFetcher(this.app, this.filePath ?? ''),
           );
+          return () => suggest.close();
+        },
+        attachTimezoneSuggest: (input: HTMLInputElement) => {
+          const suggest = new TimezoneInputSuggest(this.app, input);
           return () => suggest.close();
         },
       },
