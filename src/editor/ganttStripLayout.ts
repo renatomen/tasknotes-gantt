@@ -1,6 +1,6 @@
 /**
- * Pure layout for the gantt-strip preview: a zoomed-out day strip over a fixed
- * multi-month window, shading each day exactly as the live chart would. Shading
+ * Pure layout for the gantt-strip preview: a zoomed-out day strip spanning the
+ * calendar's dated content, shading each day exactly as the live chart would. Shading
  * comes from the SHARED `collectShadedDates` classifier (U5), so the rehearsal
  * is the same code, not a lookalike; markers place linearly across the window.
  *
@@ -35,9 +35,11 @@ export interface GanttStripLayout {
   invalid: string | undefined;
 }
 
-// ~14 whole weeks — wide enough to rehearse weekly shading and a few monthly
-// occurrences without scrolling.
-const STRIP_DAYS = 98;
+// The strip spans the calendar's own dated content so markers and holidays are
+// visible, bounded so it stays a zoomed-out rehearsal: at least ~14 weeks, at
+// most ~53 weeks.
+const STRIP_MIN_DAYS = 98;
+const STRIP_MAX_DAYS = 371;
 // A fixed fallback Monday, deterministic and never derived from wall-clock time.
 const STRIP_ANCHOR = '2026-01-05';
 const EMPTY_WINDOW: EvaluationWindow = { startDate: STRIP_ANCHOR, endDateExclusive: STRIP_ANCHOR };
@@ -83,10 +85,47 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
   return { cells, markers, window, invalid: undefined };
 }
 
-/** A Monday-aligned multi-month window anchored at the pattern's start. */
+/**
+ * A Monday-aligned window that spans the calendar's dated content (markers,
+ * events, non-working days, the pattern anchor), so those are visible — clamped
+ * to whole weeks in [MIN, MAX]. Falls back to a fixed window when there is no
+ * dated content to anchor on.
+ */
 function stripWindow(definition: CalendarDefinition): EvaluationWindow {
-  const start = mondayOf(definition.patternStart ?? STRIP_ANCHOR);
-  return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_DAYS) };
+  const points = datedPoints(definition);
+  if (points.length === 0) {
+    const start = mondayOf(definition.patternStart ?? STRIP_ANCHOR);
+    return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MIN_DAYS) };
+  }
+  // ISO dates sort chronologically, so the ends of the content span are the
+  // first and last after sorting.
+  const sorted = [...points].sort((a, b) => a.localeCompare(b));
+  const start = mondayOf(sorted[0] as string);
+  const latest = sorted[sorted.length - 1] as string;
+  const days = clampToWeeks(dayIndex(latest, start) + 1);
+  return { startDate: start, endDateExclusive: addDaysIso(start, days) };
+}
+
+/** Every authored dated point that should fall inside the strip, if reachable. */
+function datedPoints(definition: CalendarDefinition): string[] {
+  const points: string[] = [];
+  for (const marker of definition.markers) points.push(marker.date);
+  // Spans shade through their end, so both ends must count toward the bounds.
+  for (const span of definition.events) points.push(span.startDate, lastDayOf(span));
+  for (const span of definition.nonWorking) points.push(span.startDate, lastDayOf(span));
+  if (definition.patternStart !== undefined) points.push(definition.patternStart);
+  return points;
+}
+
+/** The last day a span covers — its endDateExclusive is the day after. */
+function lastDayOf(span: { endDateExclusive: string }): string {
+  return addDaysIso(span.endDateExclusive, -1);
+}
+
+/** Round up to whole weeks, clamped to [STRIP_MIN_DAYS, STRIP_MAX_DAYS]. */
+function clampToWeeks(days: number): number {
+  const bounded = Math.min(STRIP_MAX_DAYS, Math.max(STRIP_MIN_DAYS, days));
+  return Math.ceil(bounded / 7) * 7;
 }
 
 /** Whole days from `start` to `date` (both ISO), assuming date >= start. */
