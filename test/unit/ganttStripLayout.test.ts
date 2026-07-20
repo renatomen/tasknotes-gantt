@@ -59,6 +59,19 @@ describe('buildGanttStrip', () => {
     expect(strip.markers[0]?.xFraction).toBeLessThanOrEqual(1);
   });
 
+  it('keeps multiple markers that share a date', () => {
+    const strip = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: 'Launch' },
+          { date: '2026-02-16', name: 'Freeze' },
+        ],
+      }),
+    );
+    expect(strip.markers).toHaveLength(2);
+    expect(strip.markers.map((m) => m.name)).toEqual(['Launch', 'Freeze']);
+  });
+
   it('excludes a marker that falls outside the window', () => {
     const strip = buildGanttStrip(base({ markers: [{ date: '2099-01-01', name: 'Far future' }] }));
     expect(strip.markers).toHaveLength(0);

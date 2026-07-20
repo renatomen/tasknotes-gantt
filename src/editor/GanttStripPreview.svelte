@@ -29,7 +29,7 @@
           <div class="og-strip-cell" class:og-strip-shaded={cell.shaded}></div>
         {/each}
       </div>
-      {#each layout.markers as marker (marker.date)}
+      {#each layout.markers as marker, i (marker.date + '#' + i)}
         <div class="og-strip-marker" style="left:{marker.xFraction * 100}%" title={markerTitle(marker)}>
           {#if marker.name}<span class="og-strip-marker-label">{marker.name}</span>{/if}
         </div>
@@ -61,15 +61,17 @@
   .og-strip-track {
     position: relative;
     block-size: 3rem;
-    /* Room above the strip for the markers' labels. */
+    /* Room above the strip for the markers' labels — the track does NOT clip, so
+       a label positioned above it stays visible. */
     margin-block-start: 1.5rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s, 4px);
-    overflow: hidden;
   }
+  /* The bordered, rounded bar clips only the day cells, not the marker labels. */
   .og-strip-cells {
     display: flex;
     block-size: 100%;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 4px);
+    overflow: hidden;
   }
   .og-strip-cell {
     flex: 1 1 0;
@@ -88,7 +90,6 @@
     inset-block: 0;
     inline-size: 2px;
     background: var(--text-accent);
-    pointer-events: none;
   }
   .og-strip-marker-label {
     position: absolute;
