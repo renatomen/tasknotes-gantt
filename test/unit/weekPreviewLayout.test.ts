@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildWeekPreview } from '../../src/editor/weekPreviewLayout';
+import { buildWeekPreview, weekLayoutFor } from '../../src/editor/weekPreviewLayout';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
 const base = (over: Partial<CalendarDefinition> = {}): CalendarDefinition => ({
@@ -96,5 +96,33 @@ describe('buildWeekPreview', () => {
     );
     expect(week.invalid).toBeDefined();
     expect(week.days).toHaveLength(0);
+  });
+});
+
+describe('weekLayoutFor', () => {
+  it('builds columns for a calendar', () => {
+    expect(weekLayoutFor(base())?.days).toHaveLength(7);
+  });
+
+  it('returns null for a set', () => {
+    expect(
+      weekLayoutFor({
+        kind: 'calendar-set',
+        description: undefined,
+        color: undefined,
+        members: [],
+        diagnostics: [],
+      }),
+    ).toBeNull();
+  });
+
+  it('surfaces an invalid definition as a flagged layout', () => {
+    const layout = weekLayoutFor({ kind: 'invalid', reasons: ['missing FREQ'] });
+    expect(layout?.invalid).toBe('missing FREQ');
+    expect(layout?.days).toHaveLength(0);
+  });
+
+  it('returns null for a non-calendar note', () => {
+    expect(weekLayoutFor(null)).toBeNull();
   });
 });

@@ -238,6 +238,18 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("# hand comment");
   });
 
+  it("previews the working week on the Week tab", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    await (await $(".og-cal-tab=Week")).click();
+    const week = await $(".og-week-grid");
+    await week.waitForDisplayed({ timeout: 10000, timeoutMsg: "the week grid did not render" });
+    // Seven day columns, Monday through Sunday.
+    expect((await $$(".og-week-col")).length).toBe(7);
+  });
+
   it("previews the year on the Year tab and keeps the unsaved form on return", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");

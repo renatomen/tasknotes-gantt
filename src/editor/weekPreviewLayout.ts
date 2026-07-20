@@ -11,7 +11,11 @@
  * @module editor/weekPreviewLayout
  */
 
-import type { CalendarDefinition, TimeRange } from '../controller/calendar/schema';
+import type {
+  CalendarDefinition,
+  ParsedCalendarNote,
+  TimeRange,
+} from '../controller/calendar/schema';
 import { addDaysIso } from '../controller/calendar/schema';
 import {
   evaluatePattern,
@@ -39,6 +43,17 @@ const WEEK_ANCHOR = '2026-01-05';
 // A full leap cycle, so the first occurrence of any valid rule (incl. quadrennial
 // leap-day patterns) is found when picking the representative week.
 const SEARCH_DAYS = 4 * 366 + 1;
+
+/**
+ * The week layout for a parsed note: columns for a calendar, a flagged layout
+ * carrying the reasons for an invalid definition, or null for a set (no working
+ * pattern) — which the tab renders as the "not a calendar" message.
+ */
+export function weekLayoutFor(note: ParsedCalendarNote | null): WeekPreviewLayout | null {
+  if (note === null || note.kind === 'calendar-set') return null;
+  if (note.kind === 'invalid') return { days: [], invalid: note.reasons.join('; ') };
+  return buildWeekPreview(note);
+}
 
 export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLayout {
   const invalid =
