@@ -11,6 +11,7 @@
 
 import { AbstractInputSuggest, type App } from 'obsidian';
 import { filterTimezones } from '../editor/timezoneFilter';
+import { formatUtcOffset } from '../editor/timezoneOffset';
 
 export class TimezoneInputSuggest extends AbstractInputSuggest<string> {
   private readonly inputEl: HTMLInputElement;
@@ -27,7 +28,17 @@ export class TimezoneInputSuggest extends AbstractInputSuggest<string> {
   }
 
   renderSuggestion(zone: string, el: HTMLElement): void {
-    el.setText(zone);
+    // Zone on the left, its current UTC offset muted on the right — a live,
+    // DST-aware hint so similar zone names are easy to tell apart.
+    el.style.display = 'flex';
+    el.style.justifyContent = 'space-between';
+    el.style.gap = '1rem';
+    el.createSpan({ text: zone });
+    const offset = formatUtcOffset(zone);
+    if (offset !== null) {
+      const offsetEl = el.createSpan({ text: offset });
+      offsetEl.style.color = 'var(--text-muted)';
+    }
   }
 
   selectSuggestion(zone: string): void {

@@ -26,6 +26,7 @@
   import WeekPreview from './WeekPreview.svelte';
   import { ganttStripLayoutFor } from './ganttStripLayout';
   import GanttStripPreview from './GanttStripPreview.svelte';
+  import { formatUtcOffset } from './timezoneOffset';
 
   interface Props {
     initial: EditorFormState;
@@ -89,6 +90,12 @@
   function stepYear(delta: number): void {
     previewYear += delta;
   }
+
+  // Live, DST-aware offset for the chosen zone — computed offline via Intl, a
+  // hint only; the note always persists the IANA name, never the offset.
+  const timezoneOffset = $derived(
+    form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone),
+  );
 
   let descriptionEl: HTMLTextAreaElement | undefined;
   $effect(() => {
@@ -280,7 +287,10 @@
           placeholder="Search a timezone (e.g. Pacific/Auckland)"
           use:timezoneSuggest
         />
-        <small class="og-cal-hint">Recorded now; honoured once hour-level scheduling ships.</small>
+        <small class="og-cal-hint">
+          {#if timezoneOffset}Currently {timezoneOffset} · {/if}Recorded now; honoured once hour-level
+          scheduling ships.
+        </small>
         {#if errors.timezone}<span class="og-cal-error">{errors.timezone}</span>{/if}
       </label>
     </section>

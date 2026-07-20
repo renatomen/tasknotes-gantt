@@ -12,11 +12,25 @@ function fakeInput() {
   };
 }
 
+/** A suggestion-item stand-in recording the spans and styles render applies. */
+function fakeEl() {
+  const spans: Array<{ text?: string; style: Record<string, string> }> = [];
+  const el = {
+    style: {} as Record<string, string>,
+    createSpan(options?: { text?: string }) {
+      const span = { text: options?.text, style: {} as Record<string, string> };
+      spans.push(span);
+      return span;
+    },
+  };
+  return { el, spans };
+}
+
 /** Reach the protected/overridden methods without widening the class surface. */
 function asHarness(suggest: TimezoneInputSuggest) {
   return suggest as unknown as {
     getSuggestions(query: string): string[];
-    renderSuggestion(zone: string, el: { setText(t: string): void }): void;
+    renderSuggestion(zone: string, el: unknown): void;
     selectSuggestion(zone: string): void;
   };
 }
@@ -36,12 +50,13 @@ describe('TimezoneInputSuggest', () => {
     expect(suggest.getSuggestions('UTC')).toContain('UTC');
   });
 
-  it('renders a suggestion as its plain zone name', () => {
+  it('renders a suggestion as the zone with its current UTC offset', () => {
     const input = fakeInput();
     const suggest = asHarness(new TimezoneInputSuggest(app, input as never));
-    const el = { setText: jest.fn() };
+    const { el, spans } = fakeEl();
     suggest.renderSuggestion('Europe/London', el);
-    expect(el.setText).toHaveBeenCalledWith('Europe/London');
+    expect(spans[0]?.text).toBe('Europe/London');
+    expect(spans[1]?.text).toMatch(/^UTC[+-]\d{2}:\d{2}$/);
   });
 
   it('fills the input and notifies on pick', () => {
