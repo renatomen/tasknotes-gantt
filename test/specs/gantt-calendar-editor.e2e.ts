@@ -238,6 +238,25 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("# hand comment");
   });
 
+  it("previews the year on the Year tab and keeps the unsaved form on return", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Edited then previewed");
+
+    await (await $(".og-cal-tab=Year")).click();
+    const grid = await $(".og-year-grid");
+    await grid.waitForDisplayed({ timeout: 10000, timeoutMsg: "the year grid did not render" });
+    // A full year of day cells plus the padding of the partial end weeks.
+    expect((await $$(".og-year-cell")).length).toBeGreaterThan(300);
+
+    // Back to Edit: the tabs share one component, so the unsaved edit survives.
+    await (await $(".og-cal-tab=Edit")).click();
+    expect(await (await $(".og-cal-form textarea")).getValue()).toBe("Edited then previewed");
+  });
+
   it("warns and offers reload when the note changes on disk under an unsaved edit", async () => {
     // An external write (sync, a hand edit, another editor) can land while the
     // form holds unsaved edits. Saving then would apply the change set to the

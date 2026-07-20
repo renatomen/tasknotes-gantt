@@ -100,6 +100,32 @@ export function changedFrontmatter(
   return changes;
 }
 
+/**
+ * The full frontmatter object the form currently represents — the same shape a
+ * save would write. Feeding it back through `parseCalendarFrontmatter` gives the
+ * live definition the preview tabs render, so a preview parses exactly as the
+ * chart does, reflecting unsaved edits without touching the note.
+ */
+export function frontmatterFromForm(form: EditorFormState): Record<string, unknown> {
+  const frontmatter: Record<string, unknown> = { tngantt: form.kind };
+  if (form.description.trim() !== '') frontmatter.description = form.description;
+  if (form.color.trim() !== '') frontmatter.color = form.color;
+  if (form.kind === 'calendar-set') {
+    if (form.members.length > 0) frontmatter.calendars = form.members;
+    return frontmatter;
+  }
+  if (form.pattern.trim() !== '') frontmatter.pattern = form.pattern;
+  if (form.patternStart.trim() !== '') frontmatter.pattern_start = form.patternStart;
+  if (form.timezone.trim() !== '') frontmatter.timezone = form.timezone;
+  if (form.workingHours.length > 0) frontmatter.working_hours = form.workingHours;
+  const nonWorking = datedForWrite(form.nonWorking);
+  if (nonWorking.length > 0) frontmatter.non_working = nonWorking;
+  const events = datedForWrite(form.events);
+  if (events.length > 0) frontmatter.events = events;
+  if (form.availabilityRaw !== undefined) frontmatter.availability = form.availabilityRaw;
+  return frontmatter;
+}
+
 export interface FieldErrors {
   color?: string;
   pattern?: string;
