@@ -97,8 +97,11 @@ function stripWindow(definition: CalendarDefinition): EvaluationWindow {
     const start = mondayOf(definition.patternStart ?? STRIP_ANCHOR);
     return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MIN_DAYS) };
   }
-  const start = mondayOf(points.reduce((a, b) => (b < a ? b : a)));
-  const latest = points.reduce((a, b) => (b > a ? b : a));
+  // ISO dates sort chronologically, so the ends of the content span are the
+  // first and last after sorting.
+  const sorted = [...points].sort((a, b) => a.localeCompare(b));
+  const start = mondayOf(sorted[0] as string);
+  const latest = sorted[sorted.length - 1] as string;
   const days = clampToWeeks(dayIndex(latest, start) + 1);
   return { startDate: start, endDateExclusive: addDaysIso(start, days) };
 }
@@ -107,10 +110,16 @@ function stripWindow(definition: CalendarDefinition): EvaluationWindow {
 function datedPoints(definition: CalendarDefinition): string[] {
   const points: string[] = [];
   for (const marker of definition.markers) points.push(marker.date);
-  for (const span of definition.events) points.push(span.startDate);
-  for (const span of definition.nonWorking) points.push(span.startDate);
+  // Spans shade through their end, so both ends must count toward the bounds.
+  for (const span of definition.events) points.push(span.startDate, lastDayOf(span));
+  for (const span of definition.nonWorking) points.push(span.startDate, lastDayOf(span));
   if (definition.patternStart !== undefined) points.push(definition.patternStart);
   return points;
+}
+
+/** The last day a span covers — its endDateExclusive is the day after. */
+function lastDayOf(span: { endDateExclusive: string }): string {
+  return addDaysIso(span.endDateExclusive, -1);
 }
 
 /** Round up to whole weeks, clamped to [STRIP_MIN_DAYS, STRIP_MAX_DAYS]. */

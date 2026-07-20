@@ -83,6 +83,14 @@ describe('buildGanttStrip', () => {
     expect(strip.markers.map((m) => m.name)).toContain('Mid-year');
   });
 
+  it('spans a multi-day range through to its end', () => {
+    const strip = buildGanttStrip(
+      base({ nonWorking: [span('2026-01-05', '2026-06-30', 'Long shutdown')] }),
+    );
+    // The window reaches the span's June end, not just its January start.
+    expect(strip.cells.some((c) => c.date >= '2026-06-01')).toBe(true);
+  });
+
   it('caps the window so content beyond ~a year is excluded', () => {
     const strip = buildGanttStrip(
       base({
