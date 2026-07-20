@@ -17,7 +17,15 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar");
+/**
+ * Its OWN vault, deliberately. Adding a second associated task to the shared
+ * calendar vault silently turned the shading spec's view into a two-calendar
+ * display, where a newly-blocked day becomes a CONFLICT painted with stripes
+ * (a background-image) — quietly breaking an assertion that reads
+ * background-color. Colour fixtures stay isolated so specs can't reshape each
+ * other's semantics.
+ */
+const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-colour");
 
 const NZ_COLOR = "rgb(42, 157, 143)";
 const SUN_THU_COLOR = "rgb(231, 111, 81)";
