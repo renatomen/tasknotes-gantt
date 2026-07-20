@@ -3327,11 +3327,6 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split) {
     background-color: transparent !important;
-    /* The body is transparent, so a border would box the whole authored span —
-       blocked days included — around pieces that already carry the visuals.
-       Only ghost-rendered bars carry `wx-split`, so ordinary bars are
-       untouched and keep every border they had. */
-    border-color: transparent !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;
