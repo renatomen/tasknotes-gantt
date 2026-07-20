@@ -123,6 +123,15 @@ describe('Codex-found data-loss cases', () => {
     expect(next).toContain('color: "#000000"');
   });
 
+  it('escapes an embedded newline so a multiline description keeps its breaks', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { description: 'First line\nSecond line' });
+    // Escaped inside the double-quoted scalar and kept on one physical line: a
+    // *literal* newline there folds to a space in YAML, silently losing the break.
+    expect(next).toContain('description: "First line\\nSecond line"');
+    expect(next).not.toContain('description: "First line\nSecond line"');
+  });
+
   it('keeps a comment that trails the whole frontmatter with the block after it', () => {
     // A comment that belongs to the NEXT key must not be swallowed by the key
     // before it.

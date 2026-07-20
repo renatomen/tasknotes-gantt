@@ -157,7 +157,17 @@ function quoteScalar(value: string | number | boolean): string {
     /[:#"'\n,]/.test(value) ||
     /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
     /\s$/.test(value);
-  return needsQuote ? `"${value.replace(/"/g, '\\"')}"` : value;
+  if (!needsQuote) return value;
+  // Escape for a YAML double-quoted scalar. Backslash first, so the escapes we
+  // add below are not themselves re-escaped. A literal newline inside the quotes
+  // would fold to a space on reload; `\n` (and friends) preserve the break.
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+  return `"${escaped}"`;
 }
 
 /** Avoid a doubled blank line when appending after a trailing empty line. */
