@@ -111,17 +111,40 @@ describe("Gantt (OG) calendar markers", () => {
     const marker = await $('.og-bases-gantt .og-marker[data-og-marker="Release Cutoff"]');
     await expect(marker).toExist();
 
-    const color = await browser.execute(() => {
-      const el = document.querySelector<HTMLElement>(
+    // The line and its label chip share one colour, SVAR-style: the chip
+    // inherits the line's background. The fixture calendar's colour is #2a9d8f.
+    const colors = await browser.execute(() => {
+      const line = document.querySelector<HTMLElement>(
         '.og-bases-gantt .og-marker[data-og-marker="Release Cutoff"]'
       );
-      return el ? window.getComputedStyle(el).borderLeftColor : null;
+      const chip = line?.querySelector<HTMLElement>(".og-marker-label");
+      return {
+        line: line ? window.getComputedStyle(line).backgroundColor : null,
+        chip: chip ? window.getComputedStyle(chip).backgroundColor : null,
+      };
     });
-    // The fixture calendar's colour is #2a9d8f.
-    expect(color).toBe("rgb(42, 157, 143)");
+    expect(colors.line).toBe("rgb(42, 157, 143)");
+    expect(colors.chip).toBe("rgb(42, 157, 143)");
 
     const label = await marker.$(".og-marker-label");
     expect(await label.getText()).toBe("Release Cutoff");
+  });
+
+  it("centres the label chip on its marker line", async () => {
+    const offset = await browser.execute(() => {
+      const line = document.querySelector(
+        '.og-bases-gantt .og-marker[data-og-marker="Release Cutoff"]'
+      );
+      const chip = line?.querySelector(".og-marker-label");
+      if (!line || !chip) return null;
+      const lineBox = line.getBoundingClientRect();
+      const chipBox = chip.getBoundingClientRect();
+      return Math.abs(
+        (chipBox.left + chipBox.width / 2) - (lineBox.left + lineBox.width / 2)
+      );
+    });
+    expect(offset).not.toBeNull();
+    expect(offset as number).toBeLessThan(1.5);
   });
 
   it("does not shade the marker's own column (markers are lines, not blocked time)", async () => {
