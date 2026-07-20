@@ -159,41 +159,57 @@
     </div>
   {/if}
 
-  {#if form.kind === 'calendar'}
-    <div class="og-cal-tabs" role="tablist">
+  <!-- Sticky header: tabs (calendars only) plus an always-visible Save and an
+       unsaved-changes cue, so both stay reachable however far the form scrolls. -->
+  <div class="og-cal-header">
+    {#if form.kind === 'calendar'}
+      <div class="og-cal-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          class="og-cal-tab"
+          class:og-cal-tab-active={activeTab === 'edit'}
+          aria-selected={activeTab === 'edit'}
+          onclick={() => (activeTab = 'edit')}
+        >Edit</button>
+        <button
+          type="button"
+          role="tab"
+          class="og-cal-tab"
+          class:og-cal-tab-active={activeTab === 'week'}
+          aria-selected={activeTab === 'week'}
+          onclick={() => (activeTab = 'week')}
+        >Week</button>
+        <button
+          type="button"
+          role="tab"
+          class="og-cal-tab"
+          class:og-cal-tab-active={activeTab === 'strip'}
+          aria-selected={activeTab === 'strip'}
+          onclick={() => (activeTab = 'strip')}
+        >Gantt strip</button>
+        <button
+          type="button"
+          role="tab"
+          class="og-cal-tab"
+          class:og-cal-tab-active={activeTab === 'year'}
+          aria-selected={activeTab === 'year'}
+          onclick={() => (activeTab = 'year')}
+        >Year</button>
+      </div>
+    {/if}
+    <div class="og-cal-header-actions">
+      {#if dirty}<span class="og-cal-unsaved">Unsaved changes</span>{/if}
       <button
         type="button"
-        role="tab"
-        class="og-cal-tab"
-        class:og-cal-tab-active={activeTab === 'edit'}
-        aria-selected={activeTab === 'edit'}
-        onclick={() => (activeTab = 'edit')}
-      >Edit</button>
-      <button
-        type="button"
-        role="tab"
-        class="og-cal-tab"
-        class:og-cal-tab-active={activeTab === 'week'}
-        aria-selected={activeTab === 'week'}
-        onclick={() => (activeTab = 'week')}
-      >Week</button>
-      <button
-        type="button"
-        role="tab"
-        class="og-cal-tab"
-        class:og-cal-tab-active={activeTab === 'strip'}
-        aria-selected={activeTab === 'strip'}
-        onclick={() => (activeTab = 'strip')}
-      >Gantt strip</button>
-      <button
-        type="button"
-        role="tab"
-        class="og-cal-tab"
-        class:og-cal-tab-active={activeTab === 'year'}
-        aria-selected={activeTab === 'year'}
-        onclick={() => (activeTab = 'year')}
-      >Year</button>
+        class="mod-cta"
+        disabled={!dirty || hasErrors || saving}
+        onclick={save}
+      >{saving ? 'Saving…' : 'Save'}</button>
     </div>
+  </div>
+  {#if hasErrors}
+    <span class="og-cal-error og-cal-header-error">Fix the flagged fields before saving.</span>
   {/if}
 
   {#if form.kind === 'calendar' && activeTab === 'week'}
@@ -361,13 +377,6 @@
       </fieldset>
     </section>
   {/if}
-
-  <div class="og-cal-actions">
-    <button type="button" class="mod-cta" disabled={!dirty || hasErrors || saving} onclick={save}>
-      {saving ? 'Saving…' : 'Save'}
-    </button>
-    {#if hasErrors}<span class="og-cal-error">Fix the flagged fields before saving.</span>{/if}
-  </div>
   {/if}
 </div>
 
@@ -384,14 +393,49 @@
     gap: 1.75rem;
     max-width: 44rem;
     margin: 0 auto;
-    padding: 0.5rem 0 2rem;
+    padding: 0 0 2rem;
   }
 
-  /* Tab strip separating the editable form from the read-only preview(s). */
+  /* Sticky header: pinned to the top of the scrolling editor so the tabs, Save
+     and the unsaved cue stay reachable however far the form scrolls. */
+  .og-cal-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+    padding: 0.5rem 0;
+    background: var(--background-primary);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+  .og-cal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  /* Warning-style cue (theme colour, no icon) that edits are pending. */
+  .og-cal-unsaved {
+    padding: 0.15rem 0.5rem;
+    font-size: var(--font-ui-smaller, 0.75rem);
+    font-weight: 500;
+    color: var(--text-warning, var(--color-orange, #d98a00));
+    background: color-mix(
+      in srgb,
+      var(--text-warning, var(--color-orange, #d98a00)) 15%,
+      transparent
+    );
+    border-radius: var(--radius-s, 4px);
+  }
+  .og-cal-header-error {
+    margin-top: -1.25rem;
+  }
+
   .og-cal-tabs {
     display: flex;
     gap: 0.25rem;
-    border-bottom: 1px solid var(--background-modifier-border);
   }
   .og-cal-tab {
     padding: 0.4rem 0.9rem;
@@ -590,17 +634,6 @@
   .og-cal-notice-btn {
     padding: 0.25rem 0.6rem;
     cursor: pointer;
-  }
-
-  /* Save closes the form after the exceptions, set off by a divider — not a
-     sticky footer, which would permanently cover a row of the fields above. */
-  .og-cal-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-top: 0.5rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--background-modifier-border);
   }
 
   @media (max-width: 30rem) {
