@@ -21,7 +21,7 @@ export type FrontmatterValue =
   | number
   | boolean
   | undefined
-  | ReadonlyArray<string | Record<string, unknown>>;
+  | ReadonlyArray<unknown>;
 
 /**
  * Return `original` with each entry of `changes` applied to its frontmatter
