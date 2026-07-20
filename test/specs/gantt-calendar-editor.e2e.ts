@@ -238,6 +238,58 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("# hand comment");
   });
 
+  it("warns and offers reload when the note changes on disk under an unsaved edit", async () => {
+    // An external write (sync, a hand edit, another editor) can land while the
+    // form holds unsaved edits. Saving then would apply the change set to the
+    // new disk contents and silently clobber the external write, so the editor
+    // must surface a reload-or-keep choice instead.
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Half-typed local edit");
+
+    // Simulate an external write to the same note WITHOUT going through the form.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      const body = await app.vault.read(file as never);
+      await app.vault.modify(file as never, `${body as string}\nExternal edit line.\n`);
+    });
+
+    const notice = await $(".og-cal-notice");
+    await notice.waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: "no reload-or-keep notice appeared after an external change under a dirty edit",
+    });
+
+    // Reload discards the in-progress edit and picks up the disk state.
+    await (await $(".og-cal-notice-btn")).click();
+    await browser.waitUntil(
+      async () => (await (await $(".og-cal-form textarea")).getValue()) !== "Half-typed local edit",
+      { timeout: 20000, timeoutMsg: "the form did not reload from disk after discarding edits" },
+    );
+    expect(await (await $(".og-cal-notice")).isDisplayed()).toBe(false);
+  });
+
+  it("does not nag when the note changes on disk and the form is clean", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form textarea")).waitForExist({ timeout: 20000 });
+
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      const body = await app.vault.read(file as never);
+      await app.vault.modify(file as never, `${body as string}\nAnother external line.\n`);
+    });
+
+    // A clean form stays in step on the next open; it must not interrupt.
+    await browser.pause(1000);
+    expect(await (await $(".og-cal-notice")).isDisplayed()).toBe(false);
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {

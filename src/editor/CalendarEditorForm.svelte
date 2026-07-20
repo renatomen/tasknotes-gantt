@@ -24,17 +24,26 @@
     onSave: (changes: Record<string, FrontmatterValue>) => Promise<void>;
     /** Attach the vault `[[` suggester to a member input once it mounts. */
     attachMemberSuggest?: (input: HTMLInputElement, index: number) => void;
-    /** External change while the form is dirty — the host asks reload-or-keep. */
-    externalNotice?: boolean;
+    /** Discard the in-progress edits and reload from disk. */
     onReload?: () => void;
   }
 
-  const { initial, onSave, attachMemberSuggest, externalNotice = false, onReload }: Props =
-    $props();
+  const { initial, onSave, attachMemberSuggest, onReload }: Props = $props();
 
   let form = $state<EditorFormState>($state.snapshot(initial));
   let baseline = $state<EditorFormState>($state.snapshot(initial));
   let saving = $state(false);
+
+  // The note changed on disk while the editor was open. The host (view) detects
+  // this and calls in; the banner only surfaces when there are unsaved edits to
+  // lose, so a clean form stays in step with disk without interrupting.
+  let externalChanged = $state(false);
+  export function markExternalChange(): void {
+    externalChanged = true;
+  }
+  export function clearExternalChange(): void {
+    externalChanged = false;
+  }
 
   const errors = $derived(fieldErrors(form));
   const dirty = $derived(isDirty(baseline, form));
@@ -56,6 +65,8 @@
     try {
       await onSave(changedFrontmatter(baseline, snapshot));
       baseline = snapshot;
+      // Saving resolves the divergence — our write is now the disk truth.
+      externalChanged = false;
     } finally {
       saving = false;
     }
@@ -74,7 +85,7 @@
 </script>
 
 <div class="og-cal-form">
-  {#if externalNotice}
+  {#if externalChanged && dirty}
     <div class="og-cal-notice" role="alert">
       <span>This note changed on disk while you were editing.</span>
       <button type="button" class="og-cal-notice-btn" onclick={reload}>

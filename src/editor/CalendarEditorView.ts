@@ -30,9 +30,16 @@ import { editFrontmatterKeys, type FrontmatterValue } from './frontmatterEdit';
 import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
 import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
 
+/** The imperative surface the form exports to its host (see the .svelte file). */
+interface FormHandle {
+  markExternalChange?: () => void;
+}
+
 export class CalendarEditorView extends ItemView {
   private filePath: string | null = null;
-  private form: ReturnType<typeof mount> | null = null;
+  private form: (ReturnType<typeof mount> & FormHandle) | null = null;
+  /** Raw text the mounted form reflects — the baseline for external-write detection. */
+  private lastContent: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -81,10 +88,17 @@ export class CalendarEditorView extends ItemView {
     // external sync — and Obsidian does not re-invoke setState for that, so
     // healing has to watch the metadata cache rather than a lifecycle hook.
     this.registerEvent(
-      this.app.metadataCache.on('changed', (file) => {
+      this.app.metadataCache.on('changed', (file, data) => {
         if (file.path !== this.filePath) return;
         if (shouldHealToMarkdown(this.filePath, this.hasMarker(file.path))) {
           void this.openAsMarkdown();
+          return;
+        }
+        // A write we did not make, while the editor is open. The form surfaces a
+        // reload-or-keep banner only when it holds unsaved edits; a clean form
+        // just picks up the disk state on its next open.
+        if (this.lastContent !== null && data !== this.lastContent) {
+          this.form?.markExternalChange?.();
         }
       }),
     );
@@ -162,6 +176,7 @@ export class CalendarEditorView extends ItemView {
       props: {
         initial: formFromFrontmatter(frontmatter),
         onSave: (changes: Record<string, FrontmatterValue>) => this.persist(savePath, changes),
+        onReload: () => this.render(),
         attachMemberSuggest: (input: HTMLInputElement) => {
           // Fire-and-forget: the suggester attaches to the input and is GC'd
           // with it (matches the cell-editor callers).
@@ -172,7 +187,20 @@ export class CalendarEditorView extends ItemView {
           );
         },
       },
-    });
+    }) as ReturnType<typeof mount> & FormHandle;
+
+    // Seed the external-write baseline from the current disk text. Until it
+    // resolves, the metadata listener holds off (lastContent stays null), so a
+    // freshly opened note never mistakes its own initial parse for an edit.
+    this.lastContent = null;
+    this.app.vault
+      .read(file)
+      .then((text) => {
+        this.lastContent = text;
+      })
+      .catch(() => {
+        /* unreadable — leave detection disarmed rather than false-flag */
+      });
   }
 
   /** Write the form's change set through the comment-preserving editor. */
@@ -185,7 +213,10 @@ export class CalendarEditorView extends ItemView {
     if (!(file instanceof TFile)) return;
     try {
       const original = await this.app.vault.read(file);
-      await this.app.vault.modify(file, editFrontmatterKeys(original, changes));
+      const updated = editFrontmatterKeys(original, changes);
+      await this.app.vault.modify(file, updated);
+      // Our own write is now the disk truth; keep it out of external detection.
+      this.lastContent = updated;
     } catch (error) {
       console.error('[Gantt] Failed to save the calendar note:', error);
       new Notice("Couldn't save the calendar note — see console for details.");
