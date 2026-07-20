@@ -77,6 +77,39 @@ function readFilePath(state: ViewStateLike): string | null {
   return typeof file === 'string' && file !== '' ? file : null;
 }
 
+/**
+ * Whether a leaf's root places it in the primary workspace. Hover popovers and
+ * canvas cards sit outside both splits and must keep rendering markdown.
+ *
+ * Fails CLOSED: an unplaceable leaf (a shim, a future internal) is treated as
+ * non-primary, because markdown — not the editor — is the required floor.
+ */
+export function isPrimaryRoot(
+  root: unknown,
+  rootSplit: unknown,
+  floatingSplit: unknown,
+): boolean {
+  if (root === undefined || root === null) return false;
+  return root === rootSplit || root === floatingSplit;
+}
+
+/** The tab title for a note path: its basename without the extension. */
+export function displayNameFor(path: string | null): string {
+  if (path === null || path === '') return 'Calendar';
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  return name.endsWith('.md') ? name.slice(0, -3) : name;
+}
+
+/**
+ * Whether an open editor must fall back to markdown. The marker can disappear
+ * under an open view — a hand edit, or an external sync — and Obsidian does not
+ * re-invoke `setState` for that, so the decision is made against the metadata
+ * cache rather than a view lifecycle hook.
+ */
+export function shouldHealToMarkdown(filePath: string | null, hasMarker: boolean): boolean {
+  return filePath !== null && !hasMarker;
+}
+
 let suspensions = 0;
 
 /**

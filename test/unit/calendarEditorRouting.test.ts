@@ -2,6 +2,9 @@ import { describe, expect, it } from '@jest/globals';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
   createReentrancyGuard,
+  displayNameFor,
+  isPrimaryRoot,
+  shouldHealToMarkdown,
   routeViewState,
   type RouteContext,
 } from '../../src/editor/calendarEditorRouting';
@@ -113,5 +116,53 @@ describe('self-healing floor', () => {
       { heal: true },
     );
     expect(healed).toBeNull();
+  });
+});
+
+describe('isPrimaryRoot', () => {
+  const rootSplit = { id: 'root' };
+  const floatingSplit = { id: 'floating' };
+
+  it('accepts the main workspace and a detached window', () => {
+    expect(isPrimaryRoot(rootSplit, rootSplit, floatingSplit)).toBe(true);
+    expect(isPrimaryRoot(floatingSplit, rootSplit, floatingSplit)).toBe(true);
+  });
+
+  it('rejects a popover root — hover previews stay markdown', () => {
+    expect(isPrimaryRoot({ id: 'popover' }, rootSplit, floatingSplit)).toBe(false);
+  });
+
+  it('fails CLOSED for an unplaceable leaf, because markdown is the floor', () => {
+    expect(isPrimaryRoot(undefined, rootSplit, floatingSplit)).toBe(false);
+    expect(isPrimaryRoot(null, rootSplit, floatingSplit)).toBe(false);
+  });
+});
+
+describe('displayNameFor', () => {
+  it('uses the basename without the extension', () => {
+    expect(displayNameFor('Calendars/NZ Holidays.md')).toBe('NZ Holidays');
+    expect(displayNameFor('Top.md')).toBe('Top');
+    expect(displayNameFor('Folder/No Extension')).toBe('No Extension');
+  });
+
+  it('falls back when there is no file yet', () => {
+    expect(displayNameFor(null)).toBe('Calendar');
+    expect(displayNameFor('')).toBe('Calendar');
+  });
+});
+
+describe('shouldHealToMarkdown', () => {
+  it('heals an open editor whose note lost its marker', () => {
+    // The marker can vanish under an open view (hand edit, external sync) and
+    // Obsidian does not re-invoke setState for that.
+    expect(shouldHealToMarkdown('Calendars/NZ.md', false)).toBe(true);
+  });
+
+  it('leaves a still-marked note alone', () => {
+    expect(shouldHealToMarkdown('Calendars/NZ.md', true)).toBe(false);
+  });
+
+  it('does nothing without a file', () => {
+    expect(shouldHealToMarkdown(null, false)).toBe(false);
   });
 });

@@ -109,6 +109,32 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(await activeViewType()).toBe("markdown");
   });
 
+  it("heals WHILE OPEN when the marker is removed under it", async () => {
+    // Obsidian does not re-invoke setState when a note's frontmatter changes,
+    // so healing has to watch the metadata cache. Without that the editor
+    // stays open on a note that is no longer a calendar.
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "editor never opened",
+    });
+
+    // Edit the marker away WITHOUT reopening the note.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      const body = await app.vault.read(file as never);
+      await app.vault.modify(file as never, (body as string).replace("tngantt: calendar", "tngantt: none"));
+    });
+
+    await browser.waitUntil(async () => (await activeViewType()) === "markdown", {
+      timeout: 20000,
+      timeoutMsg: "the open editor did not heal when its marker was removed",
+    });
+    expect(await activeViewType()).toBe("markdown");
+  });
+
   it("'Open as markdown' escapes the editor even though the marker is still there", async () => {
     // The regression this exists for: the interceptor re-routed the escape
     // hatch straight back to the editor, so it silently did nothing.

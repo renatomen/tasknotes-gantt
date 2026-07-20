@@ -16,7 +16,12 @@
  */
 import { ItemView, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
-import { CALENDAR_EDITOR_VIEW_TYPE, suspendRouting } from './calendarEditorRouting';
+import {
+  CALENDAR_EDITOR_VIEW_TYPE,
+  displayNameFor,
+  shouldHealToMarkdown,
+  suspendRouting,
+} from './calendarEditorRouting';
 
 export class CalendarEditorView extends ItemView {
   private filePath: string | null = null;
@@ -30,7 +35,7 @@ export class CalendarEditorView extends ItemView {
   }
 
   getDisplayText(): string {
-    return this.filePath ? basename(this.filePath) : 'Calendar';
+    return displayNameFor(this.filePath);
   }
 
   getIcon(): string {
@@ -42,7 +47,7 @@ export class CalendarEditorView extends ItemView {
     this.filePath = typeof file === 'string' ? file : null;
     await super.setState(state, result);
     // Heal before rendering, so a markerless note never flashes the editor.
-    if (this.filePath !== null && !this.hasMarker(this.filePath)) {
+    if (shouldHealToMarkdown(this.filePath, this.filePath !== null && this.hasMarker(this.filePath))) {
       await this.openAsMarkdown();
       return;
     }
@@ -60,6 +65,17 @@ export class CalendarEditorView extends ItemView {
         if (oldPath !== this.filePath) return;
         this.filePath = file.path;
         this.render();
+      }),
+    );
+    // The marker can disappear UNDER an open editor — a hand edit or an
+    // external sync — and Obsidian does not re-invoke setState for that, so
+    // healing has to watch the metadata cache rather than a lifecycle hook.
+    this.registerEvent(
+      this.app.metadataCache.on('changed', (file) => {
+        if (file.path !== this.filePath) return;
+        if (shouldHealToMarkdown(this.filePath, this.hasMarker(file.path))) {
+          void this.openAsMarkdown();
+        }
       }),
     );
     this.render();
@@ -115,7 +131,3 @@ interface MenuItemLike {
   onClick(handler: () => void): MenuItemLike;
 }
 
-function basename(path: string): string {
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  return name.endsWith('.md') ? name.slice(0, -3) : name;
-}

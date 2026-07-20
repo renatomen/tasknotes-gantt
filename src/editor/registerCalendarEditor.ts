@@ -18,6 +18,7 @@ import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
   createReentrancyGuard,
+  isPrimaryRoot,
   isRoutingSuspended,
   routeViewState,
   type ViewStateLike,
@@ -78,13 +79,8 @@ export function registerCalendarEditor(plugin: Plugin): () => void {
  */
 function isPrimaryLeaf(app: App, leaf: WorkspaceLeaf): boolean {
   const root = (leaf as unknown as { getRoot?: () => unknown }).getRoot?.();
-  // Fail CLOSED: a leaf-like object we cannot place (a canvas shim, a future
-  // internal) renders markdown. The floor is the safe answer, never the editor.
-  if (root === undefined) return false;
   const workspace = app.workspace as unknown as { rootSplit?: unknown; floatingSplit?: unknown };
-  // A popover's root is neither split; a detached window's floatingSplit still
-  // hosts real leaves, so it counts as primary.
-  return root === workspace.rootSplit || root === workspace.floatingSplit;
+  return isPrimaryRoot(root, workspace.rootSplit, workspace.floatingSplit);
 }
 
 function markerFor(app: App, path: string): string | null {
