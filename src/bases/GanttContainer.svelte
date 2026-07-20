@@ -2679,7 +2679,7 @@
           title={entry.title}
           data-og-marker={entry.isToday ? 'today' : entry.label}
         >
-          <span class="og-marker-label" style="top:{entry.stackIndex * 18}px">{entry.label}</span>
+          <span class="og-marker-label" style="top:{entry.stackIndex * 26}px">{entry.label}</span>
         </div>
       {/each}
     </div>
@@ -3561,44 +3561,51 @@
   /* Marker overlay: absolutely positioned inside SVAR's chart content area
      (reparented there on mount), so lines track content scroll and full width.
      Non-interactive — it must never intercept a bar drag or a cell click. */
+  /* Matches SVAR's own marker treatment (2px filled line, chip inheriting the
+     line's colour, marker font/colour from its theme variables) so the
+     hand-rolled overlay is indistinguishable from the library's. The one
+     deliberate difference: SVAR extends its chip leftward from the line via a
+     double scaleX(-1); ours centres on the line instead. */
   .og-marker-overlay {
     position: absolute;
     inset: 0;
     pointer-events: none;
     overflow: hidden;
-    z-index: 2;
+    /* SVAR draws its own markers at 4 — above the bars. */
+    z-index: 4;
   }
 
   .og-marker {
     position: absolute;
     top: 0;
-    bottom: 0;
-    width: 0;
-    border-left: 1px dashed var(--og-marker-color, var(--text-accent));
+    height: 100%;
+    width: 2px;
+    user-select: none;
+    background: var(--og-marker-color, var(--wx-gantt-marker-color));
   }
 
+  /* The generated today line rides above authored markers when they collide. */
   .og-marker-today {
-    border-left-style: solid;
-    border-left-width: 2px;
+    z-index: 1;
   }
 
   .og-marker-label {
     position: absolute;
-    left: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font: var(--wx-gantt-marker-font);
+    color: var(--wx-gantt-marker-font-color, #fff);
+    /* Inherited from the line, so chip and line always share one colour. */
+    background-color: inherit;
+    white-space: nowrap;
     /* The layer is inert so it can never swallow a bar drag, but the label
        itself must be hoverable — its title is the only place a collapsed
        group's members are listed. */
     pointer-events: auto;
-    white-space: nowrap;
-    font-size: 10px;
-    line-height: 14px;
-    padding: 0 4px;
-    border-radius: 3px;
-    color: var(--og-marker-color, var(--text-accent));
-    background: var(--background-primary);
-    border: 1px solid var(--og-marker-color, var(--text-accent));
     /* Tooltips carry the full text, so a label may be clipped, never wrapped. */
-    max-width: 160px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
