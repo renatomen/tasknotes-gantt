@@ -39,13 +39,18 @@ export class TimezoneInputSuggest extends AbstractInputSuggest<string> {
   }
 }
 
-/** The runtime's IANA zones, or an empty list where `supportedValuesOf` is absent. */
+/**
+ * The runtime's IANA zones, with `UTC` guaranteed present — `supportedValuesOf`
+ * omits it in some runtimes, yet it is the one zone users most expect to pick.
+ */
 function supportedTimezones(): string[] {
+  let zones: string[] = [];
   try {
     const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
       .supportedValuesOf;
-    return typeof supported === 'function' ? supported('timeZone') : [];
+    if (typeof supported === 'function') zones = supported('timeZone');
   } catch {
-    return [];
+    zones = [];
   }
+  return zones.includes('UTC') ? zones : ['UTC', ...zones];
 }

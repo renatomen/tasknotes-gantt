@@ -10,15 +10,21 @@ import { registerCalendarEditor } from '../../src/editor/registerCalendarEditor'
 import { CALENDAR_EDITOR_VIEW_TYPE, suspendRouting } from '../../src/editor/calendarEditorRouting';
 
 /** A fake plugin/app exposing exactly what the register module reads. */
+type MenuHandler = (menu: unknown, file: unknown, source: string, leaf: unknown) => void;
+
 function makePlugin(markedPaths: string[]) {
   const rootSplit = { id: 'root' };
   const registerView = jest.fn();
+  let fileMenuHandler: MenuHandler | null = null;
   const app = {
     workspace: {
       rootSplit,
       floatingSplit: { id: 'floating' },
       getLeavesOfType: () => [] as unknown[],
-      on: jest.fn(() => ({}) as unknown),
+      on: (event: string, handler: MenuHandler) => {
+        if (event === 'file-menu') fileMenuHandler = handler;
+        return {};
+      },
       offref: jest.fn(),
     },
     vault: {
@@ -34,7 +40,43 @@ function makePlugin(markedPaths: string[]) {
         markedPaths.includes(file.path) ? { frontmatter: { tngantt: 'calendar' } } : null,
     },
   };
-  return { plugin: { app, registerView } as never, rootSplit, registerView };
+  return {
+    plugin: { app, registerView } as never,
+    rootSplit,
+    registerView,
+    getFileMenuHandler: () => fileMenuHandler,
+  };
+}
+
+/** A fake pane menu that records the items a handler adds, with their onClick. */
+function recordingMenu() {
+  const items: { title: string; click: () => void }[] = [];
+  const menu = {
+    addItem(cb: (item: unknown) => void) {
+      let title = '';
+      const item = {
+        setTitle(t: string) {
+          title = t;
+          return item;
+        },
+        setIcon() {
+          return item;
+        },
+        onClick(fn: () => void) {
+          items.push({ title, click: fn });
+          return item;
+        },
+      };
+      cb(item);
+    },
+  };
+  return { menu, items };
+}
+
+/** A leaf whose view reports the given type; setViewState is spied. */
+function fakeLeaf(viewType: string) {
+  const setViewState = jest.fn();
+  return { leaf: { view: { getViewType: () => viewType }, setViewState }, setViewState };
 }
 
 /** A leaf whose getRoot() places it in the primary workspace. */
@@ -50,6 +92,51 @@ describe('registerCalendarEditor', () => {
     const { plugin, registerView } = makePlugin([]);
     const teardown = registerCalendarEditor(plugin);
     expect(registerView).toHaveBeenCalledWith(CALENDAR_EDITOR_VIEW_TYPE, expect.any(Function));
+    teardown();
+  });
+
+  it("offers 'View as calendar' on a markdown leaf showing a marked note", () => {
+    const { plugin, getFileMenuHandler } = makePlugin(['Calendars/NZ.md']);
+    const teardown = registerCalendarEditor(plugin);
+    const handler = getFileMenuHandler();
+    expect(handler).not.toBeNull();
+
+    const file = new TFile();
+    file.path = 'Calendars/NZ.md';
+    const { leaf, setViewState } = fakeLeaf('markdown');
+    const { menu, items } = recordingMenu();
+    handler!(menu, file, 'more-options', leaf);
+
+    const entry = items.find((i) => i.title === 'View as calendar');
+    expect(entry).toBeDefined();
+    entry!.click();
+    expect(setViewState).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'markdown', state: expect.objectContaining({ file: 'Calendars/NZ.md' }) }),
+    );
+    teardown();
+  });
+
+  it("does not offer 'View as calendar' when the leaf is not markdown", () => {
+    const { plugin, getFileMenuHandler } = makePlugin(['Calendars/NZ.md']);
+    const teardown = registerCalendarEditor(plugin);
+    const file = new TFile();
+    file.path = 'Calendars/NZ.md';
+    const { leaf } = fakeLeaf(CALENDAR_EDITOR_VIEW_TYPE);
+    const { menu, items } = recordingMenu();
+    getFileMenuHandler()!(menu, file, 'more-options', leaf);
+    expect(items).toHaveLength(0);
+    teardown();
+  });
+
+  it("does not offer 'View as calendar' for an unmarked note", () => {
+    const { plugin, getFileMenuHandler } = makePlugin([]); // nothing marked
+    const teardown = registerCalendarEditor(plugin);
+    const file = new TFile();
+    file.path = 'Notes/Plain.md';
+    const { leaf } = fakeLeaf('markdown');
+    const { menu, items } = recordingMenu();
+    getFileMenuHandler()!(menu, file, 'more-options', leaf);
+    expect(items).toHaveLength(0);
     teardown();
   });
 
