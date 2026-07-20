@@ -74,3 +74,4 @@ test/probe/__screenshots__/
 
 # MkDocs build output (docs site is built in CI and deployed to Pages)
 website/site/
+docs/media/_shots/

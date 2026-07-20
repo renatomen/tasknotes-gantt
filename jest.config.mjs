@@ -36,6 +36,9 @@ const config = {
     // Units that extend an Obsidian class at runtime (e.g. FocusTaskModal) map to
     // a minimal mock; type-only imports elsewhere are erased and never hit this.
     "^obsidian$": "<rootDir>/test/__mocks__/obsidian.ts",
+    // *.svelte imports are stubbed in unit tests; components are e2e-tested.
+    "\\.svelte$": "<rootDir>/test/__mocks__/svelteComponent.js",
+    "^svelte$": "<rootDir>/test/__mocks__/svelteRuntime.js",
   },
   // Coverage (enabled via `--coverage`, i.e. `npm run test:coverage`).
   // V8 provider: the @swc/jest transform replaces Babel, so Babel-based

@@ -14,6 +14,7 @@
  */
 
 import { isSafeColor } from '../bases/barTreatment';
+import { toIsoDate } from '../controller/calendar/schema';
 import type { FrontmatterValue } from './frontmatterEdit';
 
 export interface DatedEntry {
@@ -57,7 +58,9 @@ export function formFromFrontmatter(frontmatter: Record<string, unknown>): Edito
     description: readString(frontmatter.description),
     color: readString(frontmatter.color),
     pattern: readString(frontmatter.pattern),
-    patternStart: readString(frontmatter.pattern_start),
+    // Obsidian parses an unquoted anchor date as a Date; normalize it the same
+    // way the schema does so the anchor field is populated, not empty.
+    patternStart: toIsoDate(frontmatter.pattern_start) ?? '',
     timezone: readString(frontmatter.timezone),
     workingHours: readStringList(frontmatter.working_hours),
     nonWorking: readDatedList(frontmatter.non_working),
@@ -103,7 +106,11 @@ export interface FieldErrors {
   patternStart?: string;
   timezone?: string;
   workingHours?: string;
+  dates?: string;
+  members?: string;
 }
+
+const WIKILINK = /^\[\[.+\]\]$/;
 
 /** Inline validation, wording mirroring the schema's fail-visible messages (R26). */
 export function fieldErrors(form: EditorFormState): FieldErrors {
@@ -122,6 +129,16 @@ export function fieldErrors(form: EditorFormState): FieldErrors {
   }
   if (form.workingHours.some((range) => !isValidHoursRange(range))) {
     errors.workingHours = 'Expected HH:MM-HH:MM with start before end';
+  }
+  // An editable dated entry with no date serializes `date: ""`, which the
+  // schema drops — so it must not be savable.
+  const missingDate = (entry: DatedEntry): boolean =>
+    entry.raw === undefined && entry.date.trim() === '';
+  if (form.nonWorking.some(missingDate) || form.events.some(missingDate)) {
+    errors.dates = 'Every entry needs a date';
+  }
+  if (form.kind === 'calendar-set' && form.members.some((member) => !WIKILINK.test(member.trim()))) {
+    errors.members = 'Every member must be a [[wikilink]] to a calendar note';
   }
   return errors;
 }
@@ -155,20 +172,26 @@ function readStringList(value: unknown): string[] {
 function readDatedList(value: unknown): DatedEntry[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => {
-    if (typeof item === 'string') return { date: item, name: '' };
+    // A bare date, as a string or a Date (Obsidian parses an unquoted ISO date
+    // as a Date). Normalize the same way the schema does, so a valid entry stays
+    // editable and reserializes as ISO rather than a String(Date) dump.
+    const bare = toIsoDate(item);
+    if (bare !== undefined) return { date: bare, name: '' };
+    // A malformed item — null (a hand-authored empty `- `), a non-object —
+    // round-trips verbatim rather than crashing the form on a missing `.date`.
+    if (item === null || typeof item !== 'object') return { date: '', name: '', raw: item };
     const record = item as { date?: unknown; name?: unknown; marker?: unknown };
+    const date = toIsoDate(record.date);
     // Only a simple single-date entry is editable in the form; anything else
     // (a {start, end} range, an rrule) round-trips verbatim so it is not lost.
     const isSimple =
-      item !== null &&
-      typeof item === 'object' &&
-      typeof record.date === 'string' &&
+      date !== undefined &&
       !('start' in record) &&
       !('pattern' in record) &&
       !('rrule' in record);
     if (!isSimple) return { date: '', name: '', raw: item };
     const entry: DatedEntry = {
-      date: record.date as string,
+      date,
       name: typeof record.name === 'string' ? record.name : '',
     };
     if (record.marker === true) entry.marker = true;

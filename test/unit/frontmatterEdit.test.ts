@@ -55,7 +55,7 @@ describe('editFrontmatterKeys — targeted, comment-preserving key edits', () =>
     const next = editFrontmatterKeys(original, {
       non_working: [{ date: '2026-12-25', name: 'Christmas' }],
     });
-    expect(next).toContain('  - date: 2026-12-25');
+    expect(next).toContain('  - date: "2026-12-25"');
     expect(next).not.toContain('2026-01-01');
     expect(next).not.toContain('2026-02-06');
     // The key AFTER the list is preserved intact.
@@ -119,8 +119,74 @@ describe('Codex-found data-loss cases', () => {
     expect(next).not.toContain('2026-01-01');
     expect(next).not.toContain('2026-02-06');
     expect(next).not.toContain('mid-list hand note');
-    expect(next).toContain('  - date: 2026-12-25');
+    expect(next).toContain('  - date: "2026-12-25"');
     expect(next).toContain('color: "#000000"');
+  });
+
+  it('escapes an embedded newline so a multiline description keeps its breaks', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { description: 'First line\nSecond line' });
+    // Escaped inside the double-quoted scalar and kept on one physical line: a
+    // *literal* newline there folds to a space in YAML, silently losing the break.
+    expect(next).toContain('description: "First line\\nSecond line"');
+    expect(next).not.toContain('description: "First line\nSecond line"');
+  });
+
+  it('edits CRLF frontmatter in place, preserving the newline convention', () => {
+    // A note saved with Windows line endings must not be mistaken for
+    // frontmatter-less and have a duplicate LF block prepended.
+    const original = '---\r\ntngantt: calendar\r\ndescription: Old\r\n---\r\n\r\nBody.\r\n';
+    const next = editFrontmatterKeys(original, { description: 'New' });
+    expect(next.startsWith('---\r\n')).toBe(true);
+    expect(next).toContain('description: New\r\n');
+    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+    // No second, LF-delimited fence prepended.
+    expect(next).not.toContain('---\n');
+  });
+
+  it('detects the newline from the opening fence, not a CRLF body line', () => {
+    // LF frontmatter, but a CRLF line pasted into the body must not make the
+    // editor treat the note as CRLF and prepend a duplicate block.
+    const original = '---\ntngantt: calendar\ndescription: Old\n---\n\nPasted\r\nline.\n';
+    const next = editFrontmatterKeys(original, { description: 'New' });
+    expect(next.startsWith('---\ntngantt: calendar')).toBe(true);
+    expect(next).toContain('description: New\n');
+    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+  });
+
+  it('quotes a string YAML would retype as bool/null/number/date so it stays a string', () => {
+    const original = doc('tngantt: calendar');
+    expect(editFrontmatterKeys(original, { description: 'true' })).toContain('description: "true"');
+    expect(editFrontmatterKeys(original, { description: 'null' })).toContain('description: "null"');
+    expect(editFrontmatterKeys(original, { description: '2026-04-10' })).toContain(
+      'description: "2026-04-10"',
+    );
+    expect(editFrontmatterKeys(original, { description: '42' })).toContain('description: "42"');
+  });
+
+  it('serializes a Date value as an ISO date, not a JS Date string', () => {
+    // Obsidian hands unquoted range dates back as Date objects; a raw {start,end}
+    // passthrough must reserialize them as ISO, or the schema rejects the range.
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      non_working: [
+        {
+          start: new Date(Date.UTC(2026, 11, 29)),
+          end: new Date(Date.UTC(2027, 0, 2)),
+          name: 'Shutdown',
+        },
+      ],
+    });
+    expect(next).toContain('start: "2026-12-29"');
+    expect(next).toContain('end: "2027-01-02"');
+    expect(next).not.toContain('GMT');
+  });
+
+  it('serializes a scalar or null list item without throwing', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { non_working: [null, { date: '2026-01-01' }] });
+    expect(next).toContain('  - null');
+    expect(next).toContain('  - date: "2026-01-01"');
   });
 
   it('keeps a comment that trails the whole frontmatter with the block after it', () => {

@@ -14,7 +14,9 @@
  *
  * @module editor/CalendarEditorView
  */
-import { ItemView, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+/* global HTMLInputElement */
+import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import { mount, unmount } from 'svelte';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
@@ -22,9 +24,24 @@ import {
   shouldHealToMarkdown,
   suspendRouting,
 } from './calendarEditorRouting';
+import CalendarEditorForm from './CalendarEditorForm.svelte';
+import { formFromFrontmatter } from './calendarEditorState';
+import { editFrontmatterKeys, type FrontmatterValue } from './frontmatterEdit';
+import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
+import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
+
+/** The imperative surface the form exports to its host (see the .svelte file). */
+interface FormHandle {
+  markExternalChange?: () => void;
+  hasUnsavedEdits?: () => boolean;
+}
 
 export class CalendarEditorView extends ItemView {
   private filePath: string | null = null;
+  private form: (ReturnType<typeof mount> & FormHandle) | null = null;
+  /** Raw text the mounted form reflects — the baseline for external-write detection. */
+  private lastContent: string | null = null;
+  private headingEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -44,7 +61,9 @@ export class CalendarEditorView extends ItemView {
 
   async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const file = (state as { file?: unknown } | null)?.file;
-    this.filePath = typeof file === 'string' ? file : null;
+    // Only a string file changes the target; an ephemeral setState (scroll,
+    // focus) carries no file and must NOT wipe the path the form saves against.
+    if (typeof file === 'string') this.filePath = file;
     await super.setState(state, result);
     // Heal before rendering, so a markerless note never flashes the editor.
     if (shouldHealToMarkdown(this.filePath, this.filePath !== null && this.hasMarker(this.filePath))) {
@@ -64,17 +83,36 @@ export class CalendarEditorView extends ItemView {
       this.app.vault.on('rename', (file, oldPath) => {
         if (oldPath !== this.filePath) return;
         this.filePath = file.path;
-        this.render();
+        // A rename changes only the path, not the content. Rebuilding the form
+        // would discard unsaved edits, so keep it mounted when dirty (the save
+        // already targets the live path) and just refresh the heading; a clean
+        // form can safely rebuild.
+        if (this.form?.hasUnsavedEdits?.()) {
+          this.headingEl?.setText(this.getDisplayText());
+        } else {
+          this.render();
+        }
       }),
     );
     // The marker can disappear UNDER an open editor — a hand edit or an
     // external sync — and Obsidian does not re-invoke setState for that, so
     // healing has to watch the metadata cache rather than a lifecycle hook.
     this.registerEvent(
-      this.app.metadataCache.on('changed', (file) => {
+      this.app.metadataCache.on('changed', (file, data) => {
         if (file.path !== this.filePath) return;
         if (shouldHealToMarkdown(this.filePath, this.hasMarker(file.path))) {
           void this.openAsMarkdown();
+          return;
+        }
+        // A write we did not make, while the editor is open. With unsaved edits,
+        // surface the reload-or-keep banner; with none, refresh silently so the
+        // controls never show — or save from — stale values (no focus steal).
+        if (this.lastContent !== null && data !== this.lastContent) {
+          if (this.form?.hasUnsavedEdits?.()) {
+            this.form.markExternalChange?.();
+          } else {
+            this.render(false);
+          }
         }
       }),
     );
@@ -114,14 +152,102 @@ export class CalendarEditorView extends ItemView {
     return matchesCalendarMarker(frontmatter) !== null;
   }
 
-  private render(): void {
+  async onClose(): Promise<void> {
+    this.destroyForm();
+  }
+
+  private destroyForm(): void {
+    if (this.form) {
+      try {
+        void unmount(this.form);
+      } catch {
+        /* already gone */
+      }
+      this.form = null;
+    }
+  }
+
+  private render(focusDescription = true): void {
+    this.destroyForm();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('og-calendar-editor');
-    contentEl.createEl('h2', { text: this.getDisplayText() });
-    contentEl.createEl('p', {
-      text: 'Calendar editor — the form arrives in the next unit. Use the pane menu to open this note as markdown.',
-    });
+    if (this.filePath === null) {
+      this.headingEl = null;
+      contentEl.createEl('p', { text: 'No calendar note open.' });
+      return;
+    }
+    this.headingEl = contentEl.createEl('h2', { text: this.getDisplayText() });
+
+    const file = this.app.vault.getAbstractFileByPath(this.filePath);
+    if (!(file instanceof TFile)) return;
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+
+    this.form = mount(CalendarEditorForm, {
+      target: contentEl,
+      props: {
+        initial: formFromFrontmatter(frontmatter),
+        // The live path, not a captured one: after a rename the save must target
+        // the note's new path. setState never nulls filePath (it only updates on
+        // a string file), so reading it at save time is safe.
+        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(this.filePath, changes),
+        onReload: () => this.render(),
+        autofocus: focusDescription,
+        attachMemberSuggest: (input: HTMLInputElement) => {
+          // The suggester's popover and keymap scope live on document.body, so
+          // they outlive the input unless closed — return a disposer the form
+          // calls when the row unmounts (matches TextCellEditor's teardown).
+          const suggest = new WikilinkInputSuggest(
+            this.app,
+            input,
+            createVaultWikilinkFetcher(this.app, this.filePath ?? ''),
+          );
+          return () => suggest.close();
+        },
+      },
+    }) as ReturnType<typeof mount> & FormHandle;
+
+    // Seed the external-write baseline from the current disk text. Until it
+    // resolves, the metadata listener holds off (lastContent stays null), so a
+    // freshly opened note never mistakes its own initial parse for an edit.
+    this.lastContent = null;
+    this.app.vault
+      .read(file)
+      .then((text) => {
+        this.lastContent = text;
+      })
+      .catch(() => {
+        /* unreadable — leave detection disarmed rather than false-flag */
+      });
+  }
+
+  /** Write the form's change set through the comment-preserving editor. */
+  private async persist(
+    path: string | null,
+    changes: Record<string, FrontmatterValue>,
+  ): Promise<void> {
+    const file = path === null ? null : this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      // The note was deleted or moved out from under the editor. Fail loudly so
+      // the form keeps the unsaved edits instead of treating this as a success.
+      new Notice("Couldn't save the calendar note — it no longer exists.");
+      throw new Error(`Calendar note not found: ${path ?? '(no path)'}`);
+    }
+    try {
+      // Atomic read-modify-write: the transform runs on the freshest content, so
+      // an external write landing between read and write can't be clobbered by a
+      // stale snapshot. editFrontmatterKeys rewrites only the changed keys and
+      // leaves unrelated frontmatter, comments, and body intact.
+      const updated = await this.app.vault.process(file, (data) =>
+        editFrontmatterKeys(data, changes),
+      );
+      // Our own write is now the disk truth; keep it out of external detection.
+      this.lastContent = updated;
+    } catch (error) {
+      console.error('[Gantt] Failed to save the calendar note:', error);
+      new Notice("Couldn't save the calendar note — see console for details.");
+      throw error;
+    }
   }
 }
 

@@ -32,20 +32,24 @@ export function editFrontmatterKeys(
   original: string,
   changes: Record<string, FrontmatterValue>,
 ): string {
-  const fence = locateFrontmatter(original);
+  // Honour the fence's own newline (Windows/synced files use CRLF), read from
+  // the OPENING fence — a stray CRLF line in an LF note's body must not flip the
+  // convention and make locateFrontmatter miss the real `---\n` fence.
+  const newline = original.startsWith('---\r\n') ? '\r\n' : '\n';
+  const fence = locateFrontmatter(original, newline);
   if (fence === null) {
     const block = Object.entries(changes)
       .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => serializeKey(key, value))
-      .join('\n');
-    return `---\n${block}\n---\n\n${original}`;
+      .flatMap(([key, value]) => serializeKey(key, value).split('\n'))
+      .join(newline);
+    return `---${newline}${block}${newline}---${newline}${newline}${original}`;
   }
 
-  let lines = original.slice(fence.bodyStart, fence.bodyEnd).split('\n');
+  let lines = original.slice(fence.bodyStart, fence.bodyEnd).split(newline);
   for (const [key, value] of Object.entries(changes)) {
     lines = applyKey(lines, key, value);
   }
-  const rebuilt = lines.join('\n');
+  const rebuilt = lines.join(newline);
   const next = original.slice(0, fence.bodyStart) + rebuilt + original.slice(fence.bodyEnd);
   return next === original ? original : next;
 }
@@ -58,11 +62,12 @@ interface Fence {
 }
 
 /** Locate the frontmatter block, or null when the file has none. */
-function locateFrontmatter(text: string): Fence | null {
-  if (!text.startsWith('---\n')) return null;
-  const close = text.indexOf('\n---', 3);
+function locateFrontmatter(text: string, newline: string): Fence | null {
+  const open = `---${newline}`;
+  if (!text.startsWith(open)) return null;
+  const close = text.indexOf(`${newline}---`, 3);
   if (close === -1) return null;
-  return { bodyStart: 4, bodyEnd: close };
+  return { bodyStart: open.length, bodyEnd: close };
 }
 
 /** Replace, append or remove one key across the frontmatter's lines. */
@@ -124,14 +129,17 @@ function isIndentedContent(line: string): boolean {
 function serializeKey(key: string, value: FrontmatterValue): string {
   if (Array.isArray(value)) {
     if (value.length === 0) return `${key}: []`;
+    // Records serialize as `- k: v`; any scalar or null item (including a raw
+    // passthrough that is not an object) goes through quoteScalar so it never
+    // reaches Object.entries.
     const items = value.map((item) =>
-      typeof item === 'string'
-        ? `  - ${quoteScalar(item)}`
-        : serializeRecord(item as Record<string, unknown>),
+      item !== null && typeof item === 'object'
+        ? serializeRecord(item as Record<string, unknown>)
+        : `  - ${quoteScalar(item)}`,
     );
     return `${key}:\n${items.join('\n')}`;
   }
-  return `${key}: ${quoteScalar(value as string | number | boolean)}`;
+  return `${key}: ${quoteScalar(value)}`;
 }
 
 /** One list item that is a flat record: `- k: v` then `  k2: v2`. */
@@ -140,24 +148,61 @@ function serializeRecord(record: Record<string, unknown>): string {
   return entries
     .map(([k, v], index) => {
       const prefix = index === 0 ? '  - ' : '    ';
-      return `${prefix}${k}: ${quoteScalar(v as string | number | boolean)}`;
+      return `${prefix}${k}: ${quoteScalar(v)}`;
     })
     .join('\n');
 }
+
+/** A Date rendered as its UTC calendar day, `YYYY-MM-DD` (matches the schema). */
+function isoDay(value: Date): string | undefined {
+  if (Number.isNaN(value.getTime())) return undefined;
+  const year = value.getUTCFullYear();
+  const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(value.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Tokens YAML silently retypes from an unquoted string into a bool, null,
+// number, or date. A string value matching one has to be quoted to survive the
+// round-trip as a string rather than reload as the wrong type (and read empty).
+const YAML_IMPLICIT = /^(?:true|false|yes|no|on|off|y|n|null|~|\.nan|[-+]?\.inf)$/i;
+const YAML_NUMBER = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:[eE][-+]?\d+)?$/;
+const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
 
 /**
  * Quote a scalar when YAML would otherwise misread it; pass clean values raw.
  * The leading-flow-indicator check is load-bearing: a set member `[[Note]]`
  * left bare parses as a nested flow sequence, not the string the schema needs.
+ * Non-string values (a raw passthrough number/boolean/null) render as-is.
  */
-function quoteScalar(value: string | number | boolean): string {
+function quoteScalar(value: unknown): string {
+  if (value === null) return 'null';
+  // Obsidian parses an unquoted YAML date as a Date; a raw passthrough entry can
+  // still carry one. Emit it as a quoted ISO day, never a JS Date string.
+  if (value instanceof Date) {
+    const iso = isoDay(value);
+    return iso !== undefined ? `"${iso}"` : String(value);
+  }
   if (typeof value !== 'string') return String(value);
   const needsQuote =
     value === '' ||
     /[:#"'\n,]/.test(value) ||
     /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
-    /\s$/.test(value);
-  return needsQuote ? `"${value.replace(/"/g, '\\"')}"` : value;
+    /\s$/.test(value) ||
+    YAML_IMPLICIT.test(value) ||
+    YAML_NUMBER.test(value) ||
+    YAML_DATELIKE.test(value);
+  if (!needsQuote) return value;
+  // Escape for a YAML double-quoted scalar. Backslash first, so the escapes we
+  // add below are not themselves re-escaped. A literal newline inside the quotes
+  // would fold to a space on reload; `\n` (and friends) preserve the break.
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+  return `"${escaped}"`;
 }
 
 /** Avoid a doubled blank line when appending after a trailing empty line. */

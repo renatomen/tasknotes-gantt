@@ -172,10 +172,82 @@ describe('Codex-found round-trip losses', () => {
     expect(written).toContainEqual({ date: '2026-06-01', name: 'Added' });
   });
 
+  it('keeps a Date-typed exception editable and reserializes it as an ISO date', () => {
+    // Obsidian parses an unquoted `date: 2026-04-10` as a Date. The form must
+    // normalize it, not treat it as an opaque passthrough — otherwise a later
+    // list edit reserializes the Date via String() and the calendar drops it.
+    const original = formFromFrontmatter({
+      tngantt: 'calendar',
+      non_working: [{ date: new Date(Date.UTC(2026, 3, 10)), name: 'Good Friday' }],
+    });
+    expect(original.nonWorking[0]).toEqual({ date: '2026-04-10', name: 'Good Friday' });
+    expect(original.nonWorking[0]?.raw).toBeUndefined();
+
+    const next: EditorFormState = {
+      ...original,
+      nonWorking: [...original.nonWorking, { date: '2026-06-01', name: 'Added' }],
+    };
+    const written = changedFrontmatter(original, next).non_working as unknown[];
+    expect(written).toContainEqual({ date: '2026-04-10', name: 'Good Friday' });
+  });
+
+  it('normalizes a bare Date list item to an ISO date', () => {
+    const form = formFromFrontmatter({
+      tngantt: 'calendar',
+      non_working: [new Date(Date.UTC(2026, 0, 1))],
+    });
+    expect(form.nonWorking[0]).toEqual({ date: '2026-01-01', name: '' });
+  });
+
+  it('normalizes a Date-typed pattern_start into the anchor field', () => {
+    // Obsidian parses an unquoted `pattern_start: 2026-01-05` as a Date; read as
+    // a bare string it would be empty, blocking every save with a missing-anchor
+    // error on an INTERVAL/COUNT/UNTIL pattern.
+    const form = formFromFrontmatter({
+      tngantt: 'calendar',
+      pattern: 'FREQ=WEEKLY;INTERVAL=2',
+      pattern_start: new Date(Date.UTC(2026, 0, 5)),
+    });
+    expect(form.patternStart).toBe('2026-01-05');
+  });
+
+  it('preserves a null list item as raw rather than crashing on its date', () => {
+    // A hand-authored empty dash (`- `) parses as null; it must not throw while
+    // building the form, just round-trip untouched for markdown editing.
+    const form = formFromFrontmatter({ tngantt: 'calendar', non_working: [null] });
+    expect(form.nonWorking[0]).toEqual({ date: '', name: '', raw: null });
+  });
+
   it('rejects a reversed or zero-length working-hours range', () => {
     const base = formFromFrontmatter(CALENDAR);
     expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toBeDefined();
     expect(fieldErrors({ ...base, workingHours: ['09:00-09:00'] }).workingHours).toBeDefined();
     expect(fieldErrors({ ...base, workingHours: ['09:00-17:00'] }).workingHours).toBeUndefined();
+  });
+});
+
+describe('Codex-found save-bad-data validation', () => {
+  const base = formFromFrontmatter(CALENDAR);
+
+  it('flags a dated entry with no date so an empty exception cannot be saved', () => {
+    expect(fieldErrors({ ...base, nonWorking: [{ date: '', name: 'x' }] }).dates).toBeDefined();
+    expect(fieldErrors({ ...base, events: [{ date: '', name: '' }] }).dates).toBeDefined();
+    expect(fieldErrors(base).dates).toBeUndefined();
+  });
+
+  it('ignores a raw passthrough entry when checking dates', () => {
+    const withRaw = { ...base, nonWorking: [{ date: '', name: '', raw: { start: 'a', end: 'b' } }] };
+    expect(fieldErrors(withRaw).dates).toBeUndefined();
+  });
+
+  it('flags a set member that is empty or not a wikilink', () => {
+    const set = formFromFrontmatter({ tngantt: 'calendar-set', calendars: ['[[A]]'] });
+    expect(fieldErrors({ ...set, members: ['[[A]]', ''] }).members).toBeDefined();
+    expect(fieldErrors({ ...set, members: ['plain text'] }).members).toBeDefined();
+    expect(fieldErrors({ ...set, members: ['[[A]]', '[[B]]'] }).members).toBeUndefined();
+  });
+
+  it('does not flag members on a plain calendar', () => {
+    expect(fieldErrors(base).members).toBeUndefined();
   });
 });
