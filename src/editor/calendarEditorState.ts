@@ -19,6 +19,14 @@ import type { FrontmatterValue } from './frontmatterEdit';
 export interface DatedEntry {
   date: string;
   name: string;
+  /** Display-marker flag (events); preserved so an edit never demotes a marker. */
+  marker?: boolean;
+  /**
+   * Verbatim source for an entry the form does not decompose — a `{start, end}`
+   * range, an rrule entry — so a save round-trips it untouched rather than
+   * dropping it.
+   */
+  raw?: unknown;
 }
 
 export interface EditorFormState {
@@ -112,7 +120,7 @@ export function fieldErrors(form: EditorFormState): FieldErrors {
   if (form.timezone !== '' && !isValidTimezone(form.timezone)) {
     errors.timezone = `Unknown IANA zone: ${form.timezone}`;
   }
-  if (form.workingHours.some((range) => !HOURS_RANGE.test(range))) {
+  if (form.workingHours.some((range) => !isValidHoursRange(range))) {
     errors.workingHours = 'Expected HH:MM-HH:MM with start before end';
   }
   return errors;
@@ -122,11 +130,16 @@ function scalarOrUndefined(value: string): string | undefined {
   return value.trim() === '' ? undefined : value;
 }
 
-/** A dated entry without a name drops the key rather than writing an empty one. */
-function datedForWrite(entries: DatedEntry[]): Array<Record<string, string>> {
+/**
+ * Serialize the dated entries for a save. An undecomposed entry round-trips
+ * verbatim; a simple one drops an empty name and preserves a marker flag.
+ */
+function datedForWrite(entries: DatedEntry[]): unknown[] {
   return entries.map((entry) => {
-    const record: Record<string, string> = { date: entry.date };
+    if (entry.raw !== undefined) return entry.raw;
+    const record: Record<string, unknown> = { date: entry.date };
     if (entry.name.trim() !== '') record.name = entry.name;
+    if (entry.marker === true) record.marker = true;
     return record;
   });
 }
@@ -141,14 +154,33 @@ function readStringList(value: unknown): string[] {
 
 function readDatedList(value: unknown): DatedEntry[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (typeof item === 'string') return [{ date: item, name: '' }];
-    if (item && typeof item === 'object' && typeof (item as { date?: unknown }).date === 'string') {
-      const record = item as { date: string; name?: unknown };
-      return [{ date: record.date, name: typeof record.name === 'string' ? record.name : '' }];
-    }
-    return [];
+  return value.map((item) => {
+    if (typeof item === 'string') return { date: item, name: '' };
+    const record = item as { date?: unknown; name?: unknown; marker?: unknown };
+    // Only a simple single-date entry is editable in the form; anything else
+    // (a {start, end} range, an rrule) round-trips verbatim so it is not lost.
+    const isSimple =
+      item !== null &&
+      typeof item === 'object' &&
+      typeof record.date === 'string' &&
+      !('start' in record) &&
+      !('pattern' in record) &&
+      !('rrule' in record);
+    if (!isSimple) return { date: '', name: '', raw: item };
+    const entry: DatedEntry = {
+      date: record.date as string,
+      name: typeof record.name === 'string' ? record.name : '',
+    };
+    if (record.marker === true) entry.marker = true;
+    return entry;
   });
+}
+
+/** A well-formed HH:MM-HH:MM range whose start is strictly before its end. */
+function isValidHoursRange(range: string): boolean {
+  if (!HOURS_RANGE.test(range)) return false;
+  const [start, end] = range.split('-');
+  return (start as string) < (end as string);
 }
 
 function isValidTimezone(zone: string): boolean {

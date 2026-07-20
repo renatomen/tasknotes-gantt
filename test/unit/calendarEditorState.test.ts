@@ -137,3 +137,45 @@ describe('fieldErrors — inline validation mirroring R26', () => {
     expect(fieldErrors(base)).toEqual({});
   });
 });
+
+describe('Codex-found round-trip losses', () => {
+  it('preserves an event marker flag across an edit', () => {
+    const original = formFromFrontmatter({
+      tngantt: 'calendar',
+      events: [{ date: '2026-08-30', name: 'Release', marker: true }],
+    });
+    expect(original.events[0]?.marker).toBe(true);
+    // Add a second event; the first must keep its marker on write-back.
+    const next: EditorFormState = {
+      ...original,
+      events: [...original.events, { date: '2026-09-01', name: 'Launch' }],
+    };
+    const written = changedFrontmatter(original, next).events as Array<Record<string, unknown>>;
+    expect(written[0]).toEqual({ date: '2026-08-30', name: 'Release', marker: true });
+  });
+
+  it('round-trips a {start, end} range entry the form cannot decompose', () => {
+    const original = formFromFrontmatter({
+      tngantt: 'calendar',
+      non_working: [
+        { start: '2026-12-29', end: '2027-01-02', name: 'Shutdown' },
+        { date: '2026-04-10' },
+      ],
+    });
+    // The range survived as a passthrough alongside the editable simple entry.
+    const next: EditorFormState = {
+      ...original,
+      nonWorking: [...original.nonWorking, { date: '2026-06-01', name: 'Added' }],
+    };
+    const written = changedFrontmatter(original, next).non_working as unknown[];
+    expect(written).toContainEqual({ start: '2026-12-29', end: '2027-01-02', name: 'Shutdown' });
+    expect(written).toContainEqual({ date: '2026-06-01', name: 'Added' });
+  });
+
+  it('rejects a reversed or zero-length working-hours range', () => {
+    const base = formFromFrontmatter(CALENDAR);
+    expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toBeDefined();
+    expect(fieldErrors({ ...base, workingHours: ['09:00-09:00'] }).workingHours).toBeDefined();
+    expect(fieldErrors({ ...base, workingHours: ['09:00-17:00'] }).workingHours).toBeUndefined();
+  });
+});
