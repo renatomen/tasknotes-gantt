@@ -120,6 +120,39 @@ Maintainer-reported 2026-07-20 while testing the calendar work; raised for triag
 Investigate together — they may share one cause in how the role base and per-value rules compose.
 The maintainer's standing constraint: do not alter non-calendar bar styling as a side effect.
 
+### P2f — Calendar: per-row shading (U13) DROPPED — what a future attempt must solve
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (U13, R25, AE10). Dropped
+2026-07-20 under the unit's own **pre-authorized drop rule** ("destabilizes virtualization → drop,
+record the finding, waive AE10, continue"). **AE10 is waived.** Implemented, reviewed, then reverted;
+nothing of it remains on `main`.
+
+It was buildable — row geometry *is* reachable (`_tasks[].$y`/`.$h`, the same fields SVAR positions
+its own bars from) and the pure geometry was straightforward (9 unit tests, e2e verified AE10 in real
+Obsidian). Two defects found in review make the *design* wrong, not the code:
+
+1. **It defeats virtualization.** `_tasks` is the FULL task array; SVAR virtualizes by slicing it
+   with `state.area.start`/`.end` (see `Bars.svelte`'s `$rTasks.slice(...)`). An overlay built from
+   the whole array is O(all rows × span days) and mounts one node per blocked run per row — tens of
+   thousands of un-virtualized nodes at the ~3300-instance scale the perf harness already tracks.
+   A future attempt must slice on `area` and re-measure at that scale.
+2. **It silently desyncs from the rows it labels.** Row `$y` moves on expand/collapse, sort, filter
+   and hide-top-level — all `api.exec` paths internal to SVAR that never touch the plugin's data
+   store, so no recompute fires and the tint stays put while the bars move. This is the harder
+   problem: SVAR's own collapse UI never notifies the plugin, so correctness needs a reliable
+   row-geometry change signal (a geometry fingerprint checked per tick, or an intercept covering
+   every mutation path). A tint sitting on the wrong row asserts something false about that task's
+   non-working days — worse than no shading at all.
+
+Two lesser findings to carry over: `buildTaskBlocking`'s single-slot memo thrashes when stretch and
+row shading are both on (two call sites compute different windows and evict each other every pass —
+give row shading its own slot or share one result); and the overlay was appended after `.wx-bars`,
+so at equal stacking it painted *above* the bars rather than below.
+
+**Prerequisite for revisiting:** the treatment-channel redesign in
+`docs/brainstorms/2026-07-20-date-provenance-and-treatment-channels-requirements.md`. Row shading
+would be a fourth surface encoding calendar identity by colour (after bars, columns and markers);
+whether it earns that channel is a question that redesign should answer first.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).
