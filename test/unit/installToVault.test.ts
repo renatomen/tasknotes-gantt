@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 // @ts-expect-error — plain .mjs build script, no types
-import { installToVault } from '../../scripts/install-to-vault.mjs';
+import { installToVault, parseVaults } from '../../scripts/install-to-vault.mjs';
 
 const silent = { log: () => {}, warn: () => {} };
 
@@ -77,5 +77,32 @@ describe('installToVault', () => {
     fs.rmSync(path.join(distDir, 'styles.css'));
     expect(installToVault({ distDir, vault, log: silent })).toBe('installed');
     expect(read('main.js')).toBe('BUILT');
+  });
+
+  describe('multiple vaults', () => {
+    // A developer testing in more than one vault (a small fixture vault AND a
+    // realistic one) must not have to remember which build went where.
+    it('installs into every configured vault', () => {
+      const second = path.join(root, 'vault-two');
+      fs.mkdirSync(second, { recursive: true });
+      expect(installToVault({ distDir, vault: `${vault};${second}`, log: silent })).toBe('installed');
+      for (const target of [vault, second]) {
+        const installed = path.join(target, '.obsidian', 'plugins', 'tasknotes-gantt', 'main.js');
+        expect(fs.readFileSync(installed, 'utf8')).toBe('BUILT');
+      }
+    });
+
+    it('still installs the reachable vaults when one path is stale', () => {
+      const missing = path.join(root, 'gone');
+      expect(installToVault({ distDir, vault: `${missing};${vault}`, log: silent })).toBe('installed');
+      expect(read('main.js')).toBe('BUILT');
+      expect(fs.existsSync(missing)).toBe(false);
+    });
+
+    it('tolerates whitespace and trailing separators', () => {
+      expect(parseVaults(` ${vault} ; `)).toEqual([vault]);
+      expect(parseVaults(undefined)).toEqual([]);
+      expect(parseVaults('   ')).toEqual([]);
+    });
   });
 });

@@ -19,7 +19,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pluginRoot = process.env.PLUGIN_DIR || path.resolve(__dirname, "../../");
 const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
-const vaultPath = process.env.OBSIDIAN_TEST_VAULT || defaultVault;
+// See wdio.conf.mts: the var may list several `;`-separated vaults; the first
+// is the primary one this harness copies from.
+const vaultPath =
+  (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
 
 try {
   fs.mkdirSync(vaultPath, { recursive: true });
