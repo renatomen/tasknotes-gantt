@@ -761,7 +761,10 @@
     status: initialData.statusColors ?? [],
     priority: initialData.priorityColors ?? [],
     // Whole-vault calendars, so switching the display selection (or the colour
-    // source itself) never needs a re-register.
+    // source itself) never needs a re-register. A calendar note CREATED while
+    // the view is open is not in this set, so its bars stay on the default
+    // treatment until reopen — the same reopen-to-pick-up rule the status and
+    // priority palettes carry.
     calendar: initialData.calendarPalette ?? [],
   });
   const svarTaskTypes = [

@@ -295,6 +295,11 @@ export function calendarSlug(value: string): string {
   return slug(CALENDAR_CLASS_PREFIX, value);
 }
 
+/** The role-source class: parents are marked, children take the base rule. */
+function roleClass(isParent: boolean): string | null {
+  return isParent ? PARENT_ROLE_CLASS : null;
+}
+
 /** Whether a palette contains `value` with a usable, safe color. */
 function hasSafeColor(palette: ReadonlyArray<{ value: string; color: string }>, value: string): boolean {
   return palette.some((c) => c.value === value && isSafeColor(c.color));
@@ -344,16 +349,15 @@ export function resolveTreatmentClass(
         ? prioritySlug(instance.priority)
         : null;
     case 'calendar':
-      // An unassociated task has no calendar colour to take, so it falls back
-      // to the default role treatment rather than rendering as a plain bar.
-      return instance.calendarId && hasSafeColor(palettes.calendar ?? [], instance.calendarId)
-        ? calendarSlug(instance.calendarId)
-        : isParent
-          ? PARENT_ROLE_CLASS
-          : null;
+      // A task with no calendar (or a colourless one) has no colour to take,
+      // so it falls back to the default role treatment, not a plain bar.
+      if (instance.calendarId && hasSafeColor(palettes.calendar ?? [], instance.calendarId)) {
+        return calendarSlug(instance.calendarId);
+      }
+      return roleClass(isParent);
     case 'theme':
     case 'default':
-      return isParent ? PARENT_ROLE_CLASS : null;
+      return roleClass(isParent);
     default:
       return null;
   }
@@ -379,7 +383,10 @@ export interface TreatmentStyleInput {
   mode: BarColorMode;
   source: BarColorSource;
   palettes: Palettes;
-  /** Render instances — only `.status`/`.priority` are read (present-value set). */
+  /**
+   * Render instances — the active source decides which field is read for the
+   * present-value set (`.status`, `.priority`, or `.calendarId`).
+   */
   instances: ReadonlyArray<TreatmentInstance>;
 }
 
