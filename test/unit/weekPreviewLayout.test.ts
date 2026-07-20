@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildWeekPreview } from '../../src/editor/weekPreviewLayout';
+import { buildWeekPreview, weekLayoutFor } from '../../src/editor/weekPreviewLayout';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
 const base = (over: Partial<CalendarDefinition> = {}): CalendarDefinition => ({
@@ -90,11 +90,50 @@ describe('buildWeekPreview', () => {
     expect(week.days[0]?.isWorking).toBe(true); // the anchored Monday
   });
 
+  it('picks a week containing an occurrence for an availability-only monthly schedule', () => {
+    // No main pattern: the representative week must come from the block rules,
+    // or a non-weekly availability schedule previews as a blank week.
+    const week = buildWeekPreview(
+      base({ availability: [{ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15', hours: [hours('09:00', '17:00')] }] }),
+    );
+    expect(week.days.some((d) => d.isWorking)).toBe(true);
+    expect(week.days[3]?.isWorking).toBe(true); // 2026-01-15 is a Thursday
+    expect(week.days[3]?.hours).toEqual([hours('09:00', '17:00')]);
+  });
+
   it('flags an invalid availability-block pattern rather than a blank week', () => {
     const week = buildWeekPreview(
       base({ availability: [{ pattern: 'FREQ=NONSENSE', hours: [hours('09:00', '17:00')] }] }),
     );
     expect(week.invalid).toBeDefined();
     expect(week.days).toHaveLength(0);
+  });
+});
+
+describe('weekLayoutFor', () => {
+  it('builds columns for a calendar', () => {
+    expect(weekLayoutFor(base())?.days).toHaveLength(7);
+  });
+
+  it('returns null for a set', () => {
+    expect(
+      weekLayoutFor({
+        kind: 'calendar-set',
+        description: undefined,
+        color: undefined,
+        members: [],
+        diagnostics: [],
+      }),
+    ).toBeNull();
+  });
+
+  it('surfaces an invalid definition as a flagged layout', () => {
+    const layout = weekLayoutFor({ kind: 'invalid', reasons: ['missing FREQ'] });
+    expect(layout?.invalid).toBe('missing FREQ');
+    expect(layout?.days).toHaveLength(0);
+  });
+
+  it('returns null for a non-calendar note', () => {
+    expect(weekLayoutFor(null)).toBeNull();
   });
 });
