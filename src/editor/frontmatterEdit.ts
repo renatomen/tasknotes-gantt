@@ -32,9 +32,10 @@ export function editFrontmatterKeys(
   original: string,
   changes: Record<string, FrontmatterValue>,
 ): string {
-  // A note may use CRLF (Windows/synced files); honour whichever it already has
-  // so an edit never mixes endings or mistakes a CRLF fence for no frontmatter.
-  const newline = original.includes('\r\n') ? '\r\n' : '\n';
+  // Honour the fence's own newline (Windows/synced files use CRLF), read from
+  // the OPENING fence — a stray CRLF line in an LF note's body must not flip the
+  // convention and make locateFrontmatter miss the real `---\n` fence.
+  const newline = original.startsWith('---\r\n') ? '\r\n' : '\n';
   const fence = locateFrontmatter(original, newline);
   if (fence === null) {
     const block = Object.entries(changes)

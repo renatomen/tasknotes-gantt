@@ -144,6 +144,16 @@ describe('Codex-found data-loss cases', () => {
     expect(next).not.toContain('---\n');
   });
 
+  it('detects the newline from the opening fence, not a CRLF body line', () => {
+    // LF frontmatter, but a CRLF line pasted into the body must not make the
+    // editor treat the note as CRLF and prepend a duplicate block.
+    const original = '---\ntngantt: calendar\ndescription: Old\n---\n\nPasted\r\nline.\n';
+    const next = editFrontmatterKeys(original, { description: 'New' });
+    expect(next.startsWith('---\ntngantt: calendar')).toBe(true);
+    expect(next).toContain('description: New\n');
+    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+  });
+
   it('quotes a string YAML would retype as bool/null/number/date so it stays a string', () => {
     const original = doc('tngantt: calendar');
     expect(editFrontmatterKeys(original, { description: 'true' })).toContain('description: "true"');
