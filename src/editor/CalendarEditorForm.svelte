@@ -24,6 +24,8 @@
   import YearGrid from './YearGrid.svelte';
   import { weekLayoutFor } from './weekPreviewLayout';
   import WeekPreview from './WeekPreview.svelte';
+  import { ganttStripLayoutFor } from './ganttStripLayout';
+  import GanttStripPreview from './GanttStripPreview.svelte';
 
   interface Props {
     initial: EditorFormState;
@@ -68,12 +70,13 @@
   // Preview tabs render the LIVE definition — parsed exactly as the chart does —
   // so unsaved edits reflect without a save. The derived is lazy: it only
   // evaluates while a preview tab is showing.
-  type Tab = 'edit' | 'week' | 'year';
+  type Tab = 'edit' | 'week' | 'strip' | 'year';
   let activeTab = $state<Tab>('edit');
   let previewYear = $state(new Date().getFullYear());
   const definition = $derived(parseCalendarFrontmatter(frontmatterFromForm(form)));
   const yearLayout = $derived(yearLayoutFor(definition, previewYear));
   const weekLayout = $derived(weekLayoutFor(definition));
+  const stripLayout = $derived(ganttStripLayoutFor(definition));
   function stepYear(delta: number): void {
     previewYear += delta;
   }
@@ -151,6 +154,14 @@
         type="button"
         role="tab"
         class="og-cal-tab"
+        class:og-cal-tab-active={activeTab === 'strip'}
+        aria-selected={activeTab === 'strip'}
+        onclick={() => (activeTab = 'strip')}
+      >Gantt strip</button>
+      <button
+        type="button"
+        role="tab"
+        class="og-cal-tab"
         class:og-cal-tab-active={activeTab === 'year'}
         aria-selected={activeTab === 'year'}
         onclick={() => (activeTab = 'year')}
@@ -160,6 +171,8 @@
 
   {#if form.kind === 'calendar' && activeTab === 'week'}
     <WeekPreview layout={weekLayout} />
+  {:else if form.kind === 'calendar' && activeTab === 'strip'}
+    <GanttStripPreview layout={stripLayout} />
   {:else if form.kind === 'calendar' && activeTab === 'year'}
     <YearGrid layout={yearLayout} year={previewYear} onYear={stepYear} />
   {:else}
