@@ -250,6 +250,18 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect((await $$(".og-week-col")).length).toBe(7);
   });
 
+  it("previews the shading strip on the Gantt strip tab", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    await (await $(".og-cal-tab=Gantt strip")).click();
+    const track = await $(".og-strip-track");
+    await track.waitForDisplayed({ timeout: 10000, timeoutMsg: "the gantt strip did not render" });
+    // A day cell per day of the multi-month window.
+    expect((await $$(".og-strip-cell")).length).toBeGreaterThan(60);
+  });
+
   it("previews the year on the Year tab and keeps the unsaved form on return", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
