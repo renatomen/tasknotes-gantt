@@ -315,7 +315,9 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("External-only marker line."); // the concurrent external edit survived
   });
 
-  it("does not nag when the note changes on disk and the form is clean", async () => {
+  it("refreshes silently when the note changes on disk and the form is clean", async () => {
+    // With no unsaved edits, a clean form must pick up the disk state at once —
+    // not nag, and not keep showing (or later save from) stale values.
     await restoreMarker();
     await openNote("NZ Holidays.md");
     await (await $(".og-cal-form textarea")).waitForExist({ timeout: 20000 });
@@ -324,11 +326,16 @@ describe("Gantt (OG) calendar editor routing", () => {
       const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
       if (!file) throw new Error("fixture calendar missing");
       const body = await app.vault.read(file as never);
-      await app.vault.modify(file as never, `${body as string}\nAnother external line.\n`);
+      const next = /^description:.*$/m.test(body as string)
+        ? (body as string).replace(/^description:.*$/m, "description: Externally set value")
+        : (body as string).replace("tngantt: calendar", "tngantt: calendar\ndescription: Externally set value");
+      await app.vault.modify(file as never, next);
     });
 
-    // A clean form stays in step on the next open; it must not interrupt.
-    await browser.pause(1000);
+    await browser.waitUntil(
+      async () => (await (await $(".og-cal-form textarea")).getValue()) === "Externally set value",
+      { timeout: 20000, timeoutMsg: "the clean form did not refresh to the external value" },
+    );
     expect(await (await $(".og-cal-notice")).isDisplayed()).toBe(false);
   });
 

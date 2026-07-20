@@ -29,9 +29,11 @@
     attachMemberSuggest?: (input: HTMLInputElement, index: number) => (() => void) | void;
     /** Discard the in-progress edits and reload from disk. */
     onReload?: () => void;
+    /** Focus the first field on mount — suppressed on a silent external refresh. */
+    autofocus?: boolean;
   }
 
-  const { initial, onSave, attachMemberSuggest, onReload }: Props = $props();
+  const { initial, onSave, attachMemberSuggest, onReload, autofocus = true }: Props = $props();
 
   let form = $state<EditorFormState>($state.snapshot(initial));
   let baseline = $state<EditorFormState>($state.snapshot(initial));
@@ -47,6 +49,11 @@
   export function clearExternalChange(): void {
     externalChanged = false;
   }
+  /** Whether the form holds edits not yet saved — the host reads this to decide
+      between a silent refresh (clean) and the reload-or-keep banner (dirty). */
+  export function hasUnsavedEdits(): boolean {
+    return dirty;
+  }
 
   const errors = $derived(fieldErrors(form));
   const dirty = $derived(isDirty(baseline, form));
@@ -54,7 +61,7 @@
 
   let descriptionEl: HTMLTextAreaElement | undefined;
   $effect(() => {
-    void tick().then(() => descriptionEl?.focus());
+    if (autofocus) void tick().then(() => descriptionEl?.focus());
   });
 
   async function save(): Promise<void> {

@@ -175,13 +175,14 @@ function readDatedList(value: unknown): DatedEntry[] {
     // editable and reserializes as ISO rather than a String(Date) dump.
     const bare = toIsoDate(item);
     if (bare !== undefined) return { date: bare, name: '' };
+    // A malformed item — null (a hand-authored empty `- `), a non-object —
+    // round-trips verbatim rather than crashing the form on a missing `.date`.
+    if (item === null || typeof item !== 'object') return { date: '', name: '', raw: item };
     const record = item as { date?: unknown; name?: unknown; marker?: unknown };
     const date = toIsoDate(record.date);
     // Only a simple single-date entry is editable in the form; anything else
     // (a {start, end} range, an rrule) round-trips verbatim so it is not lost.
     const isSimple =
-      item !== null &&
-      typeof item === 'object' &&
       date !== undefined &&
       !('start' in record) &&
       !('pattern' in record) &&

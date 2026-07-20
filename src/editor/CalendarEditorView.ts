@@ -33,6 +33,7 @@ import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
 /** The imperative surface the form exports to its host (see the .svelte file). */
 interface FormHandle {
   markExternalChange?: () => void;
+  hasUnsavedEdits?: () => boolean;
 }
 
 export class CalendarEditorView extends ItemView {
@@ -94,11 +95,15 @@ export class CalendarEditorView extends ItemView {
           void this.openAsMarkdown();
           return;
         }
-        // A write we did not make, while the editor is open. The form surfaces a
-        // reload-or-keep banner only when it holds unsaved edits; a clean form
-        // just picks up the disk state on its next open.
+        // A write we did not make, while the editor is open. With unsaved edits,
+        // surface the reload-or-keep banner; with none, refresh silently so the
+        // controls never show — or save from — stale values (no focus steal).
         if (this.lastContent !== null && data !== this.lastContent) {
-          this.form?.markExternalChange?.();
+          if (this.form?.hasUnsavedEdits?.()) {
+            this.form.markExternalChange?.();
+          } else {
+            this.render(false);
+          }
         }
       }),
     );
@@ -153,7 +158,7 @@ export class CalendarEditorView extends ItemView {
     }
   }
 
-  private render(): void {
+  private render(focusDescription = true): void {
     this.destroyForm();
     const { contentEl } = this;
     contentEl.empty();
@@ -177,6 +182,7 @@ export class CalendarEditorView extends ItemView {
         initial: formFromFrontmatter(frontmatter),
         onSave: (changes: Record<string, FrontmatterValue>) => this.persist(savePath, changes),
         onReload: () => this.render(),
+        autofocus: focusDescription,
         attachMemberSuggest: (input: HTMLInputElement) => {
           // The suggester's popover and keymap scope live on document.body, so
           // they outlive the input unless closed — return a disposer the form

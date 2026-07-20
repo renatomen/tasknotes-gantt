@@ -199,6 +199,13 @@ describe('Codex-found round-trip losses', () => {
     expect(form.nonWorking[0]).toEqual({ date: '2026-01-01', name: '' });
   });
 
+  it('preserves a null list item as raw rather than crashing on its date', () => {
+    // A hand-authored empty dash (`- `) parses as null; it must not throw while
+    // building the form, just round-trip untouched for markdown editing.
+    const form = formFromFrontmatter({ tngantt: 'calendar', non_working: [null] });
+    expect(form.nonWorking[0]).toEqual({ date: '', name: '', raw: null });
+  });
+
   it('rejects a reversed or zero-length working-hours range', () => {
     const base = formFromFrontmatter(CALENDAR);
     expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toBeDefined();
