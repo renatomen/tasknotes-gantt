@@ -121,15 +121,30 @@ function uniformHours(definition: CalendarDefinition, week: EvaluationWindow): D
   });
 }
 
-/** The Monday-aligned week that contains the pattern's first occurrence. */
+/**
+ * The Monday-aligned week that contains the first occurrence of whatever defines
+ * the working days shown — the availability blocks when present, else the main
+ * pattern — so a non-weekly (monthly/anchored) schedule never previews blank.
+ */
 function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
-  if (definition.pattern === undefined) return weekFrom(WEEK_ANCHOR);
-  const anchor = definition.patternStart ?? WEEK_ANCHOR;
-  const probe = evaluatePattern(definition.pattern, definition.patternStart, {
-    startDate: anchor,
-    endDateExclusive: addDaysIso(anchor, SEARCH_DAYS),
-  });
-  const first = probe.kind === 'ok' ? earliest(probe.dates) : undefined;
+  const rules =
+    definition.availability.length > 0
+      ? definition.availability.map((block) => ({ rule: block.pattern, anchor: undefined }))
+      : definition.pattern !== undefined
+        ? [{ rule: definition.pattern, anchor: definition.patternStart }]
+        : [];
+
+  let first: string | undefined;
+  for (const { rule, anchor } of rules) {
+    const start = anchor ?? WEEK_ANCHOR;
+    const probe = evaluatePattern(rule, anchor, {
+      startDate: start,
+      endDateExclusive: addDaysIso(start, SEARCH_DAYS),
+    });
+    if (probe.kind !== 'ok') continue;
+    const occurrence = earliest(probe.dates);
+    if (occurrence !== undefined && (first === undefined || occurrence < first)) first = occurrence;
+  }
   return weekFrom(first ?? WEEK_ANCHOR);
 }
 

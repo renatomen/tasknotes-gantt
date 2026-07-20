@@ -90,6 +90,17 @@ describe('buildWeekPreview', () => {
     expect(week.days[0]?.isWorking).toBe(true); // the anchored Monday
   });
 
+  it('picks a week containing an occurrence for an availability-only monthly schedule', () => {
+    // No main pattern: the representative week must come from the block rules,
+    // or a non-weekly availability schedule previews as a blank week.
+    const week = buildWeekPreview(
+      base({ availability: [{ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15', hours: [hours('09:00', '17:00')] }] }),
+    );
+    expect(week.days.some((d) => d.isWorking)).toBe(true);
+    expect(week.days[3]?.isWorking).toBe(true); // 2026-01-15 is a Thursday
+    expect(week.days[3]?.hours).toEqual([hours('09:00', '17:00')]);
+  });
+
   it('flags an invalid availability-block pattern rather than a blank week', () => {
     const week = buildWeekPreview(
       base({ availability: [{ pattern: 'FREQ=NONSENSE', hours: [hours('09:00', '17:00')] }] }),
