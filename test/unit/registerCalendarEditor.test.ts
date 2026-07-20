@@ -18,6 +18,8 @@ function makePlugin(markedPaths: string[]) {
       rootSplit,
       floatingSplit: { id: 'floating' },
       getLeavesOfType: () => [] as unknown[],
+      on: jest.fn(() => ({}) as unknown),
+      offref: jest.fn(),
     },
     vault: {
       getAbstractFileByPath: (path: string) => {

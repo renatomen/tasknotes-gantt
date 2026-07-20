@@ -35,13 +35,22 @@
      * returning a disposer that tears the suggester down when the input goes.
      */
     attachMemberSuggest?: (input: HTMLInputElement, index: number) => (() => void) | void;
+    /** Attach the searchable IANA-timezone picker to the timezone input. */
+    attachTimezoneSuggest?: (input: HTMLInputElement) => (() => void) | void;
     /** Discard the in-progress edits and reload from disk. */
     onReload?: () => void;
     /** Focus the first field on mount — suppressed on a silent external refresh. */
     autofocus?: boolean;
   }
 
-  const { initial, onSave, attachMemberSuggest, onReload, autofocus = true }: Props = $props();
+  const {
+    initial,
+    onSave,
+    attachMemberSuggest,
+    attachTimezoneSuggest,
+    onReload,
+    autofocus = true,
+  }: Props = $props();
 
   let form = $state<EditorFormState>($state.snapshot(initial));
   let baseline = $state<EditorFormState>($state.snapshot(initial));
@@ -114,6 +123,16 @@
       close it when the input unmounts so no popover or keymap scope lingers. */
   function memberSuggest(node: HTMLInputElement, index: number) {
     const dispose = attachMemberSuggest?.(node, index);
+    return {
+      destroy() {
+        dispose?.();
+      },
+    };
+  }
+
+  /** Svelte action: attach the searchable timezone picker, closing it on unmount. */
+  function timezoneSuggest(node: HTMLInputElement) {
+    const dispose = attachTimezoneSuggest?.(node);
     return {
       destroy() {
         dispose?.();
@@ -254,7 +273,13 @@
 
       <label class="og-cal-field">
         <span class="og-cal-label">Timezone</span>
-        <input class="og-cal-control" type="text" bind:value={form.timezone} placeholder="Pacific/Auckland" />
+        <input
+          class="og-cal-control"
+          type="text"
+          bind:value={form.timezone}
+          placeholder="Search a timezone (e.g. Pacific/Auckland)"
+          use:timezoneSuggest
+        />
         <small class="og-cal-hint">Recorded now; honoured once hour-level scheduling ships.</small>
         {#if errors.timezone}<span class="og-cal-error">{errors.timezone}</span>{/if}
       </label>

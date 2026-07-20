@@ -57,7 +57,29 @@ export function registerCalendarEditor(plugin: Plugin): () => void {
 
   WorkspaceLeaf.prototype.setViewState = patched;
 
+  // The return trip: "Open as markdown" leaves a calendar note in a markdown
+  // leaf with no way back but reopening. Offer "View as calendar" on that leaf's
+  // menus, re-issuing a markdown setViewState so the interceptor routes it back.
+  const menuRef = app.workspace.on('file-menu', (menu, file, _source, leaf) => {
+    if (!(file instanceof TFile) || leaf === undefined) return;
+    if (leaf.view.getViewType() !== 'markdown') return;
+    if (markerFor(app, file.path) === null) return;
+    menu.addItem((item) =>
+      item
+        .setTitle('View as calendar')
+        .setIcon('calendar-range')
+        .onClick(() => {
+          void leaf.setViewState({
+            type: 'markdown',
+            state: { file: file.path, mode: 'source' },
+            active: true,
+          });
+        }),
+    );
+  });
+
   return () => {
+    app.workspace.offref(menuRef);
     // Identity check before restoring: another plugin (Kanban patches this same
     // method) may have wrapped ours since. Blindly restoring our snapshot would
     // silently discard their patch, so leave the chain alone in that case.

@@ -180,6 +180,62 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(await activeViewType()).toBe(EDITOR_VIEW);
   });
 
+  it("offers 'View as calendar' on a calendar note opened as markdown, routing back", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "editor never opened",
+    });
+
+    // Drop to markdown via the escape hatch.
+    await browser.executeObsidian(async ({ app }) => {
+      const view = app.workspace.activeLeaf?.view as unknown as {
+        openAsMarkdown?: () => Promise<void>;
+      };
+      await view?.openAsMarkdown?.();
+    });
+    await browser.waitUntil(async () => (await activeViewType()) === "markdown", {
+      timeout: 20000,
+      timeoutMsg: "did not drop to markdown",
+    });
+
+    // The pane 'more options' menu (source 'more-options') must offer the way back.
+    const offered = await browser.executeObsidian(({ app }) => {
+      const leaf = app.workspace.activeLeaf;
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      let clickBack: (() => void) | null = null;
+      let title: string | null = null;
+      const menu = {
+        addItem(cb: (item: unknown) => void) {
+          const item = {
+            setTitle(t: string) {
+              title = t;
+              return item;
+            },
+            setIcon() {
+              return item;
+            },
+            onClick(handler: () => void) {
+              clickBack = handler;
+              return item;
+            },
+          };
+          cb(item);
+        },
+      };
+      app.workspace.trigger("file-menu", menu, file, "more-options", leaf);
+      if (title === "View as calendar" && clickBack) (clickBack as () => void)();
+      return title;
+    });
+    expect(offered).toBe("View as calendar");
+
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "'View as calendar' did not route back to the editor",
+    });
+  });
+
   it("exposes the escape hatch as a command too", async () => {
     const command = await browser.executeObsidian(({ app }) => {
       const commands = (app as unknown as {
@@ -236,6 +292,25 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("description: Edited by the form");
     // The hand-authored comment survived the save.
     expect(saved).toContain("# hand comment");
+  });
+
+  it("offers a searchable timezone picker on the timezone field", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    const tz = await $('.og-cal-form input[placeholder^="Search a timezone"]');
+    await tz.waitForClickable({ timeout: 20000, timeoutMsg: "timezone field never became interactable" });
+    await tz.click();
+    await tz.setValue("Auckland");
+
+    const suggestion = await $(".suggestion-container .suggestion-item");
+    await suggestion.waitForDisplayed({ timeout: 10000, timeoutMsg: "no timezone suggestions appeared" });
+    expect(await suggestion.getText()).toContain("Auckland");
+
+    await suggestion.click();
+    await browser.waitUntil(async () => (await tz.getValue()) === "Pacific/Auckland", {
+      timeout: 10000,
+      timeoutMsg: "picking a suggestion did not fill the field",
+    });
   });
 
   it("previews the working week on the Week tab", async () => {
