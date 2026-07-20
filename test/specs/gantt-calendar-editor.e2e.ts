@@ -294,6 +294,22 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("# hand comment");
   });
 
+  it("edits the working pattern visually and round-trips to RRULE", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    // The visual builder shows a weekday toggle per day — no raw RRULE.
+    expect((await $$(".og-rrule-day")).length).toBe(7);
+
+    // Turn Saturday on, then reveal the underlying rule via the escape hatch.
+    await (await $(".og-rrule-day=Sat")).click();
+    await (await $(".og-rrule-text-toggle")).click();
+    const raw = await $(".og-rrule input.og-cal-mono");
+    await raw.waitForDisplayed({ timeout: 5000, timeoutMsg: "raw pattern field did not appear" });
+    expect(await raw.getValue()).toContain("SA");
+  });
+
   it("offers a searchable timezone picker on the timezone field", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
