@@ -161,6 +161,14 @@ read-only "edit as markdown" row when present, so nothing is lost — but they a
 the form. Deferred to keep the form PR small; add the nested block editor (pattern + hours list per
 block) as its own unit. Flagged by Codex during U15 review.
 
+### P2h — Calendar editor: slow `fileManager.renameFile` while the editor is open
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (U15). Renaming an open
+calendar note via `fileManager.renameFile` (backlink rewriting + open custom-view update) is very slow
+— it exceeds WebDriver's script timeout in e2e; `vault.rename` is fast. Unsaved edits are already
+preserved and the save retargets the new path (the U15 rename fix), so no data is lost, but the rename
+itself may stutter for the user. Investigate the setViewState-routing interaction; likely a
+`suspendRouting` window around the leaf update. Discovered during U15 review.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

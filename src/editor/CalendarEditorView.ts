@@ -41,6 +41,7 @@ export class CalendarEditorView extends ItemView {
   private form: (ReturnType<typeof mount> & FormHandle) | null = null;
   /** Raw text the mounted form reflects — the baseline for external-write detection. */
   private lastContent: string | null = null;
+  private headingEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -82,7 +83,15 @@ export class CalendarEditorView extends ItemView {
       this.app.vault.on('rename', (file, oldPath) => {
         if (oldPath !== this.filePath) return;
         this.filePath = file.path;
-        this.render();
+        // A rename changes only the path, not the content. Rebuilding the form
+        // would discard unsaved edits, so keep it mounted when dirty (the save
+        // already targets the live path) and just refresh the heading; a clean
+        // form can safely rebuild.
+        if (this.form?.hasUnsavedEdits?.()) {
+          this.headingEl?.setText(this.getDisplayText());
+        } else {
+          this.render();
+        }
       }),
     );
     // The marker can disappear UNDER an open editor — a hand edit or an
@@ -164,23 +173,24 @@ export class CalendarEditorView extends ItemView {
     contentEl.empty();
     contentEl.addClass('og-calendar-editor');
     if (this.filePath === null) {
+      this.headingEl = null;
       contentEl.createEl('p', { text: 'No calendar note open.' });
       return;
     }
-    contentEl.createEl('h2', { text: this.getDisplayText() });
+    this.headingEl = contentEl.createEl('h2', { text: this.getDisplayText() });
 
     const file = this.app.vault.getAbstractFileByPath(this.filePath);
     if (!(file instanceof TFile)) return;
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
 
-    // Capture the path for the save closure so it is immune to a later
-    // setState nulling the field.
-    const savePath = this.filePath;
     this.form = mount(CalendarEditorForm, {
       target: contentEl,
       props: {
         initial: formFromFrontmatter(frontmatter),
-        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(savePath, changes),
+        // The live path, not a captured one: after a rename the save must target
+        // the note's new path. setState never nulls filePath (it only updates on
+        // a string file), so reading it at save time is safe.
+        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(this.filePath, changes),
         onReload: () => this.render(),
         autofocus: focusDescription,
         attachMemberSuggest: (input: HTMLInputElement) => {

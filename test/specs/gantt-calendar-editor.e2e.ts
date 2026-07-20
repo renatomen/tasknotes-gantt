@@ -339,6 +339,50 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(await (await $(".og-cal-notice")).isDisplayed()).toBe(false);
   });
 
+  it("keeps an unsaved edit when the note is renamed under it, and saves to the new path", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Edited then renamed");
+
+    // Rename the note while the edit is unsaved (vault.rename fires the same
+    // rename event the view listens to, without fileManager's link rewriting).
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      await app.vault.rename(file as never, "NZ Holidays Renamed.md");
+    });
+    await browser.pause(500);
+
+    // The form was not rebuilt, so the in-progress edit survives.
+    expect(await textarea.getValue()).toBe("Edited then renamed");
+
+    // And Save now targets the renamed note.
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled" });
+    await save.click();
+
+    await browser.waitUntil(
+      async () => {
+        const text = await browser.executeObsidian(async ({ app }) => {
+          const file = app.vault.getAbstractFileByPath("NZ Holidays Renamed.md");
+          return file ? ((await app.vault.read(file as never)) as string) : "";
+        });
+        return text.includes("description: Edited then renamed");
+      },
+      { timeout: 20000, timeoutMsg: "the save did not reach the renamed note" },
+    );
+
+    // Restore the fixture name for the tests that follow.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays Renamed.md");
+      if (file) await app.vault.rename(file as never, "NZ Holidays.md");
+    });
+    await browser.pause(300);
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {

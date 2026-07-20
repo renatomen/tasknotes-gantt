@@ -32,20 +32,23 @@ export function editFrontmatterKeys(
   original: string,
   changes: Record<string, FrontmatterValue>,
 ): string {
-  const fence = locateFrontmatter(original);
+  // A note may use CRLF (Windows/synced files); honour whichever it already has
+  // so an edit never mixes endings or mistakes a CRLF fence for no frontmatter.
+  const newline = original.includes('\r\n') ? '\r\n' : '\n';
+  const fence = locateFrontmatter(original, newline);
   if (fence === null) {
     const block = Object.entries(changes)
       .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => serializeKey(key, value))
-      .join('\n');
-    return `---\n${block}\n---\n\n${original}`;
+      .flatMap(([key, value]) => serializeKey(key, value).split('\n'))
+      .join(newline);
+    return `---${newline}${block}${newline}---${newline}${newline}${original}`;
   }
 
-  let lines = original.slice(fence.bodyStart, fence.bodyEnd).split('\n');
+  let lines = original.slice(fence.bodyStart, fence.bodyEnd).split(newline);
   for (const [key, value] of Object.entries(changes)) {
     lines = applyKey(lines, key, value);
   }
-  const rebuilt = lines.join('\n');
+  const rebuilt = lines.join(newline);
   const next = original.slice(0, fence.bodyStart) + rebuilt + original.slice(fence.bodyEnd);
   return next === original ? original : next;
 }
@@ -58,11 +61,12 @@ interface Fence {
 }
 
 /** Locate the frontmatter block, or null when the file has none. */
-function locateFrontmatter(text: string): Fence | null {
-  if (!text.startsWith('---\n')) return null;
-  const close = text.indexOf('\n---', 3);
+function locateFrontmatter(text: string, newline: string): Fence | null {
+  const open = `---${newline}`;
+  if (!text.startsWith(open)) return null;
+  const close = text.indexOf(`${newline}---`, 3);
   if (close === -1) return null;
-  return { bodyStart: 4, bodyEnd: close };
+  return { bodyStart: open.length, bodyEnd: close };
 }
 
 /** Replace, append or remove one key across the frontmatter's lines. */

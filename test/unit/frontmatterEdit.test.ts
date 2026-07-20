@@ -132,6 +132,18 @@ describe('Codex-found data-loss cases', () => {
     expect(next).not.toContain('description: "First line\nSecond line"');
   });
 
+  it('edits CRLF frontmatter in place, preserving the newline convention', () => {
+    // A note saved with Windows line endings must not be mistaken for
+    // frontmatter-less and have a duplicate LF block prepended.
+    const original = '---\r\ntngantt: calendar\r\ndescription: Old\r\n---\r\n\r\nBody.\r\n';
+    const next = editFrontmatterKeys(original, { description: 'New' });
+    expect(next.startsWith('---\r\n')).toBe(true);
+    expect(next).toContain('description: New\r\n');
+    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+    // No second, LF-delimited fence prepended.
+    expect(next).not.toContain('---\n');
+  });
+
   it('quotes a string YAML would retype as bool/null/number/date so it stays a string', () => {
     const original = doc('tngantt: calendar');
     expect(editFrontmatterKeys(original, { description: 'true' })).toContain('description: "true"');
