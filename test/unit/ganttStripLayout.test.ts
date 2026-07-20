@@ -72,9 +72,28 @@ describe('buildGanttStrip', () => {
     expect(strip.markers.map((m) => m.name)).toEqual(['Launch', 'Freeze']);
   });
 
-  it('excludes a marker that falls outside the window', () => {
-    const strip = buildGanttStrip(base({ markers: [{ date: '2099-01-01', name: 'Far future' }] }));
+  it('spans the calendar content so a mid-year marker is visible', () => {
+    const strip = buildGanttStrip(
+      base({
+        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+        nonWorking: [span('2026-01-05', '2026-01-06', 'New Year')],
+        markers: [{ date: '2026-06-15', name: 'Mid-year' }],
+      }),
+    );
+    expect(strip.markers.map((m) => m.name)).toContain('Mid-year');
+  });
+
+  it('caps the window so content beyond ~a year is excluded', () => {
+    const strip = buildGanttStrip(
+      base({
+        nonWorking: [span('2026-01-05', '2026-01-06', 'Anchor')],
+        markers: [{ date: '2030-06-01', name: 'Far future' }],
+      }),
+    );
+    // Window starts at the earliest content and is capped, so a marker four years
+    // out is not shown.
     expect(strip.markers).toHaveLength(0);
+    expect(strip.cells.length).toBeLessThanOrEqual(371);
   });
 
   it('flags an invalid pattern instead of rendering a strip', () => {
