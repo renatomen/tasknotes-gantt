@@ -304,7 +304,10 @@ describe("Gantt (OG) calendar editor routing", () => {
 
     const suggestion = await $(".suggestion-container .suggestion-item");
     await suggestion.waitForDisplayed({ timeout: 10000, timeoutMsg: "no timezone suggestions appeared" });
-    expect(await suggestion.getText()).toContain("Auckland");
+    const suggestionText = await suggestion.getText();
+    expect(suggestionText).toContain("Auckland");
+    // Each zone shows its live UTC offset, so similar names are distinguishable.
+    expect(suggestionText).toMatch(/UTC[+-]\d{2}:\d{2}/);
 
     await suggestion.click();
     await browser.waitUntil(async () => (await tz.getValue()) === "Pacific/Auckland", {
