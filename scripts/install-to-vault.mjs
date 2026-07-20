@@ -62,6 +62,14 @@ export function installToVault({ distDir = "dist", vault = process.env.OBSIDIAN_
     if (!fs.existsSync(dataPath)) {
       fs.writeFileSync(dataPath, "{}", "utf8");
     }
+    // Copying files does nothing to a RUNNING Obsidian: plugin JS is read once,
+    // when the plugin is enabled. This marker is the convention the Hot Reload
+    // community plugin watches, so a rebuild reloads the plugin instead of
+    // silently leaving stale code running. Inert without that plugin.
+    const hotReloadPath = path.join(pluginDir, ".hotreload");
+    if (!fs.existsSync(hotReloadPath)) {
+      fs.writeFileSync(hotReloadPath, "", "utf8");
+    }
     log.log?.(`[install-to-vault] installed to ${pluginDir}`);
     return "installed";
   } catch (err) {
@@ -73,12 +81,16 @@ export function installToVault({ distDir = "dist", vault = process.env.OBSIDIAN_
 
 // Manual escape hatch: `node scripts/install-to-vault.mjs`. Loads `.env` itself
 // (Vite loads env on the build path, so dotenv is only needed for the CLI).
+// Wrapped rather than top-level `await` so the module stays importable from a
+// CommonJS context (the unit tests load it through Jest's CJS wrapper).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    const { config } = await import("dotenv");
-    config();
-  } catch {
-    /* dotenv unavailable — rely on the ambient shell env */
-  }
-  installToVault();
+  void (async () => {
+    try {
+      const { config } = await import("dotenv");
+      config();
+    } catch {
+      /* dotenv unavailable — rely on the ambient shell env */
+    }
+    installToVault();
+  })();
 }
