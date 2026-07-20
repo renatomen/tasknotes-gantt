@@ -205,3 +205,47 @@ describe('datedBlockingSource', () => {
     expect(source.isNonWorking(new Date(2027, 0, 3))).toBe(false);
   });
 });
+
+describe('list-valued association properties', () => {
+  // Obsidian's List-type link property yields an ARRAY, which is the default
+  // shape for link properties — treating it as broken made the whole calendar
+  // association inert (no colour, no shading, stretching suspended).
+  it('resolves a single-entry list exactly like a bare wikilink', () => {
+    const fromList = resolveTaskCalendar(registry, ['[[NZ Holidays]]'], 'Tasks/T.md', resolveByBasename);
+    const fromString = resolveTaskCalendar(registry, '[[NZ Holidays]]', 'Tasks/T.md', resolveByBasename);
+    expect(fromList.identity?.id).toBe('Calendars/NZ Holidays.md');
+    expect(fromList.identity).toEqual(fromString.identity);
+    expect(fromList.schedulingSuspended).toBe(false);
+    expect(fromList.flags).toEqual([]);
+  });
+
+  it('uses the first entry of a multi-entry list and flags the rest', () => {
+    const resolved = resolveTaskCalendar(
+      registry,
+      ['[[NZ Holidays]]', '[[AU Holidays]]'],
+      'Tasks/T.md',
+      resolveByBasename,
+    );
+    expect(resolved.identity?.id).toBe('Calendars/NZ Holidays.md');
+    expect(resolved.schedulingSuspended).toBe(false);
+    expect(resolved.flags.join(' ')).toMatch(/first/i);
+  });
+
+  it('treats an empty list as no association, not as broken', () => {
+    const resolved = resolveTaskCalendar(registry, [], 'Tasks/T.md', resolveByBasename);
+    expect(resolved.identity).toBeUndefined();
+    expect(resolved.schedulingSuspended).toBe(false);
+    expect(resolved.flags).toEqual([]);
+  });
+
+  it('still flags a list whose entry does not resolve', () => {
+    const resolved = resolveTaskCalendar(registry, ['[[Ghost]]'], 'Tasks/T.md', resolveByBasename);
+    expect(resolved.schedulingSuspended).toBe(true);
+    expect(resolved.flags.length).toBeGreaterThan(0);
+  });
+
+  it('rejects a list of non-strings', () => {
+    const resolved = resolveTaskCalendar(registry, [42 as never], 'Tasks/T.md', resolveByBasename);
+    expect(resolved.schedulingSuspended).toBe(true);
+  });
+});

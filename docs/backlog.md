@@ -90,6 +90,21 @@ makes three surfaces competing on the same channel. Judge it once those are on s
 then, the likely shape is a low-percentage tint applied only at 2+ displayed calendars, plus
 conflict stripes upgraded to the two disagreeing calendars' colours.
 
+### P2d — Calendar: per-task association problems have nowhere to surface
+Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (R27, KTD11). Found while
+answering a maintainer question about multi-calendar association.
+
+`resolveTaskCalendar` produces flags per task — a dangling link, a link to a non-calendar or invalid
+note, a set member dropped for being itself a set, and now "only the first entry of a multi-entry
+list is used". Those flags are returned and then **discarded**: the calendar-status banner counts
+invalid calendar *notes* and unresolved *display-selection* links, never per-task association
+problems. So a task whose calendar link is broken silently renders as unassociated — dates unchanged
+and scheduling suspended, with no notice anywhere.
+
+KTD11 promises these are fail-visible. Options: fold an association-flag count into the banner
+(cheapest, consistent with the existing notice), and/or a per-bar cue for the affected tasks. Needs a
+decision on which, since the banner is view-level and the problem is task-level.
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).
