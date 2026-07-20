@@ -14,7 +14,9 @@
  *
  * @module editor/CalendarEditorView
  */
-import { ItemView, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+/* global HTMLInputElement */
+import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import { mount, unmount } from 'svelte';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
@@ -22,9 +24,15 @@ import {
   shouldHealToMarkdown,
   suspendRouting,
 } from './calendarEditorRouting';
+import CalendarEditorForm from './CalendarEditorForm.svelte';
+import { formFromFrontmatter } from './calendarEditorState';
+import { editFrontmatterKeys, type FrontmatterValue } from './frontmatterEdit';
+import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
+import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
 
 export class CalendarEditorView extends ItemView {
   private filePath: string | null = null;
+  private form: ReturnType<typeof mount> | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -114,14 +122,67 @@ export class CalendarEditorView extends ItemView {
     return matchesCalendarMarker(frontmatter) !== null;
   }
 
+  async onClose(): Promise<void> {
+    this.destroyForm();
+  }
+
+  private destroyForm(): void {
+    if (this.form) {
+      try {
+        void unmount(this.form);
+      } catch {
+        /* already gone */
+      }
+      this.form = null;
+    }
+  }
+
   private render(): void {
+    this.destroyForm();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('og-calendar-editor');
+    if (this.filePath === null) {
+      contentEl.createEl('p', { text: 'No calendar note open.' });
+      return;
+    }
     contentEl.createEl('h2', { text: this.getDisplayText() });
-    contentEl.createEl('p', {
-      text: 'Calendar editor — the form arrives in the next unit. Use the pane menu to open this note as markdown.',
+
+    const file = this.app.vault.getAbstractFileByPath(this.filePath);
+    if (!(file instanceof TFile)) return;
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+
+    this.form = mount(CalendarEditorForm, {
+      target: contentEl,
+      props: {
+        initial: formFromFrontmatter(frontmatter),
+        onSave: (changes: Record<string, FrontmatterValue>) => this.persist(changes),
+        attachMemberSuggest: (input: HTMLInputElement) => {
+          // Fire-and-forget: the suggester attaches to the input and is GC'd
+          // with it (matches the cell-editor callers).
+          void new WikilinkInputSuggest(
+            this.app,
+            input,
+            createVaultWikilinkFetcher(this.app, this.filePath ?? ''),
+          );
+        },
+      },
     });
+  }
+
+  /** Write the form's change set through the comment-preserving editor. */
+  private async persist(changes: Record<string, FrontmatterValue>): Promise<void> {
+    if (this.filePath === null) return;
+    const file = this.app.vault.getAbstractFileByPath(this.filePath);
+    if (!(file instanceof TFile)) return;
+    try {
+      const original = await this.app.vault.read(file);
+      await this.app.vault.modify(file, editFrontmatterKeys(original, changes));
+    } catch (error) {
+      console.error('[Gantt] Failed to save the calendar note:', error);
+      new Notice("Couldn't save the calendar note — see console for details.");
+      throw error;
+    }
   }
 }
 

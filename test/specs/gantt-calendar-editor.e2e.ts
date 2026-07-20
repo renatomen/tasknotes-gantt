@@ -1,4 +1,4 @@
-import { browser, expect, $$ } from "@wdio/globals";
+import { browser, expect, $, $$ } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -42,7 +42,16 @@ async function restoreMarker(): Promise<void> {
 async function openNote(notePath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, p) => {
     const file = app.vault.getAbstractFileByPath(p);
-    if (file) await app.workspace.getLeaf(true).openFile(file as never);
+    if (!file) return;
+    // Close prior tabs so the opened note is the single active, laid-out leaf.
+    // Stale background leaves keep their DOM but render display:none, so their
+    // controls exist yet are not interactable.
+    app.workspace.detachLeavesOfType("tngantt-calendar-editor");
+    app.workspace.detachLeavesOfType("markdown");
+    const leaf = app.workspace.getLeaf(true);
+    await leaf.openFile(file as never);
+    await app.workspace.revealLeaf(leaf);
+    app.workspace.setActiveLeaf(leaf, { focus: true });
   }, notePath);
   await browser.pause(400);
 }
@@ -179,6 +188,54 @@ describe("Gantt (OG) calendar editor routing", () => {
       return Object.keys(commands).find((id) => id.includes("open-calendar-as-markdown")) ?? null;
     });
     expect(command).not.toBeNull();
+  });
+
+  it("saves a form edit back to frontmatter, preserving a hand-authored comment", async () => {
+    await restoreMarker();
+    // Seed a comment we can prove survives a form save.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      if (!file) throw new Error("fixture calendar missing");
+      const body = await app.vault.read(file as never);
+      if (!(body as string).includes("# hand comment")) {
+        await app.vault.modify(
+          file as never,
+          (body as string).replace("tngantt: calendar", "tngantt: calendar\n# hand comment")
+        );
+      }
+    });
+
+    await openNote("NZ Holidays.md");
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+
+    // Drive the field through real typing so Svelte's binding sees the change
+    // (a programmatic value-set does not update a two-way bound input).
+    await textarea.setValue("Edited by the form");
+
+    // The Save button enables only once the form is dirty; that gates the click.
+    const save = await $('.og-cal-form button.mod-cta');
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled after an edit" });
+    await save.click();
+
+    await browser.waitUntil(
+      async () => {
+        const text = await browser.executeObsidian(async ({ app }) => {
+          const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+          return file ? ((await app.vault.read(file as never)) as string) : "";
+        });
+        return text.includes("description: Edited by the form");
+      },
+      { timeout: 20000, timeoutMsg: "the form save never reached the frontmatter" }
+    );
+
+    const saved = await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+      return file ? ((await app.vault.read(file as never)) as string) : "";
+    });
+    expect(saved).toContain("description: Edited by the form");
+    // The hand-authored comment survived the save.
+    expect(saved).toContain("# hand comment");
   });
 
   it("keeps markdown as the floor when the plugin is disabled", async () => {

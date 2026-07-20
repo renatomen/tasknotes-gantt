@@ -56,6 +56,29 @@ export class ItemView {
   }
 }
 
+/**
+ * Stub of Obsidian's `AbstractInputSuggest`, enough for `WikilinkInputSuggest`
+ * to extend it and be imported in a Node test. The suggester's live behaviour
+ * is exercised through the cell-editor e2e, not here.
+ */
+export class AbstractInputSuggest<T> {
+  app: App;
+  protected inputEl: unknown;
+  private readonly isMock: T[] = [];
+  constructor(app: App, inputEl: unknown) {
+    this.app = app;
+    this.inputEl = inputEl;
+  }
+  setValue(): void {}
+  getValue(): string {
+    return '';
+  }
+  close(): void {}
+}
+
+/** No-op stand-in for Obsidian's suggestion renderer. */
+export function renderResults(): void {}
+
 /** Stub host app. */
 export class App {
   /** Marker so the mock isn't an empty class (S2094); the real App has many members. */
