@@ -27,6 +27,7 @@
   import { ganttStripLayoutFor } from './ganttStripLayout';
   import GanttStripPreview from './GanttStripPreview.svelte';
   import { formatUtcOffset } from './timezoneOffset';
+  import WorkingPatternEditor from './WorkingPatternEditor.svelte';
 
   interface Props {
     initial: EditorFormState;
@@ -234,16 +235,11 @@
     <section class="og-cal-group">
       <h3 class="og-cal-group-title">Working schedule</h3>
 
-      <label class="og-cal-field">
+      <div class="og-cal-field">
         <span class="og-cal-label">Working pattern</span>
-        <input
-          class="og-cal-control og-cal-mono"
-          type="text"
-          bind:value={form.pattern}
-          placeholder="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
-        />
+        <WorkingPatternEditor bind:value={form.pattern} />
         {#if errors.pattern}<span class="og-cal-error">{errors.pattern}</span>{/if}
-      </label>
+      </div>
 
       <label class="og-cal-field">
         <span class="og-cal-label">Anchor date</span>
