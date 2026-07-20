@@ -8,7 +8,7 @@
  * @module editor/yearGridLayout
  */
 
-import type { CalendarDefinition } from '../controller/calendar/schema';
+import type { CalendarDefinition, ParsedCalendarNote } from '../controller/calendar/schema';
 import { addDaysIso } from '../controller/calendar/schema';
 import {
   blockingComplement,
@@ -40,6 +40,19 @@ export interface YearGridLayout {
   cells: YearGridCell[];
   /** Set when the pattern cannot evaluate — render the flag state, not a grid. */
   invalid: string | undefined;
+}
+
+/**
+ * The year layout for a parsed note: the grid for a calendar, an invalid-flag
+ * layout for an unparseable definition (so the author sees why), or null for a
+ * set — which has no working pattern and gets the "not a calendar" message.
+ */
+export function yearLayoutFor(note: ParsedCalendarNote | null, year: number): YearGridLayout | null {
+  if (note === null || note.kind === 'calendar-set') return null;
+  if (note.kind === 'invalid') {
+    return { year, columns: 0, cells: [], invalid: note.reasons.join('; ') };
+  }
+  return buildYearGrid(note, year);
 }
 
 export function buildYearGrid(definition: CalendarDefinition, year: number): YearGridLayout {

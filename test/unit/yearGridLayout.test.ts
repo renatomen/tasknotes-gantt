@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildYearGrid, type DayClass } from '../../src/editor/yearGridLayout';
+import { buildYearGrid, yearLayoutFor, type DayClass } from '../../src/editor/yearGridLayout';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
 const base = (over: Partial<CalendarDefinition> = {}): CalendarDefinition => ({
@@ -143,5 +143,33 @@ describe('buildYearGrid', () => {
     const grid = buildYearGrid(base({ pattern: 'FREQ=NONSENSE' }), 2025);
     expect(grid.invalid).toBeDefined();
     expect(grid.cells).toHaveLength(0);
+  });
+});
+
+describe('yearLayoutFor', () => {
+  it('builds the grid for a calendar definition', () => {
+    const layout = yearLayoutFor(base(), 2025);
+    expect(layout?.invalid).toBeUndefined();
+    expect(layout?.cells.length).toBeGreaterThan(300);
+  });
+
+  it('returns null for a set (no working pattern to preview)', () => {
+    expect(
+      yearLayoutFor(
+        { kind: 'calendar-set', description: undefined, color: undefined, members: [], diagnostics: [] },
+        2025,
+      ),
+    ).toBeNull();
+  });
+
+  it('surfaces an invalid definition as a flagged layout, not the set message', () => {
+    const layout = yearLayoutFor({ kind: 'invalid', reasons: ['missing FREQ'] }, 2025);
+    expect(layout).not.toBeNull();
+    expect(layout?.invalid).toBe('missing FREQ');
+    expect(layout?.cells).toHaveLength(0);
+  });
+
+  it('returns null for a non-calendar note', () => {
+    expect(yearLayoutFor(null, 2025)).toBeNull();
   });
 });

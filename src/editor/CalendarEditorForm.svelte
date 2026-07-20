@@ -20,7 +20,7 @@
   } from './calendarEditorState';
   import type { FrontmatterValue } from './frontmatterEdit';
   import { parseCalendarFrontmatter } from '../controller/calendar/schema';
-  import { buildYearGrid } from './yearGridLayout';
+  import { yearLayoutFor } from './yearGridLayout';
   import YearGrid from './YearGrid.svelte';
 
   interface Props {
@@ -70,9 +70,7 @@
   let activeTab = $state<Tab>('edit');
   let previewYear = $state(new Date().getFullYear());
   const definition = $derived(parseCalendarFrontmatter(frontmatterFromForm(form)));
-  const yearLayout = $derived(
-    definition?.kind === 'calendar' ? buildYearGrid(definition, previewYear) : null,
-  );
+  const yearLayout = $derived(yearLayoutFor(definition, previewYear));
   function stepYear(delta: number): void {
     previewYear += delta;
   }
