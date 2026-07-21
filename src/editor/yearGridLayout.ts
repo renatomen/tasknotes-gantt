@@ -10,12 +10,8 @@
 
 import type { CalendarDefinition, ParsedCalendarNote } from '../controller/calendar/schema';
 import { addDaysIso } from '../controller/calendar/schema';
-import {
-  blockingComplement,
-  evaluatePattern,
-  validatePattern,
-  type EvaluationWindow,
-} from '../controller/calendar/patternWindow';
+import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
+import { blockingDays, eventDays, markerDays, type ClassifiedDays } from './calendarDayFacts';
 
 /** Highest-precedence treatment a day carries: marker > blocking > event > working. */
 export type DayClass = 'working' | 'blocking' | 'event' | 'marker';
@@ -97,12 +93,6 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
   return { year, columns: Math.ceil(index / 7), cells, invalid: undefined };
 }
 
-/** A day set with the entry name that produced each day (for hover labels). */
-interface ClassifiedDays {
-  days: Set<string>;
-  names: Map<string, string>;
-}
-
 /**
  * The winning class AND its own entry's name — read from the same source the
  * class was chosen from, so an unnamed higher-precedence entry never inherits a
@@ -118,58 +108,6 @@ function classify(
   if (blocking.days.has(day)) return { dayClass: 'blocking', name: blocking.names.get(day) };
   if (events.days.has(day)) return { dayClass: 'event', name: events.names.get(day) };
   return { dayClass: 'working', name: undefined };
-}
-
-function markerDays(definition: CalendarDefinition): ClassifiedDays {
-  const days = new Set<string>();
-  const names = new Map<string, string>();
-  for (const marker of definition.markers) {
-    days.add(marker.date);
-    if (marker.name !== undefined) names.set(marker.date, marker.name);
-  }
-  return { days, names };
-}
-
-/** Non-working days: the pattern's blocking complement plus explicit spans. */
-function blockingDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
-  const result: ClassifiedDays = { days: new Set(), names: new Map() };
-  if (definition.pattern !== undefined) {
-    const complement = blockingComplement(definition.pattern, definition.patternStart, window);
-    if (complement.kind === 'ok') for (const day of complement.dates) result.days.add(day);
-  }
-  addSpanDays(definition.nonWorking, window, result);
-  return result;
-}
-
-/** Display-only days: dated event spans plus recurring-event occurrences. */
-function eventDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
-  const result: ClassifiedDays = { days: new Set(), names: new Map() };
-  addSpanDays(definition.events, window, result);
-  for (const event of definition.recurringEvents) {
-    // Anchor to the calendar's pattern_start, matching the live shading path, so
-    // an anchored (INTERVAL/COUNT/UNTIL) recurrence is not silently dropped.
-    const occurrences = evaluatePattern(event.rrule, definition.patternStart, window);
-    if (occurrences.kind !== 'ok') continue;
-    for (const day of occurrences.dates) {
-      result.days.add(day);
-      if (event.name !== undefined) result.names.set(day, event.name);
-    }
-  }
-  return result;
-}
-
-function addSpanDays(
-  spans: ReadonlyArray<{ startDate: string; endDateExclusive: string; name: string | undefined }>,
-  window: EvaluationWindow,
-  into: ClassifiedDays,
-): void {
-  for (const span of spans) {
-    for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) {
-      if (day < window.startDate || day >= window.endDateExclusive) continue;
-      into.days.add(day);
-      if (span.name !== undefined) into.names.set(day, span.name);
-    }
-  }
 }
 
 function pad4(year: number): string {
