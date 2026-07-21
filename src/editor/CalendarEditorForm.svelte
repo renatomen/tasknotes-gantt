@@ -28,6 +28,7 @@
   import GanttStripPreview from './GanttStripPreview.svelte';
   import { formatUtcOffset } from './timezoneOffset';
   import WorkingPatternEditor from './WorkingPatternEditor.svelte';
+  import ColorField from './ColorField.svelte';
 
   interface Props {
     initial: EditorFormState;
@@ -233,18 +234,11 @@
       ></textarea>
     </label>
 
-    <label class="og-cal-field">
+    <div class="og-cal-field">
       <span class="og-cal-label">Colour</span>
-      <span class="og-cal-color">
-        <span
-          class="og-cal-swatch"
-          class:og-cal-swatch-empty={!!errors.color || form.color === ''}
-          style="background:{errors.color || form.color === '' ? 'transparent' : form.color}"
-        ></span>
-        <input class="og-cal-control" type="text" bind:value={form.color} placeholder="#2a9d8f" />
-      </span>
+      <ColorField bind:value={form.color} />
       {#if errors.color}<span class="og-cal-error">{errors.color}</span>{/if}
-    </label>
+    </div>
   </section>
 
   {#if form.kind === 'calendar'}
@@ -521,28 +515,6 @@
     inline-size: auto;
     min-inline-size: 9rem;
     max-inline-size: 12rem;
-  }
-
-  .og-cal-color {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .og-cal-swatch {
-    flex: 0 0 auto;
-    inline-size: 1.6rem;
-    block-size: 1.6rem;
-    border-radius: var(--radius-s, 4px);
-    border: 1px solid var(--background-modifier-border);
-  }
-  .og-cal-swatch-empty {
-    background-image: linear-gradient(
-      45deg,
-      var(--background-modifier-border) 25%,
-      transparent 25% 75%,
-      var(--background-modifier-border) 75%
-    );
-    background-size: 8px 8px;
   }
 
   .og-cal-hint {
