@@ -403,6 +403,14 @@
 
   /* Sticky header: pinned to the top of the scrolling editor so the tabs, Save
      and the unsaved cue stay reachable however far the form scrolls. */
+  /* The scroll container (Obsidian's .view-content) carries a top padding, and a
+     `top: 0` sticky pins to the content box — below that padding — leaving a band
+     above the header where scrolled content shows through. Zero the top padding
+     so the header pins flush to the scrollport; the heading keeps its own margin
+     for spacing. Scoped by both classes to outrank the theme's .view-content. */
+  :global(.view-content.og-calendar-editor) {
+    padding-top: 0;
+  }
   .og-cal-header {
     position: sticky;
     top: 0;
@@ -412,8 +420,14 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem 0.75rem;
-    padding: 0.5rem 0;
-    background: var(--background-primary);
+    /* Widen past a focused field's 2px focus ring, which overhangs the field on
+       each side: pull the header out with a negative inline margin (into the
+       scroller's horizontal padding, so no overflow) and restore the inset with
+       matching inline padding, so the ring never peeks past the header edges as
+       a field scrolls behind it. */
+    margin-inline: -0.25rem;
+    padding: 0.5rem 0.25rem;
+    background-color: var(--background-primary);
     border-bottom: 1px solid var(--background-modifier-border);
   }
   .og-cal-header-actions {
