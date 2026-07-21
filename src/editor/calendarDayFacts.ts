@@ -40,13 +40,30 @@ export function blockingDays(
   definition: CalendarDefinition,
   window: EvaluationWindow,
 ): ClassifiedDays {
-  const result = emptyClassifiedDays();
+  return blockingFacts(definition, window).blocking;
+}
+
+/**
+ * Blocking days (with names) plus whether a valid working pattern covers the
+ * rest — the two facts a set-union conflict check needs. Computing them together
+ * lets the union derive both its blocking shading and its conflicts from one
+ * pass per member, rather than evaluating the blocking complement twice.
+ */
+export function blockingFacts(
+  definition: CalendarDefinition,
+  window: EvaluationWindow,
+): { blocking: ClassifiedDays; covers: boolean } {
+  const blocking = emptyClassifiedDays();
+  let covers = false;
   if (definition.pattern !== undefined) {
     const complement = blockingComplement(definition.pattern, definition.patternStart, window);
-    if (complement.kind === 'ok') for (const day of complement.dates) result.days.add(day);
+    if (complement.kind === 'ok') {
+      covers = true;
+      for (const day of complement.dates) blocking.days.add(day);
+    }
   }
-  addSpanDays(definition.nonWorking, window, result);
-  return result;
+  addSpanDays(definition.nonWorking, window, blocking);
+  return { blocking, covers };
 }
 
 /** Display-only days: dated event spans plus recurring-event occurrences. */

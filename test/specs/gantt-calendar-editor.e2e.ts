@@ -885,6 +885,56 @@ describe("Gantt (OG) calendar editor routing", () => {
     await deleteNotes(["Live Set.md", "Sun Thu.md"]);
   });
 
+  it("warns when a conflict falls outside the counted year, though the year grid is clean", async () => {
+    // A Mon–Fri member covers weekdays every year; a member that blocks one past
+    // Monday (no pattern) disagrees only on that day. The Strip tab (content
+    // window) shows the conflict; the Year grid (current year) does not — so the
+    // banner must still warn rather than read "all clear".
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Past Holiday.md",
+      '---\ntngantt: calendar\nnon_working:\n  - 2020-01-06\n---\n',
+    );
+    await createNote(
+      "Off Year Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n  - "[[Past Holiday]]"\n---\n',
+    );
+    await openNote("Off Year Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-cal-tab=Year")).click();
+
+    await browser.waitUntil(
+      async () => {
+        const info = await browser.executeObsidian(({ app }) => {
+          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+            ?.containerEl;
+          if (!root) return null;
+          const banner = root.querySelector(".og-cal-status");
+          return {
+            yearConflicts: root.querySelectorAll(".og-year-cell.og-year-conflict").length,
+            text: banner?.textContent ?? "",
+            cls: banner?.className ?? "",
+          };
+        });
+        return (
+          info !== null &&
+          info.yearConflicts === 0 && // the counted year has none
+          info.text.includes("conflict") && // but the banner still warns
+          info.cls.includes("og-cal-status-warn")
+        );
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: "the banner did not warn about a conflict outside the counted year",
+      },
+    );
+
+    await deleteNotes(["Off Year Set.md", "Past Holiday.md", "Weekdays Cal.md"]);
+  });
+
   it("counts an unresolved link and a nested set separately, still rendering the preview", async () => {
     await createNote(
       "Nested Set.md",

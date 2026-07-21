@@ -9,11 +9,12 @@
  * @module editor/unionPreview
  */
 
-import type { CalendarDefinition } from '../controller/calendar/schema';
+import { parseCalendarFrontmatter, type CalendarDefinition } from '../controller/calendar/schema';
+import { stripSubpath } from '../controller/calendar/resolveCalendars';
 import type { EvaluationWindow } from '../controller/calendar/patternWindow';
-import { conflictDates } from '../bases/calendarConflicts';
+import { conflictsFromFacts, type CalendarDayFacts } from '../bases/calendarConflicts';
 import {
-  blockingDays,
+  blockingFacts,
   emptyClassifiedDays,
   eventDays,
   markerDays,
@@ -31,6 +32,32 @@ export type MemberResolution =
   | { kind: 'ok'; definition: CalendarDefinition }
   | { kind: 'unresolved' }
   | { kind: 'invalid' };
+
+/** A resolved member note: its frontmatter, or null when the link finds no file. */
+export interface ResolvedMemberNote {
+  frontmatter: unknown;
+}
+
+/**
+ * Classify one set-member link into the union's three-way outcome, given a
+ * resolver that turns a link into a note (or null). The link's subpath is
+ * stripped first (association is note-level), then the note's frontmatter is
+ * parsed: a valid calendar is `ok`, anything else that resolved — an invalid
+ * note or a calendar-set, since sets are flat — is `invalid`, and a link that
+ * resolves to no file is `unresolved`. Pure: the Obsidian resolution lives in
+ * the caller, so the policy unit-tests without a vault.
+ */
+export function classifyMember(
+  link: string,
+  resolve: (strippedLink: string) => ResolvedMemberNote | null,
+): MemberResolution {
+  const note = resolve(stripSubpath(link));
+  if (note === null) return { kind: 'unresolved' };
+  const parsed = parseCalendarFrontmatter(note.frontmatter);
+  return parsed !== null && parsed.kind === 'calendar'
+    ? { kind: 'ok', definition: parsed }
+    : { kind: 'invalid' };
+}
 
 export interface UnionModel {
   /** Days blocking (non-working) in at least one member. */
@@ -51,10 +78,16 @@ export function buildUnionModel(
   const blocking = emptyClassifiedDays();
   const events = emptyClassifiedDays();
   const markers = emptyClassifiedDays();
+  // One blocking pass per member feeds both the union's shading and its
+  // conflicts — the conflict check reuses the same blocked/covers facts rather
+  // than re-evaluating each member's blocking complement.
+  const facts: CalendarDayFacts[] = [];
   for (const member of members) {
-    mergeClassifiedDays(blocking, blockingDays(member, window));
+    const memberBlocking = blockingFacts(member, window);
+    mergeClassifiedDays(blocking, memberBlocking.blocking);
+    facts.push({ blocked: memberBlocking.blocking.days, covers: memberBlocking.covers });
     mergeClassifiedDays(events, eventDays(member, window));
     mergeClassifiedDays(markers, markerDays(member));
   }
-  return { blocking, events, markers, conflicts: new Set(conflictDates(members, window)) };
+  return { blocking, events, markers, conflicts: new Set(conflictsFromFacts(facts, window)) };
 }

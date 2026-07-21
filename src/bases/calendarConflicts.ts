@@ -9,7 +9,7 @@
 import { addDaysIso, type CalendarDefinition } from '../controller/calendar/schema';
 import { blockingComplement, type EvaluationWindow } from '../controller/calendar/patternWindow';
 
-interface CalendarDayFacts {
+export interface CalendarDayFacts {
   /** Days this calendar blocks inside the window. */
   blocked: Set<string>;
   /** True when a valid working pattern makes uncomplemented days covered. */
@@ -20,7 +20,22 @@ export function conflictDates(
   calendars: ReadonlyArray<CalendarDefinition>,
   window: EvaluationWindow,
 ): string[] {
-  const facts = calendars.map((calendar) => dayFacts(calendar, window));
+  return conflictsFromFacts(
+    calendars.map((calendar) => dayFacts(calendar, window)),
+    window,
+  );
+}
+
+/**
+ * The conflict-classification core over already-computed per-calendar day facts:
+ * a day conflicts exactly when one calendar blocks it while another covers it.
+ * Callers that already hold each calendar's blocked/covers facts (the set-union
+ * preview) use this to avoid recomputing the blocking complement a second time.
+ */
+export function conflictsFromFacts(
+  facts: ReadonlyArray<CalendarDayFacts>,
+  window: EvaluationWindow,
+): string[] {
   const conflicts: string[] = [];
   for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
     const blockedBy = facts.some((fact) => fact.blocked.has(day));
@@ -58,12 +73,18 @@ export interface CalendarNoticeFacts {
   invalidCount: number;
   /** Selected entries whose links no longer resolve. */
   flaggedCount: number;
+  /** Names the year the conflict count is scoped to, when the count is shown. */
+  conflictYear?: number;
+  /** Conflicts the counted window misses but a preview still surfaces. */
+  conflictsElsewhere?: boolean;
 }
 
 /**
  * The calendar-status banner line, or null when there is nothing to say. The
  * banner exists from two displayed calendars up (the picker's shortcut) and
- * whenever any calendar needs attention.
+ * whenever any calendar needs attention. The conflict count is scoped to one
+ * window (the selected year); `conflictsElsewhere` keeps the banner honest when
+ * a preview shows a conflict that window misses.
  */
 export function buildCalendarNotice(facts: CalendarNoticeFacts): string | null {
   const parts: string[] = [];
@@ -71,7 +92,12 @@ export function buildCalendarNotice(facts: CalendarNoticeFacts): string | null {
     parts.push(`Displaying ${facts.displayedCount} calendars`);
   }
   if (facts.conflictCount > 0) {
-    parts.push(`${facts.conflictCount} ${plural(facts.conflictCount, 'day', 'days')} in conflict`);
+    const inYear = facts.conflictYear !== undefined ? ` in ${facts.conflictYear}` : '';
+    parts.push(
+      `${facts.conflictCount} ${plural(facts.conflictCount, 'day', 'days')} in conflict${inYear}`,
+    );
+  } else if (facts.conflictsElsewhere) {
+    parts.push('conflicts exist in other years');
   }
   if (facts.invalidCount > 0) {
     parts.push(

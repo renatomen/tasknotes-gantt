@@ -17,10 +17,9 @@
 /* global HTMLInputElement */
 import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { mount, unmount } from 'svelte';
-import { matchesCalendarMarker, parseCalendarFrontmatter } from '../controller/calendar/schema';
+import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from '../bases/parentLink';
-import { stripSubpath } from '../controller/calendar/resolveCalendars';
-import type { MemberResolution } from './unionPreview';
+import { classifyMember, type MemberResolution } from './unionPreview';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
   displayNameFor,
@@ -161,14 +160,13 @@ export class CalendarEditorView extends ItemView {
    * categories stay distinct in the set banner.
    */
   private resolveMember(link: string): MemberResolution {
-    const path = resolveParentLink(this.app, stripSubpath(link), this.filePath ?? '');
-    if (path === null) return { kind: 'unresolved' };
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return { kind: 'unresolved' };
-    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const parsed = parseCalendarFrontmatter(frontmatter);
-    if (parsed !== null && parsed.kind === 'calendar') return { kind: 'ok', definition: parsed };
-    return { kind: 'invalid' };
+    return classifyMember(link, (strippedLink) => {
+      const path = resolveParentLink(this.app, strippedLink, this.filePath ?? '');
+      if (path === null) return null;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) return null;
+      return { frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter };
+    });
   }
 
   private hasMarker(path: string): boolean {

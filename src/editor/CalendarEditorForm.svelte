@@ -145,22 +145,31 @@
   const unionYearLayout = $derived(buildYearGridUnion(memberDefinitions, previewYear));
 
   // The banner counts conflicts over one canonical window — the selected year —
-  // so its number matches the Year tab's stripes exactly. It reads them from the
-  // SAME layout the Year tab renders (not a parallel recompute), so the count and
-  // the visible stripes can never drift. When anything needs attention
-  // (conflicts/invalid/unresolved) the notice leads with that; otherwise a bare
-  // "Displaying N calendars" shows, carried by a status treatment. Passing
-  // displayedCount 0 suppresses that count line, so it appears only when nothing
-  // needs attention.
+  // read from the SAME layout the Year tab renders, so the number and the Year
+  // stripes can never drift. But the Week/Strip tabs render conflicts over their
+  // own content windows, which can fall outside that year: the banner also warns
+  // whenever any preview shows a conflict the year count misses, so it never
+  // reads "all clear" while a stripe is visible. When anything needs attention
+  // the notice leads with that; a bare "Displaying N calendars" shows only when
+  // nothing does (displayedCount 0 suppresses that count line under warning).
   const conflictCount = $derived(
     unionYearLayout.cells.filter((cell) => cell.inYear && cell.dayClass === 'conflict').length,
   );
-  const setNoticeWarn = $derived(conflictCount > 0 || invalidCount > 0 || unresolvedCount > 0);
+  const conflictsElsewhere = $derived(
+    conflictCount === 0 &&
+      (unionWeekLayout.days.some((day) => day.conflict) ||
+        unionStripLayout.cells.some((cell) => cell.conflict)),
+  );
+  const setNoticeWarn = $derived(
+    conflictCount > 0 || conflictsElsewhere || invalidCount > 0 || unresolvedCount > 0,
+  );
   const setNotice = $derived(
     form.kind === 'calendar-set'
       ? buildCalendarNotice({
           displayedCount: setNoticeWarn ? 0 : okCount,
           conflictCount,
+          conflictYear: previewYear,
+          conflictsElsewhere,
           invalidCount,
           flaggedCount: unresolvedCount,
         })

@@ -169,32 +169,20 @@ preserved and the save retargets the new path (the U15 rename fix), so no data i
 itself may stutter for the user. Investigate the setViewState-routing interaction; likely a
 `suspendRouting` window around the leaf update. Discovered during U15 review.
 
-### P2i — Calendar-set union preview: review follow-ups
-Source: `docs/plans/2026-07-22-001-feat-calendar-set-union-preview-plan.md`. Surfaced by ce-code-review
-of the union-preview feature; all deferred deliberately (none block the feature, which is unit- + e2e-tested).
-- **Availability-only members ignored in the union.** The union's blocking/conflict facts derive from
-  `pattern` + `nonWorking` only (`calendarDayFacts.blockingDays` / `calendarConflicts.dayFacts`), never
-  `availability` blocks. A member defined purely by availability blocks (no top-level pattern) shows as
-  working every day in the set preview and never conflicts — contradicting how the same calendar renders
-  on its own Week tab. Pre-existing single-calendar conflict-model limitation, now inherited by the set
-  preview + banner. Fix by threading availability-derived blocking into the shared conflict model (touches
-  `src/bases/calendarConflicts.ts`). Related to [[P2g]] (editing availability) and P2b (RRULE inertness).
-- **Banner conflict count is year-scoped; tabs are content-scoped.** The banner counts conflicts over the
-  selected `previewYear` (plan KTD5, wording "N conflict days in <year>"), but the Week/Strip tabs anchor
-  to each member's dated content window — so a date-specific conflict in a non-current year renders a
-  stripe while the banner stays silent ("Displaying N calendars"). Product decision: unify the window, or
-  make the banner reflect any-tab conflicts. Common weekly-pattern case is unaffected (conflicts recur every year).
-- **`resolveMember` duplicates the registry's member-classification policy.** `CalendarEditorView.resolveMember`
-  re-derives the unresolved/invalid/ok three-way split that `buildCalendarRegistry` already encodes in
-  `src/controller/calendar/resolveCalendars.ts`. Extract a shared `classifyMemberLink` used by both so a
-  future degradation case can't be added in one place and forgotten in the other. Verify the two
-  classifications are behavior-equivalent first.
-- **Double per-member blocking computation.** `buildUnionModel` computes each member's blocking set via
-  `blockingDays`, then `conflictDates` recomputes it internally via `dayFacts` (and `unionWorkingHours`
-  a third time for the week). Behavior-correct but 2–3× the RRULE evaluation per member per window; the
-  always-visible banner pays it on every member-list keystroke. Fix by letting `conflictDates` accept the
-  already-computed per-member blocking sets (touches `src/bases/calendarConflicts.ts`). Higher-leverage
-  than debouncing the derived chain.
+### P2i — Calendar-set union preview: availability-only members ignored
+Source: `docs/plans/2026-07-22-001-feat-calendar-set-union-preview-plan.md`. Surfaced by ce-code-review of
+the union-preview feature. (The other three review follow-ups — banner honesty, `resolveMember`/registry
+dedup via a pure `classifyMember`, and the double per-member blocking computation — were folded into that
+PR; only this systemic one stays parked.)
+
+The union's blocking/conflict facts derive from `pattern` + `nonWorking` only (`calendarDayFacts.blockingFacts`
+/ `calendarConflicts.dayFacts`), never `availability` blocks. A member defined purely by availability blocks
+(no top-level pattern) shows as working every day in the set preview and never conflicts — contradicting how
+the same calendar renders on its own Week tab. This is **systemic, not a union-preview bug**: the main Gantt
+render (`collectShadedDates` + `conflictDates`) and the single-calendar Year/Strip previews all ignore
+availability today — it only drives the Week tab's *hours display*. A union-only fix would make the preview
+disagree with the real chart, so this belongs with making availability a real scheduling input everywhere.
+Related to [[P2g]] (editing availability) and P2b (RRULE inertness).
 
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).

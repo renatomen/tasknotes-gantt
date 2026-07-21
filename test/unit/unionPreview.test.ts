@@ -7,7 +7,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
 import type { EvaluationWindow } from '../../src/controller/calendar/patternWindow';
-import { buildUnionModel } from '../../src/editor/unionPreview';
+import { buildUnionModel, classifyMember } from '../../src/editor/unionPreview';
 
 /** Parse a frontmatter object to a CalendarDefinition (throws on a non-calendar). */
 function calendar(frontmatter: Record<string, unknown>): CalendarDefinition {
@@ -74,5 +74,40 @@ describe('buildUnionModel', () => {
     const eventsOnly = calendar({ events: [{ date: SAT, name: 'Note' }] }); // no pattern → covers nothing
     const model = buildUnionModel([weekdays, eventsOnly], WEEK);
     expect(model.conflicts.size).toBe(0);
+  });
+});
+
+describe('classifyMember', () => {
+  const calendarFm = { frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO' } };
+
+  it('is unresolved when the link resolves to no file', () => {
+    expect(classifyMember('[[Missing]]', () => null)).toEqual({ kind: 'unresolved' });
+  });
+
+  it('is ok with the parsed definition for a valid calendar note', () => {
+    const result = classifyMember('[[Cal]]', () => calendarFm);
+    expect(result.kind).toBe('ok');
+    if (result.kind === 'ok') expect(result.definition.kind).toBe('calendar');
+  });
+
+  it('is invalid for a calendar-set member (sets are flat)', () => {
+    expect(classifyMember('[[Set]]', () => ({ frontmatter: { tngantt: 'calendar-set' } }))).toEqual({
+      kind: 'invalid',
+    });
+  });
+
+  it('is invalid for a non-calendar or unmarked note', () => {
+    expect(classifyMember('[[Doc]]', () => ({ frontmatter: { title: 'x' } }))).toEqual({
+      kind: 'invalid',
+    });
+  });
+
+  it('strips a subpath before resolving the link', () => {
+    let seen = '';
+    classifyMember('[[Cal#heading]]', (link) => {
+      seen = link;
+      return calendarFm;
+    });
+    expect(seen).toBe('[[Cal]]');
   });
 });
