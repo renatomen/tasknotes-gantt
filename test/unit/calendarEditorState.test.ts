@@ -110,9 +110,11 @@ describe('changedFrontmatter', () => {
 describe('fieldErrors — inline validation mirroring R26', () => {
   const base = formFromFrontmatter(CALENDAR);
 
-  it('flags an unsafe colour', () => {
+  it('accepts a hex or a CSS3 name, flags anything else', () => {
     expect(fieldErrors({ ...base, color: 'url(evil)' }).color).toBeDefined();
-    expect(fieldErrors(base).color).toBeUndefined();
+    expect(fieldErrors({ ...base, color: 'notacolour' }).color).toBeDefined();
+    expect(fieldErrors({ ...base, color: 'cornflowerblue' }).color).toBeUndefined();
+    expect(fieldErrors(base).color).toBeUndefined(); // base is a #hex
   });
 
   it('flags a pattern with no FREQ', () => {

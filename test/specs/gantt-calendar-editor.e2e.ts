@@ -310,6 +310,48 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(await raw.getValue()).toContain("SA");
   });
 
+  it("picks a CSS3 colour from the collapsed colour field and saves the name", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    // Collapsed by default: the summary shows; the picker panel does not exist.
+    const summary = await $(".og-color-summary");
+    await summary.waitForDisplayed({ timeout: 20000, timeoutMsg: "colour field never rendered" });
+    expect((await $$(".og-color-panel")).length).toBe(0);
+
+    // Expand, search, and pick a named colour.
+    await summary.click();
+    const search = await $(".og-color-search");
+    await search.waitForDisplayed({ timeout: 10000, timeoutMsg: "colour picker did not expand" });
+    await search.setValue("cornflower");
+    const option = await $(".og-color-item*=cornflowerblue");
+    await option.waitForDisplayed({ timeout: 10000, timeoutMsg: "the search did not surface cornflowerblue" });
+    await option.click();
+
+    // Picking collapses the field and shows the chosen name.
+    await browser.waitUntil(async () => (await (await $(".og-color-val")).getText()) === "cornflowerblue", {
+      timeout: 10000,
+      timeoutMsg: "the summary did not reflect the picked colour",
+    });
+    expect((await $$(".og-color-panel")).length).toBe(0);
+
+    // Save writes the CSS3 name straight to frontmatter.
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled after picking a colour" });
+    await save.click();
+    await browser.waitUntil(
+      async () => {
+        const text = await browser.executeObsidian(async ({ app }) => {
+          const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
+          return file ? ((await app.vault.read(file as never)) as string) : "";
+        });
+        return /^color:\s*cornflowerblue\s*$/m.test(text);
+      },
+      { timeout: 20000, timeoutMsg: "the picked colour name never reached the frontmatter" },
+    );
+  });
+
   it("offers a searchable timezone picker on the timezone field", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");

@@ -13,7 +13,7 @@
  * @module editor/calendarEditorState
  */
 
-import { isSafeColor } from '../bases/barTreatment';
+import { isValidCalendarColor } from '../bases/css3Colors';
 import { toIsoDate } from '../controller/calendar/schema';
 import type { FrontmatterValue } from './frontmatterEdit';
 
@@ -141,8 +141,8 @@ const WIKILINK = /^\[\[.+\]\]$/;
 /** Inline validation, wording mirroring the schema's fail-visible messages (R26). */
 export function fieldErrors(form: EditorFormState): FieldErrors {
   const errors: FieldErrors = {};
-  if (form.color !== '' && !isSafeColor(form.color)) {
-    errors.color = 'Not a usable colour';
+  if (form.color !== '' && !isValidCalendarColor(form.color)) {
+    errors.color = 'Use a CSS3 colour name or a hex';
   }
   if (form.pattern !== '' && !HAS_FREQ.test(form.pattern)) {
     errors.pattern = 'Pattern is not a valid RRULE: missing FREQ';
