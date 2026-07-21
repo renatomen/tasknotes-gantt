@@ -1,5 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildGanttStrip, ganttStripLayoutFor } from '../../src/editor/ganttStripLayout';
+import {
+  buildGanttStrip,
+  buildGanttStripUnion,
+  ganttStripLayoutFor,
+} from '../../src/editor/ganttStripLayout';
 import { collectShadedDates } from '../../src/bases/calendarShading';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
@@ -108,6 +112,59 @@ describe('buildGanttStrip', () => {
     const strip = buildGanttStrip(base({ pattern: 'FREQ=NONSENSE' }));
     expect(strip.invalid).toBeDefined();
     expect(strip.cells).toHaveLength(0);
+  });
+
+  it('marks every single-calendar cell as non-conflicting', () => {
+    const strip = buildGanttStrip(base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }));
+    expect(strip.cells.every((c) => c.conflict === false)).toBe(true);
+  });
+});
+
+describe('buildGanttStripUnion', () => {
+  it('spans the earliest and latest dated content across all members', () => {
+    const early = base({ nonWorking: [span('2026-03-02', '2026-03-03', 'Kickoff')] });
+    const late = base({ markers: [{ date: '2026-08-15', name: 'Ship' }] });
+    const strip = buildGanttStripUnion([early, late]);
+    expect(strip.window.startDate).toBe('2026-03-02');
+    expect(strip.cells.some((c) => c.date === '2026-03-02')).toBe(true);
+    expect(strip.cells.some((c) => c.date === '2026-08-15')).toBe(true);
+  });
+
+  it('marks a conflict day where one member blocks a day another works', () => {
+    const worker = base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
+    const holiday = base({ nonWorking: [span('2026-02-17', '2026-02-18', 'Holiday')] });
+    const strip = buildGanttStripUnion([worker, holiday]);
+    // 2026-02-17 is a Tuesday: the worker covers it, the holiday blocks it.
+    expect(strip.cells.find((c) => c.date === '2026-02-17')?.conflict).toBe(true);
+    // 2026-02-18 (Wed) is worked by both, blocked by neither — no conflict.
+    expect(strip.cells.find((c) => c.date === '2026-02-18')?.conflict).toBe(false);
+  });
+
+  it('includes union markers from every member', () => {
+    const first = base({ markers: [{ date: '2026-03-10', name: 'Alpha' }] });
+    const second = base({ markers: [{ date: '2026-03-20', name: 'Beta' }] });
+    const strip = buildGanttStripUnion([first, second]);
+    expect(strip.markers.map((m) => m.name)).toEqual(expect.arrayContaining(['Alpha', 'Beta']));
+  });
+
+  it('dedupes union markers that share a date across members', () => {
+    const first = base({ markers: [{ date: '2026-03-10', name: 'Alpha' }] });
+    const second = base({ markers: [{ date: '2026-03-10', name: 'Beta' }] });
+    const strip = buildGanttStripUnion([first, second]);
+    expect(strip.markers.filter((m) => m.date === '2026-03-10')).toHaveLength(1);
+  });
+
+  it('falls back to the clamped default window when no member has dated content', () => {
+    const strip = buildGanttStripUnion([base(), base()]);
+    expect(strip.invalid).toBeUndefined();
+    expect(strip.window.startDate).toBe('2026-01-05');
+    expect(strip.cells).toHaveLength(98);
+  });
+
+  it('renders an empty member set without error', () => {
+    const strip = buildGanttStripUnion([]);
+    expect(strip.invalid).toBeUndefined();
+    expect(strip.cells.length).toBeGreaterThan(0);
   });
 });
 
