@@ -352,6 +352,47 @@ describe("Gantt (OG) calendar editor routing", () => {
     );
   });
 
+  it("renames the calendar from the Name field on save", async () => {
+    // A throwaway note with no backlinks, so the rename exercises the field, not
+    // Obsidian's own "update links?" prompt (which fires for a linked note).
+    await browser.executeObsidian(async ({ app }) => {
+      for (const path of ["Rename Me.md", "Renamed Cal.md"]) {
+        const stale = app.vault.getAbstractFileByPath(path);
+        if (stale) await app.vault.delete(stale as never);
+      }
+      await app.vault.create("Rename Me.md", "---\ntngantt: calendar\n---\n");
+    });
+    await openNote("Rename Me.md");
+
+    const nameInput = await $('.og-cal-form input[aria-label="Calendar name"]');
+    await nameInput.waitForDisplayed({ timeout: 20000, timeoutMsg: "the Name field never rendered" });
+    expect(await nameInput.getValue()).toBe("Rename Me");
+
+    await nameInput.setValue("Renamed Cal");
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled after a name edit" });
+    await save.click();
+
+    await browser.waitUntil(
+      async () => {
+        const [renamed, original] = await browser.executeObsidian(({ app }) => [
+          app.vault.getAbstractFileByPath("Renamed Cal.md") !== null,
+          app.vault.getAbstractFileByPath("Rename Me.md") !== null,
+        ]);
+        return renamed && !original;
+      },
+      { timeout: 20000, timeoutMsg: "the note was not renamed on disk" },
+    );
+    // The editor stays open on the renamed note.
+    expect(await activeViewType()).toBe(EDITOR_VIEW);
+
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("Renamed Cal.md");
+      if (file) await app.vault.delete(file as never);
+    });
+    await browser.pause(300);
+  });
+
   it("offers a searchable timezone picker on the timezone field", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");

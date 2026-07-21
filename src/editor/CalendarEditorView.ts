@@ -31,6 +31,7 @@ import { WikilinkInputSuggest } from '../bases/wikilinkInputSuggest';
 import { createVaultWikilinkFetcher } from '../bases/vaultWikilinkSuggest';
 import { TimezoneInputSuggest } from '../bases/timezoneInputSuggest';
 import { UnsavedCalendarModal } from './UnsavedCalendarModal';
+import { noteBasename, renameTargetPath } from './noteName';
 
 /** The imperative surface the form exports to its host (see the .svelte file). */
 interface FormHandle {
@@ -216,6 +217,10 @@ export class CalendarEditorView extends ItemView {
       target: contentEl,
       props: {
         initial: formFromFrontmatter(frontmatter),
+        // The calendar name is its filename; the form edits it and asks the host
+        // to rename on save, so the note can be renamed without leaving the editor.
+        initialName: noteBasename(this.filePath),
+        onRename: (newName: string) => this.rename(newName),
         // The live path, not a captured one: after a rename the save must target
         // the note's new path. setState never nulls filePath (it only updates on
         // a string file), so reading it at save time is safe.
@@ -252,6 +257,28 @@ export class CalendarEditorView extends ItemView {
       .catch(() => {
         /* unreadable — leave detection disarmed rather than false-flag */
       });
+  }
+
+  /**
+   * Rename the note to `newName` within its own folder, updating backlinks via
+   * the file manager. Refuses a name that would collide with an existing note.
+   * The rename event listener (onOpen) then updates filePath and the heading.
+   */
+  private async rename(newName: string): Promise<void> {
+    const file =
+      this.filePath === null ? null : this.app.vault.getAbstractFileByPath(this.filePath);
+    if (!(file instanceof TFile)) {
+      new Notice("Couldn't rename the calendar note — it no longer exists.");
+      throw new Error('Calendar note not found for rename');
+    }
+    const target = renameTargetPath(file.path, newName);
+    if (target === file.path) return;
+    const existing = this.app.vault.getAbstractFileByPath(target);
+    if (existing !== null && existing !== file) {
+      new Notice(`A note named "${newName.trim()}" already exists in this folder.`);
+      throw new Error('Rename target already exists');
+    }
+    await this.app.fileManager.renameFile(file, target);
   }
 
   /** Write the form's change set through the comment-preserving editor. */
