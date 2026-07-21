@@ -48,6 +48,7 @@
       <span class="og-year-key"><i class="og-year-swatch og-year-blocking"></i> Non-working</span>
       <span class="og-year-key"><i class="og-year-swatch og-year-event"></i> Event</span>
       <span class="og-year-key"><i class="og-year-swatch og-year-marker"></i> Marker</span>
+      <span class="og-year-key"><i class="og-year-swatch og-year-conflict"></i> Conflict</span>
     </div>
   {/if}
 </div>
@@ -120,6 +121,21 @@
   }
   .og-year-marker {
     background: var(--color-yellow, #e0af00);
+  }
+  /* A conflict must read at cell scale, so it uses a hard-edged error diagonal
+     over a solid error wash rather than a fine gradient that would blur away. */
+  .og-year-conflict {
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        var(--background-modifier-error, #e5534b) 0,
+        var(--background-modifier-error, #e5534b) 2px,
+        transparent 2px,
+        transparent 4px
+      ),
+      color-mix(in srgb, var(--background-modifier-error, #e5534b) 40%, var(--background-primary));
+    outline: 1px solid var(--background-modifier-error, #e5534b);
+    outline-offset: -1px;
   }
   .og-year-pad {
     background: transparent;

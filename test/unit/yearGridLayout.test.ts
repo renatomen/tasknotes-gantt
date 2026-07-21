@@ -1,5 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildYearGrid, yearLayoutFor, type DayClass } from '../../src/editor/yearGridLayout';
+import {
+  buildYearGrid,
+  buildYearGridUnion,
+  yearLayoutFor,
+  type DayClass,
+} from '../../src/editor/yearGridLayout';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
 const base = (over: Partial<CalendarDefinition> = {}): CalendarDefinition => ({
@@ -143,6 +148,87 @@ describe('buildYearGrid', () => {
     const grid = buildYearGrid(base({ pattern: 'FREQ=NONSENSE' }), 2025);
     expect(grid.invalid).toBeDefined();
     expect(grid.cells).toHaveLength(0);
+  });
+});
+
+describe('buildYearGridUnion', () => {
+  // A member that works Mon–Fri (weekends blocking, weekdays covered).
+  const weekdays = () => base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
+
+  it('classifies a conflict day as conflict even when it is also blocking', () => {
+    // 2025-03-10 is a Monday: member B blocks it while member A (Mon–Fri) covers
+    // it → a conflict, and it is also in the union blocking set (B blocks it).
+    const grid = buildYearGridUnion(
+      [weekdays(), base({ nonWorking: [span('2025-03-10', '2025-03-11', 'B holiday')] })],
+      2025,
+    );
+    expect(classOf(grid, '2025-03-10')).toBe('conflict');
+  });
+
+  it('classifies union blocking, events, and markers across a multi-member set', () => {
+    const grid = buildYearGridUnion(
+      [
+        weekdays(),
+        base({
+          events: [span('2025-06-12', '2025-06-13', 'Town hall')],
+          markers: [{ date: '2025-06-14', name: 'Release' }],
+        }),
+      ],
+      2025,
+    );
+    expect(classOf(grid, '2025-06-07')).toBe('blocking'); // Saturday, blocked by member A's pattern
+    expect(classOf(grid, '2025-06-14')).toBe('marker'); // Saturday marker outranks the blocking pattern
+    expect(classOf(grid, '2025-06-12')).toBe('event'); // Thursday event, no member blocks it
+    expect(classOf(grid, '2025-06-11')).toBe('working'); // ordinary weekday, agreement
+  });
+
+  it('unions a member event with another member marker onto their own days', () => {
+    const grid = buildYearGridUnion(
+      [
+        base({ events: [span('2025-06-10', '2025-06-11', 'Town hall')] }),
+        base({ markers: [{ date: '2025-06-14', name: 'Release' }] }),
+      ],
+      2025,
+    );
+    expect(classOf(grid, '2025-06-10')).toBe('event');
+    expect(classOf(grid, '2025-06-14')).toBe('marker');
+  });
+
+  it('holds precedence conflict > marker > blocking > event > working', () => {
+    // 2025-03-10 (Monday) is simultaneously: blocked by member B, covered by
+    // member A (→ conflict), a marker on member C, and an event on member D.
+    const grid = buildYearGridUnion(
+      [
+        weekdays(),
+        base({ nonWorking: [span('2025-03-10', '2025-03-11', 'B holiday')] }),
+        base({ markers: [{ date: '2025-03-10', name: 'C marker' }] }),
+        base({ events: [span('2025-03-10', '2025-03-11', 'D event')] }),
+      ],
+      2025,
+    );
+    expect(classOf(grid, '2025-03-10')).toBe('conflict');
+  });
+
+  it('lets a marker win over blocking when there is no conflict', () => {
+    // A Saturday blocked by member A's Mon–Fri pattern, marked by member B, and
+    // no member covers it → marker (not conflict, not blocking).
+    const grid = buildYearGridUnion(
+      [weekdays(), base({ markers: [{ date: '2025-03-08', name: 'Weekend launch' }] })],
+      2025,
+    );
+    expect(classOf(grid, '2025-03-08')).toBe('marker');
+  });
+
+  it('yields no conflicts for a single-member set', () => {
+    const grid = buildYearGridUnion([weekdays()], 2025);
+    expect(grid.cells.some((c) => c.dayClass === 'conflict')).toBe(false);
+    expect(classOf(grid, '2025-03-08')).toBe('blocking'); // Saturday still blocking
+  });
+
+  it('lays out the full year window like the single-calendar grid', () => {
+    const grid = buildYearGridUnion([weekdays()], 2025);
+    expect(grid.cells.filter((c) => c.inYear)).toHaveLength(365);
+    expect(grid.invalid).toBeUndefined();
   });
 });
 
