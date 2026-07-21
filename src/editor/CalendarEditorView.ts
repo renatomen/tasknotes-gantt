@@ -17,7 +17,10 @@
 /* global HTMLInputElement */
 import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { mount, unmount } from 'svelte';
-import { matchesCalendarMarker } from '../controller/calendar/schema';
+import { matchesCalendarMarker, parseCalendarFrontmatter } from '../controller/calendar/schema';
+import { resolveParentLink } from '../bases/parentLink';
+import { stripSubpath } from '../controller/calendar/resolveCalendars';
+import type { MemberResolution } from './unionPreview';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
   displayNameFor,
@@ -150,6 +153,24 @@ export class CalendarEditorView extends ItemView {
     );
   }
 
+  /**
+   * Resolve one set-member link to a member calendar for the live union preview.
+   * A link that resolves to no file is `unresolved`; a note that resolves but is
+   * not a valid calendar — an invalid note, or a calendar-set (sets are flat) —
+   * is `invalid`. Only a valid calendar returns `ok`, so the two degradation
+   * categories stay distinct in the set banner.
+   */
+  private resolveMember(link: string): MemberResolution {
+    const path = resolveParentLink(this.app, stripSubpath(link), this.filePath ?? '');
+    if (path === null) return { kind: 'unresolved' };
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return { kind: 'unresolved' };
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const parsed = parseCalendarFrontmatter(frontmatter);
+    if (parsed !== null && parsed.kind === 'calendar') return { kind: 'ok', definition: parsed };
+    return { kind: 'invalid' };
+  }
+
   private hasMarker(path: string): boolean {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return false;
@@ -242,6 +263,7 @@ export class CalendarEditorView extends ItemView {
           const suggest = new TimezoneInputSuggest(this.app, input);
           return () => suggest.close();
         },
+        resolveMember: (link: string) => this.resolveMember(link),
       },
     }) as ReturnType<typeof mount> & FormHandle;
 

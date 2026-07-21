@@ -21,6 +21,17 @@ import {
   type ClassifiedDays,
 } from './calendarDayFacts';
 
+/**
+ * The outcome of resolving one set-member link: a valid member calendar, a link
+ * that doesn't resolve to a file, or a note that resolves but isn't a valid
+ * calendar (an invalid note, or a calendar-set — sets are flat). Only `ok`
+ * definitions flow into the union; the other two count separately in the banner.
+ */
+export type MemberResolution =
+  | { kind: 'ok'; definition: CalendarDefinition }
+  | { kind: 'unresolved' }
+  | { kind: 'invalid' };
+
 export interface UnionModel {
   /** Days blocking (non-working) in at least one member. */
   blocking: ClassifiedDays;

@@ -713,6 +713,230 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(created).toContain("tngantt: calendar-set");
   });
 
+  // ---- U5: calendar-set union preview tabs + conflict surfacing ------------
+  // The two fixture calendars disagree: NZ Holidays works Mon–Fri, Sun Thu works
+  // Sun–Thu, so a set of both conflicts on Fridays and Sundays across the year.
+
+  const createNote = async (notePath: string, content: string): Promise<void> => {
+    await browser.executeObsidian(
+      async ({ app }, args) => {
+        const stale = app.vault.getAbstractFileByPath(args.notePath);
+        if (stale) await app.vault.delete(stale as never);
+        await app.vault.create(args.notePath, args.content);
+      },
+      { notePath, content },
+    );
+    // Wait for the metadata cache to index the new note's frontmatter, so a set
+    // that references it resolves the member on the form's first render (the
+    // union preview reads the cache, not a reactive source).
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(({ app }, p) => {
+          const file = app.vault.getAbstractFileByPath(p);
+          return file ? Boolean(app.metadataCache.getFileCache(file as never)?.frontmatter) : false;
+        }, notePath),
+      { timeout: 10000, timeoutMsg: `${notePath} was not indexed` },
+    );
+  };
+
+  const deleteNotes = async (paths: string[]): Promise<void> => {
+    await browser.executeObsidian(async ({ app }, ps) => {
+      for (const p of ps) {
+        const file = app.vault.getAbstractFileByPath(p);
+        if (file) await app.vault.delete(file as never);
+      }
+    }, paths);
+  };
+
+  it("shows the union preview tabs on a calendar-set and each renders", async () => {
+    await createNote(
+      "Union Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[NZ Holidays]]"\n  - "[[Sun Thu]]"\n---\n',
+    );
+    await openNote("Union Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    // Week: the union renders seven day columns.
+    await (await $(".og-cal-tab=Week")).click();
+    await (await $(".og-week-grid")).waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "the union week grid did not render",
+    });
+    expect((await $$(".og-week-col")).length).toBe(7);
+
+    // Gantt strip: a day cell per day of the content-spanning window.
+    await (await $(".og-cal-tab=Gantt strip")).click();
+    await (await $(".og-strip-track")).waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "the union gantt strip did not render",
+    });
+    expect((await $$(".og-strip-cell")).length).toBeGreaterThan(60);
+
+    // Year: a full year of day cells plus the padding of the partial end weeks.
+    await (await $(".og-cal-tab=Year")).click();
+    await (await $(".og-year-grid")).waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "the union year grid did not render",
+    });
+    expect((await $$(".og-year-cell")).length).toBeGreaterThan(300);
+
+    await deleteNotes(["Union Set.md"]);
+  });
+
+  it("marks conflict days and shows a conflict banner for disagreeing members", async () => {
+    // Dedicated members so the test does not depend on the shared NZ Holidays
+    // fixture, which earlier tests mutate. A Mon–Fri member disagrees with a
+    // Sun–Thu member on Fridays and Sundays across the year.
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Sun Thu.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH"\n---\n',
+    );
+    await createNote(
+      "Conflict Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n  - "[[Sun Thu]]"\n---\n',
+    );
+    await openNote("Conflict Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-cal-tab=Year")).click();
+
+    // Read the conflict cells AND the banner from the ACTIVE editor leaf in one
+    // shot — a global selector can match a stale background leaf, decoupling the
+    // banner (one leaf) from the year stripes (another). Scoping to the active
+    // leaf's container keeps them the same instance. The conflict cells use
+    // `.og-year-cell.og-year-conflict` so the legend swatch (also
+    // `.og-year-conflict`, but not a grid cell) is not counted.
+    await browser.waitUntil(
+      async () => {
+        const info = await browser.executeObsidian(({ app }) => {
+          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+            ?.containerEl;
+          if (!root) return null;
+          const banner = root.querySelector(".og-cal-status");
+          return {
+            yearConflicts: root.querySelectorAll(".og-year-cell.og-year-conflict").length,
+            text: banner?.textContent ?? "",
+            cls: banner?.className ?? "",
+          };
+        });
+        return (
+          info !== null &&
+          info.yearConflicts > 0 &&
+          info.text.includes("conflict") &&
+          info.cls.includes("og-cal-status-warn")
+        );
+      },
+      {
+        timeout: 15000,
+        timeoutMsg: "the active set editor did not surface conflict days and a warning banner",
+      },
+    );
+
+    await deleteNotes(["Conflict Set.md", "Sun Thu.md", "Weekdays Cal.md"]);
+  });
+
+  it("updates the conflict banner live as a member is added, without saving", async () => {
+    // Dedicated members (not the shared, mutated NZ Holidays fixture): a Mon–Fri
+    // member alone has nothing to conflict with, so no banner shows until a
+    // disagreeing Sun–Thu member is added.
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Sun Thu.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH"\n---\n',
+    );
+    await createNote(
+      "Live Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n---\n',
+    );
+    await openNote("Live Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    // Read the banner from the ACTIVE leaf (a global selector can catch stale
+    // background leaves). A single-member set has nothing to conflict with.
+    const activeBanner = (): Promise<string | null> =>
+      browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+          ?.containerEl;
+        return root?.querySelector(".og-cal-status")?.textContent ?? null;
+      });
+    expect(await activeBanner()).toBeNull();
+
+    // Add a second, disagreeing member through the Member calendars field.
+    await (await $(".og-cal-add")).click();
+    const memberInputs = await $$(".og-cal-entry-member input");
+    await memberInputs[memberInputs.length - 1].setValue("[[Sun Thu]]");
+
+    // The banner now reports conflicts — driven purely by the live member edit.
+    await browser.waitUntil(async () => (await activeBanner())?.includes("conflict") ?? false, {
+      timeout: 10000,
+      timeoutMsg: "the conflict banner did not update after adding a member",
+    });
+
+    // Nothing was saved: the form is still dirty and the note holds one member.
+    const disk = await readNoteOrNull("Live Set.md");
+    expect(disk).not.toContain("Sun Thu");
+
+    await deleteNotes(["Live Set.md", "Sun Thu.md"]);
+  });
+
+  it("counts an unresolved link and a nested set separately, still rendering the preview", async () => {
+    await createNote(
+      "Nested Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[NZ Holidays]]"\n---\n',
+    );
+    await createNote(
+      "Degrade Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[NZ Holidays]]"\n  - "[[Does Not Exist]]"\n  - "[[Nested Set]]"\n---\n',
+    );
+    await openNote("Degrade Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    // The valid member still previews despite the two degraded members.
+    await (await $(".og-cal-tab=Year")).click();
+    await (await $(".og-year-grid")).waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "the union year grid did not render with degraded members",
+    });
+    expect((await $$(".og-year-cell")).length).toBeGreaterThan(300);
+
+    // The banner names the two degradation categories distinctly: the unresolved
+    // link (flagged) and the nested set that is not a valid calendar (invalid).
+    const banner = await $(".og-cal-status");
+    await banner.waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "no attention banner appeared for the degraded members",
+    });
+    const text = await banner.getText();
+    expect(text).toContain("unresolved");
+    expect(text).toContain("invalid");
+
+    await deleteNotes(["Degrade Set.md", "Nested Set.md"]);
+  });
+
+  it("shows guidance, not a working grid, for a set with no resolved members", async () => {
+    await createNote("Empty Set.md", "---\ntngantt: calendar-set\n---\n");
+    await openNote("Empty Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    await (await $(".og-cal-tab=Week")).click();
+    const guidance = await $(".og-cal-empty");
+    await guidance.waitForDisplayed({
+      timeout: 10000,
+      timeoutMsg: "the empty-set guidance copy did not appear",
+    });
+    expect(await guidance.getText()).toContain("Add member calendars");
+    // No working union grid masquerades as a real calendar.
+    expect((await $$(".og-week-grid")).length).toBe(0);
+
+    await deleteNotes(["Empty Set.md"]);
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {

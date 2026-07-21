@@ -20,12 +20,14 @@
   } from './calendarEditorState';
   import type { FrontmatterValue } from './frontmatterEdit';
   import { parseCalendarFrontmatter } from '../controller/calendar/schema';
-  import { yearLayoutFor } from './yearGridLayout';
+  import { yearLayoutFor, buildYearGridUnion } from './yearGridLayout';
   import YearGrid from './YearGrid.svelte';
-  import { weekLayoutFor } from './weekPreviewLayout';
+  import { weekLayoutFor, buildWeekPreviewUnion } from './weekPreviewLayout';
   import WeekPreview from './WeekPreview.svelte';
-  import { ganttStripLayoutFor } from './ganttStripLayout';
+  import { ganttStripLayoutFor, buildGanttStripUnion } from './ganttStripLayout';
   import GanttStripPreview from './GanttStripPreview.svelte';
+  import { type MemberResolution } from './unionPreview';
+  import { buildCalendarNotice } from '../bases/calendarConflicts';
   import { formatUtcOffset } from './timezoneOffset';
   import WorkingPatternEditor from './WorkingPatternEditor.svelte';
   import ColorField from './ColorField.svelte';
@@ -45,6 +47,12 @@
     attachMemberSuggest?: (input: HTMLInputElement, index: number) => (() => void) | void;
     /** Attach the searchable IANA-timezone picker to the timezone input. */
     attachTimezoneSuggest?: (input: HTMLInputElement) => (() => void) | void;
+    /**
+     * Resolve a set-member link to a member calendar (or a degradation reason)
+     * for the live union preview. Injected by the host, which has vault access;
+     * the form stays pure and re-resolves as the member list is edited.
+     */
+    resolveMember?: (link: string) => MemberResolution;
     /** Discard the in-progress edits and reload from disk. */
     onReload?: () => void;
     /** Focus the first field on mount — suppressed on a silent external refresh. */
@@ -58,6 +66,7 @@
     onRename,
     attachMemberSuggest,
     attachTimezoneSuggest,
+    resolveMember,
     onReload,
     autofocus = true,
   }: Props = $props();
@@ -111,6 +120,55 @@
   function stepYear(delta: number): void {
     previewYear += delta;
   }
+
+  // A calendar-set previews the UNION of its members. The members resolve live
+  // through the injected resolver, so adding/removing one updates every preview
+  // and the banner without a save. Unresolved links and non-calendar notes are
+  // excluded from the union and counted apart in the banner.
+  const resolvedMembers = $derived<MemberResolution[]>(
+    form.kind === 'calendar-set' && resolveMember
+      ? form.members.map((link) => resolveMember(link))
+      : [],
+  );
+  const memberDefinitions = $derived(
+    resolvedMembers.flatMap((member) => (member.kind === 'ok' ? [member.definition] : [])),
+  );
+  const okCount = $derived(memberDefinitions.length);
+  const unresolvedCount = $derived(
+    resolvedMembers.filter((member) => member.kind === 'unresolved').length,
+  );
+  const invalidCount = $derived(
+    resolvedMembers.filter((member) => member.kind === 'invalid').length,
+  );
+  const unionWeekLayout = $derived(buildWeekPreviewUnion(memberDefinitions));
+  const unionStripLayout = $derived(buildGanttStripUnion(memberDefinitions));
+  const unionYearLayout = $derived(buildYearGridUnion(memberDefinitions, previewYear));
+
+  // The banner counts conflicts over one canonical window — the selected year —
+  // so its number matches the Year tab's stripes exactly. It reads them from the
+  // SAME layout the Year tab renders (not a parallel recompute), so the count and
+  // the visible stripes can never drift. The attention line (conflicts/invalid/
+  // unresolved) is preferred in the editor; a bare "Displaying N calendars" only
+  // shows when nothing needs attention, carried by a status treatment (never the
+  // error notice).
+  const conflictCount = $derived(
+    unionYearLayout.cells.filter((cell) => cell.inYear && cell.dayClass === 'conflict').length,
+  );
+  const attentionNotice = $derived(
+    buildCalendarNotice({ displayedCount: 0, conflictCount, invalidCount, flaggedCount: unresolvedCount }),
+  );
+  const setNotice = $derived(
+    form.kind === 'calendar-set'
+      ? (attentionNotice ??
+          buildCalendarNotice({
+            displayedCount: okCount,
+            conflictCount,
+            invalidCount,
+            flaggedCount: unresolvedCount,
+          }))
+      : null,
+  );
+  const setNoticeWarn = $derived(conflictCount > 0 || invalidCount > 0 || unresolvedCount > 0);
 
   // Live, DST-aware offset for the chosen zone — computed offline via Intl, a
   // hint only; the note always persists the IANA name, never the offset.
@@ -185,10 +243,10 @@
     </div>
   {/if}
 
-  <!-- Sticky header: tabs (calendars only) plus an always-visible Save and an
-       unsaved-changes cue, so both stay reachable however far the form scrolls. -->
+  <!-- Sticky header: preview tabs (calendars AND sets) plus an always-visible
+       Save and an unsaved-changes cue, so both stay reachable however far the
+       form scrolls. A set's tabs render the union of its member calendars. -->
   <div class="og-cal-header">
-    {#if form.kind === 'calendar'}
       <div class="og-cal-tabs" role="tablist">
         <button
           type="button"
@@ -223,7 +281,6 @@
           onclick={() => (activeTab = 'year')}
         >Year</button>
       </div>
-    {/if}
     <div class="og-cal-header-actions">
       {#if dirty}<span class="og-cal-unsaved">Unsaved changes</span>{/if}
       <button
@@ -238,12 +295,51 @@
     <span class="og-cal-error og-cal-header-error">Fix the flagged fields before saving.</span>
   {/if}
 
-  {#if form.kind === 'calendar' && activeTab === 'week'}
-    <WeekPreview layout={weekLayout} />
-  {:else if form.kind === 'calendar' && activeTab === 'strip'}
-    <GanttStripPreview layout={stripLayout} />
-  {:else if form.kind === 'calendar' && activeTab === 'year'}
-    <YearGrid layout={yearLayout} year={previewYear} onYear={stepYear} />
+  <!-- The set-level status line, shown on every tab so the conflict/attention
+       state is visible while editing members or reading any preview. Polite
+       (role="status"), so live member edits never spam an assertive announce. -->
+  {#if form.kind === 'calendar-set' && setNotice !== null}
+    <div class="og-cal-status" class:og-cal-status-warn={setNoticeWarn} role="status">{setNotice}</div>
+  {/if}
+
+  {#snippet setEmptyState()}
+    <p class="og-cal-empty">Add member calendars to preview the set’s combined working time.</p>
+  {/snippet}
+
+  {#snippet setLegend()}
+    <div class="og-cal-legend">
+      <span class="og-cal-legend-key"><i class="og-cal-legend-swatch og-cal-legend-working"></i> Working</span>
+      <span class="og-cal-legend-key"><i class="og-cal-legend-swatch og-cal-legend-off"></i> Non-working</span>
+      <span class="og-cal-legend-key"><i class="og-cal-legend-swatch og-cal-legend-conflict"></i> Conflict</span>
+    </div>
+  {/snippet}
+
+  {#if activeTab === 'week'}
+    {#if form.kind === 'calendar'}
+      <WeekPreview layout={weekLayout} />
+    {:else if okCount === 0}
+      {@render setEmptyState()}
+    {:else}
+      <WeekPreview layout={unionWeekLayout} />
+      {@render setLegend()}
+    {/if}
+  {:else if activeTab === 'strip'}
+    {#if form.kind === 'calendar'}
+      <GanttStripPreview layout={stripLayout} />
+    {:else if okCount === 0}
+      {@render setEmptyState()}
+    {:else}
+      <GanttStripPreview layout={unionStripLayout} />
+      {@render setLegend()}
+    {/if}
+  {:else if activeTab === 'year'}
+    {#if form.kind === 'calendar'}
+      <YearGrid layout={yearLayout} year={previewYear} onYear={stepYear} />
+    {:else if okCount === 0}
+      {@render setEmptyState()}
+    {:else}
+      <YearGrid layout={unionYearLayout} year={previewYear} onYear={stepYear} />
+    {/if}
   {:else}
   <section class="og-cal-group">
     <h3 class="og-cal-group-title">Identity</h3>
@@ -660,6 +756,75 @@
   .og-cal-notice-btn {
     padding: 0.25rem 0.6rem;
     cursor: pointer;
+  }
+
+  /* The set-status line: a polite status treatment, distinct from the error
+     .og-cal-notice. Neutral/muted when it only reports "Displaying N", warning
+     colour once anything (conflicts/invalid/unresolved) needs attention. */
+  .og-cal-status {
+    padding: 0.5rem 0.75rem;
+    font-size: var(--font-ui-small, 0.8125rem);
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 4px);
+  }
+  .og-cal-status-warn {
+    color: var(--text-warning, var(--color-orange, #d98a00));
+    background: color-mix(
+      in srgb,
+      var(--text-warning, var(--color-orange, #d98a00)) 12%,
+      transparent
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--text-warning, var(--color-orange, #d98a00)) 35%,
+      transparent
+    );
+  }
+
+  /* Guidance shown for a set with no resolved members, instead of an all-working
+     union grid that would masquerade as a real calendar. */
+  .og-cal-empty {
+    margin: 0;
+    font-size: var(--font-ui-small, 0.8125rem);
+    color: var(--text-muted);
+  }
+
+  /* Always-visible legend for the set previews (the year grid carries its own). */
+  .og-cal-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    font-size: var(--font-ui-smaller, 0.75rem);
+    color: var(--text-muted);
+  }
+  .og-cal-legend-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .og-cal-legend-swatch {
+    inline-size: 0.75rem;
+    block-size: 0.75rem;
+    border-radius: 2px;
+  }
+  .og-cal-legend-working {
+    background: var(--background-modifier-border);
+  }
+  .og-cal-legend-off {
+    background: color-mix(in srgb, var(--color-red, #d9534f) 55%, var(--background-primary));
+  }
+  .og-cal-legend-conflict {
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        var(--background-modifier-error, #e5534b) 0,
+        var(--background-modifier-error, #e5534b) 2px,
+        transparent 2px,
+        transparent 4px
+      ),
+      color-mix(in srgb, var(--background-modifier-error, #e5534b) 40%, var(--background-primary));
   }
 
   @media (max-width: 30rem) {

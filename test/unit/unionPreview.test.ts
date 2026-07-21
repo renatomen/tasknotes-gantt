@@ -60,6 +60,15 @@ describe('buildUnionModel', () => {
     expect(model.conflicts.size).toBe(0);
   });
 
+  it('finds every disagreeing day across a full-year window', () => {
+    const weekdays = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }); // works Mon–Fri
+    const sunThu = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH' }); // works Sun–Thu
+    const YEAR: EvaluationWindow = { startDate: '2026-01-01', endDateExclusive: '2027-01-01' };
+    const model = buildUnionModel([weekdays, sunThu], YEAR);
+    // They disagree on every Friday and every Sunday of 2026 (~104 days).
+    expect(model.conflicts.size).toBeGreaterThan(90);
+  });
+
   it('never conflicts with an events-only member (events do not block)', () => {
     const weekdays = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
     const eventsOnly = calendar({ events: [{ date: SAT, name: 'Note' }] }); // no pattern → covers nothing
