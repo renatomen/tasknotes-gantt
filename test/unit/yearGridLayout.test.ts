@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   buildYearGrid,
   buildYearGridUnion,
+  monthColumns,
   yearLayoutFor,
   type DayClass,
 } from '../../src/editor/yearGridLayout';
@@ -257,5 +258,24 @@ describe('yearLayoutFor', () => {
 
   it('returns null for a non-calendar note', () => {
     expect(yearLayoutFor(null, 2025)).toBeNull();
+  });
+});
+
+describe('monthColumns', () => {
+  it('anchors each month to the week column of its first day', () => {
+    // 2026-01-01 is a Thursday; the grid starts on Mon 2025-12-29, so Jan 1 sits
+    // in column 0 and Feb 1 (a Sunday) closes column 4.
+    const cols = monthColumns(buildYearGrid(base(), 2026));
+    expect(cols).toHaveLength(12);
+    expect(cols[0]).toEqual({ month: 1, column: 0 });
+    expect(cols[1]).toEqual({ month: 2, column: 4 });
+  });
+
+  it('lists the months in order, each in a later column than the last', () => {
+    const cols = monthColumns(buildYearGrid(base(), 2026));
+    for (let i = 1; i < cols.length; i += 1) {
+      expect(cols[i].month).toBe(cols[i - 1].month + 1);
+      expect(cols[i].column).toBeGreaterThan(cols[i - 1].column);
+    }
   });
 });

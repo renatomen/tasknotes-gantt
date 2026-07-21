@@ -55,6 +55,28 @@ export function yearLayoutFor(note: ParsedCalendarNote | null, year: number): Ye
   return buildYearGrid(note, year);
 }
 
+export interface MonthColumn {
+  /** 1 = January .. 12 = December. */
+  month: number;
+  /** 0-based week column the month's first day falls in — the top-axis anchor. */
+  column: number;
+}
+
+/**
+ * The week column each month begins in, for the grid's top month labels. Read
+ * from the first-of-month cells the layout already placed, so a label sits over
+ * exactly the column that holds that month's 1st.
+ */
+export function monthColumns(layout: YearGridLayout): MonthColumn[] {
+  const result: MonthColumn[] = [];
+  for (const cell of layout.cells) {
+    if (cell.inYear && cell.date.endsWith('-01')) {
+      result.push({ month: Number(cell.date.slice(5, 7)), column: cell.column });
+    }
+  }
+  return result;
+}
+
 export function buildYearGrid(definition: CalendarDefinition, year: number): YearGridLayout {
   // A pattern that cannot evaluate flags the whole preview rather than showing a
   // stale or misleading grid.
