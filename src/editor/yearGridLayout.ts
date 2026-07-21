@@ -67,12 +67,11 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
   }
 
   const window = yearWindow(year);
-  return layoutFromFacts(
-    year,
-    markerDays(definition),
-    blockingDays(definition, window),
-    eventDays(definition, window),
-  );
+  return layoutFromFacts(year, {
+    markers: markerDays(definition),
+    blocking: blockingDays(definition, window),
+    events: eventDays(definition, window),
+  });
 }
 
 /**
@@ -87,20 +86,23 @@ export function buildYearGridUnion(
   year: number,
 ): YearGridLayout {
   const union = buildUnionModel(members, yearWindow(year));
-  return layoutFromFacts(year, union.markers, union.blocking, union.events, union.conflicts);
+  return layoutFromFacts(year, union);
 }
 
 function yearWindow(year: number): EvaluationWindow {
   return { startDate: `${pad4(year)}-01-01`, endDateExclusive: `${pad4(year + 1)}-01-01` };
 }
 
-function layoutFromFacts(
-  year: number,
-  markers: ClassifiedDays,
-  blocking: ClassifiedDays,
-  events: ClassifiedDays,
-  conflicts?: Set<string>,
-): YearGridLayout {
+/** The classified day-sets a year grid colours from — the shared shape of a
+ * single calendar's facts and a set's union (which adds conflicts). */
+interface YearFacts {
+  markers: ClassifiedDays;
+  blocking: ClassifiedDays;
+  events: ClassifiedDays;
+  conflicts?: Set<string>;
+}
+
+function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
   const firstDay = `${pad4(year)}-01-01`;
   const lastDay = `${pad4(year)}-12-31`;
   const start = mondayOf(firstDay);
@@ -111,7 +113,7 @@ function layoutFromFacts(
   for (let day = start; day <= end; day = addDaysIso(day, 1)) {
     const inYear = day >= firstDay && day <= lastDay;
     const classified = inYear
-      ? classify(day, markers, blocking, events, conflicts)
+      ? classify(day, facts)
       : { dayClass: 'working' as const, name: undefined };
     cells.push({
       date: day,
@@ -134,11 +136,9 @@ function layoutFromFacts(
  */
 function classify(
   day: string,
-  markers: ClassifiedDays,
-  blocking: ClassifiedDays,
-  events: ClassifiedDays,
-  conflicts?: Set<string>,
+  facts: YearFacts,
 ): { dayClass: DayClass; name: string | undefined } {
+  const { markers, blocking, events, conflicts } = facts;
   if (conflicts?.has(day)) return { dayClass: 'conflict', name: undefined };
   if (markers.days.has(day)) return { dayClass: 'marker', name: markers.names.get(day) };
   if (blocking.days.has(day)) return { dayClass: 'blocking', name: blocking.names.get(day) };

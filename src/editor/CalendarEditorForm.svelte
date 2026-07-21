@@ -8,7 +8,7 @@
    * comment-preserving frontmatter editor. Focus lands on the description on
    * mount and tab order follows the visual top-to-bottom field order.
    */
-  /* global HTMLInputElement, HTMLTextAreaElement, structuredClone */
+  /* global HTMLInputElement, HTMLTextAreaElement */
   import { tick } from 'svelte';
   import {
     changedFrontmatter,
@@ -147,28 +147,25 @@
   // The banner counts conflicts over one canonical window — the selected year —
   // so its number matches the Year tab's stripes exactly. It reads them from the
   // SAME layout the Year tab renders (not a parallel recompute), so the count and
-  // the visible stripes can never drift. The attention line (conflicts/invalid/
-  // unresolved) is preferred in the editor; a bare "Displaying N calendars" only
-  // shows when nothing needs attention, carried by a status treatment (never the
-  // error notice).
+  // the visible stripes can never drift. When anything needs attention
+  // (conflicts/invalid/unresolved) the notice leads with that; otherwise a bare
+  // "Displaying N calendars" shows, carried by a status treatment. Passing
+  // displayedCount 0 suppresses that count line, so it appears only when nothing
+  // needs attention.
   const conflictCount = $derived(
     unionYearLayout.cells.filter((cell) => cell.inYear && cell.dayClass === 'conflict').length,
   );
-  const attentionNotice = $derived(
-    buildCalendarNotice({ displayedCount: 0, conflictCount, invalidCount, flaggedCount: unresolvedCount }),
-  );
+  const setNoticeWarn = $derived(conflictCount > 0 || invalidCount > 0 || unresolvedCount > 0);
   const setNotice = $derived(
     form.kind === 'calendar-set'
-      ? (attentionNotice ??
-          buildCalendarNotice({
-            displayedCount: okCount,
-            conflictCount,
-            invalidCount,
-            flaggedCount: unresolvedCount,
-          }))
+      ? buildCalendarNotice({
+          displayedCount: setNoticeWarn ? 0 : okCount,
+          conflictCount,
+          invalidCount,
+          flaggedCount: unresolvedCount,
+        })
       : null,
   );
-  const setNoticeWarn = $derived(conflictCount > 0 || invalidCount > 0 || unresolvedCount > 0);
 
   // Live, DST-aware offset for the chosen zone — computed offline via Intl, a
   // hint only; the note always persists the IANA name, never the offset.
@@ -656,9 +653,6 @@
     resize: vertical;
     min-block-size: 2.5rem;
     font: inherit;
-  }
-  .og-cal-mono {
-    font-family: var(--font-monospace);
   }
   /* Date and short-range fields do not need the full line width. */
   .og-cal-narrow {

@@ -197,18 +197,15 @@ function workingRules(definition: CalendarDefinition): WorkingRule[] {
 
 /** The earliest day any of these rules first occurs, searching a full leap cycle. */
 function earliestOccurrence(rules: readonly WorkingRule[]): string | undefined {
-  let first: string | undefined;
-  for (const { rule, anchor } of rules) {
+  const occurrences = rules.map(({ rule, anchor }) => {
     const start = anchor ?? WEEK_ANCHOR;
     const probe = evaluatePattern(rule, anchor, {
       startDate: start,
       endDateExclusive: addDaysIso(start, SEARCH_DAYS),
     });
-    if (probe.kind !== 'ok') continue;
-    const occurrence = earliest(probe.dates);
-    if (occurrence !== undefined && (first === undefined || occurrence < first)) first = occurrence;
-  }
-  return first;
+    return probe.kind === 'ok' ? earliestOf(probe.dates) : undefined;
+  });
+  return earliestOf(occurrences);
 }
 
 /**
@@ -226,12 +223,8 @@ function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
  * an arbitrary week is still rendered rather than previewing blank.
  */
 function unionRepresentativeWeek(members: readonly CalendarDefinition[]): EvaluationWindow {
-  let first: string | undefined;
-  for (const member of members) {
-    const occurrence = earliestOccurrence(workingRules(member));
-    if (occurrence !== undefined && (first === undefined || occurrence < first)) first = occurrence;
-  }
-  return weekFrom(first ?? WEEK_ANCHOR);
+  const firstPerMember = members.map((member) => earliestOccurrence(workingRules(member)));
+  return weekFrom(earliestOf(firstPerMember) ?? WEEK_ANCHOR);
 }
 
 function weekFrom(iso: string): EvaluationWindow {
@@ -239,10 +232,13 @@ function weekFrom(iso: string): EvaluationWindow {
   return { startDate: monday, endDateExclusive: addDaysIso(monday, 7) };
 }
 
-function earliest(dates: Set<string>): string | undefined {
-  let min: string | undefined;
-  for (const date of dates) if (min === undefined || date < min) min = date;
-  return min;
+/** The earliest of the given ISO days, skipping undefined; undefined if none. */
+function earliestOf(candidates: Iterable<string | undefined>): string | undefined {
+  let first: string | undefined;
+  for (const candidate of candidates) {
+    if (candidate !== undefined && (first === undefined || candidate < first)) first = candidate;
+  }
+  return first;
 }
 
 /** The weekdays (0=Mon..6=Sun) a pattern matches within the representative week. */
