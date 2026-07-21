@@ -17,13 +17,16 @@ import { readDisplaySelection, type DisplaySelection } from '../../src/bases/cal
 import {
   autoDisplayedPathsFrom,
   buildPickerRows,
+  CALENDAR_SET_SKELETON_FRONTMATTER,
   CALENDAR_SKELETON_FRONTMATTER,
+  calendarSetSkeletonText,
   calendarSkeletonText,
   toggleCalendarRow,
   toggleDefaultRow,
   toggleSetMember,
   toggleSetRow,
   uniqueCalendarPath,
+  uniqueCalendarSetPath,
   type PickerContext,
   type PickerWrites,
   type SetRowModel,
@@ -226,6 +229,19 @@ describe('auto display + create scaffolding', () => {
     const parsed = parseCalendarFrontmatter(CALENDAR_SKELETON_FRONTMATTER);
     expect(parsed?.kind).toBe('calendar');
     expect(calendarSkeletonText()).toContain('tngantt: calendar');
+  });
+
+  it('uniqueCalendarSetPath numbers past existing set notes', () => {
+    expect(uniqueCalendarSetPath(() => false)).toBe('Calendars/New Calendar Set.md');
+    const taken = new Set(['Calendars/New Calendar Set.md']);
+    expect(uniqueCalendarSetPath((path) => taken.has(path))).toBe('Calendars/New Calendar Set 2.md');
+  });
+
+  it('the set scaffold frontmatter is a valid, empty calendar-set per the schema', () => {
+    const parsed = parseCalendarFrontmatter(CALENDAR_SET_SKELETON_FRONTMATTER);
+    expect(parsed?.kind).toBe('calendar-set');
+    expect(parsed && 'members' in parsed ? parsed.members : ['x']).toEqual([]);
+    expect(calendarSetSkeletonText()).toContain('tngantt: calendar-set');
   });
 });
 

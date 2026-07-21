@@ -636,6 +636,42 @@ describe("Gantt (OG) calendar editor routing", () => {
     );
   });
 
+  const runCommand = async (id: string): Promise<void> => {
+    await browser.executeObsidian(({ app }, commandId) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => boolean } }).commands.executeCommandById(
+        commandId,
+      );
+    }, id);
+  };
+
+  const readNoteOrNull = async (path: string): Promise<string | null> =>
+    browser.executeObsidian(async ({ app }, p) => {
+      const file = app.vault.getAbstractFileByPath(p);
+      return file ? ((await app.vault.read(file as never)) as string) : null;
+    }, path);
+
+  it("creates a calendar via the command and opens it in the editor", async () => {
+    await runCommand("tasknotes-gantt:create-calendar");
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "the created calendar did not open in the editor",
+    });
+    const created = await readNoteOrNull("Calendars/New Calendar.md");
+    expect(created).not.toBeNull();
+    expect(created).toContain("tngantt: calendar");
+  });
+
+  it("creates a calendar set via the command and opens it in the editor", async () => {
+    await runCommand("tasknotes-gantt:create-calendar-set");
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "the created calendar set did not open in the editor",
+    });
+    const created = await readNoteOrNull("Calendars/New Calendar Set.md");
+    expect(created).not.toBeNull();
+    expect(created).toContain("tngantt: calendar-set");
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {

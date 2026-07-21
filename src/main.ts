@@ -16,6 +16,7 @@ import {
 import { GanttSettingTab } from './release/GanttSettingTab';
 import { registerCalendarEditor } from './editor/registerCalendarEditor';
 import { CalendarEditorView } from './editor/CalendarEditorView';
+import { createAndOpenCalendarNote } from './bases/createCalendarNote';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
@@ -133,6 +134,23 @@ export default class ObsidianGanttPlugin extends Plugin {
           });
         }
         return true;
+      },
+    });
+    // Create a new calendar / calendar-set note and open it in the editor. The
+    // picker only offers "Create calendar" from its empty state, so these are
+    // the way to add one when the vault already has calendars.
+    this.addCommand({
+      id: 'create-calendar',
+      name: 'Create calendar',
+      callback: () => {
+        void createAndOpenCalendarNote(this.app, 'calendar');
+      },
+    });
+    this.addCommand({
+      id: 'create-calendar-set',
+      name: 'Create calendar set',
+      callback: () => {
+        void createAndOpenCalendarNote(this.app, 'calendar-set');
       },
     });
     this.addSettingTab(new GanttSettingTab(this.app, this));
