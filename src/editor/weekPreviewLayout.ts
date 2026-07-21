@@ -22,12 +22,16 @@ import {
   validatePattern,
   type EvaluationWindow,
 } from '../controller/calendar/patternWindow';
+import { blockingDays } from './calendarDayFacts';
+import { buildUnionModel } from './unionPreview';
 
 export interface DayColumn {
   /** 0 = Monday .. 6 = Sunday. */
   weekday: number;
   label: string;
   isWorking: boolean;
+  /** A day one member blocks while another covers — outranks working/blocking. */
+  conflict: boolean;
   hours: TimeRange[];
 }
 
@@ -82,9 +86,60 @@ export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLay
     weekday,
     label,
     isWorking: perDay[weekday]?.isWorking ?? false,
+    conflict: false,
     hours: perDay[weekday]?.hours ?? [],
   }));
   return { days, invalid: undefined };
+}
+
+/**
+ * The week layout for a calendar-set: one representative week rendering the
+ * union of its member calendars. A day is non-working when any member blocks it,
+ * conflicting when one member blocks it while another covers it, and shows the
+ * union of the members' authored working hours on the days it stays working.
+ */
+export function buildWeekPreviewUnion(
+  members: readonly CalendarDefinition[],
+): WeekPreviewLayout {
+  const week = unionRepresentativeWeek(members);
+  const union = buildUnionModel(members, week);
+  const hoursByWeekday = unionWorkingHours(members, week);
+
+  const days = LABELS.map((label, weekday) => {
+    const date = addDaysIso(week.startDate, weekday);
+    const isWorking = !union.blocking.days.has(date);
+    return {
+      weekday,
+      label,
+      isWorking,
+      conflict: union.conflicts.has(date),
+      hours: isWorking ? (hoursByWeekday[weekday] ?? []) : [],
+    };
+  });
+  return { days, invalid: undefined };
+}
+
+/** Union of each member's authored working hours on days it does not block. */
+function unionWorkingHours(
+  members: readonly CalendarDefinition[],
+  week: EvaluationWindow,
+): TimeRange[][] {
+  const blockedPerMember = members.map((member) => blockingDays(member, week).days);
+  return LABELS.map((_label, weekday) => {
+    const date = addDaysIso(week.startDate, weekday);
+    const seen = new Set<string>();
+    const hours: TimeRange[] = [];
+    members.forEach((member, index) => {
+      if (blockedPerMember[index]?.has(date)) return;
+      for (const range of member.workingHours) {
+        const key = `${range.start}-${range.end}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        hours.push(range);
+      }
+    });
+    return hours;
+  });
 }
 
 interface DayHours {
@@ -121,19 +176,27 @@ function uniformHours(definition: CalendarDefinition, week: EvaluationWindow): D
   });
 }
 
-/**
- * The Monday-aligned week that contains the first occurrence of whatever defines
- * the working days shown — the availability blocks when present, else the main
- * pattern — so a non-weekly (monthly/anchored) schedule never previews blank.
- */
-function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
-  const rules =
-    definition.availability.length > 0
-      ? definition.availability.map((block) => ({ rule: block.pattern, anchor: undefined }))
-      : definition.pattern !== undefined
-        ? [{ rule: definition.pattern, anchor: definition.patternStart }]
-        : [];
+interface WorkingRule {
+  rule: string;
+  anchor: string | undefined;
+}
 
+/**
+ * The rules that define a calendar's working days — the availability blocks when
+ * present, else the main pattern — the search for its first occurrence draws on.
+ */
+function workingRules(definition: CalendarDefinition): WorkingRule[] {
+  if (definition.availability.length > 0) {
+    return definition.availability.map((block) => ({ rule: block.pattern, anchor: undefined }));
+  }
+  if (definition.pattern !== undefined) {
+    return [{ rule: definition.pattern, anchor: definition.patternStart }];
+  }
+  return [];
+}
+
+/** The earliest day any of these rules first occurs, searching a full leap cycle. */
+function earliestOccurrence(rules: readonly WorkingRule[]): string | undefined {
   let first: string | undefined;
   for (const { rule, anchor } of rules) {
     const start = anchor ?? WEEK_ANCHOR;
@@ -143,6 +206,29 @@ function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
     });
     if (probe.kind !== 'ok') continue;
     const occurrence = earliest(probe.dates);
+    if (occurrence !== undefined && (first === undefined || occurrence < first)) first = occurrence;
+  }
+  return first;
+}
+
+/**
+ * The Monday-aligned week that contains the first occurrence of whatever defines
+ * the working days shown — the availability blocks when present, else the main
+ * pattern — so a non-weekly (monthly/anchored) schedule never previews blank.
+ */
+function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
+  return weekFrom(earliestOccurrence(workingRules(definition)) ?? WEEK_ANCHOR);
+}
+
+/**
+ * The single representative week for a union: anchored to the earliest first
+ * occurrence across all members' rules, so a member whose schedule falls outside
+ * an arbitrary week is still rendered rather than previewing blank.
+ */
+function unionRepresentativeWeek(members: readonly CalendarDefinition[]): EvaluationWindow {
+  let first: string | undefined;
+  for (const member of members) {
+    const occurrence = earliestOccurrence(workingRules(member));
     if (occurrence !== undefined && (first === undefined || occurrence < first)) first = occurrence;
   }
   return weekFrom(first ?? WEEK_ANCHOR);

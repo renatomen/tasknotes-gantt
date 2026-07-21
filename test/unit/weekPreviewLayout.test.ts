@@ -1,5 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildWeekPreview, weekLayoutFor } from '../../src/editor/weekPreviewLayout';
+import {
+  buildWeekPreview,
+  buildWeekPreviewUnion,
+  weekLayoutFor,
+} from '../../src/editor/weekPreviewLayout';
 import type { CalendarDefinition } from '../../src/controller/calendar/schema';
 
 const base = (over: Partial<CalendarDefinition> = {}): CalendarDefinition => ({
@@ -107,6 +111,38 @@ describe('buildWeekPreview', () => {
     );
     expect(week.invalid).toBeDefined();
     expect(week.days).toHaveLength(0);
+  });
+});
+
+describe('buildWeekPreviewUnion', () => {
+  const workingWeekdays = base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
+  // 2026-01-05 is the fixed Monday the working-week pattern anchors to.
+  const blocksMonday = base({
+    nonWorking: [{ startDate: '2026-01-05', endDateExclusive: '2026-01-06', name: undefined }],
+  });
+
+  it('marks the disagreed weekday as a conflict and leaves an agreed day unflagged', () => {
+    const week = buildWeekPreviewUnion([workingWeekdays, blocksMonday]);
+    expect(week.days[0]?.conflict).toBe(true); // Mon — one blocks, one works
+    expect(week.days[0]?.isWorking).toBe(false);
+    expect(week.days[1]?.conflict).toBe(false); // Tue — both agree it works
+    expect(week.days[1]?.isWorking).toBe(true);
+  });
+
+  it('anchors the week to the earliest occurrence of a monthly member and renders its blocking', () => {
+    const week = buildWeekPreviewUnion([base({ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15' })]);
+    expect(week.days.some((d) => d.isWorking)).toBe(true); // never blank
+    expect(week.days[3]?.isWorking).toBe(true); // 2026-01-15 is a Thursday
+    expect(week.days.filter((d) => !d.isWorking)).toHaveLength(6); // the rest block
+  });
+
+  it('treats a weekday blocked by any member as non-working', () => {
+    const week = buildWeekPreviewUnion([
+      base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }),
+      base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH' }),
+    ]);
+    expect(week.days[4]?.isWorking).toBe(false); // Fri — the second member blocks it
+    expect(week.days[3]?.isWorking).toBe(true); // Thu — neither member blocks it
   });
 });
 

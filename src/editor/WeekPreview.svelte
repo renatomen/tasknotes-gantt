@@ -22,7 +22,11 @@
   {:else}
     <div class="og-week-grid">
       {#each layout.days as day (day.weekday)}
-        <div class="og-week-col" class:og-week-off={!day.isWorking}>
+        <div
+          class="og-week-col"
+          class:og-week-off={!day.isWorking}
+          class:og-week-conflict={day.conflict}
+        >
           <div class="og-week-label">{day.label}</div>
           {#if day.isWorking && day.hours.length > 0}
             {#each day.hours as range, i (i)}
@@ -78,6 +82,19 @@
   .og-week-off {
     background: transparent;
     border-style: dashed;
+  }
+  /* A conflict outranks working/blocking: members disagree on this day. The
+     diagonal error stripe matches the main view's conflict treatment. */
+  .og-week-conflict {
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--background-modifier-error) 0,
+      var(--background-modifier-error) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+    border-color: var(--background-modifier-error);
+    border-style: solid;
   }
 
   .og-week-label {
