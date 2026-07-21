@@ -232,17 +232,29 @@ export function autoDisplayedPathsFrom(
   return paths;
 }
 
-const CREATE_FOLDER = 'Calendars';
+/** The folder new calendar and calendar-set notes are scaffolded into. */
+export const CREATE_FOLDER = 'Calendars';
 const CREATE_BASENAME = 'New Calendar';
+const SET_CREATE_BASENAME = 'New Calendar Set';
+
+/** First `${folder}/${basename}[ N].md` path that does not already exist. */
+function uniquePath(basename: string, exists: (path: string) => boolean): string {
+  const candidate = `${CREATE_FOLDER}/${basename}.md`;
+  if (!exists(candidate)) return candidate;
+  for (let n = 2; ; n++) {
+    const numbered = `${CREATE_FOLDER}/${basename} ${n}.md`;
+    if (!exists(numbered)) return numbered;
+  }
+}
 
 /** First `Calendars/New Calendar[ N].md` path that does not already exist. */
 export function uniqueCalendarPath(exists: (path: string) => boolean): string {
-  const candidate = `${CREATE_FOLDER}/${CREATE_BASENAME}.md`;
-  if (!exists(candidate)) return candidate;
-  for (let n = 2; ; n++) {
-    const numbered = `${CREATE_FOLDER}/${CREATE_BASENAME} ${n}.md`;
-    if (!exists(numbered)) return numbered;
-  }
+  return uniquePath(CREATE_BASENAME, exists);
+}
+
+/** First `Calendars/New Calendar Set[ N].md` path that does not already exist. */
+export function uniqueCalendarSetPath(exists: (path: string) => boolean): string {
+  return uniquePath(SET_CREATE_BASENAME, exists);
 }
 
 /**
@@ -262,6 +274,26 @@ export function calendarSkeletonText(): string {
     `tngantt: ${CALENDAR_SKELETON_FRONTMATTER.tngantt}`,
     `pattern: "${CALENDAR_SKELETON_FRONTMATTER.pattern}"`,
     'non_working: []',
+    '---',
+    '',
+  ].join('\n');
+}
+
+/**
+ * The scaffolded calendar-SET frontmatter. A new set starts with no members;
+ * the user adds them in the editor. An empty set parses as a valid set (no
+ * diagnostics), so this is a usable starting point rather than an error.
+ */
+export const CALENDAR_SET_SKELETON_FRONTMATTER = {
+  tngantt: 'calendar-set',
+  calendars: [],
+} as const;
+
+export function calendarSetSkeletonText(): string {
+  return [
+    '---',
+    `tngantt: ${CALENDAR_SET_SKELETON_FRONTMATTER.tngantt}`,
+    'calendars: []',
     '---',
     '',
   ].join('\n');

@@ -10,7 +10,6 @@
 /* global MouseEvent */
 import {
   BasesView,
-  Notice,
   TFile,
   type Plugin,
   type BasesViewConfig,
@@ -124,12 +123,8 @@ import { buildCalendarNotice } from './calendarConflicts';
 import type { MarkerInput } from './markerOverlay';
 import { buildCalendarRegistry, stripSubpath } from '../controller/calendar/resolveCalendars';
 import { CalendarPickerModal } from './CalendarPickerModal';
-import {
-  autoDisplayedPathsFrom,
-  calendarSkeletonText,
-  uniqueCalendarPath,
-  type PickerContext,
-} from './calendarPickerModel';
+import { autoDisplayedPathsFrom, type PickerContext } from './calendarPickerModel';
+import { createAndOpenCalendarNote } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from './parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -707,23 +702,7 @@ class ObsidianGanttBasesView extends BasesView {
           this.config.set('tngantt_highlightWeekends', writes.highlightWeekends);
         }
       },
-      createCalendar: async () => {
-        try {
-          const vault = this.app.vault;
-          if (!vault.getAbstractFileByPath('Calendars')) {
-            await vault.createFolder('Calendars').catch(() => undefined);
-          }
-          const path = uniqueCalendarPath(
-            (candidate) => vault.getAbstractFileByPath(candidate) !== null,
-          );
-          const file = await vault.create(path, calendarSkeletonText());
-          await this.app.workspace.getLeaf(true).openFile(file);
-        } catch (error) {
-          console.error('[Gantt] Failed to create a calendar note:', error);
-          new Notice("Couldn't create the calendar note — see console for details.");
-          throw error;
-        }
-      },
+      createCalendar: () => createAndOpenCalendarNote(this.app, 'calendar'),
     }).open();
   }
 
