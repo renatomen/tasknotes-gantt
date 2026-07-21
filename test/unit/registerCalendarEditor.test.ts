@@ -8,6 +8,7 @@ import { describe, expect, it, jest, afterEach } from '@jest/globals';
 import { TFile, WorkspaceLeaf } from 'obsidian';
 import { registerCalendarEditor } from '../../src/editor/registerCalendarEditor';
 import { CALENDAR_EDITOR_VIEW_TYPE, suspendRouting } from '../../src/editor/calendarEditorRouting';
+import { CalendarEditorView } from '../../src/editor/CalendarEditorView';
 
 /** A fake plugin/app exposing exactly what the register module reads. */
 type MenuHandler = (menu: unknown, file: unknown, source: string, leaf: unknown) => void;
@@ -26,6 +27,7 @@ function makePlugin(markedPaths: string[]) {
         return {};
       },
       offref: jest.fn(),
+      detachLeavesOfType: jest.fn(),
     },
     vault: {
       getAbstractFileByPath: (path: string) => {
@@ -83,8 +85,10 @@ function fakeLeaf(viewType: string) {
 const primaryLeaf = (root: unknown) => new WorkspaceLeaf(root);
 
 const original = WorkspaceLeaf.prototype.setViewState;
+const originalDetach = WorkspaceLeaf.prototype.detach;
 afterEach(() => {
   WorkspaceLeaf.prototype.setViewState = original;
+  WorkspaceLeaf.prototype.detach = originalDetach;
 });
 
 describe('registerCalendarEditor', () => {
@@ -179,6 +183,81 @@ describe('registerCalendarEditor', () => {
       leaf.setViewState({ type: 'markdown', state: { file: 'Calendars/NZ.md' } }),
     );
     expect((leaf.lastState as { type: string }).type).toBe('markdown');
+    teardown();
+  });
+
+  it('patches leaf detach and the workspace bulk-detach, restoring both on teardown', () => {
+    const { plugin } = makePlugin([]);
+    const beforeDetach = WorkspaceLeaf.prototype.detach;
+    const beforeBulk = plugin.app.workspace.detachLeavesOfType;
+
+    const teardown = registerCalendarEditor(plugin);
+    expect(WorkspaceLeaf.prototype.detach).not.toBe(beforeDetach);
+    expect(plugin.app.workspace.detachLeavesOfType).not.toBe(beforeBulk);
+
+    teardown();
+    expect(WorkspaceLeaf.prototype.detach).toBe(beforeDetach);
+    expect(plugin.app.workspace.detachLeavesOfType).toBe(beforeBulk);
+  });
+
+  it('prompts before closing a calendar editor with unsaved edits, detaching only once resolved', () => {
+    const { plugin, rootSplit } = makePlugin([]);
+    const teardown = registerCalendarEditor(plugin);
+
+    const leaf = new WorkspaceLeaf(rootSplit);
+    const view = new CalendarEditorView(leaf as never);
+    jest.spyOn(view, 'hasUnsavedEdits').mockReturnValue(true);
+    let proceed: (() => void) | null = null;
+    const confirmClose = jest
+      .spyOn(view, 'confirmClose')
+      .mockImplementation(async (run: () => void) => {
+        proceed = run;
+      });
+    (leaf as unknown as { view: unknown }).view = view;
+
+    // The guard fires instead of an immediate detach.
+    leaf.detach();
+    expect(confirmClose).toHaveBeenCalledTimes(1);
+    expect((leaf as unknown as { detached: boolean }).detached).toBe(false);
+
+    // Running the resolve callback performs the real detach.
+    proceed!();
+    expect((leaf as unknown as { detached: boolean }).detached).toBe(true);
+
+    teardown();
+  });
+
+  it('does not prompt when a calendar editor is closed inside a bulk detachLeavesOfType', () => {
+    const { plugin, rootSplit } = makePlugin([]);
+    // A bulk detach that actually closes its leaf, so the suspend seam is real.
+    const leaf = new WorkspaceLeaf(rootSplit);
+    plugin.app.workspace.detachLeavesOfType = () => {
+      leaf.detach();
+    };
+    const teardown = registerCalendarEditor(plugin);
+
+    const view = new CalendarEditorView(leaf as never);
+    jest.spyOn(view, 'hasUnsavedEdits').mockReturnValue(true);
+    const confirmClose = jest.spyOn(view, 'confirmClose').mockResolvedValue(undefined);
+    (leaf as unknown as { view: unknown }).view = view;
+
+    plugin.app.workspace.detachLeavesOfType(CALENDAR_EDITOR_VIEW_TYPE);
+    expect(confirmClose).not.toHaveBeenCalled();
+    expect((leaf as unknown as { detached: boolean }).detached).toBe(true);
+
+    teardown();
+  });
+
+  it('detaches an ordinary (non-editor) leaf without prompting', () => {
+    const { plugin, rootSplit } = makePlugin([]);
+    const teardown = registerCalendarEditor(plugin);
+
+    const leaf = new WorkspaceLeaf(rootSplit);
+    // A plain markdown leaf, not a calendar editor — the guard must let it go.
+    (leaf as unknown as { view: unknown }).view = { getViewType: () => 'markdown' };
+    leaf.detach();
+    expect((leaf as unknown as { detached: boolean }).detached).toBe(true);
+
     teardown();
   });
 

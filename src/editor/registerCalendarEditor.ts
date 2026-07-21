@@ -13,7 +13,7 @@
  *
  * @module editor/registerCalendarEditor
  */
-import { TFile, WorkspaceLeaf, type App, type Plugin } from 'obsidian';
+import { TFile, WorkspaceLeaf, type App, type Plugin, type Workspace } from 'obsidian';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
@@ -57,6 +57,55 @@ export function registerCalendarEditor(plugin: Plugin): () => void {
 
   WorkspaceLeaf.prototype.setViewState = patched;
 
+  // Close guard. Obsidian offers no cancelable "before close" hook for a custom
+  // view, so a dirty editor is caught at `detach` — the method a closing tab
+  // calls. But `detach` is also driven programmatically, and prompting for
+  // those would be wrong: a workspace rearrange or a "close all of type" is not
+  // a user deciding to abandon edits. The seam is that bulk closes run through
+  // `detachLeavesOfType`, which calls `detach` on each leaf underneath it; a
+  // single tab-close calls `detach` directly. Wrapping `detachLeavesOfType` to
+  // raise a suspend count lets the guard fire only for the direct case.
+  let closeGuardSuspended = 0;
+  const originalDetachLeavesOfType = app.workspace.detachLeavesOfType;
+  const patchedDetachLeavesOfType = function patchedDetachLeavesOfType(
+    this: Workspace,
+    type: string,
+  ) {
+    closeGuardSuspended++;
+    try {
+      return originalDetachLeavesOfType.call(this, type);
+    } finally {
+      closeGuardSuspended--;
+    }
+  } as typeof app.workspace.detachLeavesOfType;
+  app.workspace.detachLeavesOfType = patchedDetachLeavesOfType;
+
+  const originalDetach = WorkspaceLeaf.prototype.detach;
+  let closing = false;
+  const patchedDetach = function patchedDetach(this: WorkspaceLeaf) {
+    const view = this.view;
+    if (
+      closeGuardSuspended === 0 &&
+      !closing &&
+      view instanceof CalendarEditorView &&
+      view.hasUnsavedEdits()
+    ) {
+      // Pause the close: re-issue the real detach only once the user resolves
+      // the edits. Obsidian tolerates `detach` returning without detaching.
+      void view.confirmClose(() => {
+        closing = true;
+        try {
+          originalDetach.call(this);
+        } finally {
+          closing = false;
+        }
+      });
+      return;
+    }
+    return originalDetach.call(this);
+  } as typeof WorkspaceLeaf.prototype.detach;
+  WorkspaceLeaf.prototype.detach = patchedDetach;
+
   // The return trip: "Open as markdown" leaves a calendar note in a markdown
   // leaf with no way back but reopening. Offer "View as calendar" on that leaf's
   // menus, re-issuing a markdown setViewState so the interceptor routes it back.
@@ -89,6 +138,12 @@ export function registerCalendarEditor(plugin: Plugin): () => void {
       console.warn(
         '[Gantt] setViewState was re-patched by another plugin; leaving the chain intact.',
       );
+    }
+    if (WorkspaceLeaf.prototype.detach === patchedDetach) {
+      WorkspaceLeaf.prototype.detach = originalDetach;
+    }
+    if (app.workspace.detachLeavesOfType === patchedDetachLeavesOfType) {
+      app.workspace.detachLeavesOfType = originalDetachLeavesOfType;
     }
     revertOpenEditors(app);
   };

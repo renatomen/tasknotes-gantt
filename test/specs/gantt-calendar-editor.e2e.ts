@@ -551,6 +551,49 @@ describe("Gantt (OG) calendar editor routing", () => {
     await browser.pause(300);
   });
 
+  it("guards a single-tab close of a note with unsaved edits, then discards", async () => {
+    // Closing a tab calls leaf.detach() directly; the guard fires there. A "Go
+    // back" keeps the editor open, a "Discard" lets the close through. (Bulk
+    // detaches route through detachLeavesOfType and are deliberately silent —
+    // openNote itself relies on that, so it never trips this modal.)
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Unsaved before close");
+
+    const detachActiveEditor = async (): Promise<void> => {
+      await browser.executeObsidian(({ app }) => {
+        const leaf = app.workspace.getLeavesOfType("tngantt-calendar-editor")[0];
+        leaf?.detach();
+      });
+    };
+
+    // First close attempt → the guard modal appears. "Go back" keeps it open.
+    await detachActiveEditor();
+    const goBack = await (await $(".modal")).$("button=Go back");
+    await goBack.waitForDisplayed({ timeout: 10000, timeoutMsg: "the unsaved-changes guard did not appear" });
+    await goBack.click();
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 10000,
+      timeoutMsg: "'Go back' did not keep the editor open",
+    });
+    expect(await (await $(".og-cal-form textarea")).getValue()).toBe("Unsaved before close");
+
+    // Second attempt → "Discard" lets the close through, dropping the editor leaf.
+    await detachActiveEditor();
+    const discard = await (await $(".modal")).$("button=Discard");
+    await discard.waitForDisplayed({ timeout: 10000, timeoutMsg: "the guard did not reappear on a second close" });
+    await discard.click();
+    await browser.waitUntil(
+      async () =>
+        (await browser.executeObsidian(({ app }) => app.workspace.getLeavesOfType("tngantt-calendar-editor").length)) ===
+        0,
+      { timeout: 10000, timeoutMsg: "'Discard' did not close the editor leaf" },
+    );
+  });
+
   it("keeps markdown as the floor when the plugin is disabled", async () => {
     await browser.executeObsidian(async ({ app }) => {
       const plugins = (app as unknown as {
