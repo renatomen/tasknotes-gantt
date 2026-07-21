@@ -29,10 +29,15 @@
   import { formatUtcOffset } from './timezoneOffset';
   import WorkingPatternEditor from './WorkingPatternEditor.svelte';
   import ColorField from './ColorField.svelte';
+  import { validateNoteName } from './noteName';
 
   interface Props {
     initial: EditorFormState;
+    /** The note's current name (its filename), shown in the editable Name field. */
+    initialName: string;
     onSave: (changes: Record<string, FrontmatterValue>) => Promise<void>;
+    /** Rename the note's file; the host performs the vault rename. */
+    onRename?: (newName: string) => Promise<void>;
     /**
      * Attach the vault `[[` suggester to a member input once it mounts,
      * returning a disposer that tears the suggester down when the input goes.
@@ -48,7 +53,9 @@
 
   const {
     initial,
+    initialName,
     onSave,
+    onRename,
     attachMemberSuggest,
     attachTimezoneSuggest,
     onReload,
@@ -57,6 +64,11 @@
 
   let form = $state<EditorFormState>($state.snapshot(initial));
   let baseline = $state<EditorFormState>($state.snapshot(initial));
+  // The name is the note's filename, edited here and renamed on save. Tracked
+  // apart from the frontmatter form (which the pure state module owns) with its
+  // own baseline so a rename that lands advances the clean point.
+  let name = $state(initialName);
+  let nameBaseline = $state(initialName);
   let saving = $state(false);
 
   // The note changed on disk while the editor was open. The host (view) detects
@@ -81,8 +93,10 @@
   }
 
   const errors = $derived(fieldErrors(form));
-  const dirty = $derived(isDirty(baseline, form));
-  const hasErrors = $derived(Object.keys(errors).length > 0);
+  const nameError = $derived(validateNoteName(name));
+  const nameDirty = $derived(name.trim() !== nameBaseline);
+  const dirty = $derived(isDirty(baseline, form) || nameDirty);
+  const hasErrors = $derived(Object.keys(errors).length > 0 || nameError !== null);
 
   // Preview tabs render the LIVE definition — parsed exactly as the chart does —
   // so unsaved edits reflect without a save. The derived is lazy: it only
@@ -117,9 +131,15 @@
     // and be silently lost. `$state.snapshot` is Svelte's way to plain-clone a
     // reactive proxy — `structuredClone` throws on the proxy.
     const snapshot = $state.snapshot(form) as EditorFormState;
+    const newName = name.trim();
     try {
-      await onSave(changedFrontmatter(baseline, snapshot));
+      // Frontmatter first (targets the current path), then the rename moves the
+      // file — so a frontmatter write never lands on the post-rename path.
+      if (isDirty(baseline, snapshot)) await onSave(changedFrontmatter(baseline, snapshot));
+      if (newName !== nameBaseline) await onRename?.(newName);
       baseline = snapshot;
+      nameBaseline = newName;
+      name = newName;
       // Saving resolves the divergence — our write is now the disk truth.
       externalChanged = false;
     } finally {
@@ -227,6 +247,18 @@
   {:else}
   <section class="og-cal-group">
     <h3 class="og-cal-group-title">Identity</h3>
+
+    <label class="og-cal-field">
+      <span class="og-cal-label">Name</span>
+      <input
+        class="og-cal-control"
+        type="text"
+        bind:value={name}
+        placeholder="Calendar name"
+        aria-label="Calendar name"
+      />
+      {#if nameError}<span class="og-cal-error">{nameError}</span>{/if}
+    </label>
 
     <label class="og-cal-field">
       <span class="og-cal-label">Description</span>
@@ -428,6 +460,9 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    /* Keep Save hard right even when there are no tabs (the set editor), where
+       space-between would otherwise leave the lone actions group at the left. */
+    margin-left: auto;
   }
   /* Warning-style cue (theme colour, no icon) that edits are pending. */
   .og-cal-unsaved {
