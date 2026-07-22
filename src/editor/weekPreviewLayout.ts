@@ -23,15 +23,19 @@ import {
   type EvaluationWindow,
 } from '../controller/calendar/patternWindow';
 import { blockingDays } from './calendarDayFacts';
-import { buildUnionModel } from './unionPreview';
+import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 export interface DayColumn {
   /** 0 = Monday .. 6 = Sunday. */
   weekday: number;
+  /** The representative week's date for this column (ISO), for the hover tooltip. */
+  date: string;
   label: string;
   isWorking: boolean;
   /** A day one member blocks while another covers — outranks working/blocking. */
   conflict: boolean;
+  /** For a conflict day, the disagreeing members and how each labels it. */
+  conflictSources: ConflictSource[] | undefined;
   hours: TimeRange[];
 }
 
@@ -84,9 +88,11 @@ export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLay
 
   const days = LABELS.map((label, weekday) => ({
     weekday,
+    date: addDaysIso(week.startDate, weekday),
     label,
     isWorking: perDay[weekday]?.isWorking ?? false,
     conflict: false,
+    conflictSources: undefined,
     hours: perDay[weekday]?.hours ?? [],
   }));
   return { days, invalid: undefined };
@@ -100,9 +106,10 @@ export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLay
  */
 export function buildWeekPreviewUnion(
   members: readonly CalendarDefinition[],
+  names?: readonly string[],
 ): WeekPreviewLayout {
   const week = unionRepresentativeWeek(members);
-  const union = buildUnionModel(members, week);
+  const union = buildUnionModel(members, week, names);
   const hoursByWeekday = unionWorkingHours(members, week);
 
   const days = LABELS.map((label, weekday) => {
@@ -110,9 +117,11 @@ export function buildWeekPreviewUnion(
     const isWorking = !union.blocking.days.has(date);
     return {
       weekday,
+      date,
       label,
       isWorking,
       conflict: union.conflicts.has(date),
+      conflictSources: union.conflictSources.get(date),
       hours: isWorking ? (hoursByWeekday[weekday] ?? []) : [],
     };
   });

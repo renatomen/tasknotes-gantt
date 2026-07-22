@@ -5,7 +5,8 @@
    * background variable and markers ride as vertical lines, so the strip reads
    * as the live chart would. A null layout is a set; an `invalid` layout flags.
    */
-  import type { GanttStripLayout, StripMarker } from './ganttStripLayout';
+  import { buildConflictTooltip } from './unionPreview';
+  import type { GanttStripLayout, StripCell, StripMarker } from './ganttStripLayout';
 
   interface Props {
     layout: GanttStripLayout | null;
@@ -15,6 +16,13 @@
 
   const markerTitle = (marker: StripMarker): string =>
     marker.name === undefined ? marker.date : `${marker.date} — ${marker.name}`;
+
+  // Every cell shows its date on hover; a conflict cell lists the disagreeing
+  // members instead, matching the year grid's tooltip.
+  const cellTitle = (cell: StripCell): string =>
+    cell.conflict && cell.conflictSources !== undefined
+      ? buildConflictTooltip(cell.date, cell.conflictSources)
+      : cell.date;
 </script>
 
 <div class="og-strip">
@@ -30,6 +38,7 @@
             class="og-strip-cell"
             class:og-strip-shaded={cell.shaded}
             class:og-strip-conflict={cell.conflict}
+            title={cellTitle(cell)}
           ></div>
         {/each}
       </div>

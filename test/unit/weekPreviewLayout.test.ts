@@ -173,3 +173,17 @@ describe('weekLayoutFor', () => {
     expect(weekLayoutFor(null)).toBeNull();
   });
 });
+
+describe('buildWeekPreviewUnion conflict attribution', () => {
+  it('names the disagreeing members on a conflicting weekday', () => {
+    const weekdays = base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }); // covers Fri
+    const sunThu = base({ pattern: 'FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH' }); // blocks Fri
+    const week = buildWeekPreviewUnion([weekdays, sunThu], ['Weekdays', 'Sun Thu']);
+    const friday = week.days.find((day) => day.weekday === 4);
+    expect(friday?.conflict).toBe(true);
+    expect(friday?.conflictSources).toEqual([
+      { calendar: 'Weekdays', description: undefined }, // covers Fri (no label)
+      { calendar: 'Sun Thu', description: undefined }, // blocks Fri via its pattern
+    ]);
+  });
+});

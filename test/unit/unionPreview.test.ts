@@ -7,7 +7,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
 import type { EvaluationWindow } from '../../src/controller/calendar/patternWindow';
-import { buildUnionModel, classifyMember } from '../../src/editor/unionPreview';
+import { buildConflictTooltip, buildUnionModel, classifyMember } from '../../src/editor/unionPreview';
 
 /** Parse a frontmatter object to a CalendarDefinition (throws on a non-calendar). */
 function calendar(frontmatter: Record<string, unknown>): CalendarDefinition {
@@ -136,5 +136,16 @@ describe('buildUnionModel conflict attribution', () => {
     const window: EvaluationWindow = { startDate: '2026-01-01', endDateExclusive: '2026-01-05' };
     const model = buildUnionModel([holidays, weekdays], window);
     expect(model.conflictSources.size).toBe(0);
+  });
+});
+
+describe('buildConflictTooltip', () => {
+  it('lists the date, then each member by its label or the date, with the calendar', () => {
+    expect(
+      buildConflictTooltip('2026-07-10', [
+        { calendar: 'NZ Public Holidays', description: 'Matariki' },
+        { calendar: 'Work Week 9-5', description: undefined },
+      ]),
+    ).toBe('2026-07-10\n- Matariki (NZ Public Holidays)\n- 2026-07-10 (Work Week 9-5)');
   });
 });

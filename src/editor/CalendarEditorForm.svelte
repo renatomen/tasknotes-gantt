@@ -144,8 +144,8 @@
   const invalidCount = $derived(
     resolvedMembers.filter((member) => member.kind === 'invalid').length,
   );
-  const unionWeekLayout = $derived(buildWeekPreviewUnion(memberDefinitions));
-  const unionStripLayout = $derived(buildGanttStripUnion(memberDefinitions));
+  const unionWeekLayout = $derived(buildWeekPreviewUnion(memberDefinitions, memberNames));
+  const unionStripLayout = $derived(buildGanttStripUnion(memberDefinitions, memberNames));
   const unionYearLayout = $derived(buildYearGridUnion(memberDefinitions, previewYear, memberNames));
 
   // The banner counts conflicts over one canonical window — the selected year —
