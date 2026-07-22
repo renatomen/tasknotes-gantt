@@ -10,11 +10,8 @@
 
 import type { CalendarDefinition } from '../controller/calendar/schema';
 import { addDaysIso } from '../controller/calendar/schema';
-import {
-  blockingComplement,
-  evaluatePattern,
-  type EvaluationWindow,
-} from '../controller/calendar/patternWindow';
+import { evaluatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
+import { workingComplement } from '../controller/calendar/workingDays';
 
 /** A day set with the entry name that produced each day (for hover labels). */
 export interface ClassifiedDays {
@@ -44,24 +41,19 @@ export function blockingDays(
 }
 
 /**
- * Blocking days (with names) plus whether a valid working pattern covers the
- * rest — the two facts a set-union conflict check needs. Computing them together
- * lets the union derive both its blocking shading and its conflicts from one
- * pass per member, rather than evaluating the blocking complement twice.
+ * Blocking days (with names) plus whether a valid working rule covers the rest —
+ * the two facts a set-union conflict check needs. Working days come from the
+ * shared {@link workingComplement} (pattern or availability blocks), so the
+ * preview blocks exactly the days the live chart does; the explicit non-working
+ * spans add their named holidays on top.
  */
 export function blockingFacts(
   definition: CalendarDefinition,
   window: EvaluationWindow,
 ): { blocking: ClassifiedDays; covers: boolean } {
   const blocking = emptyClassifiedDays();
-  let covers = false;
-  if (definition.pattern !== undefined) {
-    const complement = blockingComplement(definition.pattern, definition.patternStart, window);
-    if (complement.kind === 'ok') {
-      covers = true;
-      for (const day of complement.dates) blocking.days.add(day);
-    }
-  }
+  const { blocked, covers } = workingComplement(definition, window);
+  for (const day of blocked) blocking.days.add(day);
   addSpanDays(definition.nonWorking, window, blocking);
   return { blocking, covers };
 }
