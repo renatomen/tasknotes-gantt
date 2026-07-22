@@ -130,9 +130,13 @@
       ? form.members.map((link) => resolveMember(link))
       : [],
   );
-  const memberDefinitions = $derived(
-    resolvedMembers.flatMap((member) => (member.kind === 'ok' ? [member.definition] : [])),
+  const okMembers = $derived(
+    resolvedMembers.filter(
+      (member): member is Extract<MemberResolution, { kind: 'ok' }> => member.kind === 'ok',
+    ),
   );
+  const memberDefinitions = $derived(okMembers.map((member) => member.definition));
+  const memberNames = $derived(okMembers.map((member) => member.name));
   const okCount = $derived(memberDefinitions.length);
   const unresolvedCount = $derived(
     resolvedMembers.filter((member) => member.kind === 'unresolved').length,
@@ -142,7 +146,7 @@
   );
   const unionWeekLayout = $derived(buildWeekPreviewUnion(memberDefinitions));
   const unionStripLayout = $derived(buildGanttStripUnion(memberDefinitions));
-  const unionYearLayout = $derived(buildYearGridUnion(memberDefinitions, previewYear));
+  const unionYearLayout = $derived(buildYearGridUnion(memberDefinitions, previewYear, memberNames));
 
   // The banner counts conflicts over one canonical window — the selected year —
   // read from the SAME layout the Year tab renders, so the number and the Year

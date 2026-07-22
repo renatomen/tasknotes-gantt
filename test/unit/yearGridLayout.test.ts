@@ -279,3 +279,23 @@ describe('monthColumns', () => {
     }
   });
 });
+
+describe('buildYearGridUnion conflict tooltip sources', () => {
+  it('carries the disagreeing members on a conflict cell', () => {
+    // Holidays blocks Sat 2025-03-08 as "Festival"; a Mon–Sat member covers it.
+    const holidays = base({ nonWorking: [span('2025-03-08', '2025-03-09', 'Festival')] });
+    const weekdays = base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA' });
+    const grid = buildYearGridUnion([holidays, weekdays], 2025, ['Holidays', 'Weekdays']);
+    const cell = grid.cells.find((c) => c.date === '2025-03-08');
+    expect(cell?.dayClass).toBe('conflict');
+    expect(cell?.conflictSources).toEqual([
+      { calendar: 'Holidays', description: 'Festival' },
+      { calendar: 'Weekdays', description: undefined },
+    ]);
+  });
+
+  it('leaves conflictSources undefined on a non-conflict cell', () => {
+    const grid = buildYearGridUnion([base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' })], 2025, ['Solo']);
+    expect(grid.cells.find((c) => c.date === '2025-03-10')?.conflictSources).toBeUndefined();
+  });
+});

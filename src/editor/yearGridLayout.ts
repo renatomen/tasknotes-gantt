@@ -12,7 +12,7 @@ import type { CalendarDefinition, ParsedCalendarNote } from '../controller/calen
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { blockingDays, eventDays, markerDays, type ClassifiedDays } from './calendarDayFacts';
-import { buildUnionModel } from './unionPreview';
+import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 /**
  * Highest-precedence treatment a day carries:
@@ -32,6 +32,8 @@ export interface YearGridCell {
   inYear: boolean;
   /** The entry name for a classified day, for a hover label. */
   name: string | undefined;
+  /** For a conflict day, the disagreeing members and how each labels it. */
+  conflictSources: ConflictSource[] | undefined;
 }
 
 export interface YearGridLayout {
@@ -106,8 +108,9 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
 export function buildYearGridUnion(
   members: readonly CalendarDefinition[],
   year: number,
+  names?: readonly string[],
 ): YearGridLayout {
-  const union = buildUnionModel(members, yearWindow(year));
+  const union = buildUnionModel(members, yearWindow(year), names);
   return layoutFromFacts(year, union);
 }
 
@@ -122,7 +125,14 @@ interface YearFacts {
   blocking: ClassifiedDays;
   events: ClassifiedDays;
   conflicts?: Set<string>;
+  conflictSources?: Map<string, ConflictSource[]>;
 }
+
+type ClassifiedDay = {
+  dayClass: DayClass;
+  name: string | undefined;
+  conflictSources: ConflictSource[] | undefined;
+};
 
 function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
   const firstDay = `${pad4(year)}-01-01`;
@@ -134,9 +144,9 @@ function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
   let index = 0;
   for (let day = start; day <= end; day = addDaysIso(day, 1)) {
     const inYear = day >= firstDay && day <= lastDay;
-    const classified = inYear
+    const classified: ClassifiedDay = inYear
       ? classify(day, facts)
-      : { dayClass: 'working' as const, name: undefined };
+      : { dayClass: 'working', name: undefined, conflictSources: undefined };
     cells.push({
       date: day,
       row: index % 7, // start is a Monday, so the offset is the weekday directly
@@ -144,6 +154,7 @@ function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
       inYear,
       dayClass: classified.dayClass,
       name: classified.name,
+      conflictSources: classified.conflictSources,
     });
     index += 1;
   }
@@ -153,19 +164,24 @@ function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
 /**
  * The winning class AND its own entry's name — read from the same source the
  * class was chosen from, so an unnamed higher-precedence entry never inherits a
- * lower one's label. A conflict outranks every other class; it carries no name
- * of its own here (the disagreeing members are named by the caller's tooltip).
+ * lower one's label. A conflict outranks every other class; it carries the
+ * disagreeing members instead of a single name, for the hover tooltip.
  */
-function classify(
-  day: string,
-  facts: YearFacts,
-): { dayClass: DayClass; name: string | undefined } {
+function classify(day: string, facts: YearFacts): ClassifiedDay {
   const { markers, blocking, events, conflicts } = facts;
-  if (conflicts?.has(day)) return { dayClass: 'conflict', name: undefined };
-  if (markers.days.has(day)) return { dayClass: 'marker', name: markers.names.get(day) };
-  if (blocking.days.has(day)) return { dayClass: 'blocking', name: blocking.names.get(day) };
-  if (events.days.has(day)) return { dayClass: 'event', name: events.names.get(day) };
-  return { dayClass: 'working', name: undefined };
+  if (conflicts?.has(day)) {
+    return { dayClass: 'conflict', name: undefined, conflictSources: facts.conflictSources?.get(day) };
+  }
+  if (markers.days.has(day)) {
+    return { dayClass: 'marker', name: markers.names.get(day), conflictSources: undefined };
+  }
+  if (blocking.days.has(day)) {
+    return { dayClass: 'blocking', name: blocking.names.get(day), conflictSources: undefined };
+  }
+  if (events.days.has(day)) {
+    return { dayClass: 'event', name: events.names.get(day), conflictSources: undefined };
+  }
+  return { dayClass: 'working', name: undefined, conflictSources: undefined };
 }
 
 function pad4(year: number): string {

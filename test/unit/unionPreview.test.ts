@@ -78,26 +78,29 @@ describe('buildUnionModel', () => {
 });
 
 describe('classifyMember', () => {
-  const calendarFm = { frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO' } };
+  const calendarFm = { name: 'Cal', frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO' } };
 
   it('is unresolved when the link resolves to no file', () => {
     expect(classifyMember('[[Missing]]', () => null)).toEqual({ kind: 'unresolved' });
   });
 
-  it('is ok with the parsed definition for a valid calendar note', () => {
+  it('is ok with the note name and parsed definition for a valid calendar', () => {
     const result = classifyMember('[[Cal]]', () => calendarFm);
     expect(result.kind).toBe('ok');
-    if (result.kind === 'ok') expect(result.definition.kind).toBe('calendar');
+    if (result.kind === 'ok') {
+      expect(result.name).toBe('Cal');
+      expect(result.definition.kind).toBe('calendar');
+    }
   });
 
   it('is invalid for a calendar-set member (sets are flat)', () => {
-    expect(classifyMember('[[Set]]', () => ({ frontmatter: { tngantt: 'calendar-set' } }))).toEqual({
-      kind: 'invalid',
-    });
+    expect(
+      classifyMember('[[Set]]', () => ({ name: 'Set', frontmatter: { tngantt: 'calendar-set' } })),
+    ).toEqual({ kind: 'invalid' });
   });
 
   it('is invalid for a non-calendar or unmarked note', () => {
-    expect(classifyMember('[[Doc]]', () => ({ frontmatter: { title: 'x' } }))).toEqual({
+    expect(classifyMember('[[Doc]]', () => ({ name: 'Doc', frontmatter: { title: 'x' } }))).toEqual({
       kind: 'invalid',
     });
   });
@@ -109,5 +112,29 @@ describe('classifyMember', () => {
       return calendarFm;
     });
     expect(seen).toBe('[[Cal]]');
+  });
+});
+
+describe('buildUnionModel conflict attribution', () => {
+  it('names each disagreeing member, using its label or the date when it has none', () => {
+    // NZ Holidays blocks 2026-01-02 as a named holiday; Weekdays covers it (works).
+    const holidays = calendar({ non_working: [{ date: '2026-01-02', name: 'Matariki' }] });
+    const weekdays = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
+    const window: EvaluationWindow = { startDate: '2026-01-01', endDateExclusive: '2026-01-05' };
+    const model = buildUnionModel([holidays, weekdays], window, ['NZ Holidays', 'Weekdays']);
+
+    expect(model.conflicts.has('2026-01-02')).toBe(true);
+    expect(model.conflictSources.get('2026-01-02')).toEqual([
+      { calendar: 'NZ Holidays', description: 'Matariki' }, // blocker, with its holiday name
+      { calendar: 'Weekdays', description: undefined }, // coverer, no label — tooltip uses the date
+    ]);
+  });
+
+  it('leaves conflict attribution empty when no member names are supplied', () => {
+    const holidays = calendar({ non_working: [{ date: '2026-01-02', name: 'Matariki' }] });
+    const weekdays = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
+    const window: EvaluationWindow = { startDate: '2026-01-01', endDateExclusive: '2026-01-05' };
+    const model = buildUnionModel([holidays, weekdays], window);
+    expect(model.conflictSources.size).toBe(0);
   });
 });

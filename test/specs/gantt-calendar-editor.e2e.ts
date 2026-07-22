@@ -935,6 +935,47 @@ describe("Gantt (OG) calendar editor routing", () => {
     await deleteNotes(["Off Year Set.md", "Past Holiday.md", "Weekdays Cal.md"]);
   });
 
+  it("names the disagreeing members in a conflict day's tooltip", async () => {
+    // A Mon–Fri member covers Fri 2026-07-10; a holiday member blocks that day as
+    // "Matariki". The conflict cell's tooltip lists both: the holiday by its name,
+    // the covering member by the date (it has no label of its own).
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Holiday Cal.md",
+      "---\ntngantt: calendar\nnon_working:\n  - date: 2026-07-10\n    name: Matariki\n---\n",
+    );
+    await createNote(
+      "Tooltip Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n  - "[[Holiday Cal]]"\n---\n',
+    );
+    await openNote("Tooltip Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-cal-tab=Year")).click();
+
+    const tooltip = await browser.waitUntil(
+      async () => {
+        const title = await browser.executeObsidian(({ app }) => {
+          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+            ?.containerEl;
+          const cell = root?.querySelector(".og-year-cell.og-year-conflict");
+          return cell?.getAttribute("title") ?? null;
+        });
+        return title && title.includes("Matariki") ? title : false;
+      },
+      { timeout: 15000, timeoutMsg: "the conflict tooltip never named the disagreeing members" },
+    );
+
+    // Date header, the holiday by name, and the covering member by the date.
+    expect(tooltip).toContain("2026-07-10");
+    expect(tooltip).toContain("- Matariki (Holiday Cal)");
+    expect(tooltip).toContain("- 2026-07-10 (Weekdays Cal)");
+
+    await deleteNotes(["Tooltip Set.md", "Holiday Cal.md", "Weekdays Cal.md"]);
+  });
+
   it("counts an unresolved link and a nested set separately, still rendering the preview", async () => {
     await createNote(
       "Nested Set.md",

@@ -165,7 +165,7 @@ export class CalendarEditorView extends ItemView {
       if (path === null) return null;
       const file = this.app.vault.getAbstractFileByPath(path);
       if (!(file instanceof TFile)) return null;
-      return { frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter };
+      return { name: file.basename, frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter };
     });
   }
 

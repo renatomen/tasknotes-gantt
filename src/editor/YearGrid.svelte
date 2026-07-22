@@ -26,8 +26,18 @@
   const months = $derived(layout === null ? [] : monthColumns(layout));
   const lastColumn = $derived(layout === null ? 0 : layout.columns - 1);
 
-  const cellTitle = (date: string, name: string | undefined): string =>
-    name === undefined ? date : `${date} — ${name}`;
+  // A conflict day lists the disagreeing members under the date, each line the
+  // member's own label for that day (or the date, when it has none) followed by
+  // the calendar in brackets. Native title tooltips honour the newlines.
+  const cellTitle = (cell: YearGridCell): string => {
+    if (cell.conflictSources !== undefined && cell.conflictSources.length > 0) {
+      const lines = cell.conflictSources.map(
+        (source) => `- ${source.description ?? cell.date} (${source.calendar})`,
+      );
+      return [cell.date, ...lines].join('\n');
+    }
+    return cell.name === undefined ? cell.date : `${cell.date} — ${cell.name}`;
+  };
 
   // A month boundary sits on a cell's edge when the neighbouring day belongs to a
   // different month. Each boundary is drawn from BOTH sides so the inter-cell gap
@@ -86,7 +96,7 @@
               class:og-year-div-bottom={dividesBottom(cell)}
               class:og-year-div-right={dividesRight(cell)}
               style="grid-column: {cell.column + 1}; grid-row: {cell.row + 1}"
-              title={cellTitle(cell.date, cell.name)}
+              title={cellTitle(cell)}
             ></div>
           {/if}
         {/each}

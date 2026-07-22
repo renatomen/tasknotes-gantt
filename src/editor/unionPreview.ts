@@ -29,12 +29,14 @@ import {
  * definitions flow into the union; the other two count separately in the banner.
  */
 export type MemberResolution =
-  | { kind: 'ok'; definition: CalendarDefinition }
+  | { kind: 'ok'; name: string; definition: CalendarDefinition }
   | { kind: 'unresolved' }
   | { kind: 'invalid' };
 
-/** A resolved member note: its frontmatter, or null when the link finds no file. */
+/** A resolved member note: its display name and frontmatter, or null when the
+ *  link finds no file. */
 export interface ResolvedMemberNote {
+  name: string;
   frontmatter: unknown;
 }
 
@@ -55,8 +57,16 @@ export function classifyMember(
   if (note === null) return { kind: 'unresolved' };
   const parsed = parseCalendarFrontmatter(note.frontmatter);
   return parsed !== null && parsed.kind === 'calendar'
-    ? { kind: 'ok', definition: parsed }
+    ? { kind: 'ok', name: note.name, definition: parsed }
     : { kind: 'invalid' };
+}
+
+/** One member's stake in a conflict day: its own label for the day (a holiday or
+ *  event name) — or undefined when it merely covers the day or blocks it via its
+ *  weekly pattern — and which calendar it is. */
+export interface ConflictSource {
+  calendar: string;
+  description: string | undefined;
 }
 
 export interface UnionModel {
@@ -68,26 +78,59 @@ export interface UnionModel {
   markers: ClassifiedDays;
   /** Days where members disagree: one blocks while another covers. */
   conflicts: Set<string>;
+  /** Per conflict day, the disagreeing members and how each labels it. Empty
+   *  unless member names were supplied (only the tooltip needs the attribution). */
+  conflictSources: Map<string, ConflictSource[]>;
 }
 
-/** Combine resolved member calendars into their union day-facts over `window`. */
+/**
+ * Combine resolved member calendars into their union day-facts over `window`.
+ * When `names` is supplied (index-aligned with `members`), each conflict day is
+ * attributed to the members that disagree on it, for the preview tooltip.
+ */
 export function buildUnionModel(
   members: readonly CalendarDefinition[],
   window: EvaluationWindow,
+  names?: readonly string[],
 ): UnionModel {
   const blocking = emptyClassifiedDays();
   const events = emptyClassifiedDays();
   const markers = emptyClassifiedDays();
-  // One blocking pass per member feeds both the union's shading and its
-  // conflicts — the conflict check reuses the same blocked/covers facts rather
-  // than re-evaluating each member's blocking complement.
-  const facts: CalendarDayFacts[] = [];
-  for (const member of members) {
+  // One blocking pass per member feeds the union's shading, its conflicts, and
+  // the per-day conflict attribution — no member's blocking complement is
+  // evaluated more than once.
+  const perMember: { name: string | undefined; blocking: ClassifiedDays; covers: boolean }[] = [];
+  members.forEach((member, index) => {
     const memberBlocking = blockingFacts(member, window);
     mergeClassifiedDays(blocking, memberBlocking.blocking);
-    facts.push({ blocked: memberBlocking.blocking.days, covers: memberBlocking.covers });
     mergeClassifiedDays(events, eventDays(member, window));
     mergeClassifiedDays(markers, markerDays(member));
+    perMember.push({ name: names?.[index], blocking: memberBlocking.blocking, covers: memberBlocking.covers });
+  });
+  const facts: CalendarDayFacts[] = perMember.map((m) => ({ blocked: m.blocking.days, covers: m.covers }));
+  const conflicts = new Set(conflictsFromFacts(facts, window));
+  const conflictSources =
+    names === undefined ? new Map<string, ConflictSource[]>() : attributeConflicts(conflicts, perMember);
+  return { blocking, events, markers, conflicts, conflictSources };
+}
+
+/** For each conflict day, list every member that blocks or covers it, with the
+ *  blocker's own label (a covering member, or a weekly-pattern block, has none). */
+function attributeConflicts(
+  conflicts: ReadonlySet<string>,
+  perMember: readonly { name: string | undefined; blocking: ClassifiedDays; covers: boolean }[],
+): Map<string, ConflictSource[]> {
+  const sources = new Map<string, ConflictSource[]>();
+  for (const day of conflicts) {
+    const daySources: ConflictSource[] = [];
+    for (const member of perMember) {
+      if (member.blocking.days.has(day)) {
+        daySources.push({ calendar: member.name ?? '', description: member.blocking.names.get(day) });
+      } else if (member.covers) {
+        daySources.push({ calendar: member.name ?? '', description: undefined });
+      }
+    }
+    sources.set(day, daySources);
   }
-  return { blocking, events, markers, conflicts: new Set(conflictsFromFacts(facts, window)) };
+  return sources;
 }
