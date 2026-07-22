@@ -25,7 +25,7 @@ import {
   resolveTreatmentClass,
   resolveIconSpec,
   treatmentClassRegistry,
-  type BarColorSource,
+  type BarChannelSource,
   type BarIconSource,
   type IconSpec,
   type Palettes,
@@ -82,12 +82,13 @@ export interface SvarTaskInputs {
   /** Priority→color palette (U4). Empty unless the companion exposes one. */
   priorityColors?: PriorityColor[];
   /**
-   * Per-view color source (default `default` = no plugin coloring). Note: the
-   * color *mode* (fill/strip) is not read here — it only shapes the generated
-   * stylesheet ({@link buildTreatmentStyle}), not the per-bar class — so it is
-   * intentionally absent from these inputs.
+   * Per-view Bar fill channel source (default `default`). Together with
+   * {@link barStripSource} it decides which class(es) each bar carries — a bar
+   * takes both its fill-value class and its strip-value class.
    */
-  barColorSource?: BarColorSource;
+  barFillSource?: BarChannelSource;
+  /** Per-view Bar strip channel source (default `none`). */
+  barStripSource?: BarChannelSource;
   /** The vault's calendars as a colour palette (id → colour). */
   calendarPalette?: ReadonlyArray<{ value: string; color: string }>;
   /** Each task note's resolved calendar identity, keyed by source path. */
@@ -233,7 +234,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     links,
     statusColors,
     priorityColors = [],
-    barColorSource = 'default',
+    barFillSource = 'default',
+    barStripSource = 'none',
     barIconSource = 'none',
     showDateIndicators,
     arrowMode,
@@ -321,10 +323,11 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // `type`.
     //
     // Compose the bar's `type` from its state classes (date-status flag + the
-    // color-treatment class for the active source). SVAR's taskTypeCss emits each
-    // space-joined, registered type id as bare classes. A bar carries at most one
-    // treatment class (status slug / priority slug / og-parent theme role), in the
-    // fixed position between the date-status flag and the instance cues.
+    // fill/strip treatment classes for the two channels). SVAR's taskTypeCss emits
+    // each space-joined, registered type id as bare classes. A bar carries the
+    // fill-value class then the strip-value class (0, 1, or 2, deduped when the two
+    // channels coincide), in the fixed position between the date-status flag and
+    // the instance cues.
     const flagged = showDateIndicators && inst.dateStatus !== 'complete';
     const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
     const isContext = inst.isFetched;
@@ -333,13 +336,14 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (flagged) classes.push(DATE_STATUS_TYPE);
     // The calendar identity is per SOURCE NOTE, not per instance — a task
     // duplicated across parents follows the same calendar in every copy.
-    const treatmentClass = resolveTreatmentClass(
-      barColorSource,
+    const treatmentClasses = resolveTreatmentClass(
+      barFillSource,
+      barStripSource,
       { ...inst, calendarId: calendarBySource?.get(inst.sourcePath) ?? null },
       isParent,
       palettes,
     );
-    if (treatmentClass) classes.push(treatmentClass);
+    classes.push(...treatmentClasses);
     // Instance cues come AFTER the state classes, replicated before context. This
     // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
     // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
@@ -388,21 +392,35 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 }
 
 /**
- * The stable superset of base task types across ALL color sources (U4). Registers
- * the date-status flag
- * plus, for every treatment class the palettes can produce (status slugs,
- * priority slugs, and the `og-parent` theme role), the class alone and composed
- * with the date-status flag. Derived from the palettes (not the present tasks),
- * so the set is constant across data refreshes AND across a live source switch —
- * any of `status`/`priority`/`theme` works without re-registering (which would
- * re-init SVAR's store). The caller feeds this to {@link buildInstanceCueTaskTypes}
- * so the cue cross-product covers a bar carrying both a treatment class and a cue.
+ * The stable superset of base task types across ALL fill/strip sources. Registers
+ * the date-status flag plus, for every treatment class the palettes can produce
+ * (status slugs, priority slugs, calendar slugs, and the `og-parent` role), the
+ * class alone and composed with the date-status flag.
+ *
+ * A bar now carries TWO treatment classes at once when the Fill and Strip channels
+ * resolve to distinct classes (fill class first — the order
+ * {@link resolveTreatmentClass} returns). SVAR whole-string-matches the composed
+ * `type`, so every ordered DISTINCT pair (and its date-status-flagged form) is
+ * registered too — otherwise a two-channel bar would fall back to the plain `task`
+ * type and lose its colours. Derived from the palettes (not the present tasks), so
+ * the set is constant across data refreshes AND across a live source switch on
+ * either channel (no re-register → no SVAR store re-init). The caller feeds this to
+ * {@link buildInstanceCueTaskTypes} so the cue cross-product covers a bar carrying
+ * treatment class(es) and a cue.
  */
 export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
+  const classes = treatmentClassRegistry(palettes);
   const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const c of treatmentClassRegistry(palettes)) {
+  for (const c of classes) {
     ids.add(c);
     ids.add(`${DATE_STATUS_TYPE} ${c}`);
+  }
+  for (const fillClass of classes) {
+    for (const stripClass of classes) {
+      if (fillClass === stripClass) continue;
+      ids.add(`${fillClass} ${stripClass}`);
+      ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
+    }
   }
   return [...ids].map((id) => ({ id, label: id }));
 }

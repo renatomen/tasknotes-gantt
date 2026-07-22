@@ -331,8 +331,8 @@
   // These feed the generated treatment stylesheet; the icon source flows through
   // toInputs → buildSvarTasks (per-task), so it needs no standalone derived here.
   const priorityColors = $derived($data.priorityColors ?? []);
-  const barColorMode = $derived($data.barColorMode ?? 'fill');
-  const barColorSource = $derived($data.barColorSource ?? 'default');
+  const barFillSource = $derived($data.barFillSource ?? 'default');
+  const barStripSource = $derived($data.barStripSource ?? 'none');
   // U5/R7: TaskNotes progress mode is read-only — hide the bar's progress drag
   // handle (scoped CSS below). Date drag/resize is unaffected.
   const progressReadonly = $derived($data.progressReadonly ?? false);
@@ -495,16 +495,16 @@
   // still reverts the optimistic move within this window.
   const MUTATION_TIMEOUT_MS = 10000;
 
-  // Generated stylesheet applying the per-view color treatment (fill/strip by
-  // status/priority, or theme CSS-variable rules) scoped under .og-bases-gantt.
-  // Injected via a managed style element (see the $effect below) — a literal
-  // style tag in markup would be compiled away as component CSS and cannot carry
-  // this dynamic content. Reactive on mode/source/palettes/instances so the
-  // options re-color live without a remount.
+  // Generated stylesheet applying the per-view treatment: the Fill channel paints
+  // the bar body and the Strip channel the left accent, independently (or the
+  // theme/default role rules), scoped under .og-bases-gantt. Injected via a managed
+  // style element (see the $effect below) — a literal style tag in markup would be
+  // compiled away as component CSS and cannot carry this dynamic content. Reactive
+  // on the two sources/palettes/instances so the options re-color live without a remount.
   const treatmentStyleCss = $derived(
     buildTreatmentStyle({
-      mode: barColorMode,
-      source: barColorSource,
+      fillSource: barFillSource,
+      stripSource: barStripSource,
       palettes: {
         status: statusColors,
         priority: priorityColors,
@@ -654,7 +654,8 @@
       links: d.links,
       statusColors: d.statusColors ?? [],
       priorityColors: d.priorityColors ?? [],
-      barColorSource: d.barColorSource ?? 'default',
+      barFillSource: d.barFillSource ?? 'default',
+      barStripSource: d.barStripSource ?? 'none',
       calendarPalette: d.calendarPalette ?? [],
       calendarBySource: d.calendarBySource,
       barIconSource: d.barIcon ?? 'none',

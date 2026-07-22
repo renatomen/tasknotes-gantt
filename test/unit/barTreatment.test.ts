@@ -80,38 +80,55 @@ describe('slugs', () => {
 });
 
 describe('resolveTreatmentClass', () => {
-  it('returns the status slug for source=status when the value has a safe color', () => {
-    expect(resolveTreatmentClass('status', inst('11🟥Active = Now'), false, palettes)).toBe(
+  it('returns the fill-channel status slug for fill=status, strip=none', () => {
+    expect(resolveTreatmentClass('status', 'none', inst('11🟥Active = Now'), false, palettes)).toEqual([
       statusSlug('11🟥Active = Now'),
-    );
+    ]);
   });
 
-  it('returns the priority slug for source=priority', () => {
-    expect(resolveTreatmentClass('priority', inst(null, 'high'), false, palettes)).toBe(
+  it('returns the strip-channel priority slug for fill=none, strip=priority', () => {
+    expect(resolveTreatmentClass('none', 'priority', inst(null, 'high'), false, palettes)).toEqual([
       prioritySlug('high'),
-    );
+    ]);
   });
 
-  it('returns null when the value is absent from the palette', () => {
-    expect(resolveTreatmentClass('status', inst('nope'), false, palettes)).toBeNull();
-    expect(resolveTreatmentClass('priority', inst(null, 'nope'), false, palettes)).toBeNull();
+  it('returns BOTH classes when fill and strip resolve to distinct values', () => {
+    // Fill by status, strip by priority — the bar carries both, fill class first.
+    expect(
+      resolveTreatmentClass('status', 'priority', inst('11🟥Active = Now', 'high'), false, palettes),
+    ).toEqual([statusSlug('11🟥Active = Now'), prioritySlug('high')]);
   });
 
-  it('returns og-parent only for parents in theme mode, null for children', () => {
-    expect(resolveTreatmentClass('theme', inst('x'), true, palettes)).toBe(PARENT_ROLE_CLASS);
-    expect(resolveTreatmentClass('theme', inst('x'), false, palettes)).toBeNull();
+  it('dedupes to a single class when both channels resolve to the same class (redundant combo)', () => {
+    expect(
+      resolveTreatmentClass('status', 'status', inst('11🟥Active = Now'), false, palettes),
+    ).toEqual([statusSlug('11🟥Active = Now')]);
   });
 
-  it('returns og-parent for a parent and null for a child in default/theme (role sources)', () => {
-    expect(resolveTreatmentClass('default', inst('x'), true, palettes)).toBe(PARENT_ROLE_CLASS);
-    expect(resolveTreatmentClass('default', inst('x'), false, palettes)).toBeNull();
+  it('returns an empty array when both channels are none', () => {
+    expect(resolveTreatmentClass('none', 'none', inst('11🟥Active = Now', 'high'), false, palettes)).toEqual([]);
+    expect(resolveTreatmentClass('none', 'none', inst('x'), true, palettes)).toEqual([]);
+  });
+
+  it('omits a channel whose value is absent from the palette', () => {
+    expect(resolveTreatmentClass('status', 'none', inst('nope'), false, palettes)).toEqual([]);
+    expect(resolveTreatmentClass('none', 'priority', inst(null, 'nope'), false, palettes)).toEqual([]);
+  });
+
+  it('carries og-parent once for parents in a role source (default/theme), nothing for children', () => {
+    expect(resolveTreatmentClass('theme', 'none', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass('theme', 'none', inst('x'), false, palettes)).toEqual([]);
+    expect(resolveTreatmentClass('default', 'none', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass('default', 'none', inst('x'), false, palettes)).toEqual([]);
+    // A parent under default fill + theme strip dedupes the shared og-parent role class.
+    expect(resolveTreatmentClass('default', 'theme', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
   });
 
   it('degrades status/priority with an EMPTY palette to the default role (og-parent for parents)', () => {
     const empty: Palettes = { status: [], priority: [] };
-    expect(resolveTreatmentClass('status', inst('x'), true, empty)).toBe(PARENT_ROLE_CLASS);
-    expect(resolveTreatmentClass('status', inst('x'), false, empty)).toBeNull();
-    expect(resolveTreatmentClass('priority', inst(null, 'x'), true, empty)).toBe(PARENT_ROLE_CLASS);
+    expect(resolveTreatmentClass('status', 'none', inst('x'), true, empty)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass('status', 'none', inst('x'), false, empty)).toEqual([]);
+    expect(resolveTreatmentClass('none', 'priority', inst(null, 'x'), true, empty)).toEqual([PARENT_ROLE_CLASS]);
   });
 });
 
@@ -134,10 +151,10 @@ describe('treatmentClassRegistry', () => {
 });
 
 describe('buildTreatmentStyle', () => {
-  it('fill/status: emits a scoped !important background per present, safe status', () => {
+  it('fill=status/strip=none: emits a scoped !important background per present, safe status', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'status',
+      fillSource: 'status',
+      stripSource: 'none',
       palettes,
       instances: [inst('11🟥Active = Now'), inst('41🟩Done = Recent')],
     });
@@ -148,13 +165,14 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('--og-ghost-fill: #f8312f;');
     expect(css).toContain('text-shadow:'); // readable label on the fill
     expect(css).not.toContain('#123456'); // Unused: not present
-    expect(css).not.toContain('padding-left'); // no strip in fill mode → no extra inset
+    expect(css).not.toContain('padding-left'); // fill-only → no strip → no extra inset
+    expect(css).not.toContain('::before'); // fill draws no strip (bug 2)
   });
 
-  it('strip/status: emits ::before accent rules, not background fills', () => {
+  it('fill=none/strip=status: emits ::before accent rules, not background fills', () => {
     const css = buildTreatmentStyle({
-      mode: 'strip',
-      source: 'status',
+      fillSource: 'none',
+      stripSource: 'status',
       palettes,
       instances: [inst('11🟥Active = Now')],
     });
@@ -172,24 +190,25 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important');
   });
 
-  it('fill/priority and strip/priority key on the priority palette', () => {
-    const fill = buildTreatmentStyle({ mode: 'fill', source: 'priority', palettes, instances: [inst(null, 'high')] });
+  it('keys fill and strip on the priority palette independently', () => {
+    const fill = buildTreatmentStyle({ fillSource: 'priority', stripSource: 'none', palettes, instances: [inst(null, 'high')] });
     expect(fill).toContain(`.wx-bar.${prioritySlug('high')} { background-color: #ff0000 !important;`);
-    const strip = buildTreatmentStyle({ mode: 'strip', source: 'priority', palettes, instances: [inst(null, 'high')] });
+    const strip = buildTreatmentStyle({ fillSource: 'none', stripSource: 'priority', palettes, instances: [inst(null, 'high')] });
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
 
-  it('theme/fill: uses the theme accent (child) + a tonal-shifted accent (parent), not fixed hues', () => {
-    const css = buildTreatmentStyle({ mode: 'fill', source: 'theme', palettes: { status: [], priority: [] }, instances: [] });
+  it('fill=theme: uses the theme accent (child) + a tonal-shifted accent (parent), not fixed hues', () => {
+    const css = buildTreatmentStyle({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [] });
     expect(css).toContain('background-color: var(--interactive-accent) !important;'); // child = raw theme accent
     expect(css).toContain(
       `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%) !important;`,
     ); // parent = more-contrasting tone of the SAME accent
     expect(css).not.toContain('--color-'); // never a fixed named-palette hue
+    expect(css).not.toContain('::before'); // fill-only theme draws no strip
   });
 
-  it('theme/strip: emits a neutral body + --color-* ::before rules', () => {
-    const css = buildTreatmentStyle({ mode: 'strip', source: 'theme', palettes, instances: [] });
+  it('strip=theme: emits a neutral body + theme-accent ::before rules', () => {
+    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'theme', palettes, instances: [] });
     // Body is mixed a bit off the background so it stays visible in low-contrast themes.
     expect(css).toContain('background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     expect(css).toContain(
@@ -200,8 +219,8 @@ describe('buildTreatmentStyle', () => {
     expect(css).not.toContain('.wx-progress-percent { background-color: color-mix(in srgb, var(--interactive-accent)');
   });
 
-  it('default/strip: parent body is a higher-contrast neutral than the child body (hierarchy cue)', () => {
-    const css = buildTreatmentStyle({ mode: 'strip', source: 'default', palettes, instances: [] });
+  it('strip=default: parent body is a higher-contrast neutral than the child body (hierarchy cue)', () => {
+    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'default', palettes, instances: [] });
     // Child/base neutral body (16% toward text)...
     expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     // ...and a more prominent parent body override (30%), contrast-only (no opacity).
@@ -211,22 +230,22 @@ describe('buildTreatmentStyle', () => {
     expect(css).not.toContain('opacity');
   });
 
-  it('default/fill: emits fixed green-parent / blue-child role rules (no palette)', () => {
-    const css = buildTreatmentStyle({ mode: 'fill', source: 'default', palettes, instances: [inst('11🟥Active = Now')] });
+  it('fill=default: emits fixed green-parent / blue-child role rules (no palette)', () => {
+    const css = buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (green)
     expect(css).not.toContain('#f8312f'); // does not consult the status palette
   });
 
-  it('fill mode: progress is a contrasting shift of the bar fill accent (not SVAR blue)', () => {
-    const fill = buildTreatmentStyle({ mode: 'fill', source: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+  it('fill channel: progress is a contrasting shift of the bar fill accent (not SVAR blue)', () => {
+    const fill = buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
     expect(fill).toContain(
       `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
     );
   });
 
-  it('strip mode: progress shifts the NEUTRAL bar body, not the strip accent', () => {
-    const strip = buildTreatmentStyle({ mode: 'strip', source: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+  it('strip channel: progress shifts the NEUTRAL bar body, not the strip accent', () => {
+    const strip = buildTreatmentStyle({ fillSource: 'none', stripSource: 'status', palettes, instances: [inst('11🟥Active = Now')] });
     // Progress is a tonal shift of the shared neutral body...
     expect(strip).toContain(
       '.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }',
@@ -235,35 +254,45 @@ describe('buildTreatmentStyle', () => {
     expect(strip).not.toContain('color-mix(in srgb, #f8312f');
   });
 
-  it('default/fill: progress follows the role colors (contrasted child + parent)', () => {
-    const css = buildTreatmentStyle({ mode: 'fill', source: 'default', palettes, instances: [] });
+  it('fill=default: progress follows the role colors (contrasted child + parent)', () => {
+    const css = buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes, instances: [] });
     expect(css).toContain('.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }');
     expect(css).toContain(
       `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }`,
     );
   });
 
-  it('degrades to the Default role style when the source palette is empty (standalone)', () => {
+  it('degrades a channel to the Default role style when its source palette is empty (standalone)', () => {
     // No TaskNotes palette → By Status/Priority behaves like Default (R15/F3), not blank.
-    const css = buildTreatmentStyle({ mode: 'fill', source: 'status', palettes: { status: [], priority: [] }, instances: [inst('x')] });
+    const css = buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [inst('x')] });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (default blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (default green)
   });
 
   it('dedupes a value present on multiple instances', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'status',
+      fillSource: 'status',
+      stripSource: 'none',
       palettes,
       instances: [inst('11🟥Active = Now'), inst('11🟥Active = Now')],
     });
     expect(css.match(/background-color: #f8312f !important;/g)).toHaveLength(1);
   });
 
-  it('skips an unsafe palette color (CSS-injection guard)', () => {
+  it('skips an unsafe palette color on the fill channel (CSS-injection guard)', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'status',
+      fillSource: 'status',
+      stripSource: 'none',
+      palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
+      instances: [inst('Evil')],
+    });
+    expect(css).toBe('');
+  });
+
+  it('skips an unsafe palette color on the strip channel (CSS-injection guard)', () => {
+    const css = buildTreatmentStyle({
+      fillSource: 'none',
+      stripSource: 'status',
       palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
       instances: [inst('Evil')],
     });
@@ -272,12 +301,152 @@ describe('buildTreatmentStyle', () => {
 
   it('drops a CSS-keyword color (transparent) that would render an invisible bar', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'status',
+      fillSource: 'status',
+      stripSource: 'none',
       palettes: { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] },
       instances: [inst('x')],
     });
     expect(css).toBe('');
+  });
+
+  // ---- P2e regression characterizations (the two coupling bugs) ----
+
+  it('BUG 1: fill=none/strip=status paints ONLY the strip — the body stays neutral, never a per-status fill', () => {
+    const css = buildTreatmentStyle({
+      fillSource: 'none',
+      stripSource: 'status',
+      palettes,
+      instances: [inst('11🟥Active = Now')],
+    });
+    const statusSel = `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}`;
+    // The status accent is a ::before strip...
+    expect(css).toContain(`${statusSel}::before`);
+    // ...and the shared neutral body is present for all bars.
+    expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
+    // ...but NO per-status rule paints the bar body with the status colour.
+    expect(css).not.toContain(`${statusSel} { background-color: #f8312f`);
+    expect(css).not.toContain('--og-ghost-fill:');
+  });
+
+  it('BUG 2: fill=calendar/strip=none draws ZERO strips — no ::before anywhere', () => {
+    const withCal: Palettes = { ...palettes, calendar: [{ value: 'Cal/A.md', color: '#2a9d8f' }] };
+    const css = buildTreatmentStyle({
+      fillSource: 'calendar',
+      stripSource: 'none',
+      palettes: withCal,
+      instances: [{ status: null, priority: null, calendarId: 'Cal/A.md' }],
+    });
+    // Per-calendar fill body present...
+    expect(css).toContain(`.wx-bar.${calendarSlug('Cal/A.md')} { background-color: #2a9d8f !important;`);
+    // ...and no strip drawn at all.
+    expect(css).not.toContain('::before');
+    expect(css).not.toContain('width: 6px;');
+    expect(css).not.toContain('padding-left');
+  });
+
+  // ---- Two-channel and both-none composition ----
+
+  it('fill=status + strip=priority: status fill-body rules AND priority ::before strips coexist on distinct classes', () => {
+    const css = buildTreatmentStyle({
+      fillSource: 'status',
+      stripSource: 'priority',
+      palettes,
+      instances: [inst('11🟥Active = Now', 'high')],
+    });
+    expect(css).toContain(`.wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important;`);
+    expect(css).toContain(`.wx-bar.${prioritySlug('high')}::before`);
+    // Fill supplies the body, so no neutral strip-body scaffolding / content inset.
+    expect(css).not.toContain('padding-left');
+    expect(css).not.toContain('color: var(--text-normal) !important');
+  });
+
+  it('redundant fill=status + strip=status: the one status class carries BOTH a fill body and a ::before strip', () => {
+    const css = buildTreatmentStyle({
+      fillSource: 'status',
+      stripSource: 'status',
+      palettes,
+      instances: [inst('11🟥Active = Now')],
+    });
+    const statusSel = `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}`;
+    expect(css).toContain(`${statusSel} { background-color: #f8312f !important;`);
+    expect(css).toContain(`${statusSel}::before`);
+  });
+
+  it('fill=none + strip=none: falls back to the default role fill so a bar is never invisible', () => {
+    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    expect(css).toContain('background-color: #1f6feb !important;'); // default child (blue)
+    expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // default parent (green)
+    expect(css).not.toContain('::before');
+  });
+});
+
+describe('buildTreatmentStyle fidelity (legacy configs render byte-identically)', () => {
+  // Golden masters captured from the pre-decoupling builder for the migrated-
+  // equivalent inputs. A byte-for-byte match proves the read-time migration is
+  // fidelity-first (R8/KTD6): a legacy `mode=fill|strip, source=X` view renders
+  // exactly as before under `fill=X,strip=none` / `fill=none,strip=X`.
+  const fidelityPalettes: Palettes = {
+    status: statusColors,
+    priority: priorityColors,
+    calendar: [
+      { value: 'Calendars/NZ.md', color: '#2a9d8f' },
+      { value: 'Calendars/APAC.md', color: '#e76f51' },
+    ],
+  };
+  const s = (st: string | null, pr: string | null = null, cal: string | null = null) => ({ status: st, priority: pr, calendarId: cal });
+
+  const GOLDEN_FILL_STATUS =
+    '.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }';
+
+  const GOLDEN_STRIP_STATUS =
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #f8312f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #00d26a; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+
+  const GOLDEN_FILL_DEFAULT =
+    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }';
+
+  const GOLDEN_STRIP_DEFAULT =
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }';
+
+  const GOLDEN_FILL_CALENDAR =
+    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk { background-color: #2a9d8f !important; --og-ghost-fill: #2a9d8f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk .wx-progress-percent { background-color: color-mix(in srgb, #2a9d8f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t { background-color: #e76f51 !important; --og-ghost-fill: #e76f51; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t .wx-progress-percent { background-color: color-mix(in srgb, #e76f51, var(--text-normal) 30%) !important; }';
+
+  const GOLDEN_STRIP_CALENDAR =
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #2a9d8f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #e76f51; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+
+  it('fill=status,strip=none == legacy mode=fill,source=status', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+    ).toBe(GOLDEN_FILL_STATUS);
+  });
+
+  it('fill=none,strip=status == legacy mode=strip,source=status', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'none', stripSource: 'status', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+    ).toBe(GOLDEN_STRIP_STATUS);
+  });
+
+  it('fill=default,strip=none == legacy mode=fill,source=default', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+    ).toBe(GOLDEN_FILL_DEFAULT);
+  });
+
+  it('fill=none,strip=default == legacy mode=strip,source=default', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'none', stripSource: 'default', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+    ).toBe(GOLDEN_STRIP_DEFAULT);
+  });
+
+  it('fill=calendar,strip=none == legacy mode=fill,source=calendar', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'calendar', stripSource: 'none', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+    ).toBe(GOLDEN_FILL_CALENDAR);
+  });
+
+  it('fill=none,strip=calendar == legacy mode=strip,source=calendar', () => {
+    expect(
+      buildTreatmentStyle({ fillSource: 'none', stripSource: 'calendar', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+    ).toBe(GOLDEN_STRIP_CALENDAR);
   });
 });
 
@@ -362,8 +531,8 @@ describe('calendar color source (U12)', () => {
 
   it('emits a fill rule per present calendar colour', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'calendar',
+      fillSource: 'calendar',
+      stripSource: 'none',
       palettes: withCalendars,
       instances: [calInst('Calendars/NZ.md'), calInst('Calendars/APAC.md')],
     });
@@ -373,8 +542,8 @@ describe('calendar color source (U12)', () => {
 
   it('emits a strip rule per present calendar colour', () => {
     const css = buildTreatmentStyle({
-      mode: 'strip',
-      source: 'calendar',
+      fillSource: 'none',
+      stripSource: 'calendar',
       palettes: withCalendars,
       instances: [calInst('Calendars/NZ.md')],
     });
@@ -384,8 +553,8 @@ describe('calendar color source (U12)', () => {
 
   it('keeps the default role rules so an unassociated task is still treated', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'calendar',
+      fillSource: 'calendar',
+      stripSource: 'none',
       palettes: withCalendars,
       instances: [calInst('Calendars/NZ.md'), calInst(null)],
     });
@@ -394,21 +563,21 @@ describe('calendar color source (U12)', () => {
 
   it('resolves a set-linked task to the set id, so the set colour wins', () => {
     // The resolver is identity-driven: a set-linked task carries the SET's id.
-    expect(resolveTreatmentClass('calendar', calInst('Calendars/APAC.md'), false, withCalendars)).toBe(
+    expect(resolveTreatmentClass('calendar', 'none', calInst('Calendars/APAC.md'), false, withCalendars)).toEqual([
       calendarSlug('Calendars/APAC.md'),
-    );
+    ]);
   });
 
   it('falls back to the default treatment for an unassociated task', () => {
-    expect(resolveTreatmentClass('calendar', calInst(null), false, withCalendars)).toBeNull();
-    expect(resolveTreatmentClass('calendar', calInst(null), true, withCalendars)).toBe(PARENT_ROLE_CLASS);
+    expect(resolveTreatmentClass('calendar', 'none', calInst(null), false, withCalendars)).toEqual([]);
+    expect(resolveTreatmentClass('calendar', 'none', calInst(null), true, withCalendars)).toEqual([PARENT_ROLE_CLASS]);
   });
 
   it('ignores a calendar whose authored colour is unsafe', () => {
-    expect(resolveTreatmentClass('calendar', calInst('Calendars/Unsafe.md'), false, withCalendars)).toBeNull();
+    expect(resolveTreatmentClass('calendar', 'none', calInst('Calendars/Unsafe.md'), false, withCalendars)).toEqual([]);
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'calendar',
+      fillSource: 'calendar',
+      stripSource: 'none',
       palettes: withCalendars,
       instances: [calInst('Calendars/Unsafe.md')],
     });
@@ -417,8 +586,8 @@ describe('calendar color source (U12)', () => {
 
   it('degrades to the default source when the vault has no calendars', () => {
     const css = buildTreatmentStyle({
-      mode: 'fill',
-      source: 'calendar',
+      fillSource: 'calendar',
+      stripSource: 'none',
       palettes,
       instances: [calInst('Calendars/NZ.md')],
     });

@@ -17,7 +17,7 @@
 import type { BasesAllOptions, BasesOptions, BasesOptionGroup } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
-import type { BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
+import type { BarChannelSource, BarColorMode, BarColorSource, BarIconSource } from './barTreatment';
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 
 /**
@@ -314,32 +314,40 @@ function timelineOptions(): BasesOptions[] {
 }
 
 /**
- * Appearance-section controls: bar color mode/source, task icon, date-status
- * indicators, and the layout controls (toolbar visibility + min/max height,
- * folded in from the former standalone "Layout" group).
+ * Appearance-section controls: the bar fill/strip channel sources, task icon,
+ * date-status indicators, and the layout controls (toolbar visibility + min/max
+ * height, folded in from the former standalone "Layout" group).
  */
 function appearanceOptions(): BasesOptions[] {
   return [
-    // Bar color/icon treatments (per-view). Read in getBarColorMode/
-    // getBarColorSource/getBarIcon and consumed by the view's barTreatment
-    // resolver + generated stylesheet + icon chip. Record<string,string> maps.
+    // Bar treatment channels (per-view). Fill and Strip are independent sources:
+    // Fill paints the bar body, Strip the left accent — set either to None to draw
+    // nothing (both None falls back to the default role treatment). Read in
+    // getBarFillSource/getBarStripSource/getBarIcon and consumed by the view's
+    // barTreatment resolver + generated stylesheet + icon chip. By status/priority
+    // need the TaskNotes companion palette; By calendar is companion-independent;
+    // all degrade to Default when their palette is empty. Record<string,string> maps.
     {
       type: 'dropdown',
-      displayName: 'Bar color mode',
-      key: 'tngantt_barColorMode',
-      default: 'fill',
-      options: { fill: 'Fill', strip: 'Strip' },
+      displayName: 'Bar fill',
+      key: 'tngantt_barFillSource',
+      default: 'default',
+      options: {
+        none: 'None',
+        default: 'Default',
+        status: 'By status',
+        priority: 'By priority',
+        calendar: 'By calendar',
+        theme: 'Obsidian theme',
+      },
     },
     {
       type: 'dropdown',
-      displayName: 'Bar color source',
-      key: 'tngantt_barColorSource',
-      default: 'default',
-      // By status / By priority need the TaskNotes companion palette; they degrade
-      // to Default in standalone (Bases-only) mode rather than being hidden.
-      // By calendar is companion-independent and degrades the same way when the
-      // vault holds no coloured calendars.
+      displayName: 'Bar strip',
+      key: 'tngantt_barStripSource',
+      default: 'none',
       options: {
+        none: 'None',
         default: 'Default',
         status: 'By status',
         priority: 'By priority',
@@ -515,9 +523,11 @@ export function readDisplayCalendars(get: (key: string) => unknown): unknown {
 }
 
 /**
- * Read the per-view bar color mode (U5), defaulting to `fill`. Any value other
- * than the explicit `strip` maps to `fill`. Pure (no Obsidian/DOM); mirrors
- * {@link readShowToolbar}.
+ * Read the LEGACY per-view bar color mode, defaulting to `fill`. Any value other
+ * than the explicit `strip` maps to `fill`. Retained only to synthesize the Fill
+ * and Strip channel sources at read time ({@link readBarFillSource} /
+ * {@link readBarStripSource}) for views saved before the channels were split — no
+ * `tngantt_barColorMode` dropdown is offered anymore. Pure (no Obsidian/DOM).
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
@@ -526,9 +536,10 @@ export function readBarColorMode(get: (key: string) => unknown): BarColorMode {
 }
 
 /**
- * Read the per-view bar color source (U5), defaulting to `default`. Recognizes
- * `status`/`priority`/`theme`; everything else (including junk) maps to
- * `default`. Pure (no Obsidian/DOM).
+ * Read the LEGACY per-view bar color source, defaulting to `default`. Recognizes
+ * `status`/`priority`/`theme`/`calendar`; everything else (including junk) maps to
+ * `default`. Retained only for the read-time channel migration (see
+ * {@link readBarColorMode}). Pure (no Obsidian/DOM).
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
@@ -537,6 +548,58 @@ export function readBarColorSource(get: (key: string) => unknown): BarColorSourc
   return raw === 'status' || raw === 'priority' || raw === 'theme' || raw === 'calendar'
     ? raw
     : 'default';
+}
+
+/**
+ * Coerce a raw stored channel-source value to the six-value {@link BarChannelSource}
+ * union, or `null` when it is absent/unknown so the caller can fall back (legacy
+ * synthesis, or the per-channel default).
+ */
+function coerceChannelSource(raw: unknown): BarChannelSource | null {
+  return raw === 'none' ||
+    raw === 'default' ||
+    raw === 'status' ||
+    raw === 'priority' ||
+    raw === 'theme' ||
+    raw === 'calendar'
+    ? raw
+    : null;
+}
+
+/** Whether a stored value counts as PRESENT (a set dropdown), vs unset for synthesis. */
+function isPresent(raw: unknown): boolean {
+  return raw !== undefined && raw !== null && raw !== '';
+}
+
+/**
+ * Read the per-view Bar fill channel source, defaulting to `default`. The new
+ * `tngantt_barFillSource` key wins when present (an unknown value coerces to
+ * `default`). When it is absent, synthesize from the legacy `tngantt_barColorMode`
+ * + `tngantt_barColorSource` pair (read-time migration, never rewritten): a legacy
+ * `fill` mode puts its source on the fill channel; a `strip` mode leaves fill
+ * empty; no legacy keys → the fresh-view `default`. Pure (no Obsidian/DOM).
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readBarFillSource(get: (key: string) => unknown): BarChannelSource {
+  const raw = get('tngantt_barFillSource');
+  if (isPresent(raw)) return coerceChannelSource(raw) ?? 'default';
+  return readBarColorMode(get) === 'fill' ? readBarColorSource(get) : 'none';
+}
+
+/**
+ * Read the per-view Bar strip channel source, defaulting to `none`. The new
+ * `tngantt_barStripSource` key wins when present (an unknown value coerces to
+ * `none`). When it is absent, synthesize from the legacy pair: a legacy `strip`
+ * mode puts its source on the strip channel; a `fill` mode (and a fresh view)
+ * leaves the strip empty. Pure (no Obsidian/DOM); mirrors {@link readBarFillSource}.
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readBarStripSource(get: (key: string) => unknown): BarChannelSource {
+  const raw = get('tngantt_barStripSource');
+  if (isPresent(raw)) return coerceChannelSource(raw) ?? 'none';
+  return readBarColorMode(get) === 'strip' ? readBarColorSource(get) : 'none';
 }
 
 /**

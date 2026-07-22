@@ -16,8 +16,8 @@ import {
   readShowToolbar,
   readCalendarMode,
   readHighlightWeekends,
-  readBarColorMode,
-  readBarColorSource,
+  readBarFillSource,
+  readBarStripSource,
   readBarIcon,
   readProgressMode,
   readTimeEstimateMode,
@@ -299,8 +299,8 @@ describe("ganttViewOptions", () => {
       "tngantt_showPartialDateTasks",
     ]);
     expect(keysIn("Appearance")).toEqual([
-      "tngantt_barColorMode",
-      "tngantt_barColorSource",
+      "tngantt_barFillSource",
+      "tngantt_barStripSource",
       "tngantt_barIcon",
       "tngantt_showDateIndicators",
       "tngantt_showToolbar",
@@ -504,12 +504,12 @@ describe("readContextOpacity", () => {
   });
 });
 
-describe("bar treatment options (U5)", () => {
-  it("defines the three dropdowns with Record<string,string> option maps", () => {
+describe("bar treatment channel options", () => {
+  it("defines the fill/strip/icon dropdowns with Record<string,string> option maps and per-channel defaults", () => {
     const opts = ganttViewOptions();
     for (const [key, def] of [
-      ["tngantt_barColorMode", "fill"],
-      ["tngantt_barColorSource", "default"],
+      ["tngantt_barFillSource", "default"],
+      ["tngantt_barStripSource", "none"],
       ["tngantt_barIcon", "none"],
     ] as const) {
       const opt = byKey(opts, key) as { type: string; default: unknown; options: unknown };
@@ -520,24 +520,75 @@ describe("bar treatment options (U5)", () => {
       expect(typeof opt.options).toBe("object");
     }
   });
-});
 
-describe("readBarColorMode", () => {
-  it("defaults to fill; only 'strip' selects strip", () => {
-    expect(readBarColorMode(() => undefined)).toBe("fill");
-    expect(readBarColorMode(() => "strip")).toBe("strip");
-    expect(readBarColorMode(() => "fill")).toBe("fill");
-    expect(readBarColorMode(() => "junk")).toBe("fill");
+  it("offers the six source options on both the fill and strip dropdowns", () => {
+    const opts = ganttViewOptions();
+    for (const key of ["tngantt_barFillSource", "tngantt_barStripSource"] as const) {
+      const opt = byKey(opts, key) as { options: Record<string, string> };
+      expect(Object.keys(opt.options)).toEqual(["none", "default", "status", "priority", "calendar", "theme"]);
+    }
+  });
+
+  it("no longer defines the legacy bar-color-mode / bar-color-source dropdowns", () => {
+    const keys = flattenLeaves(ganttViewOptions())
+      .filter((o) => "key" in o)
+      .map((o) => (o as { key: string }).key);
+    expect(keys).not.toContain("tngantt_barColorMode");
+    expect(keys).not.toContain("tngantt_barColorSource");
   });
 });
 
-describe("readBarColorSource", () => {
-  it("defaults to default; recognizes status/priority/theme only", () => {
-    expect(readBarColorSource(() => undefined)).toBe("default");
-    expect(readBarColorSource(() => "status")).toBe("status");
-    expect(readBarColorSource(() => "priority")).toBe("priority");
-    expect(readBarColorSource(() => "theme")).toBe("theme");
-    expect(readBarColorSource(() => "junk")).toBe("default");
+describe("readBarFillSource (with legacy migration)", () => {
+  const get = (map: Record<string, unknown>) => (key: string) => map[key];
+
+  it("returns the new key when present, coercing an unknown value to default", () => {
+    expect(readBarFillSource(get({ tngantt_barFillSource: "status" }))).toBe("status");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "none" }))).toBe("none");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "junk" }))).toBe("default");
+  });
+
+  it("synthesizes from the legacy pair when the new key is absent", () => {
+    // mode=fill,source=X → Fill=X
+    expect(readBarFillSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "priority" }))).toBe("priority");
+    // mode=strip,source=X → Fill=none
+    expect(readBarFillSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "priority" }))).toBe("none");
+  });
+
+  it("defaults to default when no keys at all are set (fresh view)", () => {
+    expect(readBarFillSource(get({}))).toBe("default");
+  });
+
+  it("prefers the new key over the legacy pair when both are present", () => {
+    expect(
+      readBarFillSource(get({ tngantt_barFillSource: "calendar", tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
+    ).toBe("calendar");
+  });
+});
+
+describe("readBarStripSource (with legacy migration)", () => {
+  const get = (map: Record<string, unknown>) => (key: string) => map[key];
+
+  it("returns the new key when present, coercing an unknown value to none", () => {
+    expect(readBarStripSource(get({ tngantt_barStripSource: "priority" }))).toBe("priority");
+    expect(readBarStripSource(get({ tngantt_barStripSource: "default" }))).toBe("default");
+    expect(readBarStripSource(get({ tngantt_barStripSource: "junk" }))).toBe("none");
+  });
+
+  it("synthesizes from the legacy pair when the new key is absent", () => {
+    // mode=strip,source=X → Strip=X
+    expect(readBarStripSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "status" }))).toBe("status");
+    // mode=fill,source=X → Strip=none
+    expect(readBarStripSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "status" }))).toBe("none");
+  });
+
+  it("defaults to none when no keys at all are set (fresh view)", () => {
+    expect(readBarStripSource(get({}))).toBe("none");
+  });
+
+  it("prefers the new key over the legacy pair when both are present", () => {
+    expect(
+      readBarStripSource(get({ tngantt_barStripSource: "none", tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
+    ).toBe("none");
   });
 });
 
