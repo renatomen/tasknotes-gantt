@@ -14,13 +14,15 @@ import type {
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { collectShadedDates } from '../bases/calendarShading';
-import { buildUnionModel } from './unionPreview';
+import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 export interface StripCell {
   date: string;
   shaded: boolean;
   /** Set when members disagree on this day — one blocks it while another works it. */
   conflict: boolean;
+  /** For a conflict day, the disagreeing members and how each labels it. */
+  conflictSources: ConflictSource[] | undefined;
 }
 
 export interface StripMarker {
@@ -73,7 +75,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
 
   const cells: StripCell[] = [];
   for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
-    cells.push({ date: day, shaded: shaded.has(day), conflict: false });
+    cells.push({ date: day, shaded: shaded.has(day), conflict: false, conflictSources: undefined });
   }
 
   const total = cells.length;
@@ -94,9 +96,12 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
  * cell is flagged when members disagree on that day. Union markers concatenate
  * across members, deduped by date.
  */
-export function buildGanttStripUnion(members: readonly CalendarDefinition[]): GanttStripLayout {
+export function buildGanttStripUnion(
+  members: readonly CalendarDefinition[],
+  names?: readonly string[],
+): GanttStripLayout {
   const window = unionStripWindow(members);
-  const union = buildUnionModel(members, window);
+  const union = buildUnionModel(members, window, names);
 
   const cells: StripCell[] = [];
   for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
@@ -104,6 +109,7 @@ export function buildGanttStripUnion(members: readonly CalendarDefinition[]): Ga
       date: day,
       shaded: union.blocking.days.has(day) || union.events.days.has(day),
       conflict: union.conflicts.has(day),
+      conflictSources: union.conflictSources.get(day),
     });
   }
 

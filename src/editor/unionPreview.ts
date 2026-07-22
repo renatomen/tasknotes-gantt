@@ -69,6 +69,17 @@ export interface ConflictSource {
   description: string | undefined;
 }
 
+/**
+ * The multi-line hover tooltip for a conflict day, shared by every preview tab:
+ * the date, then a line per disagreeing member — its own label for the day, or
+ * the date when it has none — with the calendar in brackets. Native `title`
+ * tooltips honour the newlines.
+ */
+export function buildConflictTooltip(date: string, sources: readonly ConflictSource[]): string {
+  const lines = sources.map((source) => `- ${source.description ?? date} (${source.calendar})`);
+  return [date, ...lines].join('\n');
+}
+
 export interface UnionModel {
   /** Days blocking (non-working) in at least one member. */
   blocking: ClassifiedDays;

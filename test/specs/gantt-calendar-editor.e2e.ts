@@ -976,6 +976,53 @@ describe("Gantt (OG) calendar editor routing", () => {
     await deleteNotes(["Tooltip Set.md", "Holiday Cal.md", "Weekdays Cal.md"]);
   });
 
+  it("shows the same conflict tooltip on the Week and Gantt-strip tabs", async () => {
+    // Two members with opposing weekly patterns conflict on Fri and Sun of every
+    // week, so a conflict shows on the representative week and the strip alike.
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Sun Thu.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH"\n---\n',
+    );
+    await createNote(
+      "Tabs Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n  - "[[Sun Thu]]"\n---\n',
+    );
+    await openNote("Tabs Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    const conflictTitle = (selector: string): Promise<string | false> =>
+      browser.waitUntil(
+        async () => {
+          const title = await browser.executeObsidian(
+            ({ app }, sel) => {
+              const root = (
+                app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined
+              )?.containerEl;
+              return root?.querySelector(sel)?.getAttribute("title") ?? null;
+            },
+            selector,
+          );
+          // A conflict tooltip is multi-line and names both members.
+          return title && title.includes("(Weekdays Cal)") && title.includes("(Sun Thu)")
+            ? title
+            : false;
+        },
+        { timeout: 15000, timeoutMsg: `no conflict tooltip on ${selector}` },
+      );
+
+    await (await $(".og-cal-tab=Week")).click();
+    expect(await conflictTitle(".og-week-conflict")).toContain("\n");
+
+    await (await $(".og-cal-tab=Gantt strip")).click();
+    expect(await conflictTitle(".og-strip-conflict")).toContain("\n");
+
+    await deleteNotes(["Tabs Set.md", "Sun Thu.md", "Weekdays Cal.md"]);
+  });
+
   it("counts an unresolved link and a nested set separately, still rendering the preview", async () => {
     await createNote(
       "Nested Set.md",

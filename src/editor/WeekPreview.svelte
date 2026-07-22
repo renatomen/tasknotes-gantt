@@ -5,13 +5,19 @@
    * (split shifts as stacked blocks) or an all-day marker; non-working days
    * recede. A null layout is a set; an `invalid` layout shows the flag state.
    */
-  import type { WeekPreviewLayout } from './weekPreviewLayout';
+  import { buildConflictTooltip } from './unionPreview';
+  import type { DayColumn, WeekPreviewLayout } from './weekPreviewLayout';
 
   interface Props {
     layout: WeekPreviewLayout | null;
   }
 
   const { layout }: Props = $props();
+
+  const dayTitle = (day: DayColumn): string | undefined =>
+    day.conflict && day.conflictSources !== undefined
+      ? buildConflictTooltip(day.date, day.conflictSources)
+      : undefined;
 </script>
 
 <div class="og-week">
@@ -26,6 +32,7 @@
           class="og-week-col"
           class:og-week-off={!day.isWorking}
           class:og-week-conflict={day.conflict}
+          title={dayTitle(day)}
         >
           <div class="og-week-label">{day.label}</div>
           {#if day.isWorking && day.hours.length > 0}

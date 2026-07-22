@@ -10,6 +10,7 @@
    * layout shows the flag state rather than a stale grid.
    */
   import { addDaysIso } from '../controller/calendar/schema';
+  import { buildConflictTooltip } from './unionPreview';
   import { monthColumns, type YearGridCell, type YearGridLayout } from './yearGridLayout';
 
   interface Props {
@@ -26,15 +27,9 @@
   const months = $derived(layout === null ? [] : monthColumns(layout));
   const lastColumn = $derived(layout === null ? 0 : layout.columns - 1);
 
-  // A conflict day lists the disagreeing members under the date, each line the
-  // member's own label for that day (or the date, when it has none) followed by
-  // the calendar in brackets. Native title tooltips honour the newlines.
   const cellTitle = (cell: YearGridCell): string => {
     if (cell.conflictSources !== undefined && cell.conflictSources.length > 0) {
-      const lines = cell.conflictSources.map(
-        (source) => `- ${source.description ?? cell.date} (${source.calendar})`,
-      );
-      return [cell.date, ...lines].join('\n');
+      return buildConflictTooltip(cell.date, cell.conflictSources);
     }
     return cell.name === undefined ? cell.date : `${cell.date} — ${cell.name}`;
   };

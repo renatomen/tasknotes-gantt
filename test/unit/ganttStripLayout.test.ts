@@ -195,3 +195,17 @@ describe('ganttStripLayoutFor', () => {
     expect(ganttStripLayoutFor(null)).toBeNull();
   });
 });
+
+describe('buildGanttStripUnion conflict attribution', () => {
+  it('names the disagreeing members, using the blocking calendar label', () => {
+    const holidays = base({ nonWorking: [span('2026-01-02', '2026-01-03', 'NYD')] });
+    const weekdays = base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }); // covers Fri 2026-01-02
+    const strip = buildGanttStripUnion([weekdays, holidays], ['Weekdays', 'Holidays']);
+    const cell = strip.cells.find((c) => c.date === '2026-01-02');
+    expect(cell?.conflict).toBe(true);
+    expect(cell?.conflictSources).toEqual([
+      { calendar: 'Weekdays', description: undefined },
+      { calendar: 'Holidays', description: 'NYD' },
+    ]);
+  });
+});
