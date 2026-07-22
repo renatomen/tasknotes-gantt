@@ -10,15 +10,15 @@
 
 import type { CalendarDefinition, ParsedCalendarNote } from '../controller/calendar/schema';
 import { addDaysIso } from '../controller/calendar/schema';
-import {
-  blockingComplement,
-  evaluatePattern,
-  validatePattern,
-  type EvaluationWindow,
-} from '../controller/calendar/patternWindow';
+import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
+import { blockingDays, eventDays, markerDays, type ClassifiedDays } from './calendarDayFacts';
+import { buildUnionModel, type ConflictSource } from './unionPreview';
 
-/** Highest-precedence treatment a day carries: marker > blocking > event > working. */
-export type DayClass = 'working' | 'blocking' | 'event' | 'marker';
+/**
+ * Highest-precedence treatment a day carries:
+ * conflict > marker > blocking > event > working.
+ */
+export type DayClass = 'working' | 'blocking' | 'event' | 'marker' | 'conflict';
 
 export interface YearGridCell {
   /** ISO `YYYY-MM-DD`. */
@@ -32,6 +32,8 @@ export interface YearGridCell {
   inYear: boolean;
   /** The entry name for a classified day, for a hover label. */
   name: string | undefined;
+  /** For a conflict day, the disagreeing members and how each labels it. */
+  conflictSources: ConflictSource[] | undefined;
 }
 
 export interface YearGridLayout {
@@ -55,6 +57,28 @@ export function yearLayoutFor(note: ParsedCalendarNote | null, year: number): Ye
   return buildYearGrid(note, year);
 }
 
+export interface MonthColumn {
+  /** 1 = January .. 12 = December. */
+  month: number;
+  /** 0-based week column the month's first day falls in — the top-axis anchor. */
+  column: number;
+}
+
+/**
+ * The week column each month begins in, for the grid's top month labels. Read
+ * from the first-of-month cells the layout already placed, so a label sits over
+ * exactly the column that holds that month's 1st.
+ */
+export function monthColumns(layout: YearGridLayout): MonthColumn[] {
+  const result: MonthColumn[] = [];
+  for (const cell of layout.cells) {
+    if (cell.inYear && cell.date.endsWith('-01')) {
+      result.push({ month: Number(cell.date.slice(5, 7)), column: cell.column });
+    }
+  }
+  return result;
+}
+
 export function buildYearGrid(definition: CalendarDefinition, year: number): YearGridLayout {
   // A pattern that cannot evaluate flags the whole preview rather than showing a
   // stale or misleading grid.
@@ -66,14 +90,53 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
     return { year, columns: 0, cells: [], invalid };
   }
 
+  const window = yearWindow(year);
+  return layoutFromFacts(year, {
+    markers: markerDays(definition),
+    blocking: blockingDays(definition, window),
+    events: eventDays(definition, window),
+  });
+}
+
+/**
+ * The year grid for a calendar-set: the union of its resolved member calendars,
+ * with the days where members disagree classified as `conflict` (the highest
+ * precedence). Union blocking/events/markers classify exactly as the single
+ * calendar grid does; only the conflict overlay is new. Members are already
+ * filtered to valid calendars by the caller, so the union has no invalid state.
+ */
+export function buildYearGridUnion(
+  members: readonly CalendarDefinition[],
+  year: number,
+  names?: readonly string[],
+): YearGridLayout {
+  const union = buildUnionModel(members, yearWindow(year), names);
+  return layoutFromFacts(year, union);
+}
+
+function yearWindow(year: number): EvaluationWindow {
+  return { startDate: `${pad4(year)}-01-01`, endDateExclusive: `${pad4(year + 1)}-01-01` };
+}
+
+/** The classified day-sets a year grid colours from — the shared shape of a
+ * single calendar's facts and a set's union (which adds conflicts). */
+interface YearFacts {
+  markers: ClassifiedDays;
+  blocking: ClassifiedDays;
+  events: ClassifiedDays;
+  conflicts?: Set<string>;
+  conflictSources?: Map<string, ConflictSource[]>;
+}
+
+type ClassifiedDay = {
+  dayClass: DayClass;
+  name: string | undefined;
+  conflictSources: ConflictSource[] | undefined;
+};
+
+function layoutFromFacts(year: number, facts: YearFacts): YearGridLayout {
   const firstDay = `${pad4(year)}-01-01`;
   const lastDay = `${pad4(year)}-12-31`;
-  const window: EvaluationWindow = { startDate: firstDay, endDateExclusive: `${pad4(year + 1)}-01-01` };
-
-  const markers = markerDays(definition);
-  const blocking = blockingDays(definition, window);
-  const events = eventDays(definition, window);
-
   const start = mondayOf(firstDay);
   const end = sundayOf(lastDay);
 
@@ -81,9 +144,9 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
   let index = 0;
   for (let day = start; day <= end; day = addDaysIso(day, 1)) {
     const inYear = day >= firstDay && day <= lastDay;
-    const classified = inYear
-      ? classify(day, markers, blocking, events)
-      : { dayClass: 'working' as const, name: undefined };
+    const classified: ClassifiedDay = inYear
+      ? classify(day, facts)
+      : { dayClass: 'working', name: undefined, conflictSources: undefined };
     cells.push({
       date: day,
       row: index % 7, // start is a Monday, so the offset is the weekday directly
@@ -91,85 +154,34 @@ export function buildYearGrid(definition: CalendarDefinition, year: number): Yea
       inYear,
       dayClass: classified.dayClass,
       name: classified.name,
+      conflictSources: classified.conflictSources,
     });
     index += 1;
   }
   return { year, columns: Math.ceil(index / 7), cells, invalid: undefined };
 }
 
-/** A day set with the entry name that produced each day (for hover labels). */
-interface ClassifiedDays {
-  days: Set<string>;
-  names: Map<string, string>;
-}
-
 /**
  * The winning class AND its own entry's name — read from the same source the
  * class was chosen from, so an unnamed higher-precedence entry never inherits a
- * lower one's label.
+ * lower one's label. A conflict outranks every other class; it carries the
+ * disagreeing members instead of a single name, for the hover tooltip.
  */
-function classify(
-  day: string,
-  markers: ClassifiedDays,
-  blocking: ClassifiedDays,
-  events: ClassifiedDays,
-): { dayClass: DayClass; name: string | undefined } {
-  if (markers.days.has(day)) return { dayClass: 'marker', name: markers.names.get(day) };
-  if (blocking.days.has(day)) return { dayClass: 'blocking', name: blocking.names.get(day) };
-  if (events.days.has(day)) return { dayClass: 'event', name: events.names.get(day) };
-  return { dayClass: 'working', name: undefined };
-}
-
-function markerDays(definition: CalendarDefinition): ClassifiedDays {
-  const days = new Set<string>();
-  const names = new Map<string, string>();
-  for (const marker of definition.markers) {
-    days.add(marker.date);
-    if (marker.name !== undefined) names.set(marker.date, marker.name);
+function classify(day: string, facts: YearFacts): ClassifiedDay {
+  const { markers, blocking, events, conflicts } = facts;
+  if (conflicts?.has(day)) {
+    return { dayClass: 'conflict', name: undefined, conflictSources: facts.conflictSources?.get(day) };
   }
-  return { days, names };
-}
-
-/** Non-working days: the pattern's blocking complement plus explicit spans. */
-function blockingDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
-  const result: ClassifiedDays = { days: new Set(), names: new Map() };
-  if (definition.pattern !== undefined) {
-    const complement = blockingComplement(definition.pattern, definition.patternStart, window);
-    if (complement.kind === 'ok') for (const day of complement.dates) result.days.add(day);
+  if (markers.days.has(day)) {
+    return { dayClass: 'marker', name: markers.names.get(day), conflictSources: undefined };
   }
-  addSpanDays(definition.nonWorking, window, result);
-  return result;
-}
-
-/** Display-only days: dated event spans plus recurring-event occurrences. */
-function eventDays(definition: CalendarDefinition, window: EvaluationWindow): ClassifiedDays {
-  const result: ClassifiedDays = { days: new Set(), names: new Map() };
-  addSpanDays(definition.events, window, result);
-  for (const event of definition.recurringEvents) {
-    // Anchor to the calendar's pattern_start, matching the live shading path, so
-    // an anchored (INTERVAL/COUNT/UNTIL) recurrence is not silently dropped.
-    const occurrences = evaluatePattern(event.rrule, definition.patternStart, window);
-    if (occurrences.kind !== 'ok') continue;
-    for (const day of occurrences.dates) {
-      result.days.add(day);
-      if (event.name !== undefined) result.names.set(day, event.name);
-    }
+  if (blocking.days.has(day)) {
+    return { dayClass: 'blocking', name: blocking.names.get(day), conflictSources: undefined };
   }
-  return result;
-}
-
-function addSpanDays(
-  spans: ReadonlyArray<{ startDate: string; endDateExclusive: string; name: string | undefined }>,
-  window: EvaluationWindow,
-  into: ClassifiedDays,
-): void {
-  for (const span of spans) {
-    for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) {
-      if (day < window.startDate || day >= window.endDateExclusive) continue;
-      into.days.add(day);
-      if (span.name !== undefined) into.names.set(day, span.name);
-    }
+  if (events.days.has(day)) {
+    return { dayClass: 'event', name: events.names.get(day), conflictSources: undefined };
   }
+  return { dayClass: 'working', name: undefined, conflictSources: undefined };
 }
 
 function pad4(year: number): string {

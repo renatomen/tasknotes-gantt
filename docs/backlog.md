@@ -169,6 +169,21 @@ preserved and the save retargets the new path (the U15 rename fix), so no data i
 itself may stutter for the user. Investigate the setViewState-routing interaction; likely a
 `suspendRouting` window around the leaf update. Discovered during U15 review.
 
+### P2i — Calendar-set union preview: availability-only members ignored
+Source: `docs/plans/2026-07-22-001-feat-calendar-set-union-preview-plan.md`. Surfaced by ce-code-review of
+the union-preview feature. (The other three review follow-ups — banner honesty, `resolveMember`/registry
+dedup via a pure `classifyMember`, and the double per-member blocking computation — were folded into that
+PR; only this systemic one stays parked.)
+
+The union's blocking/conflict facts derive from `pattern` + `nonWorking` only (`calendarDayFacts.blockingFacts`
+/ `calendarConflicts.dayFacts`), never `availability` blocks. A member defined purely by availability blocks
+(no top-level pattern) shows as working every day in the set preview and never conflicts — contradicting how
+the same calendar renders on its own Week tab. This is **systemic, not a union-preview bug**: the main Gantt
+render (`collectShadedDates` + `conflictDates`) and the single-calendar Year/Strip previews all ignore
+availability today — it only drives the Week tab's *hours display*. A union-only fix would make the preview
+disagree with the real chart, so this belongs with making availability a real scheduling input everywhere.
+Related to [[P2g]] (editing availability) and P2b (RRULE inertness).
+
 ### P3 — Status-coloring follow-ups
 Source: `docs/plans/2026-06-17-002-feat-gantt-status-coloring-plan.md` (Deferred to Follow-Up Work).
 - Live config-change reactivity for status-palette changes (currently read on (re)mount only; no event subscription).

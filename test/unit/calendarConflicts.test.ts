@@ -1,6 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
-import { buildCalendarNotice, conflictDates } from '../../src/bases/calendarConflicts';
+import {
+  buildCalendarNotice,
+  conflictDates,
+  conflictsFromFacts,
+} from '../../src/bases/calendarConflicts';
 
 const WINDOW = { startDate: '2026-04-06', endDateExclusive: '2026-04-13' }; // Mon..Sun
 
@@ -48,11 +52,57 @@ describe('conflictDates', () => {
   });
 });
 
+describe('conflictsFromFacts', () => {
+  it('flags a day one facts-set blocks while another covers, ignoring shared blocks', () => {
+    // #1 blocks Sat+Sun (covers the rest); #2 blocks Fri+Sat (covers the rest).
+    // Fri: blocked by #2, covered by #1 -> conflict. Sun: reverse. Sat: both block -> none.
+    const facts = [
+      { blocked: new Set(['2026-04-11', '2026-04-12']), covers: true },
+      { blocked: new Set(['2026-04-10', '2026-04-11']), covers: true },
+    ];
+    expect(conflictsFromFacts(facts, WINDOW)).toEqual(['2026-04-10', '2026-04-12']);
+  });
+
+  it('is the shared core of conflictDates (same result for the same calendars)', () => {
+    const viaFacts = conflictsFromFacts(
+      [
+        { blocked: new Set(['2026-04-11', '2026-04-12']), covers: true }, // Mon–Fri
+        { blocked: new Set(['2026-04-10', '2026-04-11']), covers: true }, // Sun–Thu
+      ],
+      WINDOW,
+    );
+    expect(viaFacts).toEqual(conflictDates([monToFri, sunToThu], WINDOW));
+  });
+
+  it('a facts-set that covers nothing only blocks, never conflicts', () => {
+    const facts = [{ blocked: new Set(['2026-04-07']), covers: false }];
+    expect(conflictsFromFacts(facts, WINDOW)).toEqual([]);
+  });
+});
+
 describe('buildCalendarNotice', () => {
   const base = { displayedCount: 0, conflictCount: 0, invalidCount: 0, flaggedCount: 0 };
 
   it('is silent for a single healthy calendar', () => {
     expect(buildCalendarNotice({ ...base, displayedCount: 1 })).toBeNull();
+  });
+
+  it('names the year on the conflict count when a conflict year is given', () => {
+    expect(
+      buildCalendarNotice({ ...base, displayedCount: 2, conflictCount: 3, conflictYear: 2026 }),
+    ).toBe('Displaying 2 calendars · 3 days in conflict in 2026');
+  });
+
+  it('warns that conflicts exist elsewhere when the counted window has none', () => {
+    expect(buildCalendarNotice({ ...base, conflictCount: 0, conflictsElsewhere: true })).toBe(
+      'conflicts exist in other years',
+    );
+  });
+
+  it('prefers the counted conflicts over the elsewhere note when both hold', () => {
+    expect(
+      buildCalendarNotice({ ...base, conflictCount: 2, conflictYear: 2026, conflictsElsewhere: true }),
+    ).toBe('2 days in conflict in 2026');
   });
 
   it('appears from two displayed calendars up', () => {

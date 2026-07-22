@@ -26,7 +26,11 @@
     <div class="og-strip-track">
       <div class="og-strip-cells">
         {#each layout.cells as cell (cell.date)}
-          <div class="og-strip-cell" class:og-strip-shaded={cell.shaded}></div>
+          <div
+            class="og-strip-cell"
+            class:og-strip-shaded={cell.shaded}
+            class:og-strip-conflict={cell.conflict}
+          ></div>
         {/each}
       </div>
       {#each layout.markers as marker, i (marker.date + '#' + i)}
@@ -82,6 +86,16 @@
     background: var(
       --wx-gantt-holiday-background,
       color-mix(in srgb, var(--text-normal) 12%, transparent)
+    );
+  }
+  /* Members disagree on this day: an error-tinted diagonal stripe that outranks
+     the holiday shade, matching the main view's conflict treatment. */
+  .og-strip-conflict {
+    background-color: color-mix(in srgb, var(--background-modifier-error) 22%, transparent);
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      var(--background-modifier-error) 3px 5px
     );
   }
 

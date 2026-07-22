@@ -14,10 +14,13 @@ import type {
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { collectShadedDates } from '../bases/calendarShading';
+import { buildUnionModel } from './unionPreview';
 
 export interface StripCell {
   date: string;
   shaded: boolean;
+  /** Set when members disagree on this day — one blocks it while another works it. */
+  conflict: boolean;
 }
 
 export interface StripMarker {
@@ -70,7 +73,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
 
   const cells: StripCell[] = [];
   for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
-    cells.push({ date: day, shaded: shaded.has(day) });
+    cells.push({ date: day, shaded: shaded.has(day), conflict: false });
   }
 
   const total = cells.length;
@@ -86,15 +89,61 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
 }
 
 /**
- * A Monday-aligned window that spans the calendar's dated content (markers,
- * events, non-working days, the pattern anchor), so those are visible — clamped
- * to whole weeks in [MIN, MAX]. Falls back to a fixed window when there is no
- * dated content to anchor on.
+ * The strip layout for the union of a calendar-set's members: the window spans
+ * every member's dated content, each day shades when any member shades it, and a
+ * cell is flagged when members disagree on that day. Union markers concatenate
+ * across members, deduped by date.
  */
+export function buildGanttStripUnion(members: readonly CalendarDefinition[]): GanttStripLayout {
+  const window = unionStripWindow(members);
+  const union = buildUnionModel(members, window);
+
+  const cells: StripCell[] = [];
+  for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
+    cells.push({
+      date: day,
+      shaded: union.blocking.days.has(day) || union.events.days.has(day),
+      conflict: union.conflicts.has(day),
+    });
+  }
+
+  const total = cells.length;
+  const markers: StripMarker[] = [...union.markers.days]
+    .filter((date) => date >= window.startDate && date < window.endDateExclusive)
+    .sort((a, b) => a.localeCompare(b))
+    .map((date) => ({
+      date,
+      name: union.markers.names.get(date),
+      xFraction: total > 0 ? dayIndex(date, window.startDate) / total : 0,
+    }));
+
+  return { cells, markers, window, invalid: undefined };
+}
+
+/** The window spanning a single calendar's dated content. */
 function stripWindow(definition: CalendarDefinition): EvaluationWindow {
-  const points = datedPoints(definition);
+  return windowSpanning(datedPoints(definition), definition.patternStart);
+}
+
+/** The union window: spans the dated content of every member. */
+function unionStripWindow(members: readonly CalendarDefinition[]): EvaluationWindow {
+  const points: string[] = [];
+  let fallbackAnchor: string | undefined;
+  for (const member of members) {
+    points.push(...datedPoints(member));
+    if (fallbackAnchor === undefined) fallbackAnchor = member.patternStart;
+  }
+  return windowSpanning(points, fallbackAnchor);
+}
+
+/**
+ * A Monday-aligned window spanning `points` (clamped to whole weeks in
+ * [MIN, MAX]), or a fixed window anchored on `fallbackAnchor` when there is no
+ * dated content.
+ */
+function windowSpanning(points: string[], fallbackAnchor: string | undefined): EvaluationWindow {
   if (points.length === 0) {
-    const start = mondayOf(definition.patternStart ?? STRIP_ANCHOR);
+    const start = mondayOf(fallbackAnchor ?? STRIP_ANCHOR);
     return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MIN_DAYS) };
   }
   // ISO dates sort chronologically, so the ends of the content span are the
