@@ -531,7 +531,7 @@ export function readDisplayCalendars(get: (key: string) => unknown): unknown {
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
-export function readBarColorMode(get: (key: string) => unknown): BarColorMode {
+function readBarColorMode(get: (key: string) => unknown): BarColorMode {
   return get('tngantt_barColorMode') === 'strip' ? 'strip' : 'fill';
 }
 
@@ -543,7 +543,7 @@ export function readBarColorMode(get: (key: string) => unknown): BarColorMode {
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
-export function readBarColorSource(get: (key: string) => unknown): BarColorSource {
+function readBarColorSource(get: (key: string) => unknown): BarColorSource {
   const raw = get('tngantt_barColorSource');
   return raw === 'status' || raw === 'priority' || raw === 'theme' || raw === 'calendar'
     ? raw

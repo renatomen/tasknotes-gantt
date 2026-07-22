@@ -81,13 +81,13 @@ describe('slugs', () => {
 
 describe('resolveTreatmentClass', () => {
   it('returns the fill-channel status slug for fill=status, strip=none', () => {
-    expect(resolveTreatmentClass('status', 'none', inst('11🟥Active = Now'), false, palettes)).toEqual([
+    expect(resolveTreatmentClass({ fillSource: 'status', stripSource: 'none', instance: inst('11🟥Active = Now'), isParent: false, palettes })).toEqual([
       statusSlug('11🟥Active = Now'),
     ]);
   });
 
   it('returns the strip-channel priority slug for fill=none, strip=priority', () => {
-    expect(resolveTreatmentClass('none', 'priority', inst(null, 'high'), false, palettes)).toEqual([
+    expect(resolveTreatmentClass({ fillSource: 'none', stripSource: 'priority', instance: inst(null, 'high'), isParent: false, palettes })).toEqual([
       prioritySlug('high'),
     ]);
   });
@@ -95,40 +95,40 @@ describe('resolveTreatmentClass', () => {
   it('returns BOTH classes when fill and strip resolve to distinct values', () => {
     // Fill by status, strip by priority — the bar carries both, fill class first.
     expect(
-      resolveTreatmentClass('status', 'priority', inst('11🟥Active = Now', 'high'), false, palettes),
+      resolveTreatmentClass({ fillSource: 'status', stripSource: 'priority', instance: inst('11🟥Active = Now', 'high'), isParent: false, palettes }),
     ).toEqual([statusSlug('11🟥Active = Now'), prioritySlug('high')]);
   });
 
   it('dedupes to a single class when both channels resolve to the same class (redundant combo)', () => {
     expect(
-      resolveTreatmentClass('status', 'status', inst('11🟥Active = Now'), false, palettes),
+      resolveTreatmentClass({ fillSource: 'status', stripSource: 'status', instance: inst('11🟥Active = Now'), isParent: false, palettes }),
     ).toEqual([statusSlug('11🟥Active = Now')]);
   });
 
   it('returns an empty array when both channels are none', () => {
-    expect(resolveTreatmentClass('none', 'none', inst('11🟥Active = Now', 'high'), false, palettes)).toEqual([]);
-    expect(resolveTreatmentClass('none', 'none', inst('x'), true, palettes)).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'none', stripSource: 'none', instance: inst('11🟥Active = Now', 'high'), isParent: false, palettes })).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'none', stripSource: 'none', instance: inst('x'), isParent: true, palettes })).toEqual([]);
   });
 
   it('omits a channel whose value is absent from the palette', () => {
-    expect(resolveTreatmentClass('status', 'none', inst('nope'), false, palettes)).toEqual([]);
-    expect(resolveTreatmentClass('none', 'priority', inst(null, 'nope'), false, palettes)).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'status', stripSource: 'none', instance: inst('nope'), isParent: false, palettes })).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'none', stripSource: 'priority', instance: inst(null, 'nope'), isParent: false, palettes })).toEqual([]);
   });
 
   it('carries og-parent once for parents in a role source (default/theme), nothing for children', () => {
-    expect(resolveTreatmentClass('theme', 'none', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
-    expect(resolveTreatmentClass('theme', 'none', inst('x'), false, palettes)).toEqual([]);
-    expect(resolveTreatmentClass('default', 'none', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
-    expect(resolveTreatmentClass('default', 'none', inst('x'), false, palettes)).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'theme', stripSource: 'none', instance: inst('x'), isParent: true, palettes })).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'theme', stripSource: 'none', instance: inst('x'), isParent: false, palettes })).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'default', stripSource: 'none', instance: inst('x'), isParent: true, palettes })).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'default', stripSource: 'none', instance: inst('x'), isParent: false, palettes })).toEqual([]);
     // A parent under default fill + theme strip dedupes the shared og-parent role class.
-    expect(resolveTreatmentClass('default', 'theme', inst('x'), true, palettes)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'default', stripSource: 'theme', instance: inst('x'), isParent: true, palettes })).toEqual([PARENT_ROLE_CLASS]);
   });
 
   it('degrades status/priority with an EMPTY palette to the default role (og-parent for parents)', () => {
     const empty: Palettes = { status: [], priority: [] };
-    expect(resolveTreatmentClass('status', 'none', inst('x'), true, empty)).toEqual([PARENT_ROLE_CLASS]);
-    expect(resolveTreatmentClass('status', 'none', inst('x'), false, empty)).toEqual([]);
-    expect(resolveTreatmentClass('none', 'priority', inst(null, 'x'), true, empty)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'status', stripSource: 'none', instance: inst('x'), isParent: true, palettes: empty })).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'status', stripSource: 'none', instance: inst('x'), isParent: false, palettes: empty })).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'none', stripSource: 'priority', instance: inst(null, 'x'), isParent: true, palettes: empty })).toEqual([PARENT_ROLE_CLASS]);
   });
 });
 
@@ -563,18 +563,18 @@ describe('calendar color source (U12)', () => {
 
   it('resolves a set-linked task to the set id, so the set colour wins', () => {
     // The resolver is identity-driven: a set-linked task carries the SET's id.
-    expect(resolveTreatmentClass('calendar', 'none', calInst('Calendars/APAC.md'), false, withCalendars)).toEqual([
+    expect(resolveTreatmentClass({ fillSource: 'calendar', stripSource: 'none', instance: calInst('Calendars/APAC.md'), isParent: false, palettes: withCalendars })).toEqual([
       calendarSlug('Calendars/APAC.md'),
     ]);
   });
 
   it('falls back to the default treatment for an unassociated task', () => {
-    expect(resolveTreatmentClass('calendar', 'none', calInst(null), false, withCalendars)).toEqual([]);
-    expect(resolveTreatmentClass('calendar', 'none', calInst(null), true, withCalendars)).toEqual([PARENT_ROLE_CLASS]);
+    expect(resolveTreatmentClass({ fillSource: 'calendar', stripSource: 'none', instance: calInst(null), isParent: false, palettes: withCalendars })).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'calendar', stripSource: 'none', instance: calInst(null), isParent: true, palettes: withCalendars })).toEqual([PARENT_ROLE_CLASS]);
   });
 
   it('ignores a calendar whose authored colour is unsafe', () => {
-    expect(resolveTreatmentClass('calendar', 'none', calInst('Calendars/Unsafe.md'), false, withCalendars)).toEqual([]);
+    expect(resolveTreatmentClass({ fillSource: 'calendar', stripSource: 'none', instance: calInst('Calendars/Unsafe.md'), isParent: false, palettes: withCalendars })).toEqual([]);
     const css = buildTreatmentStyle({
       fillSource: 'calendar',
       stripSource: 'none',

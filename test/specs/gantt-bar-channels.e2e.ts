@@ -25,8 +25,8 @@ import { fileURLToPath } from "node:url";
  *
  * Assertions follow the bar-treatments pattern: inspect the injected treatment
  * stylesheet text (`style[data-og-treatment]`) and the bar classes, rather than
- * brittle computed-style reads. The two P2e regressions (AE2/AE3) are pinned as
- * "does NOT contain" tripwires on the generated CSS.
+ * brittle computed-style reads. The two strip/fill coupling regressions (AE2/AE3)
+ * are pinned as "does NOT contain" tripwires on the generated CSS.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -192,7 +192,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
       expect(css).toContain(NEUTRAL_BODY);
     });
 
-    it("does NOT fill the body with the status colour (P2e bug 1 tripwire)", async () => {
+    it("does NOT fill the body with the status colour (regression: strip must not fill the body)", async () => {
       const css = await waitForTreatmentCss(STATUS_OPEN);
       // A body fill would carry `<color> !important` and a `--og-ghost-fill`; the
       // strip rule carries neither. Their absence proves the body stays neutral.
@@ -213,7 +213,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
       expect(css).toContain(`${CAL_NZ} !important`);
     });
 
-    it("draws NO ::before strip anywhere (P2e bug 2 tripwire)", async () => {
+    it("draws NO ::before strip anywhere (regression: fill must not draw a strip)", async () => {
       const css = await waitForTreatmentCss(`${CAL_NZ} !important`);
       expect(css).not.toContain("::before");
     });

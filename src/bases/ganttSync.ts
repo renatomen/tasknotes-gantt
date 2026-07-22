@@ -336,13 +336,13 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (flagged) classes.push(DATE_STATUS_TYPE);
     // The calendar identity is per SOURCE NOTE, not per instance — a task
     // duplicated across parents follows the same calendar in every copy.
-    const treatmentClasses = resolveTreatmentClass(
-      barFillSource,
-      barStripSource,
-      { ...inst, calendarId: calendarBySource?.get(inst.sourcePath) ?? null },
+    const treatmentClasses = resolveTreatmentClass({
+      fillSource: barFillSource,
+      stripSource: barStripSource,
+      instance: { ...inst, calendarId: calendarBySource?.get(inst.sourcePath) ?? null },
       isParent,
       palettes,
-    );
+    });
     classes.push(...treatmentClasses);
     // Instance cues come AFTER the state classes, replicated before context. This
     // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the

@@ -45,7 +45,7 @@ export type BarColorSource = 'default' | 'status' | 'priority' | 'theme' | 'cale
  * {@link BarColorSource}, or `none` — the channel draws nothing. Decoupling the
  * two channels is what lets a view encode two dimensions at once (e.g. fill by
  * calendar, strip by priority) and is what removes the coupling behind the two
- * P2e rendering bugs.
+ * strip/fill rendering bugs.
  */
 export type BarChannelSource = 'none' | BarColorSource;
 
@@ -380,6 +380,19 @@ function classForChannel(
   }
 }
 
+/** Inputs to {@link resolveTreatmentClass}, grouped to keep the signature small. */
+export interface ResolveTreatmentClassInput {
+  /** The Fill channel's source; contributes the fill-value class. */
+  fillSource: BarChannelSource;
+  /** The Strip channel's source; contributes the strip-value class. */
+  stripSource: BarChannelSource;
+  /** The bar-relevant slice of the render instance the channels read. */
+  instance: TreatmentInstance;
+  /** Whether this bar is a parent — supplied by the caller's whole-array scan. */
+  isParent: boolean;
+  palettes: Palettes;
+}
+
 /**
  * The treatment classes a bar carries across BOTH channels: the fill-value class
  * (from `fillSource`) and the strip-value class (from `stripSource`). Returns 0,
@@ -391,17 +404,15 @@ function classForChannel(
  * `isParent` is supplied by the caller (derived from a whole-array parent scan) —
  * parent-ness is not a property of a lone instance, so this never infers it.
  */
-export function resolveTreatmentClass(
-  fillSource: BarChannelSource,
-  stripSource: BarChannelSource,
-  instance: TreatmentInstance,
-  isParent: boolean,
-  palettes: Palettes,
-): string[] {
+export function resolveTreatmentClass(input: ResolveTreatmentClassInput): string[] {
+  const { fillSource, stripSource, instance, isParent, palettes } = input;
   const classes: string[] = [];
   const fillClass = classForChannel(fillSource, instance, isParent, palettes);
   if (fillClass) classes.push(fillClass);
-  const stripClass = classForChannel(stripSource, instance, isParent, palettes);
+  // Same source on both channels resolves to the same class for a given bar —
+  // skip the redundant per-bar lookup; the dedup below attaches it just once.
+  const stripClass =
+    stripSource === fillSource ? fillClass : classForChannel(stripSource, instance, isParent, palettes);
   if (stripClass && stripClass !== fillClass) classes.push(stripClass);
   return classes;
 }
@@ -440,8 +451,8 @@ export interface TreatmentStyleInput {
  *
  * The Fill channel paints the bar BODY (fill background + progress), the Strip
  * channel paints the left `::before` accent — never the reverse. This decoupling
- * is what fixes the two P2e bugs: a strip source paints only the strip (the body
- * stays neutral), and a fill source draws no phantom strip.
+ * is what fixes the two strip/fill coupling bugs: a strip source paints only the
+ * strip (the body stays neutral), and a fill source draws no phantom strip.
  *
  * - Fill only: the fill channel's body rules.
  * - Strip only: the strip's `::before` accent over the NEUTRAL body (byte-identical
@@ -465,12 +476,12 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   if (fillEff === 'none' && stripEff === 'none') {
     return roleFillRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR).join('\n');
   }
-  // Fill only → the fill channel supplies the body; no strip is drawn (bug 2).
+  // Fill only → the fill channel supplies the body; no strip is drawn.
   if (fillEff !== 'none' && stripEff === 'none') {
     return fillChannelRules(fillEff, palettes, instances).join('\n');
   }
-  // Strip only → the strip accent over a neutral body; the body is never filled
-  // (bug 1). Reproduces the legacy strip-mode output exactly.
+  // Strip only → the strip accent over a neutral body; the body is never filled.
+  // Reproduces the legacy strip-mode output exactly.
   if (fillEff === 'none' && stripEff !== 'none') {
     return stripOnlyRules(stripEff, palettes, instances).join('\n');
   }
@@ -535,8 +546,7 @@ function stripOnlyRules(
   const { palette, slugOf, valueOf } = paletteFor(source, palettes);
   const rules = buildValueRules('strip', palette, presentValues(valueOf, instances), slugOf);
   if (source === 'calendar') {
-    const base = roleStripRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-    return rules.length === 0 ? base : [...base, ...rules];
+    return [...roleStripRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
   if (rules.length === 0) return [];
   // Neutralize EVERY bar body to a theme surface with readable text + a visible
@@ -713,8 +723,7 @@ function roleStripRules(parentColor: string, childColor: string): string[] {
     // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
     // contrast-only). More specific than stripBodyRule() so it wins for parents.
     `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
-    `${BAR_SELECTOR}${stripRule(childColor)}`,
-    `${parentSel}::before { background-color: ${parentColor}; }`,
+    ...roleStripBeforeRules(parentColor, childColor),
     // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
     progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
     stripContentPadRule(),
