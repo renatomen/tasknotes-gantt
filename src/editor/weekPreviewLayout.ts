@@ -22,6 +22,7 @@ import {
   validatePattern,
   type EvaluationWindow,
 } from '../controller/calendar/patternWindow';
+import { workingDayRules, type WorkingRule } from '../controller/calendar/workingDays';
 import { blockingDays } from './calendarDayFacts';
 import { buildUnionModel } from './unionPreview';
 
@@ -176,25 +177,6 @@ function uniformHours(definition: CalendarDefinition, week: EvaluationWindow): D
   });
 }
 
-interface WorkingRule {
-  rule: string;
-  anchor: string | undefined;
-}
-
-/**
- * The rules that define a calendar's working days — the availability blocks when
- * present, else the main pattern — the search for its first occurrence draws on.
- */
-function workingRules(definition: CalendarDefinition): WorkingRule[] {
-  if (definition.availability.length > 0) {
-    return definition.availability.map((block) => ({ rule: block.pattern, anchor: undefined }));
-  }
-  if (definition.pattern !== undefined) {
-    return [{ rule: definition.pattern, anchor: definition.patternStart }];
-  }
-  return [];
-}
-
 /** The earliest day any of these rules first occurs, searching a full leap cycle. */
 function earliestOccurrence(rules: readonly WorkingRule[]): string | undefined {
   const occurrences = rules.map(({ rule, anchor }) => {
@@ -214,7 +196,7 @@ function earliestOccurrence(rules: readonly WorkingRule[]): string | undefined {
  * pattern — so a non-weekly (monthly/anchored) schedule never previews blank.
  */
 function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
-  return weekFrom(earliestOccurrence(workingRules(definition)) ?? WEEK_ANCHOR);
+  return weekFrom(earliestOccurrence(workingDayRules(definition)) ?? WEEK_ANCHOR);
 }
 
 /**
@@ -223,7 +205,7 @@ function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
  * an arbitrary week is still rendered rather than previewing blank.
  */
 function unionRepresentativeWeek(members: readonly CalendarDefinition[]): EvaluationWindow {
-  const firstPerMember = members.map((member) => earliestOccurrence(workingRules(member)));
+  const firstPerMember = members.map((member) => earliestOccurrence(workingDayRules(member)));
   return weekFrom(earliestOf(firstPerMember) ?? WEEK_ANCHOR);
 }
 

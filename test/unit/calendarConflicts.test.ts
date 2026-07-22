@@ -43,6 +43,18 @@ describe('conflictDates', () => {
     expect(conflictDates([monToFri, datedOnly], WINDOW)).toEqual(['2026-04-07']);
   });
 
+  it('an availability-only calendar conflicts like its pattern equivalent (day granularity)', () => {
+    // Works Sun–Thu via availability blocks, no top-level pattern. It must disagree
+    // with Mon–Fri on exactly the same days its pattern twin (sunToThu) does.
+    const sunToThuAvailability = calendar({
+      availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH', hours: ['09:00-17:00'] }],
+    });
+    expect(conflictDates([monToFri, sunToThuAvailability], WINDOW)).toEqual(
+      conflictDates([monToFri, sunToThu], WINDOW),
+    );
+    expect(conflictDates([monToFri, sunToThuAvailability], WINDOW)).toEqual(['2026-04-10', '2026-04-12']);
+  });
+
   it('display-only events never block, so they cannot conflict', () => {
     const withEvent = calendar({
       pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',

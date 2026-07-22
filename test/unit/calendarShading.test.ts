@@ -61,6 +61,19 @@ describe('collectShadedDates', () => {
     expect(dates).toEqual(['2026-04-06', '2026-04-07', '2026-04-10', '2026-04-15']);
   });
 
+  it('shades an availability-only calendar like its pattern equivalent (chart honours availability)', () => {
+    const viaAvailability = collectShadedDates(
+      [calendar({ availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', hours: [] }] })],
+      APRIL,
+    );
+    const viaPattern = collectShadedDates(
+      [calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' })],
+      APRIL,
+    );
+    expect(viaAvailability).toEqual(viaPattern);
+    expect(viaAvailability).toContain('2026-04-11'); // a Saturday is shaded, not left "working"
+  });
+
   it('shades the blocking complement of a working pattern (weekends of Mon-Fri)', () => {
     const dates = collectShadedDates(
       [calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' })],

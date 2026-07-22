@@ -33,6 +33,20 @@ describe('buildUnionModel', () => {
     expect(model.blocking.days.has(SUN)).toBe(true);
   });
 
+  it('lets an availability-only member block and conflict in the union (day granularity)', () => {
+    // The original P2i bug: a member defined only by availability blocks used to
+    // show as working every day, contributing no blocking and no conflict.
+    const weekdays = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }); // covers Fri
+    const monThu = calendar({
+      availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH', hours: [] }], // off Fri
+    });
+    const model = buildUnionModel([weekdays, monThu], WEEK);
+    const FRI = '2026-01-09';
+
+    expect(model.blocking.days.has(FRI)).toBe(true); // the availability member makes Fri non-working
+    expect(model.conflicts.has(FRI)).toBe(true); // ...and disagrees with the Mon–Fri member
+  });
+
   it('unions event days across members including recurring occurrences, deduped', () => {
     const oneOff = calendar({ events: [{ date: SAT, name: 'Party' }] });
     const recurring = calendar({

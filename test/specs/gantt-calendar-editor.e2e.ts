@@ -838,6 +838,41 @@ describe("Gantt (OG) calendar editor routing", () => {
     await deleteNotes(["Conflict Set.md", "Sun Thu.md", "Weekdays Cal.md"]);
   });
 
+  it("honours a member's availability blocks in the union (no top-level pattern)", async () => {
+    // A member defined ONLY by availability blocks (works Mon–Thu) is off Fridays;
+    // a Mon–Fri member works them → the union must show conflicts. This exercises
+    // the whole path: YAML availability parsing → shared engine → year grid.
+    await createNote(
+      "Weekdays Cal.md",
+      '---\ntngantt: calendar\npattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"\n---\n',
+    );
+    await createNote(
+      "Avail Mon Thu.md",
+      '---\ntngantt: calendar\navailability:\n  - pattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH"\n    hours: ["09:00-17:00"]\n---\n',
+    );
+    await createNote(
+      "Avail Set.md",
+      '---\ntngantt: calendar-set\ncalendars:\n  - "[[Weekdays Cal]]"\n  - "[[Avail Mon Thu]]"\n---\n',
+    );
+    await openNote("Avail Set.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-cal-tab=Year")).click();
+
+    await browser.waitUntil(
+      async () => {
+        const conflicts = await browser.executeObsidian(({ app }) => {
+          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+            ?.containerEl;
+          return root?.querySelectorAll(".og-year-cell.og-year-conflict").length ?? 0;
+        });
+        return conflicts > 0;
+      },
+      { timeout: 15000, timeoutMsg: "the availability-only member produced no conflicts in the union" },
+    );
+
+    await deleteNotes(["Avail Set.md", "Avail Mon Thu.md", "Weekdays Cal.md"]);
+  });
+
   it("updates the conflict banner live as a member is added, without saving", async () => {
     // Dedicated members (not the shared, mutated NZ Holidays fixture): a Mon–Fri
     // member alone has nothing to conflict with, so no banner shows until a

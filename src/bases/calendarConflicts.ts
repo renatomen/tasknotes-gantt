@@ -7,7 +7,8 @@
  */
 
 import { addDaysIso, type CalendarDefinition } from '../controller/calendar/schema';
-import { blockingComplement, type EvaluationWindow } from '../controller/calendar/patternWindow';
+import type { EvaluationWindow } from '../controller/calendar/patternWindow';
+import { workingComplement } from '../controller/calendar/workingDays';
 
 export interface CalendarDayFacts {
   /** Days this calendar blocks inside the window. */
@@ -46,7 +47,9 @@ export function conflictsFromFacts(
 }
 
 function dayFacts(calendar: CalendarDefinition, window: EvaluationWindow): CalendarDayFacts {
-  const blocked = new Set<string>();
+  // Working days (and the covers flag) come from the shared source — pattern or
+  // availability blocks — so conflicts see exactly what the chart shades.
+  const { blocked, covers } = workingComplement(calendar, window);
   for (const span of calendar.nonWorking) {
     for (
       let day = span.startDate < window.startDate ? window.startDate : span.startDate;
@@ -54,14 +57,6 @@ function dayFacts(calendar: CalendarDefinition, window: EvaluationWindow): Calen
       day = addDaysIso(day, 1)
     ) {
       blocked.add(day);
-    }
-  }
-  let covers = false;
-  if (calendar.pattern !== undefined) {
-    const complement = blockingComplement(calendar.pattern, calendar.patternStart, window);
-    if (complement.kind === 'ok') {
-      covers = true;
-      for (const date of complement.dates) blocked.add(date);
     }
   }
   return { blocked, covers };

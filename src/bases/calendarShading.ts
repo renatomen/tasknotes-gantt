@@ -11,11 +11,8 @@
  */
 
 import { addDaysIso, type CalendarDefinition, type DatedSpan } from '../controller/calendar/schema';
-import {
-  blockingComplement,
-  evaluatePattern,
-  type EvaluationWindow,
-} from '../controller/calendar/patternWindow';
+import { evaluatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
+import { workingComplement } from '../controller/calendar/workingDays';
 import {
   buildCalendarRegistry,
   resolveTaskCalendar,
@@ -83,7 +80,7 @@ export function shadingWindow(
 
 /**
  * Every displayed date of the given calendars inside the window — blocking
- * spans, display-only events, the working pattern's blocking complement, and
+ * spans, display-only events, the working rules' non-working complement, and
  * recurring display events. Markers deliberately excluded (they render as
  * lines, never as column shading). Invalid patterns contribute nothing here;
  * their visibility is the resolution layer's flags.
@@ -96,21 +93,20 @@ export function collectShadedDates(
   for (const calendar of calendars) {
     for (const span of calendar.nonWorking) addSpanDates(dates, span, window);
     for (const span of calendar.events) addSpanDates(dates, span, window);
-    addPatternComplement(dates, calendar, window);
+    addWorkingComplement(dates, calendar, window);
     addRecurringEvents(dates, calendar, window);
   }
   return [...dates].sort((a, b) => a.localeCompare(b));
 }
 
-function addPatternComplement(
+/** Shade the non-working days the calendar's working rules leave uncovered —
+ *  pattern or availability blocks, via the shared source. */
+function addWorkingComplement(
   dates: Set<string>,
   calendar: CalendarDefinition,
   window: EvaluationWindow,
 ): void {
-  if (calendar.pattern === undefined) return;
-  const complement = blockingComplement(calendar.pattern, calendar.patternStart, window);
-  if (complement.kind !== 'ok') return;
-  for (const date of complement.dates) dates.add(date);
+  for (const date of workingComplement(calendar, window).blocked) dates.add(date);
 }
 
 function addRecurringEvents(
@@ -447,7 +443,7 @@ function materializeBlocking(
 ): { days: Set<string>; maxRun: number } {
   const days = new Set<string>();
   for (const span of definition.nonWorking) addSpanDates(days, span, window);
-  addPatternComplement(days, definition, window);
+  addWorkingComplement(days, definition, window);
 
   let maxRun = 0;
   let run = 0;
