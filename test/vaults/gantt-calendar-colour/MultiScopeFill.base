@@ -1,0 +1,15 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'note.start || note.due'
+views:
+  - type: obsidianGantt
+    name: "Multi Scope Fill"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_barFillSource: default
+    tngantt_barStripSource: none
+    tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    order:
+      - file.name

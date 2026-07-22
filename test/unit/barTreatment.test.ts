@@ -19,6 +19,7 @@ import {
   STATUS_CLASS_PREFIX,
   PRIORITY_CLASS_PREFIX,
   type Palettes,
+  type TreatmentStyleInput,
 } from '../../src/bases/barTreatment';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 
@@ -34,6 +35,12 @@ const priorityColors: PriorityColor[] = [
 const palettes: Palettes = { status: statusColors, priority: priorityColors };
 
 const inst = (status: string | null, priority: string | null = null) => ({ status, priority });
+
+// Every treatment test builds under the legacy `.og-bases-gantt` root so the
+// golden-master fidelity strings stay byte-identical; the scope-parameterization
+// itself is guarded by its own test below.
+const styleFor = (input: Omit<TreatmentStyleInput, 'scope'>): string =>
+  buildTreatmentStyle({ ...input, scope: '.og-bases-gantt' });
 
 describe('isSafeColor', () => {
   it('accepts valid hex (3/4/6/8), rgb()/hsl() forms, and named colors', () => {
@@ -152,7 +159,7 @@ describe('treatmentClassRegistry', () => {
 
 describe('buildTreatmentStyle', () => {
   it('fill=status/strip=none: emits a scoped !important background per present, safe status', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes,
@@ -170,7 +177,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=none/strip=status: emits ::before accent rules, not background fills', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'none',
       stripSource: 'status',
       palettes,
@@ -191,14 +198,14 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('keys fill and strip on the priority palette independently', () => {
-    const fill = buildTreatmentStyle({ fillSource: 'priority', stripSource: 'none', palettes, instances: [inst(null, 'high')] });
+    const fill = styleFor({ fillSource: 'priority', stripSource: 'none', palettes, instances: [inst(null, 'high')] });
     expect(fill).toContain(`.wx-bar.${prioritySlug('high')} { background-color: #ff0000 !important;`);
-    const strip = buildTreatmentStyle({ fillSource: 'none', stripSource: 'priority', palettes, instances: [inst(null, 'high')] });
+    const strip = styleFor({ fillSource: 'none', stripSource: 'priority', palettes, instances: [inst(null, 'high')] });
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
 
   it('fill=theme: uses the theme accent (child) + a tonal-shifted accent (parent), not fixed hues', () => {
-    const css = buildTreatmentStyle({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [] });
+    const css = styleFor({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [] });
     expect(css).toContain('background-color: var(--interactive-accent) !important;'); // child = raw theme accent
     expect(css).toContain(
       `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%) !important;`,
@@ -208,7 +215,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('strip=theme: emits a neutral body + theme-accent ::before rules', () => {
-    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'theme', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'theme', palettes, instances: [] });
     // Body is mixed a bit off the background so it stays visible in low-contrast themes.
     expect(css).toContain('background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     expect(css).toContain(
@@ -220,7 +227,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('strip=default: parent body is a higher-contrast neutral than the child body (hierarchy cue)', () => {
-    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'default', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'default', palettes, instances: [] });
     // Child/base neutral body (16% toward text)...
     expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     // ...and a more prominent parent body override (30%), contrast-only (no opacity).
@@ -231,21 +238,21 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=default: emits fixed green-parent / blue-child role rules (no palette)', () => {
-    const css = buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (green)
     expect(css).not.toContain('#f8312f'); // does not consult the status palette
   });
 
   it('fill channel: progress is a contrasting shift of the bar fill accent (not SVAR blue)', () => {
-    const fill = buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const fill = styleFor({ fillSource: 'status', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
     expect(fill).toContain(
       `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
     );
   });
 
   it('strip channel: progress shifts the NEUTRAL bar body, not the strip accent', () => {
-    const strip = buildTreatmentStyle({ fillSource: 'none', stripSource: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+    const strip = styleFor({ fillSource: 'none', stripSource: 'status', palettes, instances: [inst('11🟥Active = Now')] });
     // Progress is a tonal shift of the shared neutral body...
     expect(strip).toContain(
       '.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }',
@@ -255,7 +262,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=default: progress follows the role colors (contrasted child + parent)', () => {
-    const css = buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes, instances: [] });
     expect(css).toContain('.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }');
     expect(css).toContain(
       `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }`,
@@ -264,13 +271,13 @@ describe('buildTreatmentStyle', () => {
 
   it('degrades a channel to the Default role style when its source palette is empty (standalone)', () => {
     // No TaskNotes palette → By Status/Priority behaves like Default (R15/F3), not blank.
-    const css = buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [inst('x')] });
+    const css = styleFor({ fillSource: 'status', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [inst('x')] });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (default blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (default green)
   });
 
   it('dedupes a value present on multiple instances', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes,
@@ -280,7 +287,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('skips an unsafe palette color on the fill channel (CSS-injection guard)', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
@@ -290,7 +297,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('skips an unsafe palette color on the strip channel (CSS-injection guard)', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'none',
       stripSource: 'status',
       palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
@@ -300,7 +307,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('drops a CSS-keyword color (transparent) that would render an invisible bar', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes: { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] },
@@ -312,7 +319,7 @@ describe('buildTreatmentStyle', () => {
   // ---- P2e regression characterizations (the two coupling bugs) ----
 
   it('BUG 1: fill=none/strip=status paints ONLY the strip — the body stays neutral, never a per-status fill', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'none',
       stripSource: 'status',
       palettes,
@@ -330,7 +337,7 @@ describe('buildTreatmentStyle', () => {
 
   it('BUG 2: fill=calendar/strip=none draws ZERO strips — no ::before anywhere', () => {
     const withCal: Palettes = { ...palettes, calendar: [{ value: 'Cal/A.md', color: '#2a9d8f' }] };
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCal,
@@ -347,7 +354,7 @@ describe('buildTreatmentStyle', () => {
   // ---- Two-channel and both-none composition ----
 
   it('fill=status + strip=priority: status fill-body rules AND priority ::before strips coexist on distinct classes', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'priority',
       palettes,
@@ -361,7 +368,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('redundant fill=status + strip=status: the one status class carries BOTH a fill body and a ::before strip', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'status',
       stripSource: 'status',
       palettes,
@@ -373,10 +380,27 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=none + strip=none: falls back to the default role fill so a bar is never invisible', () => {
-    const css = buildTreatmentStyle({ fillSource: 'none', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
     expect(css).toContain('background-color: #1f6feb !important;'); // default child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // default parent (green)
     expect(css).not.toContain('::before');
+  });
+});
+
+describe('buildTreatmentStyle scope parameterization (multi-instance leak guard)', () => {
+  it('anchors every generated rule under the given per-instance scope, never a shared one', () => {
+    const css = buildTreatmentStyle({
+      scope: '.og-gantt-test',
+      fillSource: 'status',
+      stripSource: 'none',
+      palettes,
+      instances: [inst('11🟥Active = Now')],
+    });
+    // Rules anchor under the unique per-instance scope...
+    expect(css).toContain(`.og-gantt-test .wx-bar.${statusSlug('11🟥Active = Now')}`);
+    // ...and never under the shared `.og-bases-gantt` root that every instance
+    // carries (that shared anchor is exactly what leaked across instances).
+    expect(css).not.toContain('.og-bases-gantt .wx-bar');
   });
 });
 
@@ -415,37 +439,37 @@ describe('buildTreatmentStyle fidelity (legacy configs render byte-identically)'
 
   it('fill=status,strip=none == legacy mode=fill,source=status', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'status', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+      styleFor({ fillSource: 'status', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
     ).toBe(GOLDEN_FILL_STATUS);
   });
 
   it('fill=none,strip=status == legacy mode=strip,source=status', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'none', stripSource: 'status', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+      styleFor({ fillSource: 'none', stripSource: 'status', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
     ).toBe(GOLDEN_STRIP_STATUS);
   });
 
   it('fill=default,strip=none == legacy mode=fill,source=default', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'default', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+      styleFor({ fillSource: 'default', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
     ).toBe(GOLDEN_FILL_DEFAULT);
   });
 
   it('fill=none,strip=default == legacy mode=strip,source=default', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'none', stripSource: 'default', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+      styleFor({ fillSource: 'none', stripSource: 'default', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
     ).toBe(GOLDEN_STRIP_DEFAULT);
   });
 
   it('fill=calendar,strip=none == legacy mode=fill,source=calendar', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'calendar', stripSource: 'none', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+      styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
     ).toBe(GOLDEN_FILL_CALENDAR);
   });
 
   it('fill=none,strip=calendar == legacy mode=strip,source=calendar', () => {
     expect(
-      buildTreatmentStyle({ fillSource: 'none', stripSource: 'calendar', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+      styleFor({ fillSource: 'none', stripSource: 'calendar', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
     ).toBe(GOLDEN_STRIP_CALENDAR);
   });
 });
@@ -530,7 +554,7 @@ describe('calendar color source (U12)', () => {
   const calInst = (calendarId: string | null) => ({ status: null, priority: null, calendarId });
 
   it('emits a fill rule per present calendar colour', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
@@ -541,7 +565,7 @@ describe('calendar color source (U12)', () => {
   });
 
   it('emits a strip rule per present calendar colour', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'none',
       stripSource: 'calendar',
       palettes: withCalendars,
@@ -552,7 +576,7 @@ describe('calendar color source (U12)', () => {
   });
 
   it('keeps the default role rules so an unassociated task is still treated', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
@@ -575,7 +599,7 @@ describe('calendar color source (U12)', () => {
 
   it('ignores a calendar whose authored colour is unsafe', () => {
     expect(resolveTreatmentClass({ fillSource: 'calendar', stripSource: 'none', instance: calInst('Calendars/Unsafe.md'), isParent: false, palettes: withCalendars })).toEqual([]);
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
@@ -585,7 +609,7 @@ describe('calendar color source (U12)', () => {
   });
 
   it('degrades to the default source when the vault has no calendars', () => {
-    const css = buildTreatmentStyle({
+    const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes,
