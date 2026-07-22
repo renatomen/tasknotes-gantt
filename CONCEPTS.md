@@ -5,10 +5,10 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 ## Calendar availability
 
 ### Calendar note
-A vault note a user marks as a calendar, declaring its own availability: a recurring working pattern plus dated exceptions (holidays, extra working days, display-only events). The calendar is the authority on when work can happen; views decide only how that availability is applied.
+A vault note a user marks as a calendar, declaring its own availability: a recurring working schedule — a single working pattern, or per-day availability blocks — plus dated exceptions (holidays, extra working days, display-only events). The calendar is the authority on when work can happen; views decide only how that availability is applied.
 
 ### Non-working day
-A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Declared by a calendar note — as the complement of its working pattern or as a dated exception.
+A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Declared by a calendar note — as the complement of its working schedule (working pattern or availability blocks) or as a dated exception.
 
 ### Calendar association
 The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association follows the view's default calendar, which may declare no non-working time at all.
