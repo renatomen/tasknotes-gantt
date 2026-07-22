@@ -189,6 +189,18 @@ export function getActiveGanttCalendarPickerEntry(
   return pickActiveFocusEntry(livePickerEntries, activeContainer);
 }
 
+/**
+ * A unique per-view scope-class token — a private CSS namespace for one view's
+ * injected stylesheets. Guards `crypto.randomUUID` (present in Obsidian's
+ * Electron renderer) with a non-crypto fallback so a missing global never throws.
+ */
+function mintInstanceScopeClass(): string {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  const token =
+    cryptoObj?.randomUUID?.() ?? `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+  return `og-gantt-${token.replace(/-/g, '').slice(0, 8)}`;
+}
+
 class ObsidianGanttBasesView extends BasesView {
   /** This view's mount container, used as the focus-entry registry key. */
   private focusEntryKey: HTMLElement | null = null;
@@ -258,6 +270,15 @@ class ObsidianGanttBasesView extends BasesView {
    * destroyed by a remount. `null` until the first mount.
    */
   private dataStore: Writable<GanttData> | null = null;
+
+  /**
+   * Unique per-view scope class shared by BOTH injected stylesheets — the bar
+   * treatment (built in the component) and the calendar shading (built here).
+   * Every generated rule anchors under `.<treatmentScopeClass>`, so one view's
+   * sheet can never restyle another view's bars/cells that share
+   * `.og-bases-gantt`. Stable for the view's lifetime.
+   */
+  private readonly treatmentScopeClass = mintInstanceScopeClass();
 
   /**
    * Monotonic mount token. `mountGantt()` is async (the controller's `init()`
@@ -922,6 +943,10 @@ class ObsidianGanttBasesView extends BasesView {
           data: this.dataStore,
           app: this.app,
           config: this.config,
+          // Unique per-view CSS namespace: the component anchors its bar-treatment
+          // sheet under this class and the shading sheet built here uses the same,
+          // so neither leaks onto another view sharing `.og-bases-gantt`.
+          scopeClass: this.treatmentScopeClass,
           // Theme toolbar (plan 002 U3/U4): the initial per-view theme mode and
           // a persist callback closing over config.set so the toolbar never
           // touches config directly. Toolbar VISIBILITY is NOT passed here — it
@@ -1227,6 +1252,7 @@ class ObsidianGanttBasesView extends BasesView {
     });
     const computed = this.shadingCssCache.compute(key, () =>
       computeCalendarShadingCss({
+        scope: `.${this.treatmentScopeClass}`,
         markedNotes: this.collectMarkedCalendarNotes(),
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
         associations,

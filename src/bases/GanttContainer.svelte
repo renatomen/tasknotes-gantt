@@ -140,6 +140,15 @@
     app: import('obsidian').App;
     config?: import('obsidian').BasesViewConfig;
     /**
+     * The instance's unique per-view scope class (e.g. `og-gantt-abc12345`),
+     * minted by the host (register.ts) so BOTH injected stylesheets — the bar
+     * treatment built here and the calendar shading built by the host — anchor
+     * under the same class and cannot leak onto another instance's bars/cells
+     * that share `.og-bases-gantt`. Absent → a self-minted fallback still scopes
+     * the treatment sheet.
+     */
+    scopeClass?: string;
+    /**
      * Persist a field patch for a render instance through the controller (U8).
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
      * read-only contexts / older callers — drag persistence is then inert.
@@ -227,6 +236,7 @@
     data,
     app,
     config,
+    scopeClass,
     onMutate,
     onMutateProperty,
     onAddDependency,
@@ -241,6 +251,17 @@
     onOpenCalendarPicker,
     onReassertGridWidthReady,
   }: Props = $props();
+
+  // Unique per-instance scope class: BOTH injected stylesheets (the bar-treatment
+  // sheet built here and the calendar-shading sheet the host builds) anchor every
+  // rule under `.<treatmentScopeClass>`, so one instance's rules never restyle
+  // another instance's bars/cells that share `.og-bases-gantt`. The host supplies
+  // it so the shading sheet targets the same class; a self-minted fallback keeps
+  // the treatment sheet scoped when absent. A plain const — stable for the
+  // component's lifetime.
+  const treatmentScopeClass =
+    scopeClass ??
+    `og-gantt-${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2)).replace(/-/g, '').slice(0, 8)}`;
 
   // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
   // passes cells only { api, row, column, onaction }, so a prop can't reach them.
@@ -503,6 +524,7 @@
   // on the two sources/palettes/instances so the options re-color live without a remount.
   const treatmentStyleCss = $derived(
     buildTreatmentStyle({
+      scope: `.${treatmentScopeClass}`,
       fillSource: barFillSource,
       stripSource: barStripSource,
       palettes: {
@@ -2629,7 +2651,7 @@
 -->
 
 <div
-  class="og-bases-gantt"
+  class="og-bases-gantt {treatmentScopeClass}"
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
   class:og-weekends-off={!highlightWeekends}

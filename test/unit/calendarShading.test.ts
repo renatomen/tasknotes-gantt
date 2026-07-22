@@ -19,6 +19,16 @@ function calendar(frontmatter: Record<string, unknown>): CalendarDefinition {
 
 const APRIL = { startDate: '2026-04-06', endDateExclusive: '2026-04-20' };
 
+// The shading tests build under the legacy `.og-bases-gantt` root so the
+// existing selector assertions hold; per-instance scoping is guarded by its own
+// test below.
+const shadeCss = (dates: readonly string[], conflicts: readonly string[] = []): string =>
+  buildCalendarShadingCss('.og-bases-gantt', dates, conflicts);
+const computeShading = (
+  inputs: Omit<Parameters<typeof computeCalendarShadingCss>[0], 'scope'>,
+): ReturnType<typeof computeCalendarShadingCss> =>
+  computeCalendarShadingCss({ ...inputs, scope: '.og-bases-gantt' });
+
 describe('shadingWindow', () => {
   it('returns null with no dated spans', () => {
     expect(shadingWindow([])).toBeNull();
@@ -108,20 +118,20 @@ describe('collectShadedDates', () => {
 
 describe('buildCalendarShadingCss', () => {
   it('emits only the layout base rule when nothing is shaded', () => {
-    const css = buildCalendarShadingCss([]);
+    const css = shadeCss([]);
     expect(css).toContain('.og-cal-cell{position:absolute;top:0;height:100%;}');
     expect(css).not.toContain('og-d-');
   });
 
   it('groups shaded dates into one rule painting the holiday theme variable', () => {
-    const css = buildCalendarShadingCss(['2026-04-10', '2026-04-13']);
+    const css = shadeCss(['2026-04-10', '2026-04-13']);
     expect(css).toContain('.og-d-2026-04-10');
     expect(css).toContain('.og-d-2026-04-13');
     expect(css).toContain('var(--wx-gantt-holiday-background)');
   });
 
   it('paints with !important so calendar shading survives the weekends-off toggle', () => {
-    const css = buildCalendarShadingCss(['2026-04-11']);
+    const css = shadeCss(['2026-04-11']);
     expect(css).toContain('var(--wx-gantt-holiday-background)!important');
   });
 
@@ -129,13 +139,13 @@ describe('buildCalendarShadingCss', () => {
     // SVAR stamps the identity classes in both places (Chart cells and
     // TimeScale header cells); painting only the body left holiday columns
     // with an unshaded header while weekends were dimmed in both.
-    const css = buildCalendarShadingCss(['2026-04-10']);
+    const css = shadeCss(['2026-04-10']);
     expect(css).toContain('.wx-gantt-holidays .og-d-2026-04-10');
     expect(css).toContain('.wx-scale .og-d-2026-04-10');
   });
 
   it('shades conflicts in both scopes too', () => {
-    const css = buildCalendarShadingCss(['2026-04-10'], ['2026-04-10']);
+    const css = shadeCss(['2026-04-10'], ['2026-04-10']);
     const stripeRule = css.split('\n').find((line) => line.includes('repeating-linear-gradient'));
     expect(stripeRule).toBeDefined();
     expect(stripeRule).toContain(`${'.wx-gantt-holidays'} .og-d-2026-04-10`);
@@ -145,11 +155,21 @@ describe('buildCalendarShadingCss', () => {
   it('keeps the absolute-positioning layout rule body-only', () => {
     // Header cells are normal-flow with explicit widths — absolute
     // positioning there would collapse the scale row.
-    const css = buildCalendarShadingCss(['2026-04-10']);
+    const css = shadeCss(['2026-04-10']);
     const baseRule = css.split('\n')[0] ?? '';
     expect(baseRule).toContain('position:absolute');
     expect(baseRule).toContain('.wx-gantt-holidays');
     expect(baseRule).not.toContain('.wx-scale');
+  });
+
+  it('anchors every rule under the given per-instance scope, never a shared one', () => {
+    // Multi-instance leak guard: a unique scope keeps one instance's injected
+    // shading sheet from re-shading another instance's `.og-bases-gantt` cells.
+    const css = buildCalendarShadingCss('.og-gantt-test', ['2026-04-10'], ['2026-04-10']);
+    expect(css).toContain('.og-gantt-test .wx-gantt-holidays .og-d-2026-04-10');
+    expect(css).toContain('.og-gantt-test .wx-scale .og-d-2026-04-10');
+    expect(css).toContain('.og-gantt-test .wx-gantt-holidays .og-cal-cell');
+    expect(css).not.toContain('.og-bases-gantt');
   });
 });
 
@@ -250,7 +270,7 @@ describe('computeCalendarShadingCss', () => {
   const taskSpans = [{ start: new Date(2026, 3, 6), end: new Date(2026, 3, 14) }];
 
   it('shades the union of task-associated calendars only', () => {
-    const { css, displayedCount } = computeCalendarShadingCss({
+    const { css, displayedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -262,7 +282,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('emits the base rule only when no task associates a calendar', () => {
-    const { css } = computeCalendarShadingCss({
+    const { css } = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
@@ -272,7 +292,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('emits the base rule only when there are no dated tasks to window against', () => {
-    const { css } = computeCalendarShadingCss({
+    const { css } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -282,7 +302,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
-    const { css } = computeCalendarShadingCss({
+    const { css } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[Ghost]]', taskPath: 'Tasks/T.md' }],
@@ -299,7 +319,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('an explicit displayed set overrides the association union', () => {
-    const { css, displayedCount } = computeCalendarShadingCss({
+    const { css, displayedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -312,14 +332,14 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('the union is monotonic: a superset selection shades a superset of dates', () => {
-    const one = computeCalendarShadingCss({
+    const one = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
       taskSpans,
       displaySelection: explicit(['[[NZ]]']),
     });
-    const both = computeCalendarShadingCss({
+    const both = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
@@ -345,7 +365,7 @@ describe('computeCalendarShadingCss', () => {
       const note = notes.find((candidate) => candidate.basename === inner);
       return note ? note.path : null;
     };
-    const { css, conflictCount } = computeCalendarShadingCss({
+    const { css, conflictCount } = computeShading({
       markedNotes: notes,
       resolveLink: resolveAmongNotes,
       associations: [],
@@ -361,7 +381,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('flags a dangling selected link without dropping the rest', () => {
-    const { flaggedCount, displayedCount } = computeCalendarShadingCss({
+    const { flaggedCount, displayedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
@@ -373,7 +393,7 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('counts invalid calendar notes for the banner', () => {
-    const { invalidCount } = computeCalendarShadingCss({
+    const { invalidCount } = computeShading({
       markedNotes: [
         ...markedNotes,
         { path: 'Calendars/Bad.md', basename: 'Bad', frontmatter: { tngantt: 'calendar', pattern: 'BYDAY=MO' } },
