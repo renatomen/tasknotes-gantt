@@ -8,8 +8,7 @@ views:
     tngantt_startDateProperty: note.start
     tngantt_endDateProperty: note.due
     tngantt_calendarProperty: note.calendar
-    tngantt_barColorSource: calendar
-    tngantt_barColorMode: fill
+    tngantt_barFillSource: calendar
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     order:

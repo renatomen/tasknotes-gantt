@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
  * Boots the `gantt-readonly` fixture (no TaskNotes plugin). Two views:
  *  - `Gantt.base` uses the defaults (Default / Default / None) → pristine bars:
  *    no treatment class, no injected rules, no icon chip.
- *  - `GanttThemed.base` sets `tngantt_barColorSource: theme` → bars take the
+ *  - `GanttThemed.base` sets `tngantt_barFillSource: theme` → bars take the
  *    Obsidian-theme treatment: the parent bar carries `og-parent` and the injected
  *    stylesheet references the theme CSS variables. Theme needs no palette, so it
  *    is the one active-treatment path exercisable without TaskNotes.

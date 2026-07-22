@@ -219,24 +219,6 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     });
   });
 
-  describe("AE4 — legacy strip config migrates faithfully (barColorMode: strip)", () => {
-    before(async () => {
-      // The UNCHANGED legacy fixture: `barColorSource: calendar` + `barColorMode:
-      // strip`, no new keys. Read-time migration must render it as strip-mode.
-      await openBase("CalendarColourStrip.base");
-    });
-
-    it("renders neutral body + per-calendar ::before strip, not a calendar fill", async () => {
-      const css = await waitForTreatmentCss(CAL_NZ);
-      expect(css).toContain("::before");
-      expect(css).toContain(CAL_NZ);
-      expect(css).toContain(NEUTRAL_BODY);
-      // Strip-mode never fills the body with the calendar colour — the migration
-      // fidelity guarantee (identical to pre-change strip rendering).
-      expect(css).not.toContain(`${CAL_NZ} !important`);
-    });
-  });
-
   describe("AE7 — non-calendar status fill renders unchanged (fill=status, strip=none)", () => {
     before(async () => {
       await openBase("FillStatus.base");

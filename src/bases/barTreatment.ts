@@ -27,16 +27,16 @@
 import type { PriorityColor, StatusColor } from '../datasource/types';
 
 /**
- * Legacy per-view bar color mode: fill the whole bar, or a left accent strip.
- * Retained only for the read-time migration ({@link BarChannelSource} replaced
- * the coupled mode+source pair with two independent channel sources).
+ * The internal rule-emission mode used by the channel rule builders: paint the bar
+ * body (`fill`) or the left accent strip (`strip`). Not a per-view setting — the
+ * Fill and Strip channels each drive one of these when emitting their value rules.
  */
 export type BarColorMode = 'fill' | 'strip';
 
 /**
- * Per-view color source: TaskNotes status/priority, the vault's calendars, the
- * Obsidian theme accent, or the fixed `default` role treatment. Still referenced
- * by the legacy migration readers; the live channels use {@link BarChannelSource}.
+ * A single channel's value source: TaskNotes status/priority, the vault's
+ * calendars, the Obsidian theme accent, or the fixed `default` role treatment.
+ * {@link BarChannelSource} extends this with `none` (draw nothing).
  */
 export type BarColorSource = 'default' | 'status' | 'priority' | 'theme' | 'calendar';
 

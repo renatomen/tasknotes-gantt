@@ -8,7 +8,7 @@ filters:
 views:
   - type: obsidianGantt
     name: "Gantt (defaults)"
-    tngantt_barColorSource: status
+    tngantt_barFillSource: status
     tngantt_barIcon: status
     order:
       - file.name

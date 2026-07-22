@@ -538,56 +538,51 @@ describe("bar treatment channel options", () => {
   });
 });
 
-describe("readBarFillSource (with legacy migration)", () => {
+describe("readBarFillSource", () => {
   const get = (map: Record<string, unknown>) => (key: string) => map[key];
 
-  it("returns the new key when present, coercing an unknown value to default", () => {
+  it("returns the new key's value when present, coercing an unknown value to default", () => {
     expect(readBarFillSource(get({ tngantt_barFillSource: "status" }))).toBe("status");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "calendar" }))).toBe("calendar");
     expect(readBarFillSource(get({ tngantt_barFillSource: "none" }))).toBe("none");
     expect(readBarFillSource(get({ tngantt_barFillSource: "junk" }))).toBe("default");
   });
 
-  it("synthesizes from the legacy pair when the new key is absent", () => {
-    // mode=fill,source=X → Fill=X
-    expect(readBarFillSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "priority" }))).toBe("priority");
-    // mode=strip,source=X → Fill=none
-    expect(readBarFillSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "priority" }))).toBe("none");
-  });
-
-  it("defaults to default when no keys at all are set (fresh view)", () => {
+  it("defaults to default when the new key is absent (fresh view)", () => {
     expect(readBarFillSource(get({}))).toBe("default");
   });
 
-  it("prefers the new key over the legacy pair when both are present", () => {
+  it("ignores the legacy keys entirely — a legacy-only view falls back to the default", () => {
+    // The read-time migration is gone: the new key is the only source of truth, so
+    // a view carrying only the old coupled pair yields the fresh-view default.
     expect(
-      readBarFillSource(get({ tngantt_barFillSource: "calendar", tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
-    ).toBe("calendar");
+      readBarFillSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "priority" })),
+    ).toBe("default");
+    expect(
+      readBarFillSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "priority" })),
+    ).toBe("default");
   });
 });
 
-describe("readBarStripSource (with legacy migration)", () => {
+describe("readBarStripSource", () => {
   const get = (map: Record<string, unknown>) => (key: string) => map[key];
 
-  it("returns the new key when present, coercing an unknown value to none", () => {
+  it("returns the new key's value when present, coercing an unknown value to none", () => {
     expect(readBarStripSource(get({ tngantt_barStripSource: "priority" }))).toBe("priority");
     expect(readBarStripSource(get({ tngantt_barStripSource: "default" }))).toBe("default");
     expect(readBarStripSource(get({ tngantt_barStripSource: "junk" }))).toBe("none");
   });
 
-  it("synthesizes from the legacy pair when the new key is absent", () => {
-    // mode=strip,source=X → Strip=X
-    expect(readBarStripSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "status" }))).toBe("status");
-    // mode=fill,source=X → Strip=none
-    expect(readBarStripSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "status" }))).toBe("none");
-  });
-
-  it("defaults to none when no keys at all are set (fresh view)", () => {
+  it("defaults to none when the new key is absent (fresh view)", () => {
     expect(readBarStripSource(get({}))).toBe("none");
   });
 
-  it("prefers the new key over the legacy pair when both are present", () => {
+  it("ignores the legacy keys entirely — a legacy-only view falls back to the default", () => {
     expect(
-      readBarStripSource(get({ tngantt_barStripSource: "none", tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
+      readBarStripSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
+    ).toBe("none");
+    expect(
+      readBarStripSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "status" })),
     ).toBe("none");
   });
 });
