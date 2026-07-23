@@ -70,8 +70,8 @@ import {
   readHighlightWeekends,
   readCalendarMode,
   readDisplayCalendars,
-  readBarColorMode,
-  readBarColorSource,
+  readBarFillSource,
+  readBarStripSource,
   readBarIcon,
   readProgressMode,
   readTimeEstimateMode,
@@ -579,7 +579,7 @@ class ObsidianGanttBasesView extends BasesView {
    * TaskNotes mode (computed) AND in Property mode with no mapped property means
    * a drag can never silently no-op (the controller would drop a write with no
    * target and the persist would resolve as if saved). Goes through a dedicated
-   * accessor like the sibling flags (getBarColorMode, etc.).
+   * accessor like the sibling flags (getBarFillSource, etc.).
    */
   private getProgressReadonly(): boolean {
     return isProgressReadonly(this.buildFieldMappings());
@@ -759,14 +759,14 @@ class ObsidianGanttBasesView extends BasesView {
     return readContextOpacity((key) => this.config.get(key));
   }
 
-  /** Read the per-view bar color mode (U5); default `fill`. */
-  private getBarColorMode() {
-    return readBarColorMode((key) => this.config.get(key));
+  /** Read the per-view Bar fill channel source; default `default`. */
+  private getBarFillSource() {
+    return readBarFillSource((key) => this.config.get(key));
   }
 
-  /** Read the per-view bar color source (U5); default `default`. */
-  private getBarColorSource() {
-    return readBarColorSource((key) => this.config.get(key));
+  /** Read the per-view Bar strip channel source; default `none`. */
+  private getBarStripSource() {
+    return readBarStripSource((key) => this.config.get(key));
   }
 
   /** Read the per-view task-icon source (U5); default `none`. */
@@ -1147,8 +1147,8 @@ class ObsidianGanttBasesView extends BasesView {
       statusColors,
       priorityColors,
       choiceOptions: { status: statusOptions, priority: priorityOptions },
-      barColorMode: this.getBarColorMode(),
-      barColorSource: this.getBarColorSource(),
+      barFillSource: this.getBarFillSource(),
+      barStripSource: this.getBarStripSource(),
       barIcon: this.getBarIcon(),
       // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
       // mode and in Property mode with no mapped property (nowhere to persist).
