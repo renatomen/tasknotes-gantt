@@ -211,7 +211,7 @@
     onThemeModeChange?: (mode: ThemeMode) => void;
     /**
      * Persist a chosen inferred-drag action per-view when the user ticks "Don't
-     * ask again" in the prompt (R6). register.ts closes it over `config.set`.
+     * ask again" in the prompt. register.ts closes it over `config.set`.
      * Absent callers keep an in-session-only choice.
      */
     onInferredDragModeChange?: (mode: InferredDragAction) => void;
@@ -2300,6 +2300,15 @@
         originals.set(inst.id, { start: inst.start, end: inst.end });
       }
     }
+    const revertToOriginals = (): void => {
+      for (const [id, original] of originals) {
+        api.exec("update-task", {
+          id,
+          task: { start: original.start, end: original.end },
+          eventSource: OG_ECHO_SOURCE,
+        });
+      }
+    };
 
     // Optimistic mirror: move sibling rows immediately (tagged as our own write).
     for (const inst of instances) {
@@ -2331,13 +2340,13 @@
     let patch: TaskPatch = { start: newStart, end: newEnd };
     if (estimateMinutes !== undefined) patch.estimate = estimateMinutes;
 
-    // Inferred-edge drag gate (plan U4): when the dragged edge is inferred from
-    // the estimate (a derived end/start), ask — or auto-apply the per-view mode —
+    // Inferred-edge drag gate: when the dragged edge is inferred from the
+    // estimate (a derived end/start), ask — or auto-apply the per-view mode —
     // whether to grow the estimate only (leave the date computed) or grow the
     // estimate AND materialise the dragged edge. `activeDrag` carries the pre-drag
     // provenance, read synchronously before the modal await (processSubtreeAndExtend
     // clears it on the next tick). Authored edges and whole-bar moves fall through
-    // to the default commit above (R2).
+    // to the default commit above.
     const before = activeDrag;
     if (
       before?.id === instanceId &&
@@ -2355,18 +2364,19 @@
         estimateWritable: true,
       });
       if (inferredEdge && outcome !== 'write-as-today') {
+        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates).
+        // Stand the subtree/extend cascade down so it can't commit shrink-fit or
+        // ancestor-extend writes against the optimistic pre-decision dates while the
+        // prompt is open — or against a choice the user cancels or downgrades to
+        // estimate-only (which materialises no date). Set before any await so the
+        // paired processSubtreeAndExtend, running next this tick, sees it.
+        inferredPromptEngaged = true;
         let action: InferredDragAction;
         if (outcome === 'prompt') {
           const choice = await new InferredDragModal(app).openAndGetChoice();
           if (!choice) {
-            // R7: cancel reverts the bar (+ mirrored siblings) and writes nothing.
-            for (const [id, original] of originals) {
-              api.exec("update-task", {
-                id,
-                task: { start: original.start, end: original.end },
-                eventSource: OG_ECHO_SOURCE,
-              });
-            }
+            // Cancel reverts the bar (+ mirrored siblings) and writes nothing.
+            revertToOriginals();
             return;
           }
           action = choice.action;
@@ -2394,13 +2404,7 @@
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.
-      for (const [id, original] of originals) {
-        api.exec("update-task", {
-          id,
-          task: { start: original.start, end: original.end },
-          eventSource: OG_ECHO_SOURCE,
-        });
-      }
+      revertToOriginals();
       new Notice("Couldn't save date change — check TaskNotes is running.");
     }
   }
@@ -2433,6 +2437,11 @@
     beforeDateStatus: DateStatus | null;
   } | null = null;
   let dragScheduled = false;
+  // Set synchronously by persistReschedule (which runs first) when an inferred-edge
+  // drag routes its write through the gate, so the deferred subtree/extend pass —
+  // which shares this gesture's tick — knows to stand down. Consumed and cleared by
+  // processSubtreeAndExtend; the two are always scheduled as a pair.
+  let inferredPromptEngaged = false;
 
   /** Schedule the deferred subtree-shift + extend pass once per drag. */
   function scheduleSubtreeAndExtend(): void {
@@ -2454,6 +2463,14 @@
     dragScheduled = false;
     const drag = activeDrag;
     activeDrag = null;
+    // An inferred-edge drag routes its write through persistReschedule's gate, which
+    // owns this note for the gesture. Skip the subtree/extend cascade entirely so it
+    // never races that decision (a leaf inferred task has no descendants/ancestors to
+    // act on anyway; a parent's cascade against unmaterialised dates is unsafe).
+    if (inferredPromptEngaged) {
+      inferredPromptEngaged = false;
+      return;
+    }
     if (!api || !onMutate || readOnly || !drag) return;
 
     const moved = api.getState().tasks.byId(drag.id);

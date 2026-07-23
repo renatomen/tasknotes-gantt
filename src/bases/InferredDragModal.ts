@@ -1,5 +1,5 @@
 /**
- * Confirmation dialog for an inferred-edge drag (plan U3).
+ * Confirmation dialog for an inferred-edge drag.
  *
  * When a resize moves an edge whose date is inferred from the time-estimate, this
  * asks whether to grow the **estimate only** (leave the date computed) or the
@@ -11,7 +11,7 @@
  *
  * - It resolves a richer `{ action, dontAskAgain }` (or `null` on cancel), not a
  *   bare boolean.
- * - It adds a net-new "Don't ask again" toggle (R6) — the cascade modal has none.
+ * - It adds a net-new "Don't ask again" toggle — the cascade modal has none.
  *
  * Focus/Enter safety: **Estimate only** is the sole primary (mod-cta) and is
  * default-focused because it is the conservative action (grows the estimate,

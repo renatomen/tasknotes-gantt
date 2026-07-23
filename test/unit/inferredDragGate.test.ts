@@ -10,9 +10,10 @@
  *   patch fields
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import {
   normalizeInferredDragMode,
+  persistInferredDragMode,
   classifyDraggedEdge,
   resolveInferredEdge,
   resolveInferredDragOutcome,
@@ -24,6 +25,24 @@ const d = (mo: number, da: number) => new Date(2026, mo, da);
 // Both before/after come from the same (SVAR) representation, so day-granular
 // deltas are reliable — mirror that here with matching times on both sides.
 const end = (mo: number, da: number) => new Date(2026, mo, da, 23, 59, 59, 999);
+
+describe('persistInferredDragMode', () => {
+  it('writes the chosen action to the tngantt_inferredDrag key', () => {
+    const set = jest.fn();
+    persistInferredDragMode(set, 'estimate-only');
+    expect(set).toHaveBeenCalledWith('tngantt_inferredDrag', 'estimate-only');
+  });
+
+  it('swallows a failing set so the drag-commit handler never crashes', () => {
+    const set = jest.fn(() => {
+      throw new Error('config write failed');
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => persistInferredDragMode(set, 'estimate-and-dates')).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
 
 describe('normalizeInferredDragMode', () => {
   it('passes through the three known modes', () => {

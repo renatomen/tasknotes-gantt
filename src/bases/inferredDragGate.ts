@@ -1,5 +1,5 @@
 /**
- * Pure logic for the inferred-date drag prompt (plan U1).
+ * Pure logic for the inferred-date drag prompt.
  *
  * When a user resizes a Gantt bar edge whose date is *inferred* (derived from a
  * time-estimate, not authored), the two intents — "grow the estimate" vs "stamp
@@ -25,6 +25,7 @@
  */
 
 import type { DateStatus } from '../controller/datePolicy';
+import { dayDelta } from './dayGranularity';
 
 /** Per-view inferred-edge-drag behaviour (mirrors {@link ./cascadeGate}'s CascadeMode). */
 export type InferredDragMode = 'ask' | 'estimate-only' | 'estimate-and-dates';
@@ -80,16 +81,6 @@ export function persistInferredDragMode(
   }
 }
 
-/** Local-midnight epoch of a date (drops the time-of-day component). */
-function startOfDayMs(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-/** Whole-day delta (rounded) between two dates, ignoring time-of-day. */
-function dayDelta(before: Date, after: Date): number {
-  return Math.round((startOfDayMs(after) - startOfDayMs(before)) / 86_400_000);
-}
-
 /**
  * Which edge a drag-commit moved, compared at DAY granularity. `before` and
  * `after` come from the same (SVAR store) representation — the same pairing
@@ -117,7 +108,7 @@ export function classifyDraggedEdge(
  * An `inferred-end` task has a derived END (authored start), so dragging its end
  * is the inferred edge (dragging its authored start is not); an `inferred-start`
  * task is the mirror. Fully-authored (`complete` / `swapped`), both-derived
- * (`placeholder`, treated as non-inferred per OQ5), and whole-bar moves (`both` /
+ * (`placeholder`, treated as non-inferred), and whole-bar moves (`both` /
  * `none`) never prompt.
  */
 export function resolveInferredEdge(draggedEdge: DraggedEdge, dateStatus: DateStatus): InferredEdge | null {
@@ -129,7 +120,7 @@ export function resolveInferredEdge(draggedEdge: DraggedEdge, dateStatus: DateSt
 /**
  * What a drag-commit should do. Both actions write the estimate, so the gate only
  * engages for an inferred edge when the estimate is writable; otherwise it falls
- * back to today's date-write (R8). In `ask` mode an inferred edge prompts; the
+ * back to today's date-write. In `ask` mode an inferred edge prompts; the
  * two non-`ask` modes auto-apply their action.
  */
 export function resolveInferredDragOutcome(args: {
@@ -147,7 +138,7 @@ export function resolveInferredDragOutcome(args: {
  * The `TaskPatch`-shaping decision for a chosen action. Both actions write the
  * recomputed `estimateMinutes`. **Estimate only** materialises no date (the
  * dragged edge stays inferred); **estimate and dates** additionally materialises
- * the dragged edge's date, leaving the authored counterpart untouched (OQ1).
+ * the dragged edge's date, leaving the authored counterpart untouched.
  */
 export function buildInferredDragPatch(args: {
   action: InferredDragAction;
