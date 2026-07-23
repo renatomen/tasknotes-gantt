@@ -70,7 +70,6 @@ import {
   readHighlightWeekends,
   readEstimateMeaning,
   readNonWorkingRendering,
-  resolveEstimateMeaning,
   type EstimateMeaning,
   readDisplayCalendars,
   readBarColorMode,
@@ -82,6 +81,11 @@ import {
   isTimeEstimateWriteEnabled,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
+import {
+  calendarSeamNeeded,
+  estimateMeaningForTask,
+  countWorkingDaysResolver,
+} from './estimateMeaningResolve';
 
 /**
  * Trailing-debounce window (ms) for the Bases `onDataUpdated` storm (#161).
@@ -600,11 +604,7 @@ class ObsidianGanttBasesView extends BasesView {
     const meaning = readEstimateMeaning(get);
     const rendering = readNonWorkingRendering(get);
     const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
-    // The availability seam is needed only when an axis actually reads the
-    // calendar: split rendering must find blocked days, working-days meaning
-    // (view default OR a per-task override that could select it) re-projects a
-    // derived edge. Neither → today's flat, calendar-blind behaviour.
-    if (rendering !== 'split' && meaning !== 'working-days' && !overrideMapped) return base;
+    if (!calendarSeamNeeded(rendering, meaning, overrideMapped)) return base;
     return {
       ...base,
       nonWorkingRendering: rendering,
@@ -617,44 +617,41 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /**
-   * A task's effective Estimate meaning: the per-view default, overridden by the
-   * task's mapped override property when it holds a valid value. Reads frontmatter
-   * register-side — the controller has no vault access — mirroring
-   * {@link buildTaskBlocking}'s per-task calendar read.
+   * The register-side wiring for {@link estimateMeaningForTask}: resolves the
+   * mapped override property to a frontmatter key and supplies the per-task value
+   * read (the controller has no vault access), mirroring {@link buildTaskBlocking}.
    */
   private buildEstimateMeaningForTask(
     viewDefault: EstimateMeaning,
   ): (taskPath: string) => EstimateMeaning {
     const property = this.getEffectiveMappings().estimateMeaningProperty ?? '';
-    const frontmatterKey = frontmatterSignatureKeys([property])[0];
-    if (!frontmatterKey) return () => viewDefault;
+    const frontmatterKey = frontmatterSignatureKeys([property])[0] ?? null;
     const app = this.app;
-    return (taskPath) => {
+    return estimateMeaningForTask(viewDefault, frontmatterKey, (taskPath) => {
       const file = app.vault.getAbstractFileByPath(taskPath);
-      if (!(file instanceof TFile)) return viewDefault;
-      const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
-      return resolveEstimateMeaning(viewDefault, value);
-    };
+      if (!(file instanceof TFile)) return undefined;
+      return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey as string];
+    });
   }
 
   /**
-   * Resize→estimate conversion for the write path (U6/R13–R15): the working days
-   * a dragged span spends, but only for a task whose effective Estimate meaning
-   * is `working-days`. A `calendar-days` task returns null so the resize records
-   * the flat calendar span. Undefined when no axis engages working-day counting.
+   * The register-side wiring for {@link countWorkingDaysResolver}: the write path's
+   * resize→estimate working-day counter, backed by the per-pass blocking lookup.
    */
   private buildCountWorkingDays():
     | ((taskPath: string, start: Date, end: Date) => number | null)
     | undefined {
     const viewMeaning = readEstimateMeaning((key) => this.config.get(key));
     const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
-    if (viewMeaning !== 'working-days' && !overrideMapped) return undefined;
-    const meaningForTask = this.buildEstimateMeaningForTask(viewMeaning);
-    return (taskPath, start, end) => {
-      if (meaningForTask(taskPath) !== 'working-days') return null;
-      const blocking = this.lastBlockingLookup?.(taskPath);
-      return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
-    };
+    return countWorkingDaysResolver(
+      viewMeaning,
+      overrideMapped,
+      this.buildEstimateMeaningForTask(viewMeaning),
+      (taskPath, start, end) => {
+        const blocking = this.lastBlockingLookup?.(taskPath);
+        return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
+      },
+    );
   }
 
   /**
