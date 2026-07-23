@@ -246,19 +246,31 @@ function timelineOptions(): BasesOptions[] {
       key: 'tngantt_highlightWeekends',
       default: true,
     },
-    // The calendar functionality ladder: shading only (default, today's
-    // behaviour made calendar-aware) or stretching duration-derived bars over
-    // the associated calendar's blocked days. Each rung includes the ones
-    // below; the experimental full-scheduling rung arrives only after its own
-    // planning cycle.
+    // Estimate meaning: does a time-estimate count working days (a derived
+    // endpoint skips the task's non-working days) or calendar days (flat)? Affects
+    // only derived edges; per-view default, overridable per task (Fields group).
+    // Read in getEstimateMeaning; consumed by the resolve seam.
     {
       type: 'dropdown',
-      displayName: 'Calendar mode',
-      key: 'tngantt_calendarMode',
-      default: 'shade',
+      displayName: 'Estimate meaning',
+      key: 'tngantt_estimateMeaning',
+      default: 'calendar-days',
       options: {
-        shade: 'Shading only',
-        stretch: 'Stretch over non-working time',
+        'working-days': 'Working days (skip non-working)',
+        'calendar-days': 'Calendar days',
+      },
+    },
+    // Non-working-day rendering: shade blocked days in the background, or draw
+    // them as split segments inside any dated bar. Per-view; read in
+    // getNonWorkingRendering; consumed by the resolve seam.
+    {
+      type: 'dropdown',
+      displayName: 'Non-working-day rendering',
+      key: 'tngantt_nonWorkingRendering',
+      default: 'shaded',
+      options: {
+        shaded: 'Shaded background',
+        split: 'Split segments',
       },
     },
     // Number → slider (the official Bases options union has no 'number' control;
@@ -503,6 +515,28 @@ export type CalendarMode = 'shade' | 'stretch';
  */
 export function readCalendarMode(get: (key: string) => unknown): CalendarMode {
   return get('tngantt_calendarMode') === 'stretch' ? 'stretch' : 'shade';
+}
+
+/** Per-view interpretation of a time-estimate (affects only derived edges). */
+export type EstimateMeaning = 'working-days' | 'calendar-days';
+
+/** Per-view rendering of non-working days on bars. */
+export type NonWorkingRendering = 'shaded' | 'split';
+
+/**
+ * Read the per-view Estimate meaning; unrecognized/absent → `calendar-days`
+ * (today's flat behaviour). Pure; mirrors {@link readCalendarMode}.
+ */
+export function readEstimateMeaning(get: (key: string) => unknown): EstimateMeaning {
+  return get('tngantt_estimateMeaning') === 'working-days' ? 'working-days' : 'calendar-days';
+}
+
+/**
+ * Read the per-view Non-working-day rendering; unrecognized/absent → `shaded`.
+ * Pure; mirrors {@link readEstimateMeaning}.
+ */
+export function readNonWorkingRendering(get: (key: string) => unknown): NonWorkingRendering {
+  return get('tngantt_nonWorkingRendering') === 'split' ? 'split' : 'shaded';
 }
 
 /**

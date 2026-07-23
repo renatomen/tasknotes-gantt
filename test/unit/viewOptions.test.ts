@@ -15,6 +15,8 @@ import {
   readMinHeight,
   readShowToolbar,
   readCalendarMode,
+  readEstimateMeaning,
+  readNonWorkingRendering,
   readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
@@ -217,6 +219,25 @@ describe("ganttViewOptions", () => {
     });
   });
 
+  it("replaces Calendar mode with the two orthogonal axes (U1)", () => {
+    // The fused calendarMode dropdown is gone.
+    expect(flattenLeaves(options).some((o) => "key" in o && o.key === "tngantt_calendarMode")).toBe(
+      false,
+    );
+    expect(byKey(options, "tngantt_estimateMeaning")).toMatchObject({
+      type: "dropdown",
+      displayName: "Estimate meaning",
+      default: "calendar-days",
+      options: { "working-days": "Working days (skip non-working)", "calendar-days": "Calendar days" },
+    });
+    expect(byKey(options, "tngantt_nonWorkingRendering")).toMatchObject({
+      type: "dropdown",
+      displayName: "Non-working-day rendering",
+      default: "shaded",
+      options: { shaded: "Shaded background", split: "Split segments" },
+    });
+  });
+
   it("includes the shared field-mapping property options", () => {
     const propertyKeys = flattenLeaves(options)
       .filter((o) => o.type === "property")
@@ -246,8 +267,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 9 Fields + 2 Progress + 3 Relationships
-    // + 8 Timeline + 8 Appearance = 30 (9 property + 10 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(30);
+    // + 9 Timeline + 8 Appearance = 31 (9 property + 11 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(31);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -291,7 +312,8 @@ describe("ganttViewOptions", () => {
     expect(keysIn("Timeline")).toEqual([
       "tngantt_defaultScale",
       "tngantt_highlightWeekends",
-      "tngantt_calendarMode",
+      "tngantt_estimateMeaning",
+      "tngantt_nonWorkingRendering",
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
@@ -382,6 +404,38 @@ describe("readCalendarMode", () => {
 
   it("returns stretch only for the explicit stretch value", () => {
     expect(readCalendarMode((k) => ({ tngantt_calendarMode: "stretch" })[k])).toBe("stretch");
+  });
+});
+
+describe("readEstimateMeaning (U1)", () => {
+  it("defaults to calendar-days when unset or unrecognized", () => {
+    expect(readEstimateMeaning(() => undefined)).toBe("calendar-days");
+    expect(readEstimateMeaning(() => "nonsense")).toBe("calendar-days");
+  });
+
+  it("returns working-days only for the explicit working-days value", () => {
+    expect(readEstimateMeaning((k) => ({ tngantt_estimateMeaning: "working-days" })[k])).toBe(
+      "working-days",
+    );
+    expect(readEstimateMeaning((k) => ({ tngantt_estimateMeaning: "calendar-days" })[k])).toBe(
+      "calendar-days",
+    );
+  });
+});
+
+describe("readNonWorkingRendering (U1)", () => {
+  it("defaults to shaded when unset or unrecognized", () => {
+    expect(readNonWorkingRendering(() => undefined)).toBe("shaded");
+    expect(readNonWorkingRendering(() => "nonsense")).toBe("shaded");
+  });
+
+  it("returns split only for the explicit split value", () => {
+    expect(readNonWorkingRendering((k) => ({ tngantt_nonWorkingRendering: "split" })[k])).toBe(
+      "split",
+    );
+    expect(readNonWorkingRendering((k) => ({ tngantt_nonWorkingRendering: "shaded" })[k])).toBe(
+      "shaded",
+    );
   });
 });
 
