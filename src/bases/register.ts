@@ -35,6 +35,11 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
+import {
+  normalizeInferredDragMode,
+  persistInferredDragMode,
+  type InferredDragAction,
+} from './inferredDragGate';
 import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
 import { resolveDateLocale } from './dateLocale';
@@ -72,8 +77,8 @@ import {
   readNonWorkingRendering,
   type EstimateMeaning,
   readDisplayCalendars,
-  readBarColorMode,
-  readBarColorSource,
+  readBarFillSource,
+  readBarStripSource,
   readBarIcon,
   readProgressMode,
   readTimeEstimateMode,
@@ -121,6 +126,7 @@ import {
   shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
+import { nextInstanceScopeClass } from './instanceScope';
 import {
   readDisplaySelection,
   reconcileLegacyFlip,
@@ -265,6 +271,15 @@ class ObsidianGanttBasesView extends BasesView {
    * destroyed by a remount. `null` until the first mount.
    */
   private dataStore: Writable<GanttData> | null = null;
+
+  /**
+   * Unique per-view scope class shared by BOTH injected stylesheets — the bar
+   * treatment (built in the component) and the calendar shading (built here).
+   * Every generated rule anchors under `.<treatmentScopeClass>`, so one view's
+   * sheet can never restyle another view's bars/cells that share
+   * `.og-bases-gantt`. Stable for the view's lifetime.
+   */
+  private readonly treatmentScopeClass = nextInstanceScopeClass();
 
   /**
    * Monotonic mount token. `mountGantt()` is async (the controller's `init()`
@@ -586,7 +601,7 @@ class ObsidianGanttBasesView extends BasesView {
    * TaskNotes mode (computed) AND in Property mode with no mapped property means
    * a drag can never silently no-op (the controller would drop a write with no
    * target and the persist would resolve as if saved). Goes through a dedicated
-   * accessor like the sibling flags (getBarColorMode, etc.).
+   * accessor like the sibling flags (getBarFillSource, etc.).
    */
   private getProgressReadonly(): boolean {
     return isProgressReadonly(this.buildFieldMappings());
@@ -813,14 +828,14 @@ class ObsidianGanttBasesView extends BasesView {
     return readContextOpacity((key) => this.config.get(key));
   }
 
-  /** Read the per-view bar color mode (U5); default `fill`. */
-  private getBarColorMode() {
-    return readBarColorMode((key) => this.config.get(key));
+  /** Read the per-view Bar fill channel source; default `default`. */
+  private getBarFillSource() {
+    return readBarFillSource((key) => this.config.get(key));
   }
 
-  /** Read the per-view bar color source (U5); default `default`. */
-  private getBarColorSource() {
-    return readBarColorSource((key) => this.config.get(key));
+  /** Read the per-view Bar strip channel source; default `none`. */
+  private getBarStripSource() {
+    return readBarStripSource((key) => this.config.get(key));
   }
 
   /** Read the per-view task-icon source (U5); default `none`. */
@@ -844,6 +859,15 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private getCascadeMode(): import('./cascadeGate').CascadeMode {
     return normalizeCascadeMode(this.config.get('tngantt_parentDateCascade'));
+  }
+
+  /**
+   * Read the per-view inferred-edge drag mode; defaults to `ask`. Governs whether
+   * a resize of an estimate-inferred bar edge prompts, grows the estimate only, or
+   * grows the estimate and writes dates (see inferredDragGate / GanttContainer).
+   */
+  private getInferredDragMode(): import('./inferredDragGate').InferredDragMode {
+    return normalizeInferredDragMode(this.config.get('tngantt_inferredDrag'));
   }
 
   /**
@@ -976,6 +1000,10 @@ class ObsidianGanttBasesView extends BasesView {
           data: this.dataStore,
           app: this.app,
           config: this.config,
+          // Unique per-view CSS namespace: the component anchors its bar-treatment
+          // sheet under this class and the shading sheet built here uses the same,
+          // so neither leaks onto another view sharing `.og-bases-gantt`.
+          scopeClass: this.treatmentScopeClass,
           // Theme toolbar (plan 002 U3/U4): the initial per-view theme mode and
           // a persist callback closing over config.set so the toolbar never
           // touches config directly. Toolbar VISIBILITY is NOT passed here — it
@@ -984,6 +1012,11 @@ class ObsidianGanttBasesView extends BasesView {
           themeMode: this.getThemeMode(),
           onThemeModeChange: (mode: ThemeMode) =>
             persistThemeMode((key, value) => this.config.set(key, value), mode),
+          // "Don't ask again" on the inferred-drag prompt persists the chosen
+          // action as the per-view mode, closing over config.set (mirrors the
+          // theme-mode persist callback; the cascade mode is read-only).
+          onInferredDragModeChange: (mode: InferredDragAction) =>
+            persistInferredDragMode((key, value) => this.config.set(key, value), mode),
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch: TaskPatch) => controller.mutate(instanceId, patch),
@@ -1201,8 +1234,8 @@ class ObsidianGanttBasesView extends BasesView {
       statusColors,
       priorityColors,
       choiceOptions: { status: statusOptions, priority: priorityOptions },
-      barColorMode: this.getBarColorMode(),
-      barColorSource: this.getBarColorSource(),
+      barFillSource: this.getBarFillSource(),
+      barStripSource: this.getBarStripSource(),
       barIcon: this.getBarIcon(),
       // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
       // mode and in Property mode with no mapped property (nowhere to persist).
@@ -1212,6 +1245,7 @@ class ObsidianGanttBasesView extends BasesView {
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
+      inferredDragMode: this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
@@ -1275,6 +1309,7 @@ class ObsidianGanttBasesView extends BasesView {
     });
     const computed = this.shadingCssCache.compute(key, () =>
       computeCalendarShadingCss({
+        scope: `.${this.treatmentScopeClass}`,
         markedNotes: this.collectMarkedCalendarNotes(),
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
         associations,

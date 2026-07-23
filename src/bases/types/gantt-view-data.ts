@@ -17,8 +17,9 @@ import type {
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
 import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
-import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
+import type { BarChannelSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
+import type { InferredDragMode } from '../inferredDragGate';
 import type { CellEditorDescriptor } from '../cellEditability';
 import type { TypedValue } from '../propertyValues';
 import type { CellRender } from '../cellRender';
@@ -133,16 +134,18 @@ export interface GanttData {
   /** Priority→color palette (TaskNotes); `[]` when the companion exposes none (U4). */
   priorityColors: PriorityColor[];
   /**
-   * Per-view bar color mode/source and task-icon source (U5). Flow through the
-   * reactive data path (not mount props) so changing an option re-renders the
-   * bars live without a remount — same treatment as {@link showDateIndicators}.
+   * Per-view Bar fill/strip channel sources and task-icon source. Fill and Strip
+   * are independent (each `none | default | status | priority | calendar | theme`);
+   * they flow through the reactive data path (not mount props) so changing an
+   * option re-renders the bars live without a remount — same treatment as
+   * {@link showDateIndicators}.
    */
-  barColorMode: BarColorMode;
-  barColorSource: BarColorSource;
+  barFillSource: BarChannelSource;
+  barStripSource: BarChannelSource;
   barIcon: BarIconSource;
   /**
    * Whether the bar's progress is read-only (TaskNotes progress mode, U5/R7).
-   * Flows through the reactive data path like {@link barColorMode} so switching
+   * Flows through the reactive data path like {@link barFillSource} so switching
    * Progress mode hides/shows the drag handle live without a remount. The view
    * toggles a root class that hides `.wx-progress-marker`; date drag is
    * unaffected. `false` in property mode (the handle persists on release).
@@ -167,6 +170,12 @@ export interface GanttData {
    * silently), `never`. Defaults to `ask`.
    */
   cascadeMode: CascadeMode;
+  /**
+   * Per-view behavior when a resize moves an inferred (estimate-derived) bar
+   * edge: `ask` (prompt to grow the estimate or write dates), `estimate-only`,
+   * `estimate-and-dates`. Defaults to `ask`.
+   */
+  inferredDragMode: InferredDragMode;
   /** Per-view scale used only to seed SVAR's initial zoom level. */
   defaultScale: DefaultScale;
   /**

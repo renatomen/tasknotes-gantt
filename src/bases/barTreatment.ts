@@ -1,13 +1,14 @@
 /**
  * Pure helpers for per-view bar color/icon treatments (generalizes `statusColor.ts`).
  *
- * Given the per-view settings (color mode + color source + icon source) and the
- * status/priority palettes, this module produces the three view-layer artifacts:
+ * Given the per-view settings (an independent fill source + strip source + icon
+ * source) and the status/priority palettes, this module produces the three
+ * view-layer artifacts:
  *
  * 1. a per-bar **treatment class** (`resolveTreatmentClass`) folded into the SVAR
  *    task `type` string by `ganttSync`,
- * 2. the **generated stylesheet** (`buildTreatmentStyle`) injected under
- *    `.og-bases-gantt`, and
+ * 2. the **generated stylesheet** (`buildTreatmentStyle`) injected under the
+ *    instance's unique per-view scope class, and
  * 3. the **icon-chip spec** (`resolveIconSpec`) the `BarContent` template renders.
  *
  * Dependency-free (no Obsidian, no Svelte) so the full Mode × Source matrix is
@@ -25,11 +26,28 @@
 
 import type { PriorityColor, StatusColor } from '../datasource/types';
 
-/** Per-view bar color mode: fill the whole bar, or a left accent strip. */
+/**
+ * The internal rule-emission mode used by the channel rule builders: paint the bar
+ * body (`fill`) or the left accent strip (`strip`). Not a per-view setting — the
+ * Fill and Strip channels each drive one of these when emitting their value rules.
+ */
 export type BarColorMode = 'fill' | 'strip';
 
-/** Per-view color source: none, TaskNotes status/priority, or Obsidian theme. */
+/**
+ * A single channel's value source: TaskNotes status/priority, the vault's
+ * calendars, the Obsidian theme accent, or the fixed `default` role treatment.
+ * {@link BarChannelSource} extends this with `none` (draw nothing).
+ */
 export type BarColorSource = 'default' | 'status' | 'priority' | 'theme' | 'calendar';
+
+/**
+ * A single channel's source (the Fill and Strip channels each carry one). Any
+ * {@link BarColorSource}, or `none` — the channel draws nothing. Decoupling the
+ * two channels is what lets a view encode two dimensions at once (e.g. fill by
+ * calendar, strip by priority) and is what removes the coupling behind the two
+ * strip/fill rendering bugs.
+ */
+export type BarChannelSource = 'none' | BarColorSource;
 
 /** Per-view icon source: none, or the status/priority icon (independent of color). */
 export type BarIconSource = 'none' | 'status' | 'priority';
@@ -49,9 +67,6 @@ export const CALENDAR_CLASS_PREFIX = 'og-calendar-';
 
 /** Role class marking a parent bar in the role-based (`default`/`theme`) sources. */
 export const PARENT_ROLE_CLASS = 'og-parent';
-
-/** The plugin-scoped base bar selector every generated rule is anchored to. */
-const BAR_SELECTOR = '.og-bases-gantt .wx-bar';
 
 /** Width of the left accent strip in `strip` mode (matches the layout study). */
 export const STRIP_WIDTH_PX = 6;
@@ -321,24 +336,25 @@ function effectiveSource(source: BarColorSource, palettes: Palettes): BarColorSo
 }
 
 /**
- * The treatment class a bar carries for the active color source, or `null` when
- * the bar takes no plugin class (SVAR/theme default content).
+ * The treatment class a bar carries for ONE channel's source, or `null` when the
+ * channel adds no class (`none`, or a value with no safe configured color).
+ * `isParent` is supplied by the caller (whole-array parent scan).
  *
- * A bar carries at most one treatment class. `isParent` is supplied by the
- * caller (derived from a whole-array parent scan) — parent-ness is not a
- * property of a lone instance, so this function never infers it.
- *
+ * - `none`: no class.
  * - `status` / `priority`: the value's slug, but only when the value has a safe
  *   configured color (else no rule would exist for it → `null`).
+ * - `calendar`: the calendar slug, or the default role class for an unassociated
+ *   (or colourless) task — it takes the hierarchy treatment, not a plain bar.
  * - `theme` / `default`: the parent-role class for parents; children carry no
  *   class (the generated base `.wx-bar` role rule styles them).
  */
-export function resolveTreatmentClass(
-  source: BarColorSource,
+function classForChannel(
+  source: BarChannelSource,
   instance: TreatmentInstance,
   isParent: boolean,
   palettes: Palettes,
 ): string | null {
+  if (source === 'none') return null;
   switch (effectiveSource(source, palettes)) {
     case 'status':
       return instance.status && hasSafeColor(palettes.status, instance.status)
@@ -349,8 +365,6 @@ export function resolveTreatmentClass(
         ? prioritySlug(instance.priority)
         : null;
     case 'calendar':
-      // A task with no calendar (or a colourless one) has no colour to take,
-      // so it falls back to the default role treatment, not a plain bar.
       if (instance.calendarId && hasSafeColor(palettes.calendar ?? [], instance.calendarId)) {
         return calendarSlug(instance.calendarId);
       }
@@ -361,6 +375,43 @@ export function resolveTreatmentClass(
     default:
       return null;
   }
+}
+
+/** Inputs to {@link resolveTreatmentClass}, grouped to keep the signature small. */
+export interface ResolveTreatmentClassInput {
+  /** The Fill channel's source; contributes the fill-value class. */
+  fillSource: BarChannelSource;
+  /** The Strip channel's source; contributes the strip-value class. */
+  stripSource: BarChannelSource;
+  /** The bar-relevant slice of the render instance the channels read. */
+  instance: TreatmentInstance;
+  /** Whether this bar is a parent — supplied by the caller's whole-array scan. */
+  isParent: boolean;
+  palettes: Palettes;
+}
+
+/**
+ * The treatment classes a bar carries across BOTH channels: the fill-value class
+ * (from `fillSource`) and the strip-value class (from `stripSource`). Returns 0,
+ * 1, or 2 classes — deduped when both channels resolve to the same class (a
+ * redundant same-source combo attaches the one class, which the stylesheet then
+ * targets with both a fill and a strip rule). The fill class comes first, so the
+ * composed order matches {@link buildTreatmentTaskTypes}'s pair registration.
+ *
+ * `isParent` is supplied by the caller (derived from a whole-array parent scan) —
+ * parent-ness is not a property of a lone instance, so this never infers it.
+ */
+export function resolveTreatmentClass(input: ResolveTreatmentClassInput): string[] {
+  const { fillSource, stripSource, instance, isParent, palettes } = input;
+  const classes: string[] = [];
+  const fillClass = classForChannel(fillSource, instance, isParent, palettes);
+  if (fillClass) classes.push(fillClass);
+  // Same source on both channels resolves to the same class for a given bar —
+  // skip the redundant per-bar lookup; the dedup below attaches it just once.
+  const stripClass =
+    stripSource === fillSource ? fillClass : classForChannel(stripSource, instance, isParent, palettes);
+  if (stripClass && stripClass !== fillClass) classes.push(stripClass);
+  return classes;
 }
 
 /** Distinct treatment classes a bar could carry across all palette values, for SVAR registration. */
@@ -380,62 +431,159 @@ export function treatmentClassRegistry(palettes: Palettes): string[] {
 
 /** Inputs to {@link buildTreatmentStyle}, grouped to keep the signature small. */
 export interface TreatmentStyleInput {
-  mode: BarColorMode;
-  source: BarColorSource;
+  /** The Fill channel's source; `none` paints no body of its own. */
+  fillSource: BarChannelSource;
+  /** The Strip channel's source; `none` draws no `::before` accent. */
+  stripSource: BarChannelSource;
   palettes: Palettes;
   /**
-   * Render instances — the active source decides which field is read for the
+   * Render instances — each channel's source decides which field is read for its
    * present-value set (`.status`, `.priority`, or `.calendarId`).
    */
   instances: ReadonlyArray<TreatmentInstance>;
+  /**
+   * The per-instance ROOT selector every generated rule is anchored under (e.g.
+   * `.og-gantt-abc12345`). Each Gantt instance mints a unique one, so its injected
+   * stylesheet cannot restyle another instance's bars that share `.og-bases-gantt`.
+   */
+  scope: string;
 }
 
 /**
- * Build the deduped, scoped stylesheet for the active mode + source.
+ * Build the deduped, scoped stylesheet for the two independent channels.
  *
- * - `default`: fixed green-parent / blue-child role rules (theme-independent).
- * - `theme`: the same role rules driven by the theme's own `--interactive-accent`
- *   (late-bound, so a theme/accent change re-tints live). No palette needed.
- * - `status`/`priority`: one rule per present palette value with a safe color —
- *   a `background-color` fill (`mode='fill'`) or a `::before` left strip
- *   (`mode='strip'`). Fill is `!important` so it wins over the date-status flag's
- *   own `!important` background (coexistence).
+ * The Fill channel paints the bar BODY (fill background + progress), the Strip
+ * channel paints the left `::before` accent — never the reverse. This decoupling
+ * is what fixes the two strip/fill coupling bugs: a strip source paints only the
+ * strip (the body stays neutral), and a fill source draws no phantom strip.
+ *
+ * - Fill only: the fill channel's body rules.
+ * - Strip only: the strip's `::before` accent over the NEUTRAL body (byte-identical
+ *   to the pre-decoupling strip-mode canvas — the fidelity guarantee).
+ * - Both: the fill body PLUS the strip accent laid over it (two dimensions at once).
+ * - Neither: the default role fill, so a bar is never invisible.
+ *
+ * Each channel degrades an empty status/priority/calendar palette to `default`
+ * (via {@link effectiveSource}). Fill backgrounds are `!important` so they win
+ * over the date-status flag's own `!important` background (coexistence).
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
-  const { mode, palettes, instances } = input;
-  // Empty status/priority palette (standalone) degrades to the Default role style.
-  const source = effectiveSource(input.source, palettes);
-  if (source === 'default') return buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-  if (source === 'theme') return buildRoleStyle(mode, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  const { palettes, instances, scope } = input;
+  const barSelector = `${scope} .wx-bar`;
+  // `effectiveSource` is keyed on BarColorSource, so gate `none` out first.
+  const fillEff: BarChannelSource =
+    input.fillSource === 'none' ? 'none' : effectiveSource(input.fillSource, palettes);
+  const stripEff: BarChannelSource =
+    input.stripSource === 'none' ? 'none' : effectiveSource(input.stripSource, palettes);
 
-  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
+  // Both off → the default role fill, so a bar is never invisible.
+  if (fillEff === 'none' && stripEff === 'none') {
+    return roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR).join('\n');
+  }
+  // Fill only → the fill channel supplies the body; no strip is drawn.
+  if (fillEff !== 'none' && stripEff === 'none') {
+    return fillChannelRules(barSelector, fillEff, palettes, instances).join('\n');
+  }
+  // Strip only → the strip accent over a neutral body; the body is never filled.
+  // Reproduces the legacy strip-mode output exactly.
+  if (fillEff === 'none' && stripEff !== 'none') {
+    return stripOnlyRules(barSelector, stripEff, palettes, instances).join('\n');
+  }
+  // Both channels → the fill body, then the strip's `::before` accent laid over
+  // it. No neutral body (the fill supplies it) and no widened content inset (the
+  // filled body has no strip-clearing to do).
+  if (fillEff !== 'none' && stripEff !== 'none') {
+    return [
+      ...fillChannelRules(barSelector, fillEff, palettes, instances),
+      ...stripBeforeRules(barSelector, stripEff, palettes, instances),
+    ].join('\n');
+  }
+  return '';
+}
 
+/** The present, non-empty values a channel's `valueOf` reads across all instances. */
+function presentValues(
+  valueOf: (instance: TreatmentInstance) => string | null | undefined,
+  instances: ReadonlyArray<TreatmentInstance>,
+): Set<string> {
   const present = new Set<string>();
   for (const inst of instances) {
     const value = valueOf(inst);
     if (value) present.add(value);
   }
+  return present;
+}
 
-  const rules = buildValueRules(mode, palette, present, slugOf);
-  // Calendar bars sit on top of the default role rules, so an unassociated
-  // task keeps the hierarchy treatment instead of rendering as a plain bar.
+/**
+ * Fill-channel BODY rules (fill background + progress) — never a `::before`. For
+ * `calendar`, the per-calendar fills sit on top of the default role fill so an
+ * unassociated task keeps the hierarchy treatment instead of a plain bar.
+ */
+function fillChannelRules(
+  barSelector: string,
+  source: BarColorSource,
+  palettes: Palettes,
+  instances: ReadonlyArray<TreatmentInstance>,
+): string[] {
+  if (source === 'default') return roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleFillRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'fill', palette, presentValues(valueOf, instances), slugOf);
   if (source === 'calendar') {
-    const base = buildRoleStyle(mode, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-    return rules.length === 0 ? base : [base, ...rules].join('\n');
+    return [...roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
-  if (rules.length === 0) return '';
-  // Strip mode: neutralize EVERY bar body to a theme surface with readable text +
-  // a visible outline (the accent is the left strip), and widen the content inset
-  // so it clears the strip. Progress is a tonal shift of the NEUTRAL body (shared
-  // by all strip bars), not the strip accent. Date-status-flagged bars keep theirs.
-  if (mode === 'strip') {
-    rules.unshift(
-      stripBodyRule(),
-      progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
-      stripContentPadRule(),
-    );
+  return rules;
+}
+
+/**
+ * The strip-only canvas: the strip's `::before` accent laid over the NEUTRAL body
+ * (neutral surface + widened content inset + neutral-shifted progress). Byte-
+ * identical to the pre-decoupling strip-mode output for the same source — the
+ * fidelity guarantee for legacy strip views.
+ */
+function stripOnlyRules(
+  barSelector: string,
+  source: BarColorSource,
+  palettes: Palettes,
+  instances: ReadonlyArray<TreatmentInstance>,
+): string[] {
+  if (source === 'default') return roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleStripRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
+  if (source === 'calendar') {
+    return [...roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
-  return rules.join('\n');
+  if (rules.length === 0) return [];
+  // Neutralize EVERY bar body to a theme surface with readable text + a visible
+  // outline (the accent is the left strip), widen the content inset so it clears
+  // the strip, and shift progress off the shared NEUTRAL body (not the accent).
+  return [
+    stripBodyRule(barSelector),
+    progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),
+    stripContentPadRule(barSelector),
+    ...rules,
+  ];
+}
+
+/**
+ * Strip-channel `::before` accent rules ONLY (no neutral body — the fill channel
+ * supplies the body when both channels are lit). Used for the both-channels combo.
+ */
+function stripBeforeRules(
+  barSelector: string,
+  source: BarColorSource,
+  palettes: Palettes,
+  instances: ReadonlyArray<TreatmentInstance>,
+): string[] {
+  if (source === 'default') return roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleStripBeforeRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
+  if (source === 'calendar') {
+    return [...roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
+  }
+  return rules;
 }
 
 /** The palette, class-slug and per-instance value reader for a value source. */
@@ -466,6 +614,7 @@ function paletteFor(
  * dispatch + assembly shell (keeps its branch count low).
  */
 function buildValueRules(
+  barSelector: string,
   mode: BarColorMode,
   palette: ReadonlyArray<{ value: string; color: string }>,
   present: ReadonlySet<string>,
@@ -476,7 +625,7 @@ function buildValueRules(
   for (const { value, color } of palette) {
     if (!present.has(value) || emitted.has(value) || !isSafeColor(color)) continue;
     emitted.add(value);
-    const sel = `${BAR_SELECTOR}.${slugOf(value)}`;
+    const sel = `${barSelector}.${slugOf(value)}`;
     if (mode === 'strip') {
       rules.push(`${sel}${stripRule(color)}`);
     } else {
@@ -525,8 +674,8 @@ function stripRule(color: string): string {
  * `!important` because the component's scoped base rule (`.wx-content` padding) carries
  * Svelte's hash class and thus higher specificity than this injected stylesheet.
  */
-function stripContentPadRule(): string {
-  return `${BAR_SELECTOR} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
+function stripContentPadRule(barSelector: string): string {
+  return `${barSelector} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
 }
 
 /**
@@ -537,9 +686,9 @@ function stripContentPadRule(): string {
  * vars collapse onto the (transparent) chart's editor background — the "fill not
  * contrasting" case. The left border is covered by the strip's -1px overlay.
  */
-function stripBodyRule(): string {
+function stripBodyRule(barSelector: string): string {
   return (
-    `${BAR_SELECTOR} { background-color: ${STRIP_BODY_COLOR} !important; ` +
+    `${barSelector} { background-color: ${STRIP_BODY_COLOR} !important; ` +
     `color: ${STRIP_TEXT_COLOR} !important; ` +
     `border: 1px solid ${STRIP_BORDER_COLOR} !important; }`
   );
@@ -555,33 +704,51 @@ function progressFillRule(selector: string, fillColor: string): string {
 }
 
 /**
- * Role-based rules (parent vs child) for the `default`/`theme` sources. In `fill`
- * the child hue is the base `.wx-bar` fill and the parent hue overrides on
- * `.og-parent`; in `strip` the body stays neutral (see {@link stripBodyRule}), the
- * parent body gets a higher-contrast neutral, and the hues drive the `::before`
- * accent strip.
+ * FILL-channel role rules (`default`/`theme`): the child hue is the base `.wx-bar`
+ * fill and the parent hue overrides on `.og-parent`, each with its own progress
+ * shift. Emits BODY rules only (no `::before`).
  */
-function buildRoleStyle(mode: BarColorMode, parentColor: string, childColor: string): string {
-  const parentSel = `${BAR_SELECTOR}.${PARENT_ROLE_CLASS}`;
-  if (mode === 'strip') {
-    return [
-      stripBodyRule(),
-      // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
-      // contrast-only). More specific than stripBodyRule() so it wins for parents.
-      `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
-      `${BAR_SELECTOR}${stripRule(childColor)}`,
-      `${parentSel}::before { background-color: ${parentColor}; }`,
-      // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
-      progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
-      stripContentPadRule(),
-    ].join('\n');
-  }
+function roleFillRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
-    fillBodyRule(BAR_SELECTOR, childColor),
+    fillBodyRule(barSelector, childColor),
     `${parentSel} { background-color: ${parentColor} !important; }`,
-    progressFillRule(BAR_SELECTOR, progressColor(childColor)),
+    progressFillRule(barSelector, progressColor(childColor)),
     progressFillRule(parentSel, progressColor(parentColor)),
-  ].join('\n');
+  ];
+}
+
+/**
+ * The full STRIP-only role canvas (`default`/`theme`): the neutral body (see
+ * {@link stripBodyRule}) with a higher-contrast parent body, the parent/child
+ * hues driving the `::before` accents, neutral-shifted progress, and the widened
+ * content inset. Byte-order-identical to the pre-decoupling strip-mode role output.
+ */
+function roleStripRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
+  return [
+    stripBodyRule(barSelector),
+    // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
+    // contrast-only). More specific than stripBodyRule() so it wins for parents.
+    `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
+    ...roleStripBeforeRules(barSelector, parentColor, childColor),
+    // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
+    progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),
+    stripContentPadRule(barSelector),
+  ];
+}
+
+/**
+ * STRIP-channel role `::before` accents ONLY (`default`/`theme`): the child strip
+ * on the base bar and the parent strip on `.og-parent`. No neutral body — used
+ * when the fill channel already supplies the body (both channels lit).
+ */
+function roleStripBeforeRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
+  return [
+    `${barSelector}${stripRule(childColor)}`,
+    `${parentSel}::before { background-color: ${parentColor}; }`,
+  ];
 }
 
 /**

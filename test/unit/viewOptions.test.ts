@@ -18,8 +18,8 @@ import {
   readNonWorkingRendering,
   resolveEstimateMeaning,
   readHighlightWeekends,
-  readBarColorMode,
-  readBarColorSource,
+  readBarFillSource,
+  readBarStripSource,
   readBarIcon,
   readProgressMode,
   readTimeEstimateMode,
@@ -238,6 +238,23 @@ describe("ganttViewOptions", () => {
     });
   });
 
+  it("exposes the inferred-date drag dropdown, defaulting to ask, with the three modes (U2)", () => {
+    const dropdown = byKey(options, "tngantt_inferredDrag");
+    expect(dropdown.type).toBe("dropdown");
+    expect(dropdown).toMatchObject({
+      type: "dropdown",
+      displayName: "Inferred date drag",
+      key: "tngantt_inferredDrag",
+      default: "ask",
+      // Record<string,string>, not an array (an array renders "[object Object]").
+      options: {
+        ask: "Ask: grow estimate or write dates",
+        "estimate-only": "Grow the estimate only",
+        "estimate-and-dates": "Grow the estimate and write dates",
+      },
+    });
+  });
+
   it("includes the shared field-mapping property options", () => {
     const propertyKeys = flattenLeaves(options)
       .filter((o) => o.type === "property")
@@ -268,8 +285,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 10 Fields + 2 Progress + 3 Relationships
-    // + 9 Timeline + 8 Appearance = 32 (10 property + 11 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(32);
+    // + 10 Timeline + 8 Appearance = 33 (10 property + 12 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(33);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -319,12 +336,13 @@ describe("ganttViewOptions", () => {
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
+      "tngantt_inferredDrag",
       "tngantt_showUndatedTasks",
       "tngantt_showPartialDateTasks",
     ]);
     expect(keysIn("Appearance")).toEqual([
-      "tngantt_barColorMode",
-      "tngantt_barColorSource",
+      "tngantt_barFillSource",
+      "tngantt_barStripSource",
       "tngantt_barIcon",
       "tngantt_showDateIndicators",
       "tngantt_showToolbar",
@@ -562,12 +580,12 @@ describe("readContextOpacity", () => {
   });
 });
 
-describe("bar treatment options (U5)", () => {
-  it("defines the three dropdowns with Record<string,string> option maps", () => {
+describe("bar treatment channel options", () => {
+  it("defines the fill/strip/icon dropdowns with Record<string,string> option maps and per-channel defaults", () => {
     const opts = ganttViewOptions();
     for (const [key, def] of [
-      ["tngantt_barColorMode", "fill"],
-      ["tngantt_barColorSource", "default"],
+      ["tngantt_barFillSource", "default"],
+      ["tngantt_barStripSource", "none"],
       ["tngantt_barIcon", "none"],
     ] as const) {
       const opt = byKey(opts, key) as { type: string; default: unknown; options: unknown };
@@ -578,24 +596,70 @@ describe("bar treatment options (U5)", () => {
       expect(typeof opt.options).toBe("object");
     }
   });
-});
 
-describe("readBarColorMode", () => {
-  it("defaults to fill; only 'strip' selects strip", () => {
-    expect(readBarColorMode(() => undefined)).toBe("fill");
-    expect(readBarColorMode(() => "strip")).toBe("strip");
-    expect(readBarColorMode(() => "fill")).toBe("fill");
-    expect(readBarColorMode(() => "junk")).toBe("fill");
+  it("offers the six source options on both the fill and strip dropdowns", () => {
+    const opts = ganttViewOptions();
+    for (const key of ["tngantt_barFillSource", "tngantt_barStripSource"] as const) {
+      const opt = byKey(opts, key) as { options: Record<string, string> };
+      expect(Object.keys(opt.options)).toEqual(["none", "default", "status", "priority", "calendar", "theme"]);
+    }
+  });
+
+  it("no longer defines the legacy bar-color-mode / bar-color-source dropdowns", () => {
+    const keys = flattenLeaves(ganttViewOptions())
+      .filter((o) => "key" in o)
+      .map((o) => (o as { key: string }).key);
+    expect(keys).not.toContain("tngantt_barColorMode");
+    expect(keys).not.toContain("tngantt_barColorSource");
   });
 });
 
-describe("readBarColorSource", () => {
-  it("defaults to default; recognizes status/priority/theme only", () => {
-    expect(readBarColorSource(() => undefined)).toBe("default");
-    expect(readBarColorSource(() => "status")).toBe("status");
-    expect(readBarColorSource(() => "priority")).toBe("priority");
-    expect(readBarColorSource(() => "theme")).toBe("theme");
-    expect(readBarColorSource(() => "junk")).toBe("default");
+describe("readBarFillSource", () => {
+  const get = (map: Record<string, unknown>) => (key: string) => map[key];
+
+  it("returns the new key's value when present, coercing an unknown value to default", () => {
+    expect(readBarFillSource(get({ tngantt_barFillSource: "status" }))).toBe("status");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "calendar" }))).toBe("calendar");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "none" }))).toBe("none");
+    expect(readBarFillSource(get({ tngantt_barFillSource: "junk" }))).toBe("default");
+  });
+
+  it("defaults to default when the new key is absent (fresh view)", () => {
+    expect(readBarFillSource(get({}))).toBe("default");
+  });
+
+  it("ignores the legacy keys entirely — a legacy-only view falls back to the default", () => {
+    // The read-time migration is gone: the new key is the only source of truth, so
+    // a view carrying only the old coupled pair yields the fresh-view default.
+    expect(
+      readBarFillSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "priority" })),
+    ).toBe("default");
+    expect(
+      readBarFillSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "priority" })),
+    ).toBe("default");
+  });
+});
+
+describe("readBarStripSource", () => {
+  const get = (map: Record<string, unknown>) => (key: string) => map[key];
+
+  it("returns the new key's value when present, coercing an unknown value to none", () => {
+    expect(readBarStripSource(get({ tngantt_barStripSource: "priority" }))).toBe("priority");
+    expect(readBarStripSource(get({ tngantt_barStripSource: "default" }))).toBe("default");
+    expect(readBarStripSource(get({ tngantt_barStripSource: "junk" }))).toBe("none");
+  });
+
+  it("defaults to none when the new key is absent (fresh view)", () => {
+    expect(readBarStripSource(get({}))).toBe("none");
+  });
+
+  it("ignores the legacy keys entirely — a legacy-only view falls back to the default", () => {
+    expect(
+      readBarStripSource(get({ tngantt_barColorMode: "strip", tngantt_barColorSource: "status" })),
+    ).toBe("none");
+    expect(
+      readBarStripSource(get({ tngantt_barColorMode: "fill", tngantt_barColorSource: "status" })),
+    ).toBe("none");
   });
 });
 

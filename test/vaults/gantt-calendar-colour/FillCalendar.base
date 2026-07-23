@@ -1,14 +1,15 @@
 filters:
   and:
     - 'file.ext == "md"'
-    - 'note.start || note.due'
+    - 'file.name == "Task Tri"'
 views:
   - type: obsidianGantt
-    name: "Gantt Calendar Colour"
-    tngantt_startDateProperty: note.start
-    tngantt_endDateProperty: note.due
+    name: "Fill Calendar"
+    tngantt_startDateProperty: note.begin
+    tngantt_endDateProperty: note.finish
     tngantt_calendarProperty: note.calendar
     tngantt_barFillSource: calendar
+    tngantt_barStripSource: none
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     order:

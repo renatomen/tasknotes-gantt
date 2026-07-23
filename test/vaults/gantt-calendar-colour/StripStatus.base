@@ -1,0 +1,16 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.name == "Task Status"'
+views:
+  - type: obsidianGantt
+    name: "Strip Status"
+    tngantt_startDateProperty: note.begin
+    tngantt_endDateProperty: note.finish
+    tngantt_statusProperty: note.status
+    tngantt_barFillSource: none
+    tngantt_barStripSource: status
+    tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    order:
+      - file.name
