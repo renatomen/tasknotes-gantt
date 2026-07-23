@@ -114,6 +114,7 @@ import {
   shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
+import { nextInstanceScopeClass } from './instanceScope';
 import {
   readDisplaySelection,
   reconcileLegacyFlip,
@@ -187,18 +188,6 @@ export function getActiveGanttCalendarPickerEntry(
   activeContainer?: HTMLElement | null,
 ): (() => void) | null {
   return pickActiveFocusEntry(livePickerEntries, activeContainer);
-}
-
-/**
- * A unique per-view scope-class token — a private CSS namespace for one view's
- * injected stylesheets. Guards `crypto.randomUUID` (present in Obsidian's
- * Electron renderer) with a non-crypto fallback so a missing global never throws.
- */
-function mintInstanceScopeClass(): string {
-  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  const token =
-    cryptoObj?.randomUUID?.() ?? `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
-  return `og-gantt-${token.replace(/-/g, '').slice(0, 8)}`;
 }
 
 class ObsidianGanttBasesView extends BasesView {
@@ -278,7 +267,7 @@ class ObsidianGanttBasesView extends BasesView {
    * sheet can never restyle another view's bars/cells that share
    * `.og-bases-gantt`. Stable for the view's lifetime.
    */
-  private readonly treatmentScopeClass = mintInstanceScopeClass();
+  private readonly treatmentScopeClass = nextInstanceScopeClass();
 
   /**
    * Monotonic mount token. `mountGantt()` is async (the controller's `init()`

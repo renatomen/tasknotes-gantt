@@ -20,6 +20,7 @@
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildTreatmentStyle } from './barTreatment';
+  import { nextInstanceScopeClass } from './instanceScope';
   import { buildMarkerOverlay } from './markerOverlay';
   import { chartSpanSnapshot } from '../render/svarContract';
   import { lucideIcon } from './lucideIconAction';
@@ -259,9 +260,7 @@
   // it so the shading sheet targets the same class; a self-minted fallback keeps
   // the treatment sheet scoped when absent. A plain const — stable for the
   // component's lifetime.
-  const treatmentScopeClass =
-    scopeClass ??
-    `og-gantt-${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2)).replace(/-/g, '').slice(0, 8)}`;
+  const treatmentScopeClass = scopeClass ?? nextInstanceScopeClass();
 
   // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
   // passes cells only { api, row, column, onaction }, so a prop can't reach them.
