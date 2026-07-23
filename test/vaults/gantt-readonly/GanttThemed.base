@@ -10,7 +10,7 @@ views:
     tngantt_parentProperty: note.parent
     tngantt_dependencyArrowMode: primary
     tngantt_defaultScale: month
-    tngantt_barColorSource: theme
+    tngantt_barFillSource: theme
     order:
       - file.name
       - note.start

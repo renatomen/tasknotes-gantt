@@ -49,19 +49,18 @@ propagated into the learnings docs before anyone checked the PR that closed it.
 
 ## Medium priority
 
-### ⭐ NEXT FEATURE — Availability as a real scheduling input (end-to-end)
-Scheduled 2026-07-22 as the next calendar feature after the union-preview work (#306, #307). Today
-`availability` blocks are authored and preserved but only drive the **Week tab's hours display** — they
-do **not** feed shading, conflicts, or task blocking anywhere (main Gantt render, single-calendar
-Year/Strip previews, and the set union all ignore them). Doing this properly is one coherent effort that
-resolves three parked items together:
-- **[[P2i]]** — availability-only members show as working-every-day in the set union preview.
-- **P2g** — the form can't yet *edit* availability blocks (round-trip via markdown only).
-- **P2b** — runtime-invalid RRULEs are silently inert (the same fail-visible wiring touches the pattern
-  evaluation path availability would join).
-Approach: make availability a first-class blocking source in the shared `calendarConflicts`/`calendarShading`
-path (so previews and the real chart agree), then add the nested block editor to the form. Start with a
-`ce-brainstorm`/`ce-plan` pass — it's a feature, not a patch.
+### ⭐ NEXT FEATURE — Availability: authoring (P2g) + hour granularity
+The **day-level half shipped 2026-07-22 (#308)**: availability blocks now drive shading, conflicts, and the
+real Gantt chart at day granularity via the shared `src/controller/calendar/workingDays.ts` seam ([[P2i]]
+resolved). What remains, in order of user value:
+- **P2g** — the calendar editor form still can't *edit* availability blocks (authored via raw YAML /
+  markdown round-trip only). Now that availability actually does something, the nested block editor is the
+  natural next user-facing step. Start it with a `ce-brainstorm`/`ce-plan` pass.
+- **Hour granularity** — block `hours` are still ignored (sub-day rendering, hourly conflicts, RFC 9253
+  working-time lag). Deferred until the Gantt renders hourly — see
+  [[calendar-bundled-keep-extractable-day-granularity]].
+- **P2b** — runtime-invalid block/pattern RRULEs are silently inert; a bad block contributes nothing rather
+  than flagging (shared fail-visible wiring).
 
 ### P2b — Calendar: runtime-invalid RRULEs are silently inert (fail-visible gap)
 Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (KTD11). Found during the

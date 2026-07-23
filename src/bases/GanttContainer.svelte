@@ -20,6 +20,7 @@
   import type { GanttData } from './types/gantt-view-data';
   import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildTreatmentStyle } from './barTreatment';
+  import { nextInstanceScopeClass } from './instanceScope';
   import { buildMarkerOverlay } from './markerOverlay';
   import { chartSpanSnapshot } from '../render/svarContract';
   import { lucideIcon } from './lucideIconAction';
@@ -149,6 +150,15 @@
     app: import('obsidian').App;
     config?: import('obsidian').BasesViewConfig;
     /**
+     * The instance's unique per-view scope class (e.g. `og-gantt-abc12345`),
+     * minted by the host (register.ts) so BOTH injected stylesheets — the bar
+     * treatment built here and the calendar shading built by the host — anchor
+     * under the same class and cannot leak onto another instance's bars/cells
+     * that share `.og-bases-gantt`. Absent → a self-minted fallback still scopes
+     * the treatment sheet.
+     */
+    scopeClass?: string;
+    /**
      * Persist a field patch for a render instance through the controller (U8).
      * The view calls this on a drag/resize commit (dates-only patch). Absent in
      * read-only contexts / older callers — drag persistence is then inert.
@@ -242,6 +252,7 @@
     data,
     app,
     config,
+    scopeClass,
     onMutate,
     onMutateProperty,
     onAddDependency,
@@ -257,6 +268,15 @@
     onOpenCalendarPicker,
     onReassertGridWidthReady,
   }: Props = $props();
+
+  // Unique per-instance scope class: BOTH injected stylesheets (the bar-treatment
+  // sheet built here and the calendar-shading sheet the host builds) anchor every
+  // rule under `.<treatmentScopeClass>`, so one instance's rules never restyle
+  // another instance's bars/cells that share `.og-bases-gantt`. The host supplies
+  // it so the shading sheet targets the same class; a self-minted fallback keeps
+  // the treatment sheet scoped when absent. A plain const — stable for the
+  // component's lifetime.
+  const treatmentScopeClass = scopeClass ?? nextInstanceScopeClass();
 
   // Hand `app` to SVAR-mounted grid cells (PropertyCell) via context — SVAR
   // passes cells only { api, row, column, onaction }, so a prop can't reach them.
@@ -347,8 +367,8 @@
   // These feed the generated treatment stylesheet; the icon source flows through
   // toInputs → buildSvarTasks (per-task), so it needs no standalone derived here.
   const priorityColors = $derived($data.priorityColors ?? []);
-  const barColorMode = $derived($data.barColorMode ?? 'fill');
-  const barColorSource = $derived($data.barColorSource ?? 'default');
+  const barFillSource = $derived($data.barFillSource ?? 'default');
+  const barStripSource = $derived($data.barStripSource ?? 'none');
   // U5/R7: TaskNotes progress mode is read-only — hide the bar's progress drag
   // handle (scoped CSS below). Date drag/resize is unaffected.
   const progressReadonly = $derived($data.progressReadonly ?? false);
@@ -511,16 +531,17 @@
   // still reverts the optimistic move within this window.
   const MUTATION_TIMEOUT_MS = 10000;
 
-  // Generated stylesheet applying the per-view color treatment (fill/strip by
-  // status/priority, or theme CSS-variable rules) scoped under .og-bases-gantt.
-  // Injected via a managed style element (see the $effect below) — a literal
-  // style tag in markup would be compiled away as component CSS and cannot carry
-  // this dynamic content. Reactive on mode/source/palettes/instances so the
-  // options re-color live without a remount.
+  // Generated stylesheet applying the per-view treatment: the Fill channel paints
+  // the bar body and the Strip channel the left accent, independently (or the
+  // theme/default role rules), scoped under .og-bases-gantt. Injected via a managed
+  // style element (see the $effect below) — a literal style tag in markup would be
+  // compiled away as component CSS and cannot carry this dynamic content. Reactive
+  // on the two sources/palettes/instances so the options re-color live without a remount.
   const treatmentStyleCss = $derived(
     buildTreatmentStyle({
-      mode: barColorMode,
-      source: barColorSource,
+      scope: `.${treatmentScopeClass}`,
+      fillSource: barFillSource,
+      stripSource: barStripSource,
       palettes: {
         status: statusColors,
         priority: priorityColors,
@@ -670,7 +691,8 @@
       links: d.links,
       statusColors: d.statusColors ?? [],
       priorityColors: d.priorityColors ?? [],
-      barColorSource: d.barColorSource ?? 'default',
+      barFillSource: d.barFillSource ?? 'default',
+      barStripSource: d.barStripSource ?? 'none',
       calendarPalette: d.calendarPalette ?? [],
       calendarBySource: d.calendarBySource,
       barIconSource: d.barIcon ?? 'none',
@@ -2729,7 +2751,7 @@
 -->
 
 <div
-  class="og-bases-gantt"
+  class="og-bases-gantt {treatmentScopeClass}"
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
   class:og-weekends-off={!highlightWeekends}

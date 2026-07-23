@@ -4,11 +4,11 @@ filters:
     - 'note.start || note.due'
 views:
   - type: obsidianGantt
-    name: "Gantt Calendar Colour"
+    name: "Multi Scope Strip"
     tngantt_startDateProperty: note.start
     tngantt_endDateProperty: note.due
-    tngantt_calendarProperty: note.calendar
-    tngantt_barFillSource: calendar
+    tngantt_barFillSource: none
+    tngantt_barStripSource: default
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     order:

@@ -64,10 +64,11 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     links: over.links ?? [],
     statusColors: over.statusColors ?? [],
     priorityColors: over.priorityColors,
-    // Default to the status source so the pre-existing status-class assertions
+    // Default fill to the status source so the pre-existing status-class assertions
     // (which pass statusColors without a source) keep their meaning; the new
-    // per-source tests below override this explicitly.
-    barColorSource: over.barColorSource ?? 'status',
+    // per-channel tests below override these explicitly.
+    barFillSource: over.barFillSource ?? 'status',
+    barStripSource: over.barStripSource ?? 'none',
     barIconSource: over.barIconSource,
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: over.arrowMode ?? 'primary',
@@ -153,18 +154,47 @@ describe('buildSvarTasks', () => {
     const [t] = buildSvarTasks(
       inputs({
         instances: [inst({ id: 'a', priority: 'high' })],
-        barColorSource: 'priority',
+        barFillSource: 'priority',
         priorityColors,
       }),
     );
     expect(t.type).toBe(prioritySlug('high'));
   });
 
+  it('carries BOTH the fill and strip classes for a two-channel view (fill=status, strip=priority)', () => {
+    const statusColors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const priorityColors: PriorityColor[] = [{ value: 'high', color: '#f00' }];
+    const [t] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', status: 'wip', priority: 'high' })],
+        barFillSource: 'status',
+        barStripSource: 'priority',
+        statusColors,
+        priorityColors,
+      }),
+    );
+    // Fill class first, then strip class — the resolveTreatmentClass order.
+    expect(t.type).toBe(`${statusSlug('wip')} ${prioritySlug('high')}`);
+  });
+
+  it('carries a single class for a redundant same-source two-channel view (fill=status, strip=status)', () => {
+    const statusColors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
+    const [t] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', status: 'wip' })],
+        barFillSource: 'status',
+        barStripSource: 'status',
+        statusColors,
+      }),
+    );
+    expect(t.type).toBe(statusSlug('wip'));
+  });
+
   it('applies og-parent to a parent (not a child) for source=theme', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [inst({ id: 'p' }), inst({ id: 'c', parent: 'p' })],
-        barColorSource: 'theme',
+        barFillSource: 'theme',
       }),
     );
     expect(tasks.find((t) => t.id === 'p')!.type).toContain(PARENT_ROLE_CLASS);
@@ -177,7 +207,7 @@ describe('buildSvarTasks', () => {
       inputs({
         instances: [inst({ id: 'p', status: 'wip' }), inst({ id: 'c', parent: 'p' })],
         statusColors: colors,
-        barColorSource: 'default',
+        barFillSource: 'default',
       }),
     );
     // Role coloring keys off hierarchy, not the status palette.
@@ -323,6 +353,18 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`);
   });
 
+  it('registers the ordered two-class pairs a two-channel bar can compose (fill class + strip class)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    // A fill=status + strip=priority bar composes `<status> <priority>`; the whole
+    // string must be a registered id or SVAR drops it back to the plain `task` type.
+    expect(ids).toContain(`${statusSlug('wip')} ${prioritySlug('high')}`);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${statusSlug('wip')} ${prioritySlug('high')}`);
+    // Both orderings exist (either class can be fill or strip)...
+    expect(ids).toContain(`${prioritySlug('high')} ${statusSlug('wip')}`);
+    // ...but never a class paired with itself (a redundant combo dedupes to one class).
+    expect(ids).not.toContain(`${statusSlug('wip')} ${statusSlug('wip')}`);
+  });
+
   it('covers every composed form a priority + cue bar can produce (whole-string contract)', () => {
     // A date-flagged, priority-colored, replicated, context bar — worst case.
     const tasks = buildSvarTasks(
@@ -331,7 +373,7 @@ describe('buildTreatmentTaskTypes', () => {
           inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
           inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
         ],
-        barColorSource: 'priority',
+        barFillSource: 'priority',
         priorityColors: palettes.priority,
       }),
     );
