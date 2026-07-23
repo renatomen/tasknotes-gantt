@@ -1,24 +1,24 @@
 import {
-  calendarSeamNeeded,
+  needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
 } from '../../src/bases/estimateMeaningResolve';
 
-describe('calendarSeamNeeded', () => {
+describe('needsCalendarSeam', () => {
   it('engages the seam when split rendering is on (even at calendar-days, no override)', () => {
-    expect(calendarSeamNeeded('split', 'calendar-days', false)).toBe(true);
+    expect(needsCalendarSeam('split', 'calendar-days', false)).toBe(true);
   });
 
   it('engages the seam when the view default is working-days', () => {
-    expect(calendarSeamNeeded('shaded', 'working-days', false)).toBe(true);
+    expect(needsCalendarSeam('shaded', 'working-days', false)).toBe(true);
   });
 
   it('engages the seam when an override property is mapped', () => {
-    expect(calendarSeamNeeded('shaded', 'calendar-days', true)).toBe(true);
+    expect(needsCalendarSeam('shaded', 'calendar-days', true)).toBe(true);
   });
 
   it('leaves the seam off only when no axis reads the calendar', () => {
-    expect(calendarSeamNeeded('shaded', 'calendar-days', false)).toBe(false);
+    expect(needsCalendarSeam('shaded', 'calendar-days', false)).toBe(false);
   });
 });
 

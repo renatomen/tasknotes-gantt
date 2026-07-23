@@ -658,7 +658,7 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   // stable by construction, which is exactly what R1 demands.
   const dur1: DatePolicyConfig = { defaultDuration: 1 };
 
-  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE2)', async () => {
+  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE1)', async () => {
     let passes = 0;
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
@@ -805,6 +805,35 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(inst?.dateStatus).toBe('inferred-end');
     expect(inst?.end?.getDate()).toBe(11);
     // ...but shaded rendering attaches no ghost runs (background shading only).
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('leaves a derived edge FLAT under calendar-days even with blocking present (the meaning gate)', async () => {
+    // Same inferred-end task and blocking as the working-days case above, but
+    // calendar-days interpretation must NOT re-project: the derived end stays at
+    // its flat calendar-day placement (08-09), never stretched to 08-11. This is
+    // the one combination `applyWorkingTimeStretch`'s own dateStatus guard cannot
+    // mask — an authored span would return null regardless, so only an inferred
+    // edge proves the `meaning === 'working-days'` gate actually gates.
+    const calendarDaysConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(calendarDaysConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(9);
     expect(inst?.ghostRuns).toBeUndefined();
   });
 

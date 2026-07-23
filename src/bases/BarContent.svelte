@@ -19,6 +19,7 @@
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
+  import type { EstimateMeaning } from './viewOptions';
   import { scaleSnapshot } from '../render/svarContract';
   import {
     canTileSubSpans,
@@ -39,7 +40,7 @@
       custom?: {
         barIcon?: IconSpec | null;
         ghostRuns?: readonly GhostRunSpan[];
-        interpretationOverridden?: 'working-days' | 'calendar-days';
+        interpretationOverridden?: EstimateMeaning;
       };
     };
     api?: unknown;
@@ -49,16 +50,20 @@
 
   const spec = $derived(data?.custom?.barIcon ?? null);
 
-  // The per-task override tick (R11): present only when this task's effective
-  // Estimate meaning differs from the view default. The tooltip names both the
-  // effective interpretation and the default it overrides — direction lives in
-  // the tooltip, never a second on-bar glyph.
-  const overriddenMeaning = $derived(data?.custom?.interpretationOverridden ?? null);
-  const overrideTooltip = $derived(
-    overriddenMeaning === 'working-days'
-      ? "Estimate meaning: working days — overrides the view's calendar-days default"
-      : "Estimate meaning: calendar days — overrides the view's working-days default",
-  );
+  // The per-task override tick (R11): a tooltip only when this task's effective
+  // Estimate meaning differs from the view default, else null (no tick). It names
+  // both the effective interpretation and the default it overrides — direction
+  // lives in the tooltip, never a second on-bar glyph.
+  const overrideTooltip = $derived.by((): string | null => {
+    switch (data?.custom?.interpretationOverridden) {
+      case 'working-days':
+        return "Estimate meaning: working days — overrides the view's calendar-days default";
+      case 'calendar-days':
+        return "Estimate meaning: calendar days — overrides the view's working-days default";
+      default:
+        return null;
+    }
+  });
 
   const ghostPieces = $derived.by(() => {
     const runs = data?.custom?.ghostRuns;
@@ -102,15 +107,11 @@
       if (!tooltip) return undefined;
       const bar = node.closest('.wx-bar');
       if (!bar) return undefined;
-      bar.classList.add('og-interpretation-overridden');
       const tick = document.createElement('span');
       tick.className = 'og-override-tick';
       tick.title = tooltip;
       bar.appendChild(tick);
-      return () => {
-        bar.classList.remove('og-interpretation-overridden');
-        tick.remove();
-      };
+      return () => tick.remove();
     };
   }
 </script>
@@ -119,7 +120,7 @@
   <div
     class="wx-content"
     class:og-ghost-label={ghostPieces}
-    {@attach markBarOverridden(overriddenMeaning ? overrideTooltip : null)}
+    {@attach markBarOverridden(overrideTooltip)}
   >
     {#if spec}
       <span class="og-bar-chip">

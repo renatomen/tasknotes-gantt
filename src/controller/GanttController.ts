@@ -89,6 +89,8 @@ import {
   type RenderInstance,
   type RenderLink,
   type SourceLink,
+  type EstimateMeaning,
+  type NonWorkingRendering,
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
 import {
@@ -128,21 +130,21 @@ export interface DatePolicyConfig {
    * `split` attaches ghost runs over the final span of any dated task with a
    * calendar; `shaded`/absent attaches none (background shading renders as today).
    */
-  nonWorkingRendering?: 'shaded' | 'split';
+  nonWorkingRendering?: NonWorkingRendering;
   /**
    * A task's effective Estimate meaning (the *Estimate meaning* axis) — the view
-   * default combined with the per-task override, resolved register-side (where
-   * frontmatter is readable). `working-days` re-projects a derived edge over
-   * working days; `calendar-days` leaves it flat. Absent → `calendar-days` for
-   * all tasks (no re-projection).
+   * default combined with the per-task override, resolved register-side alongside
+   * the availability seam. `working-days` re-projects a derived edge over working
+   * days; `calendar-days` leaves it flat. Absent → `calendar-days` for all tasks
+   * (no re-projection).
    */
-  estimateMeaningForTask?: (taskPath: string) => 'working-days' | 'calendar-days';
+  estimateMeaningForTask?: (taskPath: string) => EstimateMeaning;
   /**
    * The per-view default Estimate meaning. Paired with {@link estimateMeaningForTask}
    * to detect a per-task override: a task whose effective meaning differs from
    * this default carries the on-bar override tick (R11). Absent → no tick.
    */
-  viewEstimateMeaning?: 'working-days' | 'calendar-days';
+  viewEstimateMeaning?: EstimateMeaning;
 }
 
 /** A task's blocking query, materialized over a bounded window. */
@@ -1682,11 +1684,10 @@ export class GanttController {
     policy: ReturnType<typeof applyDatePolicy>,
     duration: number,
     blocking: TaskBlocking,
-    axes: { meaning: 'working-days' | 'calendar-days'; rendering: 'shaded' | 'split' },
+    axes: { meaning: EstimateMeaning; rendering: NonWorkingRendering },
   ): { start: Date; end: Date; ghostRuns?: GhostRun[]; stretchFlagged?: boolean } {
     let { start, end } = policy;
     let stretchFlagged: boolean | undefined;
-    let flagged = false;
     if (axes.meaning === 'working-days') {
       const stretched = applyWorkingTimeStretch({
         start,
@@ -1699,12 +1700,11 @@ export class GanttController {
       if (stretched) {
         start = stretched.start;
         end = stretched.end;
-        flagged = stretched.flagged;
         if (stretched.flagged) stretchFlagged = true;
       }
     }
     let ghostRuns: GhostRun[] | undefined;
-    if (axes.rendering === 'split' && !flagged && !isSpanFullyBlocked(start, end, blocking.isBlocked)) {
+    if (axes.rendering === 'split' && !stretchFlagged && !isSpanFullyBlocked(start, end, blocking.isBlocked)) {
       const runs = computeGhostRuns(start, end, blocking.isBlocked);
       if (runs.length > 0) ghostRuns = runs;
     }

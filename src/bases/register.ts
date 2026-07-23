@@ -82,7 +82,7 @@ import {
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
 import {
-  calendarSeamNeeded,
+  needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
 } from './estimateMeaningResolve';
@@ -604,7 +604,7 @@ class ObsidianGanttBasesView extends BasesView {
     const meaning = readEstimateMeaning(get);
     const rendering = readNonWorkingRendering(get);
     const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
-    if (!calendarSeamNeeded(rendering, meaning, overrideMapped)) return base;
+    if (!needsCalendarSeam(rendering, meaning, overrideMapped)) return base;
     return {
       ...base,
       nonWorkingRendering: rendering,
@@ -619,18 +619,20 @@ class ObsidianGanttBasesView extends BasesView {
   /**
    * The register-side wiring for {@link estimateMeaningForTask}: resolves the
    * mapped override property to a frontmatter key and supplies the per-task value
-   * read (the controller has no vault access), mirroring {@link buildTaskBlocking}.
+   * read, threaded through the date-policy config exactly like
+   * {@link buildTaskBlocking}'s per-task calendar read.
    */
   private buildEstimateMeaningForTask(
     viewDefault: EstimateMeaning,
   ): (taskPath: string) => EstimateMeaning {
     const property = this.getEffectiveMappings().estimateMeaningProperty ?? '';
-    const frontmatterKey = frontmatterSignatureKeys([property])[0] ?? null;
+    const frontmatterKey = frontmatterSignatureKeys([property])[0];
+    if (!frontmatterKey) return estimateMeaningForTask(viewDefault, null, () => undefined);
     const app = this.app;
     return estimateMeaningForTask(viewDefault, frontmatterKey, (taskPath) => {
       const file = app.vault.getAbstractFileByPath(taskPath);
       if (!(file instanceof TFile)) return undefined;
-      return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey as string];
+      return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
     });
   }
 

@@ -21,6 +21,14 @@ import type { DateStatus } from './datePolicy';
 import { isoDurationToDays } from './dateGap';
 
 /**
+ * The two calendar axes as controller-domain vocabulary. Declared here (not
+ * imported from the `bases` view layer) to keep the controller decoupled, and
+ * named once so the unions aren't hand-copied across the config and instance types.
+ */
+export type EstimateMeaning = 'working-days' | 'calendar-days';
+export type NonWorkingRendering = 'shaded' | 'split';
+
+/**
  * A source task whose display dates have already been resolved by the date
  * policy (start/end non-null, `dateStatus` set). The controller maps raw
  * `SourceTask`s through {@link import('./datePolicy').applyDatePolicy} before
@@ -29,8 +37,9 @@ import { isoDurationToDays } from './dateGap';
 export type ExpandableTask = SourceTask & {
   dateStatus?: DateStatus;
   /**
-   * Blocked stretches inside a working-time-stretched span (whole local days),
-   * carried to the bar template's 15%-ghost rendering. Absent = solid bar.
+   * Blocked-day runs inside the bar's final span (whole local days), for split
+   * rendering over any dated span. Carried to the bar template's 15%-ghost
+   * rendering. Absent = solid bar.
    */
   ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
@@ -40,7 +49,7 @@ export type ExpandableTask = SourceTask & {
    * (differs from it); undefined when the task follows the default. Drives the
    * on-bar override tick and its tooltip (R11).
    */
-  interpretationOverridden?: 'working-days' | 'calendar-days';
+  interpretationOverridden?: EstimateMeaning;
   /**
    * When true, the expander emits an extra **root** instance in addition to the
    * per-parent nested instances — a matched, also-nested task under hide-off, so
@@ -123,12 +132,12 @@ export interface RenderInstance {
    * real nested copies and for genuine roots (tasks with no visible parent).
    */
   isTopLevelPlacement: boolean;
-  /** Blocked stretches inside a working-time-stretched span (ghost rendering). */
+  /** Blocked-day runs inside the bar's final span, for split rendering (ghost rendering). */
   ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
   stretchFlagged?: boolean;
   /** Effective Estimate meaning when it overrides the view default; drives the tick (R11). */
-  interpretationOverridden?: 'working-days' | 'calendar-days';
+  interpretationOverridden?: EstimateMeaning;
 }
 
 /** A source-level dependency link between two note paths. */

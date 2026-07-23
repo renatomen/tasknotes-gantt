@@ -34,6 +34,7 @@ import type { TypedValue } from './propertyValues';
 import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
+import type { EstimateMeaning } from './viewOptions';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -198,10 +199,10 @@ export interface SvarTask {
      */
     cellRenders?: Record<string, CellRender>;
     /**
-     * Blocked stretches inside a working-time-stretched span, read by the
-     * `BarContent` ghost branch. Absent = solid continuous bar. Folded into
-     * {@link taskStateKey} so a moved holiday re-issues the task even when the
-     * span itself is unchanged.
+     * Blocked-day runs inside a bar's final span (split rendering, any dated
+     * span — not only a re-projected one), read by the `BarContent` ghost branch.
+     * Absent = solid continuous bar. Folded into {@link taskStateKey} so a moved
+     * holiday re-issues the task even when the span itself is unchanged.
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
@@ -210,7 +211,7 @@ export interface SvarTask {
      * tooltip. Absent = the task follows the view default (no tick). Folded into
      * {@link taskStateKey} so a change re-issues the task.
      */
-    interpretationOverridden?: 'working-days' | 'calendar-days';
+    interpretationOverridden?: EstimateMeaning;
     /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.

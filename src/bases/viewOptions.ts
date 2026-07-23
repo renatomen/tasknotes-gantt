@@ -265,7 +265,6 @@ function timelineOptions(): BasesOptions[] {
     // Estimate meaning: does a time-estimate count working days (a derived
     // endpoint skips the task's non-working days) or calendar days (flat)? Affects
     // only derived edges; per-view default, overridable per task (Fields group).
-    // Read in getEstimateMeaning; consumed by the resolve seam.
     {
       type: 'dropdown',
       displayName: 'Estimate meaning',
@@ -277,8 +276,7 @@ function timelineOptions(): BasesOptions[] {
       },
     },
     // Non-working-day rendering: shade blocked days in the background, or draw
-    // them as split segments inside any dated bar. Per-view; read in
-    // getNonWorkingRendering; consumed by the resolve seam.
+    // them as split segments inside any dated bar. Per-view.
     {
       type: 'dropdown',
       displayName: 'Non-working-day rendering',

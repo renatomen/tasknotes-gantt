@@ -4,7 +4,11 @@
  * only the thin app-wiring (reading frontmatter, the per-pass blocking lookup)
  * and delegates every decision here.
  */
-import { resolveEstimateMeaning, type EstimateMeaning } from './viewOptions';
+import {
+  resolveEstimateMeaning,
+  type EstimateMeaning,
+  type NonWorkingRendering,
+} from './viewOptions';
 
 /**
  * Whether the availability seam must engage for a view. The seam is only needed
@@ -13,8 +17,8 @@ import { resolveEstimateMeaning, type EstimateMeaning } from './viewOptions';
  * mapped per-task override (which could select `working-days` on some task).
  * Otherwise today's flat, calendar-blind behaviour holds.
  */
-export function calendarSeamNeeded(
-  rendering: 'shaded' | 'split',
+export function needsCalendarSeam(
+  rendering: NonWorkingRendering,
   viewMeaning: EstimateMeaning,
   overrideMapped: boolean,
 ): boolean {
