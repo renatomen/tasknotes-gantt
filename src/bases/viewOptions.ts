@@ -218,6 +218,22 @@ function timeEstimatePropertyOption(): BasesOptions {
 }
 
 /**
+ * The per-task "Estimate meaning" override property picker. Sits in the Fields
+ * group beside the other mappings. Points at a task property whose value
+ * (`working-days` / `calendar-days`) overrides the view's Estimate meaning for
+ * that task; empty = the task follows the view default.
+ */
+function estimateMeaningPropertyOption(): BasesOptions {
+  return {
+    type: 'property' as const,
+    displayName: 'Estimate meaning override',
+    key: FIELD_MAPPING_KEYS.estimateMeaning,
+    default: '',
+    placeholder: 'Per-task working-days / calendar-days. Empty = follow the view',
+  };
+}
+
+/**
  * Timeline-section controls: scale, task duration, dependency arrows, parent
  * date cascade, and the two task-visibility toggles (folded in from the former
  * standalone "Task visibility" group).
@@ -461,6 +477,7 @@ export function ganttViewOptions(
   // property is always shown; the "Time Estimate Update" write mode is
   // companion-only (a write never fires standalone, so the control would be inert).
   fieldsItems.push(timeEstimatePropertyOption());
+  fieldsItems.push(estimateMeaningPropertyOption());
   if (companionAvailable) {
     fieldsItems.push(timeEstimateModeOption());
   }
@@ -537,6 +554,18 @@ export function readEstimateMeaning(get: (key: string) => unknown): EstimateMean
  */
 export function readNonWorkingRendering(get: (key: string) => unknown): NonWorkingRendering {
   return get('tngantt_nonWorkingRendering') === 'split' ? 'split' : 'shaded';
+}
+
+/**
+ * Resolve a task's effective Estimate meaning: a valid per-task override value
+ * (`working-days` / `calendar-days`) wins; anything else falls back to the view
+ * default. Pure; the register-side per-task read supplies `taskValue`.
+ */
+export function resolveEstimateMeaning(
+  viewDefault: EstimateMeaning,
+  taskValue: unknown,
+): EstimateMeaning {
+  return taskValue === 'working-days' || taskValue === 'calendar-days' ? taskValue : viewDefault;
 }
 
 /**

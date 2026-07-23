@@ -17,6 +17,7 @@ import {
   readCalendarMode,
   readEstimateMeaning,
   readNonWorkingRendering,
+  resolveEstimateMeaning,
   readHighlightWeekends,
   readBarColorMode,
   readBarColorSource,
@@ -254,6 +255,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.calendar,
       // Time Estimate property lives in the Fields group (before the Progress group).
       FIELD_MAPPING_KEYS.timeEstimate,
+      FIELD_MAPPING_KEYS.estimateMeaning,
       FIELD_MAPPING_KEYS.progress,
     ]);
   });
@@ -266,9 +268,9 @@ describe("ganttViewOptions", () => {
   });
 
   it("has the expected total option count", () => {
-    // Five groups; flattened leaves = 9 Fields + 2 Progress + 3 Relationships
-    // + 9 Timeline + 8 Appearance = 31 (9 property + 11 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(31);
+    // Five groups; flattened leaves = 10 Fields + 2 Progress + 3 Relationships
+    // + 9 Timeline + 8 Appearance = 32 (10 property + 11 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(32);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -299,6 +301,7 @@ describe("ganttViewOptions", () => {
       FIELD_MAPPING_KEYS.priority,
       FIELD_MAPPING_KEYS.calendar,
       FIELD_MAPPING_KEYS.timeEstimate,
+      FIELD_MAPPING_KEYS.estimateMeaning,
       "tngantt_timeEstimateMode",
     ]);
     // R3: Progress mode immediately follows Progress Property.
@@ -436,6 +439,20 @@ describe("readNonWorkingRendering (U1)", () => {
     expect(readNonWorkingRendering((k) => ({ tngantt_nonWorkingRendering: "shaded" })[k])).toBe(
       "shaded",
     );
+  });
+});
+
+describe("resolveEstimateMeaning (U2 per-task override)", () => {
+  it("a valid per-task value overrides the view default", () => {
+    expect(resolveEstimateMeaning("calendar-days", "working-days")).toBe("working-days");
+    expect(resolveEstimateMeaning("working-days", "calendar-days")).toBe("calendar-days");
+  });
+
+  it("falls back to the view default when the per-task value is unset or junk", () => {
+    expect(resolveEstimateMeaning("working-days", undefined)).toBe("working-days");
+    expect(resolveEstimateMeaning("calendar-days", "")).toBe("calendar-days");
+    expect(resolveEstimateMeaning("working-days", "nonsense")).toBe("working-days");
+    expect(resolveEstimateMeaning("calendar-days", 42)).toBe("calendar-days");
   });
 });
 

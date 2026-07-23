@@ -70,6 +70,13 @@ export interface FieldMappings {
    * default. Authored on the task note itself; never a hardcoded name.
    */
   calendarProperty?: string;
+  /**
+   * Property ID for the task's per-task Estimate-meaning override — a value of
+   * `working-days` or `calendar-days` on the task note. Empty string / unset =
+   * the task follows the view's Estimate meaning. Authored on the task note;
+   * never a hardcoded name.
+   */
+  estimateMeaningProperty?: string;
 }
 
 /**

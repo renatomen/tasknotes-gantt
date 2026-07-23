@@ -26,6 +26,7 @@ describe("readFieldMappings", () => {
       priorityProperty: "",
       timeEstimateProperty: "",
       calendarProperty: "",
+      estimateMeaningProperty: "",
     });
   });
 
@@ -64,7 +65,17 @@ describe("readFieldMappings", () => {
       priorityProperty: "note.priority",
       timeEstimateProperty: "",
       calendarProperty: "",
+      estimateMeaningProperty: "",
     });
+  });
+
+  it("reads the per-task Estimate-meaning override property via its tngantt_ key (U2)", () => {
+    const mappings = readFieldMappings(
+      getter({ [FIELD_MAPPING_KEYS.estimateMeaning]: "note.estMeaning" }),
+    );
+    expect(mappings.estimateMeaningProperty).toBe("note.estMeaning");
+    // Unset stays empty (task follows the view default).
+    expect(readFieldMappings(getter({})).estimateMeaningProperty).toBe("");
   });
 
   it("exposes canonical keys that are all tngantt_-prefixed", () => {
