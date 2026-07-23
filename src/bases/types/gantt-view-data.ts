@@ -19,6 +19,7 @@ import type {
 import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarColorMode, BarColorSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
+import type { InferredDragMode } from '../inferredDragGate';
 import type { CellEditorDescriptor } from '../cellEditability';
 import type { TypedValue } from '../propertyValues';
 import type { CellRender } from '../cellRender';
@@ -167,6 +168,12 @@ export interface GanttData {
    * silently), `never`. Defaults to `ask`.
    */
   cascadeMode: CascadeMode;
+  /**
+   * Per-view behavior when a resize moves an inferred (estimate-derived) bar
+   * edge: `ask` (prompt to grow the estimate or write dates), `estimate-only`,
+   * `estimate-and-dates`. Defaults to `ask`.
+   */
+  inferredDragMode: InferredDragMode;
   /** Per-view scale used only to seed SVAR's initial zoom level. */
   defaultScale: DefaultScale;
   /**

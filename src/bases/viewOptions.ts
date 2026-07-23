@@ -296,6 +296,21 @@ function timelineOptions(): BasesOptions[] {
         never: 'Never update parent dates',
       },
     },
+    // Inferred-edge drag behaviour: when a resize moves an edge whose date is
+    // inferred from the time-estimate, whether to grow just the estimate, grow
+    // the estimate and stamp a real date, or ask each time. Read per-view in
+    // getInferredDragMode(); consumed by the GanttContainer drag-persistence gate.
+    {
+      type: 'dropdown',
+      displayName: 'Inferred date drag',
+      key: 'tngantt_inferredDrag',
+      default: 'ask',
+      options: {
+        ask: 'Ask: grow estimate or write dates',
+        'estimate-only': 'Grow the estimate only',
+        'estimate-and-dates': 'Grow the estimate and write dates',
+      },
+    },
     // Missing/partial-date handling (R6, R8, R9, R11). Read per-view in
     // buildDatePolicyConfig(). Boolean → toggle (no 'boolean' control).
     {

@@ -60,6 +60,15 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
+    normalizeInferredDragMode,
+    classifyDraggedEdge,
+    resolveInferredEdge,
+    resolveInferredDragOutcome,
+    buildInferredDragPatch,
+    type InferredDragAction,
+  } from './inferredDragGate';
+  import { InferredDragModal } from './InferredDragModal';
+  import {
     choiceEditorOptions,
     counterpartDate,
     dateRoleColumns,
@@ -201,6 +210,12 @@
      */
     onThemeModeChange?: (mode: ThemeMode) => void;
     /**
+     * Persist a chosen inferred-drag action per-view when the user ticks "Don't
+     * ask again" in the prompt (R6). register.ts closes it over `config.set`.
+     * Absent callers keep an in-session-only choice.
+     */
+    onInferredDragModeChange?: (mode: InferredDragAction) => void;
+    /**
      * Publish (and later retract) this view's "focus on task" entry point so the
      * plugin command (register.ts → main.ts) can open the focus search for the
      * active Gantt leaf. Called with the opener on mount and `null` on teardown.
@@ -237,6 +252,7 @@
     onGridWidthChange,
     themeMode = 'auto',
     onThemeModeChange,
+    onInferredDragModeChange,
     onFocusEntryReady,
     onOpenCalendarPicker,
     onReassertGridWidthReady,
@@ -1945,6 +1961,7 @@
           name: before?.text ?? 'this task',
           beforeStart: before?.start ?? null,
           beforeEnd: before?.end ?? null,
+          beforeDateStatus: before?.dateStatus ?? null,
         };
         setTimeout(() => void persistReschedule(id), 0);
         scheduleSubtreeAndExtend();
@@ -2295,20 +2312,81 @@
       }
     }
 
-    // In a write-enabled Time Estimate mode, persist the new span as the estimate
-    // (minutes) alongside the dates — one commit writes start + end + estimate.
-    // Gated by `readOnly` so a standalone timeline never writes. The estimate is
-    // NOT mirrored onto sibling rows (it isn't a rendered bar property). Under
-    // working-time stretch the estimate counts WORKING days of the resized span
-    // (a stretched bar includes blocked days that carry no work), keeping the
-    // read/write round-trip honest; without an associated calendar the count
-    // falls back to plain calendar days.
-    const patch: TaskPatch = { start: newStart, end: newEnd };
-    if (timeEstimateWriteEnabled && !readOnly) {
-      const workingDays = sourcePath
-        ? $data.countWorkingDays?.(sourcePath, newStart, newEnd)
-        : undefined;
-      patch.estimate = spanDaysToMinutes(workingDays ?? inclusiveDaySpan(newStart, newEnd));
+    // In a write-enabled Time Estimate mode, the new span persists as the estimate
+    // (minutes). Gated by `readOnly` so a standalone timeline never writes. Under
+    // working-time stretch the estimate counts WORKING days of the resized span (a
+    // stretched bar includes blocked days that carry no work), keeping the
+    // read/write round-trip honest; without an associated calendar the count falls
+    // back to plain calendar days.
+    const estimateWritable = timeEstimateWriteEnabled && !readOnly;
+    const estimateMinutes = estimateWritable
+      ? spanDaysToMinutes(
+          (sourcePath ? $data.countWorkingDays?.(sourcePath, newStart, newEnd) : undefined) ??
+            inclusiveDaySpan(newStart, newEnd),
+        )
+      : undefined;
+
+    // Default commit (as today): dates + estimate. The estimate is NOT mirrored
+    // onto sibling rows (it isn't a rendered bar property).
+    let patch: TaskPatch = { start: newStart, end: newEnd };
+    if (estimateMinutes !== undefined) patch.estimate = estimateMinutes;
+
+    // Inferred-edge drag gate (plan U4): when the dragged edge is inferred from
+    // the estimate (a derived end/start), ask — or auto-apply the per-view mode —
+    // whether to grow the estimate only (leave the date computed) or grow the
+    // estimate AND materialise the dragged edge. `activeDrag` carries the pre-drag
+    // provenance, read synchronously before the modal await (processSubtreeAndExtend
+    // clears it on the next tick). Authored edges and whole-bar moves fall through
+    // to the default commit above (R2).
+    const before = activeDrag;
+    if (
+      before?.id === instanceId &&
+      before.beforeStart &&
+      before.beforeEnd &&
+      estimateMinutes !== undefined
+    ) {
+      const inferredEdge = resolveInferredEdge(
+        classifyDraggedEdge(before.beforeStart, before.beforeEnd, newStart, newEnd),
+        before.beforeDateStatus ?? 'complete',
+      );
+      const outcome = resolveInferredDragOutcome({
+        inferredEdge,
+        mode: normalizeInferredDragMode($data.inferredDragMode),
+        estimateWritable: true,
+      });
+      if (inferredEdge && outcome !== 'write-as-today') {
+        let action: InferredDragAction;
+        if (outcome === 'prompt') {
+          const choice = await new InferredDragModal(app).openAndGetChoice();
+          if (!choice) {
+            // R7: cancel reverts the bar (+ mirrored siblings) and writes nothing.
+            for (const [id, original] of originals) {
+              api.exec("update-task", {
+                id,
+                task: { start: original.start, end: original.end },
+                eventSource: OG_ECHO_SOURCE,
+              });
+            }
+            return;
+          }
+          action = choice.action;
+          if (choice.dontAskAgain) onInferredDragModeChange?.(action);
+        } else {
+          action = outcome;
+        }
+        const fields = buildInferredDragPatch({
+          action,
+          inferredEdge,
+          newStart,
+          newEnd,
+          estimateMinutes,
+        });
+        patch = { estimate: fields.estimateMinutes };
+        if (fields.materialise) {
+          if (fields.materialise.edge === 'end') patch.end = fields.materialise.date;
+          else patch.start = fields.materialise.date;
+        }
+      }
     }
 
     try {
@@ -2347,7 +2425,13 @@
   // ── Subtree-move drag + gated ancestor extend (plan U4) ─────────────────────
   // The drag in flight: the dragged task's id, name, and its pre-drag dates
   // (captured synchronously so the subtree-shift delta is exact).
-  let activeDrag: { id: string; name: string; beforeStart: Date | null; beforeEnd: Date | null } | null = null;
+  let activeDrag: {
+    id: string;
+    name: string;
+    beforeStart: Date | null;
+    beforeEnd: Date | null;
+    beforeDateStatus: DateStatus | null;
+  } | null = null;
   let dragScheduled = false;
 
   /** Schedule the deferred subtree-shift + extend pass once per drag. */

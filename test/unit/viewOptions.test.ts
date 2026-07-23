@@ -217,6 +217,23 @@ describe("ganttViewOptions", () => {
     });
   });
 
+  it("exposes the inferred-date drag dropdown, defaulting to ask, with the three modes (U2)", () => {
+    const dropdown = byKey(options, "tngantt_inferredDrag");
+    expect(dropdown.type).toBe("dropdown");
+    expect(dropdown).toMatchObject({
+      type: "dropdown",
+      displayName: "Inferred date drag",
+      key: "tngantt_inferredDrag",
+      default: "ask",
+      // Record<string,string>, not an array (an array renders "[object Object]").
+      options: {
+        ask: "Ask: grow estimate or write dates",
+        "estimate-only": "Grow the estimate only",
+        "estimate-and-dates": "Grow the estimate and write dates",
+      },
+    });
+  });
+
   it("includes the shared field-mapping property options", () => {
     const propertyKeys = flattenLeaves(options)
       .filter((o) => o.type === "property")
@@ -246,8 +263,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 9 Fields + 2 Progress + 3 Relationships
-    // + 8 Timeline + 8 Appearance = 30 (9 property + 10 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(30);
+    // + 9 Timeline + 8 Appearance = 31 (9 property + 11 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(31);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -295,6 +312,7 @@ describe("ganttViewOptions", () => {
       "tngantt_defaultDuration",
       "tngantt_dependencyArrowMode",
       "tngantt_parentDateCascade",
+      "tngantt_inferredDrag",
       "tngantt_showUndatedTasks",
       "tngantt_showPartialDateTasks",
     ]);
