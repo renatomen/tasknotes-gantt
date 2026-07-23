@@ -658,10 +658,12 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   // stable by construction, which is exactly what R1 demands.
   const dur1: DatePolicyConfig = { defaultDuration: 1 };
 
-  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE2)', async () => {
+  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE1)', async () => {
     let passes = 0;
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => {
           passes += 1;
@@ -689,6 +691,9 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('never moves an authored complete span even with blocking present (R12)', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      // Working-days interpretation is ON, so this proves a `complete` status
+      // resists re-projection even when the stretch path is fully engaged.
+      estimateMeaningForTask: () => 'working-days',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 5 }),
       },
@@ -708,6 +713,10 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('falls back to the calendar-day span and flags when the scan hits its ceiling', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      // Split rendering is ON, so this also proves a ceiling-flagged fallback
+      // suppresses ghost runs (a fully-blocked span degrades to one plain bar).
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 3 }),
       },
@@ -722,6 +731,141 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     // The calendar-day placement (start + duration - 1) is untouched.
     expect(inst?.end?.getDate()).toBe(8);
     expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('splits a concrete authored span without re-projecting it (rendering axis alone, R-axes)', async () => {
+    const splitOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days interpretation: NO re-projection. Split rendering still
+      // reveals the blocked days inside the authored span — the two axes are
+      // independent (this combination was unreachable under the old fused knob).
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(splitOnlyConfig, [
+      task({ path: 'concrete.md', start: new Date(2026, 7, 7), end: new Date(2026, 7, 11) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    // Authored end is untouched (no re-projection under calendar-days).
+    expect(inst?.end?.getDate()).toBe(11);
+    // Yet the inner blocked days surface as a ghost run.
+    expect(inst?.ghostRuns).toEqual([{ startDate: '2026-08-08', days: 2 }]);
+    expect(inst?.stretchFlagged).toBeUndefined();
+  });
+
+  it('suppresses ghost runs on a fully-blocked split span so it degrades to a continuous bar (AE8)', async () => {
+    const fullyBlockedConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days (no re-projection) + split, with EVERY day blocked: the
+      // span has no working day to contrast against, so it stays continuous.
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 1 }),
+      },
+    };
+    const controller = makeControllerWith(fullyBlockedConfig, [
+      task({ path: 'weekend.md', start: new Date(2026, 7, 8), end: new Date(2026, 7, 8) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('re-projects under working-days without splitting when rendering is shaded (meaning axis alone)', async () => {
+    const meaningOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(meaningOnlyConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    // The derived end still re-projects past the blocked days...
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(11);
+    // ...but shaded rendering attaches no ghost runs (background shading only).
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('leaves a derived edge FLAT under calendar-days even with blocking present (the meaning gate)', async () => {
+    // Same inferred-end task and blocking as the working-days case above, but
+    // calendar-days interpretation must NOT re-project: the derived end stays at
+    // its flat calendar-day placement (08-09), never stretched to 08-11. This is
+    // the one combination `applyWorkingTimeStretch`'s own dateStatus guard cannot
+    // mask — an authored span would return null regardless, so only an inferred
+    // edge proves the `meaning === 'working-days'` gate actually gates.
+    const calendarDaysConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(calendarDaysConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(9);
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('marks a task whose effective interpretation differs from the view default (R11)', async () => {
+    const overrideConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      viewEstimateMeaning: 'working-days',
+      estimateMeaningForTask: (path) => (path === 'override.md' ? 'calendar-days' : 'working-days'),
+    };
+    const controller = makeControllerWith(overrideConfig, [
+      task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
+      task({ path: 'follows.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const insts = await controller.getInstances();
+
+    const overridden = insts.find((i) => i.sourcePath === 'override.md');
+    const follows = insts.find((i) => i.sourcePath === 'follows.md');
+    // The override carries its EFFECTIVE meaning so the view can name it.
+    expect(overridden?.interpretationOverridden).toBe('calendar-days');
+    // A task that matches the view default is not marked.
+    expect(follows?.interpretationOverridden).toBeUndefined();
+  });
+
+  it('never marks an override when no override resolver is configured', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'plain.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.interpretationOverridden).toBeUndefined();
   });
 
   it('resolves a due-only task to its deadline, not today→due', async () => {

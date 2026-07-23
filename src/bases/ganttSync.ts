@@ -34,6 +34,7 @@ import type { TypedValue } from './propertyValues';
 import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
+import type { EstimateMeaning } from './viewOptions';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -199,12 +200,19 @@ export interface SvarTask {
      */
     cellRenders?: Record<string, CellRender>;
     /**
-     * Blocked stretches inside a working-time-stretched span, read by the
-     * `BarContent` ghost branch. Absent = solid continuous bar. Folded into
-     * {@link taskStateKey} so a moved holiday re-issues the task even when the
-     * span itself is unchanged.
+     * Blocked-day runs inside a bar's final span (split rendering, any dated
+     * span — not only a re-projected one), read by the `BarContent` ghost branch.
+     * Absent = solid continuous bar. Folded into {@link taskStateKey} so a moved
+     * holiday re-issues the task even when the span itself is unchanged.
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    /**
+     * The task's effective Estimate meaning when it overrides the view default
+     * (R11), read by `BarContent` to draw the top-edge override tick and its
+     * tooltip. Absent = the task follows the view default (no tick). Folded into
+     * {@link taskStateKey} so a change re-issues the task.
+     */
+    interpretationOverridden?: EstimateMeaning;
     /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.
@@ -369,6 +377,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -468,6 +477,10 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
+    // Override tick: an interpretation-override change alters only the top-edge
+    // tick and its tooltip within an otherwise-unchanged span — fold it so the
+    // task re-issues instead of the tick going stale (R11).
+    t.custom.interpretationOverridden ?? '',
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
     // values: a raw Date/ISO-string/wrapper serializes non-deterministically and

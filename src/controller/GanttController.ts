@@ -89,9 +89,16 @@ import {
   type RenderInstance,
   type RenderLink,
   type SourceLink,
+  type EstimateMeaning,
+  type NonWorkingRendering,
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
-import { applyWorkingTimeStretch, type GhostRun } from './calendar/stretch';
+import {
+  applyWorkingTimeStretch,
+  computeGhostRuns,
+  isSpanFullyBlocked,
+  type GhostRun,
+} from './calendar/stretch';
 import { minutesToSpanDays } from './durationConversion';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -118,6 +125,26 @@ export interface DatePolicyConfig {
    * Absent = today's calendar-day behaviour.
    */
   workingTimeStretch?: WorkingTimeStretchConfig;
+  /**
+   * Per-view non-working-day rendering (the *Non-working-day rendering* axis).
+   * `split` attaches ghost runs over the final span of any dated task with a
+   * calendar; `shaded`/absent attaches none (background shading renders as today).
+   */
+  nonWorkingRendering?: NonWorkingRendering;
+  /**
+   * A task's effective Estimate meaning (the *Estimate meaning* axis) — the view
+   * default combined with the per-task override, resolved register-side alongside
+   * the availability seam. `working-days` re-projects a derived edge over working
+   * days; `calendar-days` leaves it flat. Absent → `calendar-days` for all tasks
+   * (no re-projection).
+   */
+  estimateMeaningForTask?: (taskPath: string) => EstimateMeaning;
+  /**
+   * The per-view default Estimate meaning. Paired with {@link estimateMeaningForTask}
+   * to detect a per-task override: a task whose effective meaning differs from
+   * this default carries the on-bar override tick (R11). Absent → no tick.
+   */
+  viewEstimateMeaning?: EstimateMeaning;
 }
 
 /** A task's blocking query, materialized over a bounded window. */
@@ -1599,7 +1626,13 @@ export class GanttController {
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration, workingTimeStretch } = this.policyConfigProvider();
+    const {
+      defaultDuration,
+      workingTimeStretch,
+      nonWorkingRendering,
+      estimateMeaningForTask,
+      viewEstimateMeaning,
+    } = this.policyConfigProvider();
     const blockingOf = workingTimeStretch?.blockingForTasks(
       rawTasks.map((task) => ({
         path: task.path,
@@ -1620,29 +1653,62 @@ export class GanttController {
         { start: task.start, end: task.end },
         { defaultDuration: duration, today },
       );
-      let { start, end } = policy;
-      let ghostRuns: GhostRun[] | undefined;
-      let stretchFlagged: boolean | undefined;
+      const meaning = estimateMeaningForTask?.(task.path) ?? 'calendar-days';
       const blocking = blockingOf?.(task.path);
-      if (blocking) {
-        const stretched = applyWorkingTimeStretch({
-          start,
-          end,
-          dateStatus: policy.dateStatus,
-          durationDays: duration,
-          isBlocked: blocking.isBlocked,
-          ceilingDays: 8 * Math.max(1, duration) + blocking.maxBlockedRunDays,
-        });
-        if (stretched) {
-          start = stretched.start;
-          end = stretched.end;
-          if (stretched.ghostRuns.length > 0) ghostRuns = stretched.ghostRuns;
-          if (stretched.flagged) stretchFlagged = true;
-        }
-      }
-      resolved.push({ ...task, start, end, dateStatus: policy.dateStatus, ghostRuns, stretchFlagged });
+      const span = blocking
+        ? this.resolveBlockedSpan(policy, duration, blocking, {
+            meaning,
+            rendering: nonWorkingRendering ?? 'shaded',
+          })
+        : { start: policy.start, end: policy.end };
+      // A task whose effective interpretation differs from the view default is
+      // overridden; carry the effective meaning so the view can name it (R11).
+      const interpretationOverridden =
+        estimateMeaningForTask != null && viewEstimateMeaning != null && meaning !== viewEstimateMeaning
+          ? meaning
+          : undefined;
+      resolved.push({ ...task, ...span, dateStatus: policy.dateStatus, interpretationOverridden });
     }
     return resolved;
+  }
+
+  /**
+   * A blocked task's final span, deciding the two calendar axes independently:
+   * `working-days` interpretation re-projects a derived edge over working days;
+   * `split` rendering attaches ghost runs over the FINAL span of any dated task.
+   * Ghost runs are suppressed both on a ceiling-flagged fallback and on a span
+   * with no working day, so a fully-blocked span degrades to a continuous bar
+   * rather than one solid dimmed block (R7).
+   */
+  private resolveBlockedSpan(
+    policy: ReturnType<typeof applyDatePolicy>,
+    duration: number,
+    blocking: TaskBlocking,
+    axes: { meaning: EstimateMeaning; rendering: NonWorkingRendering },
+  ): { start: Date; end: Date; ghostRuns?: GhostRun[]; stretchFlagged?: boolean } {
+    let { start, end } = policy;
+    let stretchFlagged: boolean | undefined;
+    if (axes.meaning === 'working-days') {
+      const stretched = applyWorkingTimeStretch({
+        start,
+        end,
+        dateStatus: policy.dateStatus,
+        durationDays: duration,
+        isBlocked: blocking.isBlocked,
+        ceilingDays: 8 * Math.max(1, duration) + blocking.maxBlockedRunDays,
+      });
+      if (stretched) {
+        start = stretched.start;
+        end = stretched.end;
+        if (stretched.flagged) stretchFlagged = true;
+      }
+    }
+    let ghostRuns: GhostRun[] | undefined;
+    if (axes.rendering === 'split' && !stretchFlagged && !isSpanFullyBlocked(start, end, blocking.isBlocked)) {
+      const runs = computeGhostRuns(start, end, blocking.isBlocked);
+      if (runs.length > 0) ghostRuns = runs;
+    }
+    return { start, end, ghostRuns, stretchFlagged };
   }
 
   /** Notify all registered listeners of a snapshot change. */

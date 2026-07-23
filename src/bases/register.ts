@@ -73,7 +73,9 @@ import {
   readMinHeight,
   readShowToolbar,
   readHighlightWeekends,
-  readCalendarMode,
+  readEstimateMeaning,
+  readNonWorkingRendering,
+  type EstimateMeaning,
   readDisplayCalendars,
   readBarFillSource,
   readBarStripSource,
@@ -84,6 +86,11 @@ import {
   isTimeEstimateWriteEnabled,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
+import {
+  needsCalendarSeam,
+  estimateMeaningForTask,
+  countWorkingDaysResolver,
+} from './estimateMeaningResolve';
 
 /**
  * Trailing-debounce window (ms) for the Bases `onDataUpdated` storm (#161).
@@ -608,13 +615,60 @@ class ObsidianGanttBasesView extends BasesView {
   /** Build the date-policy + visibility config from the per-view options (U3). */
   private buildDatePolicyConfig(): DatePolicyConfig {
     const base = readDatePolicyConfig((key) => this.config.get(key));
-    if (readCalendarMode((key) => this.config.get(key)) !== 'stretch') return base;
+    const get = (key: string): unknown => this.config.get(key);
+    const meaning = readEstimateMeaning(get);
+    const rendering = readNonWorkingRendering(get);
+    const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
+    if (!needsCalendarSeam(rendering, meaning, overrideMapped)) return base;
     return {
       ...base,
+      nonWorkingRendering: rendering,
+      estimateMeaningForTask: this.buildEstimateMeaningForTask(meaning),
+      viewEstimateMeaning: meaning,
       workingTimeStretch: {
         blockingForTasks: (tasks) => this.buildTaskBlocking(tasks),
       },
     };
+  }
+
+  /**
+   * The register-side wiring for {@link estimateMeaningForTask}: resolves the
+   * mapped override property to a frontmatter key and supplies the per-task value
+   * read, threaded through the date-policy config exactly like
+   * {@link buildTaskBlocking}'s per-task calendar read.
+   */
+  private buildEstimateMeaningForTask(
+    viewDefault: EstimateMeaning,
+  ): (taskPath: string) => EstimateMeaning {
+    const property = this.getEffectiveMappings().estimateMeaningProperty ?? '';
+    const frontmatterKey = frontmatterSignatureKeys([property])[0];
+    if (!frontmatterKey) return estimateMeaningForTask(viewDefault, null, () => undefined);
+    const app = this.app;
+    return estimateMeaningForTask(viewDefault, frontmatterKey, (taskPath) => {
+      const file = app.vault.getAbstractFileByPath(taskPath);
+      if (!(file instanceof TFile)) return undefined;
+      return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
+    });
+  }
+
+  /**
+   * The register-side wiring for {@link countWorkingDaysResolver}: the write path's
+   * resize→estimate working-day counter, backed by the per-pass blocking lookup.
+   */
+  private buildCountWorkingDays():
+    | ((taskPath: string, start: Date, end: Date) => number | null)
+    | undefined {
+    const viewMeaning = readEstimateMeaning((key) => this.config.get(key));
+    const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
+    return countWorkingDaysResolver(
+      viewMeaning,
+      overrideMapped,
+      this.buildEstimateMeaningForTask(viewMeaning),
+      (taskPath, start, end) => {
+        const blocking = this.lastBlockingLookup?.(taskPath);
+        return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
+      },
+    );
   }
 
   /**
@@ -1206,13 +1260,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarMarkers: calendarShading.markers,
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
-      countWorkingDays:
-        readCalendarMode((key) => this.config.get(key)) === 'stretch'
-          ? (taskPath, start, end) => {
-              const blocking = this.lastBlockingLookup?.(taskPath);
-              return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
-            }
-          : undefined,
+      countWorkingDays: this.buildCountWorkingDays(),
     };
   }
 

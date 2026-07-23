@@ -4,14 +4,14 @@ filters:
     - 'note.start || note.due'
 views:
   - type: obsidianGantt
-    name: "Gantt Calendar Stretch Strip"
+    name: "Axes — working-days default + per-task override"
     tngantt_startDateProperty: note.start
     tngantt_endDateProperty: note.due
     tngantt_calendarProperty: note.calendar
     tngantt_timeEstimateProperty: note.estimate
     tngantt_estimateMeaning: working-days
-    tngantt_nonWorkingRendering: split
-    tngantt_barStripSource: default
+    tngantt_nonWorkingRendering: shaded
+    tngantt_estimateMeaningProperty: note.est_meaning
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     order:

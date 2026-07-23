@@ -55,6 +55,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isFetched: over.isFetched ?? false,
     isTopLevelPlacement: over.isTopLevelPlacement ?? false,
     ghostRuns: over.ghostRuns,
+    interpretationOverridden: over.interpretationOverridden,
   };
 }
 
@@ -416,6 +417,25 @@ describe('instance cues (U6)', () => {
     // also-top-level duplicate placement while keeping the real nested copy.
     expect(tasks.find((t) => t.id === 'dup')!.custom.isTopLevelPlacement).toBe(true);
     expect(tasks.find((t) => t.id === 'real')!.custom.isTopLevelPlacement).toBe(false);
+  });
+
+  it('folds the effective override meaning onto the SVAR task custom (R11 — drives the tick)', () => {
+    const [t] = buildSvarTasks(
+      inputs({ instances: [inst({ id: 'a', interpretationOverridden: 'calendar-days' })] }),
+    );
+    expect(t.custom.interpretationOverridden).toBe('calendar-days');
+    // A task following the view default carries nothing (no tick).
+    const [plain] = buildSvarTasks(inputs({ instances: [inst({ id: 'b' })] }));
+    expect(plain.custom.interpretationOverridden).toBeUndefined();
+  });
+
+  it('taskStateKey changes when the override tick appears or its direction flips (re-sync guard)', () => {
+    const keyFor = (interpretationOverridden?: 'working-days' | 'calendar-days') =>
+      taskStateKey(buildSvarTasks(inputs({ instances: [inst({ id: 'a', interpretationOverridden })] }))[0]);
+    // Appearing, disappearing, and flipping direction must each re-issue the task —
+    // otherwise a per-task override toggle leaves the tick stale on an unchanged span.
+    expect(keyFor(undefined)).not.toBe(keyFor('calendar-days'));
+    expect(keyFor('working-days')).not.toBe(keyFor('calendar-days'));
   });
 
   it('does not mark a unique source path replicated', () => {

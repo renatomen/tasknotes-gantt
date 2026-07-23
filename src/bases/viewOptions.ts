@@ -218,6 +218,22 @@ function timeEstimatePropertyOption(): BasesOptions {
 }
 
 /**
+ * The per-task "Estimate meaning" override property picker. Sits in the Fields
+ * group beside the other mappings. Points at a task property whose value
+ * (`working-days` / `calendar-days`) overrides the view's Estimate meaning for
+ * that task; empty = the task follows the view default.
+ */
+function estimateMeaningPropertyOption(): BasesOptions {
+  return {
+    type: 'property' as const,
+    displayName: 'Estimate meaning override',
+    key: FIELD_MAPPING_KEYS.estimateMeaning,
+    default: '',
+    placeholder: 'Per-task working-days / calendar-days. Empty = follow the view',
+  };
+}
+
+/**
  * Timeline-section controls: scale, task duration, dependency arrows, parent
  * date cascade, and the two task-visibility toggles (folded in from the former
  * standalone "Task visibility" group).
@@ -246,19 +262,29 @@ function timelineOptions(): BasesOptions[] {
       key: 'tngantt_highlightWeekends',
       default: true,
     },
-    // The calendar functionality ladder: shading only (default, today's
-    // behaviour made calendar-aware) or stretching duration-derived bars over
-    // the associated calendar's blocked days. Each rung includes the ones
-    // below; the experimental full-scheduling rung arrives only after its own
-    // planning cycle.
+    // Estimate meaning: does a time-estimate count working days (a derived
+    // endpoint skips the task's non-working days) or calendar days (flat)? Affects
+    // only derived edges; per-view default, overridable per task (Fields group).
     {
       type: 'dropdown',
-      displayName: 'Calendar mode',
-      key: 'tngantt_calendarMode',
-      default: 'shade',
+      displayName: 'Estimate meaning',
+      key: 'tngantt_estimateMeaning',
+      default: 'calendar-days',
       options: {
-        shade: 'Shading only',
-        stretch: 'Stretch over non-working time',
+        'working-days': 'Working days (skip non-working)',
+        'calendar-days': 'Calendar days',
+      },
+    },
+    // Non-working-day rendering: shade blocked days in the background, or draw
+    // them as split segments inside any dated bar. Per-view.
+    {
+      type: 'dropdown',
+      displayName: 'Non-working-day rendering',
+      key: 'tngantt_nonWorkingRendering',
+      default: 'shaded',
+      options: {
+        shaded: 'Shaded background',
+        split: 'Split segments',
       },
     },
     // Number → slider (the official Bases options union has no 'number' control;
@@ -471,7 +497,7 @@ export function ganttViewOptions(
   // Time Estimate mapping sits in Fields beside the other property pickers. The
   // property is always shown; the "Time Estimate Update" write mode is
   // companion-only (a write never fires standalone, so the control would be inert).
-  fieldsItems.push(timeEstimatePropertyOption());
+  fieldsItems.push(timeEstimatePropertyOption(), estimateMeaningPropertyOption());
   if (companionAvailable) {
     fieldsItems.push(timeEstimateModeOption());
   }
@@ -516,22 +542,44 @@ export function readHighlightWeekends(get: (key: string) => unknown): boolean {
   return get('tngantt_highlightWeekends') !== false;
 }
 
-/** The shipped calendar-functionality rungs; the experimental scheduling rung is future. */
-export type CalendarMode = 'shade' | 'stretch';
+/** Per-view interpretation of a time-estimate (affects only derived edges). */
+export type EstimateMeaning = 'working-days' | 'calendar-days';
+
+/** Per-view rendering of non-working days on bars. */
+export type NonWorkingRendering = 'shaded' | 'split';
 
 /**
- * Read the per-view calendar mode; any unrecognized/absent value is the
- * default `shade` rung (fail-toward-today's-behaviour). Pure; mirrors
- * {@link readHighlightWeekends}.
+ * Read the per-view Estimate meaning; unrecognized/absent → `calendar-days`
+ * (today's flat behaviour). Pure; mirrors {@link readHighlightWeekends}.
  */
-export function readCalendarMode(get: (key: string) => unknown): CalendarMode {
-  return get('tngantt_calendarMode') === 'stretch' ? 'stretch' : 'shade';
+export function readEstimateMeaning(get: (key: string) => unknown): EstimateMeaning {
+  return get('tngantt_estimateMeaning') === 'working-days' ? 'working-days' : 'calendar-days';
+}
+
+/**
+ * Read the per-view Non-working-day rendering; unrecognized/absent → `shaded`.
+ * Pure; mirrors {@link readEstimateMeaning}.
+ */
+export function readNonWorkingRendering(get: (key: string) => unknown): NonWorkingRendering {
+  return get('tngantt_nonWorkingRendering') === 'split' ? 'split' : 'shaded';
+}
+
+/**
+ * Resolve a task's effective Estimate meaning: a valid per-task override value
+ * (`working-days` / `calendar-days`) wins; anything else falls back to the view
+ * default. Pure; the register-side per-task read supplies `taskValue`.
+ */
+export function resolveEstimateMeaning(
+  viewDefault: EstimateMeaning,
+  taskValue: unknown,
+): EstimateMeaning {
+  return taskValue === 'working-days' || taskValue === 'calendar-days' ? taskValue : viewDefault;
 }
 
 /**
  * Read the raw per-view calendar display selection. Parsing/validation lives
  * in `calendarSelection.ts` (`readDisplaySelection`); this reader only pins
- * the prefixed key. Pure; mirrors {@link readCalendarMode}.
+ * the prefixed key. Pure; mirrors {@link readHighlightWeekends}.
  */
 export function readDisplayCalendars(get: (key: string) => unknown): unknown {
   return get('tngantt_displayCalendars');
