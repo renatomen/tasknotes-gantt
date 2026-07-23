@@ -99,6 +99,24 @@ export function computeGhostRuns(
   return collectGhostRuns(localIso(start), localIso(end), isBlocked);
 }
 
+/**
+ * Whether every day in the span is blocked. The split axis suppresses ghost runs
+ * here so a fully-blocked span (e.g. a 1-day placeholder landing on a weekend)
+ * degrades to a continuous bar rather than one solid dimmed block (R7) — the
+ * split rendering only reveals non-working days that contrast with working ones.
+ */
+export function isSpanFullyBlocked(
+  start: Date,
+  end: Date,
+  isBlocked: (dayIso: string) => boolean,
+): boolean {
+  const endIso = localIso(end);
+  for (let day = localIso(start); day <= endIso; day = shiftIso(day, 1)) {
+    if (!isBlocked(day)) return false;
+  }
+  return true;
+}
+
 function collectGhostRuns(
   startIso: string,
   endIso: string,

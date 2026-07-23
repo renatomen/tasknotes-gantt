@@ -91,7 +91,12 @@ import {
   type SourceLink,
 } from './InstanceExpansion';
 import { applyDatePolicy } from './datePolicy';
-import { applyWorkingTimeStretch, computeGhostRuns, type GhostRun } from './calendar/stretch';
+import {
+  applyWorkingTimeStretch,
+  computeGhostRuns,
+  isSpanFullyBlocked,
+  type GhostRun,
+} from './calendar/stretch';
 import { minutesToSpanDays } from './durationConversion';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -1669,8 +1674,9 @@ export class GanttController {
    * A blocked task's final span, deciding the two calendar axes independently:
    * `working-days` interpretation re-projects a derived edge over working days;
    * `split` rendering attaches ghost runs over the FINAL span of any dated task.
-   * Ghost runs are suppressed on a ceiling-flagged fallback so a fully-blocked
-   * span degrades to a continuous bar rather than one solid dimmed block.
+   * Ghost runs are suppressed both on a ceiling-flagged fallback and on a span
+   * with no working day, so a fully-blocked span degrades to a continuous bar
+   * rather than one solid dimmed block (R7).
    */
   private resolveBlockedSpan(
     policy: ReturnType<typeof applyDatePolicy>,
@@ -1698,7 +1704,7 @@ export class GanttController {
       }
     }
     let ghostRuns: GhostRun[] | undefined;
-    if (axes.rendering === 'split' && !flagged) {
+    if (axes.rendering === 'split' && !flagged && !isSpanFullyBlocked(start, end, blocking.isBlocked)) {
       const runs = computeGhostRuns(start, end, blocking.isBlocked);
       if (runs.length > 0) ghostRuns = runs;
     }

@@ -1,4 +1,4 @@
-import { computeGhostRuns } from '../../src/controller/calendar/stretch';
+import { computeGhostRuns, isSpanFullyBlocked } from '../../src/controller/calendar/stretch';
 
 /** 2026-04-10 is a Friday, so 04-11/04-12 and 04-18/04-19 are the weekends. */
 const WEEKEND_BLOCKED = (dayIso: string): boolean => {
@@ -55,5 +55,24 @@ describe('computeGhostRuns — blocked runs inside a final span (the split-rende
     expect(computeGhostRuns(local(2026, 4, 11), local(2026, 4, 11), WEEKEND_BLOCKED)).toEqual([
       { startDate: '2026-04-11', days: 1 },
     ]);
+  });
+});
+
+describe('isSpanFullyBlocked — the fully-blocked degrade guard (R7/AE8)', () => {
+  it('is true when every day in the span is blocked (a weekend-only placeholder)', () => {
+    expect(isSpanFullyBlocked(local(2026, 4, 11), local(2026, 4, 12), WEEKEND_BLOCKED)).toBe(true);
+    expect(isSpanFullyBlocked(local(2026, 4, 11), local(2026, 4, 11), WEEKEND_BLOCKED)).toBe(true);
+  });
+
+  it('is false as soon as one working day appears', () => {
+    // Fri 04-10 (working) .. Sun 04-12: the Friday breaks the all-blocked run.
+    expect(isSpanFullyBlocked(local(2026, 4, 10), local(2026, 4, 12), WEEKEND_BLOCKED)).toBe(false);
+  });
+
+  it('includes an end-of-day endpoint’s own day in the scan', () => {
+    // Both days blocked, end normalized from 23:59:59.999 → still fully blocked.
+    expect(isSpanFullyBlocked(local(2026, 4, 11), localEndOfDay(2026, 4, 12), WEEKEND_BLOCKED)).toBe(
+      true,
+    );
   });
 });

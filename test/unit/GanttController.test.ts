@@ -762,6 +762,27 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(inst?.stretchFlagged).toBeUndefined();
   });
 
+  it('suppresses ghost runs on a fully-blocked split span so it degrades to a continuous bar (AE8)', async () => {
+    const fullyBlockedConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days (no re-projection) + split, with EVERY day blocked: the
+      // span has no working day to contrast against, so it stays continuous.
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 1 }),
+      },
+    };
+    const controller = makeControllerWith(fullyBlockedConfig, [
+      task({ path: 'weekend.md', start: new Date(2026, 7, 8), end: new Date(2026, 7, 8) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
   it('re-projects under working-days without splitting when rendering is shaded (meaning axis alone)', async () => {
     const meaningOnlyConfig: DatePolicyConfig = {
       defaultDuration: 1,
