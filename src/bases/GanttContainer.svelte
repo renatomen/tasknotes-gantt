@@ -3356,6 +3356,31 @@
   }
 
   /*
+   * Per-task override indicator (R11): a small tick on the top edge of a bar
+   * whose effective Estimate meaning differs from the view default. BarContent
+   * appends the `.og-override-tick` element to the host `.wx-bar` (a real element
+   * so it can carry its own hover `title`), positioned against the absolutely-
+   * placed bar. A single neutral accent in the one slot the color strip, icon
+   * chip, split segments, and resize handles never claim — the top edge — so it
+   * survives the crowded worst case without a second glyph. `--text-normal`
+   * carries contrast in both themes; direction is the tick's tooltip + grid
+   * column, never a second on-bar mark.
+   */
+  .og-bases-gantt :global(.wx-bar .og-override-tick) {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40%;
+    max-width: 22px;
+    height: 3px;
+    border-radius: 0 0 2px 2px;
+    background-color: var(--text-normal, #1e1e1e);
+    opacity: 0.8;
+    z-index: 3;
+  }
+
+  /*
    * Instance cues (U6). SVAR emits a registered task type as a bare class on the
    * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
    * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no

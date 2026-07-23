@@ -205,6 +205,13 @@ export interface SvarTask {
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
+     * The task's effective Estimate meaning when it overrides the view default
+     * (R11), read by `BarContent` to draw the top-edge override tick and its
+     * tooltip. Absent = the task follows the view default (no tick). Folded into
+     * {@link taskStateKey} so a change re-issues the task.
+     */
+    interpretationOverridden?: 'working-days' | 'calendar-days';
+    /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.
      * SVAR's tooltip receives the task, not the link, so the per-task summary
@@ -365,6 +372,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -450,6 +458,10 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
+    // Override tick: an interpretation-override change alters only the top-edge
+    // tick and its tooltip within an otherwise-unchanged span — fold it so the
+    // task re-issues instead of the tick going stale (R11).
+    t.custom.interpretationOverridden ?? '',
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
     // values: a raw Date/ISO-string/wrapper serializes non-deterministically and

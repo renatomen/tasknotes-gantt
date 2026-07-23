@@ -36,7 +36,11 @@
       text?: string;
       start?: Date;
       end?: Date;
-      custom?: { barIcon?: IconSpec | null; ghostRuns?: readonly GhostRunSpan[] };
+      custom?: {
+        barIcon?: IconSpec | null;
+        ghostRuns?: readonly GhostRunSpan[];
+        interpretationOverridden?: 'working-days' | 'calendar-days';
+      };
     };
     api?: unknown;
     onaction?: (ev: { action: string; data: Record<string, unknown> }) => void;
@@ -44,6 +48,17 @@
   let { data, api }: Props = $props();
 
   const spec = $derived(data?.custom?.barIcon ?? null);
+
+  // The per-task override tick (R11): present only when this task's effective
+  // Estimate meaning differs from the view default. The tooltip names both the
+  // effective interpretation and the default it overrides — direction lives in
+  // the tooltip, never a second on-bar glyph.
+  const overriddenMeaning = $derived(data?.custom?.interpretationOverridden ?? null);
+  const overrideTooltip = $derived(
+    overriddenMeaning === 'working-days'
+      ? "Estimate meaning: working days — overrides the view's calendar-days default"
+      : "Estimate meaning: calendar days — overrides the view's working-days default",
+  );
 
   const ghostPieces = $derived.by(() => {
     const runs = data?.custom?.ghostRuns;
@@ -73,10 +88,39 @@
     bar.classList.add('wx-split');
     return () => bar.classList.remove('wx-split');
   }
+
+  /**
+   * Attach the top-edge override tick to the host bar (R11). Mirrors
+   * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the tick
+   * must anchor to the bar in both the plain and ghost-run branches) and appends
+   * a real tick element carrying its own `title`, so hovering the tick — not the
+   * whole bar — names the interpretation, coexisting with the bar's SVAR tooltip.
+   * A `null` tooltip (task not overridden) is a no-op.
+   */
+  function markBarOverridden(tooltip: string | null) {
+    return (node: Element): (() => void) | undefined => {
+      if (!tooltip) return undefined;
+      const bar = node.closest('.wx-bar');
+      if (!bar) return undefined;
+      bar.classList.add('og-interpretation-overridden');
+      const tick = document.createElement('span');
+      tick.className = 'og-override-tick';
+      tick.title = tooltip;
+      bar.appendChild(tick);
+      return () => {
+        bar.classList.remove('og-interpretation-overridden');
+        tick.remove();
+      };
+    };
+  }
 </script>
 
 {#snippet barContent()}
-  <div class="wx-content" class:og-ghost-label={ghostPieces}>
+  <div
+    class="wx-content"
+    class:og-ghost-label={ghostPieces}
+    {@attach markBarOverridden(overriddenMeaning ? overrideTooltip : null)}
+  >
     {#if spec}
       <span class="og-bar-chip">
         {#if spec.iconName}

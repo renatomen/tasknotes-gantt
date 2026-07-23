@@ -132,6 +132,12 @@ export interface DatePolicyConfig {
    * all tasks (no re-projection).
    */
   estimateMeaningForTask?: (taskPath: string) => 'working-days' | 'calendar-days';
+  /**
+   * The per-view default Estimate meaning. Paired with {@link estimateMeaningForTask}
+   * to detect a per-task override: a task whose effective meaning differs from
+   * this default carries the on-bar override tick (R11). Absent → no tick.
+   */
+  viewEstimateMeaning?: 'working-days' | 'calendar-days';
 }
 
 /** A task's blocking query, materialized over a bounded window. */
@@ -1613,8 +1619,13 @@ export class GanttController {
    */
   private resolveAndFilter(rawTasks: readonly ExpandableTask[]): ExpandableTask[] {
     const today = this.now();
-    const { defaultDuration, workingTimeStretch, nonWorkingRendering, estimateMeaningForTask } =
-      this.policyConfigProvider();
+    const {
+      defaultDuration,
+      workingTimeStretch,
+      nonWorkingRendering,
+      estimateMeaningForTask,
+      viewEstimateMeaning,
+    } = this.policyConfigProvider();
     const blockingOf = workingTimeStretch?.blockingForTasks(
       rawTasks.map((task) => ({
         path: task.path,
@@ -1635,14 +1646,21 @@ export class GanttController {
         { start: task.start, end: task.end },
         { defaultDuration: duration, today },
       );
+      const meaning = estimateMeaningForTask?.(task.path) ?? 'calendar-days';
       const blocking = blockingOf?.(task.path);
       const span = blocking
         ? this.resolveBlockedSpan(policy, duration, blocking, {
-            meaning: estimateMeaningForTask?.(task.path) ?? 'calendar-days',
+            meaning,
             rendering: nonWorkingRendering ?? 'shaded',
           })
         : { start: policy.start, end: policy.end };
-      resolved.push({ ...task, ...span, dateStatus: policy.dateStatus });
+      // A task whose effective interpretation differs from the view default is
+      // overridden; carry the effective meaning so the view can name it (R11).
+      const interpretationOverridden =
+        estimateMeaningForTask != null && viewEstimateMeaning != null && meaning !== viewEstimateMeaning
+          ? meaning
+          : undefined;
+      resolved.push({ ...task, ...span, dateStatus: policy.dateStatus, interpretationOverridden });
     }
     return resolved;
   }

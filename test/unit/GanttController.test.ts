@@ -787,6 +787,37 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(inst?.ghostRuns).toBeUndefined();
   });
 
+  it('marks a task whose effective interpretation differs from the view default (R11)', async () => {
+    const overrideConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      viewEstimateMeaning: 'working-days',
+      estimateMeaningForTask: (path) => (path === 'override.md' ? 'calendar-days' : 'working-days'),
+    };
+    const controller = makeControllerWith(overrideConfig, [
+      task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
+      task({ path: 'follows.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const insts = await controller.getInstances();
+
+    const overridden = insts.find((i) => i.sourcePath === 'override.md');
+    const follows = insts.find((i) => i.sourcePath === 'follows.md');
+    // The override carries its EFFECTIVE meaning so the view can name it.
+    expect(overridden?.interpretationOverridden).toBe('calendar-days');
+    // A task that matches the view default is not marked.
+    expect(follows?.interpretationOverridden).toBeUndefined();
+  });
+
+  it('never marks an override when no override resolver is configured', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'plain.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.interpretationOverridden).toBeUndefined();
+  });
+
   it('resolves a due-only task to its deadline, not today→due', async () => {
     const controller = makeControllerWith(dur1, [task({ path: 'due.md', end: AUG17 })]);
     await controller.init();

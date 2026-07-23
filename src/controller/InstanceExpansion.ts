@@ -36,6 +36,12 @@ export type ExpandableTask = SourceTask & {
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
   stretchFlagged?: boolean;
   /**
+   * The task's effective Estimate meaning when it OVERRIDES the view default
+   * (differs from it); undefined when the task follows the default. Drives the
+   * on-bar override tick and its tooltip (R11).
+   */
+  interpretationOverridden?: 'working-days' | 'calendar-days';
+  /**
    * When true, the expander emits an extra **root** instance in addition to the
    * per-parent nested instances — a matched, also-nested task under hide-off, so
    * it appears both at top level and under its parent (origin AE1). Produced by
@@ -121,6 +127,8 @@ export interface RenderInstance {
   ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
   stretchFlagged?: boolean;
+  /** Effective Estimate meaning when it overrides the view default; drives the tick (R11). */
+  interpretationOverridden?: 'working-days' | 'calendar-days';
 }
 
 /** A source-level dependency link between two note paths. */
@@ -505,6 +513,7 @@ function makeInstance(
     isTopLevelPlacement,
     ghostRuns: task.ghostRuns,
     stretchFlagged: task.stretchFlagged,
+    interpretationOverridden: task.interpretationOverridden,
   };
 }
 

@@ -609,6 +609,7 @@ class ObsidianGanttBasesView extends BasesView {
       ...base,
       nonWorkingRendering: rendering,
       estimateMeaningForTask: this.buildEstimateMeaningForTask(meaning),
+      viewEstimateMeaning: meaning,
       workingTimeStretch: {
         blockingForTasks: (tasks) => this.buildTaskBlocking(tasks),
       },
