@@ -30,6 +30,7 @@ import {
   listsEqual,
   type TypedValue,
 } from './propertyValues';
+import { dayDelta } from './dayGranularity';
 
 /** Per-view cascade behavior. */
 export type CascadeMode = 'ask' | 'auto' | 'never';
@@ -163,16 +164,6 @@ export function classifyLinkCreate(
   if (link.type !== 'e2s') return null;
   if (!link.source || !link.target || link.source === link.target) return null;
   return { predecessor: link.source, dependent: link.target };
-}
-
-/** Local-midnight epoch of a date (drops the time-of-day component). */
-function startOfDayMs(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-/** Whole-day delta (rounded) between two dates, ignoring time-of-day. */
-function dayDelta(before: Date, after: Date): number {
-  return Math.round((startOfDayMs(after) - startOfDayMs(before)) / 86_400_000);
 }
 
 /**

@@ -205,6 +205,69 @@ export class FakeElement {
   }
 }
 
+/** A button created via {@link Setting.addButton}, wrapping a recording `<button>`. */
+export class ButtonComponent {
+  buttonEl: FakeElement;
+  constructor(containerEl: FakeElement) {
+    this.buttonEl = containerEl.createEl('button');
+  }
+  setButtonText(text: string): this {
+    this.buttonEl.setText(text);
+    return this;
+  }
+  setCta(): this {
+    this.buttonEl.cls.push('mod-cta');
+    return this;
+  }
+  onClick(cb: () => void): this {
+    this.buttonEl.addEventListener('click', cb);
+    return this;
+  }
+}
+
+/** A toggle created via {@link Setting.addToggle}, wrapping a recording checkbox. */
+export class ToggleComponent {
+  toggleEl: FakeElement;
+  constructor(containerEl: FakeElement) {
+    this.toggleEl = containerEl.createEl('input', { type: 'checkbox' });
+  }
+  setValue(value: boolean): this {
+    this.toggleEl.checked = value;
+    return this;
+  }
+  onChange(cb: (value: boolean) => void): this {
+    this.toggleEl.addEventListener('change', () => cb(this.toggleEl.checked));
+    return this;
+  }
+}
+
+/**
+ * Minimal stand-in for Obsidian's `Setting` builder: appends a setting row to the
+ * container and exposes the button/toggle wiring the Gantt modals use. The created
+ * controls are real FakeElements in the container tree, so tests query them by
+ * tag/text and `trigger('click')`, or set `checked` + `trigger('change')`.
+ */
+export class Setting {
+  settingEl: FakeElement;
+  constructor(containerEl: FakeElement) {
+    this.settingEl = containerEl.createDiv({ cls: 'setting-item' });
+  }
+  setName(): this {
+    return this;
+  }
+  setDesc(): this {
+    return this;
+  }
+  addButton(cb: (button: ButtonComponent) => void): this {
+    cb(new ButtonComponent(this.settingEl));
+    return this;
+  }
+  addToggle(cb: (toggle: ToggleComponent) => void): this {
+    cb(new ToggleComponent(this.settingEl));
+    return this;
+  }
+}
+
 /**
  * Stub of Obsidian's `Modal`: constructible, open/close call the subclass
  * lifecycle hooks, and `contentEl` is a recording FakeElement tree.

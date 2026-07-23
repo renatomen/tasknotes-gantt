@@ -35,6 +35,11 @@ import {
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
+import {
+  normalizeInferredDragMode,
+  persistInferredDragMode,
+  type InferredDragAction,
+} from './inferredDragGate';
 import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
 import { resolveDateLocale } from './dateLocale';
@@ -803,6 +808,15 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /**
+   * Read the per-view inferred-edge drag mode; defaults to `ask`. Governs whether
+   * a resize of an estimate-inferred bar edge prompts, grows the estimate only, or
+   * grows the estimate and writes dates (see inferredDragGate / GanttContainer).
+   */
+  private getInferredDragMode(): import('./inferredDragGate').InferredDragMode {
+    return normalizeInferredDragMode(this.config.get('tngantt_inferredDrag'));
+  }
+
+  /**
    * Mount the Svelte view from controller-derived data (U7).
    *
    * The controller now owns the transform: this builds a {@link GanttController}
@@ -944,6 +958,11 @@ class ObsidianGanttBasesView extends BasesView {
           themeMode: this.getThemeMode(),
           onThemeModeChange: (mode: ThemeMode) =>
             persistThemeMode((key, value) => this.config.set(key, value), mode),
+          // "Don't ask again" on the inferred-drag prompt persists the chosen
+          // action as the per-view mode, closing over config.set (mirrors the
+          // theme-mode persist callback; the cascade mode is read-only).
+          onInferredDragModeChange: (mode: InferredDragAction) =>
+            persistInferredDragMode((key, value) => this.config.set(key, value), mode),
           // Drag/resize persistence (U8): the view calls this on a commit; the
           // controller resolves instance→source and writes through TaskNotes.
           onMutate: (instanceId: string, patch: TaskPatch) => controller.mutate(instanceId, patch),
@@ -1172,6 +1191,7 @@ class ObsidianGanttBasesView extends BasesView {
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
+      inferredDragMode: this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
