@@ -662,6 +662,8 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     let passes = 0;
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => {
           passes += 1;
@@ -689,6 +691,9 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('never moves an authored complete span even with blocking present (R12)', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      // Working-days interpretation is ON, so this proves a `complete` status
+      // resists re-projection even when the stretch path is fully engaged.
+      estimateMeaningForTask: () => 'working-days',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 5 }),
       },
@@ -708,6 +713,10 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('falls back to the calendar-day span and flags when the scan hits its ceiling', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      // Split rendering is ON, so this also proves a ceiling-flagged fallback
+      // suppresses ghost runs (a fully-blocked span degrades to one plain bar).
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 3 }),
       },
@@ -721,6 +730,60 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(inst?.stretchFlagged).toBe(true);
     // The calendar-day placement (start + duration - 1) is untouched.
     expect(inst?.end?.getDate()).toBe(8);
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('splits a concrete authored span without re-projecting it (rendering axis alone, R-axes)', async () => {
+    const splitOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days interpretation: NO re-projection. Split rendering still
+      // reveals the blocked days inside the authored span — the two axes are
+      // independent (this combination was unreachable under the old fused knob).
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(splitOnlyConfig, [
+      task({ path: 'concrete.md', start: new Date(2026, 7, 7), end: new Date(2026, 7, 11) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    // Authored end is untouched (no re-projection under calendar-days).
+    expect(inst?.end?.getDate()).toBe(11);
+    // Yet the inner blocked days surface as a ghost run.
+    expect(inst?.ghostRuns).toEqual([{ startDate: '2026-08-08', days: 2 }]);
+    expect(inst?.stretchFlagged).toBeUndefined();
+  });
+
+  it('re-projects under working-days without splitting when rendering is shaded (meaning axis alone)', async () => {
+    const meaningOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(meaningOnlyConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    // The derived end still re-projects past the blocked days...
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(11);
+    // ...but shaded rendering attaches no ghost runs (background shading only).
     expect(inst?.ghostRuns).toBeUndefined();
   });
 

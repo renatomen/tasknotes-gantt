@@ -476,8 +476,7 @@ export function ganttViewOptions(
   // Time Estimate mapping sits in Fields beside the other property pickers. The
   // property is always shown; the "Time Estimate Update" write mode is
   // companion-only (a write never fires standalone, so the control would be inert).
-  fieldsItems.push(timeEstimatePropertyOption());
-  fieldsItems.push(estimateMeaningPropertyOption());
+  fieldsItems.push(timeEstimatePropertyOption(), estimateMeaningPropertyOption());
   if (companionAvailable) {
     fieldsItems.push(timeEstimateModeOption());
   }
@@ -522,18 +521,6 @@ export function readHighlightWeekends(get: (key: string) => unknown): boolean {
   return get('tngantt_highlightWeekends') !== false;
 }
 
-/** The shipped calendar-functionality rungs; the experimental scheduling rung is future. */
-export type CalendarMode = 'shade' | 'stretch';
-
-/**
- * Read the per-view calendar mode; any unrecognized/absent value is the
- * default `shade` rung (fail-toward-today's-behaviour). Pure; mirrors
- * {@link readHighlightWeekends}.
- */
-export function readCalendarMode(get: (key: string) => unknown): CalendarMode {
-  return get('tngantt_calendarMode') === 'stretch' ? 'stretch' : 'shade';
-}
-
 /** Per-view interpretation of a time-estimate (affects only derived edges). */
 export type EstimateMeaning = 'working-days' | 'calendar-days';
 
@@ -542,7 +529,7 @@ export type NonWorkingRendering = 'shaded' | 'split';
 
 /**
  * Read the per-view Estimate meaning; unrecognized/absent → `calendar-days`
- * (today's flat behaviour). Pure; mirrors {@link readCalendarMode}.
+ * (today's flat behaviour). Pure; mirrors {@link readHighlightWeekends}.
  */
 export function readEstimateMeaning(get: (key: string) => unknown): EstimateMeaning {
   return get('tngantt_estimateMeaning') === 'working-days' ? 'working-days' : 'calendar-days';
@@ -571,7 +558,7 @@ export function resolveEstimateMeaning(
 /**
  * Read the raw per-view calendar display selection. Parsing/validation lives
  * in `calendarSelection.ts` (`readDisplaySelection`); this reader only pins
- * the prefixed key. Pure; mirrors {@link readCalendarMode}.
+ * the prefixed key. Pure; mirrors {@link readHighlightWeekends}.
  */
 export function readDisplayCalendars(get: (key: string) => unknown): unknown {
   return get('tngantt_displayCalendars');

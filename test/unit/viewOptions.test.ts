@@ -14,7 +14,6 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
-  readCalendarMode,
   readEstimateMeaning,
   readNonWorkingRendering,
   resolveEstimateMeaning,
@@ -395,18 +394,6 @@ describe("readShowToolbar", () => {
     expect(readShowToolbar(() => "true")).toBe(false);
     expect(readShowToolbar(() => 1)).toBe(false);
     expect(readShowToolbar(() => false)).toBe(false);
-  });
-});
-
-describe("readCalendarMode", () => {
-  it("defaults to shade when unset or unrecognized (fail-toward-today's-behaviour)", () => {
-    expect(readCalendarMode(() => undefined)).toBe("shade");
-    expect(readCalendarMode(() => "schedule")).toBe("shade");
-    expect(readCalendarMode(() => 42)).toBe("shade");
-  });
-
-  it("returns stretch only for the explicit stretch value", () => {
-    expect(readCalendarMode((k) => ({ tngantt_calendarMode: "stretch" })[k])).toBe("stretch");
   });
 });
 

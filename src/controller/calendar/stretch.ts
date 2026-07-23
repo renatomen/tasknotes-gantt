@@ -35,11 +35,17 @@ export interface StretchInputs {
 export interface StretchResult {
   start: Date;
   end: Date;
-  ghostRuns: GhostRun[];
   flagged: boolean;
 }
 
-/** Null when the span's date status never stretches (authored/placeholder). */
+/**
+ * Re-project a derived edge over working days: the date walk only (the *Estimate
+ * meaning* axis). Ghost-run production is a separate concern — see
+ * {@link computeGhostRuns} (the *Non-working-day rendering* axis) — so a task can
+ * re-project without segments, segment without re-projecting, or neither.
+ *
+ * Null when the span's date status never stretches (authored/placeholder).
+ */
 export function applyWorkingTimeStretch(inputs: StretchInputs): StretchResult | null {
   if (inputs.dateStatus !== 'inferred-end' && inputs.dateStatus !== 'inferred-start') {
     return null;
@@ -54,7 +60,7 @@ export function applyWorkingTimeStretch(inputs: StretchInputs): StretchResult | 
   let boundary = day;
   while (remaining > 0) {
     if (scanned > inputs.ceilingDays) {
-      return { start: inputs.start, end: inputs.end, ghostRuns: [], flagged: true };
+      return { start: inputs.start, end: inputs.end, flagged: true };
     }
     if (!inputs.isBlocked(day)) {
       remaining -= 1;
@@ -74,9 +80,23 @@ export function applyWorkingTimeStretch(inputs: StretchInputs): StretchResult | 
     // other bar's end is 23:59:59.999 of its last day, and a midnight end
     // would render the stretched bar one column short.
     end: forward ? isoToLocalEndOfDay(endIso) : inputs.end,
-    ghostRuns: collectGhostRuns(startIso, endIso, inputs.isBlocked),
     flagged: false,
   };
+}
+
+/**
+ * The blocked-day runs inside a bar's final span, for the *split* rendering axis.
+ * Runs over any dated span — authored or derived, re-projected or not — so a
+ * concrete bar can reveal its inner non-working days without moving its dates.
+ * The end is normalized to its local day, so an end-of-day (`23:59:59.999`)
+ * endpoint includes its own day in the scan.
+ */
+export function computeGhostRuns(
+  start: Date,
+  end: Date,
+  isBlocked: (dayIso: string) => boolean,
+): GhostRun[] {
+  return collectGhostRuns(localIso(start), localIso(end), isBlocked);
 }
 
 function collectGhostRuns(
