@@ -29,19 +29,6 @@ import {
   type ResolvedTarget,
 } from './calendarSelection';
 
-/**
- * SVAR stamps the classifier's identity classes in two places — the chart
- * body's holiday overlay cells and the scale header's own cells — so shading
- * paints in both scopes. Only the body cells are absolutely-positioned
- * overlays; header cells are normal-flow with explicit widths, so the layout
- * base rule stays body-scoped.
- */
-const BODY_SCOPE = '.og-bases-gantt .wx-gantt-holidays';
-const HEADER_SCOPE = '.og-bases-gantt .wx-scale';
-
-/** Layout base for every identity cell; shading paints on top of it. */
-const CELL_BASE_RULE = `${BODY_SCOPE} .og-cal-cell{position:absolute;top:0;height:100%;}`;
-
 // !important: the weekends-off neutralization rule strips `.wx-weekend`
 // backgrounds with !important, and a calendar-shaded date can fall on a
 // weekend — calendar shading must survive that toggle (adding a calendar
@@ -124,28 +111,45 @@ function addRecurringEvents(
 /**
  * The generated stylesheet: the layout base rule, one grouped shade rule, and
  * (after it, so it wins) one grouped conflict-stripes rule.
+ *
+ * `scope` is the instance's unique per-view root selector: every rule is
+ * anchored under it so one instance's injected sheet cannot re-shade another
+ * instance's cells that share `.og-bases-gantt`. SVAR stamps the identity
+ * classes in two places — the chart body's holiday overlay cells and the scale
+ * header's own cells — so shading paints in both scopes; only the body cells
+ * are absolutely-positioned overlays, so the layout base rule stays body-scoped.
  */
 export function buildCalendarShadingCss(
+  scope: string,
   shadedDates: readonly string[],
   conflicts: readonly string[] = [],
 ): string {
-  const parts = [CELL_BASE_RULE];
+  const bodyScope = `${scope} .wx-gantt-holidays`;
+  const headerScope = `${scope} .wx-scale`;
+  const cellBaseRule = `${bodyScope} .og-cal-cell{position:absolute;top:0;height:100%;}`;
+  const parts = [cellBaseRule];
   if (shadedDates.length > 0) {
-    parts.push(`${dateSelectors(shadedDates)}${SHADE_DECLARATION}`);
+    parts.push(`${dateSelectors(shadedDates, bodyScope, headerScope)}${SHADE_DECLARATION}`);
   }
   if (conflicts.length > 0) {
-    parts.push(`${dateSelectors(conflicts)}${CONFLICT_DECLARATION}`);
+    parts.push(`${dateSelectors(conflicts, bodyScope, headerScope)}${CONFLICT_DECLARATION}`);
   }
   return parts.join('\n');
 }
 
-function dateSelectors(dates: readonly string[]): string {
+function dateSelectors(dates: readonly string[], bodyScope: string, headerScope: string): string {
   return dates
-    .flatMap((date) => [`${BODY_SCOPE} .og-d-${date}`, `${HEADER_SCOPE} .og-d-${date}`])
+    .flatMap((date) => [`${bodyScope} .og-d-${date}`, `${headerScope} .og-d-${date}`])
     .join(',');
 }
 
 export interface ShadingAssemblyInputs {
+  /**
+   * The instance's unique per-view root selector (e.g. `.og-gantt-abc12345`);
+   * every generated rule is anchored under it so the injected sheet cannot
+   * re-shade another instance's cells sharing `.og-bases-gantt`.
+   */
+  scope: string;
   /** Every vault note carrying the calendar marker. */
   markedNotes: readonly CalendarNoteInput[];
   resolveLink: LinkResolver;
@@ -199,7 +203,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const calendarBySource = resolveCalendarIdentities(registry, inputs);
   if (window === null) {
     return {
-      css: buildCalendarShadingCss([]),
+      css: buildCalendarShadingCss(inputs.scope, []),
       displayedCount: 0,
       conflictCount: 0,
       invalidCount,
@@ -231,7 +235,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const definitions = [...displayed.values()].map((record) => record.definition);
   const conflicts = definitions.length >= 2 ? conflictDates(definitions, window) : [];
   return {
-    css: buildCalendarShadingCss(collectShadedDates(definitions, window), conflicts),
+    css: buildCalendarShadingCss(inputs.scope, collectShadedDates(definitions, window), conflicts),
     displayedCount: displayed.size,
     conflictCount: conflicts.length,
     invalidCount,

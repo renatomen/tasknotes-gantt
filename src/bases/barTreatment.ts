@@ -7,8 +7,8 @@
  *
  * 1. a per-bar **treatment class** (`resolveTreatmentClass`) folded into the SVAR
  *    task `type` string by `ganttSync`,
- * 2. the **generated stylesheet** (`buildTreatmentStyle`) injected under
- *    `.og-bases-gantt`, and
+ * 2. the **generated stylesheet** (`buildTreatmentStyle`) injected under the
+ *    instance's unique per-view scope class, and
  * 3. the **icon-chip spec** (`resolveIconSpec`) the `BarContent` template renders.
  *
  * Dependency-free (no Obsidian, no Svelte) so the full Mode × Source matrix is
@@ -67,9 +67,6 @@ export const CALENDAR_CLASS_PREFIX = 'og-calendar-';
 
 /** Role class marking a parent bar in the role-based (`default`/`theme`) sources. */
 export const PARENT_ROLE_CLASS = 'og-parent';
-
-/** The plugin-scoped base bar selector every generated rule is anchored to. */
-const BAR_SELECTOR = '.og-bases-gantt .wx-bar';
 
 /** Width of the left accent strip in `strip` mode (matches the layout study). */
 export const STRIP_WIDTH_PX = 6;
@@ -444,6 +441,12 @@ export interface TreatmentStyleInput {
    * present-value set (`.status`, `.priority`, or `.calendarId`).
    */
   instances: ReadonlyArray<TreatmentInstance>;
+  /**
+   * The per-instance ROOT selector every generated rule is anchored under (e.g.
+   * `.og-gantt-abc12345`). Each Gantt instance mints a unique one, so its injected
+   * stylesheet cannot restyle another instance's bars that share `.og-bases-gantt`.
+   */
+  scope: string;
 }
 
 /**
@@ -465,7 +468,8 @@ export interface TreatmentStyleInput {
  * over the date-status flag's own `!important` background (coexistence).
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
-  const { palettes, instances } = input;
+  const { palettes, instances, scope } = input;
+  const barSelector = `${scope} .wx-bar`;
   // `effectiveSource` is keyed on BarColorSource, so gate `none` out first.
   const fillEff: BarChannelSource =
     input.fillSource === 'none' ? 'none' : effectiveSource(input.fillSource, palettes);
@@ -474,24 +478,24 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
 
   // Both off → the default role fill, so a bar is never invisible.
   if (fillEff === 'none' && stripEff === 'none') {
-    return roleFillRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR).join('\n');
+    return roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR).join('\n');
   }
   // Fill only → the fill channel supplies the body; no strip is drawn.
   if (fillEff !== 'none' && stripEff === 'none') {
-    return fillChannelRules(fillEff, palettes, instances).join('\n');
+    return fillChannelRules(barSelector, fillEff, palettes, instances).join('\n');
   }
   // Strip only → the strip accent over a neutral body; the body is never filled.
   // Reproduces the legacy strip-mode output exactly.
   if (fillEff === 'none' && stripEff !== 'none') {
-    return stripOnlyRules(stripEff, palettes, instances).join('\n');
+    return stripOnlyRules(barSelector, stripEff, palettes, instances).join('\n');
   }
   // Both channels → the fill body, then the strip's `::before` accent laid over
   // it. No neutral body (the fill supplies it) and no widened content inset (the
   // filled body has no strip-clearing to do).
   if (fillEff !== 'none' && stripEff !== 'none') {
     return [
-      ...fillChannelRules(fillEff, palettes, instances),
-      ...stripBeforeRules(stripEff, palettes, instances),
+      ...fillChannelRules(barSelector, fillEff, palettes, instances),
+      ...stripBeforeRules(barSelector, stripEff, palettes, instances),
     ].join('\n');
   }
   return '';
@@ -516,16 +520,17 @@ function presentValues(
  * unassociated task keeps the hierarchy treatment instead of a plain bar.
  */
 function fillChannelRules(
+  barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
   instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
-  if (source === 'default') return roleFillRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-  if (source === 'theme') return roleFillRules(THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  if (source === 'default') return roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleFillRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
   const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules('fill', palette, presentValues(valueOf, instances), slugOf);
+  const rules = buildValueRules(barSelector, 'fill', palette, presentValues(valueOf, instances), slugOf);
   if (source === 'calendar') {
-    return [...roleFillRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
+    return [...roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
   return rules;
 }
@@ -537,25 +542,26 @@ function fillChannelRules(
  * fidelity guarantee for legacy strip views.
  */
 function stripOnlyRules(
+  barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
   instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
-  if (source === 'default') return roleStripRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-  if (source === 'theme') return roleStripRules(THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  if (source === 'default') return roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleStripRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
   const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules('strip', palette, presentValues(valueOf, instances), slugOf);
+  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
   if (source === 'calendar') {
-    return [...roleStripRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
+    return [...roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
   if (rules.length === 0) return [];
   // Neutralize EVERY bar body to a theme surface with readable text + a visible
   // outline (the accent is the left strip), widen the content inset so it clears
   // the strip, and shift progress off the shared NEUTRAL body (not the accent).
   return [
-    stripBodyRule(),
-    progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
-    stripContentPadRule(),
+    stripBodyRule(barSelector),
+    progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),
+    stripContentPadRule(barSelector),
     ...rules,
   ];
 }
@@ -565,16 +571,17 @@ function stripOnlyRules(
  * supplies the body when both channels are lit). Used for the both-channels combo.
  */
 function stripBeforeRules(
+  barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
   instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
-  if (source === 'default') return roleStripBeforeRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
-  if (source === 'theme') return roleStripBeforeRules(THEME_PARENT_COLOR, THEME_CHILD_COLOR);
+  if (source === 'default') return roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
+  if (source === 'theme') return roleStripBeforeRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
   const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules('strip', palette, presentValues(valueOf, instances), slugOf);
+  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
   if (source === 'calendar') {
-    return [...roleStripBeforeRules(DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
+    return [...roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
   return rules;
 }
@@ -607,6 +614,7 @@ function paletteFor(
  * dispatch + assembly shell (keeps its branch count low).
  */
 function buildValueRules(
+  barSelector: string,
   mode: BarColorMode,
   palette: ReadonlyArray<{ value: string; color: string }>,
   present: ReadonlySet<string>,
@@ -617,7 +625,7 @@ function buildValueRules(
   for (const { value, color } of palette) {
     if (!present.has(value) || emitted.has(value) || !isSafeColor(color)) continue;
     emitted.add(value);
-    const sel = `${BAR_SELECTOR}.${slugOf(value)}`;
+    const sel = `${barSelector}.${slugOf(value)}`;
     if (mode === 'strip') {
       rules.push(`${sel}${stripRule(color)}`);
     } else {
@@ -666,8 +674,8 @@ function stripRule(color: string): string {
  * `!important` because the component's scoped base rule (`.wx-content` padding) carries
  * Svelte's hash class and thus higher specificity than this injected stylesheet.
  */
-function stripContentPadRule(): string {
-  return `${BAR_SELECTOR} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
+function stripContentPadRule(barSelector: string): string {
+  return `${barSelector} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
 }
 
 /**
@@ -678,9 +686,9 @@ function stripContentPadRule(): string {
  * vars collapse onto the (transparent) chart's editor background — the "fill not
  * contrasting" case. The left border is covered by the strip's -1px overlay.
  */
-function stripBodyRule(): string {
+function stripBodyRule(barSelector: string): string {
   return (
-    `${BAR_SELECTOR} { background-color: ${STRIP_BODY_COLOR} !important; ` +
+    `${barSelector} { background-color: ${STRIP_BODY_COLOR} !important; ` +
     `color: ${STRIP_TEXT_COLOR} !important; ` +
     `border: 1px solid ${STRIP_BORDER_COLOR} !important; }`
   );
@@ -700,12 +708,12 @@ function progressFillRule(selector: string, fillColor: string): string {
  * fill and the parent hue overrides on `.og-parent`, each with its own progress
  * shift. Emits BODY rules only (no `::before`).
  */
-function roleFillRules(parentColor: string, childColor: string): string[] {
-  const parentSel = `${BAR_SELECTOR}.${PARENT_ROLE_CLASS}`;
+function roleFillRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
-    fillBodyRule(BAR_SELECTOR, childColor),
+    fillBodyRule(barSelector, childColor),
     `${parentSel} { background-color: ${parentColor} !important; }`,
-    progressFillRule(BAR_SELECTOR, progressColor(childColor)),
+    progressFillRule(barSelector, progressColor(childColor)),
     progressFillRule(parentSel, progressColor(parentColor)),
   ];
 }
@@ -716,17 +724,17 @@ function roleFillRules(parentColor: string, childColor: string): string[] {
  * hues driving the `::before` accents, neutral-shifted progress, and the widened
  * content inset. Byte-order-identical to the pre-decoupling strip-mode role output.
  */
-function roleStripRules(parentColor: string, childColor: string): string[] {
-  const parentSel = `${BAR_SELECTOR}.${PARENT_ROLE_CLASS}`;
+function roleStripRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
-    stripBodyRule(),
+    stripBodyRule(barSelector),
     // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
     // contrast-only). More specific than stripBodyRule() so it wins for parents.
     `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
-    ...roleStripBeforeRules(parentColor, childColor),
+    ...roleStripBeforeRules(barSelector, parentColor, childColor),
     // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
-    progressFillRule(BAR_SELECTOR, NEUTRAL_PROGRESS_COLOR),
-    stripContentPadRule(),
+    progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),
+    stripContentPadRule(barSelector),
   ];
 }
 
@@ -735,10 +743,10 @@ function roleStripRules(parentColor: string, childColor: string): string[] {
  * on the base bar and the parent strip on `.og-parent`. No neutral body — used
  * when the fill channel already supplies the body (both channels lit).
  */
-function roleStripBeforeRules(parentColor: string, childColor: string): string[] {
-  const parentSel = `${BAR_SELECTOR}.${PARENT_ROLE_CLASS}`;
+function roleStripBeforeRules(barSelector: string, parentColor: string, childColor: string): string[] {
+  const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
-    `${BAR_SELECTOR}${stripRule(childColor)}`,
+    `${barSelector}${stripRule(childColor)}`,
     `${parentSel}::before { background-color: ${parentColor}; }`,
   ];
 }
