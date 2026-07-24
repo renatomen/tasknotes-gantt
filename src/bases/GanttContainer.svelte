@@ -3479,27 +3479,31 @@
   }
 
   /*
-   * Per-task override indicator (R11): a small tick on the top edge of a bar
-   * whose effective Estimate meaning differs from the view default. BarContent
-   * appends the `.og-override-tick` element to the host `.wx-bar` (a real element
-   * so it can carry its own hover `title`), positioned against the absolutely-
-   * placed bar. A single neutral accent in the one slot the color strip, icon
-   * chip, split segments, and resize handles never claim — the top edge — so it
-   * survives the crowded worst case without a second glyph. `--text-normal`
-   * carries contrast in both themes; direction is the tick's tooltip + grid
-   * column, never a second on-bar mark.
+   * Per-task override indicator (R11): a small filled dot in the upper-left
+   * corner of a bar whose effective Estimate meaning differs from the view
+   * default. BarContent appends the `.og-override-dot` element to the host
+   * `.wx-bar` (a real element so it can carry its own hover `title`).
+   *
+   * Colour: the dot can't reliably contrast with the fill, strip, AND timeline
+   * background (all arbitrary), so it doesn't try — a `--background-primary`
+   * halo (box-shadow ring) separates it from whatever is behind it, and the dot
+   * then only has to contrast with that ring. Both colours are theme variables,
+   * so it's correct in light and dark. Direction (working vs calendar) stays in
+   * the tooltip + grid column, never a second on-bar mark.
    */
-  .og-bases-gantt :global(.wx-bar .og-override-tick) {
+  .og-bases-gantt :global(.wx-bar .og-override-dot) {
     position: absolute;
+    /* Centre the dot ON the bar's top-left corner: pin to (0,0) then shift up-left
+       by half its own size. Half the dot overhangs the bar, so this relies on the
+       bar not clipping the overhang. */
     top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 40%;
-    max-width: 22px;
-    height: 3px;
-    border-radius: 0 0 2px 2px;
-    background-color: var(--text-normal, #1e1e1e);
-    opacity: 0.8;
+    left: 0;
+    transform: translate(-50%, -50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1.5px var(--background-primary);
     z-index: 3;
   }
 
