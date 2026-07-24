@@ -15,7 +15,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element, MutationObserver */
+  /* global Element, MutationObserver, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -50,8 +50,8 @@
 
   const spec = $derived(data?.custom?.barIcon ?? null);
 
-  // The per-task override tick (R11): a tooltip only when this task's effective
-  // Estimate meaning differs from the view default, else null (no tick). It names
+  // The per-task override dot (R11): a tooltip only when this task's effective
+  // Estimate meaning differs from the view default, else null (no dot). It names
   // both the effective interpretation and the default it overrides — direction
   // lives in the tooltip, never a second on-bar glyph.
   const overrideTooltip = $derived.by((): string | null => {
@@ -109,10 +109,10 @@
   }
 
   /**
-   * Attach the top-edge override tick to the host bar (R11). Mirrors
-   * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the tick
+   * Attach the upper-left corner override dot to the host bar (R11). Mirrors
+   * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the dot
    * must anchor to the bar in both the plain and ghost-run branches) and appends
-   * a real tick element carrying its own `title`, so hovering the tick — not the
+   * a real dot element carrying its own `title`, so hovering the dot — not the
    * whole bar — names the interpretation, coexisting with the bar's SVAR tooltip.
    * A `null` tooltip (task not overridden) is a no-op.
    */
@@ -121,11 +121,20 @@
       if (!tooltip) return undefined;
       const bar = node.closest('.wx-bar');
       if (!bar) return undefined;
-      const tick = document.createElement('span');
-      tick.className = 'og-override-tick';
-      tick.title = tooltip;
-      bar.appendChild(tick);
-      return () => tick.remove();
+      const dot = document.createElement('span');
+      dot.className = 'og-override-dot';
+      dot.title = tooltip;
+      // The dot sits on the bar's top-left corner, which is SVAR's start-resize
+      // zone — and SVAR begins a drag from mouse/pointer AND touch events on
+      // `.wx-bars`. Stop every drag-initiating event from bubbling out of the dot
+      // so inspecting the indicator — including a long-press on touch — can't move
+      // the start date; hover and the `title` tooltip still work.
+      const stopDrag = (e: Event): void => e.stopPropagation();
+      for (const evt of ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const) {
+        dot.addEventListener(evt, stopDrag);
+      }
+      bar.appendChild(dot);
+      return () => dot.remove();
     };
   }
 </script>

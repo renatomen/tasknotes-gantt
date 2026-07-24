@@ -47,7 +47,7 @@ export type ExpandableTask = SourceTask & {
   /**
    * The task's effective Estimate meaning when it OVERRIDES the view default
    * (differs from it); undefined when the task follows the default. Drives the
-   * on-bar override tick and its tooltip (R11).
+   * on-bar override dot and its tooltip (R11).
    */
   interpretationOverridden?: EstimateMeaning;
   /**
@@ -136,7 +136,7 @@ export interface RenderInstance {
   ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
   stretchFlagged?: boolean;
-  /** Effective Estimate meaning when it overrides the view default; drives the tick (R11). */
+  /** Effective Estimate meaning when it overrides the view default; drives the dot (R11). */
   interpretationOverridden?: EstimateMeaning;
 }
 

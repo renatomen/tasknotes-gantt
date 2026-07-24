@@ -208,8 +208,8 @@ export interface SvarTask {
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
      * The task's effective Estimate meaning when it overrides the view default
-     * (R11), read by `BarContent` to draw the top-edge override tick and its
-     * tooltip. Absent = the task follows the view default (no tick). Folded into
+     * (R11), read by `BarContent` to draw the corner override dot and its
+     * tooltip. Absent = the task follows the view default (no dot). Folded into
      * {@link taskStateKey} so a change re-issues the task.
      */
     interpretationOverridden?: EstimateMeaning;
@@ -477,9 +477,9 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
-    // Override tick: an interpretation-override change alters only the top-edge
-    // tick and its tooltip within an otherwise-unchanged span — fold it so the
-    // task re-issues instead of the tick going stale (R11).
+    // Override dot: an interpretation-override change alters only the corner dot
+    // and its tooltip within an otherwise-unchanged span — fold it so the
+    // task re-issues instead of the dot going stale (R11).
     t.custom.interpretationOverridden ?? '',
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
