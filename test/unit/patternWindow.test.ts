@@ -155,6 +155,17 @@ describe('evaluatePattern', () => {
     // guard must reject before between() rather than expand them.
     expect(validatePattern('FREQ=DAILY;BYHOUR=0,6,12,18;BYMINUTE=0,30', undefined)).not.toBeNull();
   });
+
+  it('rejects out-of-range BY-parts rrule accepts but scans for fruitlessly', () => {
+    // rrule accepts BYMONTHDAY=0 / BYMONTH=13 but between() then scans day-by-day
+    // without matching — ~15s of freeze during the probe. Reject before between().
+    expect(evaluatePattern('FREQ=DAILY;BYMONTHDAY=0', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=YEARLY;BYMONTH=13', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=YEARLY;BYMONTH=1,13', undefined, TWO_WEEKS).kind).toBe('invalid'); // a list with one bad value
+    expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).not.toBeNull();
+    // Valid ranges, including a list and a negative "from the end", still evaluate.
+    expect(validatePattern('FREQ=YEARLY;BYMONTH=2,6;BYMONTHDAY=-1', undefined)).toBeNull();
+  });
 });
 
 describe('blockingComplement', () => {

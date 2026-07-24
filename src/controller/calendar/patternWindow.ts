@@ -60,6 +60,8 @@ export function evaluatePattern(
  *  - a non-positive or non-integer INTERVAL: rrule keeps a malformed value
  *    ("foo", "1.5") as a string and 0/negative advance not at all, so between()
  *    would not terminate — a freeze;
+ *  - an out-of-range BY-part (BYMONTH>12, BYMONTHDAY=0, …): rrule accepts it but
+ *    then scans day-by-day without ever matching — a multi-second freeze;
  *  - an anchorless rule whose phase no BY-part pins (or that counts/bounds from
  *    the start via INTERVAL>1 / COUNT / UNTIL) floats with the render window:
  *    its matched days shift whenever the window moves, so it needs a
@@ -71,6 +73,10 @@ function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string |
   }
   if (present(options.byhour) || present(options.byminute) || present(options.bysecond)) {
     return 'pattern uses sub-day BY-parts (BYHOUR/BYMINUTE/BYSECOND); a day-granularity calendar cannot use them';
+  }
+  const outOfRange = outOfRangeByPart(options);
+  if (outOfRange !== null) {
+    return `pattern uses an out-of-range ${outOfRange}, which rrule accepts but then scans for fruitlessly`;
   }
   if (options.interval !== undefined && (!Number.isInteger(options.interval) || options.interval < 1)) {
     return 'pattern uses a non-positive or non-integer INTERVAL, which never advances';
@@ -113,6 +119,34 @@ function isPhasePinned(options: Partial<Options>): boolean {
 function present(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   return !Array.isArray(value) || value.length > 0;
+}
+
+/**
+ * The name of the first BY-part whose value is outside its RFC 5545 range, or
+ * null. rrule accepts e.g. BYMONTHDAY=0 or BYMONTH=13 but then scans day-by-day
+ * without ever matching — a multi-second freeze during the validity probe.
+ */
+function outOfRangeByPart(options: Partial<Options>): string | null {
+  if (!magnitudesWithin(options.bymonth, 12, false)) return 'BYMONTH';
+  if (!magnitudesWithin(options.bymonthday, 31, true)) return 'BYMONTHDAY';
+  if (!magnitudesWithin(options.byyearday, 366, true)) return 'BYYEARDAY';
+  if (!magnitudesWithin(options.byweekno, 53, true)) return 'BYWEEKNO';
+  if (!magnitudesWithin(options.bysetpos, 366, true)) return 'BYSETPOS';
+  return null;
+}
+
+/** Whether every value is a 1..max integer (or ±1..max when the part is signed). */
+function magnitudesWithin(
+  value: number | number[] | null | undefined,
+  max: number,
+  signed: boolean,
+): boolean {
+  if (value === null || value === undefined) return true;
+  const values = Array.isArray(value) ? value : [value];
+  return values.every((v) => {
+    if (!Number.isInteger(v)) return false;
+    return signed ? Math.abs(v) >= 1 && Math.abs(v) <= max : v >= 1 && v <= max;
+  });
 }
 
 /** The window days the pattern does NOT match — the blocking non-working complement. */
