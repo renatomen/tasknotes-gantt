@@ -131,6 +131,15 @@ describe('evaluatePattern', () => {
     expect(result.kind).toBe('invalid');
     if (result.kind === 'invalid') expect(result.reason).toMatch(/sub-daily/);
   });
+
+  it('rejects a non-positive INTERVAL that would never advance (freeze guard)', () => {
+    // rrule accepts INTERVAL=-1/0 but between() never advances — a freeze. Reject
+    // before expansion, even with an anchor (the old grammar guard only caught
+    // the anchorless case, and > 1 alone misses it).
+    expect(evaluatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06', TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=DAILY;INTERVAL=0', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(validatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06')).not.toBeNull();
+  });
 });
 
 describe('blockingComplement', () => {
@@ -204,5 +213,11 @@ describe('validatePattern', () => {
   it('rejects a bare recurring pattern that floats without an anchor', () => {
     expect(validatePattern('FREQ=WEEKLY', undefined)).not.toBeNull();
     expect(validatePattern('FREQ=MONTHLY', undefined)).not.toBeNull();
+  });
+
+  it('accepts an anchorless yearly pattern pinned by BYWEEKNO (week-number phase)', () => {
+    // BYWEEKNO fixes the phase by ISO week number independent of the start date,
+    // so a standards-shaped week-based calendar must not be rejected as floating.
+    expect(validatePattern('FREQ=YEARLY;BYWEEKNO=1', undefined)).toBeNull();
   });
 });

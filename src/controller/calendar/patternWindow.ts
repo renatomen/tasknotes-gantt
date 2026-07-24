@@ -29,17 +29,11 @@ export function evaluatePattern(
   patternStart: string | undefined,
   window: EvaluationWindow,
 ): PatternResult {
-  let options: Partial<Options>;
   try {
-    options = RRule.parseString(rule);
-  } catch (error) {
-    return { kind: 'invalid', reason: `not a valid RRULE: ${describe(error)}` };
-  }
+    const options = RRule.parseString(rule);
+    const unstable = rejectUnstable(options, patternStart !== undefined);
+    if (unstable !== null) return { kind: 'invalid', reason: unstable };
 
-  const unstable = rejectUnstable(options, patternStart !== undefined);
-  if (unstable !== null) return { kind: 'invalid', reason: unstable };
-
-  try {
     options.dtstart = utcMidnight(patternStart ?? window.startDate);
     // An authored DTSTART/TZID inside the rule text would re-zone every
     // occurrence off the floating convention (or throw on an unknown zone).
@@ -63,6 +57,8 @@ export function evaluatePattern(
  *  - a sub-daily FREQ (HOURLY/MINUTELY/SECONDLY) yields intra-day occurrences a
  *    day calendar can't use, and would materialize ~10^8 dates over the
  *    multi-year validity probe — a freeze;
+ *  - a non-positive INTERVAL (0 or negative): rrule accepts it but expansion
+ *    never advances, so between() would not terminate — a freeze;
  *  - an anchorless rule whose phase no BY-part pins (or that counts/bounds from
  *    the start via INTERVAL>1 / COUNT / UNTIL) floats with the render window:
  *    its matched days shift whenever the window moves, so it needs a
@@ -71,6 +67,9 @@ export function evaluatePattern(
 function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string | null {
   if (options.freq !== undefined && options.freq > RRule.DAILY) {
     return 'pattern uses a sub-daily frequency (HOURLY/MINUTELY/SECONDLY); a day-granularity calendar cannot use it';
+  }
+  if (options.interval !== undefined && options.interval < 1) {
+    return 'pattern uses a non-positive INTERVAL, which never advances';
   }
   if (!hasAnchor && !isPhasePinned(options)) {
     return 'pattern floats without a pattern_start anchor date (its matched days depend on the start date)';
@@ -97,7 +96,8 @@ function isPhasePinned(options: Partial<Options>): boolean {
         present(options.bymonth) ||
         present(options.bymonthday) ||
         present(options.byweekday) ||
-        present(options.byyearday)
+        present(options.byyearday) ||
+        present(options.byweekno)
       );
     default:
       return false;
