@@ -9,7 +9,7 @@
  * default and would drop a holiday on the first rendered day.
  */
 
-import { RRule } from 'rrule';
+import { RRule, type Options } from 'rrule';
 
 import { addDaysIso } from './schema';
 
@@ -22,7 +22,6 @@ export type PatternResult =
   | { kind: 'ok'; dates: Set<string> }
   | { kind: 'invalid'; reason: string };
 
-const ANCHORED_GRAMMAR = /(^|;)\s*(INTERVAL|COUNT|UNTIL)=/i;
 const DAY_MS = 86_400_000;
 
 export function evaluatePattern(
@@ -30,15 +29,17 @@ export function evaluatePattern(
   patternStart: string | undefined,
   window: EvaluationWindow,
 ): PatternResult {
-  if (patternStart === undefined && ANCHORED_GRAMMAR.test(rule)) {
-    return {
-      kind: 'invalid',
-      reason: 'pattern uses INTERVAL/COUNT/UNTIL, which needs a pattern_start anchor date',
-    };
+  let options: Partial<Options>;
+  try {
+    options = RRule.parseString(rule);
+  } catch (error) {
+    return { kind: 'invalid', reason: `not a valid RRULE: ${describe(error)}` };
   }
 
+  const unstable = rejectUnstable(options, patternStart !== undefined);
+  if (unstable !== null) return { kind: 'invalid', reason: unstable };
+
   try {
-    const options = RRule.parseString(rule);
     options.dtstart = utcMidnight(patternStart ?? window.startDate);
     // An authored DTSTART/TZID inside the rule text would re-zone every
     // occurrence off the floating convention (or throw on an unknown zone).
@@ -54,6 +55,59 @@ export function evaluatePattern(
   } catch (error) {
     return { kind: 'invalid', reason: `not a valid RRULE: ${describe(error)}` };
   }
+}
+
+/**
+ * Reject rules a day-granularity calendar can't evaluate safely or
+ * deterministically, before expansion:
+ *  - a sub-daily FREQ (HOURLY/MINUTELY/SECONDLY) yields intra-day occurrences a
+ *    day calendar can't use, and would materialize ~10^8 dates over the
+ *    multi-year validity probe — a freeze;
+ *  - an anchorless rule whose phase no BY-part pins (or that counts/bounds from
+ *    the start via INTERVAL>1 / COUNT / UNTIL) floats with the render window:
+ *    its matched days shift whenever the window moves, so it needs a
+ *    pattern_start anchor.
+ */
+function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string | null {
+  if (options.freq !== undefined && options.freq > RRule.DAILY) {
+    return 'pattern uses a sub-daily frequency (HOURLY/MINUTELY/SECONDLY); a day-granularity calendar cannot use it';
+  }
+  if (!hasAnchor && !isPhasePinned(options)) {
+    return 'pattern floats without a pattern_start anchor date (its matched days depend on the start date)';
+  }
+  return null;
+}
+
+/** Whether the rule's occurrence phase is fixed independent of its anchor date. */
+function isPhasePinned(options: Partial<Options>): boolean {
+  // Counted or bounded from the anchor (INTERVAL>1, COUNT, UNTIL) — always
+  // anchor-dependent, whatever BY-parts are present.
+  if ((options.interval ?? 1) > 1) return false;
+  if (options.count !== undefined && options.count !== null) return false;
+  if (options.until !== undefined && options.until !== null) return false;
+  switch (options.freq) {
+    case RRule.DAILY:
+      return true;
+    case RRule.WEEKLY:
+      return present(options.byweekday);
+    case RRule.MONTHLY:
+      return present(options.bymonthday) || present(options.byweekday);
+    case RRule.YEARLY:
+      return (
+        present(options.bymonth) ||
+        present(options.bymonthday) ||
+        present(options.byweekday) ||
+        present(options.byyearday)
+      );
+    default:
+      return false;
+  }
+}
+
+/** A BY-part is present when it's a non-null scalar or a non-empty list. */
+function present(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  return !Array.isArray(value) || value.length > 0;
 }
 
 /** The window days the pattern does NOT match — the blocking non-working complement. */

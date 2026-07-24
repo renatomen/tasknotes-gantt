@@ -98,6 +98,39 @@ describe('evaluatePattern', () => {
     const dates = okDates('FREQ=DAILY', window('2026-04-06', '2026-04-10'), '2026-04-08');
     expect(dates).toEqual(['2026-04-08', '2026-04-09']);
   });
+
+  it('rejects a bare weekly pattern with no BYDAY and no anchor (phase floats with the window)', () => {
+    const result = evaluatePattern('FREQ=WEEKLY', undefined, TWO_WEEKS);
+    expect(result.kind).toBe('invalid');
+    if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
+  });
+
+  it('rejects a bare monthly pattern with no BY-part and no anchor', () => {
+    const result = evaluatePattern('FREQ=MONTHLY', undefined, TWO_WEEKS);
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('accepts a bare pattern once a pattern_start anchor pins its phase', () => {
+    const dates = okDates('FREQ=WEEKLY', TWO_WEEKS, '2026-04-06');
+    expect(dates).toContain('2026-04-06'); // the anchored weekday, each week
+    expect(dates).toContain('2026-04-13');
+  });
+
+  it('accepts an anchorless daily pattern (every day, phase-independent)', () => {
+    const dates = okDates('FREQ=DAILY', window('2026-04-06', '2026-04-09'));
+    expect(dates).toEqual(['2026-04-06', '2026-04-07', '2026-04-08']);
+  });
+
+  it('accepts an anchorless monthly pattern pinned by BYMONTHDAY', () => {
+    const dates = okDates('FREQ=MONTHLY;BYMONTHDAY=15', window('2026-04-01', '2026-05-01'));
+    expect(dates).toEqual(['2026-04-15']);
+  });
+
+  it('rejects a sub-daily frequency a day calendar cannot use (even with an anchor)', () => {
+    const result = evaluatePattern('FREQ=HOURLY;INTERVAL=6', '2026-04-06', TWO_WEEKS);
+    expect(result.kind).toBe('invalid');
+    if (result.kind === 'invalid') expect(result.reason).toMatch(/sub-daily/);
+  });
 });
 
 describe('blockingComplement', () => {
@@ -159,5 +192,17 @@ describe('validatePattern', () => {
   it('rejects garbage and anchorless advanced grammar', () => {
     expect(validatePattern('not an rrule', undefined)).not.toBeNull();
     expect(validatePattern('FREQ=DAILY;COUNT=2', undefined)).not.toBeNull();
+  });
+
+  it('rejects a sub-daily frequency without expanding it (no freeze over the probe)', () => {
+    // FREQ=SECONDLY over the multi-year probe would materialize ~10^8 dates; the
+    // guard must reject before expansion, even when an anchor is supplied.
+    expect(validatePattern('FREQ=SECONDLY', '2026-01-05')).not.toBeNull();
+    expect(validatePattern('FREQ=MINUTELY', undefined)).not.toBeNull();
+  });
+
+  it('rejects a bare recurring pattern that floats without an anchor', () => {
+    expect(validatePattern('FREQ=WEEKLY', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=MONTHLY', undefined)).not.toBeNull();
   });
 });
