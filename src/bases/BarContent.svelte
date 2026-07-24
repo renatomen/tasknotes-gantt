@@ -125,12 +125,14 @@
       dot.className = 'og-override-dot';
       dot.title = tooltip;
       // The dot sits on the bar's top-left corner, which is SVAR's start-resize
-      // zone. Stop a drag that begins on the dot from reaching that handler so
-      // inspecting the indicator can't accidentally move the start date; hover
-      // and the `title` tooltip still work (only pointerdown/mousedown are stopped).
+      // zone — and SVAR begins a drag from mouse/pointer AND touch events on
+      // `.wx-bars`. Stop every drag-initiating event from bubbling out of the dot
+      // so inspecting the indicator — including a long-press on touch — can't move
+      // the start date; hover and the `title` tooltip still work.
       const stopDrag = (e: Event): void => e.stopPropagation();
-      dot.addEventListener('pointerdown', stopDrag);
-      dot.addEventListener('mousedown', stopDrag);
+      for (const evt of ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const) {
+        dot.addEventListener(evt, stopDrag);
+      }
       bar.appendChild(dot);
       return () => dot.remove();
     };
