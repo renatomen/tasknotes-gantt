@@ -89,6 +89,27 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(barClass).toContain("wx-split");
   });
 
+  it("re-asserts wx-split after the bar's class list is reset (live Bar Fill regression)", async () => {
+    // Reproduce what SVAR does on an update-task (e.g. a Bar Fill / Strip source
+    // change re-issues the task with a new treatment class): it re-applies the
+    // bar's whole class list from task.type, dropping the imperatively-stamped
+    // wx-split. Without the MutationObserver in BarContent the split stays lost —
+    // the body paints opaque and the 15%-opacity ghost pieces blend over it — until
+    // a remount. The observer must re-assert it so the split survives live.
+    await browser.execute((selector: string) => {
+      document.querySelector(selector)?.classList.remove("wx-split");
+    }, STRETCH_BAR);
+    await browser.waitUntil(
+      async () =>
+        browser.execute(
+          (selector: string) =>
+            document.querySelector(selector)?.classList.contains("wx-split") ?? false,
+          STRETCH_BAR,
+        ),
+      { timeout: 5000, timeoutMsg: "wx-split was not re-asserted after the class list was reset" }
+    );
+  });
+
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
     const segments = await $$(".og-bases-gantt .wx-segment");
     expect(segments.length).toBe(0);
