@@ -842,6 +842,11 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
       defaultDuration: 1,
       viewEstimateMeaning: 'working-days',
       estimateMeaningForTask: (path) => (path === 'override.md' ? 'calendar-days' : 'working-days'),
+      // A resolved calendar is required for the indicator (else the bar is flat
+      // regardless and the mark would misrepresent it) — give every task one.
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({ isBlocked: () => false, maxBlockedRunDays: 0 }),
+      },
     };
     const controller = makeControllerWith(overrideConfig, [
       task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
@@ -856,6 +861,24 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     expect(overridden?.interpretationOverridden).toBe('calendar-days');
     // A task that matches the view default is not marked.
     expect(follows?.interpretationOverridden).toBeUndefined();
+  });
+
+  it('suppresses the override indicator when the task has no resolved calendar', async () => {
+    // A working-days override with no calendar can't re-project — the bar renders
+    // flat regardless — so marking it "working days" would claim the opposite of
+    // its actual behaviour. No workingTimeStretch → no blocking → no mark.
+    const noCalendarConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      viewEstimateMeaning: 'working-days',
+      estimateMeaningForTask: () => 'calendar-days',
+    };
+    const controller = makeControllerWith(noCalendarConfig, [
+      task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.interpretationOverridden).toBeUndefined();
   });
 
   it('never marks an override when no override resolver is configured', async () => {

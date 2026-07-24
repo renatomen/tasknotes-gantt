@@ -1663,8 +1663,14 @@ export class GanttController {
         : { start: policy.start, end: policy.end };
       // A task whose effective interpretation differs from the view default is
       // overridden; carry the effective meaning so the view can name it (R11).
+      // Only when a calendar actually resolves (`blocking`): with no calendar the
+      // span can't re-project — it renders flat regardless — so a `working-days`
+      // indicator there would claim the opposite of the bar's real behaviour.
       const interpretationOverridden =
-        estimateMeaningForTask != null && viewEstimateMeaning != null && meaning !== viewEstimateMeaning
+        blocking != null &&
+        estimateMeaningForTask != null &&
+        viewEstimateMeaning != null &&
+        meaning !== viewEstimateMeaning
           ? meaning
           : undefined;
       resolved.push({ ...task, ...span, dateStatus: policy.dateStatus, interpretationOverridden });
