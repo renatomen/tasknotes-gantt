@@ -118,4 +118,33 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     const defaultTicks = await $$(`${STRETCH_BAR} .og-override-tick`);
     expect(defaultTicks.length).toBe(0);
   });
+
+  it("live-refreshes the override tick when the mapped Estimate-meaning property is edited", async () => {
+    await openBase("CalendarAxesOverride.base");
+    await expect($(STRETCH_BAR)).toExist();
+    // Task Stretch follows the working-days default, so it starts without a tick.
+    await browser.waitUntil(
+      async () => (await $$(`${STRETCH_BAR} .og-override-tick`)).length === 0,
+      { timeout: 30000, timeoutMsg: "Task Stretch unexpectedly started with a tick" }
+    );
+    // Edit its mapped `est_meaning` to calendar-days (≠ the view default) while the
+    // Base stays open. Only if that property is in the watched set does the edit
+    // flip the entry signature, re-read the task, and re-render the tick live —
+    // the watch this change adds, exercised through the real onDataUpdated refresh.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("Task Stretch.md");
+      if (!file) throw new Error("Task Stretch.md missing from the axes fixture vault");
+      await app.fileManager.processFrontMatter(file as never, (fm: Record<string, unknown>) => {
+        fm.est_meaning = "calendar-days";
+      });
+    });
+    await browser.waitUntil(
+      async () => (await $$(`${STRETCH_BAR} .og-override-tick`)).length > 0,
+      { timeout: 30000, timeoutMsg: "override tick never appeared after editing est_meaning live" }
+    );
+    const tickTitle = await browser.execute((selector: string) => {
+      return document.querySelector(`${selector} .og-override-tick`)?.getAttribute("title") ?? null;
+    }, STRETCH_BAR);
+    expect(tickTitle).toContain("calendar days");
+  });
 });
