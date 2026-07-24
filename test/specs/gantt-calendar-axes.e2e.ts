@@ -119,17 +119,17 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     expect(defaultDots.length).toBe(0);
   });
 
-  it("live-refreshes the override tick when the mapped Estimate-meaning property is edited", async () => {
+  it("live-refreshes the override dot when the mapped Estimate-meaning property is edited", async () => {
     await openBase("CalendarAxesOverride.base");
     await expect($(STRETCH_BAR)).toExist();
-    // Task Stretch follows the working-days default, so it starts without a tick.
+    // Task Stretch follows the working-days default, so it starts without a dot.
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-override-tick`)).length === 0,
-      { timeout: 30000, timeoutMsg: "Task Stretch unexpectedly started with a tick" }
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length === 0,
+      { timeout: 30000, timeoutMsg: "Task Stretch unexpectedly started with an override dot" }
     );
     // Edit its mapped `est_meaning` to calendar-days (≠ the view default) while the
     // Base stays open. Only if that property is in the watched set does the edit
-    // flip the entry signature, re-read the task, and re-render the tick live —
+    // flip the entry signature, re-read the task, and re-render the dot live —
     // the watch this change adds, exercised through the real onDataUpdated refresh.
     await browser.executeObsidian(async ({ app }) => {
       const file = app.vault.getAbstractFileByPath("Task Stretch.md");
@@ -139,12 +139,12 @@ describe("Gantt (OG) decoupled calendar axes", () => {
       });
     });
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-override-tick`)).length > 0,
-      { timeout: 30000, timeoutMsg: "override tick never appeared after editing est_meaning live" }
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length > 0,
+      { timeout: 30000, timeoutMsg: "override dot never appeared after editing est_meaning live" }
     );
-    const tickTitle = await browser.execute((selector: string) => {
-      return document.querySelector(`${selector} .og-override-tick`)?.getAttribute("title") ?? null;
+    const dotTitle = await browser.execute((selector: string) => {
+      return document.querySelector(`${selector} .og-override-dot`)?.getAttribute("title") ?? null;
     }, STRETCH_BAR);
-    expect(tickTitle).toContain("calendar days");
+    expect(dotTitle).toContain("calendar days");
   });
 });
