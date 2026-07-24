@@ -15,7 +15,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element */
+  /* global Element, MutationObserver */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -86,12 +86,26 @@
    * Stamp SVAR's own `wx-split` class on the host bar so its
    * `.wx-task:not(.wx-split)` fill rule steps aside and its transparent rule
    * applies — no `!important` contest with the library's scoped styles.
+   *
+   * SVAR re-applies a bar's whole class list from its `task.type` on an
+   * `update-task` (e.g. a Bar Fill / Strip source change re-issues the task with
+   * a new treatment class), which drops this imperatively-added class — leaving
+   * the body opaque so the ghost pieces blend over it until a remount. A
+   * MutationObserver re-asserts it whenever it is stripped while the pieces are
+   * mounted, so the split survives a live re-colour without a re-render.
    */
   function markBarSplit(node: Element): (() => void) | undefined {
     const bar = node.parentElement;
     if (!bar?.classList.contains('wx-bar')) return undefined;
     bar.classList.add('wx-split');
-    return () => bar.classList.remove('wx-split');
+    const observer = new MutationObserver(() => {
+      if (!bar.classList.contains('wx-split')) bar.classList.add('wx-split');
+    });
+    observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
+    return () => {
+      observer.disconnect();
+      bar.classList.remove('wx-split');
+    };
   }
 
   /**
