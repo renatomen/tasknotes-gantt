@@ -124,6 +124,11 @@ export function watchedMappingValues(
     estimateReadKey ?? viewMappings.timeEstimateProperty,
     viewMappings.calendarProperty,
     resolvedMappings.calendarProperty,
+    // Per-task Estimate-meaning override property: a live edit to it must re-read
+    // the task (its span re-projects and the override tick flips), so its key is
+    // watched like any other role. Mirrors the view/resolved calendar pair.
+    viewMappings.estimateMeaningProperty,
+    resolvedMappings.estimateMeaningProperty,
   ];
 }
 
@@ -220,6 +225,7 @@ export interface WatchedMappings {
   parentProperty?: string;
   timeEstimateProperty?: string;
   calendarProperty?: string;
+  estimateMeaningProperty?: string;
 }
 
 /**

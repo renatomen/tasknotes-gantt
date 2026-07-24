@@ -103,6 +103,16 @@ describe('watchedMappingValues', () => {
     expect(keys).toContain('status');
   });
 
+  it('watches the per-task Estimate-meaning override property', () => {
+    // Editing a mapped override property must re-read the task (its span re-projects
+    // and the override indicator flips), so its frontmatter key is watched.
+    const keys = frontmatterSignatureKeys(
+      watchedMappingValues({ estimateMeaningProperty: 'note.est_meaning' }, {}, null),
+    );
+
+    expect(keys).toContain('est_meaning');
+  });
+
   it('prefers the resolved estimate read key over the view mapping', () => {
     const keys = frontmatterSignatureKeys(
       watchedMappingValues({ timeEstimateProperty: 'note.old' }, {}, 'note.estimate'),
