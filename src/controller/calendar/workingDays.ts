@@ -3,11 +3,12 @@
  * a window — the single source of truth every shading/conflict surface reads, so
  * the previews and the live chart always agree on which days are worked.
  *
- * Working days come from the availability blocks when present, else the top-level
- * pattern. This is a DAY-granularity projection: an availability block's pattern
- * decides which days it covers; its hours are not consulted here (hour-level
- * effects are a separate, later concern). Every window day matched by no working
- * rule is the blocking (non-working) complement.
+ * A day is a working day if the top-level pattern OR any availability block covers
+ * it — the two are UNIONED, not exclusive, so a Mon–Fri pattern plus a Saturday
+ * block works Mon–Sat. This is a DAY-granularity projection: an availability
+ * block's pattern decides which days it covers; its hours are not consulted here
+ * (hour-level effects are a separate, later concern). Every window day matched by
+ * no working rule is the blocking (non-working) complement.
  *
  * @module controller/calendar/workingDays
  */
@@ -22,19 +23,21 @@ export interface WorkingRule {
 }
 
 /**
- * The RRULEs that define a calendar's working days: one per availability block
- * when any are present (the block's pattern; its hours are ignored at day
- * granularity), else the single top-level pattern. Empty when the calendar
- * defines no working pattern at all (e.g. a holidays-only calendar).
+ * The RRULEs that define a calendar's working days, UNIONED: the single top-level
+ * pattern (when set) plus one per availability block (the block's pattern; its
+ * hours are ignored at day granularity). A day covered by any of them is a working
+ * day. Empty when the calendar defines no working pattern at all (e.g. a
+ * holidays-only calendar).
  */
 export function workingDayRules(definition: CalendarDefinition): WorkingRule[] {
-  if (definition.availability.length > 0) {
-    return definition.availability.map((block) => ({ rule: block.pattern, anchor: undefined }));
-  }
+  const rules: WorkingRule[] = [];
   if (definition.pattern !== undefined) {
-    return [{ rule: definition.pattern, anchor: definition.patternStart }];
+    rules.push({ rule: definition.pattern, anchor: definition.patternStart });
   }
-  return [];
+  for (const block of definition.availability) {
+    rules.push({ rule: block.pattern, anchor: undefined });
+  }
+  return rules;
 }
 
 /**
