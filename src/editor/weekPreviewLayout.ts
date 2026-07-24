@@ -202,36 +202,56 @@ function uniformHours(definition: CalendarDefinition, week: EvaluationWindow): D
   });
 }
 
-/** The earliest day any of these rules first occurs, searching a full leap cycle. */
-function earliestOccurrence(rules: readonly WorkingRule[]): string | undefined {
-  const occurrences = rules.map(({ rule, anchor }) => {
-    const start = anchor ?? WEEK_ANCHOR;
-    const probe = evaluatePattern(rule, anchor, {
-      startDate: start,
-      endDateExclusive: addDaysIso(start, SEARCH_DAYS),
-    });
-    return probe.kind === 'ok' ? earliestOf(probe.dates) : undefined;
+/** The earliest day a single rule first occurs, searching a full leap cycle. */
+function firstOccurrence({ rule, anchor }: WorkingRule): string | undefined {
+  const start = anchor ?? WEEK_ANCHOR;
+  const probe = evaluatePattern(rule, anchor, {
+    startDate: start,
+    endDateExclusive: addDaysIso(start, SEARCH_DAYS),
   });
-  return earliestOf(occurrences);
+  return probe.kind === 'ok' ? earliestOf(probe.dates) : undefined;
 }
 
 /**
- * The Monday-aligned week that contains the first occurrence of whatever defines
- * the working days shown — the availability blocks when present, else the main
- * pattern — so a non-weekly (monthly/anchored) schedule never previews blank.
+ * The Monday-aligned representative week for a set of working rules: the week
+ * containing an occurrence of the MOST rules. A frequent rule (a weekly pattern)
+ * recurs in essentially every week, so anchoring to a sparse rule's week (a
+ * monthly block) shows both; anchoring to the earliest occurrence would pick the
+ * frequent rule's first week and hide the sparse one, leaving the preview
+ * disagreeing with the chart. Ties break to the earliest week; with no
+ * occurrence at all it falls back to the fixed anchor week, never blank.
  */
+function representativeWeekFor(rules: readonly WorkingRule[]): EvaluationWindow {
+  const candidateStarts = new Set<string>();
+  for (const rule of rules) {
+    const first = firstOccurrence(rule);
+    if (first !== undefined) candidateStarts.add(addDaysIso(first, -isoWeekday(first)));
+  }
+
+  let bestStart: string | undefined;
+  let bestCovered = -1;
+  for (const start of candidateStarts) {
+    const week: EvaluationWindow = { startDate: start, endDateExclusive: addDaysIso(start, 7) };
+    let covered = 0;
+    for (const { rule, anchor } of rules) {
+      if (weekdaysMatching(rule, anchor, week).size > 0) covered += 1;
+    }
+    const better = covered > bestCovered;
+    const earlierTie = covered === bestCovered && (bestStart === undefined || start < bestStart);
+    if (better || earlierTie) {
+      bestStart = start;
+      bestCovered = covered;
+    }
+  }
+  return weekFrom(bestStart ?? WEEK_ANCHOR);
+}
+
 function representativeWeek(definition: CalendarDefinition): EvaluationWindow {
-  return weekFrom(earliestOccurrence(workingDayRules(definition)) ?? WEEK_ANCHOR);
+  return representativeWeekFor(workingDayRules(definition));
 }
 
-/**
- * The single representative week for a union: anchored to the earliest first
- * occurrence across all members' rules, so a member whose schedule falls outside
- * an arbitrary week is still rendered rather than previewing blank.
- */
 function unionRepresentativeWeek(members: readonly CalendarDefinition[]): EvaluationWindow {
-  const firstPerMember = members.map((member) => earliestOccurrence(workingDayRules(member)));
-  return weekFrom(earliestOf(firstPerMember) ?? WEEK_ANCHOR);
+  return representativeWeekFor(members.flatMap((member) => workingDayRules(member)));
 }
 
 function weekFrom(iso: string): EvaluationWindow {

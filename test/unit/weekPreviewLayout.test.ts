@@ -76,6 +76,25 @@ describe('buildWeekPreview', () => {
     expect(week.days[6]?.isWorking).toBe(false); // Sun
   });
 
+  it('picks a preview week that shows both a weekly pattern and a monthly block', () => {
+    // Regression: a weekly pattern occurs every week but a monthly block only in
+    // its own week. Anchoring to the pattern's earliest week (Jan 5) hid the
+    // block, so the preview disagreed with the chart, which treats the 15th as
+    // working. The chosen week (Mon 2026-01-12..Sun 2026-01-18) contains both.
+    const week = buildWeekPreview(
+      base({
+        pattern: 'FREQ=WEEKLY;BYDAY=MO',
+        workingHours: [hours('09:00', '17:00')],
+        availability: [{ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15', hours: [hours('10:00', '14:00')] }],
+      }),
+    );
+    const monday = week.days.find((d) => d.date === '2026-01-12');
+    const fifteenth = week.days.find((d) => d.date === '2026-01-15');
+    expect(monday?.isWorking).toBe(true); // the weekly pattern
+    expect(fifteenth?.isWorking).toBe(true); // the monthly block, 2026-01-15 (Thu)
+    expect(fifteenth?.hours).toEqual([hours('10:00', '14:00')]);
+  });
+
   it('renders a split shift as two blocks on the same day', () => {
     const week = buildWeekPreview(
       base({
