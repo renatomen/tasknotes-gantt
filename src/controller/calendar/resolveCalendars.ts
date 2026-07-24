@@ -66,14 +66,16 @@ export function buildCalendarRegistry(
     const parsed = parseCalendarFrontmatter(note.frontmatter);
     if (parsed === null) continue;
     if (parsed.kind === 'calendar') {
-      // The schema's static checks accept a pattern the evaluator later rejects
-      // (e.g. an anchorless bare FREQ=WEEKLY, or one matching no days). Probe it
-      // the same way the preview does, so such a calendar is flagged fail-visible
-      // rather than silently rendering inert on the chart.
-      const reasons = patternReasons(parsed);
+      // The schema's static checks accept a working rule the evaluator later
+      // rejects (an anchorless bare FREQ=WEEKLY, one matching no days). Probe the
+      // working rules the way the preview does: an invalid one flags the whole
+      // calendar fail-visible rather than silently rendering inert. A bad display
+      // event is diagnosed but does NOT invalidate the working calendar.
+      const reasons = workingRuleReasons(parsed);
       if (reasons.length > 0) {
         registry.invalid.set(note.path, { name: note.basename, reasons });
       } else {
+        diagnoseEvents(parsed);
         registry.calendars.set(note.path, { path: note.path, name: note.basename, definition: parsed });
       }
     } else if (parsed.kind === 'calendar-set') {
@@ -120,12 +122,12 @@ function registerSets(
 }
 
 /**
- * Runtime-invalid reasons across every RRULE a calendar evaluates — the working
- * pattern, availability blocks, and recurring events — empty when all evaluate.
- * Each is probed with the anchor its consumer uses, so a rule that would be
- * silently skipped downstream is flagged fail-visible instead.
+ * Runtime-invalid reasons for a calendar's WORKING rules — the working pattern
+ * and availability blocks — empty when both evaluate. An invalid working rule
+ * invalidates the whole calendar (schema.ts fail-granularity: the working
+ * schedule is broken). Each is probed with the anchor its consumer uses.
  */
-function patternReasons(definition: CalendarDefinition): string[] {
+function workingRuleReasons(definition: CalendarDefinition): string[] {
   const reasons: string[] = [];
   if (definition.pattern !== undefined) {
     const reason = validatePattern(definition.pattern, definition.patternStart);
@@ -135,13 +137,22 @@ function patternReasons(definition: CalendarDefinition): string[] {
     const reason = validatePattern(block.pattern, undefined);
     if (reason !== null) reasons.push(reason);
   }
-  for (const event of definition.recurringEvents) {
-    // Only unevaluable, not empty-in-probe: a long-interval event (a decade
-    // anniversary) legitimately first occurs beyond the finite probe window.
-    const reason = validateEvaluable(event.rrule, definition.patternStart);
-    if (reason !== null) reasons.push(reason);
-  }
   return reasons;
+}
+
+/**
+ * Diagnose (never invalidate) a runtime-invalid recurring event: it is a display
+ * entry, so per the fail-granularity contract it is dropped with a diagnostic
+ * while the working calendar stays valid. addRecurringEvents already skips it at
+ * render — the diagnostic keeps that drop fail-visible rather than silent, and
+ * uses validateEvaluable so a long-interval event first occurring beyond the
+ * probe is not treated as invalid.
+ */
+function diagnoseEvents(definition: CalendarDefinition): void {
+  for (const event of definition.recurringEvents) {
+    const reason = validateEvaluable(event.rrule, definition.patternStart);
+    if (reason !== null) definition.diagnostics.push({ path: 'events', message: reason });
+  }
 }
 
 export interface CalendarIdentity {

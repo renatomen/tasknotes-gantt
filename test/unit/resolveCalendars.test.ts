@@ -67,23 +67,23 @@ describe('buildCalendarRegistry', () => {
     expect([...registry.invalid.keys()]).toEqual(['Calendars/Broken.md']);
   });
 
-  it('flags a schema-valid but runtime-invalid rule (pattern, block, or event) as invalid', () => {
+  it('invalidates a calendar for a bad WORKING rule but only diagnoses a bad display event', () => {
     const notes: CalendarNoteInput[] = [
-      // Each passes the schema's FREQ/anchor regex, but the evaluator rejects the
-      // bare FREQ=WEEKLY as floating — it must be flagged, not silently inert, in
-      // whichever slot it appears (top-level pattern, availability block, event).
+      // A bad WORKING rule (top-level pattern or availability block) breaks the
+      // schedule → the whole calendar is flagged invalid, fail-visible.
       { path: 'Cal/Floating.md', basename: 'Floating', frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY' } },
       {
         path: 'Cal/BadBlock.md',
         basename: 'BadBlock',
         frontmatter: { tngantt: 'calendar', availability: [{ pattern: 'FREQ=WEEKLY', hours: [] }] },
       },
+      // A bad display EVENT is an entry: per the fail-granularity contract it is
+      // diagnosed and dropped, but must NOT invalidate the working calendar.
       {
         path: 'Cal/BadEvent.md',
         basename: 'BadEvent',
         frontmatter: { tngantt: 'calendar', events: [{ rrule: 'FREQ=WEEKLY' }] },
       },
-      // A BYDAY-pinned pattern still resolves as a valid calendar.
       {
         path: 'Cal/Weekdays.md',
         basename: 'Weekdays',
@@ -91,9 +91,13 @@ describe('buildCalendarRegistry', () => {
       },
     ];
     const reg = buildCalendarRegistry(notes, resolveByBasename);
-    expect([...reg.calendars.keys()]).toEqual(['Cal/Weekdays.md']);
-    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md', 'Cal/BadBlock.md', 'Cal/BadEvent.md']);
+    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md', 'Cal/BadBlock.md']);
     expect(reg.invalid.get('Cal/Floating.md')?.reasons.join('; ')).toMatch(/pattern_start/);
+    // The bad-event calendar stays valid, with the event dropped-and-diagnosed.
+    expect([...reg.calendars.keys()]).toEqual(['Cal/BadEvent.md', 'Cal/Weekdays.md']);
+    expect(
+      reg.calendars.get('Cal/BadEvent.md')?.definition.diagnostics.some((d) => d.path === 'events'),
+    ).toBe(true);
   });
 
   it('keeps a calendar valid when a long-interval event first occurs beyond the probe', () => {
