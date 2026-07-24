@@ -64,15 +64,17 @@ describe('workingComplement', () => {
     expect([...result.blocked].sort()).toEqual([FRI, SAT, SUN]);
   });
 
-  it('lets availability blocks supersede a top-level pattern', () => {
+  it('unions availability blocks with the top-level pattern (blocks extend, never replace)', () => {
     const result = workingComplement(
       base({
-        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', // would cover Fri
-        availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE', hours: [] }], // wins → off Thu–Sun
+        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', // Mon–Fri
+        availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=SA', hours: [] }], // adds Saturday
       }),
       WEEK,
     );
-    expect([...result.blocked].sort()).toEqual(['2026-01-08', FRI, SAT, SUN]); // Thu–Sun off
+    // Union works Mon–Sat; only Sunday is blocked. Previously the block SUPERSEDED
+    // the pattern, wrongly dropping the Mon–Fri working days.
+    expect([...result.blocked].sort()).toEqual([SUN]);
   });
 
   it('covers nothing and blocks nothing when there is no working rule', () => {
@@ -89,13 +91,30 @@ describe('workingComplement', () => {
 });
 
 describe('workingDayRules', () => {
-  it('uses availability blocks when present, else the pattern, else none', () => {
+  it('unions the top-level pattern with each availability block', () => {
+    // Availability only.
     expect(workingDayRules(base({ availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=MO', hours: [] }] }))).toEqual([
       { rule: 'FREQ=WEEKLY;BYDAY=MO', anchor: undefined },
     ]);
+    // Pattern only.
     expect(workingDayRules(base({ pattern: 'FREQ=WEEKLY;BYDAY=MO,FR', patternStart: '2026-01-05' }))).toEqual([
       { rule: 'FREQ=WEEKLY;BYDAY=MO,FR', anchor: '2026-01-05' },
     ]);
+    // BOTH → unioned (a Mon–Fri pattern plus a Saturday block works Mon–Sat), the
+    // pattern was previously dropped whenever any availability block was present.
+    expect(
+      workingDayRules(
+        base({
+          pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+          patternStart: '2026-01-05',
+          availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=SA', hours: [] }],
+        }),
+      ),
+    ).toEqual([
+      { rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', anchor: '2026-01-05' },
+      { rule: 'FREQ=WEEKLY;BYDAY=SA', anchor: undefined },
+    ]);
+    // Neither.
     expect(workingDayRules(base())).toEqual([]);
   });
 });
