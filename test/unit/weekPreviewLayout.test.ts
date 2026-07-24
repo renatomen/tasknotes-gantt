@@ -95,6 +95,25 @@ describe('buildWeekPreview', () => {
     expect(fifteenth?.hours).toEqual([hours('10:00', '14:00')]);
   });
 
+  it('finds a later week where a biweekly pattern and a monthly block intersect', () => {
+    // Their first occurrences fall in different weeks (Jan 5 vs Jan 12) but they
+    // co-occur later, in the Apr 13 week: the biweekly Monday 2026-04-13 and the
+    // 15th on 2026-04-15. Searching only first occurrences picked a one-rule week
+    // and hid the other; the chart marks both days working, so the preview must too.
+    const week = buildWeekPreview(
+      base({
+        pattern: 'FREQ=WEEKLY;BYDAY=MO;INTERVAL=2',
+        patternStart: '2026-01-05',
+        workingHours: [hours('09:00', '17:00')],
+        availability: [{ pattern: 'FREQ=MONTHLY;BYMONTHDAY=15', hours: [hours('10:00', '14:00')] }],
+      }),
+    );
+    const monday = week.days.find((d) => d.date === '2026-04-13');
+    const fifteenth = week.days.find((d) => d.date === '2026-04-15');
+    expect(monday?.isWorking).toBe(true); // the biweekly Monday
+    expect(fifteenth?.isWorking).toBe(true); // the monthly block, 2026-04-15 (Wed)
+  });
+
   it('renders a split shift as two blocks on the same day', () => {
     const week = buildWeekPreview(
       base({
