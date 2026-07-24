@@ -3504,10 +3504,9 @@
     border-radius: 50%;
     background-color: var(--interactive-accent);
     box-shadow: 0 0 0 1.5px var(--background-primary);
-    /* Passive marker: the corner is SVAR's start-resize zone, so the dot must not
-       intercept pointer events or dragging it would resize the task's start date
-       in writable views. Interaction falls through to the bar's resize handle. */
-    pointer-events: none;
+    /* Hoverable (the `title` tooltip needs pointer events) but its pointerdown is
+       stopped in BarContent so dragging the dot never reaches SVAR's start-resize
+       handler at this corner — hover-to-inspect can't accidentally change dates. */
     z-index: 3;
   }
 

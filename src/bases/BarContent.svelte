@@ -15,7 +15,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element, MutationObserver */
+  /* global Element, MutationObserver, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -124,6 +124,13 @@
       const dot = document.createElement('span');
       dot.className = 'og-override-dot';
       dot.title = tooltip;
+      // The dot sits on the bar's top-left corner, which is SVAR's start-resize
+      // zone. Stop a drag that begins on the dot from reaching that handler so
+      // inspecting the indicator can't accidentally move the start date; hover
+      // and the `title` tooltip still work (only pointerdown/mousedown are stopped).
+      const stopDrag = (e: Event): void => e.stopPropagation();
+      dot.addEventListener('pointerdown', stopDrag);
+      dot.addEventListener('mousedown', stopDrag);
       bar.appendChild(dot);
       return () => dot.remove();
     };
