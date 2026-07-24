@@ -49,7 +49,7 @@ export function defaultPattern(): PatternModel {
 /** Parse an RRULE into the model, or null when it is not visually representable. */
 export function parsePattern(rule: string): PatternModel | null {
   const parts = parseParts(rule);
-  if (parts === null) return null; // a malformed segment forces the raw fallback
+  if (parts === null) return null;
   const freq = parts.get('FREQ');
   if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY') return null;
 
