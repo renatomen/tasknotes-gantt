@@ -142,7 +142,7 @@ export interface DatePolicyConfig {
   /**
    * The per-view default Estimate meaning. Paired with {@link estimateMeaningForTask}
    * to detect a per-task override: a task whose effective meaning differs from
-   * this default carries the on-bar override tick (R11). Absent → no tick.
+   * this default carries the on-bar override dot (R11). Absent → no dot.
    */
   viewEstimateMeaning?: EstimateMeaning;
 }
