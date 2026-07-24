@@ -68,6 +68,24 @@ describe('workingPatternModel', () => {
     expect(parsePattern('FREQ=WEEKLY;BYDAY=MO')?.interval).toBe(1);
   });
 
+  it('rejects a value-less RRULE segment instead of silently dropping it', () => {
+    // `FREQ=DAILY;COUNT` would otherwise parse as a clean FREQ=DAILY, and a save
+    // would rewrite it and drop the COUNT — fall back to raw text instead.
+    expect(parsePattern('FREQ=DAILY;COUNT')).toBeNull();
+    expect(parsePattern('FREQ=WEEKLY;BYDAY=MO;GARBAGE')).toBeNull();
+    // A trailing or doubled semicolon is benign, not malformed.
+    expect(parsePattern('FREQ=WEEKLY;BYDAY=MO;')?.weekdays).toEqual(['MO']);
+  });
+
+  it('rejects a monthly ordinal weekday outside the supported 1st–4th / last range', () => {
+    expect(parsePattern('FREQ=MONTHLY;BYDAY=5MO')).toBeNull();
+    expect(parsePattern('FREQ=MONTHLY;BYDAY=0MO')).toBeNull();
+    expect(parsePattern('FREQ=MONTHLY;BYDAY=-2FR')).toBeNull();
+    // The supported ordinals still parse.
+    expect(parsePattern('FREQ=MONTHLY;BYDAY=4TH')?.nthPosition).toBe(4);
+    expect(parsePattern('FREQ=MONTHLY;BYDAY=-1FR')?.nthPosition).toBe(-1);
+  });
+
   it('formats each frequency back to a canonical RRULE', () => {
     expect(formatPattern({ ...defaultPattern(), weekdays: ['MO', 'WE', 'FR'] })).toBe(
       'FREQ=WEEKLY;BYDAY=MO,WE,FR',
