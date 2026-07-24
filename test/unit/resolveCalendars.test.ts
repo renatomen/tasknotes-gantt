@@ -67,11 +67,22 @@ describe('buildCalendarRegistry', () => {
     expect([...registry.invalid.keys()]).toEqual(['Calendars/Broken.md']);
   });
 
-  it('flags a schema-valid but runtime-invalid pattern as invalid (fail-visible parity with the preview)', () => {
+  it('flags a schema-valid but runtime-invalid rule (pattern, block, or event) as invalid', () => {
     const notes: CalendarNoteInput[] = [
-      // Bare FREQ=WEEKLY passes the schema's FREQ/anchor regex, but the evaluator
-      // rejects it as floating — it must be flagged, not silently render inert.
+      // Each passes the schema's FREQ/anchor regex, but the evaluator rejects the
+      // bare FREQ=WEEKLY as floating — it must be flagged, not silently inert, in
+      // whichever slot it appears (top-level pattern, availability block, event).
       { path: 'Cal/Floating.md', basename: 'Floating', frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY' } },
+      {
+        path: 'Cal/BadBlock.md',
+        basename: 'BadBlock',
+        frontmatter: { tngantt: 'calendar', availability: [{ pattern: 'FREQ=WEEKLY', hours: [] }] },
+      },
+      {
+        path: 'Cal/BadEvent.md',
+        basename: 'BadEvent',
+        frontmatter: { tngantt: 'calendar', events: [{ rrule: 'FREQ=WEEKLY' }] },
+      },
       // A BYDAY-pinned pattern still resolves as a valid calendar.
       {
         path: 'Cal/Weekdays.md',
@@ -81,7 +92,7 @@ describe('buildCalendarRegistry', () => {
     ];
     const reg = buildCalendarRegistry(notes, resolveByBasename);
     expect([...reg.calendars.keys()]).toEqual(['Cal/Weekdays.md']);
-    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md']);
+    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md', 'Cal/BadBlock.md', 'Cal/BadEvent.md']);
     expect(reg.invalid.get('Cal/Floating.md')?.reasons.join('; ')).toMatch(/pattern_start/);
   });
 

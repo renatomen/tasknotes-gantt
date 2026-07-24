@@ -86,6 +86,15 @@ export function buildCalendarRegistry(
   // Members resolve after every calendar is known; sets are flat, so a member
   // that is itself a set (or invalid, or missing) drops with a flag while the
   // rest still union.
+  registerSets(parsedSets, registry, resolveLink);
+  return registry;
+}
+
+function registerSets(
+  parsedSets: readonly { note: CalendarNoteInput; definition: CalendarSetDefinition }[],
+  registry: CalendarRegistry,
+  resolveLink: LinkResolver,
+): void {
   for (const { note, definition } of parsedSets) {
     const members: { link: string; path: string }[] = [];
     const flags = definition.diagnostics.map((d) => `${d.path}: ${d.message}`);
@@ -108,11 +117,14 @@ export function buildCalendarRegistry(
       flags,
     });
   }
-
-  return registry;
 }
 
-/** Runtime-invalid reasons for a calendar's working patterns; empty when all evaluate. */
+/**
+ * Runtime-invalid reasons across every RRULE a calendar evaluates — the working
+ * pattern, availability blocks, and recurring events — empty when all evaluate.
+ * Each is probed with the anchor its consumer uses, so a rule that would be
+ * silently skipped downstream is flagged fail-visible instead.
+ */
 function patternReasons(definition: CalendarDefinition): string[] {
   const reasons: string[] = [];
   if (definition.pattern !== undefined) {
@@ -121,6 +133,10 @@ function patternReasons(definition: CalendarDefinition): string[] {
   }
   for (const block of definition.availability) {
     const reason = validatePattern(block.pattern, undefined);
+    if (reason !== null) reasons.push(reason);
+  }
+  for (const event of definition.recurringEvents) {
+    const reason = validatePattern(event.rrule, definition.patternStart);
     if (reason !== null) reasons.push(reason);
   }
   return reasons;

@@ -141,6 +141,14 @@ describe('evaluatePattern', () => {
     expect(validatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06')).not.toBeNull();
   });
 
+  it('rejects a malformed or non-integer INTERVAL that rrule keeps as a string', () => {
+    // rrule returns INTERVAL=foo / 1.5 as a STRING, so a numeric `< 1` check
+    // alone passes and between() hangs. Reject unless it is a positive integer.
+    expect(evaluatePattern('FREQ=DAILY;INTERVAL=foo', '2026-04-06', TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=DAILY;INTERVAL=1.5', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(validatePattern('FREQ=DAILY;INTERVAL=foo', '2026-04-06')).not.toBeNull();
+  });
+
   it('rejects sub-day BY-parts a day calendar cannot use (BYHOUR/BYMINUTE/BYSECOND)', () => {
     expect(evaluatePattern('FREQ=DAILY;BYHOUR=12', undefined, TWO_WEEKS).kind).toBe('invalid');
     // Full BY* lists would materialize ~10^8 occurrences over the probe — the

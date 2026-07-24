@@ -57,8 +57,9 @@ export function evaluatePattern(
  *  - a sub-daily FREQ (HOURLY/MINUTELY/SECONDLY) yields intra-day occurrences a
  *    day calendar can't use, and would materialize ~10^8 dates over the
  *    multi-year validity probe — a freeze;
- *  - a non-positive INTERVAL (0 or negative): rrule accepts it but expansion
- *    never advances, so between() would not terminate — a freeze;
+ *  - a non-positive or non-integer INTERVAL: rrule keeps a malformed value
+ *    ("foo", "1.5") as a string and 0/negative advance not at all, so between()
+ *    would not terminate — a freeze;
  *  - an anchorless rule whose phase no BY-part pins (or that counts/bounds from
  *    the start via INTERVAL>1 / COUNT / UNTIL) floats with the render window:
  *    its matched days shift whenever the window moves, so it needs a
@@ -71,8 +72,8 @@ function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string |
   if (present(options.byhour) || present(options.byminute) || present(options.bysecond)) {
     return 'pattern uses sub-day BY-parts (BYHOUR/BYMINUTE/BYSECOND); a day-granularity calendar cannot use them';
   }
-  if (options.interval !== undefined && options.interval < 1) {
-    return 'pattern uses a non-positive INTERVAL, which never advances';
+  if (options.interval !== undefined && (!Number.isInteger(options.interval) || options.interval < 1)) {
+    return 'pattern uses a non-positive or non-integer INTERVAL, which never advances';
   }
   if (!hasAnchor && !isPhasePinned(options)) {
     return 'pattern floats without a pattern_start anchor date (its matched days depend on the start date)';
