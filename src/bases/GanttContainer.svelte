@@ -3504,6 +3504,10 @@
     border-radius: 50%;
     background-color: var(--interactive-accent);
     box-shadow: 0 0 0 1.5px var(--background-primary);
+    /* Passive marker: the corner is SVAR's start-resize zone, so the dot must not
+       intercept pointer events or dragging it would resize the task's start date
+       in writable views. Interaction falls through to the bar's resize handle. */
+    pointer-events: none;
     z-index: 3;
   }
 
