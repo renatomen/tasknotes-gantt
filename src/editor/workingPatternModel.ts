@@ -126,18 +126,20 @@ function parseMonthly(parts: Map<string, string>, model: PatternModel): PatternM
 }
 
 /**
- * The RRULE's `KEY=VALUE` segments, or null when a segment is malformed. A
+ * The RRULE's `KEY=VALUE` segments, or null when any segment is malformed. A
  * value-less segment (e.g. the `COUNT` in `FREQ=DAILY;COUNT`) is NOT dropped:
  * dropping it would parse a clean-looking model that a later save rewrites,
- * silently discarding the clause. Returning null forces the raw fallback so the
- * authored rule survives verbatim. A trailing or doubled `;` (an empty segment)
- * stays benign.
+ * silently discarding the clause. An empty segment (a trailing or doubled `;`)
+ * is malformed too — the evaluator's rrule parser rejects it outright — so
+ * matching that keeps the model and evaluator in agreement. Both return null,
+ * forcing the raw fallback so the authored rule survives verbatim rather than
+ * opening an invalid rule in the visual editor.
  */
 function parseParts(rule: string): Map<string, string> | null {
   const parts = new Map<string, string>();
   for (const segment of rule.split(';')) {
     const trimmed = segment.trim();
-    if (trimmed === '') continue;
+    if (trimmed === '') return null;
     const eq = trimmed.indexOf('=');
     if (eq === -1) return null;
     const key = trimmed.slice(0, eq).trim().toUpperCase();

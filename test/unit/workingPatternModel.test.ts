@@ -68,13 +68,15 @@ describe('workingPatternModel', () => {
     expect(parsePattern('FREQ=WEEKLY;BYDAY=MO')?.interval).toBe(1);
   });
 
-  it('rejects a value-less RRULE segment instead of silently dropping it', () => {
+  it('rejects a malformed or empty RRULE segment instead of silently dropping it', () => {
     // `FREQ=DAILY;COUNT` would otherwise parse as a clean FREQ=DAILY, and a save
-    // would rewrite it and drop the COUNT — fall back to raw text instead.
+    // would rewrite it and drop the COUNT. An empty segment (trailing/doubled
+    // `;`) is what the evaluator's rrule parser itself rejects — both must fall
+    // back to raw text so the model and evaluator agree, never visual mode.
     expect(parsePattern('FREQ=DAILY;COUNT')).toBeNull();
     expect(parsePattern('FREQ=WEEKLY;BYDAY=MO;GARBAGE')).toBeNull();
-    // A trailing or doubled semicolon is benign, not malformed.
-    expect(parsePattern('FREQ=WEEKLY;BYDAY=MO;')?.weekdays).toEqual(['MO']);
+    expect(parsePattern('FREQ=WEEKLY;BYDAY=MO;')).toBeNull(); // trailing ';'
+    expect(parsePattern('FREQ=WEEKLY;;BYDAY=MO')).toBeNull(); // doubled ';'
   });
 
   it('rejects a monthly ordinal weekday outside the supported 1st–4th / last range', () => {
