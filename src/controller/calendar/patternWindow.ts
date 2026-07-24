@@ -68,6 +68,9 @@ function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string |
   if (options.freq !== undefined && options.freq > RRule.DAILY) {
     return 'pattern uses a sub-daily frequency (HOURLY/MINUTELY/SECONDLY); a day-granularity calendar cannot use it';
   }
+  if (present(options.byhour) || present(options.byminute) || present(options.bysecond)) {
+    return 'pattern uses sub-day BY-parts (BYHOUR/BYMINUTE/BYSECOND); a day-granularity calendar cannot use them';
+  }
   if (options.interval !== undefined && options.interval < 1) {
     return 'pattern uses a non-positive INTERVAL, which never advances';
   }
@@ -92,8 +95,9 @@ function isPhasePinned(options: Partial<Options>): boolean {
     case RRule.MONTHLY:
       return present(options.bymonthday) || present(options.byweekday);
     case RRule.YEARLY:
+      // BYMONTH is intentionally absent: it fixes the month but rrule takes the
+      // day from the anchor, so BYMONTH alone still floats with the window.
       return (
-        present(options.bymonth) ||
         present(options.bymonthday) ||
         present(options.byweekday) ||
         present(options.byyearday) ||

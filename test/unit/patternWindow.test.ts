@@ -140,6 +140,13 @@ describe('evaluatePattern', () => {
     expect(evaluatePattern('FREQ=DAILY;INTERVAL=0', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(validatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06')).not.toBeNull();
   });
+
+  it('rejects sub-day BY-parts a day calendar cannot use (BYHOUR/BYMINUTE/BYSECOND)', () => {
+    expect(evaluatePattern('FREQ=DAILY;BYHOUR=12', undefined, TWO_WEEKS).kind).toBe('invalid');
+    // Full BY* lists would materialize ~10^8 occurrences over the probe — the
+    // guard must reject before between() rather than expand them.
+    expect(validatePattern('FREQ=DAILY;BYHOUR=0,6,12,18;BYMINUTE=0,30', undefined)).not.toBeNull();
+  });
 });
 
 describe('blockingComplement', () => {
@@ -219,5 +226,11 @@ describe('validatePattern', () => {
     // BYWEEKNO fixes the phase by ISO week number independent of the start date,
     // so a standards-shaped week-based calendar must not be rejected as floating.
     expect(validatePattern('FREQ=YEARLY;BYWEEKNO=1', undefined)).toBeNull();
+  });
+
+  it('rejects an anchorless yearly pattern pinned only by BYMONTH (the day still floats)', () => {
+    // BYMONTH fixes the month, but rrule derives the day from the anchor, so
+    // shading would move with the window; it needs a day selector or an anchor.
+    expect(validatePattern('FREQ=YEARLY;BYMONTH=2', undefined)).not.toBeNull();
   });
 });

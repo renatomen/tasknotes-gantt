@@ -67,6 +67,24 @@ describe('buildCalendarRegistry', () => {
     expect([...registry.invalid.keys()]).toEqual(['Calendars/Broken.md']);
   });
 
+  it('flags a schema-valid but runtime-invalid pattern as invalid (fail-visible parity with the preview)', () => {
+    const notes: CalendarNoteInput[] = [
+      // Bare FREQ=WEEKLY passes the schema's FREQ/anchor regex, but the evaluator
+      // rejects it as floating — it must be flagged, not silently render inert.
+      { path: 'Cal/Floating.md', basename: 'Floating', frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY' } },
+      // A BYDAY-pinned pattern still resolves as a valid calendar.
+      {
+        path: 'Cal/Weekdays.md',
+        basename: 'Weekdays',
+        frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
+      },
+    ];
+    const reg = buildCalendarRegistry(notes, resolveByBasename);
+    expect([...reg.calendars.keys()]).toEqual(['Cal/Weekdays.md']);
+    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md']);
+    expect(reg.invalid.get('Cal/Floating.md')?.reasons.join('; ')).toMatch(/pattern_start/);
+  });
+
   it('resolves set members to calendar paths', () => {
     expect(registry.sets.get('Calendars/APAC.md')?.memberPaths).toEqual([
       'Calendars/NZ Holidays.md',

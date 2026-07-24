@@ -18,6 +18,7 @@ import {
   type CalendarDefinition,
   type CalendarSetDefinition,
 } from './schema';
+import { validatePattern } from './patternWindow';
 
 export interface CalendarNoteInput {
   path: string;
@@ -65,7 +66,16 @@ export function buildCalendarRegistry(
     const parsed = parseCalendarFrontmatter(note.frontmatter);
     if (parsed === null) continue;
     if (parsed.kind === 'calendar') {
-      registry.calendars.set(note.path, { path: note.path, name: note.basename, definition: parsed });
+      // The schema's static checks accept a pattern the evaluator later rejects
+      // (e.g. an anchorless bare FREQ=WEEKLY, or one matching no days). Probe it
+      // the same way the preview does, so such a calendar is flagged fail-visible
+      // rather than silently rendering inert on the chart.
+      const reasons = patternReasons(parsed);
+      if (reasons.length > 0) {
+        registry.invalid.set(note.path, { name: note.basename, reasons });
+      } else {
+        registry.calendars.set(note.path, { path: note.path, name: note.basename, definition: parsed });
+      }
     } else if (parsed.kind === 'calendar-set') {
       parsedSets.push({ note, definition: parsed });
     } else {
@@ -100,6 +110,20 @@ export function buildCalendarRegistry(
   }
 
   return registry;
+}
+
+/** Runtime-invalid reasons for a calendar's working patterns; empty when all evaluate. */
+function patternReasons(definition: CalendarDefinition): string[] {
+  const reasons: string[] = [];
+  if (definition.pattern !== undefined) {
+    const reason = validatePattern(definition.pattern, definition.patternStart);
+    if (reason !== null) reasons.push(reason);
+  }
+  for (const block of definition.availability) {
+    const reason = validatePattern(block.pattern, undefined);
+    if (reason !== null) reasons.push(reason);
+  }
+  return reasons;
 }
 
 export interface CalendarIdentity {
