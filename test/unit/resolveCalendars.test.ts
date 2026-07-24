@@ -96,6 +96,26 @@ describe('buildCalendarRegistry', () => {
     expect(reg.invalid.get('Cal/Floating.md')?.reasons.join('; ')).toMatch(/pattern_start/);
   });
 
+  it('keeps a calendar valid when a long-interval event first occurs beyond the probe', () => {
+    // FREQ=YEARLY;INTERVAL=10 first fires in 2036 — beyond validatePattern's 4-year
+    // probe — but it is a valid recurrence, so the calendar must not be flagged.
+    const notes: CalendarNoteInput[] = [
+      {
+        path: 'Cal/Decade.md',
+        basename: 'Decade',
+        frontmatter: {
+          tngantt: 'calendar',
+          pattern: 'FREQ=WEEKLY;BYDAY=MO',
+          pattern_start: '2026-12-31',
+          events: [{ rrule: 'FREQ=YEARLY;INTERVAL=10;BYMONTH=1;BYMONTHDAY=1' }],
+        },
+      },
+    ];
+    const reg = buildCalendarRegistry(notes, resolveByBasename);
+    expect([...reg.calendars.keys()]).toEqual(['Cal/Decade.md']);
+    expect(reg.invalid.size).toBe(0);
+  });
+
   it('resolves set members to calendar paths', () => {
     expect(registry.sets.get('Calendars/APAC.md')?.memberPaths).toEqual([
       'Calendars/NZ Holidays.md',

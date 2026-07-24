@@ -18,7 +18,7 @@ import {
   type CalendarDefinition,
   type CalendarSetDefinition,
 } from './schema';
-import { validatePattern } from './patternWindow';
+import { validateEvaluable, validatePattern } from './patternWindow';
 
 export interface CalendarNoteInput {
   path: string;
@@ -136,7 +136,9 @@ function patternReasons(definition: CalendarDefinition): string[] {
     if (reason !== null) reasons.push(reason);
   }
   for (const event of definition.recurringEvents) {
-    const reason = validatePattern(event.rrule, definition.patternStart);
+    // Only unevaluable, not empty-in-probe: a long-interval event (a decade
+    // anniversary) legitimately first occurs beyond the finite probe window.
+    const reason = validateEvaluable(event.rrule, definition.patternStart);
     if (reason !== null) reasons.push(reason);
   }
   return reasons;
