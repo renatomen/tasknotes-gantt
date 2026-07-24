@@ -58,6 +58,24 @@ describe('buildWeekPreview', () => {
     expect(week.days[5]?.isWorking).toBe(false); // Sat — no block
   });
 
+  it('unions a top-level pattern with availability blocks (matches the chart)', () => {
+    const week = buildWeekPreview(
+      base({
+        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+        workingHours: [hours('09:00', '17:00')],
+        availability: [{ pattern: 'FREQ=WEEKLY;BYDAY=SA', hours: [hours('10:00', '14:00')] }],
+      }),
+    );
+    // Pattern days keep their uniform hours...
+    expect(week.days[0]?.isWorking).toBe(true); // Mon
+    expect(week.days[0]?.hours).toEqual([hours('09:00', '17:00')]);
+    // ...and the Saturday block ADDS a working day — previously any block dropped
+    // the pattern, so the preview disagreed with the chart's Mon–Sat.
+    expect(week.days[5]?.isWorking).toBe(true); // Sat
+    expect(week.days[5]?.hours).toEqual([hours('10:00', '14:00')]);
+    expect(week.days[6]?.isWorking).toBe(false); // Sun
+  });
+
   it('renders a split shift as two blocks on the same day', () => {
     const week = buildWeekPreview(
       base({

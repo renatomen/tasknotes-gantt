@@ -82,10 +82,26 @@ export function buildWeekPreview(definition: CalendarDefinition): WeekPreviewLay
   // A fixed week can miss a monthly or anchored-weekly recurrence entirely; anchor
   // the preview to the week that contains the pattern's first occurrence.
   const week = representativeWeek(definition);
-  const perDay =
-    definition.availability.length > 0
-      ? availabilityHours(definition.availability, week)
+  // Union: a day works if the pattern OR any availability block covers it —
+  // matching the chart/conflict path (workingDayRules). Hours combine the
+  // pattern's uniform hours (on pattern days) with each block's hours (on block
+  // days). The 7-day no-pattern default applies only when there are no blocks
+  // either; with blocks present, a missing pattern contributes nothing.
+  const hasBlocks = definition.availability.length > 0;
+  const patternDay: DayHours[] =
+    definition.pattern === undefined && hasBlocks
+      ? LABELS.map(() => ({ isWorking: false, hours: [] }))
       : uniformHours(definition, week);
+  const blockDay = availabilityHours(definition.availability, week);
+  const perDay: DayHours[] = LABELS.map((_label, weekday) => {
+    const p = patternDay[weekday] ?? { isWorking: false, hours: [] };
+    const b = blockDay[weekday] ?? { isWorking: false, hours: [] };
+    const isWorking = p.isWorking || b.isWorking;
+    return {
+      isWorking,
+      hours: isWorking ? [...(p.isWorking ? p.hours : []), ...(b.isWorking ? b.hours : [])] : [],
+    };
+  });
 
   const days = LABELS.map((label, weekday) => ({
     weekday,
