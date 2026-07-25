@@ -13,6 +13,7 @@ import {
   isHexColor,
   isValidCalendarColor,
   paintableColor,
+  sanitizedCalendarColor,
 } from '../../src/bases/css3Colors';
 
 describe('CSS3 colour set', () => {
@@ -74,6 +75,20 @@ describe('isValidCalendarColor', () => {
   it('rejects anything the renderer could not paint', () => {
     expect(isValidCalendarColor('foobar')).toBe(false);
     expect(isValidCalendarColor('var(--color-red)')).toBe(false);
+  });
+});
+
+describe('sanitizedCalendarColor', () => {
+  it('returns the trimmed value for a paintable hex or CSS3 keyword', () => {
+    expect(sanitizedCalendarColor('#2a9d8f')).toBe('#2a9d8f');
+    expect(sanitizedCalendarColor('  cornflowerblue  ')).toBe('cornflowerblue');
+  });
+
+  it('returns undefined for absent, empty, or unpaintable values (caller supplies the fallback)', () => {
+    expect(sanitizedCalendarColor(undefined)).toBeUndefined();
+    expect(sanitizedCalendarColor('')).toBeUndefined();
+    expect(sanitizedCalendarColor('url(https://attacker.example/x)')).toBeUndefined();
+    expect(sanitizedCalendarColor('red;position:fixed')).toBeUndefined();
   });
 });
 

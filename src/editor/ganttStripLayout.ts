@@ -14,6 +14,7 @@ import type {
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { collectShadedDates } from '../bases/calendarShading';
+import { sanitizedCalendarColor } from '../bases/css3Colors';
 import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 export interface StripCell {
@@ -28,8 +29,20 @@ export interface StripCell {
 export interface StripMarker {
   date: string;
   name: string | undefined;
+  /**
+   * The calendar's colour when it is a paintable hex/keyword, else undefined so
+   * the view falls back to the theme accent. Pre-validated here (untrusted
+   * frontmatter), so it is safe to inline into a style attribute.
+   */
+  color: string | undefined;
   /** Position across the strip, 0 (start) .. 1 (end). */
   xFraction: number;
+  /**
+   * Vertical slot for markers sharing this x position: 0 for the first on a
+   * date, 1 for the next, and so on. Same-date markers stack instead of drawing
+   * on top of one another (matching the live chart's marker overlay).
+   */
+  stackIndex: number;
 }
 
 export interface GanttStripLayout {
@@ -38,6 +51,13 @@ export interface GanttStripLayout {
   window: EvaluationWindow;
   /** Set when the pattern cannot evaluate — render the flag state, not a strip. */
   invalid: string | undefined;
+  /**
+   * The deepest stack slot among markers that render a label (have a name), so
+   * the view reserves room above the strip for exactly that many extra label
+   * rows. Unnamed markers stack the line but draw no label, so they never widen
+   * the reservation.
+   */
+  labelStackDepth: number;
 }
 
 // The strip spans the calendar's own dated content so markers and holidays are
@@ -45,6 +65,9 @@ export interface GanttStripLayout {
 // most ~53 weeks.
 const STRIP_MIN_DAYS = 98;
 const STRIP_MAX_DAYS = 371;
+// The exclusive ceiling for a strip window: a date at or past year 10000 gains a
+// fifth digit and no longer sorts or round-trips through the ISO helpers.
+const STRIP_MAX_END = '9999-12-31';
 // A fixed fallback Monday, deterministic and never derived from wall-clock time.
 const STRIP_ANCHOR = '2026-01-05';
 const EMPTY_WINDOW: EvaluationWindow = { startDate: STRIP_ANCHOR, endDateExclusive: STRIP_ANCHOR };
@@ -56,7 +79,7 @@ const EMPTY_WINDOW: EvaluationWindow = { startDate: STRIP_ANCHOR, endDateExclusi
 export function ganttStripLayoutFor(note: ParsedCalendarNote | null): GanttStripLayout | null {
   if (note === null || note.kind === 'calendar-set') return null;
   if (note.kind === 'invalid') {
-    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid: note.reasons.join('; ') };
+    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid: note.reasons.join('; '), labelStackDepth: 0 };
   }
   return buildGanttStrip(note);
 }
@@ -67,7 +90,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
       ? validatePattern(definition.pattern, definition.patternStart)
       : null;
   if (invalid !== null) {
-    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid };
+    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid, labelStackDepth: 0 };
   }
 
   const window = stripWindow(definition);
@@ -79,15 +102,25 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
   }
 
   const total = cells.length;
-  const markers: StripMarker[] = definition.markers
-    .filter((marker) => marker.date >= window.startDate && marker.date < window.endDateExclusive)
-    .map((marker) => ({
+  const color = sanitizedCalendarColor(definition.color);
+  // Markers sharing a date land on one x position; give each a stack slot so
+  // they render as a readable vertical stack instead of overlapping.
+  const stackByDate = new Map<string, number>();
+  const markers: StripMarker[] = [];
+  for (const marker of definition.markers) {
+    if (marker.date < window.startDate || marker.date >= window.endDateExclusive) continue;
+    const stackIndex = stackByDate.get(marker.date) ?? 0;
+    stackByDate.set(marker.date, stackIndex + 1);
+    markers.push({
       date: marker.date,
       name: marker.name,
+      color,
       xFraction: total > 0 ? dayIndex(marker.date, window.startDate) / total : 0,
-    }));
+      stackIndex,
+    });
+  }
 
-  return { cells, markers, window, invalid: undefined };
+  return { cells, markers, window, invalid: undefined, labelStackDepth: labelStackDepthOf(markers) };
 }
 
 /**
@@ -120,10 +153,14 @@ export function buildGanttStripUnion(
     .map((date) => ({
       date,
       name: union.markers.names.get(date),
+      // A union spans several calendars with no single colour: theme accent.
+      color: undefined,
       xFraction: total > 0 ? dayIndex(date, window.startDate) / total : 0,
+      // Union markers are already one-per-date (deduped by Set), so never stack.
+      stackIndex: 0,
     }));
 
-  return { cells, markers, window, invalid: undefined };
+  return { cells, markers, window, invalid: undefined, labelStackDepth: labelStackDepthOf(markers) };
 }
 
 /** The window spanning a single calendar's dated content. */
@@ -149,16 +186,49 @@ function unionStripWindow(members: readonly CalendarDefinition[]): EvaluationWin
  */
 function windowSpanning(points: string[], fallbackAnchor: string | undefined): EvaluationWindow {
   if (points.length === 0) {
-    const start = mondayOf(fallbackAnchor ?? STRIP_ANCHOR);
-    return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MIN_DAYS) };
+    return windowFrom(mondayOf(fallbackAnchor ?? STRIP_ANCHOR), STRIP_MIN_DAYS);
   }
   // ISO dates sort chronologically, so the ends of the content span are the
   // first and last after sorting.
   const sorted = [...points].sort((a, b) => a.localeCompare(b));
-  const start = mondayOf(sorted[0] as string);
+  const earliest = sorted[0] as string;
   const latest = sorted[sorted.length - 1] as string;
-  const days = clampToWeeks(dayIndex(latest, start) + 1);
-  return { startDate: start, endDateExclusive: addDaysIso(start, days) };
+  const spanDays = dayIndex(latest, mondayOf(earliest)) + 1;
+  if (spanDays <= STRIP_MAX_DAYS) {
+    return windowFrom(mondayOf(earliest), clampToWeeks(spanDays));
+  }
+  // Content wider than the strip can show: anchor on the latest authored content
+  // rather than the oldest, so recent markers/holidays stay visible instead of
+  // being truncated off the end by the cap.
+  return windowFrom(mondayOf(addDaysIso(latest, -(STRIP_MAX_DAYS - 7))), STRIP_MAX_DAYS);
+}
+
+/**
+ * A `days`-long window from `start`, pinned to end at the 4-digit-year ceiling
+ * when it would otherwise cross it — whatever the branch that produced `start`.
+ * Past 9999-12-31 the ISO date gains a fifth digit and no longer sorts or
+ * round-trips, so the window is shifted back to end exactly at the ceiling and
+ * every representable day up to 9999-12-30 stays in view. (A point on 9999-12-31
+ * itself is unreachable in a half-open window: its exclusive end would be the
+ * unrepresentable 10000-01-01.)
+ */
+function windowFrom(start: string, days: number): EvaluationWindow {
+  const end = addDaysIso(start, days);
+  // A five-digit year makes the ISO string longer than the ceiling's ten chars;
+  // lexical `end > MAX` is unsafe once that happens ('10000-..' sorts before
+  // '9999-..'), so detect the overflow by length instead.
+  if (end.length > STRIP_MAX_END.length) {
+    return { startDate: addDaysIso(STRIP_MAX_END, -days), endDateExclusive: STRIP_MAX_END };
+  }
+  return { startDate: start, endDateExclusive: end };
+}
+
+/** The deepest stack slot among markers that render a label (have a name). */
+function labelStackDepthOf(markers: readonly StripMarker[]): number {
+  return markers.reduce(
+    (depth, marker) => (marker.name !== undefined ? Math.max(depth, marker.stackIndex) : depth),
+    0,
+  );
 }
 
 /** Every authored dated point that should fall inside the strip, if reachable. */

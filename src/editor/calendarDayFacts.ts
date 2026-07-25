@@ -90,8 +90,13 @@ function addSpanDays(
   into: ClassifiedDays,
 ): void {
   for (const span of spans) {
-    for (let day = span.startDate; day < span.endDateExclusive; day = addDaysIso(day, 1)) {
-      if (day < window.startDate || day >= window.endDateExclusive) continue;
+    // Clip to the window before iterating: a span may run for centuries
+    // (an authored 1970-9999 range), and walking every day only to skip the
+    // out-of-window ones would freeze the editor. ISO dates compare lexically.
+    const from = span.startDate > window.startDate ? span.startDate : window.startDate;
+    const to =
+      span.endDateExclusive < window.endDateExclusive ? span.endDateExclusive : window.endDateExclusive;
+    for (let day = from; day < to; day = addDaysIso(day, 1)) {
       into.days.add(day);
       if (span.name !== undefined) into.names.set(day, span.name);
     }

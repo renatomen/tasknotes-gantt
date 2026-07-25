@@ -17,12 +17,32 @@
   const markerTitle = (marker: StripMarker): string =>
     marker.name === undefined ? marker.date : `${marker.date} — ${marker.name}`;
 
+  // marker.color is pre-validated to a paintable hex/keyword (or undefined), so
+  // it is safe to inline; undefined falls back to the theme accent in the CSS.
+  const markerStyle = (marker: StripMarker): string =>
+    marker.color === undefined
+      ? `left:${marker.xFraction * 100}%`
+      : `left:${marker.xFraction * 100}%;background:${marker.color}`;
+  const labelStyle = (marker: StripMarker): string => {
+    // Preserve the CSS horizontal centering; lift each stacked same-date label
+    // by its slot so they read as a vertical stack instead of overlapping.
+    const transform = `transform:translateX(-50%) translateY(${marker.stackIndex * -LABEL_SLOT_EM}em)`;
+    return marker.color === undefined ? transform : `color:${marker.color};${transform}`;
+  };
+
   // Every cell shows its date on hover; a conflict cell lists the disagreeing
   // members instead, matching the year grid's tooltip.
   const cellTitle = (cell: StripCell): string =>
     cell.conflict && cell.conflictSources !== undefined
       ? buildConflictTooltip(cell.date, cell.conflictSources)
       : cell.date;
+
+  // Same-date markers stack upward (each slot lifts its label another 1.4em), so
+  // reserve room above the track for the tallest labelled stack (from the pure
+  // layout) — otherwise labels beyond the first slot overrun the fixed
+  // reservation and clip at the scrollport.
+  const LABEL_SLOT_EM = 1.4;
+  const labelStackDepth = $derived(layout !== null && !layout.invalid ? layout.labelStackDepth : 0);
 </script>
 
 <div class="og-strip">
@@ -31,7 +51,7 @@
   {:else if layout.invalid}
     <p class="og-strip-flag">Can’t preview — {layout.invalid}</p>
   {:else}
-    <div class="og-strip-track">
+    <div class="og-strip-track" style="margin-block-start: calc(1.5rem + {labelStackDepth * LABEL_SLOT_EM}em)">
       <div class="og-strip-cells">
         {#each layout.cells as cell (cell.date)}
           <div
@@ -43,8 +63,8 @@
         {/each}
       </div>
       {#each layout.markers as marker, i (marker.date + '#' + i)}
-        <div class="og-strip-marker" style="left:{marker.xFraction * 100}%" title={markerTitle(marker)}>
-          {#if marker.name}<span class="og-strip-marker-label">{marker.name}</span>{/if}
+        <div class="og-strip-marker" style={markerStyle(marker)} title={markerTitle(marker)}>
+          {#if marker.name}<span class="og-strip-marker-label" style={labelStyle(marker)}>{marker.name}</span>{/if}
         </div>
       {/each}
     </div>
