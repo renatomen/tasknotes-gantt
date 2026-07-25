@@ -14,7 +14,7 @@ import type {
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { collectShadedDates } from '../bases/calendarShading';
-import { isValidCalendarColor } from '../bases/css3Colors';
+import { sanitizedCalendarColor } from '../bases/css3Colors';
 import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 export interface StripCell {
@@ -92,7 +92,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
   }
 
   const total = cells.length;
-  const color = paintableStripColor(definition.color);
+  const color = sanitizedCalendarColor(definition.color);
   // Markers sharing a date land on one x position; give each a stack slot so
   // they render as a readable vertical stack instead of overlapping.
   const stackByDate = new Map<string, number>();
@@ -111,11 +111,6 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
   }
 
   return { cells, markers, window, invalid: undefined };
-}
-
-/** The calendar's colour if it is paintable, else undefined (theme-accent fallback). */
-function paintableStripColor(color: string | undefined): string | undefined {
-  return color !== undefined && isValidCalendarColor(color) ? color.trim() : undefined;
 }
 
 /**
