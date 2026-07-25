@@ -8,7 +8,7 @@
    */
   /* global HTMLInputElement, HTMLElement, MouseEvent, KeyboardEvent, Event, Node */
   import { tick } from 'svelte';
-  import { filterCss3Colors, hexForCss3Name, isHexColor } from '../bases/css3Colors';
+  import { filterCss3Colors, hexForCss3Name, isHexColor, paintableColor } from '../bases/css3Colors';
 
   interface Props {
     /** The stored colour — a CSS3 keyword, a hex, or '' for the theme default. */
@@ -22,8 +22,9 @@
 
   const matches = $derived(filterCss3Colors(query));
   const isEmpty = $derived(value.trim() === '');
-  // A keyword or hex is itself a valid CSS colour, so the preview uses it as-is.
-  const previewCss = $derived(isEmpty ? 'transparent' : value.trim());
+  // The stored value is untrusted frontmatter, so only a paintable hex/keyword
+  // reaches the inline style; anything else falls back to a transparent swatch.
+  const previewCss = $derived(paintableColor(value));
   // The native picker only takes #rrggbb, so map a keyword to its hex and fall
   // back for shorthand/alpha hexes it would reject.
   const pickerHex = $derived(

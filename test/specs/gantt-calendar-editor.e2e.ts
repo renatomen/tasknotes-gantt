@@ -783,6 +783,32 @@ describe("Gantt (OG) calendar editor routing", () => {
     await deleteNotes(["Union Set.md"]);
   });
 
+  it("renders a hostile frontmatter colour as transparent in both inline-style sinks", async () => {
+    // A shared/downloaded calendar note could carry a colour that, painted
+    // unsanitised into the swatch and bar inline styles, becomes a remote fetch
+    // (url(...)) on open or a CSS-injection overlay. Both sinks must render
+    // 'transparent', never the raw value — the real-Obsidian gate the pure
+    // paintableColor unit test cannot provide (AGENTS.md testing rule).
+    await createNote(
+      "Hostile Colour.md",
+      '---\ntngantt: calendar\ncolor: "url(https://example.invalid/pixel.png)"\n---\n',
+    );
+    await openNote("Hostile Colour.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-color-sw")).waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: "colour swatch never rendered",
+    });
+
+    for (const selector of [".og-color-sw", ".og-color-bar"]) {
+      const style = (await (await $(selector)).getAttribute("style")) ?? "";
+      expect(style).not.toContain("url(");
+      expect(style).toContain("transparent");
+    }
+
+    await deleteNotes(["Hostile Colour.md"]);
+  });
+
   it("marks conflict days and shows a conflict banner for disagreeing members", async () => {
     // Dedicated members so the test does not depend on the shared NZ Holidays
     // fixture, which earlier tests mutate. A Mon–Fri member disagrees with a
