@@ -194,13 +194,19 @@ function windowSpanning(points: string[], fallbackAnchor: string | undefined): E
   }
   // The content is wider than the strip can show. Anchor on the latest authored
   // content rather than the oldest, so recent markers/holidays stay visible
-  // instead of being truncated off the end by the cap. Clamp the anchor so the
-  // window never crosses the 4-digit-year ceiling: past 9999-12-31 the ISO date
-  // gains a fifth digit and no longer sorts or round-trips.
+  // instead of being truncated off the end by the cap.
   const anchored = mondayOf(addDaysIso(latest, -(STRIP_MAX_DAYS - 7)));
-  const latestStart = mondayOf(addDaysIso(STRIP_MAX_END, -STRIP_MAX_DAYS));
-  const start = anchored > latestStart ? latestStart : anchored;
-  return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MAX_DAYS) };
+  // Never cross the 4-digit-year ceiling: past 9999-12-31 the ISO date gains a
+  // fifth digit and no longer sorts or round-trips. When the anchor would push
+  // the window over, pin the window to end exactly at the ceiling so content up
+  // to the last representable day stays in view. (A point on 9999-12-31 itself
+  // is unreachable in a half-open window — its exclusive end would be the
+  // unrepresentable 10000-01-01 — but every earlier day remains visible.)
+  const ceilingStart = addDaysIso(STRIP_MAX_END, -STRIP_MAX_DAYS);
+  if (anchored > ceilingStart) {
+    return { startDate: ceilingStart, endDateExclusive: STRIP_MAX_END };
+  }
+  return { startDate: anchored, endDateExclusive: addDaysIso(anchored, STRIP_MAX_DAYS) };
 }
 
 /** Every authored dated point that should fall inside the strip, if reachable. */

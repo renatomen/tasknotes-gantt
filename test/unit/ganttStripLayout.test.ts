@@ -128,18 +128,21 @@ describe('buildGanttStrip', () => {
     expect(strip.cells.some((c) => c.date === '2026-01-05')).toBe(false);
   });
 
-  it('clamps the latest-anchored window to the 4-digit-year ceiling', () => {
+  it('pins the window to the 4-digit-year ceiling, keeping the last representable day', () => {
     // Latest content at the ISO ceiling would push the anchored window past
     // 9999-12-31 into a five-digit year that no longer round-trips. The window
-    // is clamped so every cell stays a valid four-digit-year date.
+    // pins to end exactly at the ceiling: every cell stays a valid four-digit
+    // date and the last representable day (9999-12-30) is in view. Only a point
+    // on 9999-12-31 itself is unreachable (its exclusive end is unrepresentable).
     const strip = buildGanttStrip(
       base({
         nonWorking: [span('2026-01-05', '2026-01-06', 'Old anchor')],
         markers: [{ date: '9999-12-31', name: 'End of days' }],
       }),
     );
-    expect(strip.window.endDateExclusive <= '9999-12-31').toBe(true);
+    expect(strip.window.endDateExclusive).toBe('9999-12-31');
     expect(strip.cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date))).toBe(true);
+    expect(strip.cells.some((c) => c.date === '9999-12-30')).toBe(true);
     expect(strip.cells.length).toBeLessThanOrEqual(371);
   });
 
