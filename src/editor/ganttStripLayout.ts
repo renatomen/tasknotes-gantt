@@ -51,6 +51,13 @@ export interface GanttStripLayout {
   window: EvaluationWindow;
   /** Set when the pattern cannot evaluate — render the flag state, not a strip. */
   invalid: string | undefined;
+  /**
+   * The deepest stack slot among markers that render a label (have a name), so
+   * the view reserves room above the strip for exactly that many extra label
+   * rows. Unnamed markers stack the line but draw no label, so they never widen
+   * the reservation.
+   */
+  labelStackDepth: number;
 }
 
 // The strip spans the calendar's own dated content so markers and holidays are
@@ -72,7 +79,7 @@ const EMPTY_WINDOW: EvaluationWindow = { startDate: STRIP_ANCHOR, endDateExclusi
 export function ganttStripLayoutFor(note: ParsedCalendarNote | null): GanttStripLayout | null {
   if (note === null || note.kind === 'calendar-set') return null;
   if (note.kind === 'invalid') {
-    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid: note.reasons.join('; ') };
+    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid: note.reasons.join('; '), labelStackDepth: 0 };
   }
   return buildGanttStrip(note);
 }
@@ -83,7 +90,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
       ? validatePattern(definition.pattern, definition.patternStart)
       : null;
   if (invalid !== null) {
-    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid };
+    return { cells: [], markers: [], window: EMPTY_WINDOW, invalid, labelStackDepth: 0 };
   }
 
   const window = stripWindow(definition);
@@ -113,7 +120,7 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
     });
   }
 
-  return { cells, markers, window, invalid: undefined };
+  return { cells, markers, window, invalid: undefined, labelStackDepth: labelStackDepthOf(markers) };
 }
 
 /**
@@ -153,7 +160,7 @@ export function buildGanttStripUnion(
       stackIndex: 0,
     }));
 
-  return { cells, markers, window, invalid: undefined };
+  return { cells, markers, window, invalid: undefined, labelStackDepth: labelStackDepthOf(markers) };
 }
 
 /** The window spanning a single calendar's dated content. */
@@ -214,6 +221,14 @@ function windowFrom(start: string, days: number): EvaluationWindow {
     return { startDate: addDaysIso(STRIP_MAX_END, -days), endDateExclusive: STRIP_MAX_END };
   }
   return { startDate: start, endDateExclusive: end };
+}
+
+/** The deepest stack slot among markers that render a label (have a name). */
+function labelStackDepthOf(markers: readonly StripMarker[]): number {
+  return markers.reduce(
+    (depth, marker) => (marker.name !== undefined ? Math.max(depth, marker.stackIndex) : depth),
+    0,
+  );
 }
 
 /** Every authored dated point that should fall inside the strip, if reachable. */

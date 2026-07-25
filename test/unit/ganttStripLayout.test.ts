@@ -79,6 +79,45 @@ describe('buildGanttStrip', () => {
     expect(strip.markers.map((m) => m.stackIndex)).toEqual([0, 1]);
   });
 
+  it('reserves label rows only for named same-date markers', () => {
+    const named = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: 'Launch' },
+          { date: '2026-02-16', name: 'Freeze' },
+        ],
+      }),
+    );
+    expect(named.labelStackDepth).toBe(1);
+
+    // Both stack the line but draw no label, so no extra label row is reserved.
+    const unnamed = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: undefined },
+          { date: '2026-02-16', name: undefined },
+        ],
+      }),
+    );
+    expect(unnamed.labelStackDepth).toBe(0);
+
+    const single = buildGanttStrip(base({ markers: [{ date: '2026-02-16', name: 'Launch' }] }));
+    expect(single.labelStackDepth).toBe(0);
+  });
+
+  it('counts a named marker in a later slot even behind an unnamed one', () => {
+    const strip = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: undefined },
+          { date: '2026-02-16', name: 'Freeze' },
+        ],
+      }),
+    );
+    // The named marker lands in slot 1, so a label row is needed for that slot.
+    expect(strip.labelStackDepth).toBe(1);
+  });
+
   it('threads a paintable calendar colour onto its markers', () => {
     const strip = buildGanttStrip(
       base({ color: '#2a9d8f', markers: [{ date: '2026-02-16', name: 'Launch' }] }),

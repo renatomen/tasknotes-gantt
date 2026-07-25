@@ -38,14 +38,11 @@
       : cell.date;
 
   // Same-date markers stack upward (each slot lifts its label another 1.4em), so
-  // reserve room above the track for the tallest stack — otherwise labels beyond
-  // the first slot overrun the fixed reservation and clip at the scrollport.
+  // reserve room above the track for the tallest labelled stack (from the pure
+  // layout) — otherwise labels beyond the first slot overrun the fixed
+  // reservation and clip at the scrollport.
   const LABEL_SLOT_EM = 1.4;
-  const markerStackDepth = $derived(
-    layout !== null && !layout.invalid && layout.markers.length > 0
-      ? Math.max(...layout.markers.map((marker) => marker.stackIndex))
-      : 0,
-  );
+  const labelStackDepth = $derived(layout !== null && !layout.invalid ? layout.labelStackDepth : 0);
 </script>
 
 <div class="og-strip">
@@ -54,7 +51,7 @@
   {:else if layout.invalid}
     <p class="og-strip-flag">Can’t preview — {layout.invalid}</p>
   {:else}
-    <div class="og-strip-track" style="margin-block-start: calc(1.5rem + {markerStackDepth * LABEL_SLOT_EM}em)">
+    <div class="og-strip-track" style="margin-block-start: calc(1.5rem + {labelStackDepth * LABEL_SLOT_EM}em)">
       <div class="og-strip-cells">
         {#each layout.cells as cell (cell.date)}
           <div
