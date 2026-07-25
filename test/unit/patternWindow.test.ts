@@ -68,6 +68,13 @@ describe('evaluatePattern', () => {
     if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
   });
 
+  it('rejects an anchorless UNTIL-bounded rule (the sequence is counted from the start)', () => {
+    // interval 1 + BYDAY-pinned, so only UNTIL forces the anchor requirement.
+    const result = evaluatePattern('FREQ=WEEKLY;UNTIL=20260408T000000Z;BYDAY=MO', undefined, TWO_WEEKS);
+    expect(result.kind).toBe('invalid');
+    if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
+  });
+
   it('stops after COUNT occurrences counted from the anchor', () => {
     const dates = okDates('FREQ=DAILY;COUNT=3', window('2026-04-06', '2026-04-20'), '2026-04-06');
     expect(dates).toEqual(['2026-04-06', '2026-04-07', '2026-04-08']);
@@ -164,6 +171,8 @@ describe('evaluatePattern', () => {
     expect(evaluatePattern('FREQ=YEARLY;BYMONTH=1,13', undefined, TWO_WEEKS).kind).toBe('invalid'); // a list with one bad value
     expect(evaluatePattern('FREQ=YEARLY;BYDAY=54MO', undefined, TWO_WEEKS).kind).toBe('invalid'); // BYDAY ordinal > 53
     expect(evaluatePattern('FREQ=YEARLY;BYDAY=-54FR', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=YEARLY;BYWEEKNO=54', undefined, TWO_WEEKS).kind).toBe('invalid'); // BYWEEKNO > 53
+    expect(evaluatePattern('FREQ=MONTHLY;BYSETPOS=400;BYDAY=MO', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).not.toBeNull();
     // Valid ranges, including a list, a negative "from the end", and a BYDAY
     // ordinal (2nd Monday), still evaluate.

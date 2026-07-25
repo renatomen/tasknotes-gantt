@@ -92,8 +92,7 @@ function isPhasePinned(options: Partial<Options>): boolean {
   // Counted or bounded from the anchor (INTERVAL>1, COUNT, UNTIL) — always
   // anchor-dependent, whatever BY-parts are present.
   if ((options.interval ?? 1) > 1) return false;
-  if (options.count !== undefined && options.count !== null) return false;
-  if (options.until !== undefined && options.until !== null) return false;
+  if (options.count !== undefined || options.until !== undefined) return false;
   switch (options.freq) {
     case RRule.DAILY:
       return true;
@@ -139,26 +138,21 @@ function outOfRangeByPart(options: Partial<Options>): string | null {
 /** Whether every BYDAY ordinal (a Weekday's `n`, e.g. the 2 in 2MO) is within
  *  RFC 5545's ±1..53, or absent. rrule accepts 54MO and then scans fruitlessly. */
 function byDayOrdinalsInRange(byweekday: Options['byweekday'] | undefined): boolean {
-  if (byweekday === null || byweekday === undefined) return true;
   const values = Array.isArray(byweekday) ? byweekday : [byweekday];
-  return values.every((value) => {
-    const n = typeof value === 'object' && value !== null ? (value as { n?: number | null }).n : undefined;
-    return n === undefined || n === null || (Number.isInteger(n) && Math.abs(n) >= 1 && Math.abs(n) <= 53);
-  });
+  return values.every((value) => magnitudeWithin((value as { n?: number | null } | null)?.n, 53, true));
 }
 
-/** Whether every value is a 1..max integer (or ±1..max when the part is signed). */
-function magnitudesWithin(
-  value: number | number[] | null | undefined,
-  max: number,
-  signed: boolean,
-): boolean {
-  if (value === null || value === undefined) return true;
+/** Whether each present value is within range (0 and out-of-range rejected). An
+ *  absent BY-part (null/undefined) is vacuously in range. */
+function magnitudesWithin(value: number | number[] | null | undefined, max: number, signed: boolean): boolean {
   const values = Array.isArray(value) ? value : [value];
-  return values.every((v) => {
-    if (!Number.isInteger(v)) return false;
-    return signed ? Math.abs(v) >= 1 && Math.abs(v) <= max : v >= 1 && v <= max;
-  });
+  return values.every((v) => magnitudeWithin(v, max, signed));
+}
+
+/** A single value's range check: 1..max, or ±1..max when the part is signed. */
+function magnitudeWithin(value: number | null | undefined, max: number, signed: boolean): boolean {
+  if (value == null) return true;
+  return signed ? Math.abs(value) >= 1 && Math.abs(value) <= max : value >= 1 && value <= max;
 }
 
 /** The window days the pattern does NOT match — the blocking non-working complement. */
