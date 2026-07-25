@@ -177,29 +177,14 @@ const FALLBACK_PROBE_ANCHOR = '2026-01-05';
  * day in the probe is a reason — a working schedule should recur within it.
  */
 export function validatePattern(rule: string, patternStart: string | undefined): string | null {
-  const result = probePattern(rule, patternStart);
-  if (result.kind === 'invalid') return result.reason;
-  if (result.dates.size === 0) return 'pattern matches no days';
-  return null;
-}
-
-/**
- * Like validatePattern but the reason only when the rule cannot be evaluated at
- * all — an evaluable rule that matches no day in the finite probe is NOT a reason
- * here. For recurring events, whose first occurrence may legitimately fall beyond
- * the probe (e.g. a decade-interval anniversary), so emptiness is not invalidity.
- */
-export function validateEvaluable(rule: string, patternStart: string | undefined): string | null {
-  const result = probePattern(rule, patternStart);
-  return result.kind === 'invalid' ? result.reason : null;
-}
-
-function probePattern(rule: string, patternStart: string | undefined): PatternResult {
   const anchor = patternStart ?? FALLBACK_PROBE_ANCHOR;
-  return evaluatePattern(rule, patternStart, {
+  const result = evaluatePattern(rule, patternStart, {
     startDate: anchor,
     endDateExclusive: addDaysIso(anchor, REPRESENTATIVE_WINDOW_DAYS),
   });
+  if (result.kind === 'invalid') return result.reason;
+  if (result.dates.size === 0) return 'pattern matches no days';
+  return null;
 }
 
 function utcMidnight(date: string): Date {

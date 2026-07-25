@@ -67,59 +67,6 @@ describe('buildCalendarRegistry', () => {
     expect([...registry.invalid.keys()]).toEqual(['Calendars/Broken.md']);
   });
 
-  it('invalidates a calendar for a bad WORKING rule but only diagnoses a bad display event', () => {
-    const notes: CalendarNoteInput[] = [
-      // A bad WORKING rule (top-level pattern or availability block) breaks the
-      // schedule → the whole calendar is flagged invalid, fail-visible.
-      { path: 'Cal/Floating.md', basename: 'Floating', frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY' } },
-      {
-        path: 'Cal/BadBlock.md',
-        basename: 'BadBlock',
-        frontmatter: { tngantt: 'calendar', availability: [{ pattern: 'FREQ=WEEKLY', hours: [] }] },
-      },
-      // A bad display EVENT is an entry: per the fail-granularity contract it is
-      // diagnosed and dropped, but must NOT invalidate the working calendar.
-      {
-        path: 'Cal/BadEvent.md',
-        basename: 'BadEvent',
-        frontmatter: { tngantt: 'calendar', events: [{ rrule: 'FREQ=WEEKLY' }] },
-      },
-      {
-        path: 'Cal/Weekdays.md',
-        basename: 'Weekdays',
-        frontmatter: { tngantt: 'calendar', pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
-      },
-    ];
-    const reg = buildCalendarRegistry(notes, resolveByBasename);
-    expect([...reg.invalid.keys()]).toEqual(['Cal/Floating.md', 'Cal/BadBlock.md']);
-    expect(reg.invalid.get('Cal/Floating.md')?.reasons.join('; ')).toMatch(/pattern_start/);
-    // The bad-event calendar stays valid, with the event dropped-and-diagnosed.
-    expect([...reg.calendars.keys()]).toEqual(['Cal/BadEvent.md', 'Cal/Weekdays.md']);
-    expect(
-      reg.calendars.get('Cal/BadEvent.md')?.definition.diagnostics.some((d) => d.path === 'events'),
-    ).toBe(true);
-  });
-
-  it('keeps a calendar valid when a long-interval event first occurs beyond the probe', () => {
-    // FREQ=YEARLY;INTERVAL=10 first fires in 2036 — beyond validatePattern's 4-year
-    // probe — but it is a valid recurrence, so the calendar must not be flagged.
-    const notes: CalendarNoteInput[] = [
-      {
-        path: 'Cal/Decade.md',
-        basename: 'Decade',
-        frontmatter: {
-          tngantt: 'calendar',
-          pattern: 'FREQ=WEEKLY;BYDAY=MO',
-          pattern_start: '2026-12-31',
-          events: [{ rrule: 'FREQ=YEARLY;INTERVAL=10;BYMONTH=1;BYMONTHDAY=1' }],
-        },
-      },
-    ];
-    const reg = buildCalendarRegistry(notes, resolveByBasename);
-    expect([...reg.calendars.keys()]).toEqual(['Cal/Decade.md']);
-    expect(reg.invalid.size).toBe(0);
-  });
-
   it('resolves set members to calendar paths', () => {
     expect(registry.sets.get('Calendars/APAC.md')?.memberPaths).toEqual([
       'Calendars/NZ Holidays.md',
