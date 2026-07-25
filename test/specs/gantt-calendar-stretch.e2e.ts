@@ -138,11 +138,18 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
       async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
     );
-    const borderColor = await browser.execute((selector: string) => {
+    const border = await browser.execute((selector: string) => {
       const bar = document.querySelector(selector);
-      return bar ? window.getComputedStyle(bar).borderTopColor : null;
+      if (!bar) return null;
+      const style = window.getComputedStyle(bar);
+      return { color: style.borderTopColor, width: style.borderTopWidth, style: style.borderTopStyle };
     }, STRETCH_BAR);
-    expect(borderColor).not.toBeNull();
-    expect(borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(border).not.toBeNull();
+    expect(border!.color).not.toBe("rgba(0, 0, 0, 0)");
+    // Not just colour: on a ghost host the datestatus fill is gone, so the cue is
+    // the border — it must have real width and style, not a 0px/none border that
+    // only carries a colour (which a colour-only check would wrongly accept).
+    expect(border!.width).not.toBe("0px");
+    expect(border!.style).not.toBe("none");
   });
 });

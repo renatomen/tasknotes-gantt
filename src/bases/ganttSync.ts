@@ -24,7 +24,7 @@ import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
   resolveIconSpec,
-  treatmentClassRegistry,
+  treatmentClassGroups,
   type BarChannelSource,
   type BarIconSource,
   type IconSpec,
@@ -418,17 +418,28 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
  * treatment class(es) and a cue.
  */
 export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
-  const classes = treatmentClassRegistry(palettes);
+  const groups = treatmentClassGroups(palettes);
   const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const c of classes) {
-    ids.add(c);
-    ids.add(`${DATE_STATUS_TYPE} ${c}`);
+  for (const group of groups) {
+    for (const c of group) {
+      ids.add(c);
+      ids.add(`${DATE_STATUS_TYPE} ${c}`);
+    }
   }
-  for (const fillClass of classes) {
-    for (const stripClass of classes) {
-      if (fillClass === stripClass) continue;
-      ids.add(`${fillClass} ${stripClass}`);
-      ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
+  // A two-class bar always draws its Fill class from one source group and its
+  // Strip class from a DIFFERENT one (same-source channels collapse to a single
+  // class), so only cross-group ordered pairs can occur. Pairing within a group
+  // — two calendars, two statuses — is dead weight, and the calendar group makes
+  // that O(N^2) in the calendar count; cross-group pairs keep it O(N).
+  for (const fillGroup of groups) {
+    for (const stripGroup of groups) {
+      if (fillGroup === stripGroup) continue;
+      for (const fillClass of fillGroup) {
+        for (const stripClass of stripGroup) {
+          ids.add(`${fillClass} ${stripClass}`);
+          ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
+        }
+      }
     }
   }
   return [...ids].map((id) => ({ id, label: id }));
