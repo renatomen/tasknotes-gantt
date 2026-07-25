@@ -3450,11 +3450,30 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split) {
     background-color: transparent !important;
-    /* A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split)
-       host the runs fill the content box inset by that border, leaving a 1px
-       halo around the pieces. Drop the border here so the runs meet the bar's
-       edge — a non-split strip bar keeps its intended outline. */
+  }
+  /*
+   * A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split) host
+   * the runs fill the content box inset by that border, leaving a 1px halo around
+   * the pieces. Drop the border so the runs meet the bar's edge — but only when
+   * the bar is NOT date-status-flagged: a flagged bar's border IS its provenance
+   * cue (the `datestatus-flagged` rule colours this same border), so zeroing it
+   * would erase the only indicator on an otherwise transparent ghost host. A
+   * non-split strip bar keeps its outline regardless.
+   */
+  .og-bases-gantt :global(.wx-bar.wx-split:not(.datestatus-flagged)) {
     border: 0 !important;
+  }
+  /*
+   * On a ghost host the datestatus fill (its usual orange cue) is gone — the host
+   * is transparent and the pieces paint their own colour — so the provenance cue
+   * has to be the border. The datestatus rule only sets its COLOUR, and the base
+   * bar has no border width/style, so recreate a visible outline here (the colour
+   * still comes from the datestatus rule). This is the flagged bar's own indicator,
+   * not the strip halo the rule above removes.
+   */
+  .og-bases-gantt :global(.wx-bar.wx-split.datestatus-flagged) {
+    border-width: 1px !important;
+    border-style: solid !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;
