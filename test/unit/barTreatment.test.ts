@@ -172,6 +172,16 @@ describe('treatmentClassGroups', () => {
     const priorityGroup = groups.find((group) => group.includes(prioritySlug('high')));
     expect(statusGroup).not.toBe(priorityGroup);
   });
+
+  it('drops a source group whose only colours are unsafe, keeping the parent role', () => {
+    const groups = treatmentClassGroups({
+      status: [{ value: 'Evil', color: 'red; } body {', isCompleted: false }],
+      priority: [{ value: 'BadPrio', color: 'blue; } body {' }],
+    });
+    // Both palette groups are all-unsafe, so they drop out; only the always-on
+    // parent-role group remains (empty groups are never returned).
+    expect(groups).toEqual([[PARENT_ROLE_CLASS]]);
+  });
 });
 
 describe('buildTreatmentStyle', () => {
