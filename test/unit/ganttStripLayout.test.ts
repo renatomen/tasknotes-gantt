@@ -146,6 +146,16 @@ describe('buildGanttStrip', () => {
     expect(strip.cells.length).toBeLessThanOrEqual(371);
   });
 
+  it('clamps a short window whose only content sits near the ceiling', () => {
+    // A lone marker near the ceiling spans well under the cap, but its minimum
+    // ~14-week window would still overflow year 9999 — the ceiling clamp applies
+    // to the short-content branch too, not only the wide one.
+    const strip = buildGanttStrip(base({ markers: [{ date: '9999-12-30', name: 'Almost the end' }] }));
+    expect(strip.window.endDateExclusive).toBe('9999-12-31');
+    expect(strip.cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date))).toBe(true);
+    expect(strip.markers.map((m) => m.name)).toContain('Almost the end');
+  });
+
   it('flags an invalid pattern instead of rendering a strip', () => {
     const strip = buildGanttStrip(base({ pattern: 'FREQ=NONSENSE' }));
     expect(strip.invalid).toBeDefined();
