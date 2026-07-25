@@ -89,6 +89,15 @@ describe('toRfcCalendar', () => {
     expect(recurring?.transparency).toBe('TRANSPARENT');
   });
 
+  it('leaves an anchorless recurring event without a DTSTART even when pattern_start is set', () => {
+    // pattern_start anchors the working availability pattern, a different
+    // series; borrowing it here would re-phase the event set. The fixture has
+    // pattern_start 2026-01-05, yet the recurrence must carry no anchor.
+    const model = toRfcCalendar(definition());
+    const recurring = model.events.find((event) => event.rrule);
+    expect(recurring?.dtstart).toBeUndefined();
+  });
+
   it('never attaches a TZID parameter to any DATE-valued property (RFC 5545 3.2.19)', () => {
     const model = toRfcCalendar(definition());
     for (const property of allDatedProperties(model)) {
