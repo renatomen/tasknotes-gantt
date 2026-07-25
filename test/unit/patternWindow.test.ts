@@ -173,6 +173,7 @@ describe('evaluatePattern', () => {
     expect(evaluatePattern('FREQ=YEARLY;BYDAY=-54FR', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=YEARLY;BYWEEKNO=54', undefined, TWO_WEEKS).kind).toBe('invalid'); // BYWEEKNO > 53
     expect(evaluatePattern('FREQ=MONTHLY;BYSETPOS=400;BYDAY=MO', undefined, TWO_WEEKS).kind).toBe('invalid');
+    expect(evaluatePattern('FREQ=DAILY;BYMONTHDAY=1.5', undefined, TWO_WEEKS).kind).toBe('invalid'); // fractional -> rrule keeps a string
     expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).not.toBeNull();
     // Valid ranges, including a list, a negative "from the end", and a BYDAY
     // ordinal (2nd Monday), still evaluate.

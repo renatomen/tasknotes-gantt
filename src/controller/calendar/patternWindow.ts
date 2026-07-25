@@ -149,9 +149,12 @@ function magnitudesWithin(value: number | number[] | null | undefined, max: numb
   return values.every((v) => magnitudeWithin(v, max, signed));
 }
 
-/** A single value's range check: 1..max, or ±1..max when the part is signed. */
+/** A single value's range check: an integer 1..max, or ±1..max when signed. rrule
+ *  keeps a fractional value (BYMONTHDAY=1.5) as a string, so the integer check
+ *  also rejects those before they reach a fruitless between() scan. */
 function magnitudeWithin(value: number | null | undefined, max: number, signed: boolean): boolean {
   if (value == null) return true;
+  if (!Number.isInteger(value)) return false;
   return signed ? Math.abs(value) >= 1 && Math.abs(value) <= max : value >= 1 && value <= max;
 }
 
