@@ -14,6 +14,7 @@ import type {
 import { addDaysIso } from '../controller/calendar/schema';
 import { validatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
 import { collectShadedDates } from '../bases/calendarShading';
+import { isValidCalendarColor } from '../bases/css3Colors';
 import { buildUnionModel, type ConflictSource } from './unionPreview';
 
 export interface StripCell {
@@ -28,8 +29,20 @@ export interface StripCell {
 export interface StripMarker {
   date: string;
   name: string | undefined;
+  /**
+   * The calendar's colour when it is a paintable hex/keyword, else undefined so
+   * the view falls back to the theme accent. Pre-validated here (untrusted
+   * frontmatter), so it is safe to inline into a style attribute.
+   */
+  color: string | undefined;
   /** Position across the strip, 0 (start) .. 1 (end). */
   xFraction: number;
+  /**
+   * Vertical slot for markers sharing this x position: 0 for the first on a
+   * date, 1 for the next, and so on. Same-date markers stack instead of drawing
+   * on top of one another (matching the live chart's marker overlay).
+   */
+  stackIndex: number;
 }
 
 export interface GanttStripLayout {
@@ -79,15 +92,30 @@ export function buildGanttStrip(definition: CalendarDefinition): GanttStripLayou
   }
 
   const total = cells.length;
-  const markers: StripMarker[] = definition.markers
-    .filter((marker) => marker.date >= window.startDate && marker.date < window.endDateExclusive)
-    .map((marker) => ({
+  const color = paintableStripColor(definition.color);
+  // Markers sharing a date land on one x position; give each a stack slot so
+  // they render as a readable vertical stack instead of overlapping.
+  const stackByDate = new Map<string, number>();
+  const markers: StripMarker[] = [];
+  for (const marker of definition.markers) {
+    if (marker.date < window.startDate || marker.date >= window.endDateExclusive) continue;
+    const stackIndex = stackByDate.get(marker.date) ?? 0;
+    stackByDate.set(marker.date, stackIndex + 1);
+    markers.push({
       date: marker.date,
       name: marker.name,
+      color,
       xFraction: total > 0 ? dayIndex(marker.date, window.startDate) / total : 0,
-    }));
+      stackIndex,
+    });
+  }
 
   return { cells, markers, window, invalid: undefined };
+}
+
+/** The calendar's colour if it is paintable, else undefined (theme-accent fallback). */
+function paintableStripColor(color: string | undefined): string | undefined {
+  return color !== undefined && isValidCalendarColor(color) ? color.trim() : undefined;
 }
 
 /**
@@ -120,7 +148,11 @@ export function buildGanttStripUnion(
     .map((date) => ({
       date,
       name: union.markers.names.get(date),
+      // A union spans several calendars with no single colour: theme accent.
+      color: undefined,
       xFraction: total > 0 ? dayIndex(date, window.startDate) / total : 0,
+      // Union markers are already one-per-date (deduped by Set), so never stack.
+      stackIndex: 0,
     }));
 
   return { cells, markers, window, invalid: undefined };
@@ -155,10 +187,18 @@ function windowSpanning(points: string[], fallbackAnchor: string | undefined): E
   // ISO dates sort chronologically, so the ends of the content span are the
   // first and last after sorting.
   const sorted = [...points].sort((a, b) => a.localeCompare(b));
-  const start = mondayOf(sorted[0] as string);
+  const earliest = sorted[0] as string;
   const latest = sorted[sorted.length - 1] as string;
-  const days = clampToWeeks(dayIndex(latest, start) + 1);
-  return { startDate: start, endDateExclusive: addDaysIso(start, days) };
+  const spanDays = dayIndex(latest, mondayOf(earliest)) + 1;
+  if (spanDays <= STRIP_MAX_DAYS) {
+    const start = mondayOf(earliest);
+    return { startDate: start, endDateExclusive: addDaysIso(start, clampToWeeks(spanDays)) };
+  }
+  // The content is wider than the strip can show. Anchor on the latest authored
+  // content rather than the oldest, so recent markers/holidays stay visible
+  // instead of being truncated off the end by the cap.
+  const start = mondayOf(addDaysIso(latest, -(STRIP_MAX_DAYS - 7)));
+  return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MAX_DAYS) };
 }
 
 /** Every authored dated point that should fall inside the strip, if reachable. */

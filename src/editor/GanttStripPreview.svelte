@@ -17,6 +17,19 @@
   const markerTitle = (marker: StripMarker): string =>
     marker.name === undefined ? marker.date : `${marker.date} — ${marker.name}`;
 
+  // marker.color is pre-validated to a paintable hex/keyword (or undefined), so
+  // it is safe to inline; undefined falls back to the theme accent in the CSS.
+  const markerStyle = (marker: StripMarker): string =>
+    marker.color === undefined
+      ? `left:${marker.xFraction * 100}%`
+      : `left:${marker.xFraction * 100}%;background:${marker.color}`;
+  const labelStyle = (marker: StripMarker): string => {
+    // Preserve the CSS horizontal centering; lift each stacked same-date label
+    // by its slot so they read as a vertical stack instead of overlapping.
+    const transform = `transform:translateX(-50%) translateY(${marker.stackIndex * -1.4}em)`;
+    return marker.color === undefined ? transform : `color:${marker.color};${transform}`;
+  };
+
   // Every cell shows its date on hover; a conflict cell lists the disagreeing
   // members instead, matching the year grid's tooltip.
   const cellTitle = (cell: StripCell): string =>
@@ -43,8 +56,8 @@
         {/each}
       </div>
       {#each layout.markers as marker, i (marker.date + '#' + i)}
-        <div class="og-strip-marker" style="left:{marker.xFraction * 100}%" title={markerTitle(marker)}>
-          {#if marker.name}<span class="og-strip-marker-label">{marker.name}</span>{/if}
+        <div class="og-strip-marker" style={markerStyle(marker)} title={markerTitle(marker)}>
+          {#if marker.name}<span class="og-strip-marker-label" style={labelStyle(marker)}>{marker.name}</span>{/if}
         </div>
       {/each}
     </div>

@@ -63,7 +63,7 @@ describe('buildGanttStrip', () => {
     expect(strip.markers[0]?.xFraction).toBeLessThanOrEqual(1);
   });
 
-  it('keeps multiple markers that share a date', () => {
+  it('keeps multiple markers that share a date and stacks them by slot', () => {
     const strip = buildGanttStrip(
       base({
         markers: [
@@ -74,6 +74,24 @@ describe('buildGanttStrip', () => {
     );
     expect(strip.markers).toHaveLength(2);
     expect(strip.markers.map((m) => m.name)).toEqual(['Launch', 'Freeze']);
+    // Same x position, distinct stack slots so the labels do not overlap.
+    expect(strip.markers[0]?.xFraction).toBe(strip.markers[1]?.xFraction);
+    expect(strip.markers.map((m) => m.stackIndex)).toEqual([0, 1]);
+  });
+
+  it('threads a paintable calendar colour onto its markers', () => {
+    const strip = buildGanttStrip(
+      base({ color: '#2a9d8f', markers: [{ date: '2026-02-16', name: 'Launch' }] }),
+    );
+    expect(strip.markers[0]?.color).toBe('#2a9d8f');
+  });
+
+  it('drops an unpaintable marker colour to undefined (theme-accent fallback), never the raw value', () => {
+    // Untrusted frontmatter must not reach the marker's inline style.
+    const strip = buildGanttStrip(
+      base({ color: 'url(https://attacker.example/x)', markers: [{ date: '2026-02-16', name: 'Launch' }] }),
+    );
+    expect(strip.markers[0]?.color).toBeUndefined();
   });
 
   it('spans the calendar content so a mid-year marker is visible', () => {
@@ -95,17 +113,19 @@ describe('buildGanttStrip', () => {
     expect(strip.cells.some((c) => c.date >= '2026-06-01')).toBe(true);
   });
 
-  it('caps the window so content beyond ~a year is excluded', () => {
+  it('caps the window but anchors on the latest content so recent markers stay visible', () => {
     const strip = buildGanttStrip(
       base({
-        nonWorking: [span('2026-01-05', '2026-01-06', 'Anchor')],
+        nonWorking: [span('2026-01-05', '2026-01-06', 'Old anchor')],
         markers: [{ date: '2030-06-01', name: 'Far future' }],
       }),
     );
-    // Window starts at the earliest content and is capped, so a marker four years
-    // out is not shown.
-    expect(strip.markers).toHaveLength(0);
+    // Content spans four years — wider than the cap. The window stays capped but
+    // anchors on the latest content, so the recent marker is visible and the old
+    // anchor is the end that falls off, not the marker (#299).
     expect(strip.cells.length).toBeLessThanOrEqual(371);
+    expect(strip.markers.map((m) => m.name)).toContain('Far future');
+    expect(strip.cells.some((c) => c.date === '2026-01-05')).toBe(false);
   });
 
   it('flags an invalid pattern instead of rendering a strip', () => {

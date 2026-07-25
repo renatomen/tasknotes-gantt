@@ -439,6 +439,26 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect((await $$(".og-strip-cell")).length).toBeGreaterThan(60);
   });
 
+  it("keeps a hostile marker colour out of the strip's inline style", async () => {
+    // The strip marker inlines the calendar colour; an unpaintable value must
+    // fall back to the theme accent, never reach the style as url()/injection.
+    await createNote(
+      "Strip Marker Cal.md",
+      '---\ntngantt: calendar\ncolor: "url(https://example.invalid/x.png)"\nevents:\n  - date: "2026-06-15"\n    name: "Ship"\n    marker: true\n---\n',
+    );
+    await openNote("Strip Marker Cal.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+    await (await $(".og-cal-tab=Gantt strip")).click();
+    const marker = await $(".og-strip-marker");
+    await marker.waitForDisplayed({ timeout: 10000, timeoutMsg: "the strip marker did not render" });
+    const style = (await marker.getAttribute("style")) ?? "";
+    expect(style).not.toContain("url(");
+    // Hostile colour rejected, so no inline background — the CSS theme accent wins.
+    expect(style).not.toContain("background");
+
+    await deleteNotes(["Strip Marker Cal.md"]);
+  });
+
   it("previews the year on the Year tab and keeps the unsaved form on return", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
