@@ -132,7 +132,19 @@ function outOfRangeByPart(options: Partial<Options>): string | null {
   if (!magnitudesWithin(options.byyearday, 366, true)) return 'BYYEARDAY';
   if (!magnitudesWithin(options.byweekno, 53, true)) return 'BYWEEKNO';
   if (!magnitudesWithin(options.bysetpos, 366, true)) return 'BYSETPOS';
+  if (!byDayOrdinalsInRange(options.byweekday)) return 'BYDAY ordinal';
   return null;
+}
+
+/** Whether every BYDAY ordinal (a Weekday's `n`, e.g. the 2 in 2MO) is within
+ *  RFC 5545's ±1..53, or absent. rrule accepts 54MO and then scans fruitlessly. */
+function byDayOrdinalsInRange(byweekday: Options['byweekday'] | undefined): boolean {
+  if (byweekday === null || byweekday === undefined) return true;
+  const values = Array.isArray(byweekday) ? byweekday : [byweekday];
+  return values.every((value) => {
+    const n = typeof value === 'object' && value !== null ? (value as { n?: number | null }).n : undefined;
+    return n === undefined || n === null || (Number.isInteger(n) && Math.abs(n) >= 1 && Math.abs(n) <= 53);
+  });
 }
 
 /** Whether every value is a 1..max integer (or ±1..max when the part is signed). */

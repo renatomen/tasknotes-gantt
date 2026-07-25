@@ -162,9 +162,13 @@ describe('evaluatePattern', () => {
     expect(evaluatePattern('FREQ=DAILY;BYMONTHDAY=0', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=YEARLY;BYMONTH=13', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=YEARLY;BYMONTH=1,13', undefined, TWO_WEEKS).kind).toBe('invalid'); // a list with one bad value
+    expect(evaluatePattern('FREQ=YEARLY;BYDAY=54MO', undefined, TWO_WEEKS).kind).toBe('invalid'); // BYDAY ordinal > 53
+    expect(evaluatePattern('FREQ=YEARLY;BYDAY=-54FR', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).not.toBeNull();
-    // Valid ranges, including a list and a negative "from the end", still evaluate.
+    // Valid ranges, including a list, a negative "from the end", and a BYDAY
+    // ordinal (2nd Monday), still evaluate.
     expect(validatePattern('FREQ=YEARLY;BYMONTH=2,6;BYMONTHDAY=-1', undefined)).toBeNull();
+    expect(validatePattern('FREQ=MONTHLY;BYDAY=2MO', undefined)).toBeNull();
   });
 });
 
