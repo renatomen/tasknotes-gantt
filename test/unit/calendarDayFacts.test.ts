@@ -23,7 +23,7 @@ describe('eventDays span clipping', () => {
   it('clips a centuries-long event span to the window instead of walking every day', () => {
     // An authored 1970-9999 span is ~2.9M days. Without clipping, the editor
     // walks every one only to skip the out-of-window days — a multi-second
-    // freeze (#290). Clipping bounds the work to the window intersection.
+    // freeze. Clipping bounds the work to the window intersection.
     const window = { startDate: '2026-01-01', endDateExclusive: '2026-01-08' };
     const definition = base({
       events: [{ startDate: '1970-01-01', endDateExclusive: '9999-12-31', name: 'Forever' }],

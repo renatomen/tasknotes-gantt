@@ -122,10 +122,25 @@ describe('buildGanttStrip', () => {
     );
     // Content spans four years — wider than the cap. The window stays capped but
     // anchors on the latest content, so the recent marker is visible and the old
-    // anchor is the end that falls off, not the marker (#299).
+    // anchor is the end that falls off, not the marker.
     expect(strip.cells.length).toBeLessThanOrEqual(371);
     expect(strip.markers.map((m) => m.name)).toContain('Far future');
     expect(strip.cells.some((c) => c.date === '2026-01-05')).toBe(false);
+  });
+
+  it('clamps the latest-anchored window to the 4-digit-year ceiling', () => {
+    // Latest content at the ISO ceiling would push the anchored window past
+    // 9999-12-31 into a five-digit year that no longer round-trips. The window
+    // is clamped so every cell stays a valid four-digit-year date.
+    const strip = buildGanttStrip(
+      base({
+        nonWorking: [span('2026-01-05', '2026-01-06', 'Old anchor')],
+        markers: [{ date: '9999-12-31', name: 'End of days' }],
+      }),
+    );
+    expect(strip.window.endDateExclusive <= '9999-12-31').toBe(true);
+    expect(strip.cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date))).toBe(true);
+    expect(strip.cells.length).toBeLessThanOrEqual(371);
   });
 
   it('flags an invalid pattern instead of rendering a strip', () => {

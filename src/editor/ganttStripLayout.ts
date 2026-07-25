@@ -58,6 +58,9 @@ export interface GanttStripLayout {
 // most ~53 weeks.
 const STRIP_MIN_DAYS = 98;
 const STRIP_MAX_DAYS = 371;
+// The exclusive ceiling for a strip window: a date at or past year 10000 gains a
+// fifth digit and no longer sorts or round-trips through the ISO helpers.
+const STRIP_MAX_END = '9999-12-31';
 // A fixed fallback Monday, deterministic and never derived from wall-clock time.
 const STRIP_ANCHOR = '2026-01-05';
 const EMPTY_WINDOW: EvaluationWindow = { startDate: STRIP_ANCHOR, endDateExclusive: STRIP_ANCHOR };
@@ -191,8 +194,12 @@ function windowSpanning(points: string[], fallbackAnchor: string | undefined): E
   }
   // The content is wider than the strip can show. Anchor on the latest authored
   // content rather than the oldest, so recent markers/holidays stay visible
-  // instead of being truncated off the end by the cap.
-  const start = mondayOf(addDaysIso(latest, -(STRIP_MAX_DAYS - 7)));
+  // instead of being truncated off the end by the cap. Clamp the anchor so the
+  // window never crosses the 4-digit-year ceiling: past 9999-12-31 the ISO date
+  // gains a fifth digit and no longer sorts or round-trips.
+  const anchored = mondayOf(addDaysIso(latest, -(STRIP_MAX_DAYS - 7)));
+  const latestStart = mondayOf(addDaysIso(STRIP_MAX_END, -STRIP_MAX_DAYS));
+  const start = anchored > latestStart ? latestStart : anchored;
   return { startDate: start, endDateExclusive: addDaysIso(start, STRIP_MAX_DAYS) };
 }
 
