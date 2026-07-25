@@ -76,6 +76,29 @@ picker row. That contradicts the documented fail-visible contract.
 currently unused in production. Wiring it into `buildCalendarRegistry` so a runtime-invalid pattern
 lands in `registry.invalid` (banner + disabled picker row with the reason) is the fix.
 
+**Status (2026-07-24):** the *evaluator* half shipped in #323 (freeze/DoS + floating-rule guards, so
+`validatePattern`/`evaluatePattern` reject those before expansion). This registry-propagation half was
+split back out of #323 because an 8-round Codex review surfaced design decisions worth settling on
+purpose rather than round-by-round. Resolve these before implementing:
+
+1. **"Matches no days" policy.** `validatePattern` treats an evaluable rule that matches no day in the
+   4-year probe as invalid ("pattern matches no days"). For a *working* pattern that's the right
+   signal (a schedule working one day per decade isn't a schedule, and the preview already flags it),
+   but a valid sparse recurrence (`FREQ=YEARLY;INTERVAL=10`, first occurrence beyond the probe) should
+   NOT be flagged. Decide: keep "matches no days" for working rules (parity with the preview) and use
+   an evaluable-only check for events, OR relax both (and change the preview to match).
+2. **Working-rule vs display-event granularity** (per the `schema.ts` fail-granularity contract): an
+   invalid working pattern/availability block invalidates the whole calendar; a runtime-invalid
+   *recurring event* is a display entry and must be dropped-with-a-diagnostic, NOT suspend scheduling
+   for every linked task.
+3. **Event-diagnostic surfacing.** No production consumer reads calendar-*definition* diagnostics
+   (only set flags + `registry.invalid` surface in the picker/banner). To make a dropped bad event
+   actually fail-visible, add a registry field/flag the picker or banner renders — otherwise the
+   diagnostic is silent.
+4. **Startup cost.** Probing every calendar at registry build runs a 4-year `between()` per rule; the
+   #323 guards cap the pathological cases, but confirm the aggregate cost is acceptable (or probe
+   lazily / cache).
+
 ### P2c — Calendar: per-calendar colour for column shading (decide after U12/U13)
 Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md`. Maintainer question
 during S2 review: shaded columns all paint the same neutral colour regardless of each calendar's

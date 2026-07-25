@@ -9,7 +9,7 @@
  * default and would drop a holiday on the first rendered day.
  */
 
-import { RRule } from 'rrule';
+import { RRule, type Options } from 'rrule';
 
 import { addDaysIso } from './schema';
 
@@ -22,7 +22,6 @@ export type PatternResult =
   | { kind: 'ok'; dates: Set<string> }
   | { kind: 'invalid'; reason: string };
 
-const ANCHORED_GRAMMAR = /(^|;)\s*(INTERVAL|COUNT|UNTIL)=/i;
 const DAY_MS = 86_400_000;
 
 export function evaluatePattern(
@@ -30,15 +29,11 @@ export function evaluatePattern(
   patternStart: string | undefined,
   window: EvaluationWindow,
 ): PatternResult {
-  if (patternStart === undefined && ANCHORED_GRAMMAR.test(rule)) {
-    return {
-      kind: 'invalid',
-      reason: 'pattern uses INTERVAL/COUNT/UNTIL, which needs a pattern_start anchor date',
-    };
-  }
-
   try {
     const options = RRule.parseString(rule);
+    const unstable = rejectUnstable(options, patternStart !== undefined);
+    if (unstable !== null) return { kind: 'invalid', reason: unstable };
+
     options.dtstart = utcMidnight(patternStart ?? window.startDate);
     // An authored DTSTART/TZID inside the rule text would re-zone every
     // occurrence off the floating convention (or throw on an unknown zone).
@@ -54,6 +49,113 @@ export function evaluatePattern(
   } catch (error) {
     return { kind: 'invalid', reason: `not a valid RRULE: ${describe(error)}` };
   }
+}
+
+/**
+ * Reject rules a day-granularity calendar can't evaluate safely or
+ * deterministically, before expansion:
+ *  - a sub-daily FREQ (HOURLY/MINUTELY/SECONDLY) yields intra-day occurrences a
+ *    day calendar can't use, and would materialize ~10^8 dates over the
+ *    multi-year validity probe — a freeze;
+ *  - a non-positive or non-integer INTERVAL: rrule keeps a malformed value
+ *    ("foo", "1.5") as a string and 0/negative advance not at all, so between()
+ *    would not terminate — a freeze;
+ *  - an out-of-range BY-part (BYMONTH>12, BYMONTHDAY=0, …): rrule accepts it but
+ *    then scans day-by-day without ever matching — a multi-second freeze;
+ *  - an anchorless rule whose phase no BY-part pins (or that counts/bounds from
+ *    the start via INTERVAL>1 / COUNT / UNTIL) floats with the render window:
+ *    its matched days shift whenever the window moves, so it needs a
+ *    pattern_start anchor.
+ */
+function rejectUnstable(options: Partial<Options>, hasAnchor: boolean): string | null {
+  if (options.freq !== undefined && options.freq > RRule.DAILY) {
+    return 'pattern uses a sub-daily frequency (HOURLY/MINUTELY/SECONDLY); a day-granularity calendar cannot use it';
+  }
+  if (present(options.byhour) || present(options.byminute) || present(options.bysecond)) {
+    return 'pattern uses sub-day BY-parts (BYHOUR/BYMINUTE/BYSECOND); a day-granularity calendar cannot use them';
+  }
+  const outOfRange = outOfRangeByPart(options);
+  if (outOfRange !== null) {
+    return `pattern uses an out-of-range ${outOfRange}, which rrule accepts but then scans for fruitlessly`;
+  }
+  if (options.interval !== undefined && (!Number.isInteger(options.interval) || options.interval < 1)) {
+    return 'pattern uses a non-positive or non-integer INTERVAL, which never advances';
+  }
+  if (!hasAnchor && !isPhasePinned(options)) {
+    return 'pattern floats without a pattern_start anchor date (its matched days depend on the start date)';
+  }
+  return null;
+}
+
+/** Whether the rule's occurrence phase is fixed independent of its anchor date. */
+function isPhasePinned(options: Partial<Options>): boolean {
+  // Counted or bounded from the anchor (INTERVAL>1, COUNT, UNTIL) — always
+  // anchor-dependent, whatever BY-parts are present.
+  if ((options.interval ?? 1) > 1) return false;
+  if (options.count !== undefined || options.until !== undefined) return false;
+  switch (options.freq) {
+    case RRule.DAILY:
+      return true;
+    case RRule.WEEKLY:
+      return present(options.byweekday);
+    case RRule.MONTHLY:
+      return present(options.bymonthday) || present(options.byweekday);
+    case RRule.YEARLY:
+      // BYMONTH is intentionally absent: it fixes the month but rrule takes the
+      // day from the anchor, so BYMONTH alone still floats with the window.
+      return (
+        present(options.bymonthday) ||
+        present(options.byweekday) ||
+        present(options.byyearday) ||
+        present(options.byweekno)
+      );
+    default:
+      return false;
+  }
+}
+
+/** A BY-part is present when it's a non-null scalar or a non-empty list. */
+function present(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  return !Array.isArray(value) || value.length > 0;
+}
+
+/**
+ * The name of the first BY-part whose value is outside its RFC 5545 range, or
+ * null. rrule accepts e.g. BYMONTHDAY=0 or BYMONTH=13 but then scans day-by-day
+ * without ever matching — a multi-second freeze during the validity probe.
+ */
+function outOfRangeByPart(options: Partial<Options>): string | null {
+  if (!magnitudesWithin(options.bymonth, 12, false)) return 'BYMONTH';
+  if (!magnitudesWithin(options.bymonthday, 31, true)) return 'BYMONTHDAY';
+  if (!magnitudesWithin(options.byyearday, 366, true)) return 'BYYEARDAY';
+  if (!magnitudesWithin(options.byweekno, 53, true)) return 'BYWEEKNO';
+  if (!magnitudesWithin(options.bysetpos, 366, true)) return 'BYSETPOS';
+  if (!byDayOrdinalsInRange(options.byweekday)) return 'BYDAY ordinal';
+  return null;
+}
+
+/** Whether every BYDAY ordinal (a Weekday's `n`, e.g. the 2 in 2MO) is within
+ *  RFC 5545's ±1..53, or absent. rrule accepts 54MO and then scans fruitlessly. */
+function byDayOrdinalsInRange(byweekday: Options['byweekday'] | undefined): boolean {
+  const values = Array.isArray(byweekday) ? byweekday : [byweekday];
+  return values.every((value) => magnitudeWithin((value as { n?: number | null } | null)?.n, 53, true));
+}
+
+/** Whether each present value is within range (0 and out-of-range rejected). An
+ *  absent BY-part (null/undefined) is vacuously in range. */
+function magnitudesWithin(value: number | number[] | null | undefined, max: number, signed: boolean): boolean {
+  const values = Array.isArray(value) ? value : [value];
+  return values.every((v) => magnitudeWithin(v, max, signed));
+}
+
+/** A single value's range check: an integer 1..max, or ±1..max when signed. rrule
+ *  keeps a fractional value (BYMONTHDAY=1.5) as a string, so the integer check
+ *  also rejects those before they reach a fruitless between() scan. */
+function magnitudeWithin(value: number | null | undefined, max: number, signed: boolean): boolean {
+  if (value == null) return true;
+  if (!Number.isInteger(value)) return false;
+  return signed ? Math.abs(value) >= 1 && Math.abs(value) <= max : value >= 1 && value <= max;
 }
 
 /** The window days the pattern does NOT match — the blocking non-working complement. */
@@ -80,7 +182,8 @@ const FALLBACK_PROBE_ANCHOR = '2026-01-05';
  * Validity probe backing the fail-visible contract (an invalid calendar is
  * flagged and inert, never silently wrong): null when the pattern is
  * evaluable and matches at least one day in a representative leap cycle from
- * its anchor; otherwise the reason to surface.
+ * its anchor; otherwise the reason to surface. A working pattern that matches no
+ * day in the probe is a reason — a working schedule should recur within it.
  */
 export function validatePattern(rule: string, patternStart: string | undefined): string | null {
   const anchor = patternStart ?? FALLBACK_PROBE_ANCHOR;
