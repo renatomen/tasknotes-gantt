@@ -32,7 +32,7 @@ import {
   type TaskSyncPlan,
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
-import { statusSlug, prioritySlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
+import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
@@ -364,6 +364,29 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).toContain(`${prioritySlug('high')} ${statusSlug('wip')}`);
     // ...but never a class paired with itself (a redundant combo dedupes to one class).
     expect(ids).not.toContain(`${statusSlug('wip')} ${statusSlug('wip')}`);
+  });
+
+  it('never pairs two calendars (only cross-group), so the set stays linear in the calendar count', () => {
+    const calendar = Array.from({ length: 10 }, (_, i) => ({ value: `cal-${i}`, color: '#0a0' }));
+    const ids = buildTreatmentTaskTypes({ ...palettes, calendar }).map((t) => t.id);
+    // Two distinct calendars never co-occur on one bar (a bar has one calendar),
+    // so their pair is dead weight and is not registered.
+    expect(ids).not.toContain(`${calendarSlug('cal-0')} ${calendarSlug('cal-1')}`);
+    // But a calendar pairs with a status/priority (different source groups).
+    expect(ids).toContain(`${calendarSlug('cal-0')} ${statusSlug('wip')}`);
+    expect(ids).toContain(`${statusSlug('wip')} ${calendarSlug('cal-0')}`);
+  });
+
+  it('grows the registered-type count linearly, not quadratically, in the calendar count', () => {
+    const count = (n: number): number =>
+      buildTreatmentTaskTypes({
+        ...palettes,
+        calendar: Array.from({ length: n }, (_, i) => ({ value: `cal-${i}`, color: '#0a0' })),
+      }).length;
+    // Each added calendar contributes a fixed number of ids (its singles plus its
+    // cross-group pairs), so the count is exactly linear: doubling the span of
+    // added calendars doubles the growth. A quadratic cross-product would ~4x it.
+    expect(count(40) - count(20)).toBe((count(20) - count(10)) * 2);
   });
 
   it('covers every composed form a priority + cue bar can produce (whole-string contract)', () => {

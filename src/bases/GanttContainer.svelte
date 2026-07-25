@@ -3450,6 +3450,11 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split) {
     background-color: transparent !important;
+    /* A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split)
+       host the runs fill the content box inset by that border, leaving a 1px
+       halo around the pieces. Drop the border here so the runs meet the bar's
+       edge — a non-split strip bar keeps its intended outline. */
+    border: 0 !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;
