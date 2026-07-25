@@ -12,6 +12,7 @@ import {
   isCss3ColorName,
   isHexColor,
   isValidCalendarColor,
+  paintableColor,
 } from '../../src/bases/css3Colors';
 
 describe('CSS3 colour set', () => {
@@ -73,6 +74,29 @@ describe('isValidCalendarColor', () => {
   it('rejects anything the renderer could not paint', () => {
     expect(isValidCalendarColor('foobar')).toBe(false);
     expect(isValidCalendarColor('var(--color-red)')).toBe(false);
+  });
+});
+
+describe('paintableColor', () => {
+  it('returns the trimmed value for a hex or CSS3 keyword', () => {
+    expect(paintableColor('#2a9d8f')).toBe('#2a9d8f');
+    expect(paintableColor('  cornflowerblue  ')).toBe('cornflowerblue');
+  });
+
+  it('returns transparent for an empty or whitespace-only value', () => {
+    expect(paintableColor('')).toBe('transparent');
+    expect(paintableColor('   ')).toBe('transparent');
+  });
+
+  it('returns transparent for a value that could inject CSS, never the raw value', () => {
+    // Untrusted calendar frontmatter must never reach an inline style= binding.
+    const remoteFetch = 'url(https://attacker.example/pixel)';
+    const overlay = 'red;position:fixed;inset:0;z-index:9999';
+    expect(paintableColor(remoteFetch)).toBe('transparent');
+    expect(paintableColor(remoteFetch)).not.toContain('url(');
+    expect(paintableColor(overlay)).toBe('transparent');
+    expect(paintableColor(overlay)).not.toContain(';');
+    expect(paintableColor('var(--text-normal)')).toBe('transparent');
   });
 });
 
