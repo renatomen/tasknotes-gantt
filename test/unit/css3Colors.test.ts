@@ -88,15 +88,24 @@ describe('paintableColor', () => {
     expect(paintableColor('   ')).toBe('transparent');
   });
 
-  it('returns transparent for a value that could inject CSS, never the raw value', () => {
-    // Untrusted calendar frontmatter must never reach an inline style= binding.
-    const remoteFetch = 'url(https://attacker.example/pixel)';
-    const overlay = 'red;position:fixed;inset:0;z-index:9999';
-    expect(paintableColor(remoteFetch)).toBe('transparent');
-    expect(paintableColor(remoteFetch)).not.toContain('url(');
-    expect(paintableColor(overlay)).toBe('transparent');
-    expect(paintableColor(overlay)).not.toContain(';');
-    expect(paintableColor('var(--text-normal)')).toBe('transparent');
+  // Untrusted calendar frontmatter must never reach an inline style= binding,
+  // so every non-paintable value collapses to 'transparent' — an allowlist, not
+  // a blocklist, so novel injection shapes are rejected by construction.
+  it.each([
+    ['remote fetch', 'url(https://attacker.example/pixel)'],
+    ['nested image-set fetch', 'image-set(url(https://attacker.example/x.png) 1x)'],
+    ['declaration injection', 'red;position:fixed;inset:0;z-index:9999'],
+    ['CSS variable indirection', 'var(--text-normal)'],
+    ['legacy expression', 'expression(alert(1))'],
+    ['function-shaped value', 'rgb(0,0,0)'],
+    ['comment-wrapped', '/* */red'],
+    ['non-colour keyword', 'notacolour'],
+  ])('returns transparent for %s, never the raw value', (_label, hostile) => {
+    const painted = paintableColor(hostile);
+    expect(painted).toBe('transparent');
+    expect(painted).not.toContain('url(');
+    expect(painted).not.toContain(';');
+    expect(painted).not.toContain('(');
   });
 });
 
