@@ -146,6 +146,51 @@ describe('parseCalendarFrontmatter — calendars', () => {
     expect(cal.diagnostics).toHaveLength(1);
   });
 
+  it('rejects an impossible date that Date.UTC would silently normalise, keeping the rest', () => {
+    // 2026-02-30 passes the ISO shape but names a day that does not exist;
+    // Date.UTC rolls it to 2026-03-02, so only the round-trip guard catches it.
+    const cal = parseCalendar({
+      tngantt: 'calendar',
+      non_working: ['2026-02-30', '2026-12-25'],
+    });
+    expect(cal.nonWorking).toHaveLength(1);
+    expect(cal.nonWorking[0]?.startDate).toBe('2026-12-25');
+    expect(cal.diagnostics).toHaveLength(1);
+    expect(cal.diagnostics[0]?.path).toBe('non_working[0]');
+  });
+
+  it.each(['2026-02-30', '2026-13-01', '2026-00-10', '2026-04-31', '2026-01-32'])(
+    'drops the impossible date %s',
+    (bad) => {
+      const cal = parseCalendar({ tngantt: 'calendar', non_working: [bad] });
+      expect(cal.nonWorking).toHaveLength(0);
+      expect(cal.diagnostics).toHaveLength(1);
+    },
+  );
+
+  it.each(['2026-02-28', '2028-02-29', '2026-12-31', '2026-01-01'])(
+    'accepts the real boundary date %s',
+    (good) => {
+      const cal = parseCalendar({ tngantt: 'calendar', non_working: [good] });
+      expect(cal.nonWorking).toHaveLength(1);
+      expect(cal.nonWorking[0]?.startDate).toBe(good);
+      expect(cal.diagnostics).toEqual([]);
+    },
+  );
+
+  it('keeps a marker+rrule events entry as a recurring event, with a diagnostic', () => {
+    // marker and a recurrence are mutually exclusive; the recurrence wins and
+    // the discarded marker is surfaced rather than dropped silently.
+    const cal = parseCalendar({
+      tngantt: 'calendar',
+      events: [{ pattern: 'FREQ=WEEKLY;BYDAY=FR', name: 'Standup', marker: true }],
+    });
+    expect(cal.recurringEvents).toEqual([{ rrule: 'FREQ=WEEKLY;BYDAY=FR', name: 'Standup' }]);
+    expect(cal.markers).toHaveLength(0);
+    expect(cal.diagnostics).toHaveLength(1);
+    expect(cal.diagnostics[0]?.path).toBe('events[0]');
+  });
+
   it('validates working_hours ranges and drops bad ones with diagnostics', () => {
     const cal = parseCalendar({
       tngantt: 'calendar',

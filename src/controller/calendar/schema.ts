@@ -139,6 +139,12 @@ function parseCalendar(source: Record<string, unknown>): CalendarDefinition | In
 
   readDatedList(source['events'], 'events', diagnostics, (entry, path) => {
     if (entry.rrule !== undefined) {
+      if (entry.marker) {
+        diagnostics.push({
+          path,
+          message: 'marker is display-only and ignored for a recurring event; kept as a recurring event',
+        });
+      }
       definition.recurringEvents.push({ rrule: entry.rrule, name: entry.name });
       return;
     }
@@ -350,7 +356,12 @@ export function toIsoDate(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const text = value.trim();
   if (!ISO_DATE.test(text)) return undefined;
-  return Number.isNaN(isoToUtcMs(text)) ? undefined : text;
+  if (Number.isNaN(isoToUtcMs(text))) return undefined;
+  // `Date.UTC` normalises an impossible calendar date (2026-02-30 -> 2026-03-02)
+  // instead of returning NaN, so a value that survives the regex can still name
+  // a day that does not exist. A zero-day round-trip re-derives the canonical
+  // date; when it differs, the authored date was impossible and is rejected.
+  return addDaysIso(text, 0) === text ? text : undefined;
 }
 
 export function addDaysIso(date: string, days: number): string {
