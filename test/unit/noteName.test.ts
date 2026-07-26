@@ -34,6 +34,15 @@ describe('validateNoteName', () => {
       expect(validateNoteName(bad)).not.toBeNull();
     }
   });
+
+  it('rejects a name that is only the extension, since it strips to an empty basename', () => {
+    // "Cal.md" -> "Cal", but ".md" -> "" — the rename target would be a hidden
+    // dotfile (Calendars/.md), so treat it as the empty-name error.
+    expect(validateNoteName('.md')).toMatch(/empty/i);
+    expect(validateNoteName('  .md  ')).toMatch(/empty/i);
+    // A leading-dot name that is not just the extension is a real name.
+    expect(validateNoteName('.gitignore')).toBeNull();
+  });
 });
 
 describe('renameTargetPath', () => {
