@@ -68,6 +68,7 @@
     type InferredDragAction,
     type InferredEdge,
   } from './inferredDragGate';
+  import { dayDelta } from './dayGranularity';
   import { InferredDragModal } from './InferredDragModal';
   import {
     choiceEditorOptions,
@@ -2568,6 +2569,25 @@
           anchorDate,
           inferredChoice.estimateMinutes,
         ) ?? draggedRange;
+      // Show what was actually saved. The estimate re-derives to this range, which
+      // over blocked days is NOT the span SVAR optimistically drew — and our own
+      // write's echo is suppressed, so the chart would keep the optimistic
+      // geometry (while the cascade extends ancestors against this one) until some
+      // later refresh made the bar jump. Mirrored siblings share the source date,
+      // so they move together, exactly as the subtree-shift and revert paths do.
+      if (
+        dayDelta(moved.start, draggedRange.start) !== 0 ||
+        dayDelta(moved.end, draggedRange.end) !== 0
+      ) {
+        for (const inst of instances) {
+          if (inst.sourcePath !== dSource) continue;
+          api.exec('update-task', {
+            id: inst.id,
+            task: { start: draggedRange.start, end: draggedRange.end },
+            eventSource: OG_ECHO_SOURCE,
+          });
+        }
+      }
     }
     if (dSource) addRange(dSource, draggedRange.start, draggedRange.end);
 

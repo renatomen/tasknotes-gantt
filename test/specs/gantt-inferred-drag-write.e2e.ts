@@ -195,6 +195,16 @@ async function dragEndEdge(
   }, { notePath, days });
 }
 
+/** One day in pixels, read off the finest time-scale row — the unit bar widths speak in. */
+async function dayWidth(): Promise<number> {
+  return browser.execute(() => {
+    const root = document.querySelector(".og-bases-gantt");
+    const rows = root?.querySelectorAll(".wx-scale .wx-row") ?? [];
+    const cell = rows[rows.length - 1]?.querySelector(".wx-cell") as HTMLElement | null;
+    return cell?.getBoundingClientRect().width ?? 0;
+  });
+}
+
 /** A rendered bar's geometry + classes, read in-page (endsWith on `data-id`). */
 async function barInfo(notePath: string): Promise<{ width: number; classes: string } | null> {
   return browser.execute((name: string) => {
@@ -494,6 +504,94 @@ describe("Gantt (OG) inferred-date drag writes", () => {
         timeout: 20000,
         timeoutMsg: async () =>
           `adjust-to-fit left dates and estimate apart — note is now: ${await readNote("Adjust Parent.md")}`,
+      },
+    );
+  });
+
+  // The two cases below need the WORKING-DAY seam: a calendar association plus
+  // `estimateMeaning: working-days`, so a saved estimate counts working days and
+  // re-derives to a span that is NOT the one the drag drew. The bases above have
+  // no calendar at all, so neither path is reachable from them.
+  const SEAM_BARS = ["Seam Only.md", "Blocked Parent.md", "Blocked Child.md"];
+
+  it("settles the bar on the range the estimate re-derives, not the dragged one", async () => {
+    await switchBase("InferredDragSeam.base", SEAM_BARS);
+    // Mon 05-04 + 2 working days → the bar ends Tue 05-05.
+    const before = await waitForBar("Seam Only.md");
+    const pxPerDay = (await dragEndEdge("Seam Only.md", 5)).pxPerDay;
+    await waitForPrompt(lastDragged);
+    await chooseAction("Estimate only");
+
+    // Dragging the end 5 days out spans Mon..Sun — 5 working days, since Sat and
+    // Sun carry no work. So the estimate is 5 days, and 5 working days from Monday
+    // re-derives to Mon..Fri: two days SHORTER than the span just drawn. The chart
+    // must show that derived range, because it is what the note now means.
+    await browser.waitUntil(
+      async () => /timeEstimate:\s*7200/.test(await readNote("Seam Only.md")),
+      {
+        timeout: 20000,
+        timeoutMsg: async () =>
+          `the working-day estimate was not saved — note is now: ${await readNote("Seam Only.md")}`,
+      },
+    );
+    const derivedWidth = before.width + 3 * pxPerDay; // Mon..Tue (2d) → Mon..Fri (5d)
+    await browser.waitUntil(
+      async () => {
+        const info = await barInfo("Seam Only.md");
+        return info !== null && Math.abs(info.width - derivedWidth) < pxPerDay / 2;
+      },
+      {
+        timeout: 20000,
+        timeoutMsg: async () =>
+          `the bar kept the optimistic dragged geometry: expected ~${derivedWidth}px ` +
+          `(${before.width}px + 3 days), got ${JSON.stringify(await barInfo("Seam Only.md"))}`,
+      },
+    );
+    // And no date was authored — the edge stays derived.
+    expect(await readNote("Seam Only.md")).not.toMatch(/due:/);
+  });
+
+  it("keeps the fitted duration when the calendar blocks every day of the span", async () => {
+    await switchBase("InferredDragSeam.base", SEAM_BARS);
+    // Blocked Parent must span 05-04..05-07 via the stretch's flagged fallback (its
+    // calendar blocks the whole month, so there is no working day to walk). Asserted
+    // before dragging: if the fallback did not hold, the child would already sit
+    // outside the parent and no resize could NEWLY orphan it — the shrink prompt
+    // would simply never open, and the case would fail for the wrong reason.
+    expect(await readNote("Blocked Parent.md")).toContain("timeEstimate: 5760");
+    const parentBar = await waitForBar("Blocked Parent.md");
+    const px = await dayWidth();
+    expect(px).toBeGreaterThan(0);
+    expect(Math.round(parentBar.width / px)).toBe(4);
+
+    await dragEndEdge("Blocked Parent.md", -2);
+    await waitForPrompt(lastDragged);
+    await chooseAction("Estimate and dates");
+
+    const adjust = await (await $(".modal")).$("button=Adjust to fit");
+    await adjust.waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: async () =>
+        "the shrink-fit prompt never offered an adjust — " +
+        `parent is now ${JSON.stringify(await barInfo("Blocked Parent.md"))}, ` +
+        `child ${JSON.stringify(await barInfo("Blocked Child.md"))}, ` +
+        `note: ${await readNote("Blocked Parent.md")}`,
+    });
+    await adjust.click();
+
+    // Fitted back around the child (ends 05-07) — four days. Counting WORKING days
+    // over a fully blocked span yields none, so the estimate falls back to the plain
+    // four days, exactly as the read path's flagged stretch does. The bug this
+    // covers persisted 1440 (one day) while the bar showed four.
+    await browser.waitUntil(
+      async () => {
+        const note = await readNote("Blocked Parent.md");
+        return /timeEstimate:\s*5760/.test(note) && /due:\s*'?2026-05-07'?/.test(note);
+      },
+      {
+        timeout: 20000,
+        timeoutMsg: async () =>
+          `the fitted span's duration was not preserved — note is now: ${await readNote("Blocked Parent.md")}`,
       },
     );
   });

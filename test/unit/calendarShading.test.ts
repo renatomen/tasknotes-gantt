@@ -6,6 +6,7 @@ import {
   computeCalendarShadingCss,
   computeTaskBlocking,
   countWorkingDaysInSpan,
+  workingDaysForEstimate,
   createShadingCssCache,
   shadingCacheKey,
   shadingWindow,
@@ -263,6 +264,24 @@ describe('computeTaskBlocking + countWorkingDaysInSpan', () => {
     if (!blocking) throw new Error('expected blocking');
     // Fri 10 .. Tue 14: Fri + Mon + Tue working, Sat + Sun blocked.
     expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
+  });
+
+  it('floors a fully-blocked span to one day for RENDERING (a bar is never zero)', () => {
+    const blocking = blockingOf('Tasks/T.md');
+    if (!blocking) throw new Error('expected blocking');
+    // Sat 11 .. Sun 12: both blocked by the weekday pattern's complement.
+    expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 11), new Date(2026, 3, 12))).toBe(1);
+  });
+
+  it('reports no working days for a fully-blocked span when AUTHORING an estimate', () => {
+    const blocking = blockingOf('Tasks/T.md');
+    if (!blocking) throw new Error('expected blocking');
+    // The same span the renderer floors to 1: authoring must not claim a one-day
+    // duration for it. Null hands the caller back to plain days, which is what the
+    // read path re-derives when its stretch flags on a fully-blocked calendar.
+    expect(workingDaysForEstimate(blocking, new Date(2026, 3, 11), new Date(2026, 3, 12))).toBeNull();
+    // A span with workable days reports them, unfloored.
+    expect(workingDaysForEstimate(blocking, new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
   });
 });
 

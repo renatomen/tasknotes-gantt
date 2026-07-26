@@ -2,6 +2,7 @@ import {
   needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
+  workingDaysMeaningGate,
   projectDerivedSpan,
 } from '../../src/bases/estimateMeaningResolve';
 
@@ -47,6 +48,24 @@ describe('estimateMeaningForTask', () => {
     );
     expect(resolve('set.md')).toBe('calendar-days');
     expect(resolve('unset.md')).toBe('calendar-days');
+  });
+});
+
+describe('workingDaysMeaningGate', () => {
+  it('is undefined when no axis engages working-day counting', () => {
+    expect(workingDaysMeaningGate('calendar-days', false, () => 'calendar-days')).toBeUndefined();
+  });
+
+  it('answers per task, so a caller needs no calendar assembly to classify one', () => {
+    const gate = workingDaysMeaningGate('working-days', true, (p) =>
+      p === 'flat.md' ? 'calendar-days' : 'working-days',
+    );
+    expect(gate?.('flat.md')).toBe(false);
+    expect(gate?.('stretchy.md')).toBe(true);
+  });
+
+  it('engages via a mapped override even when the view default is calendar-days', () => {
+    expect(workingDaysMeaningGate('calendar-days', true, () => 'working-days')?.('t.md')).toBe(true);
   });
 });
 

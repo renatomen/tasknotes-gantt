@@ -90,6 +90,7 @@ import {
   needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
+  workingDaysMeaningGate,
   projectDerivedSpan,
 } from './estimateMeaningResolve';
 
@@ -124,7 +125,7 @@ import {
   associationTaskPaths,
   calendarAssociationsFrom,
   computeTaskBlocking,
-  countWorkingDaysInSpan,
+  workingDaysForEstimate,
   createShadingCssCache,
   shadingCacheKey,
   shadingWindow,
@@ -691,7 +692,7 @@ class ObsidianGanttBasesView extends BasesView {
           { transient: true },
         );
         const blocking = lookup(taskPath);
-        return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
+        return blocking ? workingDaysForEstimate(blocking, start, end) : null;
       },
     );
   }
@@ -710,11 +711,19 @@ class ObsidianGanttBasesView extends BasesView {
         estimateMinutes: number,
       ) => { start: Date; end: Date } | null)
     | undefined {
-    const counts = this.buildCountWorkingDays();
-    if (!counts) return undefined;
+    const viewMeaning = readEstimateMeaning((key) => this.config.get(key));
+    const usesWorkingDays = workingDaysMeaningGate(
+      viewMeaning,
+      (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '',
+      this.buildEstimateMeaningForTask(viewMeaning),
+    );
+    if (!usesWorkingDays) return undefined;
     return (taskPath, edge, anchor, estimateMinutes) => {
-      // Same per-task gate as the counter: a calendar-days task does not stretch.
-      if (counts(taskPath, anchor, anchor) === null) return null;
+      // Same per-task gate as the counter, asked directly: a calendar-days task
+      // does not stretch. Reading the meaning costs nothing, where invoking the
+      // counter to test its null would materialize the vault's calendars just to
+      // answer a yes/no — before the projection builds its own facts below.
+      if (!usesWorkingDays(taskPath)) return null;
       // Fresh blocking facts windowed for THIS estimate: the per-pass lookup was
       // sized for the pre-drag estimates, and days beyond its window deliberately
       // read as working — a grown estimate would walk into that blind zone and
@@ -723,6 +732,7 @@ class ObsidianGanttBasesView extends BasesView {
         [{ path: taskPath, start: anchor, end: anchor, estimateMinutes }],
         { transient: true },
       );
+      // No calendar for this task: the plain span already IS the derivation.
       const blocking = lookup(taskPath) ?? null;
       return projectDerivedSpan({
         edge,

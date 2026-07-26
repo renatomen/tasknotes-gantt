@@ -1,0 +1,25 @@
+filters:
+  or:
+    - 'file.name == "Seam Only"'
+    - 'file.name == "Blocked Parent"'
+    - 'file.name == "Blocked Child"'
+views:
+  - type: obsidianGantt
+    name: "Inferred Drag Seam"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_timeEstimateProperty: note.timeEstimate
+    tngantt_timeEstimateMode: property
+    tngantt_calendarProperty: note.calendar
+    tngantt_estimateMeaning: working-days
+    tngantt_inferredDrag: ask
+    tngantt_parentDateCascade: ask
+    tngantt_defaultScale: day
+    tngantt_maxHeight: 900
+    tngantt_defaultDuration: 1
+    tngantt_showPartialDateTasks: true
+    order:
+      - file.name
+      - note.scheduled
+      - note.due
+      - note.timeEstimate
