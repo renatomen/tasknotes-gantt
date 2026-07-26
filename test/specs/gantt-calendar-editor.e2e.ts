@@ -697,6 +697,64 @@ describe("Gantt (OG) calendar editor routing", () => {
     );
   });
 
+  it("disables Discard while a save is in flight, so an unmounting write is never dropped", async () => {
+    // The in-flight close path: canSave is false during a save, but Discard was
+    // still honored — yet the started vault.process can land after the leaf is
+    // gone, so discarding then would not actually discard. Hold the write
+    // pending and assert the guard offers a DISABLED Discard (Go back only).
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+
+    const textarea = await $(".og-cal-form textarea");
+    await textarea.waitForClickable({ timeout: 20000, timeoutMsg: "editor form never became interactable" });
+    await textarea.setValue("Edited while a save hangs");
+
+    // Patch vault.process to never settle until released — the form stays saving.
+    await browser.executeObsidian(({ app }) => {
+      const vault = app.vault as unknown as {
+        process: (...args: unknown[]) => Promise<unknown>;
+        __origProcess?: (...args: unknown[]) => Promise<unknown>;
+      };
+      vault.__origProcess = vault.process.bind(vault);
+      vault.process = (...args: unknown[]) =>
+        new Promise((resolve) => {
+          (window as unknown as { __releaseSave?: () => void }).__releaseSave = () =>
+            resolve(vault.__origProcess!(...args));
+        });
+    });
+
+    // Start the save; it hangs inside the patched process, so saving stays true.
+    const save = await $(".og-cal-form button.mod-cta");
+    await save.waitForEnabled({ timeout: 10000, timeoutMsg: "Save never enabled after an edit" });
+    await save.click();
+
+    // Close the tab mid-save → the guard appears with Discard disabled.
+    await browser.executeObsidian(({ app }) => {
+      const leaf = app.workspace.getLeavesOfType("tngantt-calendar-editor")[0];
+      leaf?.detach();
+    });
+    const modal = await $(".modal");
+    const discard = await modal.$("button=Discard");
+    await discard.waitForDisplayed({ timeout: 10000, timeoutMsg: "the guard did not appear during an in-flight save" });
+    expect(await discard.isEnabled()).toBe(false);
+
+    // Go back keeps the editor open; then release the held save and restore process.
+    await (await modal.$("button=Go back")).click();
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 10000,
+      timeoutMsg: "'Go back' did not keep the editor open during an in-flight save",
+    });
+    await browser.executeObsidian(({ app }) => {
+      (window as unknown as { __releaseSave?: () => void }).__releaseSave?.();
+      const vault = app.vault as unknown as {
+        process: (...args: unknown[]) => Promise<unknown>;
+        __origProcess?: (...args: unknown[]) => Promise<unknown>;
+      };
+      if (vault.__origProcess) vault.process = vault.__origProcess;
+    });
+    await browser.pause(300);
+  });
+
   const runCommand = async (id: string): Promise<void> => {
     await browser.executeObsidian(({ app }, commandId) => {
       (app as unknown as { commands: { executeCommandById: (id: string) => boolean } }).commands.executeCommandById(
