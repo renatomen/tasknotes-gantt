@@ -10,14 +10,19 @@
 /** Characters Obsidian forbids in a note name (path separators + reserved). */
 const ILLEGAL_NAME = /[\\/:*?"<>|]/;
 
+const MD_EXTENSION = /\.md$/i;
+
+function withoutMdExtension(name: string): string {
+  return MD_EXTENSION.test(name) ? name.slice(0, -'.md'.length) : name;
+}
+
 /**
  * The basename (no folder, no `.md`) of a vault path — what the editor shows and
  * lets the user rename. `''` for a null path or an empty basename.
  */
 export function noteBasename(path: string | null): string {
   if (!path) return '';
-  const file = path.slice(path.lastIndexOf('/') + 1);
-  return file.endsWith('.md') ? file.slice(0, -'.md'.length) : file;
+  return withoutMdExtension(path.slice(path.lastIndexOf('/') + 1));
 }
 
 /** A validation error for a proposed name, or null when it is usable. */
@@ -25,6 +30,9 @@ export function validateNoteName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed === '') return 'Name cannot be empty';
   if (ILLEGAL_NAME.test(trimmed)) return 'Name cannot contain \\ / : * ? " < > |';
+  // "Cal.md" is fine ("Cal"), but ".md" strips to nothing — renaming to that
+  // would target a hidden dotfile, so reject it as the empty-name case.
+  if (withoutMdExtension(trimmed) === '') return 'Name cannot be empty';
   return null;
 }
 
@@ -32,5 +40,5 @@ export function validateNoteName(name: string): string | null {
 export function renameTargetPath(currentPath: string, newName: string): string {
   const slash = currentPath.lastIndexOf('/');
   const folder = slash === -1 ? '' : currentPath.slice(0, slash + 1);
-  return `${folder}${newName.trim()}.md`;
+  return `${folder}${withoutMdExtension(newName.trim())}.md`;
 }
