@@ -67,7 +67,9 @@
     resolveInferredDragOutcome,
     resolveEffectiveInferredDragMode,
     buildInferredDragPatch,
+    projectEstimateOnlyRange,
     type InferredDragAction,
+    type InferredEdge,
     type PendingInferredDragMode,
   } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
@@ -2387,8 +2389,8 @@
     const before = activeDrag;
     // No-op until the inferred-edge gate below engages and hands the cascade a
     // promise to wait on; a plain drag settles nothing.
-    let settleInferredGesture: (action: InferredDragAction | null) => void = () => {};
-    let inferredAction: InferredDragAction | null = null;
+    let settleInferredGesture: (outcome: InferredGestureOutcome | null) => void = () => {};
+    let inferredOutcome: InferredGestureOutcome | null = null;
     if (
       before?.id === instanceId &&
       before.beforeStart &&
@@ -2417,7 +2419,7 @@
         // commit shrink-fit or ancestor-extend writes against the optimistic
         // pre-decision dates. Hand it a promise, resolved with the action that landed
         // (or null), before any await — processSubtreeAndExtend runs next this tick.
-        inferredGesture = new Promise<InferredDragAction | null>((resolve) => {
+        inferredGesture = new Promise<InferredGestureOutcome | null>((resolve) => {
           settleInferredGesture = resolve;
         });
         let action: InferredDragAction;
@@ -2437,7 +2439,6 @@
         } else {
           action = outcome;
         }
-        inferredAction = action;
         const fields = buildInferredDragPatch({
           action,
           inferredEdge,
@@ -2445,6 +2446,7 @@
           newEnd,
           estimateMinutes,
         });
+        inferredOutcome = { action, edge: inferredEdge, estimateMinutes: fields.estimateMinutes };
         patch = { estimate: fields.estimateMinutes };
         if (fields.materialise) {
           if (fields.materialise.edge === 'end') patch.end = fields.materialise.date;
@@ -2455,7 +2457,7 @@
 
     try {
       await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
-      settleInferredGesture(inferredAction);
+      settleInferredGesture(inferredOutcome);
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.
@@ -2501,7 +2503,15 @@
   // outcome instead of the optimistic pre-decision dates. Resolves with the action
   // that landed, or null when the user cancelled or the write failed. Consumed and
   // cleared by processSubtreeAndExtend; the two are always scheduled as a pair.
-  let inferredGesture: Promise<InferredDragAction | null> | null = null;
+  // The gate's resolved decision: which action landed, on which edge, with what
+  // estimate — everything the deferred cascade needs to reason about the
+  // gesture's FINAL geometry rather than the optimistic dragged span.
+  interface InferredGestureOutcome {
+    action: InferredDragAction;
+    edge: InferredEdge;
+    estimateMinutes: number;
+  }
+  let inferredGesture: Promise<InferredGestureOutcome | null> | null = null;
   // A "don't ask again" choice, held locally until the persisted view option catches
   // up (the Bases config refresh round-trips asynchronously).
   let pendingInferredDragMode: PendingInferredDragMode | null = null;
@@ -2563,7 +2573,31 @@
       }
     };
     const dSource = instances.find((i) => i.id === drag.id)?.sourcePath;
-    if (dSource) addRange(dSource, moved.start, moved.end);
+    // Estimate-only leaves the dragged edge COMPUTED, and under working-day
+    // interpretation it re-derives off the dragged date (the saved estimate counts
+    // only working days). Cascade from the projection of that re-derivation, not
+    // from the optimistic dragged span, so an ancestor is never extended past the
+    // child's real derived range.
+    let draggedRange: DateRange = { start: moved.start, end: moved.end };
+    const anchorDate =
+      inferredChoice?.edge === 'end' ? drag.beforeStart : drag.beforeEnd;
+    if (inferredChoice?.action === 'estimate-only' && anchorDate) {
+      draggedRange = projectEstimateOnlyRange({
+        inferredEdge: inferredChoice.edge,
+        anchor: anchorDate,
+        estimateMinutes: inferredChoice.estimateMinutes,
+        countWorkingDays:
+          dSource && $data.countWorkingDays
+            ? (start, end) => $data.countWorkingDays?.(dSource, start, end) ?? undefined
+            : undefined,
+        addDays: (date, days) => {
+          const next = new Date(date);
+          next.setDate(next.getDate() + days);
+          return next;
+        },
+      });
+    }
+    if (dSource) addRange(dSource, draggedRange.start, draggedRange.end);
 
     if (delta !== 0) {
       // Every instance to shift: the dragged subtree's descendants AND their
@@ -2603,7 +2637,7 @@
           new Notice("Couldn't move a child task — check TaskNotes is running.");
         }
       }
-    } else if (drag.beforeStart && drag.beforeEnd && inferredChoice !== 'estimate-only') {
+    } else if (drag.beforeStart && drag.beforeEnd && inferredChoice?.action !== 'estimate-only') {
       // Parent-shrink guard: a *resize* (no subtree shift) that newly leaves D
       // smaller than its direct children. Offer to adjust D to wrap them, or
       // undo the resize — per the per-view mode. A pure move (delta !== 0) can't
@@ -2649,8 +2683,8 @@
         //    restores what the bar showed, since the write path cannot restore
         //    the field's absence itself.
         if (inferredChoice != null) {
+          const sourcePath = instances.find((i) => i.id === drag.id)?.sourcePath;
           if (adjust) {
-            const sourcePath = instances.find((i) => i.id === drag.id)?.sourcePath;
             const workingDays = sourcePath
               ? $data.countWorkingDays?.(sourcePath, target.start, target.end)
               : undefined;
@@ -2658,9 +2692,17 @@
               workingDays ?? inclusiveDaySpan(target.start, target.end),
             );
           } else {
+            // The implicit value must count the same way the derivation does: a
+            // working-days bar's pre-drag span includes blocked days that carry
+            // no work, so a plain calendar count would inflate the estimate.
+            const preDragWorkingDays = sourcePath
+              ? $data.countWorkingDays?.(sourcePath, drag.beforeStart, drag.beforeEnd)
+              : undefined;
             revert.estimate =
               drag.beforeEstimateMinutes ??
-              spanDaysToMinutes(inclusiveDaySpan(drag.beforeStart, drag.beforeEnd));
+              spanDaysToMinutes(
+                preDragWorkingDays ?? inclusiveDaySpan(drag.beforeStart, drag.beforeEnd),
+              );
           }
         }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });

@@ -476,16 +476,16 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     });
     await adjust.click();
 
-    // Fitted back to wrap the child (ends 04-09): 4 working/calendar days again.
+    // Fitted back to wrap the child (ends 04-09): 4 calendar days again.
     await browser.waitUntil(
       async () => {
-        const note = await readNote("Undo Parent.md");
+        const note = await readNote("Adjust Parent.md");
         return note.includes("timeEstimate: 5760") && /due:\s*'?2026-04-09'?/.test(note);
       },
       {
         timeout: 20000,
         timeoutMsg: async () =>
-          `adjust-to-fit left dates and estimate apart — note is now: ${await readNote("Undo Parent.md")}`,
+          `adjust-to-fit left dates and estimate apart — note is now: ${await readNote("Adjust Parent.md")}`,
       },
     );
   });

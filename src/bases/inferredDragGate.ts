@@ -26,6 +26,7 @@
 
 import type { DateStatus } from '../controller/datePolicy';
 import { dayDelta } from './dayGranularity';
+import { minutesToSpanDays } from '../controller/durationConversion';
 
 /** Per-view inferred-edge-drag behaviour (mirrors {@link ./cascadeGate}'s CascadeMode). */
 export type InferredDragMode = 'ask' | 'estimate-only' | 'estimate-and-dates';
@@ -161,6 +162,48 @@ export function resolveInferredDragOutcome(args: {
   if (args.mode === 'estimate-only') return 'estimate-only';
   if (args.mode === 'estimate-and-dates') return 'estimate-and-dates';
   return 'prompt';
+}
+
+/**
+ * The day-granular range an estimate-only choice will RE-DERIVE, projected from
+ * the anchored (authored) edge and the saved estimate.
+ *
+ * An estimate-only write leaves the dragged edge computed, and under working-day
+ * interpretation the recomputation does not land back on the dragged date: the
+ * saved estimate counted only the span's working days, so blocked days push the
+ * derived edge elsewhere. Anything that acts on the gesture's final geometry
+ * (the ancestor-extend cascade) must therefore act on this projection, not on
+ * the optimistic dragged span.
+ *
+ * `countWorkingDays` is the same day-granular counter the estimate was derived
+ * with (absent for an unassociated task → plain calendar days). The walk from
+ * the anchor is bounded the same way the date policy bounds its own stretch, so
+ * a pathological calendar cannot hang the gesture; on hitting the bound the
+ * projection falls back to plain calendar days.
+ */
+export function projectEstimateOnlyRange(args: {
+  inferredEdge: InferredEdge;
+  anchor: Date;
+  estimateMinutes: number;
+  countWorkingDays?: (start: Date, end: Date) => number | undefined;
+  addDays: (date: Date, days: number) => Date;
+}): { start: Date; end: Date } {
+  const spanDays = Math.max(1, minutesToSpanDays(args.estimateMinutes));
+  const direction = args.inferredEdge === 'end' ? 1 : -1;
+  const plainFar = args.addDays(args.anchor, direction * (spanDays - 1));
+  const plainRange = (far: Date): { start: Date; end: Date } =>
+    args.inferredEdge === 'end' ? { start: args.anchor, end: far } : { start: far, end: args.anchor };
+  if (!args.countWorkingDays) return plainRange(plainFar);
+
+  const ceiling = 8 * spanDays + 31;
+  for (let offset = spanDays - 1; offset <= ceiling; offset++) {
+    const far = args.addDays(args.anchor, direction * offset);
+    const span = plainRange(far);
+    const worked = args.countWorkingDays(span.start, span.end);
+    if (worked === undefined) return plainRange(plainFar);
+    if (worked >= spanDays) return span;
+  }
+  return plainRange(plainFar);
 }
 
 /**
