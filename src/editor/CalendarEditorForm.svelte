@@ -8,7 +8,7 @@
    * comment-preserving frontmatter editor. Focus lands on the description on
    * mount and tab order follows the visual top-to-bottom field order.
    */
-  /* global HTMLInputElement, HTMLTextAreaElement, setInterval, clearInterval */
+  /* global HTMLInputElement, HTMLTextAreaElement */
   import { tick } from 'svelte';
   import {
     changedFrontmatter,
@@ -28,7 +28,7 @@
   import GanttStripPreview from './GanttStripPreview.svelte';
   import { type MemberResolution } from './unionPreview';
   import { buildCalendarNotice } from '../bases/calendarConflicts';
-  import { formatUtcOffset } from './timezoneOffset';
+  import { formatUtcOffset, scheduleMinutelyOffsetRefresh } from './timezoneOffset';
   import WorkingPatternEditor from './WorkingPatternEditor.svelte';
   import ColorField from './ColorField.svelte';
   import { validateNoteName } from './noteName';
@@ -194,12 +194,11 @@
   // because the derivation had no time dependency. A minutely tick is ample —
   // offsets only ever change on whole-minute boundaries.
   let offsetClock = $state(0);
-  $effect(() => {
-    const timer = setInterval(() => {
+  $effect(() =>
+    scheduleMinutelyOffsetRefresh(() => {
       offsetClock++;
-    }, 60_000);
-    return () => clearInterval(timer);
-  });
+    }),
+  );
   const timezoneOffset = $derived.by(() => {
     void offsetClock;
     return form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone);
