@@ -21,7 +21,7 @@ import {
   type CalendarRecord,
   type LinkResolver,
 } from '../controller/calendar/resolveCalendars';
-import { conflictDates } from './calendarConflicts';
+import { conflictDatesWithSources } from './calendarConflicts';
 import type { MarkerInput } from './markerOverlay';
 import {
   effectiveDisplayPaths,
@@ -143,6 +143,26 @@ export function buildCalendarShadingCss(
  * Pure — the caller supplies the frontmatter reader — so the union-and-dedup of
  * Bases entries with fetched instances is testable without the view or Obsidian.
  */
+/**
+ * Every note whose calendar association matters for the chart: the Base entries
+ * (the matched set) plus the source of every rendered instance.
+ *
+ * Those differ under companion Show-all, which fetches descendants that are NOT
+ * Bases entries. Leaving them out gave their bars no calendar identity, so they
+ * fell back to the default role colour instead of following their calendar.
+ * Entry order comes first so the association list stays stable across refreshes.
+ */
+export function associationTaskPaths(
+  entryPaths: Iterable<string>,
+  instances: ReadonlyArray<{ sourcePath?: string }>,
+): string[] {
+  const paths = new Set<string>(entryPaths);
+  for (const instance of instances) {
+    if (instance.sourcePath) paths.add(instance.sourcePath);
+  }
+  return [...paths];
+}
+
 export function calendarAssociationsFrom(
   taskPaths: Iterable<string>,
   valueOf: (path: string) => unknown,
@@ -188,6 +208,8 @@ export interface ShadingComputation {
   css: string;
   displayedCount: number;
   conflictCount: number;
+  /** The displayed calendars that disagree, so the banner can name them. */
+  conflictCalendars: string[];
   invalidCount: number;
   /** Selected entries whose links no longer resolve. */
   flaggedCount: number;
@@ -227,6 +249,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       css: buildCalendarShadingCss(inputs.scope, []),
       displayedCount: 0,
       conflictCount: 0,
+      conflictCalendars: [],
       invalidCount,
       flaggedCount,
       markers: [],
@@ -254,12 +277,23 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     }
   }
 
-  const definitions = [...displayed.values()].map((record) => record.definition);
-  const conflicts = definitions.length >= 2 ? conflictDates(definitions, window) : [];
+  const records = [...displayed.values()];
+  const definitions = records.map((record) => record.definition);
+  // Attributed: the banner names the disagreeing calendars, so a user does not have
+  // to open the picker and compare patterns to find which selection conflicts.
+  const conflicts =
+    definitions.length >= 2
+      ? conflictDatesWithSources(records, window)
+      : { dates: [] as string[], calendars: [] as string[] };
   return {
-    css: buildCalendarShadingCss(inputs.scope, collectShadedDates(definitions, window), conflicts),
+    css: buildCalendarShadingCss(
+      inputs.scope,
+      collectShadedDates(definitions, window),
+      conflicts.dates,
+    ),
     displayedCount: displayed.size,
-    conflictCount: conflicts.length,
+    conflictCount: conflicts.dates.length,
+    conflictCalendars: conflicts.calendars,
     invalidCount,
     flaggedCount,
     markers: collectMarkers([...displayed.values()]),

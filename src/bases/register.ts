@@ -120,6 +120,7 @@ import { minutesToSpanDays } from '../controller/durationConversion';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
+  associationTaskPaths,
   calendarAssociationsFrom,
   computeTaskBlocking,
   countWorkingDaysInSpan,
@@ -1287,10 +1288,13 @@ class ObsidianGanttBasesView extends BasesView {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
-    const taskPaths = (this.data?.data ?? []).flatMap((entry) => {
+    const entryPaths = (this.data?.data ?? []).flatMap((entry) => {
       const path = (entry as SignatureEntry).file?.path;
       return path ? [path] : [];
     });
+    // Rendered instances too, not just Bases entries: Show-all fetches descendants
+    // that are not entries, and their bars need a calendar identity as well.
+    const taskPaths = associationTaskPaths(entryPaths, instances);
     const associations = frontmatterKey
       ? calendarAssociationsFrom(taskPaths, (path) => {
           const file = app.vault.getAbstractFileByPath(path);
@@ -1335,6 +1339,7 @@ class ObsidianGanttBasesView extends BasesView {
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,
+        conflictCalendars: computed.conflictCalendars,
         invalidCount: computed.invalidCount,
         flaggedCount: computed.flaggedCount,
       }),

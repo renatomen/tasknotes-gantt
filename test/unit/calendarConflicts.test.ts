@@ -3,7 +3,9 @@ import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/con
 import {
   buildCalendarNotice,
   conflictDates,
+  conflictDatesWithSources,
   conflictsFromFacts,
+  conflictsWithSources,
 } from '../../src/bases/calendarConflicts';
 
 const WINDOW = { startDate: '2026-04-06', endDateExclusive: '2026-04-13' }; // Mon..Sun
@@ -64,6 +66,60 @@ describe('conflictDates', () => {
   });
 });
 
+describe('conflictsWithSources', () => {
+  it('names both sides of each disagreement, not just the blocker', () => {
+    const result = conflictDatesWithSources(
+      [
+        { name: 'Weekdays', definition: monToFri },
+        { name: 'Sun Thu', definition: sunToThu },
+      ],
+      WINDOW,
+    );
+    expect(result.dates).toEqual(['2026-04-10', '2026-04-12']);
+    // Friday: Weekdays covers, Sun Thu blocks. Sunday: the reverse. Both are named.
+    expect(result.calendars).toEqual(['Weekdays', 'Sun Thu']);
+  });
+
+  it('names nobody when the calendars agree', () => {
+    const result = conflictDatesWithSources(
+      [
+        { name: 'A', definition: monToFri },
+        { name: 'B', definition: monToFri },
+      ],
+      WINDOW,
+    );
+    expect(result.dates).toEqual([]);
+    expect(result.calendars).toEqual([]);
+  });
+
+  it('reports names in input order and only once, however many days conflict', () => {
+    const blocked = (days: string[]) => ({ blocked: new Set(days), covers: false });
+    const result = conflictsWithSources(
+      [
+        { name: 'Covers all', blocked: new Set<string>(), covers: true },
+        { name: 'Blocks Fri', ...blocked(['2026-04-10']) },
+        { name: 'Blocks Sat+Sun', ...blocked(['2026-04-11', '2026-04-12']) },
+      ],
+      WINDOW,
+    );
+    expect(result.dates).toEqual(['2026-04-10', '2026-04-11', '2026-04-12']);
+    expect(result.calendars).toEqual(['Covers all', 'Blocks Fri', 'Blocks Sat+Sun']);
+  });
+
+  it('leaves an uninvolved calendar out of the attribution', () => {
+    const result = conflictsWithSources(
+      [
+        { name: 'Covers all', blocked: new Set<string>(), covers: true },
+        { name: 'Blocks Fri', blocked: new Set(['2026-04-10']), covers: false },
+        // Blocks nothing in the window and has no pattern: never on either side.
+        { name: 'Bystander', blocked: new Set<string>(), covers: false },
+      ],
+      WINDOW,
+    );
+    expect(result.calendars).toEqual(['Covers all', 'Blocks Fri']);
+  });
+});
+
 describe('conflictsFromFacts', () => {
   it('flags a day one facts-set blocks while another covers, ignoring shared blocks', () => {
     // #1 blocks Sat+Sun (covers the rest); #2 blocks Fri+Sat (covers the rest).
@@ -103,6 +159,34 @@ describe('buildCalendarNotice', () => {
     expect(
       buildCalendarNotice({ ...base, displayedCount: 2, conflictCount: 3, conflictYear: 2026 }),
     ).toBe('Displaying 2 calendars · 3 days in conflict in 2026');
+  });
+
+  it('names the disagreeing calendars alongside the count', () => {
+    expect(
+      buildCalendarNotice({
+        ...base,
+        displayedCount: 2,
+        conflictCount: 2,
+        conflictYear: 2026,
+        conflictCalendars: ['Weekdays', 'Sun Thu'],
+      }),
+    ).toBe('Displaying 2 calendars · 2 days in conflict in 2026 between Weekdays, Sun Thu');
+  });
+
+  it('summarises past three names rather than reproducing the picker', () => {
+    expect(
+      buildCalendarNotice({
+        ...base,
+        conflictCount: 9,
+        conflictCalendars: ['A', 'B', 'C', 'D', 'E'],
+      }),
+    ).toBe('9 days in conflict between A, B, C +2 more');
+  });
+
+  it('keeps the bare count when no attribution is supplied', () => {
+    expect(buildCalendarNotice({ ...base, conflictCount: 1, conflictCalendars: [] })).toBe(
+      '1 day in conflict',
+    );
   });
 
   it('warns that conflicts exist elsewhere when the counted window has none', () => {
