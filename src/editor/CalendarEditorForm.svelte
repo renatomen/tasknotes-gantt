@@ -8,7 +8,7 @@
    * comment-preserving frontmatter editor. Focus lands on the description on
    * mount and tab order follows the visual top-to-bottom field order.
    */
-  /* global HTMLInputElement, HTMLTextAreaElement */
+  /* global HTMLInputElement, HTMLTextAreaElement, setInterval, clearInterval */
   import { tick } from 'svelte';
   import {
     changedFrontmatter,
@@ -188,9 +188,22 @@
 
   // Live, DST-aware offset for the chosen zone — computed offline via Intl, a
   // hint only; the note always persists the IANA name, never the offset.
-  const timezoneOffset = $derived(
-    form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone),
-  );
+  //
+  // The hint says "Currently", so it must not fossilise: a form left open across
+  // a DST transition would otherwise show the pre-transition offset forever,
+  // because the derivation had no time dependency. A minutely tick is ample —
+  // offsets only ever change on whole-minute boundaries.
+  let offsetClock = $state(0);
+  $effect(() => {
+    const timer = setInterval(() => {
+      offsetClock++;
+    }, 60_000);
+    return () => clearInterval(timer);
+  });
+  const timezoneOffset = $derived.by(() => {
+    void offsetClock;
+    return form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone);
+  });
 
   let descriptionEl: HTMLTextAreaElement | undefined;
   $effect(() => {
