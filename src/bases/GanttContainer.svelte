@@ -2640,8 +2640,15 @@
         // Undoing an inferred-edge resize has to undo the estimate too: the gate
         // already saved the estimate the dragged span implied, so restoring only the
         // dates would leave the note claiming a duration the user just rejected.
-        if (!adjust && inferredChoice != null && drag.beforeEstimateMinutes != null) {
-          revert.estimate = drag.beforeEstimateMinutes;
+        // A task with no authored estimate had its edge derived from the view's
+        // default duration, so the pre-drag span is what to restore — the write path
+        // cannot clear a field, and an explicit estimate matching what was implicit
+        // is far closer to "undone" than the dragged one (see the backlog entry on
+        // undo and authorship).
+        if (!adjust && inferredChoice != null) {
+          revert.estimate =
+            drag.beforeEstimateMinutes ??
+            spanDaysToMinutes(inclusiveDaySpan(drag.beforeStart, drag.beforeEnd));
         }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
         try {

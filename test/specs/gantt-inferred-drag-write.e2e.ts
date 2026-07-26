@@ -152,11 +152,14 @@ const readNote = async (notePath: string): Promise<string> =>
  * and the first move clears its 20px "is this a drag?" dead zone. Returns the
  * geometry it used, so a failure says why rather than just "nothing happened".
  */
+let lastDragged: string | undefined;
+
 async function dragEndEdge(
   notePath: string,
   days: number,
 ): Promise<{ pxPerDay: number; barWidth: number; moved: number }> {
   await waitForBar(notePath);
+  lastDragged = notePath;
   return browser.executeObsidian(({ app }, args) => {
     void app;
     const root = document.querySelector(".og-bases-gantt");
@@ -205,19 +208,32 @@ async function barInfo(notePath: string): Promise<{ width: number; classes: stri
 }
 
 /**
- * Wait for a bar to be rendered, re-fronting the base leaf on every poll so a
- * starter-note steal mid-test is healed rather than raced. Never called while the
- * prompt is open: re-activating a leaf would pull focus off the modal.
+ * Wait for a bar to be rendered AND settled, re-fronting the base leaf on every
+ * poll so a starter-note steal mid-test is healed rather than raced. Never called
+ * while the prompt is open: re-activating a leaf would pull focus off the modal.
+ *
+ * Settled matters as much as rendered: a drag committed while the chart is still
+ * diff-syncing is classified as our own echo and dropped, so the gesture would
+ * silently do nothing. Two consecutive polls reporting the same width is the
+ * cheapest available proxy for "the initial sync has finished".
  */
 async function waitForBar(notePath: string): Promise<{ width: number; classes: string }> {
   let info: { width: number; classes: string } | null = null;
+  let previousWidth = -1;
   await browser.waitUntil(
     async () => {
       await activateBaseLeaf();
       info = await barInfo(notePath);
-      return info !== null;
+      if (info === null) return false;
+      const stable = info.width === previousWidth;
+      previousWidth = info.width;
+      return stable;
     },
-    { timeout: 30000, timeoutMsg: `the bar for ${notePath} never rendered` },
+    {
+      timeout: 30000,
+      interval: 400,
+      timeoutMsg: `the bar for ${notePath} never rendered and settled`,
+    },
   );
   return info as unknown as { width: number; classes: string };
 }
@@ -227,11 +243,16 @@ async function waitForBar(notePath: string): Promise<{ width: number; classes: s
  * The action buttons are matched by text, which WDIO only supports as a
  * standalone selector — hence the chained `.$()` off the modal.
  */
-async function waitForPrompt() {
+async function waitForPrompt(notePath?: string) {
   const modal = await $(".modal");
   await modal.waitForDisplayed({
     timeout: 20000,
-    timeoutMsg: "the inferred-edge drag prompt never opened",
+    // A silent write means the gate did not engage (dropped gesture, or a
+    // non-inferred edge); an unchanged note means the drag never committed at all.
+    timeoutMsg: async () =>
+      `the inferred-edge drag prompt never opened${
+        notePath ? ` — ${notePath} is now: ${await readNote(notePath)}` : ""
+      }`,
   });
   const button = await modal.$("button=Estimate only");
   await button.waitForDisplayed({ timeout: 10000, timeoutMsg: "the prompt has no action buttons" });
@@ -300,7 +321,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
 
   it("materialises the dragged end date for 'Estimate and dates'", async () => {
     await dragEndEdge("Materialise Me.md", 3);
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await chooseAction('Estimate and dates');
 
     await browser.waitUntil(async () => (await readNote("Materialise Me.md")).includes("due:"), {
@@ -318,7 +339,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     expect(widthBefore).toBeGreaterThan(0);
 
     await dragEndEdge("Cancel Me.md", 3);
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await browser.keys(["Escape"]); // cancel = Escape / backdrop, by design
 
     // Re-front the base first: the starter-note steal can unmount the chart while
@@ -337,7 +358,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     expect(await readNote("Parent Window.md")).toMatch(/due:\s*'?2026-04-07'?/);
 
     await dragEndEdge("Inferred Child.md", 3);
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await chooseAction("Estimate and dates");
 
     await browser.waitUntil(
@@ -358,7 +379,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     expect(before).not.toContain("due:");
 
     await dragEndEdge("Inferred Parent.md", -2); // 4-day derived end pulled in to 2 days
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await chooseAction("Estimate only");
 
     await browser.waitUntil(
@@ -379,7 +400,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     // asynchronously — so the gesture that follows it is exactly the one that used
     // to see the stale `ask` and prompt again.
     await dragEndEdge("Ask Once.md", 3);
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await (await $(".modal .checkbox-container")).click(); // Don't ask again
     await chooseAction("Estimate and dates");
     await browser.waitUntil(async () => (await $$(".modal")).length === 0, {
@@ -411,7 +432,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     expect(await readNote("Undo Parent.md")).toContain("timeEstimate: 5760");
 
     await dragEndEdge("Undo Parent.md", -2);
-    await waitForPrompt();
+    await waitForPrompt(lastDragged);
     await chooseAction("Estimate and dates");
 
     const undo = await (await $(".modal")).$("button=Undo resize");
