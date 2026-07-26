@@ -34,6 +34,13 @@ export interface CalendarWatch {
   notifyChanged(path: string): void;
   notifyRenamed(path: string, oldPath: string): void;
   notifyDeleted(path: string): void;
+  /**
+   * Register the calendar notes currently in use so a later DELETE of one is
+   * recognised even if the note was never edited in view. A deletion cannot
+   * probe the marker (the file is gone), so it relies on the known-paths set,
+   * which is otherwise seeded lazily on the first edit and is empty at mount.
+   */
+  syncKnownPaths(paths: Iterable<string>): void;
   /** Monotonic count of relevant events; folds into the entry signature. */
   epoch(): number;
   dispose(): void;
@@ -80,6 +87,9 @@ export function createCalendarWatch(config: CalendarWatchConfig): CalendarWatch 
     },
     notifyDeleted(path) {
       if (knownPaths.delete(path)) bumpAndSchedule();
+    },
+    syncKnownPaths(paths) {
+      for (const path of paths) knownPaths.add(path);
     },
     epoch: () => relevantEvents,
     dispose() {

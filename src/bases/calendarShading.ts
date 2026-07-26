@@ -137,6 +137,24 @@ export function buildCalendarShadingCss(
   return parts.join('\n');
 }
 
+/**
+ * Task→calendar associations from the given task note paths (deduped): reads
+ * each note's calendar value via `valueOf` and drops the ones without a value.
+ * Pure — the caller supplies the frontmatter reader — so the union-and-dedup of
+ * Bases entries with fetched instances is testable without the view or Obsidian.
+ */
+export function calendarAssociationsFrom(
+  taskPaths: Iterable<string>,
+  valueOf: (path: string) => unknown,
+): Array<{ value: unknown; taskPath: string }> {
+  const associations: Array<{ value: unknown; taskPath: string }> = [];
+  for (const path of new Set(taskPaths)) {
+    const value = valueOf(path);
+    if (value !== undefined) associations.push({ value, taskPath: path });
+  }
+  return associations;
+}
+
 function dateSelectors(dates: readonly string[], bodyScope: string, headerScope: string): string {
   return dates
     .flatMap((date) => [`${bodyScope} .og-d-${date}`, `${headerScope} .og-d-${date}`])
@@ -179,6 +197,8 @@ export interface ShadingComputation {
   calendarPalette: { value: string; color: string }[];
   /** Each associated task's resolved calendar identity, by source path. */
   calendarBySource: Map<string, string>;
+  /** The paths of every marked calendar note inspected — echoed for the watch seed. */
+  markedNotePaths: string[];
 }
 
 /**
@@ -192,6 +212,7 @@ export interface ShadingComputation {
 export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): ShadingComputation {
   const registry = buildCalendarRegistry(inputs.markedNotes, inputs.resolveLink);
   const invalidCount = registry.invalid.size;
+  const markedNotePaths = inputs.markedNotes.map((note) => note.path);
   const display = inputs.displaySelection
     ? effectiveDisplayPaths(inputs.displaySelection, (link) =>
         registryTarget(registry, inputs.resolveLink, link),
@@ -211,6 +232,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       markers: [],
       calendarPalette,
       calendarBySource,
+      markedNotePaths,
     };
   }
 
@@ -243,6 +265,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     markers: collectMarkers([...displayed.values()]),
     calendarPalette,
     calendarBySource,
+    markedNotePaths,
   };
 }
 

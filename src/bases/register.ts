@@ -120,6 +120,7 @@ import { minutesToSpanDays } from '../controller/durationConversion';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
+  calendarAssociationsFrom,
   computeTaskBlocking,
   countWorkingDaysInSpan,
   createShadingCssCache,
@@ -1275,7 +1276,7 @@ class ObsidianGanttBasesView extends BasesView {
    * whole-vault enumeration and evaluation run only when the key changes.
    */
   private buildCalendarShading(
-    instances: ReadonlyArray<{ start: Date | null; end: Date | null }>,
+    instances: ReadonlyArray<{ start: Date | null; end: Date | null; sourcePath?: string }>,
   ): {
     css: string;
     notice: string | null;
@@ -1286,14 +1287,15 @@ class ObsidianGanttBasesView extends BasesView {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    const taskPaths = (this.data?.data ?? []).flatMap((entry) => {
+      const path = (entry as SignatureEntry).file?.path;
+      return path ? [path] : [];
+    });
     const associations = frontmatterKey
-      ? (this.data?.data ?? []).flatMap((entry) => {
-          const path = (entry as SignatureEntry).file?.path;
-          if (!path) return [];
+      ? calendarAssociationsFrom(taskPaths, (path) => {
           const file = app.vault.getAbstractFileByPath(path);
-          if (!(file instanceof TFile)) return [];
-          const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
-          return value === undefined ? [] : [{ value, taskPath: path }];
+          if (!(file instanceof TFile)) return undefined;
+          return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
         })
       : [];
     const selection = readDisplaySelection(
@@ -1308,6 +1310,9 @@ class ObsidianGanttBasesView extends BasesView {
       selectionKey: selection.auto ? '' : JSON.stringify(serializeSelection(selection)),
     });
     const computed = this.shadingCssCache.compute(key, () =>
+      // The marked-note enumeration scans the vault, so it stays INSIDE the cache
+      // callback (runs only on a real shading change); the paths ride out on the
+      // memoised result (computed.markedNotePaths) for the watch seed below.
       computeCalendarShadingCss({
         scope: `.${this.treatmentScopeClass}`,
         markedNotes: this.collectMarkedCalendarNotes(),
@@ -1317,6 +1322,11 @@ class ObsidianGanttBasesView extends BasesView {
         displaySelection: selection,
       }),
     );
+    // Register every marked calendar note the shading inspected — not just the
+    // task-associated ones — so deleting any in-use calendar (including one only
+    // shown via the display selection) re-resolves even if it was never edited in
+    // view (a deletion cannot probe the marker once the file is gone).
+    this.calendarWatch?.syncKnownPaths(computed.markedNotePaths);
     return {
       css: computed.css,
       markers: computed.markers,

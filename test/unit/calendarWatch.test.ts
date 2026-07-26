@@ -113,6 +113,16 @@ describe('createCalendarWatch', () => {
     expect(watch.epoch()).toBe(2);
   });
 
+  it('triggers on delete of a synced calendar note that was never edited in view', () => {
+    const { watch } = watchWith(['Calendars/NZ.md']);
+    // Seeding the in-use calendars at mount means a later delete is recognised
+    // even without a prior edit — the marker cannot be probed once the file is
+    // gone, so the deletion relies on the known-paths set being seeded.
+    watch.syncKnownPaths(['Calendars/NZ.md']);
+    watch.notifyDeleted('Calendars/NZ.md');
+    expect(watch.epoch()).toBe(1);
+  });
+
   it('epoch counts relevant events monotonically', () => {
     const { watch } = watchWith(['Calendars/NZ.md']);
     watch.notifyChanged('Calendars/NZ.md');
