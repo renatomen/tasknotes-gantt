@@ -297,7 +297,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
 
   it("renders the writable fixture with the inferred bars flagged", async () => {
     // Write-enabled: no read-only banner, so SVAR bars are draggable at all.
-    expect((await $$(".og-readonly-text")).length).toBe(0);
+    expect(await $(".og-readonly-text")).toHaveLength(0);
     const solo = await waitForBar("Solo Inferred.md");
     expect(solo?.classes).toContain("datestatus-flagged");
   });

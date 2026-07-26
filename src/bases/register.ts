@@ -692,7 +692,15 @@ class ObsidianGanttBasesView extends BasesView {
     return (taskPath, edge, anchor, estimateMinutes) => {
       // Same per-task gate as the counter: a calendar-days task does not stretch.
       if (counts(taskPath, anchor, anchor) === null) return null;
-      const blocking = this.lastBlockingLookup?.(taskPath) ?? null;
+      // Fresh blocking facts windowed for THIS estimate: the per-pass lookup was
+      // sized for the pre-drag estimates, and days beyond its window deliberately
+      // read as working — a grown estimate would walk into that blind zone and
+      // stop short of where the read path will re-derive after the refresh.
+      const lookup = this.buildTaskBlocking(
+        [{ path: taskPath, start: anchor, end: anchor, estimateMinutes }],
+        { transient: true },
+      );
+      const blocking = lookup(taskPath) ?? null;
       return projectDerivedSpan({
         edge,
         anchor,
@@ -716,6 +724,7 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private buildTaskBlocking(
     tasks: readonly StretchTaskInput[],
+    opts: { transient?: boolean } = {},
   ): (taskPath: string) => TaskBlocking | null {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -741,15 +750,21 @@ class ObsidianGanttBasesView extends BasesView {
     });
     if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
     const markedNotes = this.collectMarkedCalendarNotes();
-    this.lastBlockingKey = key;
-    this.lastBlockingLookup = computeTaskBlocking({
+    const lookup = computeTaskBlocking({
       markedNotes,
       resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
       associations,
       taskSpans: tasks,
       extraWindowDays: 8 * maxDurationDays + 366,
     });
-    return this.lastBlockingLookup;
+    // A transient build (the drag-time projection, windowed for ONE grown
+    // estimate) must not displace the pass-level cache the estimate counter and
+    // the stretch share.
+    if (!opts.transient) {
+      this.lastBlockingKey = key;
+      this.lastBlockingLookup = lookup;
+    }
+    return lookup;
   }
 
   private lastBlockingKey: string | null = null;

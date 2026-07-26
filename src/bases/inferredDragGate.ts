@@ -106,7 +106,7 @@ export function resolveEffectiveInferredDragMode(
   pending: PendingInferredDragMode | null,
 ): { mode: InferredDragMode; pending: PendingInferredDragMode | null } {
   const stored = normalizeInferredDragMode(configured);
-  if (!pending || stored !== pending.observed) return { mode: stored, pending: null };
+  if (stored !== pending?.observed) return { mode: stored, pending: null };
   return { mode: pending.chosen, pending };
 }
 
