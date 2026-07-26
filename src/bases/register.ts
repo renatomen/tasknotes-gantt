@@ -1287,17 +1287,10 @@ class ObsidianGanttBasesView extends BasesView {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
-    // Associations cover the Bases entries AND the rendered instances (deduped in
-    // the pure helper): a fetched Show-all descendant is drawn but is not in
-    // `this.data.data`, so building only from the latter left its bar without its
-    // calendar colour (calendarBySource missed it → default role colour).
-    const taskPaths = [
-      ...(this.data?.data ?? []).flatMap((entry) => {
-        const path = (entry as SignatureEntry).file?.path;
-        return path ? [path] : [];
-      }),
-      ...instances.flatMap((instance) => (instance.sourcePath ? [instance.sourcePath] : [])),
-    ];
+    const taskPaths = (this.data?.data ?? []).flatMap((entry) => {
+      const path = (entry as SignatureEntry).file?.path;
+      return path ? [path] : [];
+    });
     const associations = frontmatterKey
       ? calendarAssociationsFrom(taskPaths, (path) => {
           const file = app.vault.getAbstractFileByPath(path);
