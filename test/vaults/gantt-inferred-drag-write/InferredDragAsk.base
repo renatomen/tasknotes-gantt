@@ -2,6 +2,8 @@ filters:
   or:
     - 'file.name == "Undo Parent"'
     - 'file.name == "Undo Child"'
+    - 'file.name == "Adjust Parent"'
+    - 'file.name == "Adjust Child"'
 views:
   - type: obsidianGantt
     name: "Inferred Drag Ask"

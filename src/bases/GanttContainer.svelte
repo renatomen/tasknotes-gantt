@@ -2637,18 +2637,31 @@
         }
         const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
         const revert: TaskPatch = { start: target.start, end: target.end };
-        // Undoing an inferred-edge resize has to undo the estimate too: the gate
-        // already saved the estimate the dragged span implied, so restoring only the
-        // dates would leave the note claiming a duration the user just rejected.
-        // A task with no authored estimate had its edge derived from the view's
-        // default duration, so the pre-drag span is what to restore — the write path
-        // cannot clear a field, and an explicit estimate matching what was implicit
-        // is far closer to "undone" than the dragged one (see the backlog entry on
-        // undo and authorship).
-        if (!adjust && inferredChoice != null) {
-          revert.estimate =
-            drag.beforeEstimateMinutes ??
-            spanDaysToMinutes(inclusiveDaySpan(drag.beforeStart, drag.beforeEnd));
+        // An inferred-edge decision already saved the estimate the DRAGGED span
+        // implied, and this branch is about to persist different dates — leaving
+        // the two apart would have the note claim a duration its own span
+        // contradicts. Keep them consistent for either choice:
+        //  - Adjust to fit → recompute from the fitted span, the same way the
+        //    original write derived it (working days when a calendar is associated,
+        //    plain days otherwise).
+        //  - Undo resize → put back the authored estimate. A task that had none
+        //    had its edge derived from the view default; the pre-drag span's value
+        //    restores what the bar showed, since the write path cannot restore
+        //    the field's absence itself.
+        if (inferredChoice != null) {
+          if (adjust) {
+            const sourcePath = instances.find((i) => i.id === drag.id)?.sourcePath;
+            const workingDays = sourcePath
+              ? $data.countWorkingDays?.(sourcePath, target.start, target.end)
+              : undefined;
+            revert.estimate = spanDaysToMinutes(
+              workingDays ?? inclusiveDaySpan(target.start, target.end),
+            );
+          } else {
+            revert.estimate =
+              drag.beforeEstimateMinutes ??
+              spanDaysToMinutes(inclusiveDaySpan(drag.beforeStart, drag.beforeEnd));
+          }
         }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
         try {

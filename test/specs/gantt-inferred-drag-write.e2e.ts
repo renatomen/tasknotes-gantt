@@ -428,7 +428,12 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     // twice: the inferred-edge gate writes the span's estimate, then the shrink
     // prompt offers "Undo resize". Undoing has to put the estimate back too, or the
     // note is left claiming a duration the user just rejected.
-    await switchBase("InferredDragAsk.base", ["Undo Parent.md", "Undo Child.md"]);
+    await switchBase("InferredDragAsk.base", [
+      "Undo Parent.md",
+      "Undo Child.md",
+      "Adjust Parent.md",
+      "Adjust Child.md",
+    ]);
     expect(await readNote("Undo Parent.md")).toContain("timeEstimate: 5760");
 
     await dragEndEdge("Undo Parent.md", -2);
@@ -450,5 +455,38 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     // undo should also un-author the date the choice materialised is a separate
     // provenance question, recorded in the backlog.)
     expect(await readNote("Undo Parent.md")).toMatch(/scheduled:\s*'?2026-04-06'?/);
+  });
+
+  it("recomputes the estimate when the shrink cascade adjusts the span instead", async () => {
+    // Same two prompts, other choice: "Adjust to fit" widens the dates back to
+    // wrap the child, so the estimate saved from the shrunken span must be
+    // recomputed from the fitted one — dates and duration must not contradict.
+    // Its own parent/child pair: the undo case above authors its parent due date
+    // on the way back, and a fully-authored task would not prompt again.
+    expect(await readNote("Adjust Parent.md")).toContain("timeEstimate: 5760");
+    await dragEndEdge("Adjust Parent.md", -2);
+    await waitForPrompt(lastDragged);
+    await chooseAction("Estimate and dates");
+
+    const modal = await $(".modal");
+    const adjust = await modal.$("button=Adjust to fit");
+    await adjust.waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: "the shrink-fit prompt never offered an adjust",
+    });
+    await adjust.click();
+
+    // Fitted back to wrap the child (ends 04-09): 4 working/calendar days again.
+    await browser.waitUntil(
+      async () => {
+        const note = await readNote("Undo Parent.md");
+        return note.includes("timeEstimate: 5760") && /due:\s*'?2026-04-09'?/.test(note);
+      },
+      {
+        timeout: 20000,
+        timeoutMsg: async () =>
+          `adjust-to-fit left dates and estimate apart — note is now: ${await readNote("Undo Parent.md")}`,
+      },
+    );
   });
 });
