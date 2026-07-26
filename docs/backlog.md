@@ -58,7 +58,7 @@ resolved). What remains, in order of user value:
   natural next user-facing step. Start it with a `ce-brainstorm`/`ce-plan` pass.
 - **Hour granularity** — block `hours` are still ignored (sub-day rendering, hourly conflicts, RFC 9253
   working-time lag). Deferred until the Gantt renders hourly — see
-  [[calendar-bundled-keep-extractable-day-granularity]].
+  the bundled, day-granularity calendar decision.
 - **P2b** — runtime-invalid block/pattern RRULEs are silently inert; a bad block contributes nothing rather
   than flagging (shared fail-visible wiring).
 
@@ -173,11 +173,12 @@ Obsidian). Two defects found in review make the *design* wrong, not the code:
    A future attempt must slice on `area` and re-measure at that scale.
 2. **It silently desyncs from the rows it labels.** Row `$y` moves on expand/collapse, sort, filter
    and hide-top-level — all `api.exec` paths internal to SVAR that never touch the plugin's data
-   store, so no recompute fires and the tint stays put while the bars move. This is the harder
-   problem: SVAR's own collapse UI never notifies the plugin, so correctness needs a reliable
-   row-geometry change signal (a geometry fingerprint checked per tick, or an intercept covering
-   every mutation path). A tint sitting on the wrong row asserts something false about that task's
-   non-working days — worse than no shading at all.
+   store, so no recompute fires and the tint stays put while the bars move. But a reliable signal
+   does exist: `api.getReactiveState()._tasks` is the collapse-aware visible-row set (the plugin
+   already subscribes to it for the row count), and `_tasks[].$y`/`.$h` carry per-row geometry — so
+   a future attempt can key the overlay off that reactive state rather than a bespoke geometry
+   fingerprint or a mutation-path intercept. A tint sitting on the wrong row asserts something false
+   about that task's non-working days — worse than no shading at all.
 
 Two lesser findings to carry over: `buildTaskBlocking`'s single-slot memo thrashes when stretch and
 row shading are both on (two call sites compute different windows and evict each other every pass —
@@ -188,6 +189,24 @@ so at equal stacking it painted *above* the bars rather than below.
 `docs/brainstorms/2026-07-20-date-provenance-and-treatment-channels-requirements.md`. Row shading
 would be a fourth surface encoding calendar identity by colour (after bars, columns and markers);
 whether it earns that channel is a question that redesign should answer first.
+
+## Deferred Codex review threads (2026-07-25 backlog resolution)
+
+Left open deliberately during the Codex-backlog resolution pass — acknowledged, not fixed:
+
+- **Refresh the evaluated-date stylesheet on viewport pan/zoom** (#266, plan-doc thread) — a
+  viewport-driven refresh of the calendar shading sheet; acknowledged deferral.
+- **Preserve an explicit "Open as markdown" routing bypass** (#266, plan-doc thread) — the shipped
+  editor does implement a `suspendRouting` bypass, but the thread sits on the plan document.
+- **Cascade stand-down after an inferred-edge decision** (#314, `GanttContainer.svelte`) — the
+  inferred-edge drag intentionally stands `computeShrinkFit`/`computeMoveExtensions` down; the
+  residual parent estimate-and-dates materialise is a known, deliberate deferral.
+- **WDIO coverage of the inferred-date resize/modal/write round-trip** (#314,
+  `gantt-inferred-date-drag.e2e.ts`) — the spec asserts the flag state only; the full write
+  round-trip / real SVAR resize is a documented harness limitation.
+
+Also deferred to their own units: fetched-bar calendar colour + its shading refresh (#281, U5d),
+and the P3 timezone-offset DST-staleness recompute (#297).
 
 ### P2g — Calendar editor: availability-block editing
 Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (U15). The editor form
@@ -211,7 +230,7 @@ Fixed: availability blocks now drive working/non-working **at day granularity** 
 top-level `pattern` OR any availability block covers it — and `calendarDayFacts.blockingFacts`,
 `calendarConflicts.dayFacts`, and `calendarShading.collectShadedDates` (the real chart) all read it. So an
 availability-only member now blocks its off-days and conflicts correctly, and the previews match the chart.
-Block **hours** are still ignored (day-granularity only, by decision — see [[calendar-bundled-keep-extractable-day-granularity]]).
+Block **hours** are still ignored (day-granularity only, by decision — see the bundled, day-granularity calendar decision).
 
 Remaining, deferred: the **hour-granularity** work (sub-day rendering, hourly conflicts, RFC 9253 working-time
 lag) waits for Gantt hourly rendering; authoring availability in the form is [[P2g]]; and runtime-invalid
