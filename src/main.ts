@@ -16,7 +16,11 @@ import {
 import { GanttSettingTab } from './release/GanttSettingTab';
 import { registerCalendarEditor } from './editor/registerCalendarEditor';
 import { CalendarEditorView } from './editor/CalendarEditorView';
-import { createAndOpenCalendarNote } from './bases/createCalendarNote';
+import {
+  createAndOpenCalendarNote,
+  pluginLifetime,
+  type PluginLifetime,
+} from './bases/createCalendarNote';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
@@ -28,6 +32,8 @@ export default class ObsidianGanttPlugin extends Plugin {
   /** Overridable so tests/e2e don't race the real timer. */
   whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
   private versionCheckTimer: number | null = null;
+  /** Scopes the calendar-note creation flow to this load (see PluginLifetime). */
+  private readonly calendarLifetime: PluginLifetime = pluginLifetime(this);
   private versionChecked = false;
   /** When set, the registered What's New factory renders this bundle instead of
    *  the baked-in one. Written only by the __tnGanttTest seam below (one-shot). */
@@ -143,7 +149,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar',
       name: 'Create calendar',
       callback: () => {
-        createAndOpenCalendarNote(this.app, 'calendar').catch((e) => {
+        createAndOpenCalendarNote(this.app, 'calendar', this.calendarLifetime).catch((e) => {
           console.warn('[Gantt] Failed to create the calendar note', e);
         });
       },
@@ -152,7 +158,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar-set',
       name: 'Create calendar set',
       callback: () => {
-        createAndOpenCalendarNote(this.app, 'calendar-set').catch((e) => {
+        createAndOpenCalendarNote(this.app, 'calendar-set', this.calendarLifetime).catch((e) => {
           console.warn('[Gantt] Failed to create the calendar set note', e);
         });
       },

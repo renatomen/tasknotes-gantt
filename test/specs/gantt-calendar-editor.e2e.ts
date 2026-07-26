@@ -20,6 +20,29 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar");
 
 const EDITOR_VIEW = "tngantt-calendar-editor";
 
+/**
+ * In-page instrumentation for the offset hint's minutely heartbeat: the ticks the
+ * form armed (so a test can fire one), the ids disposed, and the untouched
+ * originals to restore. Declared out here because both the arming and the
+ * assertion run in separate `browser.execute` calls.
+ */
+interface OffsetProbe {
+  armed: { id: number; fire: () => void }[];
+  cleared: number[];
+  realSetInterval: typeof window.setInterval;
+  realClearInterval: typeof window.clearInterval;
+  RealDate: DateConstructor;
+}
+type ProbedWindow = typeof window & { __ogOffsetProbe?: OffsetProbe; __ogClockSkewMs?: number };
+
+// Both ends of the DST crossing are FIXED instants, so the case reads the same
+// offsets whatever the real date is: Auckland is UTC+12:00 in July and UTC+13:00
+// in January. Leaving either end on the real clock would make the assertions
+// seasonal — the spec would time out for the half of the year that already sits
+// on the other side of the transition.
+const NZ_STANDARD_INSTANT = "2026-07-15T00:00:00Z";
+const NZ_DAYLIGHT_INSTANT = "2027-01-15T00:00:00Z";
+
 /** The view type of the active leaf, as Obsidian itself reports it. */
 async function activeViewType(): Promise<string | null> {
   return browser.executeObsidian(({ app }) => {
@@ -437,6 +460,119 @@ describe("Gantt (OG) calendar editor routing", () => {
     });
   });
 
+  it("refreshes the 'Currently' offset hint on its heartbeat, and disposes it on close", async () => {
+    // The hint says "Currently", so a form left open across a DST transition must
+    // not fossilise the pre-transition offset. Only the real component proves that:
+    // the derivation's time dependency, the effect that arms the minutely tick, and
+    // the teardown that disposes it are all component wiring the unit tests can't see.
+    // So: record minutely intervals, make the renderer's clock skewable, then cross a
+    // boundary by firing the recorded tick — the hint can only move if the wiring holds.
+    // Restores the marker itself (and before the clock moves) so it runs standalone.
+    await restoreMarker();
+    await browser.execute((standardInstant: string) => {
+      const w = window as ProbedWindow;
+      const probe: OffsetProbe = {
+        armed: [],
+        cleared: [],
+        realSetInterval: window.setInterval.bind(window),
+        realClearInterval: window.clearInterval.bind(window),
+        RealDate: Date,
+      };
+      w.__ogOffsetProbe = probe;
+      // Open the form on a fixed July instant, so the pre-transition offset the
+      // hint must show does not depend on today's date.
+      w.__ogClockSkewMs = new probe.RealDate(standardInstant).getTime() - probe.RealDate.now();
+      w.setInterval = ((fire: () => void, ms?: number) => {
+        const id = probe.realSetInterval(fire, ms) as unknown as number;
+        if (ms === 60_000) probe.armed.push({ id, fire });
+        return id;
+      }) as typeof window.setInterval;
+      w.clearInterval = ((id: number) => {
+        probe.cleared.push(id);
+        probe.realClearInterval(id);
+      }) as typeof window.clearInterval;
+      // The bundle resolves `Date` off the global at call time, so the hint's
+      // `new Date()` lands on this skewable clock.
+      w.Date = class extends probe.RealDate {
+        constructor(...args: unknown[]) {
+          if (args.length === 0) super(probe.RealDate.now() + (w.__ogClockSkewMs ?? 0));
+          else super(...(args as []));
+        }
+        static now(): number {
+          return probe.RealDate.now() + (w.__ogClockSkewMs ?? 0);
+        }
+      } as unknown as DateConstructor;
+    }, NZ_STANDARD_INSTANT);
+    try {
+      await openNote("NZ Holidays.md");
+      const tz = await $('.og-cal-form input[placeholder^="Search a timezone"]');
+      await tz.waitForClickable({ timeout: 20000, timeoutMsg: "timezone field never became interactable" });
+      await tz.click();
+      await tz.setValue("Auckland");
+      const suggestion = await $(".suggestion-container .suggestion-item");
+      await suggestion.waitForDisplayed({ timeout: 10000, timeoutMsg: "no timezone suggestions appeared" });
+      await suggestion.click();
+
+      // The pinned July instant is New Zealand standard time.
+      const hint = await $(".og-cal-hint*=Currently");
+      await browser.waitUntil(async () => (await hint.getText()).includes("UTC+12:00"), {
+        timeout: 10000,
+        timeoutMsg: "the hint never showed the chosen zone's standard-time offset",
+      });
+
+      const armedIds: number[] = await browser.execute(
+        () => ((window as ProbedWindow).__ogOffsetProbe as OffsetProbe).armed.map((tick) => tick.id),
+      );
+      expect(armedIds.length).toBeGreaterThan(0);
+
+      // Cross into New Zealand daylight time WITHOUT touching the form, then fire
+      // the recorded tick: nothing else can carry the new offset into the hint.
+      await browser.execute((daylightInstant: string) => {
+        const w = window as ProbedWindow;
+        const probe = w.__ogOffsetProbe as OffsetProbe;
+        w.__ogClockSkewMs = new probe.RealDate(daylightInstant).getTime() - probe.RealDate.now();
+        for (const tick of probe.armed) tick.fire();
+      }, NZ_DAYLIGHT_INSTANT);
+      await browser.waitUntil(async () => (await hint.getText()).includes("UTC+13:00"), {
+        timeout: 10000,
+        timeoutMsg: "the heartbeat did not refresh the offset hint across the DST boundary",
+      });
+
+      // Restore the clock before closing, so teardown never runs on a 2027 date.
+      await browser.execute(() => {
+        (window as ProbedWindow).__ogClockSkewMs = 0;
+      });
+      await browser.executeObsidian(({ app }) => {
+        app.workspace.detachLeavesOfType("tngantt-calendar-editor");
+      });
+      // `some`, not `every`: a minutely interval armed elsewhere in this window is
+      // not the editor's to clear. The claim is that closing disposed one of ITS ticks.
+      await browser.waitUntil(
+        async () =>
+          browser.execute(
+            (ids: number[]) =>
+              ids.some((id) =>
+                ((window as ProbedWindow).__ogOffsetProbe as OffsetProbe).cleared.includes(id),
+              ),
+            armedIds,
+          ),
+        { timeout: 10000, timeoutMsg: "closing the editor did not dispose its offset heartbeat" },
+      );
+    } finally {
+      await browser.execute(() => {
+        const w = window as ProbedWindow;
+        const probe = w.__ogOffsetProbe;
+        if (probe) {
+          w.setInterval = probe.realSetInterval;
+          w.clearInterval = probe.realClearInterval;
+          w.Date = probe.RealDate;
+        }
+        delete w.__ogOffsetProbe;
+        delete w.__ogClockSkewMs;
+      });
+    }
+  });
+
   it("previews the working week on the Week tab", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
@@ -811,6 +947,80 @@ describe("Gantt (OG) calendar editor routing", () => {
     const created = await readNoteOrNull("Calendars/New Calendar Set.md");
     expect(created).not.toBeNull();
     expect(created).toContain("tngantt: calendar-set");
+  });
+
+  /** Make every `Calendars/*` note look unindexed to the routing interception. */
+  const hideCalendarsFromCache = async (): Promise<void> => {
+    await browser.executeObsidian(({ app }) => {
+      const cache = app.metadataCache as unknown as {
+        getFileCache: (f: unknown) => unknown;
+        __origGetFileCache?: (f: unknown) => unknown;
+      };
+      if (cache.__origGetFileCache) return; // already patched
+      cache.__origGetFileCache = cache.getFileCache.bind(app.metadataCache);
+      cache.getFileCache = (file: unknown) =>
+        (file as { path?: string })?.path?.startsWith("Calendars/")
+          ? null
+          : cache.__origGetFileCache!(file);
+    });
+  };
+
+  /** Undo {@link hideCalendarsFromCache}; safe to call when it was never applied. */
+  const restoreCalendarCache = async (): Promise<void> => {
+    await browser.executeObsidian(({ app }) => {
+      const cache = app.metadataCache as unknown as {
+        getFileCache: (f: unknown) => unknown;
+        __origGetFileCache?: (f: unknown) => unknown;
+      };
+      if (!cache.__origGetFileCache) return;
+      cache.getFileCache = cache.__origGetFileCache;
+      delete cache.__origGetFileCache;
+    });
+  };
+
+  it("re-routes a created calendar to the editor when its marker indexes late", async () => {
+    // The cold-vault race: routing reads the marker synchronously during
+    // setViewState, so a note whose frontmatter is not indexed yet opens as plain
+    // markdown — and a later cache update re-routes nothing on its own. Hiding
+    // Calendars/* from the metadata cache reproduces that here; the note must
+    // still reach the editor once the marker becomes visible.
+    // The patch is global to this Obsidian session, so it is restored in a finally:
+    // a failure part-way through would otherwise leave every later test seeing all
+    // Calendars/* notes as unindexed, turning one failure into a cascade.
+    await hideCalendarsFromCache();
+    let openedPath: string | null = null;
+    try {
+      await runCommand("tasknotes-gantt:create-calendar");
+
+      // The pre-open wait gives up (2s), so the note opens unrouted as markdown.
+      openedPath = (await browser.waitUntil(
+        async () => {
+          const info = await browser.executeObsidian(({ app }) => {
+            const leaf = app.workspace.activeLeaf;
+            const state = leaf?.getViewState();
+            const file = state?.state?.["file"];
+            return { type: state?.type ?? null, file: typeof file === "string" ? file : null };
+          });
+          return info.type === "markdown" && info.file?.startsWith("Calendars/") ? info.file : false;
+        },
+        { timeout: 20000, timeoutMsg: "the created calendar never opened while its marker was hidden" },
+      )) as string;
+    } finally {
+      await restoreCalendarCache();
+    }
+
+    // Announce the index now the cache tells the truth — the leaf must re-route.
+    await browser.executeObsidian(({ app }, p) => {
+      const file = app.vault.getAbstractFileByPath(p);
+      if (file) app.metadataCache.trigger("changed", file as never);
+    }, openedPath);
+
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "a late-indexed calendar note never re-routed to the editor",
+    });
+
+    await deleteNotes([openedPath]);
   });
 
   // ---- U5: calendar-set union preview tabs + conflict surfacing ------------

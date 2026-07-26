@@ -142,6 +142,81 @@ describe('createCalendarWatch', () => {
   });
 });
 
+describe('association tracking', () => {
+  function associationWatch(values: Map<string, string>) {
+    const fake = fakeScheduler();
+    const fired: number[] = [];
+    const watch = createCalendarWatch({
+      isCalendarNote: () => false,
+      readAssociationValue: (path) => values.get(path) ?? '',
+      onReResolve: () => fired.push(1),
+      scheduler: fake.scheduler,
+      debounceMs: 500,
+    });
+    return { watch, fired, fake };
+  }
+
+  it('refreshes when a tracked task note has its association value changed', () => {
+    // The fetched-row case: the note is no calendar and no Bases entry, so nothing
+    // else re-reads its calendar property — the controller snapshot compares
+    // dates/text, not associations.
+    const values = new Map([['Tasks/sub.md', '"[[NZ]]"']]);
+    const { watch, fired, fake } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '"[[NZ]]"']]);
+
+    values.set('Tasks/sub.md', '"[[AU]]"');
+    watch.notifyChanged('Tasks/sub.md');
+    fake.fireLast();
+    expect(fired).toHaveLength(1);
+    expect(watch.epoch()).toBe(1);
+  });
+
+  it('ignores an edit that leaves the association value unchanged', () => {
+    const values = new Map([['Tasks/sub.md', '"[[NZ]]"']]);
+    const { watch, fired } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '"[[NZ]]"']]);
+
+    watch.notifyChanged('Tasks/sub.md'); // a body edit — the value is the same
+    expect(fired).toHaveLength(0);
+    expect(watch.epoch()).toBe(0);
+  });
+
+  it('fires when a tracked note gains its FIRST association', () => {
+    // A fetched row can render before it links any calendar: the baseline is the
+    // serialized absence, so the first link is a change like any other.
+    const values = new Map([['Tasks/sub.md', '']]);
+    const { watch, fired, fake } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '']]);
+
+    values.set('Tasks/sub.md', '"[[NZ]]"');
+    watch.notifyChanged('Tasks/sub.md');
+    fake.fireLast();
+    expect(fired).toHaveLength(1);
+  });
+
+  it('ignores notes the shading never read an association from', () => {
+    const values = new Map([['Tasks/other.md', '"[[NZ]]"']]);
+    const { watch, fired } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '""']]);
+
+    watch.notifyChanged('Tasks/other.md');
+    expect(fired).toHaveLength(0);
+  });
+
+  it('fires only once for the same new value (the sync updates the baseline)', () => {
+    const values = new Map([['Tasks/sub.md', '"[[NZ]]"']]);
+    const { watch, fake } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '"[[NZ]]"']]);
+
+    values.set('Tasks/sub.md', '"[[AU]]"');
+    watch.notifyChanged('Tasks/sub.md');
+    fake.fireLast();
+    // The same edited value again (e.g. a second cache event): no new epoch.
+    watch.notifyChanged('Tasks/sub.md');
+    expect(watch.epoch()).toBe(1);
+  });
+});
+
 describe('wireCalendarWatch', () => {
   interface Registration {
     source: 'metadataCache' | 'vault';

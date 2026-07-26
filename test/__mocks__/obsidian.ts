@@ -10,6 +10,33 @@
  * Add exports here only as units under test require them.
  */
 
+/**
+ * Stub of Obsidian's `Component` lifetime: `registerEvent` collects refs and
+ * `unload` releases them through each ref's own emitter, mirroring how Obsidian
+ * ties a subscription's lifetime to the component that owns it.
+ */
+export class Component {
+  private readonly cleanups: (() => void)[] = [];
+  loaded = false;
+
+  load(): void {
+    this.loaded = true;
+  }
+
+  unload(): void {
+    this.loaded = false;
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
+  }
+
+  register(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
+  }
+
+  registerEvent(ref: { e?: { offref?: (r: unknown) => void } }): void {
+    this.register(() => ref?.e?.offref?.(ref));
+  }
+}
+
 /** Stub of Obsidian's toast; records the message for assertions. */
 export class Notice {
   message: string;
