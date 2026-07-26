@@ -196,8 +196,6 @@ Left open deliberately during the Codex-backlog resolution pass — acknowledged
 
 - **Refresh the evaluated-date stylesheet on viewport pan/zoom** (#266, plan-doc thread) — a
   viewport-driven refresh of the calendar shading sheet; acknowledged deferral.
-- **Preserve an explicit "Open as markdown" routing bypass** (#266, plan-doc thread) — the shipped
-  editor does implement a `suspendRouting` bypass, but the thread sits on the plan document.
 - **Cascade stand-down after an inferred-edge decision** (#314, `GanttContainer.svelte`) — the
   inferred-edge drag intentionally stands `computeShrinkFit`/`computeMoveExtensions` down; the
   residual parent estimate-and-dates materialise is a known, deliberate deferral.
