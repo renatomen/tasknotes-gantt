@@ -196,12 +196,6 @@ Left open deliberately during the Codex-backlog resolution pass — acknowledged
 
 - **Refresh the evaluated-date stylesheet on viewport pan/zoom** (#266, plan-doc thread) — a
   viewport-driven refresh of the calendar shading sheet; acknowledged deferral.
-- **Cascade stand-down after an inferred-edge decision** (#314, `GanttContainer.svelte`) — the
-  inferred-edge drag intentionally stands `computeShrinkFit`/`computeMoveExtensions` down; the
-  residual parent estimate-and-dates materialise is a known, deliberate deferral.
-- **WDIO coverage of the inferred-date resize/modal/write round-trip** (#314,
-  `gantt-inferred-date-drag.e2e.ts`) — the spec asserts the flag state only; the full write
-  round-trip / real SVAR resize is a documented harness limitation.
 
 Also deferred to their own units: fetched-bar calendar colour + its shading refresh (#281, U5d),
 and the P3 timezone-offset DST-staleness recompute (#297).
