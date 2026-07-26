@@ -1316,11 +1316,13 @@ class ObsidianGanttBasesView extends BasesView {
       associations,
       selectionKey: selection.auto ? '' : JSON.stringify(serializeSelection(selection)),
     });
-    const markedNotes = this.collectMarkedCalendarNotes();
     const computed = this.shadingCssCache.compute(key, () =>
+      // The marked-note enumeration scans the vault, so it stays INSIDE the cache
+      // callback (runs only on a real shading change); the paths ride out on the
+      // memoised result (computed.markedNotePaths) for the watch seed below.
       computeCalendarShadingCss({
         scope: `.${this.treatmentScopeClass}`,
-        markedNotes,
+        markedNotes: this.collectMarkedCalendarNotes(),
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
         associations,
         taskSpans: instances,
@@ -1331,7 +1333,7 @@ class ObsidianGanttBasesView extends BasesView {
     // task-associated ones — so deleting any in-use calendar (including one only
     // shown via the display selection) re-resolves even if it was never edited in
     // view (a deletion cannot probe the marker once the file is gone).
-    this.calendarWatch?.syncKnownPaths(markedNotes.map((note) => note.path));
+    this.calendarWatch?.syncKnownPaths(computed.markedNotePaths);
     return {
       css: computed.css,
       markers: computed.markers,

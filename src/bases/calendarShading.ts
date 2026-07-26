@@ -197,6 +197,8 @@ export interface ShadingComputation {
   calendarPalette: { value: string; color: string }[];
   /** Each associated task's resolved calendar identity, by source path. */
   calendarBySource: Map<string, string>;
+  /** The paths of every marked calendar note inspected — echoed for the watch seed. */
+  markedNotePaths: string[];
 }
 
 /**
@@ -210,6 +212,7 @@ export interface ShadingComputation {
 export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): ShadingComputation {
   const registry = buildCalendarRegistry(inputs.markedNotes, inputs.resolveLink);
   const invalidCount = registry.invalid.size;
+  const markedNotePaths = inputs.markedNotes.map((note) => note.path);
   const display = inputs.displaySelection
     ? effectiveDisplayPaths(inputs.displaySelection, (link) =>
         registryTarget(registry, inputs.resolveLink, link),
@@ -229,6 +232,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       markers: [],
       calendarPalette,
       calendarBySource,
+      markedNotePaths,
     };
   }
 
@@ -261,6 +265,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     markers: collectMarkers([...displayed.values()]),
     calendarPalette,
     calendarBySource,
+    markedNotePaths,
   };
 }
 
