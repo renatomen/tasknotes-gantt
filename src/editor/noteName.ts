@@ -10,9 +10,10 @@
 /** Characters Obsidian forbids in a note name (path separators + reserved). */
 const ILLEGAL_NAME = /[\\/:*?"<>|]/;
 
-/** Drop a trailing `.md` the user may have typed — the field shows basenames. */
+const MD_EXTENSION = /\.md$/i;
+
 function withoutMdExtension(name: string): string {
-  return name.endsWith('.md') ? name.slice(0, -'.md'.length) : name;
+  return MD_EXTENSION.test(name) ? name.slice(0, -'.md'.length) : name;
 }
 
 /**
