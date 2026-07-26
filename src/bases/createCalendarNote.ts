@@ -63,6 +63,9 @@ export function cancelPendingMarkerWatches(): void {
  * deadline; the rest are released by {@link cancelPendingMarkerWatches} at unload.
  */
 function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => void {
+  // Already gone (deleted while the caller was awaiting something): no `changed`
+  // and no `delete` can follow, so a watch here would never release itself.
+  if (app.vault.getAbstractFileByPath(file.path) === null) return () => {};
   const indexed = (): boolean =>
     matchesCalendarMarker(app.metadataCache.getFileCache(file)?.frontmatter) !== null;
   let stopped = false;

@@ -26,6 +26,10 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
       create: async (p: string, text: string) => {
         if (createImpl) return createImpl();
         created.push({ path: p, text });
+        // The created note must be resolvable: the marker watch refuses to watch a
+        // path that no longer exists, so a fake that never adds it would fall
+        // through to the open deadline instead of the already-indexed fast path.
+        paths.add(p);
         const file = new TFile();
         file.path = p;
         return file;
@@ -84,14 +88,18 @@ function lateIndexingApp() {
       reissued.push(next);
     },
   };
+  // Paths that exist in this fake vault: the created note lands here, and a
+  // deletion removes it — the watch refuses to watch a path that is gone.
+  const livePaths = new Set<string>();
   const app = {
     vault: {
-      getAbstractFileByPath: () => null,
+      getAbstractFileByPath: (p: string) => (livePaths.has(p) ? ({ path: p } as unknown) : null),
       createFolder: async () => undefined,
       create: async (p: string) => {
         if (state.holdCreate) await new Promise<void>((resolve) => (releaseCreate = resolve));
         const file = new TFile();
         file.path = p;
+        livePaths.add(p);
         return file;
       },
       // The watch also releases on deletion, so the vault is an event source too.
@@ -139,7 +147,10 @@ function lateIndexingApp() {
     },
     releaseCreate: () => releaseCreate?.(),
     /** Announce that the watched note was deleted before its marker indexed. */
-    deleteNow: () => fire('vault:delete'),
+    deleteNow: () => {
+      livePaths.delete('Calendars/New Calendar.md');
+      fire('vault:delete');
+    },
     set viewState(next: { type: string; state: Record<string, unknown> }) {
       state.viewState = next;
     },
@@ -192,11 +203,16 @@ describe('createAndOpenCalendarNote', () => {
     let indexed = false;
     let changedCb: ((f: { path: string }) => void) | null = null;
     const opened: unknown[] = [];
+    const livePaths = new Set<string>();
     const app = {
       vault: {
-        getAbstractFileByPath: () => null,
+        // Only the created note resolves — a blanket truthy answer would make the
+        // unique-path search never find a free name. It has to resolve at all
+        // because the marker watch refuses to watch a path that is gone.
+        getAbstractFileByPath: (p: string) => (livePaths.has(p) ? ({ path: p } as unknown) : null),
         createFolder: async () => undefined,
         create: async (p: string) => {
+          livePaths.add(p);
           const file = new TFile();
           file.path = p;
           return file;
@@ -359,6 +375,23 @@ describe('createAndOpenCalendarNote', () => {
     expect(late.liveListeners()).toBe(0);
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(0);
+  });
+
+  it('starts no watch when the note is deleted while it is opening', async () => {
+    // The deletion lands before the late watch would be registered, so there is no
+    // later `changed` or `delete` to release it — the watch must not start at all.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    late.holdOpenFile();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    expect(late.opened).toHaveLength(1); // parked inside openFile
+
+    late.deleteNow();
+    late.releaseOpenFile();
+    await promise;
+    expect(late.liveListeners()).toBe(0);
     expect(late.reissued).toHaveLength(0);
   });
 
