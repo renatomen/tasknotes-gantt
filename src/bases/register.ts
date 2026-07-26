@@ -1275,7 +1275,7 @@ class ObsidianGanttBasesView extends BasesView {
    * whole-vault enumeration and evaluation run only when the key changes.
    */
   private buildCalendarShading(
-    instances: ReadonlyArray<{ start: Date | null; end: Date | null }>,
+    instances: ReadonlyArray<{ start: Date | null; end: Date | null; sourcePath?: string }>,
   ): {
     css: string;
     notice: string | null;
@@ -1286,10 +1286,20 @@ class ObsidianGanttBasesView extends BasesView {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    // Associations cover the Bases entries AND the rendered instances (deduped by
+    // source path): a fetched Show-all descendant is drawn but is not in
+    // `this.data.data`, so building only from the latter left its bar without its
+    // calendar colour (calendarBySource missed it → default role colour).
     const associations = frontmatterKey
-      ? (this.data?.data ?? []).flatMap((entry) => {
-          const path = (entry as SignatureEntry).file?.path;
-          if (!path) return [];
+      ? [
+          ...new Set([
+            ...(this.data?.data ?? []).flatMap((entry) => {
+              const path = (entry as SignatureEntry).file?.path;
+              return path ? [path] : [];
+            }),
+            ...instances.flatMap((instance) => (instance.sourcePath ? [instance.sourcePath] : [])),
+          ]),
+        ].flatMap((path) => {
           const file = app.vault.getAbstractFileByPath(path);
           if (!(file instanceof TFile)) return [];
           const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
@@ -1317,6 +1327,9 @@ class ObsidianGanttBasesView extends BasesView {
         displaySelection: selection,
       }),
     );
+    // Register the calendars actually in use so deleting one re-resolves even if
+    // it was never edited in view (a deletion cannot probe the marker).
+    this.calendarWatch?.syncKnownPaths(computed.calendarBySource.values());
     return {
       css: computed.css,
       markers: computed.markers,
