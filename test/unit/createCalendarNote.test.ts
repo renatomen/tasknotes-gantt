@@ -46,6 +46,73 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
   return { app: app as unknown as App, created, opened, foldersCreated };
 }
 
+/**
+ * An app whose metadata cache indexes the new note only when `indexNow()` says
+ * so — the cold-vault case where the marker misses the pre-open wait. Records
+ * what the opened leaf was asked to re-render as (`reissued`).
+ */
+function lateIndexingApp() {
+  let indexed = false;
+  const listeners = new Map<object, (changed: { path: string }) => void>();
+  const opened: unknown[] = [];
+  const reissued: unknown[] = [];
+  const state = {
+    viewState: { type: 'markdown', state: { file: 'Calendars/New Calendar.md', mode: 'source' } } as {
+      type: string;
+      state: Record<string, unknown>;
+    },
+    listenersReleased: 0,
+  };
+  const leaf = {
+    openFile: async (file: unknown) => {
+      opened.push(file);
+    },
+    getViewState: () => state.viewState,
+    setViewState: async (next: unknown) => {
+      reissued.push(next);
+    },
+  };
+  const app = {
+    vault: {
+      getAbstractFileByPath: () => null,
+      createFolder: async () => undefined,
+      create: async (p: string) => {
+        const file = new TFile();
+        file.path = p;
+        return file;
+      },
+    },
+    workspace: { getLeaf: () => leaf },
+    metadataCache: {
+      getFileCache: () => (indexed ? { frontmatter: { tngantt: 'calendar' } } : null),
+      on: (_event: string, cb: (changed: { path: string }) => void) => {
+        const ref = {};
+        listeners.set(ref, cb);
+        return ref;
+      },
+      offref: (ref: object) => {
+        if (listeners.delete(ref)) state.listenersReleased++;
+      },
+    },
+  };
+  return {
+    app: app as unknown as App,
+    opened,
+    reissued,
+    get listenersReleased() {
+      return state.listenersReleased;
+    },
+    set viewState(next: { type: string; state: Record<string, unknown> }) {
+      state.viewState = next;
+    },
+    /** Index the marker and notify every live cache listener. */
+    indexNow: () => {
+      indexed = true;
+      for (const cb of [...listeners.values()]) cb({ path: 'Calendars/New Calendar.md' });
+    },
+  };
+}
+
 describe('createAndOpenCalendarNote', () => {
   it('scaffolds and opens a calendar note with the calendar skeleton', async () => {
     const { app, created, opened } = fakeApp();
@@ -115,6 +182,62 @@ describe('createAndOpenCalendarNote', () => {
     changedCb?.({ path: 'Calendars/New Calendar.md' });
     await promise;
     expect(opened).toHaveLength(1);
+  });
+
+  it('re-routes the opened leaf when the marker indexes only after the wait gives up', async () => {
+    // A cold or busy vault can take longer than the wait to index the frontmatter.
+    // The note then opens as markdown — routing reads the marker synchronously —
+    // and a later cache update re-routes nothing, so the command silently fails
+    // its promise to open the editor. Re-issuing the leaf's own view state once
+    // the marker lands puts it back through the interception.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000); // the wait gives up
+    await promise;
+    expect(late.opened).toHaveLength(1);
+    expect(late.reissued).toHaveLength(0);
+
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toEqual([
+      { type: 'markdown', state: { file: 'Calendars/New Calendar.md', mode: 'source' } },
+    ]);
+    expect(late.listenersReleased).toBe(2); // the wait's and the re-route's
+    jest.useRealTimers();
+  });
+
+  it('leaves a leaf that has moved on alone when the marker lands late', async () => {
+    // The user may have navigated the tab elsewhere (or reopened the note, routing
+    // it themselves) while the marker was indexing — re-routing then would yank
+    // them away from what they are looking at.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    late.viewState = { type: 'markdown', state: { file: 'Somewhere Else.md', mode: 'source' } };
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(0);
+    jest.useRealTimers();
+  });
+
+  it('stops watching for the marker when it never indexes', async () => {
+    // The re-route window is bounded, so a note that never indexes cannot leave a
+    // metadata-cache listener behind for the rest of the session.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(late.reissued).toHaveLength(0);
+    expect(late.listenersReleased).toBe(2);
+    jest.useRealTimers();
   });
 
   it('surfaces a Notice and rethrows when creation fails', async () => {
