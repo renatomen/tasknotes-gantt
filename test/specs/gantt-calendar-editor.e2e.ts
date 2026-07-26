@@ -294,6 +294,26 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(saved).toContain("# hand comment");
   });
 
+  it("rejects a name that strips to just the extension and keeps Save disabled", async () => {
+    await restoreMarker();
+    await openNote("NZ Holidays.md");
+    await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
+
+    const nameInput = await $('.og-cal-form input[aria-label="Calendar name"]');
+    await nameInput.waitForClickable({ timeout: 20000, timeoutMsg: "name field never became interactable" });
+
+    // Typing just the extension strips to an empty basename — the same empty-name
+    // error as a blank name — so Save must stay disabled (no rename to a dotfile).
+    await nameInput.setValue(".md");
+
+    const error = await $(".og-cal-form .og-cal-error");
+    await error.waitForDisplayed({ timeout: 10000, timeoutMsg: "no empty-name error surfaced for '.md'" });
+    expect(await error.getText()).toMatch(/empty/i);
+
+    const save = await $(".og-cal-form button.mod-cta");
+    expect(await save.isEnabled()).toBe(false);
+  });
+
   it("edits the working pattern visually and round-trips to RRULE", async () => {
     await restoreMarker();
     await openNote("NZ Holidays.md");
