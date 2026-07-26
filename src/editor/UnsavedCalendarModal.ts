@@ -25,10 +25,15 @@ export class UnsavedCalendarModal extends Modal {
    * @param canSave Whether saving is currently possible (dirty, valid, idle).
    *   When false the Save button is disabled — the note has an error or a save
    *   already in flight — so the only ways out are Discard or Go back.
+   * @param saving Whether a save is in flight. Discard is disabled while it is,
+   *   because the already-started write can still land after the leaf unmounts,
+   *   so discarding then would not actually discard. Distinct from `canSave`
+   *   being false for an invalid note, where discarding is legitimate.
    */
   constructor(
     app: App,
     private readonly canSave: boolean,
+    private readonly saving: boolean = false,
   ) {
     super(app);
   }
@@ -51,7 +56,9 @@ export class UnsavedCalendarModal extends Modal {
     const { contentEl } = this;
     this.titleEl.setText('Unsaved calendar changes');
     contentEl.createEl('p', {
-      text: 'This calendar note has changes you haven’t saved. What would you like to do?',
+      text: this.saving
+        ? 'A save is still finishing. Go back until it lands, then close again.'
+        : 'This calendar note has changes you haven’t saved. What would you like to do?',
     });
 
     const buttons = contentEl.createDiv({ cls: 'modal-button-container' });
@@ -60,7 +67,12 @@ export class UnsavedCalendarModal extends Modal {
     goBack.addEventListener('click', () => this.finish('cancel'));
 
     const discard = buttons.createEl('button', { cls: 'mod-warning', text: 'Discard' });
-    discard.addEventListener('click', () => this.finish('discard'));
+    discard.disabled = this.saving;
+    // A disabled button emits no click in the DOM, but guard the handler too so
+    // an in-flight save is never dropped by a write that still lands.
+    discard.addEventListener('click', () => {
+      if (!this.saving) this.finish('discard');
+    });
 
     const save = buttons.createEl('button', { cls: 'mod-cta', text: 'Save' });
     save.disabled = !this.canSave;
