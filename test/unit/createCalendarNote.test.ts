@@ -111,7 +111,10 @@ function lateIndexingApp() {
     holdOpen: false,
     holdCreate: false,
     holdViewState: false,
+    holdCreateFolder: false,
   };
+  let releaseCreateFolder: (() => void) | null = null;
+  const created: string[] = [];
   let releaseViewState: (() => void) | null = null;
   let releaseCreate: (() => void) | null = null;
   // `holdOpen` parks `openFile` mid-flight, so a test can land an unload inside
@@ -143,11 +146,16 @@ function lateIndexingApp() {
   const app = {
     vault: {
       getAbstractFileByPath: (p: string) => (livePaths.has(p) ? ({ path: p } as unknown) : null),
-      createFolder: async () => undefined,
+      createFolder: async () => {
+        if (state.holdCreateFolder) {
+          await new Promise<void>((resolve) => (releaseCreateFolder = resolve));
+        }
+      },
       create: async (p: string) => {
         if (state.holdCreate) await new Promise<void>((resolve) => (releaseCreate = resolve));
         const file = new TFile();
         file.path = p;
+        created.push(p);
         livePaths.add(p);
         return file;
       },
@@ -185,6 +193,7 @@ function lateIndexingApp() {
   return {
     app: app as unknown as App,
     lifetime,
+    created,
     /** Disable the plugin: releases its subscriptions and reports inactive. */
     unload: () => lifetime.unload(),
     opened,
@@ -201,6 +210,11 @@ function lateIndexingApp() {
       state.holdCreate = true;
     },
     releaseCreate: () => releaseCreate?.(),
+    /** Park `createFolder`, the first await of the flow. */
+    holdCreateFolder: () => {
+      state.holdCreateFolder = true;
+    },
+    releaseCreateFolder: () => releaseCreateFolder?.(),
     /** Park `setViewState` mid-re-route, to land an unload inside that await. */
     holdViewState: () => {
       state.holdViewState = true;
@@ -420,6 +434,23 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
+  });
+
+  it('writes nothing when the plugin unloads while the folder is being created', async () => {
+    // The folder create is its own await, before the note exists at all: unloading
+    // there must abandon the flow rather than leave a stray note behind.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    late.holdCreateFolder();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
+    await jest.advanceTimersByTimeAsync(0);
+
+    late.unload();
+    late.releaseCreateFolder();
+    await promise;
+    expect(late.created).toHaveLength(0);
+    expect(late.opened).toHaveLength(0);
+    expect(late.liveListeners()).toBe(0);
   });
 
   it('registers no wait when the plugin unloads while the note is being written', async () => {

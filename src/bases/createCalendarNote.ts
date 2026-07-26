@@ -222,6 +222,22 @@ function routeWhenMarkerIndexes(
   });
 }
 
+/** Signals that the plugin unloaded mid-flow, so the rest is abandoned. */
+class PluginUnloaded extends Error {}
+
+/**
+ * Continue only while the plugin is loaded.
+ *
+ * Every `await` in the flow below is a window in which the plugin can be disabled,
+ * and each step afterwards does something the user would not want a disabled
+ * plugin doing — writing a note, opening a leaf, starting a watch. Rather than an
+ * ad-hoc check per step (easy to add one step and forget), the rule is uniform:
+ * call this after every await, and the flow abandons itself.
+ */
+function ensureLive(lifetime: PluginLifetime): void {
+  if (!lifetime.isActive()) throw new PluginUnloaded('the plugin unloaded');
+}
+
 /** Create a `Calendars/` note of the given kind from its skeleton and open it. */
 export async function createAndOpenCalendarNote(
   app: App,
@@ -233,21 +249,27 @@ export async function createAndOpenCalendarNote(
     const exists = (path: string): boolean => vault.getAbstractFileByPath(path) !== null;
     if (!exists(CREATE_FOLDER)) {
       await vault.createFolder(CREATE_FOLDER).catch(() => undefined);
+      ensureLive(lifetime);
     }
     const path = kind === 'calendar' ? uniqueCalendarPath(exists) : uniqueCalendarSetPath(exists);
     const text = kind === 'calendar' ? calendarSkeletonText() : calendarSetSkeletonText();
     const file = (await vault.create(path, text)) as TFile;
-    if (!lifetime.isActive()) return;
+    ensureLive(lifetime);
     const indexed = await waitForMarkerIndexed(app, lifetime, file, OPEN_WAIT_MS);
-    // The note is written either way, but opening it now would mutate the workspace
-    // on behalf of a plugin that is gone, or open a note that no longer exists.
-    if (!lifetime.isActive() || !exists(file.path)) return;
+    ensureLive(lifetime);
+    // The note is written either way, but opening one that has since been deleted
+    // would surface an error the user cannot act on.
+    if (!exists(file.path)) return;
     const leaf = app.workspace.getLeaf(true);
     await leaf.openFile(file);
+    ensureLive(lifetime);
     // Opened before the marker was visible → it landed in markdown. Keep watching
     // so a late index still reaches the editor, without holding the command open.
-    if (!indexed && lifetime.isActive()) routeWhenMarkerIndexes(app, lifetime, leaf, file);
+    if (!indexed) routeWhenMarkerIndexes(app, lifetime, leaf, file);
   } catch (error) {
+    // Abandoning because the plugin went away is not a failure: there is nobody
+    // left to tell, and the note (if written) is intact on disk.
+    if (error instanceof PluginUnloaded) return;
     console.error('[Gantt] Failed to create the calendar note:', error);
     new Notice("Couldn't create the calendar note — see console for details.");
     throw error;
