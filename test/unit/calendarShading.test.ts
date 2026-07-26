@@ -1,5 +1,6 @@
 import {
   buildCalendarShadingCss,
+  associationTaskPaths,
   calendarAssociationsFrom,
   collectShadedDates,
   computeCalendarShadingCss,
@@ -46,6 +47,32 @@ describe('calendarAssociationsFrom', () => {
       { value: '[[NZ]]', taskPath: 'Tasks/a.md' },
       { value: '[[AU]]', taskPath: 'Tasks/b.md' },
     ]);
+  });
+});
+
+describe('associationTaskPaths', () => {
+  it('includes rendered sources that are not Bases entries (Show-all fetched rows)', () => {
+    // The fetched descendant has no Bases entry, so leaving it out left its bar
+    // with no calendar identity — and the default role colour instead of its own.
+    expect(
+      associationTaskPaths(
+        ['Tasks/matched.md'],
+        [{ sourcePath: 'Tasks/matched.md' }, { sourcePath: 'Tasks/fetched.md' }],
+      ),
+    ).toEqual(['Tasks/matched.md', 'Tasks/fetched.md']);
+  });
+
+  it('keeps entry order first and dedupes across both sources', () => {
+    expect(
+      associationTaskPaths(
+        ['b.md', 'a.md'],
+        [{ sourcePath: 'a.md' }, { sourcePath: 'a.md' }, { sourcePath: 'c.md' }],
+      ),
+    ).toEqual(['b.md', 'a.md', 'c.md']);
+  });
+
+  it('ignores an instance with no source path', () => {
+    expect(associationTaskPaths([], [{}, { sourcePath: 'a.md' }])).toEqual(['a.md']);
   });
 });
 
