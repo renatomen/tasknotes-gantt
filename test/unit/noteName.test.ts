@@ -40,7 +40,6 @@ describe('validateNoteName', () => {
     // dotfile (Calendars/.md), so treat it as the empty-name error.
     expect(validateNoteName('.md')).toMatch(/empty/i);
     expect(validateNoteName('  .md  ')).toMatch(/empty/i);
-    // The extension match is case-insensitive, so ".MD" is empty too.
     expect(validateNoteName('.MD')).toMatch(/empty/i);
     // A leading-dot name that is not just the extension is a real name.
     expect(validateNoteName('.gitignore')).toBeNull();
@@ -65,7 +64,6 @@ describe('renameTargetPath', () => {
   it('does not double the extension when the user types a trailing .md', () => {
     expect(renameTargetPath('Calendars/A.md', 'Cal.md')).toBe('Calendars/Cal.md');
     expect(renameTargetPath('Calendars/A.md', '  Cal.md  ')).toBe('Calendars/Cal.md');
-    // The extension strip is case-insensitive: ".MD"/".Md" don't double either.
     expect(renameTargetPath('Calendars/A.md', 'Cal.MD')).toBe('Calendars/Cal.md');
     expect(renameTargetPath('Calendars/A.md', 'Cal.Md')).toBe('Calendars/Cal.md');
     // A dotted name that is not the extension keeps its dots.
