@@ -11,7 +11,7 @@ A vault note a user marks as a calendar, declaring its own availability: a recur
 A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Declared by a calendar note — as the complement of its working schedule (working pattern or availability blocks) or as a dated exception.
 
 ### Calendar association
-The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association follows the view's default calendar, which may declare no non-working time at all.
+The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association has no calendar of its own — its availability seam is empty, so no day is blocked for it and a working-time stretch never applies. There is no view-wide default calendar.
 
 ### Calendar mode
 The per-view choice of how calendar availability affects the timeline: shading tints non-working time in the background and never touches dates; stretch additionally extends duration-derived bars across blocked days.
@@ -23,7 +23,7 @@ The extension of a bar whose span is derived from a working-duration estimate: b
 A contiguous run of blocked days inside a stretched bar, rendered as a dimmed piece of the bar so the pause is visible without splitting the task. Ghost runs degrade gracefully: at zoom levels where faithful piece tiling cannot be guaranteed, the bar renders in its continuous form instead.
 
 ### Availability seam
-The internal query boundary that answers "is this date blocked for this task?" for a view, composed from the task's associated calendar and the view's displayed calendars. All consumers — timeline shading, stretching, scheduling decisions later — ask the seam; no consumer inspects a calendar note directly.
+The internal query boundary that answers "is this date blocked?" without a consumer inspecting a calendar note directly. It is not one shared query: task-level blocking (stretching, scheduling decisions later) is answered per task from that task's associated calendar, while background shading is the union of the view's displayed calendars. The two paths derive from the same calendar definitions but are resolved separately, so a day can be shaded in the background without blocking an unassociated task.
 
 ## Field mapping
 
