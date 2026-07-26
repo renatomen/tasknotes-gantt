@@ -23,6 +23,7 @@ const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-context");
 
 const NZ_COLOR = "rgb(42, 157, 143)";
+const AU_COLOR = "rgb(231, 111, 81)";
 const BASE_PATH = "ContextColour.base";
 
 async function enableBases(): Promise<void> {
@@ -125,5 +126,31 @@ describe("Gantt (OG) calendar colour on fetched context rows", () => {
   it("leaves the unassociated matched project on a different colour", async () => {
     const colors = await barColors();
     expect(forTask(colors, "Project A")).not.toBe(NZ_COLOR);
+  });
+
+  it("re-colours the fetched bar when its association is edited mid-session", async () => {
+    // The fetched note is no calendar and no Bases entry, so neither the calendar
+    // watch's marker probe nor a Bases notify sees this edit — and the controller
+    // snapshot compares dates/text, not associations. Only the association watch
+    // refreshes it; without that the bar (and the auto shading union) stays stale
+    // until an unrelated refresh.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("Sub A1.md");
+      if (!file) throw new Error("Sub A1.md missing");
+      await (app as unknown as {
+        fileManager: { processFrontMatter(f: unknown, fn: (fm: Record<string, unknown>) => void): Promise<void> };
+      }).fileManager.processFrontMatter(file, (fm) => {
+        fm["calendar"] = ['[[AU Holidays]]'];
+      });
+    });
+
+    await browser.waitUntil(
+      async () => forTask(await barColors(), "Sub A1") === AU_COLOR,
+      {
+        timeout: 30000,
+        timeoutMsg: async () =>
+          `the fetched bar never followed its edited association; saw ${JSON.stringify(await barColors())}`,
+      },
+    );
   });
 });
