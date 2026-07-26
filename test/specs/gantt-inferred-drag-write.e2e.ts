@@ -64,10 +64,10 @@ const TASK_NOTES = [
  * TaskNotes creates and opens a "Start Here" starter note asynchronously on first
  * install, and that open can steal the active leaf at any moment — after the base
  * is opened, or even mid-test. A Bases view unmounts its content while its leaf is
- * backgrounded, so the whole Gantt DOM vanishes until the leaf is re-fronted (the
- * #98 root cause, same as `gantt-dependency-types.e2e.ts`). Detaching markdown
- * leaves and re-asserting the base leaf is idempotent and cheap, so every wait
- * below calls it on every poll and heals against a steal rather than racing it.
+ * backgrounded, so the whole Gantt DOM vanishes until the leaf is re-fronted — the
+ * same failure the dependency-types spec heals this way. Detaching markdown leaves
+ * and re-asserting the base leaf is idempotent and cheap, so every wait below
+ * calls it on every poll and heals against a steal rather than racing it.
  */
 async function activateBaseLeaf(): Promise<void> {
   await browser.executeObsidian(async ({ app }, basePath) => {
