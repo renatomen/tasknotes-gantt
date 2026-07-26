@@ -157,7 +157,10 @@ export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind
     await leaf.openFile(file);
     // Opened before the marker was visible → it landed in markdown. Keep watching
     // so a late index still reaches the editor, without holding the command open.
-    if (!indexed) routeWhenMarkerIndexes(app, leaf, file);
+    // The generation is re-checked because `openFile` is another await boundary: an
+    // unload landing inside it runs its cleanup first, and a watch registered after
+    // that would be orphaned — owned by a plugin whose interceptor is already gone.
+    if (!indexed && generation === liveGeneration) routeWhenMarkerIndexes(app, leaf, file);
   } catch (error) {
     console.error('[Gantt] Failed to create the calendar note:', error);
     new Notice("Couldn't create the calendar note — see console for details.");

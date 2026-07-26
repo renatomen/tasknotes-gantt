@@ -64,10 +64,15 @@ function lateIndexingApp() {
       type: string;
       state: Record<string, unknown>;
     },
+    holdOpen: false,
   };
+  // `holdOpen` parks `openFile` mid-flight, so a test can land an unload inside
+  // that await — the boundary a watch must not be registered across.
+  let releaseOpen: (() => void) | null = null;
   const leaf = {
     openFile: async (file: unknown) => {
       opened.push(file);
+      if (state.holdOpen) await new Promise<void>((resolve) => (releaseOpen = resolve));
     },
     getViewState: () => state.viewState,
     setViewState: async (next: unknown) => {
@@ -108,6 +113,11 @@ function lateIndexingApp() {
     reissued,
     /** How many cache listeners are still registered (0 = nothing watching). */
     liveListeners: () => listeners.size,
+    /** Park `openFile` until `releaseOpenFile()`, to unload inside that await. */
+    holdOpenFile: () => {
+      state.holdOpen = true;
+    },
+    releaseOpenFile: () => releaseOpen?.(),
     set viewState(next: { type: string; state: Record<string, unknown> }) {
       state.viewState = next;
     },
@@ -266,6 +276,28 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.opened).toHaveLength(0);
+    expect(late.reissued).toHaveLength(0);
+    jest.useRealTimers();
+  });
+
+  it('starts no watch when the plugin unloads while the note is opening', async () => {
+    // `openFile` is a second await boundary after the generation check: an unload
+    // inside it runs its cleanup, so a watch registered afterwards would be owned
+    // by a plugin whose routing interceptor is already gone.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    late.holdOpenFile();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000); // wait gives up, open starts
+    expect(late.opened).toHaveLength(1); // parked inside openFile
+
+    cancelPendingMarkerWatches();
+    late.releaseOpenFile();
+    await promise;
+    expect(late.liveListeners()).toBe(0);
+
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
     jest.useRealTimers();
   });
