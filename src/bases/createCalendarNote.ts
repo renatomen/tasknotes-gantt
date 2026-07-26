@@ -10,7 +10,7 @@
  * @module bases/createCalendarNote
  */
 /* global clearTimeout */
-import { Notice, TFile, type App, type WorkspaceLeaf } from 'obsidian';
+import { Notice, TFile, type App, type EventRef, type Plugin, type WorkspaceLeaf } from 'obsidian';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CREATE_FOLDER,
@@ -26,46 +26,66 @@ export type CalendarNoteKind = 'calendar' | 'calendar-set';
 const OPEN_WAIT_MS = 2000;
 
 /**
- * Live marker watches and pending waits, so a plugin unload can drop every one
- * of them (this module has no plugin handle of its own to register events
- * against).
+ * The plugin lifetime this module's asynchronous work belongs to.
+ *
+ * Creating a calendar note spans several awaits (write, index wait, open) and the
+ * plugin can be disabled at any of them. Rather than tracking that by hand, the
+ * work is scoped to the plugin: `own` hands each subscription to Obsidian's own
+ * lifetime management, so no listener can outlive the plugin, and `isActive` is
+ * the honest answer to "should this continuation still act?".
+ *
+ * Injected rather than reached for globally, so both entry points pass their own
+ * plugin and tests supply a fake with no shared module state.
  */
-const markerWatches = new Set<() => void>();
+export interface PluginLifetime {
+  /** Hand an event subscription to the plugin, released automatically at unload. */
+  own(ref: EventRef): void;
+  /** Whether the plugin is still loaded. */
+  isActive(): boolean;
+}
 
-/**
- * Bumped by {@link cancelPendingMarkerWatches} so a create that is mid-flight
- * when the plugin unloads abandons the rest of its work instead of resuming into
- * a torn-down plugin.
- */
-let liveGeneration = 0;
+/** Adapt an Obsidian plugin to the lifetime this module needs. */
+export function pluginLifetime(plugin: Plugin): PluginLifetime {
+  let active = true;
+  plugin.register(() => {
+    active = false;
+  });
+  return {
+    own: (ref) => plugin.registerEvent(ref),
+    isActive: () => active,
+  };
+}
 
-/**
- * Cancel everything this module has pending. Called on plugin unload: it releases
- * each cache listener, settles any wait at once (rather than letting its deadline
- * fire later), and retires the generation so an in-flight create stops before it
- * can touch the workspace or start a fresh watch.
- */
-export function cancelPendingMarkerWatches(): void {
-  liveGeneration++;
-  for (const stop of [...markerWatches]) stop();
+interface MarkerHandlers {
+  /** The marker became visible in the metadata cache. */
+  onIndexed(): void;
+  /** The note was deleted, so the marker is never coming. */
+  onGone?(): void;
 }
 
 /**
- * Run `onIndexed` once — as soon as the note's marker is visible in the metadata
- * cache. `vault.create` resolves before the frontmatter is indexed, and the editor
- * router reads the marker from that cache, so acting too early routes the note to
- * plain markdown instead of the editor.
+ * Watch the metadata cache until the note's marker is visible, then run
+ * `onIndexed`. `vault.create` resolves before the frontmatter is indexed, and the
+ * editor router reads the marker from that cache, so acting too early routes the
+ * note to plain markdown instead of the editor.
  *
- * One-shot: the watch releases its listener as soon as the marker lands, or as
- * soon as the note is deleted — no `changed` event can follow a deletion, so a
- * deadline-free watch would otherwise retain the file until unload, one listener
- * per abandoned attempt. Callers that must not wait forever impose their own
- * deadline; the rest are released by {@link cancelPendingMarkerWatches} at unload.
+ * One-shot, and stops early when the note is deleted — no `changed` event can
+ * follow a deletion, so a watch that ignored it would be waiting for something
+ * that can never happen. Returns a cancel function for callers with their own
+ * deadline; the plugin owns both subscriptions regardless, so nothing outlives it.
  */
-function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => void {
-  // Already gone (deleted while the caller was awaiting something): no `changed`
-  // and no `delete` can follow, so a watch here would never release itself.
-  if (app.vault.getAbstractFileByPath(file.path) === null) return () => {};
+function watchForMarker(
+  app: App,
+  lifetime: PluginLifetime,
+  file: TFile,
+  handlers: MarkerHandlers,
+): () => void {
+  // Already gone (deleted while the caller was awaiting something): no event can
+  // follow, so there is nothing to watch for.
+  if (app.vault.getAbstractFileByPath(file.path) === null) {
+    handlers.onGone?.();
+    return () => {};
+  }
   const indexed = (): boolean =>
     matchesCalendarMarker(app.metadataCache.getFileCache(file)?.frontmatter) !== null;
   let stopped = false;
@@ -74,31 +94,38 @@ function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => voi
     stopped = true;
     app.metadataCache.offref(changedRef);
     app.vault.offref(deleteRef);
-    markerWatches.delete(stop);
   };
   const changedRef = app.metadataCache.on('changed', (changed) => {
     if (changed.path !== file.path || !indexed()) return;
     stop();
-    onIndexed();
+    handlers.onIndexed();
   });
   const deleteRef = app.vault.on('delete', (deleted) => {
-    if (deleted.path === file.path) stop();
+    if (deleted.path !== file.path) return;
+    stop();
+    handlers.onGone?.();
   });
-  markerWatches.add(stop);
+  lifetime.own(changedRef);
+  lifetime.own(deleteRef);
   if (indexed()) {
     stop();
-    onIndexed();
+    handlers.onIndexed();
   }
   return stop;
 }
 
 /**
- * Wait for the marker, reporting whether it arrived before `timeoutMs`. The
- * deadline is what keeps the *command* responsive — it must open the note either
- * way rather than hang on a slow index. An unload settles the wait immediately
- * through the same registry, so its deadline can never fire after teardown.
+ * Wait for the marker, reporting whether it arrived. The deadline is what keeps
+ * the *command* responsive — it must open the note either way rather than hang on
+ * a slow index — and a deletion settles the wait at once, since nothing can index
+ * afterwards.
  */
-function waitForMarkerIndexed(app: App, file: TFile, timeoutMs: number): Promise<boolean> {
+function waitForMarkerIndexed(
+  app: App,
+  lifetime: PluginLifetime,
+  file: TFile,
+  timeoutMs: number,
+): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,15 +135,15 @@ function waitForMarkerIndexed(app: App, file: TFile, timeoutMs: number): Promise
       settled = true;
       clearTimeout(timer);
       stopWatch();
-      markerWatches.delete(abort);
       resolve(found);
     };
-    const abort = (): void => finish(false);
-    stopWatch = watchForMarker(app, file, () => finish(true));
-    // An already-indexed marker settles the watch synchronously — nothing to arm.
+    stopWatch = watchForMarker(app, lifetime, file, {
+      onIndexed: () => finish(true),
+      onGone: () => finish(false),
+    });
+    // Already settled (indexed, or gone) — synchronously, so no deadline to arm.
     if (settled) return;
-    markerWatches.add(abort);
-    timer = setTimeout(abort, timeoutMs);
+    timer = setTimeout(() => finish(false), timeoutMs);
   });
 }
 
@@ -130,39 +157,44 @@ function waitForMarkerIndexed(app: App, file: TFile, timeoutMs: number): Promise
  * active state rather than inventing new ones.
  *
  * Deliberately has no deadline: however long indexing takes, the note still
- * reaches the editor. Nothing waits on this, so the only reason to stop early
- * would be listener hygiene — and unload already covers that. Leaves a leaf that
- * has moved on alone: the user may have navigated it elsewhere, or reopened the
- * note and routed it themselves.
+ * reaches the editor. Leaves a leaf that has moved on alone — the user may have
+ * navigated it elsewhere, or reopened the note and routed it themselves.
  *
- * An unload can still land while the re-route is applying, after the watch has
- * released itself: the editor view type is unregistered by then, so the leaf is
- * put back on markdown rather than left showing a view that no longer exists.
+ * The plugin can still be disabled while the transition is applying, after which
+ * the editor view type is no longer registered; that leaf is put back on markdown,
+ * but only when it is still showing the note this re-route moved.
  */
 function routeWhenMarkerIndexes(
   app: App,
+  lifetime: PluginLifetime,
   leaf: WorkspaceLeaf,
   file: TFile,
-  generation: number,
 ): void {
-  watchForMarker(app, file, () => {
-    const state = leaf.getViewState();
-    if (state.type !== 'markdown') return;
-    if (state.state?.['file'] !== file.path) return;
-    void Promise.resolve(leaf.setViewState(state))
-      .then(() => {
-        if (generation === liveGeneration) return undefined;
-        return leaf.setViewState({ ...state, type: 'markdown' });
-      })
-      .catch((error) => {
-        console.error('[Gantt] Failed to re-route the calendar note to the editor:', error);
-      });
+  watchForMarker(app, lifetime, file, {
+    onIndexed: () => {
+      const state = leaf.getViewState();
+      if (state.type !== 'markdown') return;
+      if (state.state?.['file'] !== file.path) return;
+      void Promise.resolve(leaf.setViewState(state))
+        .then(() => {
+          if (lifetime.isActive()) return undefined;
+          const applied = leaf.getViewState();
+          const stillOurs = applied.state?.['file'] === file.path && applied.type !== 'markdown';
+          return stillOurs ? leaf.setViewState({ ...applied, type: 'markdown' }) : undefined;
+        })
+        .catch((error) => {
+          console.error('[Gantt] Failed to re-route the calendar note to the editor:', error);
+        });
+    },
   });
 }
 
 /** Create a `Calendars/` note of the given kind from its skeleton and open it. */
-export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind): Promise<void> {
-  const generation = liveGeneration;
+export async function createAndOpenCalendarNote(
+  app: App,
+  kind: CalendarNoteKind,
+  lifetime: PluginLifetime,
+): Promise<void> {
   try {
     const { vault } = app;
     const exists = (path: string): boolean => vault.getAbstractFileByPath(path) !== null;
@@ -172,23 +204,16 @@ export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind
     const path = kind === 'calendar' ? uniqueCalendarPath(exists) : uniqueCalendarSetPath(exists);
     const text = kind === 'calendar' ? calendarSkeletonText() : calendarSetSkeletonText();
     const file = (await vault.create(path, text)) as TFile;
-    // Unloaded while the write was in flight: registering the wait now would put a
-    // listener and a timer behind the cleanup that has already run.
-    if (generation !== liveGeneration) return;
-    const indexed = await waitForMarkerIndexed(app, file, OPEN_WAIT_MS);
-    // Unloaded while waiting: the note is written, but opening it (or starting a
-    // watch) now would mutate the workspace on behalf of a torn-down plugin.
-    if (generation !== liveGeneration) return;
+    if (!lifetime.isActive()) return;
+    const indexed = await waitForMarkerIndexed(app, lifetime, file, OPEN_WAIT_MS);
+    // The note is written either way, but opening it now would mutate the workspace
+    // on behalf of a plugin that is gone, or open a note that no longer exists.
+    if (!lifetime.isActive() || !exists(file.path)) return;
     const leaf = app.workspace.getLeaf(true);
     await leaf.openFile(file);
     // Opened before the marker was visible → it landed in markdown. Keep watching
     // so a late index still reaches the editor, without holding the command open.
-    // The generation is re-checked because `openFile` is another await boundary: an
-    // unload landing inside it runs its cleanup first, and a watch registered after
-    // that would be orphaned — owned by a plugin whose interceptor is already gone.
-    if (!indexed && generation === liveGeneration) {
-      routeWhenMarkerIndexes(app, leaf, file, generation);
-    }
+    if (!indexed && lifetime.isActive()) routeWhenMarkerIndexes(app, lifetime, leaf, file);
   } catch (error) {
     console.error('[Gantt] Failed to create the calendar note:', error);
     new Notice("Couldn't create the calendar note — see console for details.");

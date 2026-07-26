@@ -7,9 +7,27 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { App, TFile } from 'obsidian';
 import {
-  cancelPendingMarkerWatches,
   createAndOpenCalendarNote,
+  type PluginLifetime,
 } from '../../src/bases/createCalendarNote';
+
+/**
+ * A plugin lifetime under test control: `own` records the subscriptions the plugin
+ * would release at unload, and `unload()` releases them and reports inactive —
+ * standing in for Obsidian, with no state shared between tests.
+ */
+function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime & { unload(): void } {
+  const owned: object[] = [];
+  let active = true;
+  return {
+    own: (ref) => owned.push(ref as unknown as object),
+    isActive: () => active,
+    unload: () => {
+      active = false;
+      for (const ref of owned.splice(0)) release(ref);
+    },
+  };
+}
 
 function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>) {
   const paths = new Set(existingPaths);
@@ -53,7 +71,7 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
       offref: () => {},
     },
   };
-  return { app: app as unknown as App, created, opened, foldersCreated };
+  return { app: app as unknown as App, created, opened, foldersCreated, lifetime: fakeLifetime() };
 }
 
 /**
@@ -61,6 +79,8 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
  * so — the cold-vault case where the marker misses the pre-open wait. Records
  * what the opened leaf was asked to re-render as (`reissued`).
  */
+const EDITOR_VIEW_TYPE = 'tngantt-calendar-editor';
+
 function lateIndexingApp() {
   let indexed = false;
   const listeners = new Map<object, { event: string; cb: (changed: { path: string }) => void }>();
@@ -88,7 +108,16 @@ function lateIndexingApp() {
     getViewState: () => state.viewState,
     setViewState: async (next: unknown) => {
       reissued.push(next);
+      // The interception decides SYNCHRONOUSLY at the call — that is why a
+      // transition begun while the plugin was loaded can still land as the editor
+      // view after it unloads. The transition itself settles later.
+      const requested = next as { type: string; state: Record<string, unknown> };
+      const applied =
+        lifetime.isActive() && requested.type === 'markdown'
+          ? { ...requested, type: EDITOR_VIEW_TYPE }
+          : { ...requested };
       if (state.holdViewState) await new Promise<void>((resolve) => (releaseViewState = resolve));
+      state.viewState = applied;
     },
   };
   // Paths that exist in this fake vault: the created note lands here, and a
@@ -128,6 +157,9 @@ function lateIndexingApp() {
       },
     },
   };
+  // Unload releases every subscription the plugin took ownership of, exactly as
+  // Obsidian does for registerEvent — that is what makes a leak impossible.
+  const lifetime = fakeLifetime((ref) => listeners.delete(ref));
   const fire = (event: string): void => {
     for (const l of [...listeners.values()]) {
       if (l.event === event) l.cb({ path: 'Calendars/New Calendar.md' });
@@ -135,6 +167,9 @@ function lateIndexingApp() {
   };
   return {
     app: app as unknown as App,
+    lifetime,
+    /** Disable the plugin: releases its subscriptions and reports inactive. */
+    unload: () => lifetime.unload(),
     opened,
     reissued,
     /** How many cache listeners are still registered (0 = nothing watching). */
@@ -179,8 +214,8 @@ describe('createAndOpenCalendarNote', () => {
   });
 
   it('scaffolds and opens a calendar note with the calendar skeleton', async () => {
-    const { app, created, opened } = fakeApp();
-    await createAndOpenCalendarNote(app, 'calendar');
+    const { app, created, opened, lifetime } = fakeApp();
+    await createAndOpenCalendarNote(app, 'calendar', lifetime);
     expect(created).toHaveLength(1);
     expect(created[0]!.path).toBe('Calendars/New Calendar.md');
     expect(created[0]!.text).toContain('tngantt: calendar');
@@ -188,8 +223,8 @@ describe('createAndOpenCalendarNote', () => {
   });
 
   it('scaffolds and opens an empty calendar-set note', async () => {
-    const { app, created, opened } = fakeApp();
-    await createAndOpenCalendarNote(app, 'calendar-set');
+    const { app, created, opened, lifetime } = fakeApp();
+    await createAndOpenCalendarNote(app, 'calendar-set', lifetime);
     expect(created[0]!.path).toBe('Calendars/New Calendar Set.md');
     expect(created[0]!.text).toContain('tngantt: calendar-set');
     expect(opened).toHaveLength(1);
@@ -197,11 +232,11 @@ describe('createAndOpenCalendarNote', () => {
 
   it('creates the Calendars folder only when it is absent', async () => {
     const missing = fakeApp();
-    await createAndOpenCalendarNote(missing.app, 'calendar');
+    await createAndOpenCalendarNote(missing.app, 'calendar', missing.lifetime);
     expect(missing.foldersCreated).toContain('Calendars');
 
     const present = fakeApp(['Calendars']);
-    await createAndOpenCalendarNote(present.app, 'calendar');
+    await createAndOpenCalendarNote(present.app, 'calendar', present.lifetime);
     expect(present.foldersCreated).toHaveLength(0);
   });
 
@@ -244,8 +279,9 @@ describe('createAndOpenCalendarNote', () => {
         offref: () => {},
       },
     } as unknown as App;
+    const lifetime = fakeLifetime();
 
-    const promise = createAndOpenCalendarNote(app, 'calendar');
+    const promise = createAndOpenCalendarNote(app, 'calendar', lifetime);
     // Let the create + listener registration settle, then simulate indexing.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(opened).toHaveLength(0); // parked, not yet opened
@@ -264,7 +300,7 @@ describe('createAndOpenCalendarNote', () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
 
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000); // the wait gives up
     await promise;
     expect(late.opened).toHaveLength(1);
@@ -283,7 +319,7 @@ describe('createAndOpenCalendarNote', () => {
     // would only reproduce the bug after an arbitrary delay.
     jest.useFakeTimers();
     const late = lateIndexingApp();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
 
@@ -299,7 +335,7 @@ describe('createAndOpenCalendarNote', () => {
     // them away from what they are looking at.
     jest.useFakeTimers();
     const late = lateIndexingApp();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
 
@@ -315,10 +351,10 @@ describe('createAndOpenCalendarNote', () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
     late.holdCreate();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(0);
 
-    cancelPendingMarkerWatches();
+    late.unload();
     late.releaseCreate();
     await promise;
     expect(late.liveListeners()).toBe(0);
@@ -331,15 +367,16 @@ describe('createAndOpenCalendarNote', () => {
     // opens a leaf or starts a fresh watch on behalf of a plugin that is gone.
     jest.useFakeTimers();
     const late = lateIndexingApp();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(500); // still inside the 2s wait
 
-    cancelPendingMarkerWatches();
+    late.unload();
+    expect(late.liveListeners()).toBe(0); // the plugin released them itself
+    await jest.advanceTimersByTimeAsync(2000); // the wait settles on its deadline
     await promise;
-    expect(late.opened).toHaveLength(0);
-    expect(late.liveListeners()).toBe(0);
+    expect(late.opened).toHaveLength(0); // …and the flow stood down
 
-    // And nothing revives afterwards — neither the old deadline nor a late index.
+    // And nothing revives afterwards — neither a stray timer nor a late index.
     await jest.advanceTimersByTimeAsync(5000);
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
@@ -354,11 +391,11 @@ describe('createAndOpenCalendarNote', () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
     late.holdOpenFile();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000); // wait gives up, open starts
     expect(late.opened).toHaveLength(1); // parked inside openFile
 
-    cancelPendingMarkerWatches();
+    late.unload();
     late.releaseOpenFile();
     await promise;
     expect(late.liveListeners()).toBe(0);
@@ -374,7 +411,7 @@ describe('createAndOpenCalendarNote', () => {
     // abandoned create.
     jest.useFakeTimers();
     const late = lateIndexingApp();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
     expect(late.liveListeners()).toBeGreaterThan(0);
@@ -392,7 +429,7 @@ describe('createAndOpenCalendarNote', () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
     late.holdOpenFile();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     expect(late.opened).toHaveLength(1); // parked inside openFile
 
@@ -410,7 +447,7 @@ describe('createAndOpenCalendarNote', () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
     late.holdViewState();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
 
@@ -418,7 +455,7 @@ describe('createAndOpenCalendarNote', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(1); // the re-route is applying
 
-    cancelPendingMarkerWatches();
+    late.unload();
     late.releaseViewState();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(2);
@@ -428,12 +465,12 @@ describe('createAndOpenCalendarNote', () => {
   it('drops a still-pending marker watch when the plugin unloads', async () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
-    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
     expect(late.liveListeners()).toBeGreaterThan(0); // still waiting on the index
 
-    cancelPendingMarkerWatches();
+    late.unload();
     expect(late.liveListeners()).toBe(0);
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
@@ -441,9 +478,9 @@ describe('createAndOpenCalendarNote', () => {
   });
 
   it('surfaces a Notice and rethrows when creation fails', async () => {
-    const { app } = fakeApp([], () => Promise.reject(new Error('disk full')));
+    const { app, lifetime } = fakeApp([], () => Promise.reject(new Error('disk full')));
     jest.spyOn(console, 'error').mockImplementation(() => {});
-    await expect(createAndOpenCalendarNote(app, 'calendar')).rejects.toThrow('disk full');
+    await expect(createAndOpenCalendarNote(app, 'calendar', lifetime)).rejects.toThrow('disk full');
     jest.restoreAllMocks();
   });
 });
