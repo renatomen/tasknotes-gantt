@@ -306,7 +306,9 @@ describe("Gantt (OG) calendar editor routing", () => {
     // error as a blank name — so Save must stay disabled (no rename to a dotfile).
     await nameInput.setValue(".md");
 
-    const error = await $(".og-cal-form .og-cal-error");
+    // Scope to the Name field's own error (its sibling) — the form also renders a
+    // generic 'fix the flagged fields' header error with the same class.
+    const error = await $('.og-cal-form input[aria-label="Calendar name"] ~ span.og-cal-error');
     await error.waitForDisplayed({ timeout: 10000, timeoutMsg: "no empty-name error surfaced for '.md'" });
     expect(await error.getText()).toMatch(/empty/i);
 
