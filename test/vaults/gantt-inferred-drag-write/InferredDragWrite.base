@@ -11,6 +11,7 @@ views:
     tngantt_inferredDrag: ask
     tngantt_parentDateCascade: auto
     tngantt_defaultScale: day
+    tngantt_maxHeight: 900
     tngantt_defaultDuration: 1
     tngantt_showPartialDateTasks: true
     tngantt_showDateIndicators: true

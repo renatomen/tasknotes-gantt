@@ -109,7 +109,11 @@ async function missingBars(): Promise<string[]> {
   }, TASK_NOTES);
 }
 
-/** Wait until the base leaf is front and every fixture bar is rendered. */
+/**
+ * Wait until the base leaf is front and every fixture bar is rendered. SVAR
+ * virtualizes rows, so the fixture base raises `tngantt_maxHeight` above the
+ * 400px default — otherwise the last rows never enter the DOM to be dragged.
+ */
 async function ensureGanttReady(): Promise<void> {
   let missing: string[] = ["<never polled>"];
   await browser.waitUntil(
