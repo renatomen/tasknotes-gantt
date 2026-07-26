@@ -136,7 +136,7 @@ import { buildCalendarNotice } from './calendarConflicts';
 import type { MarkerInput } from './markerOverlay';
 import { buildCalendarRegistry, stripSubpath } from '../controller/calendar/resolveCalendars';
 import { CalendarPickerModal } from './CalendarPickerModal';
-import { autoDisplayedPathsFrom, type PickerContext } from './calendarPickerModel';
+import { autoDisplayedPathsFrom, calendarLinkFor, type PickerContext } from './calendarPickerModel';
 import { createAndOpenCalendarNote } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from './parentLink';
@@ -757,7 +757,7 @@ class ObsidianGanttBasesView extends BasesView {
         this.config.get('tngantt_highlightWeekends'),
       ),
       resolveLink: (link) => resolve(stripSubpath(link), ''),
-      linkFor: (path) => `[[${path.replace(/^.*\//, '').replace(/\.md$/, '')}]]`,
+      linkFor: calendarLinkFor,
       autoDisplayedPaths: autoDisplayedPathsFrom(registry, associations, resolve),
     };
   }

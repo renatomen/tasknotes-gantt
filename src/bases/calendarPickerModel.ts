@@ -81,6 +81,16 @@ export interface PickerTransition {
   writes: PickerWrites | null;
 }
 
+/**
+ * The wikilink persisted for a calendar at `path`: vault-relative (folder kept),
+ * `.md` dropped. Keeping the folder is what stops two same-named calendars in
+ * different folders from collapsing to the same bare-basename link, which the
+ * root-anchored resolver would then resolve to the wrong note.
+ */
+export function calendarLinkFor(path: string): string {
+  return `[[${path.replace(/\.md$/, '')}]]`;
+}
+
 export function buildPickerRows(context: PickerContext): PickerRowModel[] {
   const { registry, selection } = context;
   const entriesByPath = mapEntriesByPath(context);
@@ -123,8 +133,19 @@ export function buildPickerRows(context: PickerContext): PickerRowModel[] {
     rows.push({ kind: 'flagged', label: invalid.name, reason: invalid.reasons.join('; ') });
   }
   for (const entry of selection.entries) {
-    if (context.resolveLink(entry.link) === null) {
+    const path = context.resolveLink(entry.link);
+    if (path === null) {
       rows.push({ kind: 'flagged', label: entry.link, reason: 'link does not resolve' });
+    } else if (
+      !registry.calendars.has(path) &&
+      !registry.sets.has(path) &&
+      !registry.invalid.has(path)
+    ) {
+      // Resolves to a real note that no longer carries a calendar marker (it was
+      // retagged), so it is neither a calendar, a set, nor an invalid calendar —
+      // surface a removable row so the stale selection can be cleared. Invalid
+      // calendars are already flagged above from the registry.
+      rows.push({ kind: 'flagged', label: entry.link, reason: 'not a calendar' });
     }
   }
   return rows;
