@@ -100,6 +100,12 @@
   export function canSave(): boolean {
     return dirty && !hasErrors && !saving;
   }
+  /** Whether a save is in flight — the close guard disables Discard while it is,
+      since the already-started write can still land after the leaf unmounts, so
+      discarding then would not actually discard. */
+  export function isSaving(): boolean {
+    return saving;
+  }
 
   const errors = $derived(fieldErrors(form));
   const nameError = $derived(validateNoteName(name));

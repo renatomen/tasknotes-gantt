@@ -8,8 +8,8 @@ import { describe, expect, it } from '@jest/globals';
 import { App, FakeElement } from 'obsidian';
 import { UnsavedCalendarModal } from '../../src/editor/UnsavedCalendarModal';
 
-function open(canSave: boolean) {
-  const modal = new UnsavedCalendarModal(new App(), canSave);
+function open(canSave: boolean, saving = false) {
+  const modal = new UnsavedCalendarModal(new App(), canSave, saving);
   const choice = modal.openAndGetChoice();
   return { modal, choice, contentEl: modal.contentEl as unknown as FakeElement };
 }
@@ -54,5 +54,25 @@ describe('UnsavedCalendarModal', () => {
     const { modal, choice } = open(true);
     modal.close();
     expect(await choice).toBe('cancel');
+  });
+
+  it('disables Discard while a save is in flight so it cannot drop a write that still lands', async () => {
+    // canSave is false during a save too, but Discard is legitimate when the
+    // note is merely invalid — so the in-flight guard is a distinct flag.
+    const { choice, contentEl } = open(false, true);
+    const discard = buttonWith(contentEl, 'Discard');
+    expect(discard?.disabled).toBe(true);
+    // Even if a click reaches the disabled control, the handler must not discard.
+    discard?.trigger('click');
+    buttonWith(contentEl, 'Go back')?.trigger('click');
+    expect(await choice).toBe('cancel');
+  });
+
+  it('keeps Discard enabled when the note is invalid but no save is running', async () => {
+    const { choice, contentEl } = open(false, false);
+    const discard = buttonWith(contentEl, 'Discard');
+    expect(discard?.disabled).toBe(false);
+    discard?.trigger('click');
+    expect(await choice).toBe('discard');
   });
 });
