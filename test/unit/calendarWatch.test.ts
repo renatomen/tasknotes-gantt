@@ -181,6 +181,19 @@ describe('association tracking', () => {
     expect(watch.epoch()).toBe(0);
   });
 
+  it('fires when a tracked note gains its FIRST association', () => {
+    // A fetched row can render before it links any calendar: the baseline is the
+    // serialized absence, so the first link is a change like any other.
+    const values = new Map([['Tasks/sub.md', '']]);
+    const { watch, fired, fake } = associationWatch(values);
+    watch.syncAssociations([['Tasks/sub.md', '']]);
+
+    values.set('Tasks/sub.md', '"[[NZ]]"');
+    watch.notifyChanged('Tasks/sub.md');
+    fake.fireLast();
+    expect(fired).toHaveLength(1);
+  });
+
   it('ignores notes the shading never read an association from', () => {
     const values = new Map([['Tasks/other.md', '"[[NZ]]"']]);
     const { watch, fired } = associationWatch(values);

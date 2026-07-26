@@ -152,5 +152,6 @@ describe("Gantt (OG) calendar colour on fetched context rows", () => {
           `the fetched bar never followed its edited association; saw ${JSON.stringify(await barColors())}`,
       },
     );
+    expect(forTask(await barColors(), "Sub A1")).toBe(AU_COLOR);
   });
 });

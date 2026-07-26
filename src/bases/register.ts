@@ -1361,7 +1361,11 @@ class ObsidianGanttBasesView extends BasesView {
     // the controller snapshot compares dates/text, not associations, and a
     // fetched (Show-all) row has no Bases entry to re-notify through.
     this.calendarWatch?.syncAssociations(
-      associations.map((a) => [a.taskPath, JSON.stringify(a.value) ?? ''] as const),
+      // EVERY rendered task path, not just the ones with a value: a fetched row
+      // that has no association yet must still be tracked (baseline: absent), or
+      // gaining its FIRST calendar link would be invisible — no Bases entry, no
+      // snapshot change, no marker relevance.
+      taskPaths.map((path) => [path, this.readAssociationValue(path)] as const),
     );
     // The picker must see the SAME association set the chart shades from, or a
     // fetched row's calendar shades the chart while sitting unchecked in the
