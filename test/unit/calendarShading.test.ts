@@ -1,5 +1,6 @@
 import {
   buildCalendarShadingCss,
+  calendarAssociationsFrom,
   collectShadedDates,
   computeCalendarShadingCss,
   computeTaskBlocking,
@@ -28,6 +29,25 @@ const computeShading = (
   inputs: Omit<Parameters<typeof computeCalendarShadingCss>[0], 'scope'>,
 ): ReturnType<typeof computeCalendarShadingCss> =>
   computeCalendarShadingCss({ ...inputs, scope: '.og-bases-gantt' });
+
+describe('calendarAssociationsFrom', () => {
+  it('dedups task paths and drops notes without a calendar value', () => {
+    const values = new Map<string, unknown>([
+      ['Tasks/a.md', '[[NZ]]'],
+      ['Tasks/b.md', '[[AU]]'],
+    ]);
+    // 'a' appears twice (a Bases entry and a fetched instance), 'none' has no
+    // calendar value — the first collapses to one association, the second drops.
+    const associations = calendarAssociationsFrom(
+      ['Tasks/a.md', 'Tasks/b.md', 'Tasks/a.md', 'Tasks/none.md'],
+      (path) => values.get(path),
+    );
+    expect(associations).toEqual([
+      { value: '[[NZ]]', taskPath: 'Tasks/a.md' },
+      { value: '[[AU]]', taskPath: 'Tasks/b.md' },
+    ]);
+  });
+});
 
 describe('shadingWindow', () => {
   it('returns null with no dated spans', () => {

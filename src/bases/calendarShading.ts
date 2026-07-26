@@ -137,6 +137,24 @@ export function buildCalendarShadingCss(
   return parts.join('\n');
 }
 
+/**
+ * Task→calendar associations from the given task note paths (deduped): reads
+ * each note's calendar value via `valueOf` and drops the ones without a value.
+ * Pure — the caller supplies the frontmatter reader — so the union-and-dedup of
+ * Bases entries with fetched instances is testable without the view or Obsidian.
+ */
+export function calendarAssociationsFrom(
+  taskPaths: Iterable<string>,
+  valueOf: (path: string) => unknown,
+): Array<{ value: unknown; taskPath: string }> {
+  const associations: Array<{ value: unknown; taskPath: string }> = [];
+  for (const path of new Set(taskPaths)) {
+    const value = valueOf(path);
+    if (value !== undefined) associations.push({ value, taskPath: path });
+  }
+  return associations;
+}
+
 function dateSelectors(dates: readonly string[], bodyScope: string, headerScope: string): string {
   return dates
     .flatMap((date) => [`${bodyScope} .og-d-${date}`, `${headerScope} .og-d-${date}`])

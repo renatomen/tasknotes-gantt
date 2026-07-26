@@ -120,6 +120,7 @@ import { minutesToSpanDays } from '../controller/durationConversion';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
+  calendarAssociationsFrom,
   computeTaskBlocking,
   countWorkingDaysInSpan,
   createShadingCssCache,
@@ -1286,24 +1287,22 @@ class ObsidianGanttBasesView extends BasesView {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
     const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
-    // Associations cover the Bases entries AND the rendered instances (deduped by
-    // source path): a fetched Show-all descendant is drawn but is not in
+    // Associations cover the Bases entries AND the rendered instances (deduped in
+    // the pure helper): a fetched Show-all descendant is drawn but is not in
     // `this.data.data`, so building only from the latter left its bar without its
     // calendar colour (calendarBySource missed it → default role colour).
+    const taskPaths = [
+      ...(this.data?.data ?? []).flatMap((entry) => {
+        const path = (entry as SignatureEntry).file?.path;
+        return path ? [path] : [];
+      }),
+      ...instances.flatMap((instance) => (instance.sourcePath ? [instance.sourcePath] : [])),
+    ];
     const associations = frontmatterKey
-      ? [
-          ...new Set([
-            ...(this.data?.data ?? []).flatMap((entry) => {
-              const path = (entry as SignatureEntry).file?.path;
-              return path ? [path] : [];
-            }),
-            ...instances.flatMap((instance) => (instance.sourcePath ? [instance.sourcePath] : [])),
-          ]),
-        ].flatMap((path) => {
+      ? calendarAssociationsFrom(taskPaths, (path) => {
           const file = app.vault.getAbstractFileByPath(path);
-          if (!(file instanceof TFile)) return [];
-          const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
-          return value === undefined ? [] : [{ value, taskPath: path }];
+          if (!(file instanceof TFile)) return undefined;
+          return app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
         })
       : [];
     const selection = readDisplaySelection(
@@ -1317,19 +1316,22 @@ class ObsidianGanttBasesView extends BasesView {
       associations,
       selectionKey: selection.auto ? '' : JSON.stringify(serializeSelection(selection)),
     });
+    const markedNotes = this.collectMarkedCalendarNotes();
     const computed = this.shadingCssCache.compute(key, () =>
       computeCalendarShadingCss({
         scope: `.${this.treatmentScopeClass}`,
-        markedNotes: this.collectMarkedCalendarNotes(),
+        markedNotes,
         resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
         associations,
         taskSpans: instances,
         displaySelection: selection,
       }),
     );
-    // Register the calendars actually in use so deleting one re-resolves even if
-    // it was never edited in view (a deletion cannot probe the marker).
-    this.calendarWatch?.syncKnownPaths(computed.calendarBySource.values());
+    // Register every marked calendar note the shading inspected — not just the
+    // task-associated ones — so deleting any in-use calendar (including one only
+    // shown via the display selection) re-resolves even if it was never edited in
+    // view (a deletion cannot probe the marker once the file is gone).
+    this.calendarWatch?.syncKnownPaths(markedNotes.map((note) => note.path));
     return {
       css: computed.css,
       markers: computed.markers,
