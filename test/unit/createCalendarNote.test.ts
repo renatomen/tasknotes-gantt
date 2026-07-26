@@ -30,6 +30,9 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
         file.path = p;
         return file;
       },
+      // The marker watch releases on deletion too, so it subscribes to the vault.
+      on: () => ({}),
+      offref: () => {},
     },
     workspace: {
       getLeaf: () => ({
@@ -91,6 +94,15 @@ function lateIndexingApp() {
         file.path = p;
         return file;
       },
+      // The watch also releases on deletion, so the vault is an event source too.
+      on: (event: string, cb: (changed: { path: string }) => void) => {
+        const ref = {};
+        listeners.set(ref, { event: `vault:${event}`, cb });
+        return ref;
+      },
+      offref: (ref: object) => {
+        listeners.delete(ref);
+      },
     },
     workspace: { getLeaf: () => leaf },
     metadataCache: {
@@ -126,6 +138,8 @@ function lateIndexingApp() {
       state.holdCreate = true;
     },
     releaseCreate: () => releaseCreate?.(),
+    /** Announce that the watched note was deleted before its marker indexed. */
+    deleteNow: () => fire('vault:delete'),
     set viewState(next: { type: string; state: Record<string, unknown> }) {
       state.viewState = next;
     },
@@ -187,6 +201,8 @@ describe('createAndOpenCalendarNote', () => {
           file.path = p;
           return file;
         },
+        on: () => ({}),
+        offref: () => {},
       },
       workspace: {
         getLeaf: () => ({
@@ -323,6 +339,24 @@ describe('createAndOpenCalendarNote', () => {
     await promise;
     expect(late.liveListeners()).toBe(0);
 
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(0);
+  });
+
+  it('stops watching when the note it is waiting on is deleted', async () => {
+    // A deletion emits its own event and no `changed` can follow it, so a watch with
+    // no deadline would retain the file and leaf until unload — one listener per
+    // abandoned create.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    await promise;
+    expect(late.liveListeners()).toBeGreaterThan(0);
+
+    late.deleteNow();
+    expect(late.liveListeners()).toBe(0);
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);

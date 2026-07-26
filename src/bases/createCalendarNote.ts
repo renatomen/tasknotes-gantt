@@ -56,9 +56,11 @@ export function cancelPendingMarkerWatches(): void {
  * router reads the marker from that cache, so acting too early routes the note to
  * plain markdown instead of the editor.
  *
- * One-shot: the watch releases its listener as soon as the marker lands. Callers
- * that must not wait forever impose their own deadline; the rest are released by
- * {@link cancelPendingMarkerWatches} at unload.
+ * One-shot: the watch releases its listener as soon as the marker lands, or as
+ * soon as the note is deleted — no `changed` event can follow a deletion, so a
+ * deadline-free watch would otherwise retain the file until unload, one listener
+ * per abandoned attempt. Callers that must not wait forever impose their own
+ * deadline; the rest are released by {@link cancelPendingMarkerWatches} at unload.
  */
 function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => void {
   const indexed = (): boolean =>
@@ -68,12 +70,16 @@ function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => voi
     if (stopped) return;
     stopped = true;
     app.metadataCache.offref(changedRef);
+    app.vault.offref(deleteRef);
     markerWatches.delete(stop);
   };
   const changedRef = app.metadataCache.on('changed', (changed) => {
     if (changed.path !== file.path || !indexed()) return;
     stop();
     onIndexed();
+  });
+  const deleteRef = app.vault.on('delete', (deleted) => {
+    if (deleted.path === file.path) stop();
   });
   markerWatches.add(stop);
   if (indexed()) {
