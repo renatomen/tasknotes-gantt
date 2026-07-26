@@ -813,6 +813,80 @@ describe("Gantt (OG) calendar editor routing", () => {
     expect(created).toContain("tngantt: calendar-set");
   });
 
+  /** Make every `Calendars/*` note look unindexed to the routing interception. */
+  const hideCalendarsFromCache = async (): Promise<void> => {
+    await browser.executeObsidian(({ app }) => {
+      const cache = app.metadataCache as unknown as {
+        getFileCache: (f: unknown) => unknown;
+        __origGetFileCache?: (f: unknown) => unknown;
+      };
+      if (cache.__origGetFileCache) return; // already patched
+      cache.__origGetFileCache = cache.getFileCache.bind(app.metadataCache);
+      cache.getFileCache = (file: unknown) =>
+        (file as { path?: string })?.path?.startsWith("Calendars/")
+          ? null
+          : cache.__origGetFileCache!(file);
+    });
+  };
+
+  /** Undo {@link hideCalendarsFromCache}; safe to call when it was never applied. */
+  const restoreCalendarCache = async (): Promise<void> => {
+    await browser.executeObsidian(({ app }) => {
+      const cache = app.metadataCache as unknown as {
+        getFileCache: (f: unknown) => unknown;
+        __origGetFileCache?: (f: unknown) => unknown;
+      };
+      if (!cache.__origGetFileCache) return;
+      cache.getFileCache = cache.__origGetFileCache;
+      delete cache.__origGetFileCache;
+    });
+  };
+
+  it("re-routes a created calendar to the editor when its marker indexes late", async () => {
+    // The cold-vault race: routing reads the marker synchronously during
+    // setViewState, so a note whose frontmatter is not indexed yet opens as plain
+    // markdown — and a later cache update re-routes nothing on its own. Hiding
+    // Calendars/* from the metadata cache reproduces that here; the note must
+    // still reach the editor once the marker becomes visible.
+    // The patch is global to this Obsidian session, so it is restored in a finally:
+    // a failure part-way through would otherwise leave every later test seeing all
+    // Calendars/* notes as unindexed, turning one failure into a cascade.
+    await hideCalendarsFromCache();
+    let openedPath: string | null = null;
+    try {
+      await runCommand("tasknotes-gantt:create-calendar");
+
+      // The pre-open wait gives up (2s), so the note opens unrouted as markdown.
+      openedPath = (await browser.waitUntil(
+        async () => {
+          const info = await browser.executeObsidian(({ app }) => {
+            const leaf = app.workspace.activeLeaf;
+            const state = leaf?.getViewState();
+            const file = state?.state?.["file"];
+            return { type: state?.type ?? null, file: typeof file === "string" ? file : null };
+          });
+          return info.type === "markdown" && info.file?.startsWith("Calendars/") ? info.file : false;
+        },
+        { timeout: 20000, timeoutMsg: "the created calendar never opened while its marker was hidden" },
+      )) as string;
+    } finally {
+      await restoreCalendarCache();
+    }
+
+    // Announce the index now the cache tells the truth — the leaf must re-route.
+    await browser.executeObsidian(({ app }, p) => {
+      const file = app.vault.getAbstractFileByPath(p);
+      if (file) app.metadataCache.trigger("changed", file as never);
+    }, openedPath);
+
+    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
+      timeout: 20000,
+      timeoutMsg: "a late-indexed calendar note never re-routed to the editor",
+    });
+
+    await deleteNotes([openedPath]);
+  });
+
   // ---- U5: calendar-set union preview tabs + conflict surfacing ------------
   // The two fixture calendars disagree: NZ Holidays works Mon–Fri, Sun Thu works
   // Sun–Thu, so a set of both conflicts on Fridays and Sundays across the year.

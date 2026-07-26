@@ -138,7 +138,11 @@ import type { MarkerInput } from './markerOverlay';
 import { buildCalendarRegistry, stripSubpath } from '../controller/calendar/resolveCalendars';
 import { CalendarPickerModal } from './CalendarPickerModal';
 import { autoDisplayedPathsFrom, calendarLinkFor, type PickerContext } from './calendarPickerModel';
-import { createAndOpenCalendarNote } from './createCalendarNote';
+import {
+  createAndOpenCalendarNote,
+  pluginLifetime,
+  type PluginLifetime,
+} from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from './parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
@@ -295,7 +299,16 @@ class ObsidianGanttBasesView extends BasesView {
   private static dbgInstances = 0;
   private readonly dbgInstanceId = ++ObsidianGanttBasesView.dbgInstances;
 
-  constructor(controller: QueryController, parentEl: HTMLElement) {
+  constructor(
+    controller: QueryController,
+    parentEl: HTMLElement,
+    /**
+     * Scopes the picker's create-calendar flow to the plugin load, so its metadata
+     * watches and continuations cannot outlive it. Supplied by the view factory,
+     * which is where a plugin handle exists.
+     */
+    private readonly calendarLifetime: PluginLifetime,
+  ) {
     super(controller);
     this.containerEl = parentEl.createDiv({ cls: 'og-bases-gantt-root' });
     this.containerEl.style.height = '100%';
@@ -772,7 +785,7 @@ class ObsidianGanttBasesView extends BasesView {
           this.config.set('tngantt_highlightWeekends', writes.highlightWeekends);
         }
       },
-      createCalendar: () => createAndOpenCalendarNote(this.app, 'calendar'),
+      createCalendar: () => createAndOpenCalendarNote(this.app, 'calendar', this.calendarLifetime),
     }).open();
   }
 
@@ -1435,12 +1448,16 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     return () => {};
   }
 
+  // One lifetime for every view this registration creates: the plugin owns the
+  // create-calendar flow's subscriptions, so they are released when it unloads.
+  const calendarLifetime = pluginLifetime(plugin);
+
   // Register the Gantt chart view type
   const registeredGantt = plugin.registerBasesView(VIEW_TYPE_ID, {
     name: VIEW_NAME,
     icon: VIEW_ICON,
     factory: (controller: QueryController, containerEl: HTMLElement) => {
-      return new ObsidianGanttBasesView(controller, containerEl);
+      return new ObsidianGanttBasesView(controller, containerEl, calendarLifetime);
     },
     // Companion-only relationship controls render only when TaskNotes is
     // present (expansion is companion-only — see plan U1/R6). Presence is
