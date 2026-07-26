@@ -65,7 +65,9 @@ function lateIndexingApp() {
       state: Record<string, unknown>;
     },
     holdOpen: false,
+    holdCreate: false,
   };
+  let releaseCreate: (() => void) | null = null;
   // `holdOpen` parks `openFile` mid-flight, so a test can land an unload inside
   // that await — the boundary a watch must not be registered across.
   let releaseOpen: (() => void) | null = null;
@@ -84,6 +86,7 @@ function lateIndexingApp() {
       getAbstractFileByPath: () => null,
       createFolder: async () => undefined,
       create: async (p: string) => {
+        if (state.holdCreate) await new Promise<void>((resolve) => (releaseCreate = resolve));
         const file = new TFile();
         file.path = p;
         return file;
@@ -118,6 +121,11 @@ function lateIndexingApp() {
       state.holdOpen = true;
     },
     releaseOpenFile: () => releaseOpen?.(),
+    /** Park `vault.create` until `releaseCreate()`, to unload inside that await. */
+    holdCreate: () => {
+      state.holdCreate = true;
+    },
+    releaseCreate: () => releaseCreate?.(),
     set viewState(next: { type: string; state: Record<string, unknown> }) {
       state.viewState = next;
     },
@@ -254,6 +262,23 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
+    jest.useRealTimers();
+  });
+
+  it('registers no wait when the plugin unloads while the note is being written', async () => {
+    // Unload during `vault.create`: the cleanup sees nothing registered yet, so the
+    // flow must not go on to install a cache listener and a deadline behind it.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    late.holdCreate();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(0);
+
+    cancelPendingMarkerWatches();
+    late.releaseCreate();
+    await promise;
+    expect(late.liveListeners()).toBe(0);
+    expect(late.opened).toHaveLength(0);
     jest.useRealTimers();
   });
 

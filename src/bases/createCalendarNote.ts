@@ -149,6 +149,9 @@ export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind
     const path = kind === 'calendar' ? uniqueCalendarPath(exists) : uniqueCalendarSetPath(exists);
     const text = kind === 'calendar' ? calendarSkeletonText() : calendarSetSkeletonText();
     const file = (await vault.create(path, text)) as TFile;
+    // Unloaded while the write was in flight: registering the wait now would put a
+    // listener and a timer behind the cleanup that has already run.
+    if (generation !== liveGeneration) return;
     const indexed = await waitForMarkerIndexed(app, file, OPEN_WAIT_MS);
     // Unloaded while waiting: the note is written, but opening it (or starting a
     // watch) now would mutate the workspace on behalf of a torn-down plugin.
