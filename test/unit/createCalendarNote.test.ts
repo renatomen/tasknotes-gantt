@@ -4,7 +4,7 @@
  * (the vault/workspace surface it touches is small); the routing that turns the
  * opened note into the editor is e2e-tested.
  */
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { App, TFile } from 'obsidian';
 import {
   cancelPendingMarkerWatches,
@@ -138,6 +138,13 @@ function lateIndexingApp() {
 }
 
 describe('createAndOpenCalendarNote', () => {
+  // Several cases drive the wait deadlines with fake timers. Restored here rather
+  // than at the end of each test, so a failure mid-test cannot leave fake timers
+  // enabled for every test after it.
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('scaffolds and opens a calendar note with the calendar skeleton', async () => {
     const { app, created, opened } = fakeApp();
     await createAndOpenCalendarNote(app, 'calendar');
@@ -229,7 +236,6 @@ describe('createAndOpenCalendarNote', () => {
       { type: 'markdown', state: { file: 'Calendars/New Calendar.md', mode: 'source' } },
     ]);
     expect(late.liveListeners()).toBe(0); // the watch released itself
-    jest.useRealTimers();
   });
 
   it('keeps watching however long indexing takes, with no deadline of its own', async () => {
@@ -245,7 +251,6 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(1);
-    jest.useRealTimers();
   });
 
   it('leaves a leaf that has moved on alone when the marker lands late', async () => {
@@ -262,7 +267,6 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
-    jest.useRealTimers();
   });
 
   it('registers no wait when the plugin unloads while the note is being written', async () => {
@@ -279,7 +283,6 @@ describe('createAndOpenCalendarNote', () => {
     await promise;
     expect(late.liveListeners()).toBe(0);
     expect(late.opened).toHaveLength(0);
-    jest.useRealTimers();
   });
 
   it('abandons a create that is still waiting on the index when the plugin unloads', async () => {
@@ -302,7 +305,6 @@ describe('createAndOpenCalendarNote', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(late.opened).toHaveLength(0);
     expect(late.reissued).toHaveLength(0);
-    jest.useRealTimers();
   });
 
   it('starts no watch when the plugin unloads while the note is opening', async () => {
@@ -324,7 +326,6 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
-    jest.useRealTimers();
   });
 
   it('drops a still-pending marker watch when the plugin unloads', async () => {
@@ -340,7 +341,6 @@ describe('createAndOpenCalendarNote', () => {
     late.indexNow();
     await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
-    jest.useRealTimers();
   });
 
   it('surfaces a Notice and rethrows when creation fails', async () => {
