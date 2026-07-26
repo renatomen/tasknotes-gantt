@@ -143,14 +143,18 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar',
       name: 'Create calendar',
       callback: () => {
-        void createAndOpenCalendarNote(this.app, 'calendar');
+        createAndOpenCalendarNote(this.app, 'calendar').catch((e) => {
+          console.warn('[Gantt] Failed to create the calendar note', e);
+        });
       },
     });
     this.addCommand({
       id: 'create-calendar-set',
       name: 'Create calendar set',
       callback: () => {
-        void createAndOpenCalendarNote(this.app, 'calendar-set');
+        createAndOpenCalendarNote(this.app, 'calendar-set').catch((e) => {
+          console.warn('[Gantt] Failed to create the calendar set note', e);
+        });
       },
     });
     this.addSettingTab(new GanttSettingTab(this.app, this));

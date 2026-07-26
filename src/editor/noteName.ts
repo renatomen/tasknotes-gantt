@@ -32,5 +32,9 @@ export function validateNoteName(name: string): string | null {
 export function renameTargetPath(currentPath: string, newName: string): string {
   const slash = currentPath.lastIndexOf('/');
   const folder = slash === -1 ? '' : currentPath.slice(0, slash + 1);
-  return `${folder}${newName.trim()}.md`;
+  // Strip a trailing `.md` the user typed so "Cal.md" renames to Cal.md, not
+  // Cal.md.md (mirrors noteBasename, which is what the field shows).
+  const trimmed = newName.trim();
+  const base = trimmed.endsWith('.md') ? trimmed.slice(0, -'.md'.length) : trimmed;
+  return `${folder}${base}.md`;
 }
