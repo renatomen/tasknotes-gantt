@@ -73,7 +73,9 @@ function lateIndexingApp() {
     },
     holdOpen: false,
     holdCreate: false,
+    holdViewState: false,
   };
+  let releaseViewState: (() => void) | null = null;
   let releaseCreate: (() => void) | null = null;
   // `holdOpen` parks `openFile` mid-flight, so a test can land an unload inside
   // that await — the boundary a watch must not be registered across.
@@ -86,6 +88,7 @@ function lateIndexingApp() {
     getViewState: () => state.viewState,
     setViewState: async (next: unknown) => {
       reissued.push(next);
+      if (state.holdViewState) await new Promise<void>((resolve) => (releaseViewState = resolve));
     },
   };
   // Paths that exist in this fake vault: the created note lands here, and a
@@ -146,6 +149,11 @@ function lateIndexingApp() {
       state.holdCreate = true;
     },
     releaseCreate: () => releaseCreate?.(),
+    /** Park `setViewState` mid-re-route, to land an unload inside that await. */
+    holdViewState: () => {
+      state.holdViewState = true;
+    },
+    releaseViewState: () => releaseViewState?.(),
     /** Announce that the watched note was deleted before its marker indexed. */
     deleteNow: () => {
       livePaths.delete('Calendars/New Calendar.md');
@@ -393,6 +401,28 @@ describe('createAndOpenCalendarNote', () => {
     await promise;
     expect(late.liveListeners()).toBe(0);
     expect(late.reissued).toHaveLength(0);
+  });
+
+  it('puts the leaf back on markdown when unload lands mid-re-route', async () => {
+    // The watch has already released itself by the time setViewState is applying, so
+    // cancellation has nothing left to stop. If the plugin goes away in that window
+    // the editor view type is unregistered, and the leaf must not be left showing it.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    late.holdViewState();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(1); // the re-route is applying
+
+    cancelPendingMarkerWatches();
+    late.releaseViewState();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(2);
+    expect((late.reissued[1] as { type: string }).type).toBe('markdown');
   });
 
   it('drops a still-pending marker watch when the plugin unloads', async () => {

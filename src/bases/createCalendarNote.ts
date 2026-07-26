@@ -134,15 +134,29 @@ function waitForMarkerIndexed(app: App, file: TFile, timeoutMs: number): Promise
  * would be listener hygiene — and unload already covers that. Leaves a leaf that
  * has moved on alone: the user may have navigated it elsewhere, or reopened the
  * note and routed it themselves.
+ *
+ * An unload can still land while the re-route is applying, after the watch has
+ * released itself: the editor view type is unregistered by then, so the leaf is
+ * put back on markdown rather than left showing a view that no longer exists.
  */
-function routeWhenMarkerIndexes(app: App, leaf: WorkspaceLeaf, file: TFile): void {
+function routeWhenMarkerIndexes(
+  app: App,
+  leaf: WorkspaceLeaf,
+  file: TFile,
+  generation: number,
+): void {
   watchForMarker(app, file, () => {
     const state = leaf.getViewState();
     if (state.type !== 'markdown') return;
     if (state.state?.['file'] !== file.path) return;
-    void Promise.resolve(leaf.setViewState(state)).catch((error) => {
-      console.error('[Gantt] Failed to re-route the calendar note to the editor:', error);
-    });
+    void Promise.resolve(leaf.setViewState(state))
+      .then(() => {
+        if (generation === liveGeneration) return undefined;
+        return leaf.setViewState({ ...state, type: 'markdown' });
+      })
+      .catch((error) => {
+        console.error('[Gantt] Failed to re-route the calendar note to the editor:', error);
+      });
   });
 }
 
@@ -172,7 +186,9 @@ export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind
     // The generation is re-checked because `openFile` is another await boundary: an
     // unload landing inside it runs its cleanup first, and a watch registered after
     // that would be orphaned — owned by a plugin whose interceptor is already gone.
-    if (!indexed && generation === liveGeneration) routeWhenMarkerIndexes(app, leaf, file);
+    if (!indexed && generation === liveGeneration) {
+      routeWhenMarkerIndexes(app, leaf, file, generation);
+    }
   } catch (error) {
     console.error('[Gantt] Failed to create the calendar note:', error);
     new Notice("Couldn't create the calendar note — see console for details.");
