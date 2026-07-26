@@ -28,7 +28,7 @@
   import GanttStripPreview from './GanttStripPreview.svelte';
   import { type MemberResolution } from './unionPreview';
   import { buildCalendarNotice } from '../bases/calendarConflicts';
-  import { formatUtcOffset } from './timezoneOffset';
+  import { formatUtcOffset, scheduleMinutelyOffsetRefresh } from './timezoneOffset';
   import WorkingPatternEditor from './WorkingPatternEditor.svelte';
   import ColorField from './ColorField.svelte';
   import { validateNoteName } from './noteName';
@@ -188,9 +188,21 @@
 
   // Live, DST-aware offset for the chosen zone — computed offline via Intl, a
   // hint only; the note always persists the IANA name, never the offset.
-  const timezoneOffset = $derived(
-    form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone),
+  //
+  // The hint says "Currently", so it must not fossilise: a form left open across
+  // a DST transition would otherwise show the pre-transition offset forever,
+  // because the derivation had no time dependency. A minutely tick is ample —
+  // offsets only ever change on whole-minute boundaries.
+  let offsetClock = $state(0);
+  $effect(() =>
+    scheduleMinutelyOffsetRefresh(() => {
+      offsetClock++;
+    }),
   );
+  const timezoneOffset = $derived.by(() => {
+    void offsetClock;
+    return form.timezone.trim() === '' ? null : formatUtcOffset(form.timezone);
+  });
 
   let descriptionEl: HTMLTextAreaElement | undefined;
   $effect(() => {
