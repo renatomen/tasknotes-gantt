@@ -16,7 +16,10 @@ import {
 import { GanttSettingTab } from './release/GanttSettingTab';
 import { registerCalendarEditor } from './editor/registerCalendarEditor';
 import { CalendarEditorView } from './editor/CalendarEditorView';
-import { createAndOpenCalendarNote } from './bases/createCalendarNote';
+import {
+  cancelPendingMarkerWatches,
+  createAndOpenCalendarNote,
+} from './bases/createCalendarNote';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
@@ -176,6 +179,9 @@ export default class ObsidianGanttPlugin extends Plugin {
     try { this.unregisterBases?.(); } catch {}
     // Restores the patched setViewState and drops open editors to markdown.
     try { this.unregisterCalendarEditor?.(); } catch {}
+    // A newly created calendar note may still be waiting for its marker to index
+    // so it can route to the editor; that watch must not outlive the plugin.
+    try { cancelPendingMarkerWatches(); } catch {}
   }
 
   async saveSettings(): Promise<void> {

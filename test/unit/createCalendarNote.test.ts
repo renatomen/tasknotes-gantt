@@ -6,7 +6,10 @@
  */
 import { describe, expect, it, jest } from '@jest/globals';
 import { App, TFile } from 'obsidian';
-import { createAndOpenCalendarNote } from '../../src/bases/createCalendarNote';
+import {
+  cancelPendingMarkerWatches,
+  createAndOpenCalendarNote,
+} from '../../src/bases/createCalendarNote';
 
 function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>) {
   const paths = new Set(existingPaths);
@@ -53,7 +56,7 @@ function fakeApp(existingPaths: string[] = [], createImpl?: () => Promise<TFile>
  */
 function lateIndexingApp() {
   let indexed = false;
-  const listeners = new Map<object, (changed: { path: string }) => void>();
+  const listeners = new Map<object, { event: string; cb: (changed: { path: string }) => void }>();
   const opened: unknown[] = [];
   const reissued: unknown[] = [];
   const state = {
@@ -61,7 +64,6 @@ function lateIndexingApp() {
       type: string;
       state: Record<string, unknown>;
     },
-    listenersReleased: 0,
   };
   const leaf = {
     openFile: async (file: unknown) => {
@@ -85,30 +87,34 @@ function lateIndexingApp() {
     workspace: { getLeaf: () => leaf },
     metadataCache: {
       getFileCache: () => (indexed ? { frontmatter: { tngantt: 'calendar' } } : null),
-      on: (_event: string, cb: (changed: { path: string }) => void) => {
+      on: (event: string, cb: (changed: { path: string }) => void) => {
         const ref = {};
-        listeners.set(ref, cb);
+        listeners.set(ref, { event, cb });
         return ref;
       },
       offref: (ref: object) => {
-        if (listeners.delete(ref)) state.listenersReleased++;
+        listeners.delete(ref);
       },
     },
+  };
+  const fire = (event: string): void => {
+    for (const l of [...listeners.values()]) {
+      if (l.event === event) l.cb({ path: 'Calendars/New Calendar.md' });
+    }
   };
   return {
     app: app as unknown as App,
     opened,
     reissued,
-    get listenersReleased() {
-      return state.listenersReleased;
-    },
+    /** How many cache listeners are still registered (0 = nothing watching). */
+    liveListeners: () => listeners.size,
     set viewState(next: { type: string; state: Record<string, unknown> }) {
       state.viewState = next;
     },
-    /** Index the marker and notify every live cache listener. */
+    /** Index the marker and fire the cache's `changed` event for the note. */
     indexNow: () => {
       indexed = true;
-      for (const cb of [...listeners.values()]) cb({ path: 'Calendars/New Calendar.md' });
+      fire('changed');
     },
   };
 }
@@ -204,7 +210,23 @@ describe('createAndOpenCalendarNote', () => {
     expect(late.reissued).toEqual([
       { type: 'markdown', state: { file: 'Calendars/New Calendar.md', mode: 'source' } },
     ]);
-    expect(late.listenersReleased).toBe(2); // the wait's and the re-route's
+    expect(late.liveListeners()).toBe(0); // the watch released itself
+    jest.useRealTimers();
+  });
+
+  it('keeps watching however long indexing takes, with no deadline of its own', async () => {
+    // The re-route is detached from the command promise, so bounding it by a clock
+    // would only reproduce the bug after an arbitrary delay.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    await jest.advanceTimersByTimeAsync(600000); // ten minutes of cold indexing
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.reissued).toHaveLength(1);
     jest.useRealTimers();
   });
 
@@ -225,18 +247,19 @@ describe('createAndOpenCalendarNote', () => {
     jest.useRealTimers();
   });
 
-  it('stops watching for the marker when it never indexes', async () => {
-    // The re-route window is bounded, so a note that never indexes cannot leave a
-    // metadata-cache listener behind for the rest of the session.
+  it('drops a still-pending marker watch when the plugin unloads', async () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();
     const promise = createAndOpenCalendarNote(late.app, 'calendar');
     await jest.advanceTimersByTimeAsync(2000);
     await promise;
+    expect(late.liveListeners()).toBeGreaterThan(0); // still waiting on the index
 
-    await jest.advanceTimersByTimeAsync(60000);
+    cancelPendingMarkerWatches();
+    expect(late.liveListeners()).toBe(0);
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
     expect(late.reissued).toHaveLength(0);
-    expect(late.listenersReleased).toBe(2);
     jest.useRealTimers();
   });
 
