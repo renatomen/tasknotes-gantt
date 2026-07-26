@@ -38,21 +38,29 @@ describe('formatUtcOffset', () => {
 });
 
 describe('scheduleMinutelyOffsetRefresh', () => {
-  /** A hand-cranked scheduler: fires on demand, records arming and clearing. */
+  /**
+   * A hand-cranked scheduler that HONOURS clearInterval: a cleared interval's
+   * callback is dropped, so a tick after stop reaches nothing — which is what
+   * lets the teardown test observe behaviour instead of bookkeeping.
+   */
   function fakeScheduler() {
-    let callback: (() => void) | null = null;
-    let clearedWith: unknown = 'never';
+    const live = new Map<number, () => void>();
+    let nextId = 42;
     return {
       setInterval: (cb: () => void, ms: number) => {
         expect(ms).toBe(60_000); // whole-minute cadence — offsets change on minute boundaries
-        callback = cb;
-        return 42 as unknown as ReturnType<IntervalScheduler['setInterval']>;
+        const id = nextId++;
+        live.set(id, cb);
+        return id as unknown as ReturnType<IntervalScheduler['setInterval']>;
       },
       clearInterval: (id: unknown) => {
-        clearedWith = id;
+        live.delete(id as number);
       },
-      tick: () => callback?.(),
-      cleared: () => clearedWith,
+      /** Fire every still-armed interval, as the clock would. */
+      tick: () => {
+        for (const cb of [...live.values()]) cb();
+      },
+      armed: () => live.size,
     };
   }
 
@@ -66,15 +74,18 @@ describe('scheduleMinutelyOffsetRefresh', () => {
     expect(refreshes).toBe(2);
 
     stop();
-    expect(scheduler.cleared()).toBe(42); // the armed interval, not something else
+    expect(scheduler.armed()).toBe(0); // the armed interval was cleared, not another
   });
 
-  it('a stopped refresh never fires again even if the timer leaks a tick', () => {
-    // clearInterval is the real guarantee; this asserts the stop handle wires to
-    // the SAME id the scheduler armed, which is what makes the cleanup real.
+  it('a tick after stop reaches nothing — the callback is dead, not just untracked', () => {
     const scheduler = fakeScheduler();
-    const stop = scheduleMinutelyOffsetRefresh(() => {}, scheduler);
+    let refreshes = 0;
+    const stop = scheduleMinutelyOffsetRefresh(() => refreshes++, scheduler);
+    scheduler.tick();
+    expect(refreshes).toBe(1);
+
     stop();
-    expect(scheduler.cleared()).toBe(42);
+    scheduler.tick();
+    expect(refreshes).toBe(1); // stopped means STOPPED
   });
 });
