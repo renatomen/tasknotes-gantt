@@ -61,15 +61,12 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
-    normalizeInferredDragMode,
     classifyDraggedEdge,
     resolveInferredEdge,
     resolveInferredDragOutcome,
-    resolveEffectiveInferredDragMode,
     buildInferredDragPatch,
     type InferredDragAction,
     type InferredEdge,
-    type PendingInferredDragMode,
   } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
   import {
@@ -227,7 +224,7 @@
      * ask again" in the prompt. register.ts closes it over `config.set`.
      * Absent callers keep an in-session-only choice.
      */
-    onInferredDragModeChange?: (mode: InferredDragAction) => boolean | undefined;
+    onInferredDragModeChange?: (mode: InferredDragAction) => void;
     /**
      * Publish (and later retract) this view's "focus on task" entry point so the
      * plugin command (register.ts → main.ts) can open the focus search for the
@@ -591,18 +588,6 @@
   // on the slider value so it re-tints live (rootEl is bound by the time this runs).
   $effect(() => {
     rootEl?.style.setProperty('--og-context-opacity', String(contextOpacity));
-  });
-
-  // Retire a locally-held "don't ask again" choice as soon as a config refresh
-  // carries the persisted mode, rather than waiting for the next drag to notice.
-  // Otherwise a user who set the option back to `ask` in between would still be
-  // reading the stale choice, because the resolver would see the same stored value
-  // it was chosen against and keep holding it.
-  $effect(() => {
-    const stored = normalizeInferredDragMode($data.inferredDragMode);
-    if (pendingInferredDragMode && stored !== pendingInferredDragMode.observed) {
-      pendingInferredDragMode = null;
-    }
   });
 
   // Native interaction listeners on the chart root (U2): capture the last
@@ -2400,16 +2385,13 @@
         classifyDraggedEdge(before.beforeStart, before.beforeEnd, newStart, newEnd),
         before.beforeDateStatus ?? 'complete',
       );
-      // A "don't ask again" choice from an earlier drag applies from the very next
-      // gesture, ahead of the asynchronous view-config refresh that carries it.
-      const effectiveMode = resolveEffectiveInferredDragMode(
-        $data.inferredDragMode,
-        pendingInferredDragMode,
-      );
-      pendingInferredDragMode = effectiveMode.pending;
+      // Read at gesture time, not from the (snapshot) view data: the config a
+      // "don't ask again" choice persisted into is synchronously readable, so
+      // the choice — or its explicit re-enable back to `ask` — applies from the
+      // very next drag, ahead of the refresh that carries the new snapshot.
       const outcome = resolveInferredDragOutcome({
         inferredEdge,
-        mode: effectiveMode.mode,
+        mode: $data.getInferredDragMode(),
         estimateWritable: true,
       });
       if (inferredEdge && outcome !== 'write-as-today') {
@@ -2431,15 +2413,9 @@
             return;
           }
           action = choice.action;
-          if (choice.dontAskAgain) {
-            // Hold the choice locally only if the persist LANDED: after a failed
-            // write the stored value never moves off 'ask', so a held copy would
-            // shadow the prompt forever with nothing on disk to justify it.
-            const persisted = onInferredDragModeChange?.(action);
-            if (persisted !== false) {
-              pendingInferredDragMode = { chosen: action, observed: effectiveMode.mode };
-            }
-          }
+          // A failed persist needs no compensation: the stored mode stays `ask`
+          // and the next gesture's config read prompts again, honestly.
+          if (choice.dontAskAgain) onInferredDragModeChange?.(action);
         } else {
           action = outcome;
         }
@@ -2516,9 +2492,6 @@
     estimateMinutes: number;
   }
   let inferredGesture: Promise<InferredGestureOutcome | null> | null = null;
-  // A "don't ask again" choice, held locally until the persisted view option catches
-  // up (the Bases config refresh round-trips asynchronously).
-  let pendingInferredDragMode: PendingInferredDragMode | null = null;
 
   /** Schedule the deferred subtree-shift + extend pass once per drag. */
   function scheduleSubtreeAndExtend(): void {
@@ -2691,16 +2664,15 @@
               workingDays ?? inclusiveDaySpan(target.start, target.end),
             );
           } else {
-            // The implicit value must count the same way the derivation does: a
-            // working-days bar's pre-drag span includes blocked days that carry
-            // no work, so a plain calendar count would inflate the estimate.
-            const preDragWorkingDays = sourcePath
-              ? $data.countWorkingDays?.(sourcePath, drag.beforeStart, drag.beforeEnd)
-              : undefined;
+            // A task with no authored estimate derived its pre-drag bar FROM the
+            // view default, so that default is the exact implicit value to put
+            // back. Recounting the span drifts wherever the derivation was
+            // non-trivial — a stretched span recounts fine, but the flagged
+            // fallback (fully blocked calendar) floors to one day.
             revert.estimate =
               drag.beforeEstimateMinutes ??
               spanDaysToMinutes(
-                preDragWorkingDays ?? inclusiveDaySpan(drag.beforeStart, drag.beforeEnd),
+                $data.defaultDurationDays ?? inclusiveDaySpan(drag.beforeStart, drag.beforeEnd),
               );
           }
         }

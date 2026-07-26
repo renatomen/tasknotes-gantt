@@ -453,7 +453,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     );
     // The authored start is untouched; only the estimate round-tripped. (Whether an
     // undo should also un-author the date the choice materialised is a separate
-    // provenance question, recorded in the backlog.)
+    // provenance question, deliberately not decided by this spec.)
     expect(await readNote("Undo Parent.md")).toMatch(/scheduled:\s*'?2026-04-06'?/);
   });
 
@@ -462,7 +462,15 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     // wrap the child, so the estimate saved from the shrunken span must be
     // recomputed from the fitted one — dates and duration must not contradict.
     // Its own parent/child pair: the undo case above authors its parent due date
-    // on the way back, and a fully-authored task would not prompt again.
+    // on the way back, and a fully-authored task would not prompt again. Selects
+    // the ask-mode base itself, so it runs standalone — cascade `auto` (the main
+    // base) would adjust silently and the second modal would never appear.
+    await switchBase("InferredDragAsk.base", [
+      "Undo Parent.md",
+      "Undo Child.md",
+      "Adjust Parent.md",
+      "Adjust Child.md",
+    ]);
     expect(await readNote("Adjust Parent.md")).toContain("timeEstimate: 5760");
     await dragEndEdge("Adjust Parent.md", -2);
     await waitForPrompt(lastDragged);

@@ -62,9 +62,8 @@ export function normalizeInferredDragMode(value: unknown): InferredDragMode {
 /**
  * Persist a chosen action as the per-view mode (the "don't ask again" path),
  * swallowing a failing write so a transient Bases `config.set` error can never
- * crash the drag-commit handler. Reports whether the write landed: a caller that
- * holds a local copy of the choice must NOT hold it after a failure, because the
- * stored value then never moves and the stale copy would win forever. Pure aside from the injected `set` (the Bases
+ * crash the drag-commit handler — the stored mode then simply stays `ask` and
+ * the next gesture prompts again. Pure aside from the injected `set` (the Bases
  * `config.set`); `register`'s `onInferredDragModeChange` wraps it. Mirrors
  * {@link import('./themeResolver').persistThemeMode}.
  *
@@ -75,43 +74,12 @@ export function normalizeInferredDragMode(value: unknown): InferredDragMode {
 export function persistInferredDragMode(
   set: (key: string, value: unknown) => void,
   mode: InferredDragAction,
-): boolean {
+): void {
   try {
     set('tngantt_inferredDrag', mode);
-    return true;
   } catch (error) {
     console.warn('[Gantt] Failed to persist inferred-drag mode:', error);
-    return false;
   }
-}
-
-/**
- * A "don't ask again" choice that has been persisted but may not have come back
- * through the view config yet: the action chosen, plus the configured mode it was
- * chosen against (how the resolver knows the config has since moved on).
- */
-export interface PendingInferredDragMode {
-  chosen: InferredDragAction;
-  observed: InferredDragMode;
-}
-
-/**
- * The mode the next drag must obey, plus the local choice to keep holding.
- *
- * A "don't ask again" choice persists through the Bases view config, whose
- * refresh round-trips asynchronously — so a gesture started in between would read
- * the stale `ask` and prompt again. The just-chosen action therefore wins until
- * the configured value moves off what it was chosen against, at which point the
- * config is authoritative again (our write landed, or the user re-set the option)
- * and the local choice retires.
- */
-export function resolveEffectiveInferredDragMode(
-  configured: unknown,
-  pending: PendingInferredDragMode | null,
-): { mode: InferredDragMode; pending: PendingInferredDragMode | null } {
-  const stored = normalizeInferredDragMode(configured);
-  if (stored !== pending?.observed) return { mode: stored, pending: null };
-  return { mode: pending.chosen, pending };
 }
 
 /**

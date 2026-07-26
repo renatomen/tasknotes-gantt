@@ -1305,7 +1305,7 @@ class ObsidianGanttBasesView extends BasesView {
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
-      inferredDragMode: this.getInferredDragMode(),
+      getInferredDragMode: () => this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
@@ -1322,6 +1322,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: calendarShading.calendarBySource,
       countWorkingDays: this.buildCountWorkingDays(),
       projectDerivedSpan: this.buildProjectDerivedSpan(),
+      defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
     };
   }
 

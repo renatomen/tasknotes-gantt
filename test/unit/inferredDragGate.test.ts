@@ -14,7 +14,6 @@ import { describe, it, expect, jest } from '@jest/globals';
 import {
   normalizeInferredDragMode,
   persistInferredDragMode,
-  resolveEffectiveInferredDragMode,
   classifyDraggedEdge,
   resolveInferredEdge,
   resolveInferredDragOutcome,
@@ -28,9 +27,9 @@ const d = (mo: number, da: number) => new Date(2026, mo, da);
 const end = (mo: number, da: number) => new Date(2026, mo, da, 23, 59, 59, 999);
 
 describe('persistInferredDragMode', () => {
-  it('writes the chosen action to the tngantt_inferredDrag key and reports success', () => {
+  it('writes the chosen action to the tngantt_inferredDrag key', () => {
     const set = jest.fn();
-    expect(persistInferredDragMode(set, 'estimate-only')).toBe(true);
+    persistInferredDragMode(set, 'estimate-only');
     expect(set).toHaveBeenCalledWith('tngantt_inferredDrag', 'estimate-only');
   });
 
@@ -39,9 +38,9 @@ describe('persistInferredDragMode', () => {
       throw new Error('config write failed');
     });
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    // Reports the failure: a caller holding a local copy of the choice must not
-    // keep it, or the stale copy would win forever over a store that never moved.
-    expect(persistInferredDragMode(set, 'estimate-and-dates')).toBe(false);
+    // Nothing compensates a failure: the stored mode stays `ask` and the next
+    // gesture's live config read prompts again.
+    expect(() => persistInferredDragMode(set, 'estimate-and-dates')).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
@@ -62,46 +61,6 @@ describe('normalizeInferredDragMode', () => {
   });
 });
 
-describe('resolveEffectiveInferredDragMode', () => {
-  it('reads the configured mode when nothing was just chosen', () => {
-    expect(resolveEffectiveInferredDragMode('estimate-only', null)).toEqual({
-      mode: 'estimate-only',
-      pending: null,
-    });
-    expect(resolveEffectiveInferredDragMode('nonsense', null)).toEqual({
-      mode: 'ask',
-      pending: null,
-    });
-  });
-
-  it("honours a just-chosen don't-ask-again action while the config still says ask", () => {
-    // The bug: persisting the choice round-trips through Bases config, so a drag
-    // started before that refresh lands would re-open the prompt.
-    const pending = { chosen: 'estimate-and-dates' as const, observed: 'ask' as const };
-    expect(resolveEffectiveInferredDragMode('ask', pending)).toEqual({
-      mode: 'estimate-and-dates',
-      pending,
-    });
-  });
-
-  it('retires the local choice once the persisted mode moves on', () => {
-    const pending = { chosen: 'estimate-only' as const, observed: 'ask' as const };
-    expect(resolveEffectiveInferredDragMode('estimate-only', pending)).toEqual({
-      mode: 'estimate-only',
-      pending: null,
-    });
-    // …so a later view-option change back to ask is obeyed, not shadowed.
-    expect(resolveEffectiveInferredDragMode('ask', null)).toEqual({ mode: 'ask', pending: null });
-  });
-
-  it('lets a user switch to the OTHER action win over the local choice', () => {
-    const pending = { chosen: 'estimate-only' as const, observed: 'ask' as const };
-    expect(resolveEffectiveInferredDragMode('estimate-and-dates', pending)).toEqual({
-      mode: 'estimate-and-dates',
-      pending: null,
-    });
-  });
-});
 
 describe('classifyDraggedEdge', () => {
   it('flags an end-only resize', () => {
