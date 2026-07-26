@@ -1998,6 +1998,7 @@
           beforeStart: before?.start ?? null,
           beforeEnd: before?.end ?? null,
           beforeDateStatus: before?.dateStatus ?? null,
+          beforeEstimateMinutes: before?.estimateMinutes ?? null,
         };
         setTimeout(() => void persistReschedule(id), 0);
         scheduleSubtreeAndExtend();
@@ -2490,6 +2491,8 @@
     beforeStart: Date | null;
     beforeEnd: Date | null;
     beforeDateStatus: DateStatus | null;
+    /** The authored estimate before the drag, so an undo can put it back. */
+    beforeEstimateMinutes: number | null;
   } | null = null;
   let dragScheduled = false;
   // Set synchronously by persistReschedule (which runs first) when an inferred-edge
@@ -2633,9 +2636,16 @@
           }).openAndGetChoice();
         }
         const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
+        const revert: TaskPatch = { start: target.start, end: target.end };
+        // Undoing an inferred-edge resize has to undo the estimate too: the gate
+        // already saved the estimate the dragged span implied, so restoring only the
+        // dates would leave the note claiming a duration the user just rejected.
+        if (!adjust && inferredChoice != null && drag.beforeEstimateMinutes != null) {
+          revert.estimate = drag.beforeEstimateMinutes;
+        }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
         try {
-          await withTimeout(onMutate(drag.id, { start: target.start, end: target.end }), MUTATION_TIMEOUT_MS);
+          await withTimeout(onMutate(drag.id, revert), MUTATION_TIMEOUT_MS);
         } catch (err) {
           console.error('[GanttContainer] shrink-fit persist failed:', err);
           // Revert the bar to the resize persistReschedule already saved.

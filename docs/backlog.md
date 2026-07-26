@@ -355,3 +355,13 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **Update #161 bug report** stale SVAR version refs (2.3.0 → 2.7.0) — `2026-06-25-001` (#161 closed; low value).
 - **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (already recorded as #53 scope wall; long-horizon).
 - **Visual assets — day-scale before/after** (0.1.0-beta.10, #252): a short before/after (wide vs compact day columns) for the "Day opens at its narrowest columns" change; skipped in the release-notes draft as marginal/subtle, capture with the deferred motion-GIF batch (maximized window).
+
+### Inferred-edge undo: date provenance
+Source: the inferred-edge drag review. Undoing a shrink-cascade after an
+**Estimate and dates** choice restores the pre-drag dates and (now) the pre-drag
+estimate — but the pre-drag end of an inferred-end task was *derived*, so writing
+it back authors a date that was not authored before. A fully faithful undo would
+un-author the edge the choice materialised, which needs a patch path that can
+clear a frontmatter field rather than set one. Deliberately deferred: the
+alternative (dropping the date silently) is equally a guess, so this wants a
+maintainer decision on what "undo" means for a derived edge.

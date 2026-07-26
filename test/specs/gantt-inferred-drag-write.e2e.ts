@@ -45,7 +45,10 @@ async function enableBases(): Promise<void> {
   });
 }
 
-const BASE_PATH = "InferredDragWrite.base";
+// The spec drives two bases: the main one (cascade `auto`) and a second view with
+// cascade `ask`, which is the only way to reach the shrink prompt s "Undo resize".
+let currentBase = "InferredDragWrite.base";
+let expectedBars: string[] = [];
 const TASK_NOTES = [
   "Solo Inferred.md",
   "Materialise Me.md",
@@ -94,7 +97,7 @@ async function activateBaseLeaf(): Promise<void> {
     }
     ws.setActiveLeaf(baseLeaf, { focus: true });
     ws.revealLeaf(baseLeaf);
-  }, BASE_PATH);
+  }, currentBase);
 }
 
 /** Which of the fixture's task bars are missing from the rendered chart. */
@@ -106,7 +109,7 @@ async function missingBars(): Promise<string[]> {
     // which the wdio CSS selector engine handles unreliably.
     const ids = Array.from(root.querySelectorAll(".wx-bar")).map((b) => b.getAttribute("data-id") ?? "");
     return names.filter((n) => !ids.some((id) => id.endsWith(n)));
-  }, TASK_NOTES);
+  }, expectedBars);
 }
 
 /**
@@ -124,6 +127,16 @@ async function ensureGanttReady(): Promise<void> {
     },
     { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
   );
+}
+
+/** Point the spec at a base and wait for exactly the bars that view renders. */
+async function switchBase(basePath: string, bars: string[]): Promise<void> {
+  currentBase = basePath;
+  expectedBars = bars;
+  await browser.executeObsidian(({ app }) => {
+    app.workspace.detachLeavesOfType("bases");
+  });
+  await ensureGanttReady();
 }
 
 const readNote = async (notePath: string): Promise<string> =>
@@ -252,7 +265,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
     await enableBases();
-    await ensureGanttReady();
+    await switchBase("InferredDragWrite.base", TASK_NOTES);
   });
 
   // The starter-note steal can fire at any point, so re-front the base leaf and
@@ -385,5 +398,36 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     const saved = await readNote("Ask Twice.md");
     expect(saved).toContain("timeEstimate: 7200");
     expect(saved).toMatch(/due:\s*'?2026-04-10'?/);
+  });
+
+  // VERY last: this one drives the other base (cascade `ask`), so it leaves the
+  // spec pointed elsewhere.
+  it("restores the estimate, not just the dates, when the shrink cascade is undone", async () => {
+    // With cascade `ask`, an inferred-edge resize that orphans a child prompts
+    // twice: the inferred-edge gate writes the span's estimate, then the shrink
+    // prompt offers "Undo resize". Undoing has to put the estimate back too, or the
+    // note is left claiming a duration the user just rejected.
+    await switchBase("InferredDragAsk.base", ["Undo Parent.md", "Undo Child.md"]);
+    expect(await readNote("Undo Parent.md")).toContain("timeEstimate: 5760");
+
+    await dragEndEdge("Undo Parent.md", -2);
+    await waitForPrompt();
+    await chooseAction("Estimate and dates");
+
+    const undo = await (await $(".modal")).$("button=Undo resize");
+    await undo.waitForDisplayed({
+      timeout: 20000,
+      timeoutMsg: "the shrink-fit prompt never offered an undo",
+    });
+    await undo.click();
+
+    await browser.waitUntil(
+      async () => (await readNote("Undo Parent.md")).includes("timeEstimate: 5760"),
+      { timeout: 20000, timeoutMsg: "undoing the resize did not restore the estimate" },
+    );
+    // The authored start is untouched; only the estimate round-tripped. (Whether an
+    // undo should also un-author the date the choice materialised is a separate
+    // provenance question, recorded in the backlog.)
+    expect(await readNote("Undo Parent.md")).toMatch(/scheduled:\s*'?2026-04-06'?/);
   });
 });
