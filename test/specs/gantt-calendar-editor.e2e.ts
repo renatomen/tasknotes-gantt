@@ -35,6 +35,14 @@ interface OffsetProbe {
 }
 type ProbedWindow = typeof window & { __ogOffsetProbe?: OffsetProbe; __ogClockSkewMs?: number };
 
+// Both ends of the DST crossing are FIXED instants, so the case reads the same
+// offsets whatever the real date is: Auckland is UTC+12:00 in July and UTC+13:00
+// in January. Leaving either end on the real clock would make the assertions
+// seasonal — the spec would time out for the half of the year that already sits
+// on the other side of the transition.
+const NZ_STANDARD_INSTANT = "2026-07-15T00:00:00Z";
+const NZ_DAYLIGHT_INSTANT = "2027-01-15T00:00:00Z";
+
 /** The view type of the active leaf, as Obsidian itself reports it. */
 async function activeViewType(): Promise<string | null> {
   return browser.executeObsidian(({ app }) => {
@@ -459,7 +467,9 @@ describe("Gantt (OG) calendar editor routing", () => {
     // the teardown that disposes it are all component wiring the unit tests can't see.
     // So: record minutely intervals, make the renderer's clock skewable, then cross a
     // boundary by firing the recorded tick — the hint can only move if the wiring holds.
-    await browser.execute(() => {
+    // Restores the marker itself (and before the clock moves) so it runs standalone.
+    await restoreMarker();
+    await browser.execute((standardInstant: string) => {
       const w = window as ProbedWindow;
       const probe: OffsetProbe = {
         armed: [],
@@ -469,7 +479,9 @@ describe("Gantt (OG) calendar editor routing", () => {
         RealDate: Date,
       };
       w.__ogOffsetProbe = probe;
-      w.__ogClockSkewMs = 0;
+      // Open the form on a fixed July instant, so the pre-transition offset the
+      // hint must show does not depend on today's date.
+      w.__ogClockSkewMs = new probe.RealDate(standardInstant).getTime() - probe.RealDate.now();
       w.setInterval = ((fire: () => void, ms?: number) => {
         const id = probe.realSetInterval(fire, ms) as unknown as number;
         if (ms === 60_000) probe.armed.push({ id, fire });
@@ -490,7 +502,7 @@ describe("Gantt (OG) calendar editor routing", () => {
           return probe.RealDate.now() + (w.__ogClockSkewMs ?? 0);
         }
       } as unknown as DateConstructor;
-    });
+    }, NZ_STANDARD_INSTANT);
     try {
       await openNote("NZ Holidays.md");
       const tz = await $('.og-cal-form input[placeholder^="Search a timezone"]');
@@ -501,7 +513,7 @@ describe("Gantt (OG) calendar editor routing", () => {
       await suggestion.waitForDisplayed({ timeout: 10000, timeoutMsg: "no timezone suggestions appeared" });
       await suggestion.click();
 
-      // July is New Zealand standard time.
+      // The pinned July instant is New Zealand standard time.
       const hint = await $(".og-cal-hint*=Currently");
       await browser.waitUntil(async () => (await hint.getText()).includes("UTC+12:00"), {
         timeout: 10000,
@@ -515,13 +527,12 @@ describe("Gantt (OG) calendar editor routing", () => {
 
       // Cross into New Zealand daylight time WITHOUT touching the form, then fire
       // the recorded tick: nothing else can carry the new offset into the hint.
-      await browser.execute(() => {
+      await browser.execute((daylightInstant: string) => {
         const w = window as ProbedWindow;
         const probe = w.__ogOffsetProbe as OffsetProbe;
-        w.__ogClockSkewMs =
-          new probe.RealDate("2027-01-15T00:00:00Z").getTime() - probe.RealDate.now();
+        w.__ogClockSkewMs = new probe.RealDate(daylightInstant).getTime() - probe.RealDate.now();
         for (const tick of probe.armed) tick.fire();
-      });
+      }, NZ_DAYLIGHT_INSTANT);
       await browser.waitUntil(async () => (await hint.getText()).includes("UTC+13:00"), {
         timeout: 10000,
         timeoutMsg: "the heartbeat did not refresh the offset hint across the DST boundary",
