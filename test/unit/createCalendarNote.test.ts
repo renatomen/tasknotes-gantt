@@ -247,6 +247,29 @@ describe('createAndOpenCalendarNote', () => {
     jest.useRealTimers();
   });
 
+  it('abandons a create that is still waiting on the index when the plugin unloads', async () => {
+    // Unload lands during the pre-open wait: the wait must settle at once (its
+    // deadline can no longer fire after teardown) and the flow must stop before it
+    // opens a leaf or starts a fresh watch on behalf of a plugin that is gone.
+    jest.useFakeTimers();
+    const late = lateIndexingApp();
+    const promise = createAndOpenCalendarNote(late.app, 'calendar');
+    await jest.advanceTimersByTimeAsync(500); // still inside the 2s wait
+
+    cancelPendingMarkerWatches();
+    await promise;
+    expect(late.opened).toHaveLength(0);
+    expect(late.liveListeners()).toBe(0);
+
+    // And nothing revives afterwards — neither the old deadline nor a late index.
+    await jest.advanceTimersByTimeAsync(5000);
+    late.indexNow();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(late.opened).toHaveLength(0);
+    expect(late.reissued).toHaveLength(0);
+    jest.useRealTimers();
+  });
+
   it('drops a still-pending marker watch when the plugin unloads', async () => {
     jest.useFakeTimers();
     const late = lateIndexingApp();

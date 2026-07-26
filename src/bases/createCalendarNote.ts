@@ -26,17 +26,27 @@ export type CalendarNoteKind = 'calendar' | 'calendar-set';
 const OPEN_WAIT_MS = 2000;
 
 /**
- * Live marker watches, so a plugin unload can drop every one of them (this
- * module has no plugin handle of its own to register events against).
+ * Live marker watches and pending waits, so a plugin unload can drop every one
+ * of them (this module has no plugin handle of its own to register events
+ * against).
  */
 const markerWatches = new Set<() => void>();
 
 /**
- * Cancel every pending marker watch. Called on plugin unload so a watch left
- * over from a create — the re-route below deliberately has no deadline — cannot
- * outlive the plugin.
+ * Bumped by {@link cancelPendingMarkerWatches} so a create that is mid-flight
+ * when the plugin unloads abandons the rest of its work instead of resuming into
+ * a torn-down plugin.
+ */
+let liveGeneration = 0;
+
+/**
+ * Cancel everything this module has pending. Called on plugin unload: it releases
+ * each cache listener, settles any wait at once (rather than letting its deadline
+ * fire later), and retires the generation so an in-flight create stops before it
+ * can touch the workspace or start a fresh watch.
  */
 export function cancelPendingMarkerWatches(): void {
+  liveGeneration++;
   for (const stop of [...markerWatches]) stop();
 }
 
@@ -76,23 +86,28 @@ function watchForMarker(app: App, file: TFile, onIndexed: () => void): () => voi
 /**
  * Wait for the marker, reporting whether it arrived before `timeoutMs`. The
  * deadline is what keeps the *command* responsive — it must open the note either
- * way rather than hang on a slow index.
+ * way rather than hang on a slow index. An unload settles the wait immediately
+ * through the same registry, so its deadline can never fire after teardown.
  */
 function waitForMarkerIndexed(app: App, file: TFile, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    let found = false;
+    let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = watchForMarker(app, file, () => {
-      found = true;
+    let stopWatch: () => void = () => {};
+    const finish = (found: boolean): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve(true);
-    });
-    // An already-indexed marker settles the watch synchronously — no deadline to arm.
-    if (found) return;
-    timer = setTimeout(() => {
-      stop();
-      resolve(false);
-    }, timeoutMs);
+      stopWatch();
+      markerWatches.delete(abort);
+      resolve(found);
+    };
+    const abort = (): void => finish(false);
+    stopWatch = watchForMarker(app, file, () => finish(true));
+    // An already-indexed marker settles the watch synchronously — nothing to arm.
+    if (settled) return;
+    markerWatches.add(abort);
+    timer = setTimeout(abort, timeoutMs);
   });
 }
 
@@ -124,6 +139,7 @@ function routeWhenMarkerIndexes(app: App, leaf: WorkspaceLeaf, file: TFile): voi
 
 /** Create a `Calendars/` note of the given kind from its skeleton and open it. */
 export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind): Promise<void> {
+  const generation = liveGeneration;
   try {
     const { vault } = app;
     const exists = (path: string): boolean => vault.getAbstractFileByPath(path) !== null;
@@ -134,6 +150,9 @@ export async function createAndOpenCalendarNote(app: App, kind: CalendarNoteKind
     const text = kind === 'calendar' ? calendarSkeletonText() : calendarSetSkeletonText();
     const file = (await vault.create(path, text)) as TFile;
     const indexed = await waitForMarkerIndexed(app, file, OPEN_WAIT_MS);
+    // Unloaded while waiting: the note is written, but opening it (or starting a
+    // watch) now would mutate the workspace on behalf of a torn-down plugin.
+    if (generation !== liveGeneration) return;
     const leaf = app.workspace.getLeaf(true);
     await leaf.openFile(file);
     // Opened before the marker was visible → it landed in markdown. Keep watching
