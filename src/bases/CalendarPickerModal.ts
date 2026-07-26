@@ -54,7 +54,10 @@ export class CalendarPickerModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    const calendarsPresent = rows.some((row) => row.kind !== 'default');
+    // Only a real calendar or set counts as "present" — a flagged (dangling or
+    // retagged) row must not suppress the empty-state create action, or a vault
+    // whose last calendar was deleted offers no way to make a new one.
+    const calendarsPresent = rows.some((row) => row.kind === 'calendar' || row.kind === 'set');
     if (!calendarsPresent) {
       this.renderEmptyState(contentEl);
       return;

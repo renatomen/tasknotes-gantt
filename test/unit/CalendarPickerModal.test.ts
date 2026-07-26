@@ -17,6 +17,7 @@ import { readDisplaySelection, type DisplaySelection } from '../../src/bases/cal
 import {
   autoDisplayedPathsFrom,
   buildPickerRows,
+  calendarLinkFor,
   CALENDAR_SET_SKELETON_FRONTMATTER,
   CALENDAR_SKELETON_FRONTMATTER,
   calendarSetSkeletonText,
@@ -50,6 +51,9 @@ const NOTES: CalendarNoteInput[] = [
     basename: 'Broken',
     frontmatter: { tngantt: 'calendar', pattern: 'BYDAY=MO' },
   },
+  // A plain note that resolves but carries no calendar marker (a retagged
+  // calendar): in the registry as neither a calendar, a set, nor invalid.
+  { path: 'Notes/Plain.md', basename: 'Plain', frontmatter: { title: 'not a calendar' } },
 ];
 
 const resolveByName = (link: string): string | null => {
@@ -65,7 +69,7 @@ function context(selection: DisplaySelection, autoPaths: string[] = []): PickerC
     registry,
     selection,
     resolveLink: resolveByName,
-    linkFor: (path) => `[[${path.replace(/^.*\//, '').replace(/\.md$/, '')}]]`,
+    linkFor: calendarLinkFor,
     autoDisplayedPaths: new Set(autoPaths),
   };
 }
@@ -93,6 +97,17 @@ describe('buildPickerRows', () => {
     expect(rows).toContainEqual(expect.objectContaining({ kind: 'flagged', label: 'Broken' }));
     expect(rows).toContainEqual(
       expect.objectContaining({ kind: 'flagged', label: '[[Gone]]', reason: 'link does not resolve' }),
+    );
+  });
+
+  it('flags a stored selection pointing at a retagged (now non-calendar) note as removable', () => {
+    const sel = explicitSelection([{ link: '[[Plain]]', enabled: true }]);
+    const rows = buildPickerRows(context(sel));
+    // Resolves to a real note (not dangling) that no longer carries the marker,
+    // so the picker offers a removable flagged row instead of ignoring it — the
+    // banner counted it unresolved but there was nothing to remove.
+    expect(rows).toContainEqual(
+      expect.objectContaining({ kind: 'flagged', label: '[[Plain]]', reason: 'not a calendar' }),
     );
   });
 
@@ -143,6 +158,16 @@ describe('buildPickerRows', () => {
   });
 });
 
+describe('calendarLinkFor', () => {
+  it('persists a folder-qualified vault path, dropping only .md', () => {
+    expect(calendarLinkFor('Calendars/NZ Holidays.md')).toBe('[[Calendars/NZ Holidays]]');
+  });
+
+  it('keeps two same-named calendars in different folders distinct', () => {
+    expect(calendarLinkFor('Work/Holidays.md')).not.toBe(calendarLinkFor('Home/Holidays.md'));
+  });
+});
+
 describe('toggle transitions', () => {
   it('toggling a calendar row writes the selection once', () => {
     const sel = explicitSelection([{ link: '[[NZ]]', enabled: true }]);
@@ -162,9 +187,11 @@ describe('toggle transitions', () => {
     );
     const { selection } = toggleCalendarRow(ctx, auRow as never);
     expect(selection.auto).toBe(false);
+    // Materialised entries persist folder-qualified links (calendarLinkFor), so
+    // same-named calendars in different folders stay distinct.
     expect(selection.entries).toEqual([
-      { link: '[[NZ]]', enabled: true },
-      { link: '[[AU]]', enabled: true },
+      { link: '[[Calendars/NZ]]', enabled: true },
+      { link: '[[Calendars/AU]]', enabled: true },
     ]);
   });
 
@@ -279,6 +306,30 @@ describe('CalendarPickerModal wiring', () => {
     );
     expect(flaggedRow?.query(isCheckbox)?.disabled).toBe(true);
     expect(flaggedRow?.query((el) => el.tagName === 'SMALL')?.text).toBe('link does not resolve');
+  });
+
+  it('shows the create action, not a disabled list, when only stale rows remain', () => {
+    // A vault whose last calendar was deleted: the registry has no calendars or
+    // sets, only a dangling selection entry. A flagged row must not count as a
+    // calendar, or the empty-state create action is suppressed and there is no
+    // way to make a new calendar.
+    const emptyRegistry = buildCalendarRegistry([], resolveByName);
+    const staleContext: PickerContext = {
+      registry: emptyRegistry,
+      selection: explicitSelection([{ link: '[[Gone]]', enabled: true }]),
+      resolveLink: resolveByName,
+      linkFor: calendarLinkFor,
+      autoDisplayedPaths: new Set(),
+    };
+    const modal = new CalendarPickerModal(new App(), {
+      getContext: () => staleContext,
+      persist: jest.fn(),
+      createCalendar: jest.fn(async () => {}),
+    });
+    modal.open();
+    const contentEl = modal.contentEl as unknown as FakeElement;
+    expect(contentEl.query((el) => el.cls.includes('mod-cta'))).not.toBeNull();
+    expect(contentEl.query((el) => el.cls.includes('og-cal-picker-list'))).toBeNull();
   });
 
   it('a set row renders indeterminate when partially enabled', () => {
