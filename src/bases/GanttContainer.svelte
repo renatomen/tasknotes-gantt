@@ -61,12 +61,13 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
-    normalizeInferredDragMode,
     classifyDraggedEdge,
     resolveInferredEdge,
     resolveInferredDragOutcome,
+    resolveEffectiveInferredDragMode,
     buildInferredDragPatch,
     type InferredDragAction,
+    type PendingInferredDragMode,
   } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
   import {
@@ -2370,6 +2371,9 @@
     // clears it on the next tick). Authored edges and whole-bar moves fall through
     // to the default commit above.
     const before = activeDrag;
+    // No-op until the inferred-edge gate below engages and hands the cascade a
+    // promise to wait on; a plain drag settles nothing.
+    let settleInferredGesture: (committed: boolean) => void = () => {};
     if (
       before?.id === instanceId &&
       before.beforeStart &&
@@ -2380,29 +2384,41 @@
         classifyDraggedEdge(before.beforeStart, before.beforeEnd, newStart, newEnd),
         before.beforeDateStatus ?? 'complete',
       );
+      // A "don't ask again" choice from an earlier drag applies from the very next
+      // gesture, ahead of the asynchronous view-config refresh that carries it.
+      const effectiveMode = resolveEffectiveInferredDragMode(
+        $data.inferredDragMode,
+        pendingInferredDragMode,
+      );
+      pendingInferredDragMode = effectiveMode.pending;
       const outcome = resolveInferredDragOutcome({
         inferredEdge,
-        mode: normalizeInferredDragMode($data.inferredDragMode),
+        mode: effectiveMode.mode,
         estimateWritable: true,
       });
       if (inferredEdge && outcome !== 'write-as-today') {
-        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates).
-        // Stand the subtree/extend cascade down so it can't commit shrink-fit or
-        // ancestor-extend writes against the optimistic pre-decision dates while the
-        // prompt is open — or against a choice the user cancels or downgrades to
-        // estimate-only (which materialises no date). Set before any await so the
-        // paired processSubtreeAndExtend, running next this tick, sees it.
-        inferredPromptEngaged = true;
+        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates),
+        // so the paired subtree/extend cascade must WAIT for the decision rather than
+        // commit shrink-fit or ancestor-extend writes against the optimistic
+        // pre-decision dates. Hand it a promise, resolved with whether a write
+        // landed, before any await — processSubtreeAndExtend runs next this tick.
+        inferredGesture = new Promise<boolean>((resolve) => {
+          settleInferredGesture = resolve;
+        });
         let action: InferredDragAction;
         if (outcome === 'prompt') {
           const choice = await new InferredDragModal(app).openAndGetChoice();
           if (!choice) {
             // Cancel reverts the bar (+ mirrored siblings) and writes nothing.
             revertToOriginals();
+            settleInferredGesture(false);
             return;
           }
           action = choice.action;
-          if (choice.dontAskAgain) onInferredDragModeChange?.(action);
+          if (choice.dontAskAgain) {
+            pendingInferredDragMode = { chosen: action, observed: effectiveMode.mode };
+            onInferredDragModeChange?.(action);
+          }
         } else {
           action = outcome;
         }
@@ -2423,10 +2439,12 @@
 
     try {
       await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
+      settleInferredGesture(true);
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.
       revertToOriginals();
+      settleInferredGesture(false);
       new Notice("Couldn't save date change — check TaskNotes is running.");
     }
   }
@@ -2460,10 +2478,15 @@
   } | null = null;
   let dragScheduled = false;
   // Set synchronously by persistReschedule (which runs first) when an inferred-edge
-  // drag routes its write through the gate, so the deferred subtree/extend pass —
-  // which shares this gesture's tick — knows to stand down. Consumed and cleared by
+  // drag routes its write through the gate. The deferred subtree/extend pass — which
+  // shares this gesture's tick — awaits it, so the cascade acts on the decision's
+  // outcome instead of the optimistic pre-decision dates. Resolves true once a write
+  // landed, false when the user cancelled or it failed. Consumed and cleared by
   // processSubtreeAndExtend; the two are always scheduled as a pair.
-  let inferredPromptEngaged = false;
+  let inferredGesture: Promise<boolean> | null = null;
+  // A "don't ask again" choice, held locally until the persisted view option catches
+  // up (the Bases config refresh round-trips asynchronously).
+  let pendingInferredDragMode: PendingInferredDragMode | null = null;
 
   /** Schedule the deferred subtree-shift + extend pass once per drag. */
   function scheduleSubtreeAndExtend(): void {
@@ -2486,13 +2509,14 @@
     const drag = activeDrag;
     activeDrag = null;
     // An inferred-edge drag routes its write through persistReschedule's gate, which
-    // owns this note for the gesture. Skip the subtree/extend cascade entirely so it
-    // never races that decision (a leaf inferred task has no descendants/ancestors to
-    // act on anyway; a parent's cascade against unmaterialised dates is unsafe).
-    if (inferredPromptEngaged) {
-      inferredPromptEngaged = false;
-      return;
-    }
+    // owns this note for the gesture — so wait for that decision instead of racing
+    // it, then cascade from the dates it left behind. A cancelled or failed write put
+    // the bar back at its pre-drag span, so there is nothing to cascade. When the
+    // choice was estimate-only the dragged edge stays derived, and that derived date
+    // IS the rendered edge, so a parent still wraps what the timeline shows.
+    const inferred = inferredGesture;
+    inferredGesture = null;
+    if (inferred && !(await inferred)) return;
     if (!api || !onMutate || readOnly || !drag) return;
 
     const moved = api.getState().tasks.byId(drag.id);

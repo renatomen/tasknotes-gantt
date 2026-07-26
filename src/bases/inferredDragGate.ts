@@ -82,6 +82,35 @@ export function persistInferredDragMode(
 }
 
 /**
+ * A "don't ask again" choice that has been persisted but may not have come back
+ * through the view config yet: the action chosen, plus the configured mode it was
+ * chosen against (how the resolver knows the config has since moved on).
+ */
+export interface PendingInferredDragMode {
+  chosen: InferredDragAction;
+  observed: InferredDragMode;
+}
+
+/**
+ * The mode the next drag must obey, plus the local choice to keep holding.
+ *
+ * A "don't ask again" choice persists through the Bases view config, whose
+ * refresh round-trips asynchronously — so a gesture started in between would read
+ * the stale `ask` and prompt again. The just-chosen action therefore wins until
+ * the configured value moves off what it was chosen against, at which point the
+ * config is authoritative again (our write landed, or the user re-set the option)
+ * and the local choice retires.
+ */
+export function resolveEffectiveInferredDragMode(
+  configured: unknown,
+  pending: PendingInferredDragMode | null,
+): { mode: InferredDragMode; pending: PendingInferredDragMode | null } {
+  const stored = normalizeInferredDragMode(configured);
+  if (!pending || stored !== pending.observed) return { mode: stored, pending: null };
+  return { mode: pending.chosen, pending };
+}
+
+/**
  * Which edge a drag-commit moved, compared at DAY granularity. `before` and
  * `after` come from the same (SVAR store) representation — the same pairing
  * {@link import('./cascadeGate').computeMoveDelta} relies on — so truncating both

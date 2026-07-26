@@ -14,6 +14,7 @@ import { describe, it, expect, jest } from '@jest/globals';
 import {
   normalizeInferredDragMode,
   persistInferredDragMode,
+  resolveEffectiveInferredDragMode,
   classifyDraggedEdge,
   resolveInferredEdge,
   resolveInferredDragOutcome,
@@ -56,6 +57,47 @@ describe('normalizeInferredDragMode', () => {
     expect(normalizeInferredDragMode(undefined)).toBe('ask');
     expect(normalizeInferredDragMode(null)).toBe('ask');
     expect(normalizeInferredDragMode(42)).toBe('ask');
+  });
+});
+
+describe('resolveEffectiveInferredDragMode', () => {
+  it('reads the configured mode when nothing was just chosen', () => {
+    expect(resolveEffectiveInferredDragMode('estimate-only', null)).toEqual({
+      mode: 'estimate-only',
+      pending: null,
+    });
+    expect(resolveEffectiveInferredDragMode('nonsense', null)).toEqual({
+      mode: 'ask',
+      pending: null,
+    });
+  });
+
+  it("honours a just-chosen don't-ask-again action while the config still says ask", () => {
+    // The bug: persisting the choice round-trips through Bases config, so a drag
+    // started before that refresh lands would re-open the prompt.
+    const pending = { chosen: 'estimate-and-dates' as const, observed: 'ask' as const };
+    expect(resolveEffectiveInferredDragMode('ask', pending)).toEqual({
+      mode: 'estimate-and-dates',
+      pending,
+    });
+  });
+
+  it('retires the local choice once the persisted mode moves on', () => {
+    const pending = { chosen: 'estimate-only' as const, observed: 'ask' as const };
+    expect(resolveEffectiveInferredDragMode('estimate-only', pending)).toEqual({
+      mode: 'estimate-only',
+      pending: null,
+    });
+    // …so a later view-option change back to ask is obeyed, not shadowed.
+    expect(resolveEffectiveInferredDragMode('ask', null)).toEqual({ mode: 'ask', pending: null });
+  });
+
+  it('lets a user switch to the OTHER action win over the local choice', () => {
+    const pending = { chosen: 'estimate-only' as const, observed: 'ask' as const };
+    expect(resolveEffectiveInferredDragMode('estimate-and-dates', pending)).toEqual({
+      mode: 'estimate-and-dates',
+      pending: null,
+    });
   });
 });
 
