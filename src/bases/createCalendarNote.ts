@@ -42,6 +42,8 @@ const OPEN_WAIT_MS = 2000;
 export interface LifetimeScope {
   /** Hand an event subscription to this scope. */
   own(ref: EventRef): void;
+  /** Run `cleanup` when this scope closes (or at plugin unload). */
+  defer(cleanup: () => void): void;
   /** Release everything this scope owns. Idempotent. */
   close(): void;
 }
@@ -83,6 +85,7 @@ export function pluginLifetime(plugin: Plugin): PluginLifetime {
       let closed = false;
       return {
         own: (ref) => child.registerEvent(ref),
+        defer: (cleanup) => child.register(cleanup),
         close: () => {
           if (closed) return;
           closed = true;
@@ -163,13 +166,20 @@ function waitForMarkerIndexed(
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopWatch: () => void = () => {};
+    // The deadline lives in its own scope so an unload settles the wait AT ONCE:
+    // otherwise the timer (and the whole create continuation captured behind this
+    // promise) would stay alive until the deadline fired, running the unloaded
+    // plugin's code once more just to find out it should stop.
+    const deadline = lifetime.scope();
     const finish = (found: boolean): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       stopWatch();
+      deadline.close();
       resolve(found);
     };
+    deadline.defer(() => finish(false));
     stopWatch = watchForMarker(app, lifetime, file, {
       onIndexed: () => finish(true),
       onGone: () => finish(false),

@@ -27,11 +27,14 @@ function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime
     isActive: () => active,
     scope: () => {
       const owned: object[] = [];
+      const deferred: (() => void)[] = [];
       const scope = {
         own: (ref: unknown) => owned.push(ref as object),
+        defer: (cleanup: () => void) => deferred.push(cleanup),
         close: () => {
           if (!scopes.delete(scope)) return;
           for (const ref of owned.splice(0)) release(ref);
+          for (const cleanup of deferred.splice(0)) cleanup();
         },
       };
       scopes.add(scope);
@@ -277,6 +280,17 @@ describe('pluginLifetime', () => {
     expect(offref).toHaveBeenCalledTimes(1);
   });
 
+  it('runs deferred cleanups when the scope closes, and only once', () => {
+    const { plugin } = fakePlugin();
+    const lifetime = pluginLifetime(plugin as never);
+    const scope = lifetime.scope();
+    let runs = 0;
+    scope.defer(() => runs++);
+    scope.close();
+    scope.close();
+    expect(runs).toBe(1);
+  });
+
   it('releases a scope that never closed when the plugin unloads', () => {
     const { plugin, children } = fakePlugin();
     const offref = jest.fn();
@@ -480,7 +494,8 @@ describe('createAndOpenCalendarNote', () => {
 
     late.unload();
     expect(late.liveListeners()).toBe(0); // the plugin released them itself
-    await jest.advanceTimersByTimeAsync(2000); // the wait settles on its deadline
+    // Deliberately NO timer advance: unload itself settles the wait, so nothing of
+    // the unloaded plugin runs again at the deadline.
     await promise;
     expect(late.opened).toHaveLength(0); // …and the flow stood down
 
