@@ -54,6 +54,8 @@ const TASK_NOTES = [
   "Ask Twice.md",
   "Inferred Child.md",
   "Parent Window.md",
+  "Inferred Parent.md",
+  "Fixed Child.md",
 ];
 
 /**
@@ -328,6 +330,29 @@ describe("Gantt (OG) inferred-date drag writes", () => {
         timeoutMsg: "the ancestor extend never ran after the inferred-edge decision",
       },
     );
+  });
+
+  it("keeps an estimate-only choice derived when the shrink cascade would fire", async () => {
+    // An inferred-end PARENT pulled inward past its child triggers shrink-fit, whose
+    // outcomes both write the parent's own start AND end. After "Estimate only" that
+    // would materialise the edge the user chose to leave derived, so the overflow is
+    // allowed instead: only the estimate changes.
+    const before = await readNote("Inferred Parent.md");
+    expect(before).not.toContain("due:");
+
+    await dragEndEdge("Inferred Parent.md", -2); // 4-day derived end pulled in to 2 days
+    await waitForPrompt();
+    await chooseAction("Estimate only");
+
+    await browser.waitUntil(
+      async () => (await readNote("Inferred Parent.md")).includes("timeEstimate: 2880"),
+      { timeout: 20000, timeoutMsg: "the shrunk estimate never reached the parent note" },
+    );
+    const saved = await readNote("Inferred Parent.md");
+    expect(saved).not.toContain("due:"); // the derived end stayed derived
+    expect(saved).toMatch(/scheduled:\s*'?2026-04-06'?/); // and the authored start is untouched
+    // The child keeps its own authored window — the cascade wrote nothing to it.
+    expect(await readNote("Fixed Child.md")).toMatch(/due:\s*'?2026-04-09'?/);
   });
 
   // LAST, deliberately: this is the only case that changes the per-view mode, and

@@ -61,6 +61,7 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
+    normalizeInferredDragMode,
     classifyDraggedEdge,
     resolveInferredEdge,
     resolveInferredDragOutcome,
@@ -589,6 +590,18 @@
   // on the slider value so it re-tints live (rootEl is bound by the time this runs).
   $effect(() => {
     rootEl?.style.setProperty('--og-context-opacity', String(contextOpacity));
+  });
+
+  // Retire a locally-held "don't ask again" choice as soon as a config refresh
+  // carries the persisted mode, rather than waiting for the next drag to notice.
+  // Otherwise a user who set the option back to `ask` in between would still be
+  // reading the stale choice, because the resolver would see the same stored value
+  // it was chosen against and keep holding it.
+  $effect(() => {
+    const stored = normalizeInferredDragMode($data.inferredDragMode);
+    if (pendingInferredDragMode && stored !== pendingInferredDragMode.observed) {
+      pendingInferredDragMode = null;
+    }
   });
 
   // Native interaction listeners on the chart root (U2): capture the last
@@ -2373,7 +2386,8 @@
     const before = activeDrag;
     // No-op until the inferred-edge gate below engages and hands the cascade a
     // promise to wait on; a plain drag settles nothing.
-    let settleInferredGesture: (committed: boolean) => void = () => {};
+    let settleInferredGesture: (action: InferredDragAction | null) => void = () => {};
+    let inferredAction: InferredDragAction | null = null;
     if (
       before?.id === instanceId &&
       before.beforeStart &&
@@ -2400,9 +2414,9 @@
         // This gesture's write is ours (prompt / estimate-only / estimate-and-dates),
         // so the paired subtree/extend cascade must WAIT for the decision rather than
         // commit shrink-fit or ancestor-extend writes against the optimistic
-        // pre-decision dates. Hand it a promise, resolved with whether a write
-        // landed, before any await — processSubtreeAndExtend runs next this tick.
-        inferredGesture = new Promise<boolean>((resolve) => {
+        // pre-decision dates. Hand it a promise, resolved with the action that landed
+        // (or null), before any await — processSubtreeAndExtend runs next this tick.
+        inferredGesture = new Promise<InferredDragAction | null>((resolve) => {
           settleInferredGesture = resolve;
         });
         let action: InferredDragAction;
@@ -2411,7 +2425,7 @@
           if (!choice) {
             // Cancel reverts the bar (+ mirrored siblings) and writes nothing.
             revertToOriginals();
-            settleInferredGesture(false);
+            settleInferredGesture(null);
             return;
           }
           action = choice.action;
@@ -2422,6 +2436,7 @@
         } else {
           action = outcome;
         }
+        inferredAction = action;
         const fields = buildInferredDragPatch({
           action,
           inferredEdge,
@@ -2439,12 +2454,12 @@
 
     try {
       await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
-      settleInferredGesture(true);
+      settleInferredGesture(inferredAction);
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.
       revertToOriginals();
-      settleInferredGesture(false);
+      settleInferredGesture(null);
       new Notice("Couldn't save date change — check TaskNotes is running.");
     }
   }
@@ -2480,10 +2495,10 @@
   // Set synchronously by persistReschedule (which runs first) when an inferred-edge
   // drag routes its write through the gate. The deferred subtree/extend pass — which
   // shares this gesture's tick — awaits it, so the cascade acts on the decision's
-  // outcome instead of the optimistic pre-decision dates. Resolves true once a write
-  // landed, false when the user cancelled or it failed. Consumed and cleared by
-  // processSubtreeAndExtend; the two are always scheduled as a pair.
-  let inferredGesture: Promise<boolean> | null = null;
+  // outcome instead of the optimistic pre-decision dates. Resolves with the action
+  // that landed, or null when the user cancelled or the write failed. Consumed and
+  // cleared by processSubtreeAndExtend; the two are always scheduled as a pair.
+  let inferredGesture: Promise<InferredDragAction | null> | null = null;
   // A "don't ask again" choice, held locally until the persisted view option catches
   // up (the Bases config refresh round-trips asynchronously).
   let pendingInferredDragMode: PendingInferredDragMode | null = null;
@@ -2511,12 +2526,14 @@
     // An inferred-edge drag routes its write through persistReschedule's gate, which
     // owns this note for the gesture — so wait for that decision instead of racing
     // it, then cascade from the dates it left behind. A cancelled or failed write put
-    // the bar back at its pre-drag span, so there is nothing to cascade. When the
-    // choice was estimate-only the dragged edge stays derived, and that derived date
-    // IS the rendered edge, so a parent still wraps what the timeline shows.
+    // the bar back at its pre-drag span, so there is nothing to cascade. Ancestors
+    // still extend either way: an estimate-only choice leaves the dragged edge
+    // derived, and that derived date IS the rendered edge, so a parent must still
+    // wrap what the timeline shows.
     const inferred = inferredGesture;
     inferredGesture = null;
-    if (inferred && !(await inferred)) return;
+    const inferredChoice = inferred ? await inferred : undefined;
+    if (inferred && inferredChoice === null) return;
     if (!api || !onMutate || readOnly || !drag) return;
 
     const moved = api.getState().tasks.byId(drag.id);
@@ -2583,11 +2600,17 @@
           new Notice("Couldn't move a child task — check TaskNotes is running.");
         }
       }
-    } else if (drag.beforeStart && drag.beforeEnd) {
+    } else if (drag.beforeStart && drag.beforeEnd && inferredChoice !== 'estimate-only') {
       // Parent-shrink guard: a *resize* (no subtree shift) that newly leaves D
       // smaller than its direct children. Offer to adjust D to wrap them, or
       // undo the resize — per the per-view mode. A pure move (delta !== 0) can't
       // orphan children (they moved with D), so this only runs for resizes.
+      //
+      // Skipped after an estimate-only decision: both of its outcomes write D's own
+      // start AND end, which would materialise the very edge the user chose to leave
+      // derived (and "undo resize" would stamp the pre-drag dates on top of an
+      // estimate that is already saved). The overflow is allowed instead — the
+      // ancestor extend below still runs, since it only widens OTHER notes.
       const childRanges: DateRange[] = instances
         .filter((i) => i.parent === drag.id && i.start && i.end)
         .map((i) => ({ start: i.start as Date, end: i.end as Date }));
