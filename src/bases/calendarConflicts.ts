@@ -32,11 +32,15 @@ export function conflictDates(
  * form of {@link conflictDates}, for callers that hold each calendar name.
  */
 export function conflictDatesWithSources(
-  calendars: ReadonlyArray<{ name: string; definition: CalendarDefinition }>,
+  calendars: ReadonlyArray<{ path: string; name: string; definition: CalendarDefinition }>,
   window: EvaluationWindow,
 ): { dates: string[]; calendars: string[] } {
   return conflictsWithSources(
-    calendars.map(({ name, definition }) => ({ name, ...dayFacts(definition, window) })),
+    calendars.map(({ path, name, definition }) => ({
+      id: path,
+      name,
+      ...dayFacts(definition, window),
+    })),
     window,
   );
 }
@@ -60,8 +64,11 @@ export function conflictsFromFacts(
   return conflicts;
 }
 
-/** Per-calendar day facts, labelled — the input to conflict attribution. */
+/** Per-calendar day facts, identified — the input to conflict attribution. */
 export interface NamedCalendarDayFacts extends CalendarDayFacts {
+  /** Stable identity (the note path); two same-named calendars stay distinct. */
+  id: string;
+  /** Display name for the banner. */
   name: string;
 }
 
@@ -79,18 +86,20 @@ export function conflictsWithSources(
   window: EvaluationWindow,
 ): { dates: string[]; calendars: string[] } {
   const dates: string[] = [];
+  // Participation is tracked by ID, not display name: two calendars in different
+  // folders can share a basename, and collapsing them would render a false
+  // self-conflict ("between Work") with a wrong +N count.
   const disagreeing = new Set<string>();
   for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
     const blockers = facts.filter((fact) => fact.blocked.has(day));
     const coverers = facts.filter((fact) => fact.covers && !fact.blocked.has(day));
     if (blockers.length === 0 || coverers.length === 0) continue;
     dates.push(day);
-    for (const fact of [...blockers, ...coverers]) disagreeing.add(fact.name);
+    for (const fact of [...blockers, ...coverers]) disagreeing.add(fact.id);
   }
-  // Re-derive in input order: a Set preserves first-insertion order, which is the
-  // order days were scanned, not the order the calendars were given.
-  const calendars = facts.map((fact) => fact.name).filter((name) => disagreeing.has(name));
-  return { dates, calendars: [...new Set(calendars)] };
+  // Input order, one entry per participating calendar (names may repeat).
+  const calendars = facts.filter((fact) => disagreeing.has(fact.id)).map((fact) => fact.name);
+  return { dates, calendars };
 }
 
 function dayFacts(calendar: CalendarDefinition, window: EvaluationWindow): CalendarDayFacts {

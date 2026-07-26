@@ -70,8 +70,8 @@ describe('conflictsWithSources', () => {
   it('names both sides of each disagreement, not just the blocker', () => {
     const result = conflictDatesWithSources(
       [
-        { name: 'Weekdays', definition: monToFri },
-        { name: 'Sun Thu', definition: sunToThu },
+        { path: 'A/Weekdays.md', name: 'Weekdays', definition: monToFri },
+        { path: 'A/Sun Thu.md', name: 'Sun Thu', definition: sunToThu },
       ],
       WINDOW,
     );
@@ -83,8 +83,8 @@ describe('conflictsWithSources', () => {
   it('names nobody when the calendars agree', () => {
     const result = conflictDatesWithSources(
       [
-        { name: 'A', definition: monToFri },
-        { name: 'B', definition: monToFri },
+        { path: 'x/A.md', name: 'A', definition: monToFri },
+        { path: 'x/B.md', name: 'B', definition: monToFri },
       ],
       WINDOW,
     );
@@ -96,9 +96,9 @@ describe('conflictsWithSources', () => {
     const blocked = (days: string[]) => ({ blocked: new Set(days), covers: false });
     const result = conflictsWithSources(
       [
-        { name: 'Covers all', blocked: new Set<string>(), covers: true },
-        { name: 'Blocks Fri', ...blocked(['2026-04-10']) },
-        { name: 'Blocks Sat+Sun', ...blocked(['2026-04-11', '2026-04-12']) },
+        { id: 'covers.md', name: 'Covers all', blocked: new Set<string>(), covers: true },
+        { id: 'fri.md', name: 'Blocks Fri', ...blocked(['2026-04-10']) },
+        { id: 'satsun.md', name: 'Blocks Sat+Sun', ...blocked(['2026-04-11', '2026-04-12']) },
       ],
       WINDOW,
     );
@@ -106,13 +106,27 @@ describe('conflictsWithSources', () => {
     expect(result.calendars).toEqual(['Covers all', 'Blocks Fri', 'Blocks Sat+Sun']);
   });
 
+  it('keeps two same-named calendars distinct in the attribution', () => {
+    // Identity is the note path: two folders can each hold a "Work" calendar, and
+    // collapsing them by display name would render a false self-conflict
+    // ("between Work") with a wrong +N count.
+    const result = conflictsWithSources(
+      [
+        { id: 'A/Work.md', name: 'Work', blocked: new Set<string>(), covers: true },
+        { id: 'B/Work.md', name: 'Work', blocked: new Set(['2026-04-10']), covers: false },
+      ],
+      WINDOW,
+    );
+    expect(result.calendars).toEqual(['Work', 'Work']);
+  });
+
   it('leaves an uninvolved calendar out of the attribution', () => {
     const result = conflictsWithSources(
       [
-        { name: 'Covers all', blocked: new Set<string>(), covers: true },
-        { name: 'Blocks Fri', blocked: new Set(['2026-04-10']), covers: false },
+        { id: 'covers.md', name: 'Covers all', blocked: new Set<string>(), covers: true },
+        { id: 'fri.md', name: 'Blocks Fri', blocked: new Set(['2026-04-10']), covers: false },
         // Blocks nothing in the window and has no pattern: never on either side.
-        { name: 'Bystander', blocked: new Set<string>(), covers: false },
+        { id: 'bystander.md', name: 'Bystander', blocked: new Set<string>(), covers: false },
       ],
       WINDOW,
     );

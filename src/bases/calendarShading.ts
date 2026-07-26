@@ -138,12 +138,6 @@ export function buildCalendarShadingCss(
 }
 
 /**
- * Task→calendar associations from the given task note paths (deduped): reads
- * each note's calendar value via `valueOf` and drops the ones without a value.
- * Pure — the caller supplies the frontmatter reader — so the union-and-dedup of
- * Bases entries with fetched instances is testable without the view or Obsidian.
- */
-/**
  * Every note whose calendar association matters for the chart: the Base entries
  * (the matched set) plus the source of every rendered instance.
  *
@@ -163,6 +157,12 @@ export function associationTaskPaths(
   return [...paths];
 }
 
+/**
+ * Task→calendar associations from the given task note paths (deduped): reads
+ * each note's calendar value via `valueOf` and drops the ones without a value.
+ * Pure — the caller supplies the frontmatter reader — so the union-and-dedup of
+ * Bases entries with fetched instances is testable without the view or Obsidian.
+ */
 export function calendarAssociationsFrom(
   taskPaths: Iterable<string>,
   valueOf: (path: string) => unknown,
