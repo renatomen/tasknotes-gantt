@@ -19,7 +19,6 @@ import {
   resolveInferredEdge,
   resolveInferredDragOutcome,
   buildInferredDragPatch,
-  projectEstimateOnlyRange,
 } from '../../src/bases/inferredDragGate';
 
 const d = (mo: number, da: number) => new Date(2026, mo, da);
@@ -189,69 +188,6 @@ describe('resolveInferredDragOutcome', () => {
     expect(
       resolveInferredDragOutcome({ inferredEdge: null, mode: 'ask', estimateWritable: true }),
     ).toBe('write-as-today');
-  });
-});
-
-describe('projectEstimateOnlyRange', () => {
-  const addDays = (date: Date, days: number): Date => {
-    const next = new Date(date);
-    next.setDate(next.getDate() + days);
-    return next;
-  };
-  // Mon 2026-06-01 anchor; a Sat/Sun-blocked week for the working-day cases.
-  const anchor = new Date(2026, 5, 1);
-  const isWorkday = (date: Date): boolean => date.getDay() !== 0 && date.getDay() !== 6;
-  const countWorkingDays = (start: Date, end: Date): number => {
-    let n = 0;
-    for (let d = new Date(start); d <= end; d = addDays(d, 1)) if (isWorkday(d)) n++;
-    return n;
-  };
-
-  it('projects plain calendar days when no working-day counter is supplied', () => {
-    // 3 days from a Monday anchor: Mon..Wed.
-    expect(
-      projectEstimateOnlyRange({ inferredEdge: 'end', anchor, estimateMinutes: 3 * 1440, addDays }),
-    ).toEqual({ start: anchor, end: new Date(2026, 5, 3) });
-  });
-
-  it('walks past blocked days so the derived edge lands where re-derivation will', () => {
-    // 5 working days from Monday spans the weekend: Mon..Fri is exactly 5, but 6
-    // working days must run to the NEXT Monday (2026-06-08), skipping Sat+Sun.
-    expect(
-      projectEstimateOnlyRange({
-        inferredEdge: 'end',
-        anchor,
-        estimateMinutes: 6 * 1440,
-        countWorkingDays,
-        addDays,
-      }),
-    ).toEqual({ start: anchor, end: new Date(2026, 5, 8) });
-  });
-
-  it('projects an inferred START backwards from the authored end', () => {
-    // Anchored on Monday, 2 working days backwards → the previous Friday.
-    expect(
-      projectEstimateOnlyRange({
-        inferredEdge: 'start',
-        anchor,
-        estimateMinutes: 2 * 1440,
-        countWorkingDays,
-        addDays,
-      }),
-    ).toEqual({ start: new Date(2026, 4, 29), end: anchor });
-  });
-
-  it('falls back to plain days when the walk hits its bound (a dead calendar)', () => {
-    const neverWorks = (): number => 0;
-    expect(
-      projectEstimateOnlyRange({
-        inferredEdge: 'end',
-        anchor,
-        estimateMinutes: 2 * 1440,
-        countWorkingDays: neverWorks,
-        addDays,
-      }),
-    ).toEqual({ start: anchor, end: new Date(2026, 5, 2) });
   });
 });
 

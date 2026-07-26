@@ -67,7 +67,6 @@
     resolveInferredDragOutcome,
     resolveEffectiveInferredDragMode,
     buildInferredDragPatch,
-    projectEstimateOnlyRange,
     type InferredDragAction,
     type InferredEdge,
     type PendingInferredDragMode,
@@ -2575,27 +2574,22 @@
     const dSource = instances.find((i) => i.id === drag.id)?.sourcePath;
     // Estimate-only leaves the dragged edge COMPUTED, and under working-day
     // interpretation it re-derives off the dragged date (the saved estimate counts
-    // only working days). Cascade from the projection of that re-derivation, not
-    // from the optimistic dragged span, so an ancestor is never extended past the
-    // child's real derived range.
+    // only working days). Cascade from the REAL derivation — the same stretch the
+    // read path runs, threaded through projectDerivedSpan — not from the
+    // optimistic dragged span, so an ancestor is never extended past the child's
+    // actual derived range. A null projection means no working-day seam, where the
+    // plain span is the derivation; the dragged span already is that plain span.
     let draggedRange: DateRange = { start: moved.start, end: moved.end };
     const anchorDate =
       inferredChoice?.edge === 'end' ? drag.beforeStart : drag.beforeEnd;
-    if (inferredChoice?.action === 'estimate-only' && anchorDate) {
-      draggedRange = projectEstimateOnlyRange({
-        inferredEdge: inferredChoice.edge,
-        anchor: anchorDate,
-        estimateMinutes: inferredChoice.estimateMinutes,
-        countWorkingDays:
-          dSource && $data.countWorkingDays
-            ? (start, end) => $data.countWorkingDays?.(dSource, start, end) ?? undefined
-            : undefined,
-        addDays: (date, days) => {
-          const next = new Date(date);
-          next.setDate(next.getDate() + days);
-          return next;
-        },
-      });
+    if (inferredChoice?.action === 'estimate-only' && anchorDate && dSource) {
+      draggedRange =
+        $data.projectDerivedSpan?.(
+          dSource,
+          inferredChoice.edge,
+          anchorDate,
+          inferredChoice.estimateMinutes,
+        ) ?? draggedRange;
     }
     if (dSource) addRange(dSource, draggedRange.start, draggedRange.end);
 

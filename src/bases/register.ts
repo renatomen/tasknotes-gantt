@@ -90,6 +90,7 @@ import {
   needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
+  projectDerivedSpan,
 } from './estimateMeaningResolve';
 
 /**
@@ -670,6 +671,40 @@ class ObsidianGanttBasesView extends BasesView {
         return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
       },
     );
+  }
+
+  /**
+   * The register-side wiring for {@link projectDerivedSpan}: the inferred-edge
+   * cascade's re-derivation projection, backed by the same per-pass blocking
+   * lookup the stretch and the estimate counter read. Absent when the view has
+   * no working-day seam at all — the plain span is the derivation then.
+   */
+  private buildProjectDerivedSpan():
+    | ((
+        taskPath: string,
+        edge: 'start' | 'end',
+        anchor: Date,
+        estimateMinutes: number,
+      ) => { start: Date; end: Date } | null)
+    | undefined {
+    const counts = this.buildCountWorkingDays();
+    if (!counts) return undefined;
+    return (taskPath, edge, anchor, estimateMinutes) => {
+      // Same per-task gate as the counter: a calendar-days task does not stretch.
+      if (counts(taskPath, anchor, anchor) === null) return null;
+      const blocking = this.lastBlockingLookup?.(taskPath) ?? null;
+      return projectDerivedSpan({
+        edge,
+        anchor,
+        estimateMinutes,
+        blocking,
+        addDays: (date, days) => {
+          const next = new Date(date);
+          next.setDate(next.getDate() + days);
+          return next;
+        },
+      });
+    };
   }
 
   /**
@@ -1262,6 +1297,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
       countWorkingDays: this.buildCountWorkingDays(),
+      projectDerivedSpan: this.buildProjectDerivedSpan(),
     };
   }
 

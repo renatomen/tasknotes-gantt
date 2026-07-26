@@ -87,6 +87,19 @@ export interface GanttData {
    */
   countWorkingDays?: (taskPath: string, start: Date, end: Date) => number | null;
   /**
+   * The span an estimate will RE-DERIVE from its authored anchor — the write
+   * path's mirror of the read path's working-time derivation (same stretch, same
+   * blocking facts, same ceiling). Null return = no working-day seam for the
+   * task, i.e. the plain span IS the derivation. Consumed by the inferred-edge
+   * cascade so it reasons about the gesture's final geometry.
+   */
+  projectDerivedSpan?: (
+    taskPath: string,
+    edge: 'start' | 'end',
+    anchor: Date,
+    estimateMinutes: number,
+  ) => { start: Date; end: Date } | null;
+  /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
    * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows
