@@ -28,9 +28,9 @@ const d = (mo: number, da: number) => new Date(2026, mo, da);
 const end = (mo: number, da: number) => new Date(2026, mo, da, 23, 59, 59, 999);
 
 describe('persistInferredDragMode', () => {
-  it('writes the chosen action to the tngantt_inferredDrag key', () => {
+  it('writes the chosen action to the tngantt_inferredDrag key and reports success', () => {
     const set = jest.fn();
-    persistInferredDragMode(set, 'estimate-only');
+    expect(persistInferredDragMode(set, 'estimate-only')).toBe(true);
     expect(set).toHaveBeenCalledWith('tngantt_inferredDrag', 'estimate-only');
   });
 
@@ -39,7 +39,9 @@ describe('persistInferredDragMode', () => {
       throw new Error('config write failed');
     });
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(() => persistInferredDragMode(set, 'estimate-and-dates')).not.toThrow();
+    // Reports the failure: a caller holding a local copy of the choice must not
+    // keep it, or the stale copy would win forever over a store that never moved.
+    expect(persistInferredDragMode(set, 'estimate-and-dates')).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });

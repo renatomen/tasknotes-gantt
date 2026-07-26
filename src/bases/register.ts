@@ -667,7 +667,16 @@ class ObsidianGanttBasesView extends BasesView {
       overrideMapped,
       this.buildEstimateMeaningForTask(viewMeaning),
       (taskPath, start, end) => {
-        const blocking = this.lastBlockingLookup?.(taskPath);
+        // Fresh facts windowed for the span being counted: the per-pass lookup is
+        // sized for the PRE-drag spans, and days beyond its window deliberately
+        // read as working — an estimate-only resize dragged past it would count
+        // blocked days as worked and persist an inflated estimate. Transient, so
+        // the pass cache survives; the cost is per drag commit, not per render.
+        const lookup = this.buildTaskBlocking(
+          [{ path: taskPath, start, end, estimateMinutes: null }],
+          { transient: true },
+        );
+        const blocking = lookup(taskPath);
         return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
       },
     );

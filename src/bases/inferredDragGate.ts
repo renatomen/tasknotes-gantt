@@ -62,7 +62,9 @@ export function normalizeInferredDragMode(value: unknown): InferredDragMode {
 /**
  * Persist a chosen action as the per-view mode (the "don't ask again" path),
  * swallowing a failing write so a transient Bases `config.set` error can never
- * crash the drag-commit handler. Pure aside from the injected `set` (the Bases
+ * crash the drag-commit handler. Reports whether the write landed: a caller that
+ * holds a local copy of the choice must NOT hold it after a failure, because the
+ * stored value then never moves and the stale copy would win forever. Pure aside from the injected `set` (the Bases
  * `config.set`); `register`'s `onInferredDragModeChange` wraps it. Mirrors
  * {@link import('./themeResolver').persistThemeMode}.
  *
@@ -73,11 +75,13 @@ export function normalizeInferredDragMode(value: unknown): InferredDragMode {
 export function persistInferredDragMode(
   set: (key: string, value: unknown) => void,
   mode: InferredDragAction,
-): void {
+): boolean {
   try {
     set('tngantt_inferredDrag', mode);
+    return true;
   } catch (error) {
     console.warn('[Gantt] Failed to persist inferred-drag mode:', error);
+    return false;
   }
 }
 

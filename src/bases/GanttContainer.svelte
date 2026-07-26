@@ -227,7 +227,7 @@
      * ask again" in the prompt. register.ts closes it over `config.set`.
      * Absent callers keep an in-session-only choice.
      */
-    onInferredDragModeChange?: (mode: InferredDragAction) => void;
+    onInferredDragModeChange?: (mode: InferredDragAction) => boolean | undefined;
     /**
      * Publish (and later retract) this view's "focus on task" entry point so the
      * plugin command (register.ts → main.ts) can open the focus search for the
@@ -2432,8 +2432,13 @@
           }
           action = choice.action;
           if (choice.dontAskAgain) {
-            pendingInferredDragMode = { chosen: action, observed: effectiveMode.mode };
-            onInferredDragModeChange?.(action);
+            // Hold the choice locally only if the persist LANDED: after a failed
+            // write the stored value never moves off 'ask', so a held copy would
+            // shadow the prompt forever with nothing on disk to justify it.
+            const persisted = onInferredDragModeChange?.(action);
+            if (persisted !== false) {
+              pendingInferredDragMode = { chosen: action, observed: effectiveMode.mode };
+            }
           }
         } else {
           action = outcome;
