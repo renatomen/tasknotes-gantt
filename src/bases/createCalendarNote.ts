@@ -10,7 +10,15 @@
  * @module bases/createCalendarNote
  */
 /* global clearTimeout */
-import { Notice, TFile, type App, type EventRef, type Plugin, type WorkspaceLeaf } from 'obsidian';
+import {
+  Component,
+  Notice,
+  TFile,
+  type App,
+  type EventRef,
+  type Plugin,
+  type WorkspaceLeaf,
+} from 'obsidian';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import {
   CREATE_FOLDER,
@@ -26,33 +34,62 @@ export type CalendarNoteKind = 'calendar' | 'calendar-set';
 const OPEN_WAIT_MS = 2000;
 
 /**
+ * A bounded sub-lifetime: subscriptions handed to it are released when the scope
+ * closes, and at plugin unload if it never does. That upper bound is what makes
+ * the "no listener outlives the plugin" guarantee structural rather than
+ * something each code path has to remember.
+ */
+export interface LifetimeScope {
+  /** Hand an event subscription to this scope. */
+  own(ref: EventRef): void;
+  /** Release everything this scope owns. Idempotent. */
+  close(): void;
+}
+
+/**
  * The plugin lifetime this module's asynchronous work belongs to.
  *
  * Creating a calendar note spans several awaits (write, index wait, open) and the
- * plugin can be disabled at any of them. Rather than tracking that by hand, the
- * work is scoped to the plugin: `own` hands each subscription to Obsidian's own
- * lifetime management, so no listener can outlive the plugin, and `isActive` is
+ * plugin can be disabled at any of them. Rather than tracking that by hand, each
+ * piece of work takes a `scope` it can close when it finishes, and `isActive` is
  * the honest answer to "should this continuation still act?".
  *
  * Injected rather than reached for globally, so both entry points pass their own
  * plugin and tests supply a fake with no shared module state.
  */
 export interface PluginLifetime {
-  /** Hand an event subscription to the plugin, released automatically at unload. */
-  own(ref: EventRef): void;
+  /** Open a sub-lifetime for one bounded piece of work. */
+  scope(): LifetimeScope;
   /** Whether the plugin is still loaded. */
   isActive(): boolean;
 }
 
-/** Adapt an Obsidian plugin to the lifetime this module needs. */
+/**
+ * Adapt an Obsidian plugin to the lifetime this module needs. Each scope is a
+ * child `Component`: adding it inherits the plugin's unload, and removing it
+ * releases the scope's subscriptions immediately — which `registerEvent` alone
+ * cannot do, since its cleanup registrations are append-only and would otherwise
+ * accumulate one pair per calendar created.
+ */
 export function pluginLifetime(plugin: Plugin): PluginLifetime {
   let active = true;
   plugin.register(() => {
     active = false;
   });
   return {
-    own: (ref) => plugin.registerEvent(ref),
     isActive: () => active,
+    scope: () => {
+      const child = plugin.addChild(new Component());
+      let closed = false;
+      return {
+        own: (ref) => child.registerEvent(ref),
+        close: () => {
+          if (closed) return;
+          closed = true;
+          plugin.removeChild(child);
+        },
+      };
+    },
   };
 }
 
@@ -71,8 +108,8 @@ interface MarkerHandlers {
  *
  * One-shot, and stops early when the note is deleted — no `changed` event can
  * follow a deletion, so a watch that ignored it would be waiting for something
- * that can never happen. Returns a cancel function for callers with their own
- * deadline; the plugin owns both subscriptions regardless, so nothing outlives it.
+ * that can never happen. Both subscriptions live in one scope, so finishing,
+ * cancelling and unloading all release them by the same path.
  */
 function watchForMarker(
   app: App,
@@ -88,30 +125,26 @@ function watchForMarker(
   }
   const indexed = (): boolean =>
     matchesCalendarMarker(app.metadataCache.getFileCache(file)?.frontmatter) !== null;
-  let stopped = false;
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    app.metadataCache.offref(changedRef);
-    app.vault.offref(deleteRef);
-  };
-  const changedRef = app.metadataCache.on('changed', (changed) => {
-    if (changed.path !== file.path || !indexed()) return;
-    stop();
-    handlers.onIndexed();
-  });
-  const deleteRef = app.vault.on('delete', (deleted) => {
-    if (deleted.path !== file.path) return;
-    stop();
-    handlers.onGone?.();
-  });
-  lifetime.own(changedRef);
-  lifetime.own(deleteRef);
+  const scope = lifetime.scope();
+  scope.own(
+    app.metadataCache.on('changed', (changed) => {
+      if (changed.path !== file.path || !indexed()) return;
+      scope.close();
+      handlers.onIndexed();
+    }),
+  );
+  scope.own(
+    app.vault.on('delete', (deleted) => {
+      if (deleted.path !== file.path) return;
+      scope.close();
+      handlers.onGone?.();
+    }),
+  );
   if (indexed()) {
-    stop();
+    scope.close();
     handlers.onIndexed();
   }
-  return stop;
+  return () => scope.close();
 }
 
 /**

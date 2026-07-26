@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { App, TFile } from 'obsidian';
 import {
   createAndOpenCalendarNote,
+  pluginLifetime,
   type PluginLifetime,
 } from '../../src/bases/createCalendarNote';
 
@@ -16,15 +17,31 @@ import {
  * would release at unload, and `unload()` releases them and reports inactive —
  * standing in for Obsidian, with no state shared between tests.
  */
-function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime & { unload(): void } {
-  const owned: object[] = [];
+function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime & {
+  unload(): void;
+  openScopes(): number;
+} {
+  const scopes = new Set<{ close(): void }>();
   let active = true;
   return {
-    own: (ref) => owned.push(ref as unknown as object),
     isActive: () => active,
+    scope: () => {
+      const owned: object[] = [];
+      const scope = {
+        own: (ref: unknown) => owned.push(ref as object),
+        close: () => {
+          if (!scopes.delete(scope)) return;
+          for (const ref of owned.splice(0)) release(ref);
+        },
+      };
+      scopes.add(scope);
+      return scope;
+    },
+    /** How many scopes are still open — 0 means nothing is subscribed. */
+    openScopes: () => scopes.size,
     unload: () => {
       active = false;
-      for (const ref of owned.splice(0)) release(ref);
+      for (const scope of [...scopes]) scope.close();
     },
   };
 }
@@ -204,6 +221,66 @@ function lateIndexingApp() {
     },
   };
 }
+
+describe('pluginLifetime', () => {
+  /** A plugin whose child components are recorded, as Obsidian would hold them. */
+  function fakePlugin() {
+    const children: { unload(): void }[] = [];
+    const cleanups: (() => void)[] = [];
+    const plugin = {
+      addChild: <T extends { load?(): void }>(child: T): T => {
+        children.push(child as unknown as { unload(): void });
+        child.load?.();
+        return child;
+      },
+      removeChild: <T>(child: T): T => {
+        const at = children.indexOf(child as unknown as { unload(): void });
+        if (at >= 0) {
+          children.splice(at, 1)[0]!.unload();
+        }
+        return child;
+      },
+      register: (cleanup: () => void) => cleanups.push(cleanup),
+    };
+    return { plugin, children, unload: () => cleanups.forEach((c) => c()) };
+  }
+
+  it('releases the subscriptions a scope owns as soon as it closes', () => {
+    // registerEvent alone cannot un-register, so each create would otherwise leave a
+    // cleanup entry behind for the session. A child component can be removed.
+    const { plugin, children } = fakePlugin();
+    const offref = jest.fn();
+    const lifetime = pluginLifetime(plugin as never);
+
+    const scope = lifetime.scope();
+    scope.own({ e: { offref } } as never);
+    expect(children).toHaveLength(1);
+
+    scope.close();
+    expect(children).toHaveLength(0); // the child is gone, not just unsubscribed
+    expect(offref).toHaveBeenCalledTimes(1);
+    scope.close(); // idempotent
+    expect(offref).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a scope that never closed when the plugin unloads', () => {
+    const { plugin, children } = fakePlugin();
+    const offref = jest.fn();
+    const lifetime = pluginLifetime(plugin as never);
+    lifetime.scope().own({ e: { offref } } as never);
+
+    children[0]!.unload(); // what Obsidian does to every child at unload
+    expect(offref).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports inactive once the plugin unloads', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    expect(lifetime.isActive()).toBe(true);
+    fake.unload();
+    expect(lifetime.isActive()).toBe(false);
+  });
+});
 
 describe('createAndOpenCalendarNote', () => {
   // Several cases drive the wait deadlines with fake timers. Restored here rather
