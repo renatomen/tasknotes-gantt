@@ -111,13 +111,11 @@ const EDITOR_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
   'text',
 ];
 
-/** The writability gates {@link editorForMappedField} decides against. */
 type MappedFieldWritability = Pick<
   CellEditorDeps,
   'statusWritable' | 'priorityWritable' | 'progressWritable' | 'estimateWritable'
 >;
 
-/** Map a matched mapped-field role to its editor descriptor, gated on writability. */
 function editorForMappedField(
   role: MappedFieldRole,
   writability: MappedFieldWritability,

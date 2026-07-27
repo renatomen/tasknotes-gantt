@@ -419,7 +419,7 @@ describe('buildTreatmentTaskTypes', () => {
 
   describe('crossGroupClassPairs — the ordered two-class pairing core', () => {
     it('pairs every class across distinct groups, in both orders, fill-major', () => {
-      expect(crossGroupClassPairs([['a'], ['x', 'y']])).toEqual([
+      expect([...crossGroupClassPairs([['a'], ['x', 'y']])]).toEqual([
         ['a', 'x'],
         ['a', 'y'],
         ['x', 'a'],
@@ -428,11 +428,11 @@ describe('buildTreatmentTaskTypes', () => {
     });
 
     it('never pairs classes drawn from the same group (including a class with itself)', () => {
-      expect(crossGroupClassPairs([['a', 'b']])).toEqual([]);
+      expect([...crossGroupClassPairs([['a', 'b']])]).toEqual([]);
     });
 
     it('spans every distinct group pair when there are more than two groups', () => {
-      const pairs = crossGroupClassPairs([['a'], ['b'], ['c']]);
+      const pairs = [...crossGroupClassPairs([['a'], ['b'], ['c']])];
       expect(pairs).toEqual([
         ['a', 'b'],
         ['a', 'c'],
@@ -444,7 +444,7 @@ describe('buildTreatmentTaskTypes', () => {
     });
 
     it('produces no pairs for empty input', () => {
-      expect(crossGroupClassPairs([])).toEqual([]);
+      expect([...crossGroupClassPairs([])]).toEqual([]);
     });
   });
 

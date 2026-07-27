@@ -439,24 +439,26 @@ export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string;
  * two statuses — is dead weight, and the calendar group makes that O(N^2) in the
  * calendar count; cross-group pairs keep it O(N).
  */
-export function crossGroupClassPairs(
+export function* crossGroupClassPairs(
   groups: ReadonlyArray<ReadonlyArray<string>>,
-): Array<[string, string]> {
-  return groups.flatMap((fillGroup) =>
-    groups
-      .filter((stripGroup) => stripGroup !== fillGroup)
-      .flatMap((stripGroup) => orderedClassPairs(fillGroup, stripGroup)),
-  );
+): Generator<[string, string]> {
+  for (const fillGroup of groups) {
+    for (const stripGroup of groups) {
+      if (stripGroup === fillGroup) continue;
+      yield* orderedClassPairs(fillGroup, stripGroup);
+    }
+  }
 }
 
-/** Every (fill, strip) pairing of two class groups, fill-major order. */
-function orderedClassPairs(
+function* orderedClassPairs(
   fills: ReadonlyArray<string>,
   strips: ReadonlyArray<string>,
-): Array<[string, string]> {
-  return fills.flatMap((fillClass) =>
-    strips.map((stripClass): [string, string] => [fillClass, stripClass]),
-  );
+): Generator<[string, string]> {
+  for (const fillClass of fills) {
+    for (const stripClass of strips) {
+      yield [fillClass, stripClass];
+    }
+  }
 }
 
 /**

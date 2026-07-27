@@ -132,7 +132,6 @@ const PATCH_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
   'estimate',
 ];
 
-/** Build the dedicated patch member for a matched mapped-field role. */
 function mappedFieldPatch(
   role: MappedFieldRole,
   propertyId: string,
@@ -173,7 +172,6 @@ function mappedFieldPatch(
   }
 }
 
-/** Throw the fail-closed refusal when a mapped field has no live write target. */
 function refuseUnlessWritable(writable: boolean, refusal: string): void {
   if (!writable) {
     throw new Error(refusal);
