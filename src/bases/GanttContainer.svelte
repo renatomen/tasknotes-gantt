@@ -125,7 +125,12 @@
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
   import type { DateStatus } from '../controller/datePolicy';
-  import { spanDaysToMinutes, inclusiveDaySpan } from '../controller/durationConversion';
+  import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
+  import {
+    planGestureCommit,
+    type CommitGesture, type PlannedPatch, type PlannerDerivation, type SourceEchoes,
+  } from './dragCommitPlanner';
+  import { createDragExecutor } from './dragExecutor';
   import { dlog } from '../debugLog';
 
   // The toggle handler our floating full-screen button invokes (wired as an
@@ -2069,45 +2074,68 @@
     }, 200); // Increased delay to ensure DOM is fully ready
   }
 
+  // Runs planner-built commit plans with per-source serialization; every echoed
+  // or reverted row goes through echoSourceGeometry under the echo-guard source.
+  const dragExecutor = createDragExecutor({
+    canWrite: () => !readOnly && !!onMutate && !!api,
+    isLive: () => !!api,
+    persist: (write) =>
+      onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
+    echo: echoSourceGeometry,
+    persistTimeoutMs: MUTATION_TIMEOUT_MS,
+  });
+
+  function plannedPatchToTaskPatch({ start, end, estimate, progress }: PlannedPatch): TaskPatch {
+    return {
+      ...(start !== undefined && { start }),
+      ...(end !== undefined && { end }),
+      ...(estimate !== undefined && { estimate }),
+      ...(progress !== undefined && { progress }),
+    };
+  }
+
+  /** The sole executor echo emitter: planned rows re-enter SVAR tagged as our own. */
+  function echoSourceGeometry(echoes: SourceEchoes): void {
+    if (!api) return;
+    for (const row of echoes.rows) {
+      const task =
+        row.payload.kind === 'progress'
+          ? { progress: row.payload.progress }
+          : { start: row.payload.geometry.start, end: row.payload.geometry.end };
+      api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
+    }
+  }
+
+  /** The derivation surface plans read; the write-path callbacks wire in with the gesture swap. */
+  function plannerDerivation(): PlannerDerivation {
+    return {
+      minutesToSpanDays,
+      spanDaysToMinutes,
+      inclusiveDaySpan,
+      defaultDurationDays: $data.defaultDurationDays,
+    };
+  }
+
   /**
-   * Persist a committed drag/resize for `instanceId` (U8). Reads the
-   * authoritative new dates from the SVAR store (the event payload is
-   * heterogeneous — diff-only on some gestures), resolves the source identity,
-   * optimistically mirrors the dates onto sibling instances of the same source
-   * so multi-parent rows never diverge (AE7), then persists via the controller.
-   * On failure (or timeout) every mirrored row — and the dragged row — reverts
-   * to its pre-drag dates and a Notice is shown.
+   * Persist a Property-mode progress-handle drag: one release = one planned,
+   * executor-run write. `beforeProgress` is captured synchronously in the
+   * intercept (pre-drag), so a data refresh landing before the deferred
+   * callback can't skew the plan's revert baseline.
    */
-  /**
-   * Persist a Property-mode progress-handle drag (U6). Fires on release only (the
-   * intercept discards `inProgress` frames), so one gesture = one write — no
-   * debounce. On failure, revert the bar's progress to the pre-drag value and
-   * notify. The controller resolves the write target and the source clamps/rounds.
-   */
-  async function persistProgress(
+  function persistProgress(
     instanceId: string,
     progress: number,
     beforeProgress: number,
   ): Promise<void> {
-    if (!onMutate || !api) return;
-    // `beforeProgress` is captured synchronously in the intercept (pre-drag),
-    // like persistReschedule's activeDrag capture — so a data refresh landing
-    // before this deferred callback can't skew the revert baseline.
-    // Progress is deliberately NOT mirrored onto multi-parent sibling rows the
-    // way persistReschedule mirrors dates: the source write triggers a refresh
-    // that reconciles every instance, and interim progress divergence is a
-    // transient visual-only effect (dates diverging mid-drag is far more jarring).
-    try {
-      await withTimeout(onMutate(instanceId, { progress }), MUTATION_TIMEOUT_MS);
-    } catch (err) {
-      console.error('[GanttContainer] progress persist failed:', err);
-      api.exec('update-task', {
-        id: instanceId,
-        task: { progress: beforeProgress },
-        eventSource: OG_ECHO_SOURCE,
-      });
-      new Notice("Couldn't save progress — check TaskNotes is running.");
-    }
+    const gesture: CommitGesture = { kind: 'progress', instanceId, progress, beforeProgress };
+    return dragExecutor.submit({
+      sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
+      plan: (choice) => planGestureCommit(gesture, instances, choice, plannerDerivation()),
+      onFailure: (err) => {
+        console.error('[GanttContainer] progress persist failed:', err);
+        new Notice("Couldn't save progress — check TaskNotes is running.");
+      },
+    });
   }
 
   /**
@@ -2302,6 +2330,15 @@
     }
   }
 
+  /**
+   * Persist a committed drag/resize for `instanceId`. Reads the authoritative
+   * new dates from the SVAR store (the event payload is heterogeneous —
+   * diff-only on some gestures), resolves the source identity, optimistically
+   * mirrors the dates onto sibling instances of the same source so
+   * multi-parent rows never diverge, then persists via the controller. On
+   * failure (or timeout) every mirrored row — and the dragged row — reverts
+   * to its pre-drag dates and a Notice is shown.
+   */
   // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
   async function persistReschedule(instanceId: string): Promise<void> {
     if (!onMutate || !api) return;
