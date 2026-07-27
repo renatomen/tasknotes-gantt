@@ -47,8 +47,10 @@ import {
   type PlannedPatch, type PlannerDerivation, type PlannerInstance, type PromptRequest,
 } from './dragCommitPlan';
 
+export { createDequeueBeforeRebase, type DequeueRebasedBefore } from './dragDequeueRebase';
+export { computeMoveDelta } from './cascadeGate';
 export {
-  createDequeueBeforeRebase, emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, verifyMirrorCoverage,
+  emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, pureMoveBefore, verifyMirrorCoverage,
   type BarBefore, type CascadeBefore, type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
   type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
   type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,

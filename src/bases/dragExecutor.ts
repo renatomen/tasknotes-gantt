@@ -39,11 +39,12 @@ import {
   type DragExecutorDeps,
   type MainGestureExecution,
 } from './dragExecutionLifecycle';
-import { createSettledFactsLedger } from './dragSettledFacts';
+import { createSettledFactsLedger, type RefreshGeneration } from './dragSettledFacts';
 import { createSourceQueues } from './dragSourceQueues';
 
 export type { CascadeAnswers, CascadeExecution, CascadePhase } from './dragCascadeLane';
 export type { DragExecutorDeps, PromptAnswer } from './dragExecutionLifecycle';
+export type { RefreshGeneration } from './dragSettledFacts';
 
 /** One submitted gesture, planned lazily so dequeue re-plans from current facts. */
 export interface PlannedExecution<Facts = undefined> extends MainGestureExecution<Facts> {
@@ -61,12 +62,40 @@ export interface DragExecutor {
    * until a genuine refresh — which then wins back automatically.
    */
   rebaseSettledFacts(sourcePath: string, live: BarBefore): BarBefore;
+  /**
+   * How many echoes this executor has emitted for the source. A gesture
+   * captures it at intercept and compares at dequeue: a moved count means
+   * another execution echoed the row in between (a predecessor's optimistic,
+   * settled, or reverted geometry) — its own echoes only ever land later. The
+   * dequeue rebase uses it to trust the live span even when a predecessor
+   * left the row EXACTLY at this gesture's target (a revert to A under a
+   * queued B→A), where span equality alone would misread it as the gesture's
+   * own optimistic position and baseline the failure revert at stale B.
+   */
+  echoSeqOf(sourcePath: string): number;
 }
 
-export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
+/** Deps plus the host's recompute counters (see {@link RefreshGeneration}). */
+export interface DragExecutorOptions extends DragExecutorDeps {
+  refreshGeneration?: () => RefreshGeneration;
+}
+
+export function createDragExecutor(options: DragExecutorOptions): DragExecutor {
+  const { refreshGeneration, ...bare } = options;
+  const echoSeq = new Map<string, number>();
+  const echoSeqOf = (sourcePath: string): number => echoSeq.get(sourcePath) ?? 0;
+  // Every echo emission ticks the per-source count BEFORE reaching the host —
+  // the moved-by-another-execution signal the dequeue rebase reads.
+  const deps: DragExecutorDeps = {
+    ...bare,
+    echo: (echoes) => {
+      echoSeq.set(echoes.sourcePath, echoSeqOf(echoes.sourcePath) + 1);
+      bare.echo(echoes);
+    },
+  };
   const queues = createSourceQueues();
   const clock = createGeometryClock();
-  const settledFacts = createSettledFactsLedger();
+  const settledFacts = createSettledFactsLedger(refreshGeneration);
   const lifecycle = createExecutionLifecycle(deps, (write) => {
     clock.recordSettledGeometry(write);
     settledFacts.recordSettled(write);
@@ -104,5 +133,5 @@ export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
     });
   }
 
-  return { submit, rebaseSettledFacts: settledFacts.rebase };
+  return { submit, rebaseSettledFacts: settledFacts.rebase, echoSeqOf };
 }

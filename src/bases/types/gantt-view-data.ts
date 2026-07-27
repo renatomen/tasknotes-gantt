@@ -111,6 +111,14 @@ export interface GanttData {
     estimateMinutes: number,
   ) => DerivedGeometry;
   /**
+   * The controller's recompute counters (started / delivered), the drag
+   * executor's refresh-generation signal: self-writes suppress recompute, so
+   * a moved counter proves a GENUINE vault re-read. The executor's settled-
+   * facts ledger records `started` when a write settles and drops its overlay
+   * once `delivered` passes it. Absent only when no controller is wired.
+   */
+  refreshGeneration?: () => { started: number; delivered: number };
+  /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
    * view applies SVAR `filter-tasks` to hide the also-top-level duplicate rows

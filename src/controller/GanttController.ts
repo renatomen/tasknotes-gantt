@@ -501,6 +501,13 @@ export class GanttController {
    * snapshot builds clobbering each other.
    */
   private recomputeSeq = 0;
+  /**
+   * Recomputes whose snapshot was ASSIGNED (delivered to readers), even when
+   * the change gate skipped notify. Paired with {@link recomputeSeq} as the
+   * drag executor's refresh-generation signal ({@link recomputeGeneration}):
+   * our own mutation events suppress recompute, so only genuine re-reads tick.
+   */
+  private deliveredRecomputeSeq = 0;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
@@ -742,6 +749,18 @@ export class GanttController {
   public async getInstances(): Promise<RenderInstance[]> {
     const snap = await this.ensureSnapshot();
     return [...snap.expansion.instances];
+  }
+
+  /**
+   * The recompute counters the drag executor's settled-facts ledger keys its
+   * invalidation on: recomputes `started` (captured at write settle) and
+   * snapshots `delivered` (compared at read). Our own mutation events suppress
+   * recompute entirely, so only a genuine vault re-read moves either counter —
+   * and only a re-read that STARTED after a write settled can prove the rows
+   * carry post-write truth (a straddling recompute may have read pre-write).
+   */
+  public recomputeGeneration(): { started: number; delivered: number } {
+    return { started: this.recomputeSeq, delivered: this.deliveredRecomputeSeq };
   }
 
   /**
@@ -1496,6 +1515,7 @@ export class GanttController {
     // counter the storm/loop e2es read to detect an unbounded notify loop.
     dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
+    this.deliveredRecomputeSeq = seq;
     // Commit the readiness signal AFTER the latest-wins guard above (U1): a
     // discarded stale build returns early before this line, so a slow re-check
     // resolving last can never overwrite a newer build's readiness (R13).

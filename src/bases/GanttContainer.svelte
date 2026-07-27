@@ -115,8 +115,8 @@
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
   import {
     createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
-    type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch, type PlannerDerivation,
-    type PromptRequest, type SourceEchoes,
+    pureMoveBefore, type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch,
+    type PlannerDerivation, type PromptRequest, type SourceEchoes,
   } from './dragCommitPlanner';
   import { createDragExecutor, type CascadePhase, type PromptAnswer } from './dragExecutor';
   import { dlog } from '../debugLog';
@@ -2053,8 +2053,8 @@
     }, 200); // Increased delay to ensure DOM is fully ready
   }
 
-  // Runs planner-built commit plans with per-source serialization; every echoed
-  // or reverted row goes through echoSourceGeometry under the echo-guard source.
+  // Runs planner-built commit plans with per-source serialization; every
+  // echoed or reverted row goes through echoSourceGeometry (echo-guard source).
   const dragExecutor = createDragExecutor({
     canWrite: () => !destroyed && !readOnly && !!onMutate && !!api,
     isLive: () => !destroyed && !!api,
@@ -2064,15 +2064,14 @@
     echo: echoSourceGeometry,
     resolvePrompt,
     persistTimeoutMs: MUTATION_TIMEOUT_MS,
+    refreshGeneration: () => $data.refreshGeneration?.() ?? { started: 0, delivered: 0 },
   });
 
   /**
    * The executor's prompt seam: each PromptRequest kind opens its modal and
-   * returns the collected answer. Prompt side-effects live here, read directly
-   * off the modal result — the "don't ask again" mode persist needs no
-   * compensation on a later failed write: the stored mode stays `ask` only if
-   * the persist callback itself fails, and the next gesture's config read then
-   * prompts again, honestly.
+   * returns the collected answer. Prompt side-effects live here, read directly off
+   * the modal result — the "don't ask again" mode persist needs no failed-write
+   * compensation: it stays `ask` only if the persist itself fails, then asks again.
    */
   async function resolvePrompt(prompt: PromptRequest): Promise<PromptAnswer | null> {
     if (prompt.kind === 'inferred-drag') {
@@ -2125,9 +2124,9 @@
     extend: "Couldn't update a parent date — check TaskNotes is running.",
   };
 
-  /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span
-   *  turns a revert drag into a silent no-op plan); dateStatus/estimate from the
-   *  snapshot, rebased over the executor's settled-facts ledger (self-writes skip recompute). */
+  /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span turns a
+   *  revert drag into a no-op plan); dateStatus/estimate from the snapshot, rebased over
+   *  the executor's settled-facts ledger (self-writes skip recompute). */
   function captureBarBefore(id: string, before: (typeof instances)[number] | undefined) {
     const grabbed = api.getTask?.(id);
     return dragExecutor.rebaseSettledFacts(before?.sourcePath ?? id, {
@@ -2141,8 +2140,7 @@
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
    * cascade included. Both spans read the SVAR store (the event payload is
-   * diff-only): `after` one tick post-commit, `before` at intercept capture,
-   * rebased at dequeue when a predecessor's settle/revert moved the row.
+   * diff-only): `after` one tick post-commit, `before` at intercept capture.
    */
   function submitBarGesture(args: { instanceId: string; name: string; before: BarBefore }): void {
     const { instanceId, name, before } = args;
@@ -2150,22 +2148,24 @@
     const moved = api.getState().tasks.byId(instanceId);
     if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
     const after: DateRange = { start: moved.start, end: moved.end };
-    // Read at gesture time: a persisted "don't ask again" choice is
-    // synchronously readable, so it applies from the very next drag.
+    // Read at gesture time: a persisted "don't ask again" choice applies from the next drag.
     const inferredDragMode = $data.getInferredDragMode();
-    // The `before` capture rebases once at dequeue (the first snapshot call):
-    // the span only when another gesture moved the row; the authored facts
-    // always, since a settled predecessor write may have changed them.
-    const rebase = createDequeueBeforeRebase(before, after, () =>
-      captureBarBefore(instanceId, instances.find((i) => i.id === instanceId)),
-    );
+    const sourcePath = instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId;
+    const echoSeqAtCapture = dragExecutor.echoSeqOf(sourcePath);
+    // Rebases once at dequeue: the span when a predecessor's echo moved the row
+    // (even to exactly `after`); the authored facts always.
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: before, after,
+      readLive: () => captureBarBefore(instanceId, instances.find((i) => i.id === instanceId)),
+      movedByPredecessor: () => dragExecutor.echoSeqOf(sourcePath) !== echoSeqAtCapture,
+    });
     const gesture = (): CommitGesture => ({
       kind: 'bar', instanceId, before: rebase.before(), after,
       estimateWritable: timeEstimateWriteEnabled && !readOnly, inferredDragMode,
     });
     const memo: DerivationMemo = new Map();
     void dragExecutor.submit({
-      sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
+      sourcePath,
       snapshot: () => {
         rebase.atDequeue();
         return overlayStoreGeometry(instances, (id) => api?.getTask?.(id), instanceId);
@@ -2176,7 +2176,8 @@
         new Notice("Couldn't save date change — check TaskNotes is running.");
       },
       cascade: {
-        get before() { return rebase.before(); },
+        // Pure moves only: a halted resize owes its subtree no displacement.
+        get before() { return pureMoveBefore(rebase.before(), after); },
         plan: (settlement, answers, snapshot, laneBefore) =>
           planCascade(
             { instanceId, name, before: laneBefore ?? rebase.before(), after, settlement },
@@ -2226,8 +2227,7 @@
   /**
    * Persist a Property-mode progress-handle drag: one release = one planned,
    * executor-run write. `beforeProgress` is captured synchronously in the
-   * intercept (pre-drag), so a data refresh landing before the deferred
-   * callback can't skew the plan's revert baseline.
+   * intercept (pre-drag), so a late data refresh can't skew the revert baseline.
    */
   function persistProgress(
     instanceId: string,

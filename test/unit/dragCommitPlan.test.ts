@@ -6,11 +6,12 @@
  */
 import { describe, it, expect } from '@jest/globals';
 import {
-  createDequeueBeforeRebase,
   overlayStoreGeometry,
+  pureMoveBefore,
   type BarBefore,
   type PlannerInstance,
 } from '../../src/bases/dragCommitPlan';
+import { createDequeueBeforeRebase } from '../../src/bases/dragDequeueRebase';
 import { planCascade, planGestureCommit, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
 import {
   inclusiveDaySpan,
@@ -153,7 +154,7 @@ describe('createDequeueBeforeRebase', () => {
 
   it('keeps the gesture-time SPAN while the live row still holds this gesture\'s own post-drag span, yet re-reads the authored facts', () => {
     const live: BarBefore = { ...after, dateStatus: 'complete', estimateMinutes: 960 };
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => live);
+    const rebase = createDequeueBeforeRebase({ gestureBefore: gestureBefore(), after, readLive: () => live });
 
     rebase.atDequeue();
 
@@ -165,6 +166,43 @@ describe('createDequeueBeforeRebase', () => {
     });
   });
 
+  it("trusts the live span over the equality guard when a predecessor's echo moved the row to exactly this gesture's target", () => {
+    // Drag A→B fails and reverts the row to A while this queued B→A gesture
+    // waits: the live row equals the gesture's own `after`, so span equality
+    // alone would keep the stale B capture and baseline a failure revert at B
+    // though the vault is at A. The predecessor-echo signal breaks the tie.
+    const revertedToA: BarBefore = {
+      start: after.start,
+      end: after.end,
+      dateStatus: 'complete',
+      estimateMinutes: 960,
+    };
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: gestureBefore(),
+      after,
+      readLive: () => revertedToA,
+      movedByPredecessor: () => true,
+    });
+
+    rebase.atDequeue();
+
+    expect(rebase.before()).toEqual(revertedToA);
+  });
+
+  it('still keeps the gesture-time span at its own target when no predecessor echoed the source', () => {
+    const live: BarBefore = { ...after, dateStatus: 'complete', estimateMinutes: 960 };
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: gestureBefore(),
+      after,
+      readLive: () => live,
+      movedByPredecessor: () => false,
+    });
+
+    rebase.atDequeue();
+
+    expect(rebase.before()).toEqual({ ...gestureBefore(), dateStatus: 'complete', estimateMinutes: 960 });
+  });
+
   it('rebases the span from a live row someone else moved, facts included', () => {
     const settled: BarBefore = {
       start: day('2026-08-01'),
@@ -172,7 +210,7 @@ describe('createDequeueBeforeRebase', () => {
       dateStatus: 'complete',
       estimateMinutes: 960,
     };
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => settled);
+    const rebase = createDequeueBeforeRebase({ gestureBefore: gestureBefore(), after, readLive: () => settled });
 
     rebase.atDequeue();
 
@@ -186,7 +224,7 @@ describe('createDequeueBeforeRebase', () => {
       dateStatus: 'inferred-end',
       estimateMinutes: 480,
     };
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ ...live }));
+    const rebase = createDequeueBeforeRebase({ gestureBefore: gestureBefore(), after, readLive: () => ({ ...live }) });
 
     rebase.atDequeue();
     const first = rebase.before();
@@ -199,12 +237,11 @@ describe('createDequeueBeforeRebase', () => {
   });
 
   it('keeps the gesture-time span when the live read answers without Dates, still refreshing non-null facts', () => {
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({
-      start: null,
-      end: null,
-      dateStatus: null,
-      estimateMinutes: 960,
-    }));
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: gestureBefore(),
+      after,
+      readLive: () => ({ start: null, end: null, dateStatus: null, estimateMinutes: 960 }),
+    });
 
     rebase.atDequeue();
 
@@ -212,8 +249,12 @@ describe('createDequeueBeforeRebase', () => {
   });
 
   it('is untouched before the dequeue mark: the gesture-time capture is the effective one', () => {
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => {
-      throw new Error('must not read the live row before dequeue');
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: gestureBefore(),
+      after,
+      readLive: () => {
+        throw new Error('must not read the live row before dequeue');
+      },
     });
 
     expect(rebase.before()).toEqual(gestureBefore());
@@ -249,7 +290,7 @@ describe('createDequeueBeforeRebase', () => {
         estimateWritable: true,
         inferredDragMode: 'estimate-only',
       }) as const;
-    const rebase = createDequeueBeforeRebase(staleCapture, threeDaySpan, () => settledFacts);
+    const rebase = createDequeueBeforeRebase({ gestureBefore: staleCapture, after: threeDaySpan, readLive: () => settledFacts });
 
     rebase.atDequeue();
     const plan = planGestureCommit(gestureOf(rebase.before()), instances, undefined, derivation);
@@ -261,5 +302,33 @@ describe('createDequeueBeforeRebase', () => {
     // The unrebased capture writes nothing: 3 derived days match its stale
     // 3-day estimate, leaving the note at 5 days while the bar echoes 3.
     expect(stalePlan.writes).toEqual([]);
+  });
+});
+
+describe('pureMoveBefore', () => {
+  const before = (startIso: string, endIso: string): BarBefore => ({
+    start: day(startIso),
+    end: dayEnd(endIso),
+    dateStatus: 'complete',
+    estimateMinutes: null,
+  });
+
+  it('hands the cascade its origin for a pure move (both edges shifted equally)', () => {
+    const b = before('2026-08-03', '2026-08-04');
+    const after = { start: day('2026-08-06'), end: dayEnd('2026-08-07') };
+    expect(pureMoveBefore(b, after)).toBe(b);
+  });
+
+  it('opts a resize out of origin inheritance: a halted resize owes no displacement', () => {
+    const b = before('2026-08-03', '2026-08-04');
+    const resize = { start: day('2026-08-03'), end: dayEnd('2026-08-06') };
+    expect(pureMoveBefore(b, resize)).toBeUndefined();
+  });
+
+  it('opts an unmoved gesture and a span-less placeholder out too', () => {
+    const b = before('2026-08-03', '2026-08-04');
+    expect(pureMoveBefore(b, { start: b.start as Date, end: b.end as Date })).toBeUndefined();
+    const dateless: BarBefore = { start: null, end: null, dateStatus: null, estimateMinutes: null };
+    expect(pureMoveBefore(dateless, { start: day('2026-08-06'), end: dayEnd('2026-08-07') })).toBeUndefined();
   });
 });

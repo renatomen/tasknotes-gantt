@@ -14,8 +14,8 @@ import {
   type CascadePhase,
   type PromptAnswer,
 } from '../../src/bases/dragExecutor';
+import { createDequeueBeforeRebase } from '../../src/bases/dragDequeueRebase';
 import {
-  createDequeueBeforeRebase,
   type BarBefore,
   type GestureChoice,
   type GesturePlan,
@@ -188,7 +188,7 @@ describe('createDragExecutor', () => {
     });
     await flushMicrotasks(); // A→B echoed optimistically; its persist is in flight
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
-    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => beforeOf(store.span));
+    const rebase = createDequeueBeforeRebase({ gestureBefore: beforeOf(spanB), after: spanC, readLive: () => beforeOf(store.span) });
     let queuedPlan: GesturePlan | null = null;
     const second = executor.submit({
       sourcePath: 'a.md',
@@ -216,6 +216,61 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'plain' }]);
   });
 
+  it("classifies a queued B→A behind a failing A→B as a no-op: the predecessor's revert to A is not this gesture's own optimistic position", async () => {
+    const kit = barGestureKit();
+    const { spanA, spanB, store, beforeOf, barPlan, rowOf } = kit;
+    const gate = deferred();
+    const h: Harness = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.patch.start?.getDate()}-${write.patch.end?.getDate()}`);
+        return write.patch.start === spanB.start
+          ? gate.promise.then(() => Promise.reject(new Error('save failed')))
+          : Promise.resolve();
+      },
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: rowOf,
+      plan: (choice, snapshot) => barPlan(beforeOf(spanA), spanB, snapshot, choice),
+    });
+    await flushMicrotasks(); // A→B echoed optimistically; its persist is in flight
+    // The user drags the echoed bar straight back B→A; SVAR applies it. The
+    // gesture's own `after` now EQUALS where the predecessor's revert will put
+    // the row — span equality alone cannot tell those apart.
+    const echoSeqAtCapture = executor.echoSeqOf('a.md');
+    store.span = { ...spanA };
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: beforeOf(spanB),
+      after: spanA,
+      readLive: () => beforeOf(store.span),
+      movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
+    });
+    let queuedPlan: GesturePlan | null = null;
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => {
+        queuedPlan = barPlan(rebase.before(), spanA, snapshot, choice);
+        return queuedPlan;
+      },
+    });
+    gate.resolve(); // the first write fails; its revert echoes the row back to A
+    await Promise.all([first, second]);
+
+    // The rebase trusted the live row (vault truth A), so the queued gesture is
+    // a no-op — no write, and no stale B-baselined revert waiting to misfire.
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4']);
+    expect(queuedPlan?.writes).toEqual([]);
+    expect(queuedPlan?.reverts).toEqual([]);
+    expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'no-cascade' }]);
+  });
+
   it("keeps a queued gesture's `before` when the predecessor SUCCEEDED: the row still holds this gesture's own drag, so B→C stays B→C", async () => {
     const kit = barGestureKit();
     const { spanA, spanB, spanC, store, beforeOf, barPlan, rowOf } = kit;
@@ -236,7 +291,7 @@ describe('createDragExecutor', () => {
     });
     await flushMicrotasks();
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
-    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => beforeOf(store.span));
+    const rebase = createDequeueBeforeRebase({ gestureBefore: beforeOf(spanB), after: spanC, readLive: () => beforeOf(store.span) });
     let queuedPlan: GesturePlan | null = null;
     const second = executor.submit({
       sourcePath: 'a.md',
@@ -304,7 +359,7 @@ describe('createDragExecutor', () => {
     await flushMicrotasks(); // 2→4 echoed; its persist (dates + 4-day estimate) is in flight
     const before2 = captureLive(); // intercept capture: the echoed 4-day bar, frozen 2-day estimate
     store.span = { ...span2 }; // the user resizes straight back; SVAR applies 4→2
-    const rebase = createDequeueBeforeRebase(before2, span2, captureLive);
+    const rebase = createDequeueBeforeRebase({ gestureBefore: before2, after: span2, readLive: captureLive });
     const second = executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {

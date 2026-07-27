@@ -4,7 +4,7 @@
  * moment a genuine refresh moves the row.
  */
 import { describe, it, expect } from '@jest/globals';
-import { createSettledFactsLedger } from '../../src/bases/dragSettledFacts';
+import { createSettledFactsLedger, type RefreshGeneration } from '../../src/bases/dragSettledFacts';
 import type { BarBefore } from '../../src/bases/dragCommitPlan';
 
 const SRC = 'notes/T.md';
@@ -69,6 +69,38 @@ describe('createSettledFactsLedger', () => {
 
     expect(ledger.rebase(SRC, live())).toEqual(live());
     expect(ledger.rebase('notes/other.md', live())).toEqual(live());
+  });
+
+  it('drops the entry once a refresh that STARTED after the settle delivers, even when it restored the exact pre-write value (ABA)', () => {
+    const generation: RefreshGeneration = { started: 4, delivered: 4 };
+    const ledger = createSettledFactsLedger(() => ({ ...generation }));
+    ledger.rebase(SRC, live()); // pre-write baseline: 960
+    ledger.recordSettled(write({ start: span.start, end: span.end, estimate: 1920 }));
+
+    // An external edit puts the vault back at 960; its refresh (started after
+    // the settle) delivers the OLD value — equal to the baseline, invisible to
+    // a value compare. The generation proves the row is vault truth: row wins.
+    generation.started = 5;
+    generation.delivered = 5;
+    expect(ledger.rebase(SRC, live({ estimateMinutes: 960 })).estimateMinutes).toBe(960);
+    // Dropped for good: a later read gets the row, not a resurrected overlay.
+    expect(ledger.rebase(SRC, live({ estimateMinutes: 960 })).estimateMinutes).toBe(960);
+  });
+
+  it('keeps the overlay across a STRADDLING recompute: one started before the settle may deliver pre-write facts', () => {
+    const generation: RefreshGeneration = { started: 5, delivered: 4 }; // recompute 5 in flight
+    const ledger = createSettledFactsLedger(() => ({ ...generation }));
+    ledger.rebase(SRC, live());
+    ledger.recordSettled(write({ start: span.start, end: span.end, estimate: 1920 }));
+
+    // Recompute 5 (a vault read possibly older than our write) delivers: its
+    // seq does not exceed the settle capture, so the ledger still wins.
+    generation.delivered = 5;
+    expect(ledger.rebase(SRC, live()).estimateMinutes).toBe(1920);
+    // Only a recompute STARTED after the settle clears it.
+    generation.started = 6;
+    generation.delivered = 6;
+    expect(ledger.rebase(SRC, live()).estimateMinutes).toBe(960);
   });
 
   it('a source never read through the rebase (a cascade-written child) drops once the row reflects the settled facts', () => {

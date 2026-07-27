@@ -9,15 +9,24 @@
  * predecessor's). The ledger overlays the settled facts at dequeue, winning
  * only until a real refresh moves the row.
  *
- * Invalidation: an entry captures the live facts last seen BEFORE its write
- * settled (the write's own plan read them at dequeue). Self-write suppression
- * means only a genuine refresh can move the row afterwards — and any genuine
- * refresh re-reads the vault, which contains the settled write plus whatever
- * external edit triggered it. So a live read that differs from that baseline
- * proves a refresh delivered fresher facts than the ledger's: the entry drops
- * and the row wins. A live read equal to the baseline is still pre-refresh:
- * the ledger wins. An entry with no baseline (a cascade-written source never
- * read through the rebase) drops as soon as the row reflects its facts.
+ * Invalidation, strongest signal first:
+ *
+ * - **Refresh generation.** An entry captures the recompute generation
+ *   STARTED at its write's settle; a read that observes a DELIVERED
+ *   generation beyond it proves a vault re-read that began after the write
+ *   landed has reached the rows — the row is vault truth even when its value
+ *   equals the pre-write baseline (an external edit restored the old value:
+ *   the ABA a value compare cannot see). A recompute that merely straddled
+ *   the write (started before it landed) never clears the captured
+ *   generation, so its possibly-pre-write delivery keeps the ledger's answer.
+ * - **Baseline compare.** An entry also captures the live facts last seen
+ *   BEFORE its write settled (the write's own plan read them at dequeue).
+ *   Self-write suppression means only a genuine refresh can move the row, and
+ *   any genuine refresh re-reads the vault — so a live read that differs from
+ *   that baseline proves fresher facts: the entry drops and the row wins. A
+ *   live read equal to the baseline is still pre-refresh (generation aside):
+ *   the ledger wins. An entry with no baseline (a cascade-written source never
+ *   read through the rebase) drops as soon as the row reflects its facts.
  *
  * Dependency-free (no Obsidian/Svelte/SVAR), mirroring {@link ./dragCommitPlanner}.
  *
@@ -39,6 +48,18 @@ interface AuthoredFactsSnapshot {
   dateStatus: DateStatus | null;
 }
 
+/**
+ * The host's recompute counters (self-writes are suppressed and never tick):
+ * `started` counts recomputes begun, `delivered` counts snapshots that reached
+ * the rows. An entry stores `started` at settle and drops once `delivered`
+ * passes it — only a re-read that BEGAN after the write landed can prove the
+ * rows carry post-write vault truth. Absent = value comparison alone decides.
+ */
+export interface RefreshGeneration {
+  started: number;
+  delivered: number;
+}
+
 export interface SettledFactsLedger {
   /** Fold one successfully settled write's implied authored facts in. */
   recordSettled(write: PlannedWrite): void;
@@ -46,10 +67,14 @@ export interface SettledFactsLedger {
   rebase(sourcePath: string, live: BarBefore): BarBefore;
 }
 
-export function createSettledFactsLedger(): SettledFactsLedger {
+export function createSettledFactsLedger(
+  refreshGeneration?: () => RefreshGeneration,
+): SettledFactsLedger {
   interface LedgerEntry {
     facts: SettledAuthoredFacts;
     baseline: AuthoredFactsSnapshot | null;
+    /** Recomputes STARTED when the write settled; undefined = no signal wired. */
+    generation?: number;
   }
   const entries = new Map<string, LedgerEntry>();
   const lastSeen = new Map<string, AuthoredFactsSnapshot>();
@@ -59,6 +84,7 @@ export function createSettledFactsLedger(): SettledFactsLedger {
     if (start === undefined && end === undefined && estimate === undefined) return;
     const source = write.sourcePath;
     const entry = entries.get(source) ?? { facts: {}, baseline: lastSeen.get(source) ?? null };
+    entry.generation = refreshGeneration?.().started;
     if (estimate !== undefined) entry.facts.estimateMinutes = estimate;
     const prior = entry.facts.dateStatus ?? lastSeen.get(source)?.dateStatus ?? null;
     const status = settledDateStatus(prior, write.patch);
@@ -88,9 +114,12 @@ export function createSettledFactsLedger(): SettledFactsLedger {
   }
 
   function refreshDelivered(
-    entry: { facts: SettledAuthoredFacts; baseline: AuthoredFactsSnapshot | null },
+    entry: { facts: SettledAuthoredFacts; baseline: AuthoredFactsSnapshot | null; generation?: number },
     live: AuthoredFactsSnapshot,
   ): boolean {
+    if (entry.generation !== undefined && refreshGeneration) {
+      if (refreshGeneration().delivered > entry.generation) return true;
+    }
     if (entry.baseline) {
       return (
         live.estimateMinutes !== entry.baseline.estimateMinutes ||

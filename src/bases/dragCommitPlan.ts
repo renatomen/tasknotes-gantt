@@ -20,7 +20,7 @@
 import type { DerivedEstimate, DerivedGeometry } from '../controller/calendar/derivation';
 import type { DateStatus } from '../controller/datePolicy';
 import type { InferredDragAction, InferredDragMode, InferredEdge } from './inferredDragGate';
-import type { AncestorExtension, DateRange } from './cascadeGate';
+import { computeMoveDelta, type AncestorExtension, type DateRange } from './cascadeGate';
 
 /** The pre-drag bar capture: the SPAN plus frontmatter-derived facts. */
 export interface BarBefore {
@@ -377,45 +377,16 @@ export function overlayStoreGeometry<Row extends { id: string; start: Date | nul
 }
 
 /**
- * The gesture's `before` capture, rebased ONCE at dequeue. A queued gesture
- * captured its `before` from the predecessor's optimistic position; planning
- * from that stale span misreads the no-op/edge classification and baselines
- * reverts where the row no longer sits. The live row normally holds THIS
- * gesture's own post-drag span, so only a span someone ELSE left behind
- * rebases the capture — but the authored facts (dateStatus, estimate) re-read
- * unconditionally, since a predecessor's settled write can have materialised
- * an edge or changed the estimate even when the span guard skips; the stale
- * copy would suppress the write that undoes it. Null live facts fall back.
+ * The gesture's `before`, only when the gesture is a PURE MOVE of the span —
+ * the one gesture kind owing its subtree a displacement. A resize (or a
+ * placeholder with no span) hands the cascade lane no origin, opting out of
+ * origin inheritance: a halted resize has nothing to owe, and a stashed
+ * resize shape would make a later move read as unequal edge deltas — not a
+ * move at all — and drop the children's shift.
  */
-export interface DequeueRebasedBefore {
-  /** The effective capture: gesture-time until dequeue, rebased after it. */
-  before(): BarBefore;
-  /** Mark the dequeue moment; the FIRST call rebases, later calls are no-ops. */
-  atDequeue(): void;
-}
-
-export function createDequeueBeforeRebase(
-  gestureBefore: BarBefore,
-  after: DateRange,
-  readLive: () => BarBefore,
-): DequeueRebasedBefore {
-  let effective = gestureBefore;
-  let dequeued = false;
-  return {
-    before: () => effective,
-    atDequeue() {
-      if (dequeued) return;
-      dequeued = true;
-      const live = readLive();
-      const holdsOwnDrag =
-        live.start?.getTime() === after.start.getTime() &&
-        live.end?.getTime() === after.end.getTime();
-      const { start, end } = live.start && live.end && !holdsOwnDrag ? live : gestureBefore;
-      const dateStatus = live.dateStatus ?? gestureBefore.dateStatus;
-      const estimateMinutes = live.estimateMinutes ?? gestureBefore.estimateMinutes;
-      effective = { start, end, dateStatus, estimateMinutes };
-    },
-  };
+export function pureMoveBefore(before: BarBefore, after: DateRange): CascadeBefore | undefined {
+  const moves = computeMoveDelta(before.start, before.end, after.start, after.end) !== 0;
+  return moves ? before : undefined;
 }
 
 export function plainGeometry(span: DateRange): DerivedGeometry {
