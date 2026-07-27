@@ -42,11 +42,22 @@ export type CommitGesture =
     }
   | { kind: 'progress'; instanceId: string; progress: number; beforeProgress: number };
 
+/**
+ * The pre-drag capture a cascade measures its displacement from. Under
+ * supersession-inherits-origin (the lane's stash) this can be an EARLIER
+ * gesture's capture, so the subtree move covers the cumulative displacement.
+ */
+export interface CascadeBefore {
+  start: Date | null;
+  end: Date | null;
+  estimateMinutes: number | null;
+}
+
 /** The settled gesture the cascade pass plans from (post-settlement store facts). */
 export interface CascadeOutcome {
   instanceId: string;
   name: string;
-  before: { start: Date | null; end: Date | null; estimateMinutes: number | null };
+  before: CascadeBefore;
   after: DateRange;
   settlement: GestureSettlement;
 }
@@ -389,6 +400,34 @@ export function sourceEchoes(
       instanceId: i.id,
       payload: { kind: 'geometry', geometry },
     })),
+  };
+}
+
+/**
+ * The main gesture's failure/cancel baseline. Sibling rows restore their own
+ * snapshot geometry, but the DRAGGED row restores the gesture's live-captured
+ * pre-drag span (rendered as the authority's full geometry): its snapshot row
+ * is deliberately excluded from the store-geometry overlay, so under stacked
+ * drags it can still hold a prior drag's pre-echo span — reverting to that
+ * would snap the bar back past the previous drag's settled write.
+ */
+export function gestureRestoreEchoes(
+  gesture: { instanceId: string; before: { start: Date | null; end: Date | null } },
+  sourcePath: string,
+  instances: ReadonlyArray<PlannerInstance>,
+  derivation: PlannerDerivation,
+): SourceEchoes {
+  const { start, end } = gesture.before;
+  const restored = restoreEchoes(sourcePath, instances);
+  if (!start || !end) return restored;
+  const geometry = echoGeometryFor(derivation, sourcePath, { start, end });
+  return {
+    sourcePath,
+    rows: restored.rows.map((row) =>
+      row.instanceId === gesture.instanceId
+        ? { ...row, payload: { kind: 'geometry', geometry } }
+        : row,
+    ),
   };
 }
 

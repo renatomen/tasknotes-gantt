@@ -40,8 +40,8 @@ import {
   normalizeCascadeMode, type DateRange, type SubtreeShift,
 } from './cascadeGate';
 import {
-  echoGeometryFor, emptyPlan, persistedMovedRange, plainGeometry, restoreEchoes, sourceEchoes,
-  sourcePathOf,
+  echoGeometryFor, emptyPlan, gestureRestoreEchoes, persistedMovedRange, plainGeometry,
+  restoreEchoes, sourceEchoes, sourcePathOf,
   type CascadeChoices, type CascadeOutcome, type CommitGesture, type GestureChoice,
   type GesturePlan, type GestureSettlement, type InferredGestureOutcome, type Plan,
   type PlannedPatch, type PlannerDerivation, type PlannerInstance, type PromptRequest,
@@ -49,7 +49,7 @@ import {
 
 export {
   emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, verifyMirrorCoverage,
-  type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
+  type CascadeBefore, type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
   type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
   type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,
   type PlannedPatch, type PlannedWrite, type PlannerDerivation, type PlannerInstance,
@@ -162,7 +162,7 @@ interface InferredCommitArgs {
 
 /** The inferred-edge gate; null when it does not engage (default commit applies). */
 function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
-  const { gesture, instances, choice, sourcePath, estimate } = args;
+  const { gesture, instances, choice, derivation, sourcePath, estimate } = args;
   const inferredEdge = resolveInferredEdge(args.draggedEdge, gesture.before.dateStatus ?? 'complete');
   const outcome = resolveInferredDragOutcome({
     inferredEdge,
@@ -173,7 +173,7 @@ function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
   if (outcome === 'prompt' && choice === undefined) return promptingPlan(args);
   if (outcome === 'prompt' && choice === null) {
     // Cancel restores every row of the source to its pre-drag geometry; nothing writes.
-    return gesturePlan({ echoes: [restoreEchoes(sourcePath, instances)] }, ABORTED);
+    return gesturePlan({ echoes: [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)] }, ABORTED);
   }
   const action: InferredDragAction =
     outcome === 'prompt' && choice ? choice.action : (outcome as InferredDragAction);
@@ -198,7 +198,7 @@ function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
     {
       writes: hasWrite ? [{ sourcePath, instanceId: gesture.instanceId, patch }] : [],
       echoes: [sourceEchoes(sourcePath, instances, inferredCommitGeometry(args, settled))],
-      reverts: hasWrite ? [restoreEchoes(sourcePath, instances)] : [],
+      reverts: hasWrite ? [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)] : [],
     },
     { kind: 'inferred', outcome: settled },
     ABORTED,
@@ -248,7 +248,7 @@ function planDefaultCommit(
     {
       writes: [{ sourcePath, instanceId: gesture.instanceId, patch }],
       echoes: [sourceEchoes(sourcePath, instances, echoGeometryFor(derivation, sourcePath, gesture.after))],
-      reverts: [restoreEchoes(sourcePath, instances)],
+      reverts: [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)],
     },
     PLAIN,
     ABORTED,

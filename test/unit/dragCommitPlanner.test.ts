@@ -1144,12 +1144,15 @@ describe('named rows', () => {
     expect(isEmptyPlan(plan)).toBe(false);
     expect(plan.writes[0]?.patch.start).toEqual(spanA.start);
     expect(plan.writes[0]?.patch.end).toEqual(spanA.end);
-    // The revert baseline stays on CONTROLLER facts (`instances` = A): a failed
-    // persist leaves the note untouched, so a refresh re-derives A — never the
-    // first gesture's optimistic B, which its own persist may yet fail.
+    // The DRAGGED row's revert baseline is the live-captured `before` (B): the
+    // controller row still holds A only because self-write echoes skip
+    // recomputation, and the snapshot overlay deliberately excludes the dragged
+    // row — reverting to A would snap the bar back past the first drag's
+    // settled write. If that first persist itself failed, its own revert and
+    // the eventual refresh re-derive the note's truth either way.
     expect(plan.reverts[0]?.rows[0]?.payload).toEqual({
       kind: 'geometry',
-      geometry: { start: spanA.start, end: spanA.end, flagged: false, ghostRuns: [] },
+      geometry: { start: spanB.start, end: spanB.end, flagged: false, ghostRuns: [] },
     });
     // A STALE capture (before read from `instances` = A) is exactly the silent-
     // divergence bug this pins: before == after collapses to the empty plan.
@@ -1160,6 +1163,35 @@ describe('named rows', () => {
       derivation(),
     );
     expect(isEmptyPlan(staleCapture)).toBe(true);
+  });
+
+  it("stacked drags: cancelling the second drag reverts the dragged bar to the FIRST drag's settled span, siblings to their snapshot", () => {
+    // Drag 1 (A→B) settled; the snapshot still holds A for the dragged row
+    // (excluded from the store overlay). Cancelling drag 2 (B→C) must restore
+    // the live-captured B — never the pre-first-drag A.
+    const fixture = buildFixture('leaf', 2);
+    const spanB = { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) };
+    const gesture: CommitGesture = {
+      kind: 'bar',
+      instanceId: fixture.draggedId,
+      before: { ...spanB, dateStatus: 'inferred-end', estimateMinutes: STORED_ESTIMATE },
+      after: { start: spanB.start, end: addDays(spanB.end, 2) },
+      estimateWritable: true,
+      inferredDragMode: 'ask',
+    };
+    const plan = planGestureCommit(gesture, fixture.instances, null, derivation());
+    expect(plan.settlement.onSuccess.kind).toBe('aborted');
+    const rows = plan.echoes[0]?.rows ?? [];
+    const dragged = rows.find((r) => r.instanceId === fixture.draggedId);
+    const sibling = rows.find((r) => r.instanceId !== fixture.draggedId);
+    expect(dragged?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: spanB.start, end: spanB.end, flagged: false, ghostRuns: [] },
+    });
+    expect(sibling?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: BEFORE.start, end: BEFORE.end, flagged: false, ghostRuns: [] },
+    });
   });
 
   it('a genuinely no-op jiggle (live-store before == after) still yields the empty plan', () => {

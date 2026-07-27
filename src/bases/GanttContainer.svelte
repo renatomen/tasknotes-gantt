@@ -2160,9 +2160,7 @@
     const after: DateRange = { start: moved.start, end: moved.end };
     const gesture: CommitGesture = {
       kind: 'bar',
-      instanceId,
-      before,
-      after,
+      instanceId, before, after,
       estimateWritable: timeEstimateWriteEnabled && !readOnly,
       // Read at gesture time: a persisted "don't ask again" choice is
       // synchronously readable, so it applies from the very next drag.
@@ -2178,9 +2176,10 @@
         new Notice("Couldn't save date change — check TaskNotes is running.");
       },
       cascade: {
-        plan: (settlement, answers, snapshot) =>
+        before,
+        plan: (settlement, answers, snapshot, laneBefore) =>
           planCascade(
-            { instanceId, name, before, after, settlement },
+            { instanceId, name, before: laneBefore ?? before, after, settlement },
             snapshot,
             { cascadeMode: get(data).cascadeMode, ...answers },
             plannerDerivation(memo),

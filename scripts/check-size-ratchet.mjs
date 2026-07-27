@@ -19,7 +19,7 @@ import { pathToFileURL } from "node:url";
 
 /** Maximum line count per ratcheted file. Update DOWNWARD only, to the new count. */
 export const LINE_BASELINES = {
-  "src/bases/GanttContainer.svelte": 3660,
+  "src/bases/GanttContainer.svelte": 3659,
   "src/bases/register.ts": 1463,
 };
 

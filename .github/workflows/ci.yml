@@ -53,13 +53,22 @@ jobs:
         # copy of the script. New (added) entries are allowed; raised or removed
         # ones fail. Comparison logic lives in check-size-ratchet.mjs
         # (compareAgainstBase), unit-tested by checkSizeRatchet.test.ts.
+        #
+        # The depth-1 fetch populates only FETCH_HEAD (no origin/<base> ref
+        # exists in the runner's clone), so the base copy is read from
+        # FETCH_HEAD. The skip below is ONLY for a base that genuinely predates
+        # the script (ls-tree succeeds with empty output); any fetch/ls-tree/
+        # show failure is an infrastructure error and fails the step loudly
+        # (bash -e), never a silent skip of the gate.
         shell: bash
         run: |
           git fetch --depth=1 origin "$BASE_REF"
-          if git show "origin/$BASE_REF:scripts/check-size-ratchet.mjs" > "$RUNNER_TEMP/base-check-size-ratchet.mjs" 2>/dev/null; then
+          base_entry="$(git ls-tree FETCH_HEAD -- scripts/check-size-ratchet.mjs)"
+          if [ -n "$base_entry" ]; then
+            git show "FETCH_HEAD:scripts/check-size-ratchet.mjs" > "$RUNNER_TEMP/base-check-size-ratchet.mjs"
             node scripts/check-size-ratchet.mjs --against-base "$RUNNER_TEMP/base-check-size-ratchet.mjs"
           else
-            echo "base ref has no check-size-ratchet.mjs yet — nothing to ratchet against."
+            echo "::notice::base ref predates scripts/check-size-ratchet.mjs — nothing to ratchet against."
           fi
         env:
           BASE_REF: ${{ github.base_ref }}
