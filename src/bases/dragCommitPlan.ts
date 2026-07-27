@@ -57,8 +57,31 @@ export interface CascadeChoices {
   cascadeMode: unknown;
   shrinkChoice?: 'adjust' | 'undo';
   extendApproved?: boolean;
-  /** Sources whose subtree write persisted, once the executor ran the subtree phase. */
-  persistedSubtreeSources?: readonly string[];
+  /** The subtree writes that persisted, once the executor ran the subtree phase. */
+  persistedSubtreeWrites?: readonly PersistedSubtreeWrite[];
+}
+
+/** One persisted subtree write, reported back to the resume re-plan. */
+export interface PersistedSubtreeWrite {
+  sourcePath: string;
+  /** The exact span the write carried — the moved range, refresh-independent. */
+  range?: DateRange;
+}
+
+/**
+ * The moved range a persisted subtree write settled: the write's own span, or
+ * the source's CURRENT snapshot range when the write carried none. Never the
+ * gesture delta re-applied — a snapshot refreshed after the persist already
+ * contains the shift, and re-shifting it would feed double-moved ranges to
+ * the ancestor extend.
+ */
+export function persistedMovedRange(
+  persisted: PersistedSubtreeWrite,
+  instances: ReadonlyArray<PlannerInstance>,
+): DateRange | null {
+  if (persisted.range) return persisted.range;
+  const row = instances.find((i) => i.sourcePath === persisted.sourcePath && i.start && i.end);
+  return row ? { start: row.start as Date, end: row.end as Date } : null;
 }
 
 /** The slice of a render row the planner reads (structurally satisfied by RenderInstance). */

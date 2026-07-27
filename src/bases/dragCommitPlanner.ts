@@ -40,7 +40,8 @@ import {
   normalizeCascadeMode, type DateRange, type SubtreeShift,
 } from './cascadeGate';
 import {
-  echoGeometryFor, emptyPlan, plainGeometry, restoreEchoes, sourceEchoes, sourcePathOf,
+  echoGeometryFor, emptyPlan, persistedMovedRange, plainGeometry, restoreEchoes, sourceEchoes,
+  sourcePathOf,
   type CascadeChoices, type CascadeOutcome, type CommitGesture, type GestureChoice,
   type GesturePlan, type GestureSettlement, type InferredGestureOutcome, type Plan,
   type PlannedPatch, type PlannerDerivation, type PlannerInstance, type PromptRequest,
@@ -50,9 +51,9 @@ export {
   emptyPlan, isEmptyPlan, memoizePlannerDerivation, verifyMirrorCoverage,
   type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
   type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
-  type GestureSettlement, type InferredGestureOutcome, type Plan, type PlannedPatch,
-  type PlannedWrite, type PlannerDerivation, type PlannerInstance, type PromptRequest,
-  type SourceEchoes, type UnmirroredReason,
+  type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,
+  type PlannedPatch, type PlannedWrite, type PlannerDerivation, type PlannerInstance,
+  type PromptRequest, type SourceEchoes, type UnmirroredReason,
 } from './dragCommitPlan';
 
 type BarGesture = Extract<CommitGesture, { kind: 'bar' }>;
@@ -331,14 +332,16 @@ interface SubtreePhaseArgs {
  */
 function planSubtreePhase(args: SubtreePhaseArgs, delta: number): Plan {
   const { outcome, instances, choices, derivation, movedRanges } = args;
-  const shifts = computeSubtreeMove(outcome.instanceId, delta, instances);
-  const bySource = groupBySource(shifts);
-  if (shifts.length > 0 && choices.persistedSubtreeSources === undefined) {
-    return subtreeMovePlan(bySource, instances, derivation);
+  if (choices.persistedSubtreeWrites === undefined) {
+    const shifts = computeSubtreeMove(outcome.instanceId, delta, instances);
+    if (shifts.length > 0) return subtreeMovePlan(groupBySource(shifts), instances, derivation);
   }
-  for (const src of choices.persistedSubtreeSources ?? []) {
-    const rep = bySource.get(src)?.[0];
-    if (rep) addRange(movedRanges, src, rep.start, rep.end);
+  // A persisted source's moved range comes from its persisted write (or its
+  // current snapshot) — never from re-applying the delta, which double-shifts
+  // once a refresh has already folded the persisted move into the snapshot.
+  for (const persisted of choices.persistedSubtreeWrites ?? []) {
+    const range = persistedMovedRange(persisted, instances);
+    if (range) addRange(movedRanges, persisted.sourcePath, range.start, range.end);
   }
   return planAncestorExtend(outcome, instances, choices, movedRanges);
 }

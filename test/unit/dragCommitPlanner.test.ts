@@ -40,7 +40,9 @@ import {
   type GestureChoice,
   type GesturePlan,
   type GestureSettlement,
+  type PersistedSubtreeWrite,
   type Plan,
+  type PlannedWrite,
   type PlannerDerivation,
   type PlannerInstance,
 } from '../../src/bases/dragCommitPlanner';
@@ -358,6 +360,15 @@ function cascadeOutcomeFor(combo: Combo, fixture: Fixture, settlement: GestureSe
   };
 }
 
+/** The persisted-write report the executor sends back: source plus the write's own span. */
+function persistedWriteOf(write: PlannedWrite): PersistedSubtreeWrite {
+  const { start, end } = write.patch;
+  return {
+    sourcePath: write.sourcePath,
+    ...(start !== undefined && end !== undefined ? { range: { start, end } } : {}),
+  };
+}
+
 function answerCascade(plan: Plan, answers: CascadeChoices, failureClass: FailureClass | null): boolean {
   if (plan.prompt?.kind === 'shrink-fit') {
     answers.shrinkChoice = 'adjust';
@@ -368,8 +379,8 @@ function answerCascade(plan: Plan, answers: CascadeChoices, failureClass: Failur
     return true;
   }
   if (plan.resume === 'after-subtree') {
-    answers.persistedSubtreeSources =
-      failureClass === 'subtree' ? [] : plan.writes.map((w) => w.sourcePath);
+    answers.persistedSubtreeWrites =
+      failureClass === 'subtree' ? [] : plan.writes.map(persistedWriteOf);
     return true;
   }
   return false;
@@ -1007,15 +1018,60 @@ describe('named rows', () => {
       { instanceId: 'C2#w', payload: { kind: 'geometry', geometry: { start: day('2026-08-05'), end: dayEnd('2026-08-06'), flagged: false, ghostRuns: [] } } },
     ]);
     // Resume with only C1 persisted: W1 (C1's alternate parent) is extended; W2 is not.
+    // The report carries C1's persisted write span — the already-moved range.
+    const c1Write = first.writes.find((w) => w.sourcePath === C1);
     const second = planCascade(
       outcome,
       fixture.instances,
-      { cascadeMode: 'auto', persistedSubtreeSources: [C1] },
+      { cascadeMode: 'auto', persistedSubtreeWrites: [persistedWriteOf(c1Write as PlannedWrite)] },
       derivation(),
     );
     expect(second.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
     expect(second.writes[0]?.unmirrored).toBe('ancestor-extend-refresh-only');
     expect(second.writes[0]?.patch.end).toEqual(addDays(dayEnd('2026-08-04'), 7));
+  });
+
+  it('subtree resume against a REFRESHED snapshot extends by a single shift: the persisted ranges are already the moved ranges', () => {
+    // The snapshot has refreshed between the subtree persist and the resume:
+    // C1's placements already sit at their moved (+7) positions. The moved
+    // range is the persisted write's own span — re-applying the delta on top
+    // of the refreshed rows would feed a DOUBLE-shifted range to the extend.
+    const refreshed: PlannerInstance[] = [
+      inst(T, T, '2026-08-10', '2026-08-13'),
+      inst('C1#t', C1, '2026-08-10', '2026-08-11', T),
+      inst('W1', 'notes/W1.md', '2026-08-01', '2026-08-08'),
+      inst('C1#w', C1, '2026-08-10', '2026-08-11', 'W1'),
+    ];
+    const outcome: CascadeOutcome = {
+      instanceId: T,
+      name: T,
+      before: { start: BEFORE.start, end: BEFORE.end, estimateMinutes: STORED_ESTIMATE },
+      after: { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) },
+      settlement: { kind: 'plain' },
+    };
+    const persisted: PersistedSubtreeWrite = {
+      sourcePath: C1,
+      range: { start: day('2026-08-10'), end: dayEnd('2026-08-11') },
+    };
+    const plan = planCascade(
+      outcome,
+      refreshed,
+      { cascadeMode: 'auto', persistedSubtreeWrites: [persisted] },
+      derivation(),
+    );
+    expect(plan.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
+    expect(plan.writes[0]?.patch.end).toEqual(dayEnd('2026-08-11'));
+
+    // A rangeless report (a persisted write that carried no span) falls back
+    // to the CURRENT snapshot range — also the moved range, never re-shifted.
+    const fallback = planCascade(
+      outcome,
+      refreshed,
+      { cascadeMode: 'auto', persistedSubtreeWrites: [{ sourcePath: C1 }] },
+      derivation(),
+    );
+    expect(fallback.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
+    expect(fallback.writes[0]?.patch.end).toEqual(dayEnd('2026-08-11'));
   });
 
   it('an estimate-only outcome whose derived day-count matches the stored estimate writes nothing, still echoes and settles inferred', () => {

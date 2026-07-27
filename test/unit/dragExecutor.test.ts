@@ -1,109 +1,30 @@
 /**
- * The executor's async choreography, driven through injected fakes: per-source
- * serialization with dequeue-time re-planning, independent sources, per-plan
- * revert baselines, post-await liveness abandonment, the persist timeout, the
- * prompt seam, and the global cascade lane (deadlock-free opposing cascades,
- * fresh-fact re-planning, cross-source fencing).
+ * The COMPOSED executor's end-to-end choreography — orderings only the wired
+ * queue/lifecycle/lane trio exhibits: per-source serialization with
+ * dequeue-time re-planning, cross-source cascade fencing, deadlock-free
+ * opposing cascades, generation capture at submit, and the round-5 rows
+ * (supersession, post-fence capability re-check, the liveness split, the
+ * persisted-span resume report). Each primitive's own policy is pinned in its
+ * module suite (dragSourceQueues / dragExecutionLifecycle / dragCascadeLane).
  */
 import { describe, it, expect, jest } from '@jest/globals';
 import {
   createDragExecutor,
   type CascadeAnswers,
   type CascadePhase,
-  type DragExecutorDeps,
-  type PlannedExecution,
   type PromptAnswer,
 } from '../../src/bases/dragExecutor';
-import type {
-  GestureChoice,
-  GesturePlan,
-  GestureSettlement,
-  Plan,
-  PlannedWrite,
-  SourceEchoes,
-} from '../../src/bases/dragCommitPlan';
-
-interface Deferred {
-  promise: Promise<void>;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-}
-
-function deferred(): Deferred {
-  let resolve!: () => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<void>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function planOf(partial: Partial<GesturePlan>): GesturePlan {
-  return {
-    writes: [],
-    echoes: [],
-    reverts: [],
-    prompt: null,
-    resume: null,
-    settlement: { onSuccess: { kind: 'plain' }, onFailure: { kind: 'aborted' } },
-    ...partial,
-  };
-}
-
-function writeOf(sourcePath: string, progress: number): PlannedWrite {
-  return { sourcePath, instanceId: `${sourcePath}#0`, patch: { progress } };
-}
-
-function revertOf(sourcePath: string): SourceEchoes {
-  return {
-    sourcePath,
-    rows: [{ instanceId: `${sourcePath}#0`, payload: { kind: 'progress', progress: 0 } }],
-  };
-}
-
-interface Harness {
-  deps: DragExecutorDeps;
-  log: string[];
-  echoed: SourceEchoes[];
-  settled: GestureSettlement[];
-  setLive(live: boolean): void;
-}
-
-function harness(overrides: Partial<DragExecutorDeps> = {}): Harness {
-  const log: string[] = [];
-  const echoed: SourceEchoes[] = [];
-  const settled: GestureSettlement[] = [];
-  let live = true;
-  const deps: DragExecutorDeps = {
-    canWrite: () => true,
-    isLive: () => live,
-    persist: (write) => {
-      log.push(`persist:${write.sourcePath}`);
-      return Promise.resolve();
-    },
-    echo: (echoes) => {
-      log.push(`echo:${echoes.sourcePath}`);
-      echoed.push(echoes);
-    },
-    onSettled: (settlement) => settled.push(settlement),
-    ...overrides,
-  };
-  return { deps, log, echoed, settled, setLive: (value) => (live = value) };
-}
-
-function execution(
-  sourcePath: string,
-  plan: (choice: GestureChoice) => GesturePlan | null,
-  onFailure?: PlannedExecution['onFailure'],
-): PlannedExecution {
-  return { sourcePath, snapshot: () => undefined, plan, onFailure };
-}
-
-/** Settle enough microtask turns for in-flight executor rounds to reach their persists. */
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
+import type { GestureSettlement } from '../../src/bases/dragCommitPlan';
+import {
+  cascadePlanOf,
+  deferred,
+  execution,
+  flushMicrotasks,
+  harness,
+  planOf,
+  revertOf,
+  writeOf,
+} from './dragExecutorTestKit';
 
 describe('createDragExecutor', () => {
   it('queues a second gesture for the same source and re-plans it at dequeue from post-settlement facts', async () => {
@@ -235,99 +156,6 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'plain' }]);
   });
 
-  it('abandons cleanly when liveness is lost after an await: no further writes, echoes, or settlement', async () => {
-    const h = harness();
-    const persist = jest.fn((write: PlannedWrite) => {
-      h.log.push(`persist:${write.patch.progress}`);
-      h.setLive(false);
-      return Promise.resolve();
-    });
-    const executor = createDragExecutor({ ...h.deps, persist });
-
-    await executor.submit(
-      execution('a.md', () =>
-        planOf({
-          writes: [writeOf('a.md', 1), writeOf('a.md', 2)],
-          reverts: [revertOf('a.md')],
-        }),
-      ),
-    );
-
-    expect(persist).toHaveBeenCalledTimes(1);
-    expect(h.echoed).toHaveLength(0);
-    expect(h.settled).toHaveLength(0);
-  });
-
-  it('skips reverts and failure reporting when liveness is lost across a rejecting persist', async () => {
-    const failures: unknown[] = [];
-    const h = harness({
-      persist: () => {
-        h.setLive(false);
-        return Promise.reject(new Error('save failed'));
-      },
-    });
-    const executor = createDragExecutor(h.deps);
-
-    await executor.submit(
-      execution(
-        'a.md',
-        () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] }),
-        (error) => failures.push(error),
-      ),
-    );
-
-    expect(h.echoed).toHaveLength(0);
-    expect(failures).toHaveLength(0);
-    expect(h.settled).toHaveLength(0);
-  });
-
-  it('reverts when a persist never settles within the injected timeout', async () => {
-    const failures: Error[] = [];
-    const h = harness({
-      persist: () => new Promise<void>(() => undefined),
-      persistTimeoutMs: 15,
-    });
-    const executor = createDragExecutor(h.deps);
-
-    await executor.submit(
-      execution(
-        'a.md',
-        () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] }),
-        (error) => failures.push(error as Error),
-      ),
-    );
-
-    expect(h.echoed.map((e) => e.sourcePath)).toEqual(['a.md']);
-    expect(failures[0]?.message).toBe('write timed out');
-    expect(h.settled).toEqual([{ kind: 'aborted' }]);
-  });
-
-  it('emits the optimistic echoes, collects the prompt choice, and executes the re-planned commit', async () => {
-    const choiceGiven: GestureChoice = { action: 'estimate-only' };
-    const resolvePrompt = jest.fn(() =>
-      Promise.resolve<PromptAnswer | null>({ kind: 'inferred-drag', choice: choiceGiven }),
-    );
-    const h = harness({ resolvePrompt });
-    const executor = createDragExecutor(h.deps);
-    const seenChoices: GestureChoice[] = [];
-
-    await executor.submit(
-      execution('a.md', (choice) => {
-        seenChoices.push(choice);
-        if (choice === undefined) {
-          return planOf({ prompt: { kind: 'inferred-drag' }, echoes: [revertOf('a.md')] });
-        }
-        return planOf({ writes: [writeOf('a.md', 1)] });
-      }),
-    );
-
-    expect(seenChoices).toEqual([undefined, choiceGiven]);
-    expect(resolvePrompt).toHaveBeenCalledWith({ kind: 'inferred-drag' });
-    expect(h.echoed.map((e) => e.sourcePath)).toEqual(['a.md']);
-    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:a.md']);
-    expect(h.settled).toEqual([{ kind: 'plain' }]);
-  });
-
   it('reports a plan-callback throw without breaking the source queue', async () => {
     const failures: unknown[] = [];
     const h = harness();
@@ -347,157 +175,9 @@ describe('createDragExecutor', () => {
     expect(failures).toHaveLength(1);
     expect(h.settled).toEqual([{ kind: 'plain' }]);
   });
-
-  it('never runs a plan when the write gate is closed', async () => {
-    const plan = jest.fn(() => planOf({ writes: [writeOf('a.md', 1)] }));
-    const h = harness({ canWrite: () => false });
-    const executor = createDragExecutor(h.deps);
-
-    await executor.submit(execution('a.md', plan));
-
-    expect(plan).not.toHaveBeenCalled();
-    expect(h.settled).toHaveLength(0);
-  });
 });
 
-function cascadePlanOf(partial: Partial<Plan>): Plan {
-  return { writes: [], echoes: [], reverts: [], prompt: null, resume: null, ...partial };
-}
-
 describe('createDragExecutor cascade pass', () => {
-  it('drives the cascade from the settled gesture through the lane, after the main persist', async () => {
-    const h = harness();
-    const executor = createDragExecutor(h.deps);
-    const seen: GestureSettlement[] = [];
-
-    await executor.submit({
-      sourcePath: 'a.md',
-      snapshot: () => undefined,
-      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
-      cascade: {
-        plan: (settlement) => {
-          seen.push(settlement);
-          return cascadePlanOf({ writes: [{ ...writeOf('kid.md', 2), sourcePath: 'kid.md' }] });
-        },
-      },
-    });
-
-    // A write-carrying round plans twice: once to declare its write set, once
-    // after fencing those sources — both from the settled gesture.
-    expect(seen).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
-    expect(h.log).toEqual(['persist:a.md', 'persist:kid.md']);
-  });
-
-  it('honors the after-subtree resume: reports ONLY the persisted sources and re-plans', async () => {
-    const h = harness({
-      persist: (write) => {
-        h.log.push(`persist:${write.sourcePath}`);
-        return write.sourcePath === 'bad.md' ? Promise.reject(new Error('save failed')) : Promise.resolve();
-      },
-    });
-    const executor = createDragExecutor(h.deps);
-    const rounds: CascadeAnswers[] = [];
-    const failures: CascadePhase[] = [];
-
-    await executor.submit({
-      sourcePath: 'a.md',
-      snapshot: () => undefined,
-      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
-      cascade: {
-        plan: (_settlement, answers) => {
-          rounds.push(answers);
-          if (answers.persistedSubtreeSources === undefined) {
-            return cascadePlanOf({
-              resume: 'after-subtree',
-              writes: [
-                { ...writeOf('good.md', 2), sourcePath: 'good.md' },
-                { ...writeOf('bad.md', 3), sourcePath: 'bad.md' },
-              ],
-              reverts: [revertOf('good.md'), revertOf('bad.md')],
-            });
-          }
-          return cascadePlanOf({});
-        },
-        onFailure: (_error, phase) => failures.push(phase),
-      },
-    });
-
-    // Round 1 plans twice (declare + post-fence); round 2 gets the report.
-    expect(rounds).toEqual([{}, {}, { persistedSubtreeSources: ['good.md'] }]);
-    // Only the FAILED source's reverts were emitted; the good one stayed put.
-    expect(h.echoed.map((e) => e.sourcePath)).toEqual(['bad.md']);
-    expect(failures).toEqual(['subtree']);
-  });
-
-  it('collects a shrink-fit answer through the prompt seam and feeds it to the next round', async () => {
-    const resolvePrompt = jest.fn(() =>
-      Promise.resolve<PromptAnswer | null>({ kind: 'shrink-fit', choice: 'undo' }),
-    );
-    const h = harness({ resolvePrompt });
-    const executor = createDragExecutor(h.deps);
-    const rounds: CascadeAnswers[] = [];
-
-    await executor.submit({
-      sourcePath: 'a.md',
-      snapshot: () => undefined,
-      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
-      cascade: {
-        plan: (_settlement, answers) => {
-          rounds.push(answers);
-          if (answers.shrinkChoice === undefined) {
-            return cascadePlanOf({
-              prompt: {
-                kind: 'shrink-fit',
-                name: 'Parent',
-                attempted: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 2) },
-                fit: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 5) },
-              },
-            });
-          }
-          return cascadePlanOf({ writes: [writeOf('a.md', 2)] });
-        },
-      },
-    });
-
-    expect(rounds).toEqual([{}, { shrinkChoice: 'undo' }, { shrinkChoice: 'undo' }]);
-    expect(resolvePrompt).toHaveBeenCalledTimes(1);
-    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:a.md', 'persist:a.md']);
-  });
-
-  it('reports a failed extend write with the extend phase and no reverts (refresh-only)', async () => {
-    const failures: CascadePhase[] = [];
-    const h = harness({
-      persist: (write) =>
-        write.unmirrored ? Promise.reject(new Error('save failed')) : Promise.resolve(),
-    });
-    const executor = createDragExecutor(h.deps);
-
-    await executor.submit({
-      sourcePath: 'a.md',
-      snapshot: () => undefined,
-      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
-      cascade: {
-        plan: (_settlement, answers) =>
-          answers.extendApproved === undefined
-            ? cascadePlanOf({
-                writes: [
-                  {
-                    sourcePath: 'ancestor.md',
-                    instanceId: 'ancestor.md#0',
-                    patch: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 9) },
-                    unmirrored: 'ancestor-extend-refresh-only',
-                  },
-                ],
-              })
-            : cascadePlanOf({}),
-        onFailure: (_error, phase) => failures.push(phase),
-      },
-    });
-
-    expect(failures).toEqual(['extend']);
-    expect(h.echoed).toHaveLength(0);
-  });
-
   it('runs no cascade when the gesture prompt is cancelled into an aborted, write-less plan', async () => {
     const resolvePrompt = jest.fn(() =>
       Promise.resolve<PromptAnswer | null>({ kind: 'inferred-drag', choice: null }),
@@ -574,7 +254,7 @@ describe('createDragExecutor cascade pass', () => {
     expect(h.log).toEqual(['persist:a.md:1', 'persist:b.md:2', 'persist:b.md:102']);
   });
 
-  it('abandons everything when the host generation changes mid-cascade: no writes, echoes, prompts, or failure reports', async () => {
+  it('a generation flip after the main persist landed keeps the cascade DATA writes flowing — prompts still collected through the seam, echoes suppressed', async () => {
     let generation = 0;
     const failures: unknown[] = [];
     const cascadeFailures: CascadePhase[] = [];
@@ -610,9 +290,14 @@ describe('createDragExecutor cascade pass', () => {
       },
     });
 
-    // The prompt round ran, then the generation gate stopped the cascade cold.
-    expect(rounds).toEqual([{}]);
-    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:a.md']);
+    // The main persist landed BEFORE the flip, so the vault-side correction
+    // must not be dropped: the shrink answer is collected and its write lands.
+    expect(rounds).toEqual([{}, { shrinkChoice: 'adjust' }, { shrinkChoice: 'adjust' }]);
+    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual([
+      'persist:a.md',
+      'persist:a.md',
+    ]);
+    // ...but the remounted store refreshes from the vault, so no echoes.
     expect(h.echoed).toHaveLength(0);
     expect(failures).toHaveLength(0);
     expect(cascadeFailures).toHaveLength(0);
@@ -630,41 +315,6 @@ describe('createDragExecutor cascade pass', () => {
 
     expect(plan).not.toHaveBeenCalled();
     expect(h.settled).toHaveLength(0);
-  });
-
-  it('stops the cascade between rounds when write capability is lost', async () => {
-    let writable = true;
-    const h = harness({
-      canWrite: () => writable,
-      persist: (write) => {
-        h.log.push(`persist:${write.sourcePath}`);
-        // e.g. the view flips read-only during the subtree round
-        if (write.sourcePath === 'kid.md') writable = false;
-        return Promise.resolve();
-      },
-    });
-    const executor = createDragExecutor(h.deps);
-    const rounds: CascadeAnswers[] = [];
-
-    await executor.submit({
-      sourcePath: 'a.md',
-      snapshot: () => undefined,
-      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
-      cascade: {
-        plan: (_settlement, answers) => {
-          rounds.push(answers);
-          return cascadePlanOf({
-            resume: 'after-subtree',
-            writes: [writeOf('kid.md', 2)],
-          });
-        },
-      },
-    });
-
-    // Round 1 planned (declare + post-fence) and wrote; the per-round gate
-    // stopped round 2 outright.
-    expect(rounds).toEqual([{}, {}]);
-    expect(h.log).toEqual(['persist:a.md', 'persist:kid.md']);
   });
 
   it('completes two OPPOSING cascades without deadlock (A cascades into B\'s source while B cascades into A\'s), and the waiting cascade plans from the facts the first one settled', async () => {
@@ -716,6 +366,240 @@ describe('createDragExecutor cascade pass', () => {
     ]);
     // B's cascade waited on the lane and re-planned from post-A-cascade facts.
     expect(factsSeenByB).toEqual([true, true]);
+  });
+
+  it('reports the persisted subtree write with the exact span it carried', async () => {
+    const h = harness();
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+    const span = { start: new Date(2026, 7, 10), end: new Date(2026, 7, 11) };
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          if (answers.persistedSubtreeWrites === undefined) {
+            return cascadePlanOf({
+              resume: 'after-subtree',
+              writes: [{ sourcePath: 'kid.md', instanceId: 'kid.md#0', patch: { ...span } }],
+            });
+          }
+          return cascadePlanOf({});
+        },
+      },
+    });
+
+    // The report carries the write's OWN span — the moved range, so the resume
+    // re-plan never re-applies the delta (refresh-independent by construction).
+    expect(rounds[2]).toEqual({
+      persistedSubtreeWrites: [{ sourcePath: 'kid.md', range: span }],
+    });
+  });
+
+  it('supersession: a newer settled geometry write for the source skips the deferred cascade cleanly — no writes, prompts, or notices', async () => {
+    const modal = deferred();
+    const cascadeFailures: CascadePhase[] = [];
+    const resolvePrompt = jest.fn(() =>
+      modal.promise.then<PromptAnswer | null>(() => ({ kind: 'shrink-fit', choice: 'adjust' })),
+    );
+    const h = harness({ resolvePrompt });
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          if (answers.shrinkChoice === undefined) {
+            return cascadePlanOf({
+              prompt: {
+                kind: 'shrink-fit',
+                name: 'Parent',
+                attempted: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 2) },
+                fit: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 5) },
+              },
+            });
+          }
+          return cascadePlanOf({ writes: [writeOf('a.md', 2)] });
+        },
+        onFailure: (_error, phase) => cascadeFailures.push(phase),
+      },
+    });
+    await flushMicrotasks(); // the shrink-fit modal is open, the slot released
+    // A second drag on the SAME source settles a geometry write meanwhile.
+    const second = executor.submit(
+      execution('a.md', () =>
+        planOf({
+          writes: [{
+            sourcePath: 'a.md',
+            instanceId: 'a.md#0',
+            patch: { start: new Date(2026, 0, 3), end: new Date(2026, 0, 4) },
+          }],
+        }),
+      ),
+    );
+    await second;
+    modal.resolve();
+    await first;
+
+    // The prompt round ran, then supersession stopped the cascade cold: the
+    // shrink targets were computed against overwritten geometry.
+    expect(rounds).toEqual([{}]);
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:a.md', 'persist:a.md']);
+    expect(cascadeFailures).toHaveLength(0);
+    expect(h.echoed).toHaveLength(0);
+  });
+
+  it('re-checks canWrite after a fence wait: a capability flip during the wait stops the round before any write', async () => {
+    const gate = deferred();
+    let writable = true;
+    const h = harness({
+      canWrite: () => writable,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}:${write.patch.progress}`);
+        return write.sourcePath === 'kid.md' && write.patch.progress === 7
+          ? gate.promise
+          : Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+
+    // A plain gesture holds kid.md with a slow persist...
+    const plain = executor.submit(
+      execution('kid.md', () => planOf({ writes: [writeOf('kid.md', 7)] })),
+    );
+    await flushMicrotasks();
+    // ...while a cascade declares a write into kid.md and waits at its fence.
+    const cascading = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: { plan: () => cascadePlanOf({ writes: [writeOf('kid.md', 2)] }) },
+    });
+    await flushMicrotasks();
+    writable = false; // e.g. the view flips read-only during the wait
+    gate.resolve();
+    await Promise.all([plain, cascading]);
+
+    // The post-fence gate stopped the round: no cascade write landed.
+    expect(h.log).toEqual(['persist:kid.md:7', 'persist:a.md:1']);
+  });
+
+  it('a generation flip in auto mode (no prompts) still writes the descendants, with echoes suppressed', async () => {
+    let generation = 0;
+    const h = harness({
+      generation: () => generation,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        if (write.sourcePath === 'a.md') generation += 1; // remount mid-persist
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return answers.persistedSubtreeWrites === undefined
+            ? cascadePlanOf({
+                resume: 'after-subtree',
+                writes: [writeOf('kid.md', 2)],
+                echoes: [revertOf('kid.md')],
+              })
+            : cascadePlanOf({});
+        },
+      },
+    });
+
+    // The persisted main write's cascade correction is vault data, not view
+    // state: it lands even though the view remounted — echoes alone are dropped.
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:a.md', 'persist:kid.md']);
+    expect(rounds[2]).toEqual({ persistedSubtreeWrites: [{ sourcePath: 'kid.md' }] });
+    expect(h.echoed).toHaveLength(0);
+    expect(h.settled).toEqual([{ kind: 'plain' }]);
+  });
+
+  it('component death mid-cascade still drops everything: no further writes, echoes, or notices', async () => {
+    const cascadeFailures: CascadePhase[] = [];
+    const h = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        if (write.sourcePath === 'kid.md') h.setLive(false); // the view is destroyed
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return cascadePlanOf({
+            resume: 'after-subtree',
+            writes: [writeOf('kid.md', 2), writeOf('kid2.md', 3)],
+            reverts: [revertOf('kid.md'), revertOf('kid2.md')],
+          });
+        },
+        onFailure: (_error, phase) => cascadeFailures.push(phase),
+      },
+    });
+
+    // Death after the first cascade persist: the round abandons, no resume.
+    expect(rounds).toEqual([{}, {}]);
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:a.md', 'persist:kid.md']);
+    expect(h.echoed).toHaveLength(0);
+    expect(cascadeFailures).toHaveLength(0);
+  });
+
+  it('an ask-mode round needing a prompt after a generation flip, with no prompt seam, skips via the failure notice', async () => {
+    let generation = 0;
+    const cascadeFailures: CascadePhase[] = [];
+    const h = harness({
+      generation: () => generation,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        if (write.sourcePath === 'a.md') generation += 1; // remount mid-persist
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps); // the harness wires no prompt seam
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: () =>
+          cascadePlanOf({
+            prompt: {
+              kind: 'shrink-fit',
+              name: 'Parent',
+              attempted: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 2) },
+              fit: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 5) },
+            },
+          }),
+        onFailure: (_error, phase) => cascadeFailures.push(phase),
+      },
+    });
+
+    // The correction could not be asked for: the user learns it was skipped.
+    expect(cascadeFailures).toEqual(['shrink']);
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:a.md']);
   });
 
   it('re-plans a cascade round from the facts a fenced source settled ahead of it: the persisted patch is never the pre-wait plan', async () => {
