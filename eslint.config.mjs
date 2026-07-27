@@ -26,7 +26,7 @@ export default [
   js.configs.recommended,
   // TypeScript files
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,mts}"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -85,6 +85,8 @@ export default [
     },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+      // Tooling/config files are not the production code the size gate targets.
+      "max-lines": "off",
     },
   },
   // Svelte files
@@ -151,8 +153,28 @@ export default [
       "max-lines": "off",
     },
   },
+  // Per-file complexity ceilings, frozen at the values measured when the gate
+  // was armed. A ceiling may only decrease; growth past it fails lint. The three
+  // drag-path hotspots in GanttContainer.svelte keep per-function disables
+  // instead because the executor refactor deletes those functions outright.
   {
-    files: ["test/**/*.ts"],
+    files: ["test/__mocks__/obsidian.ts"],
+    rules: { "sonarjs/cognitive-complexity": ["error", 23] },
+  },
+  {
+    files: ["test/probe/_diag.probe.ts"],
+    rules: { "sonarjs/cognitive-complexity": ["error", 21] },
+  },
+  {
+    files: ["test/specs/gantt-resultset-loop.e2e.ts"],
+    rules: { "sonarjs/cognitive-complexity": ["error", 17] },
+  },
+  {
+    files: ["test/specs/gantt-perf-fullstack.perf.e2e.ts", "test/specs/gantt-resultset-storm.perf.e2e.ts"],
+    rules: { "sonarjs/cognitive-complexity": ["error", 16] },
+  },
+  {
+    files: ["test/**/*.{ts,mts}"],
     languageOptions: {
       globals: {
         describe: "readonly",

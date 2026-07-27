@@ -259,11 +259,7 @@ export class BasesDataAdapter {
    * For FileValue (links), returns the file path which can be rendered as a clickable link.
    */
   convertGroupKeyToString(key: unknown): string {
-    // Group keys are Bases Value objects (or bare primitives); probe them
-    // through the structural Value view.
     const keyValue = key as BasesValueLike | null | undefined;
-
-    // Check if key exists and is valid
     if (keyValue == null || (keyValue.hasKey && !keyValue.hasKey())) {
       return "Unknown";
     }

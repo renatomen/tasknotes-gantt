@@ -342,7 +342,6 @@ interface SearchResultLike {
  * frontmatter `tags` (string or array) plus inline `tags` entries — so the vault
  * fetcher's candidate build can be exercised offline.
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
 export function getAllTags(cache: CachedMetadataLike | null | undefined): string[] | null {
   if (!cache) return null;
   const tags: string[] = [];

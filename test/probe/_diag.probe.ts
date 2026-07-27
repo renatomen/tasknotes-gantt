@@ -14,7 +14,6 @@ import { SEGMENTS_WITH_FLAG } from './fixtures';
 
 let dump: any = {};
 
-// eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
 test('DIAG: dump store state for segments+splitTasks', async () => {
   let api: any = null;
   const screen = render(SvarFeatureProbeHost, {
