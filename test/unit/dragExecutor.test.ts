@@ -263,6 +263,66 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
   });
 
+  it('rebases a queued gesture over the SETTLED authored facts: resize 2→4 then back to 2 writes the estimate back down, not against the pre-first-write row', async () => {
+    const kit = barGestureKit();
+    const { store, rowOf } = kit;
+    const span2 = { start: new Date(2026, 0, 1), end: new Date(2026, 0, 2, 23, 59, 59) };
+    const span4 = { start: new Date(2026, 0, 1), end: new Date(2026, 0, 4, 23, 59, 59) };
+    store.span = { ...span2 };
+    const gate = deferred();
+    const persisted: Array<Record<string, unknown>> = [];
+    const h: Harness = harness({
+      persist: (write) => {
+        persisted.push(write.patch as Record<string, unknown>);
+        return persisted.length === 1 ? gate.promise : Promise.resolve();
+      },
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+    // The container's live-facts read: span from the store, authored facts from
+    // controller rows FROZEN pre-first-write (self-writes suppress recompute) —
+    // rebased over the executor's settled-facts ledger.
+    const captureLive = (): BarBefore =>
+      executor.rebaseSettledFacts('a.md', {
+        ...store.span,
+        dateStatus: null,
+        estimateMinutes: spanDaysToMinutes(2),
+      });
+    const estimatePlan = (before: BarBefore, after: { start: Date; end: Date }, snapshot: PlannerInstance[], choice: GestureChoice) =>
+      planGestureCommit(
+        { kind: 'bar', instanceId: 'a.md#0', before, after, estimateWritable: true, inferredDragMode: 'estimate-and-dates' },
+        snapshot,
+        choice,
+        { minutesToSpanDays, spanDaysToMinutes, inclusiveDaySpan },
+      );
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: rowOf,
+      plan: (choice, snapshot) => estimatePlan(captureLive(), span4, snapshot, choice),
+    });
+    await flushMicrotasks(); // 2→4 echoed; its persist (dates + 4-day estimate) is in flight
+    const before2 = captureLive(); // intercept capture: the echoed 4-day bar, frozen 2-day estimate
+    store.span = { ...span2 }; // the user resizes straight back; SVAR applies 4→2
+    const rebase = createDequeueBeforeRebase(before2, span2, captureLive);
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => estimatePlan(rebase.before(), span2, snapshot, choice),
+    });
+    gate.resolve();
+    await Promise.all([first, second]);
+
+    // The first gesture wrote the 4-day estimate; the second compared against
+    // the SETTLED 4-day fact (not the frozen 2-day row) and wrote it back down.
+    expect(persisted[0]?.estimate).toBe(spanDaysToMinutes(4));
+    expect(persisted[1]?.estimate).toBe(spanDaysToMinutes(2));
+    expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
+  });
+
   it('lets gestures on distinct sources proceed independently', async () => {
     const gateA = deferred();
     const h = harness({

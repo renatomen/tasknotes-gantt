@@ -21,26 +21,32 @@
  * - **Cascade supersession.** Once a NEWER geometry write settles for the
  *   gesture's own source (a second drag overtaking the first's deferred
  *   cascade), the cascade's shrink/undo/extend targets are stale: every round
- *   — between rounds, in the lane, and post-fence — compares the source's
- *   settled-geometry sequence (the {@link GeometryClock}) against the one
- *   captured at settlement, and a mismatch skips the remaining rounds cleanly
- *   (no writes, prompts, or notices). Capability (`canWrite`) is re-checked at
- *   the same three points AND before every write inside a round, so a flip —
- *   even one landing between two descendant persists — stops the cascade
- *   before any further write.
- * - **Supersession inherits origin.** A pass abandoned by supersession BEFORE
- *   its subtree phase persisted stashes its effective `before` (the earliest
- *   uncascaded pre-drag capture); the successor pass for the same source plans
- *   from the stashed capture instead of its own, so one subtree move covers the
- *   full cumulative displacement the superseded cascades never delivered. The
- *   stash settles exactly once per pass: it CLEARS when a pass's subtree phase
- *   reports persistence, or when a pass runs to a clean end (a completed
- *   cascade settles the source's account even when it found nothing to shift).
- *   An `aborted` or `no-cascade` settlement never touches the stash (its
- *   gesture wrote no geometry, so nothing was superseded or delivered), and
- *   any other halt — component death, a capability flip, a lost or declined
- *   prompt, the round cap — leaves it untouched: an owed displacement stays
- *   owed for the next cascade on that source.
+ *   — between rounds, in the lane, post-fence, AND before every write inside
+ *   a round — compares the source's settled-geometry sequence (the
+ *   {@link GeometryClock}) against the one captured at settlement, and a
+ *   mismatch stops the pass cleanly (no further writes, prompts, or notices).
+ *   The gesture's own source is not fenced by a subtree round (cascades write
+ *   OTHER sources), so a newer main write CAN settle between two descendant
+ *   persists — the per-write check stops the stale remainder. A mid-round
+ *   supersession reverts the round's echoes INCLUDING the landed writes': the
+ *   fenced successor re-plans every one of them from the stashed origin, so
+ *   the revert is the successor's clean slate, not a data undo. Capability
+ *   (`canWrite`) is re-checked at the same points; a mid-round capability
+ *   loss (no successor is coming) keeps the landed writes' echoes and reverts
+ *   only the still-unwritten rows.
+ * - **Pre-delivery halts inherit origin.** A pass halted BEFORE its subtree
+ *   phase delivered — superseded, capability lost, host dead — stashes its
+ *   effective `before` (the earliest uncascaded pre-drag capture); the next
+ *   pass for the same source plans from the stashed capture instead of its
+ *   own, so one subtree move covers the full cumulative displacement the
+ *   halted cascades never delivered. The stash settles exactly once per pass:
+ *   it CLEARS when a pass's subtree phase reports persistence, or when a pass
+ *   runs to a clean end (a completed cascade settles the source's account even
+ *   when it found nothing to shift). An `aborted` or `no-cascade` settlement
+ *   never touches the stash (its gesture wrote no geometry, so nothing was
+ *   superseded or delivered), and a lost or declined prompt or the round cap
+ *   leaves it untouched: an owed displacement stays owed for the next cascade
+ *   on that source.
  * - **Prompt collection and resume.** Cascade prompts go through the injected
  *   `resolvePrompt` seam OUTSIDE the lane (a modal never blocks other
  *   cascades); an ask-mode round with no reachable prompt after a generation
@@ -79,9 +85,9 @@ export type CascadePhase = 'subtree' | 'shrink' | 'extend';
 export interface CascadeExecution<Facts = undefined> {
   /**
    * The gesture's own pre-drag capture. When a pending cascade for the same
-   * source was superseded before its subtree phase ran, the lane hands `plan`
-   * the stashed earliest-uncascaded capture instead (module doc: supersession
-   * inherits origin). Absent = the pass opts out of origin inheritance.
+   * source halted before its subtree phase delivered, the lane hands `plan`
+   * the stashed earliest-uncascaded capture instead (module doc: pre-delivery
+   * halts inherit origin). Absent = the pass opts out of origin inheritance.
    */
   before?: CascadeBefore;
   /**
@@ -163,7 +169,7 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
   const { deps, lifecycle, queues, clock } = laneDeps;
   // THE global cascade lane: every cascade round of every gesture chains here.
   let cascadeLane: Promise<void> = Promise.resolve();
-  // Per-source earliest-uncascaded `before` (module doc: supersession inherits origin).
+  // Per-source earliest-uncascaded `before` (module doc: pre-delivery halts inherit origin).
   const pendingBefore = new Map<string, CascadeBefore>();
 
   /** One pass's view of the origin stash. Settles at most once per pass. */
@@ -172,8 +178,8 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
     before(): CascadeBefore | undefined;
     /** The subtree phase persisted, or the pass ran to a clean end: account settled. */
     delivered(): void;
-    /** The pass halted; stash the origin only when superseded pre-delivery. */
-    halted(wasSuperseded: boolean): void;
+    /** The pass halted pre-delivery: stash the origin — the displacement stays owed. */
+    halted(): void;
   }
 
   function originStashFor(
@@ -190,8 +196,8 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
         settled = true;
         pendingBefore.delete(sourcePath);
       },
-      halted(wasSuperseded) {
-        if (settled || !wasSuperseded) return;
+      halted() {
+        if (settled) return;
         settled = true;
         const origin = before();
         if (origin) pendingBefore.set(sourcePath, origin);
@@ -221,11 +227,13 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
     const stash = originStashFor(pass.sourcePath, cascade.before, inherits);
     let answers: CascadeAnswers = {};
     for (let round = 0; round < MAX_CASCADE_ROUNDS; round += 1) {
-      if (!proceed()) return stash.halted(superseded());
+      if (!proceed()) return stash.halted();
       const outcome = await throughLane(() =>
-        runLaneRound({ cascade, settlement, answers, snapshot, before: stash.before, gates, proceed }),
+        runLaneRound({
+          cascade, settlement, answers, snapshot, before: stash.before, gates, proceed, superseded,
+        }),
       );
-      if (outcome.kind === 'abandoned') return stash.halted(superseded());
+      if (outcome.kind === 'abandoned') return stash.halted();
       if (outcome.kind === 'retry') continue;
       if (outcome.kind === 'prompt') {
         const collected = await collectCascadeAnswer(outcome.prompt, answers, cascade, gates);
@@ -259,6 +267,8 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
     gates: HostGates;
     /** The full round gate: capability AND liveness AND not superseded. */
     proceed(): boolean;
+    /** The supersession clock alone — mid-round halts branch on the reason. */
+    superseded(): boolean;
   }
 
   /**
@@ -273,7 +283,7 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
    * drifted during the wait), the round persists nothing and reports `retry`.
    */
   async function runLaneRound<Facts>(round: LaneRound<Facts>): Promise<RoundOutcome> {
-    const { cascade, settlement, answers, snapshot, before, gates, proceed } = round;
+    const { cascade, settlement, answers, snapshot, before, gates, proceed, superseded } = round;
     if (!proceed()) return { kind: 'abandoned' };
     const probe = cascade.plan(settlement, answers, snapshot(), before());
     if (probe.prompt) return { kind: 'prompt', prompt: probe.prompt };
@@ -295,8 +305,10 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
         return;
       }
       lifecycle.emitEchoes(plan.echoes, gates);
-      const persisted = await persistCascadeWrites(plan, cascade, gates);
-      if (persisted !== null) outcome = { kind: 'done', persisted, resume: plan.resume };
+      const persisted = await persistCascadeWrites(plan, cascade, gates, superseded);
+      if (persisted !== null && persisted !== 'superseded') {
+        outcome = { kind: 'done', persisted, resume: plan.resume };
+      }
     });
     return outcome;
   }
@@ -324,20 +336,34 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
    * Cascade persists are per-source isolated: a failed write emits only ITS
    * source's reverts and the loop continues — exactly the subtree/extend
    * semantics the container had. Returns the persisted writes (source plus the
-   * exact span each carried), or null when the component died.
+   * exact span each carried), 'superseded' when a newer geometry write halted
+   * the round mid-loop, or null when the component died.
    */
   async function persistCascadeWrites<Facts>(
     plan: Plan,
     cascade: CascadeExecution<Facts>,
     gates: HostGates,
-  ): Promise<readonly PersistedSubtreeWrite[] | null> {
+    superseded: () => boolean,
+  ): Promise<readonly PersistedSubtreeWrite[] | 'superseded' | null> {
     const persisted: PersistedSubtreeWrite[] = [];
     for (const [index, write] of plan.writes.entries()) {
+      // A newer geometry write for the gesture's source can settle between two
+      // descendant persists (its main write runs outside this round's fence):
+      // the remaining patches are stale, so the round halts silently and the
+      // pass stashes its origin. ALL the round's echoes revert, the landed
+      // writes' included — the fenced successor re-plans every one of them
+      // from the stashed origin, so the revert is its clean slate, never a
+      // data undo (the landed vault writes stand until it overwrites them).
+      if (superseded()) {
+        lifecycle.emitEchoes(plan.reverts, gates);
+        return 'superseded';
+      }
       // Capability can vanish MID-round too (an earlier persist settles and the
       // host sheds its writer): re-checked before every write. A loss stops the
       // remaining writes with the same silent halt the round-entry and
       // post-fence checks use — no failure report — reverting only the
-      // still-unwritten rows' optimistic echoes (the landed writes are real).
+      // still-unwritten rows' optimistic echoes (the landed writes are real,
+      // and no successor is coming to re-cover them).
       if (!deps.canWrite()) {
         revertUnwritten(plan, plan.writes.slice(index), gates);
         return persisted;

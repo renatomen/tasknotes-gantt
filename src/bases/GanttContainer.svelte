@@ -2125,17 +2125,17 @@
     extend: "Couldn't update a parent date — check TaskNotes is running.",
   };
 
-  /** Pre-drag bar facts: SPAN from the live SVAR row (optimistic echoes of an
-   *  in-flight persist included — a stale `instances` span turns a revert drag
-   *  into a silent no-op plan); dateStatus/estimate from the snapshot. */
+  /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span
+   *  turns a revert drag into a silent no-op plan); dateStatus/estimate from the
+   *  snapshot, rebased over the executor's settled-facts ledger (self-writes skip recompute). */
   function captureBarBefore(id: string, before: (typeof instances)[number] | undefined) {
     const grabbed = api.getTask?.(id);
-    return {
+    return dragExecutor.rebaseSettledFacts(before?.sourcePath ?? id, {
       start: grabbed?.start instanceof Date ? grabbed.start : (before?.start ?? null),
       end: grabbed?.end instanceof Date ? grabbed.end : (before?.end ?? null),
       dateStatus: before?.dateStatus ?? null,
       estimateMinutes: before?.estimateMinutes ?? null,
-    };
+    });
   }
 
   /**

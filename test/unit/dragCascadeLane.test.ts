@@ -239,9 +239,53 @@ describe('createCascadeLane', () => {
     expect(failures).toEqual([]);
     expect(rounds).toEqual([{}, {}]);
   });
+
+  it('re-checks supersession before EVERY write in a round: a newer settled geometry write stops after the landed write, reverts ALL the round echoes, and halts silently', async () => {
+    const failures: CascadePhase[] = [];
+    const h = harness();
+    const { lane, clock } = laneOf(h);
+    h.deps.persist = (write) => {
+      h.log.push(`persist:${write.sourcePath}`);
+      // A second drag of the SAME source settles its main geometry write while
+      // the first descendant's persist is in flight (the parent's source queue
+      // is not fenced by this round, which writes only the kids).
+      if (write.sourcePath === 'kid1.md') {
+        clock.recordSettledGeometry({
+          sourcePath: 'a.md',
+          instanceId: 'a.md',
+          patch: { start: new Date(2026, 0, 8), end: new Date(2026, 0, 9) },
+        });
+      }
+      return Promise.resolve();
+    };
+    const rounds: CascadeAnswers[] = [];
+
+    await lane.runCascade(
+      passOf({
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return cascadePlanOf({
+            resume: 'after-subtree',
+            writes: [writeOf('kid1.md', 2), writeOf('kid2.md', 3), writeOf('kid3.md', 4)],
+            reverts: [revertOf('kid1.md'), revertOf('kid2.md'), revertOf('kid3.md')],
+          });
+        },
+        onFailure: (_error, phase) => failures.push(phase),
+      }),
+    );
+
+    // Exactly one write landed; the per-write supersession gate stopped the rest.
+    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:kid1.md']);
+    // ALL the round's echoes reverted — the landed write's too: the fenced
+    // successor re-plans every one of them from the stashed origin.
+    expect(h.echoed.map((echoes) => echoes.sourcePath)).toEqual(['kid1.md', 'kid2.md', 'kid3.md']);
+    // Silent halt: no failure report, no resume report round.
+    expect(failures).toEqual([]);
+    expect(rounds).toEqual([{}, {}]);
+  });
 });
 
-describe('supersession inherits origin (the per-source before stash)', () => {
+describe('pre-delivery halts inherit origin (the per-source before stash)', () => {
   const day = (iso: string): Date => new Date(`${iso}T00:00:00`);
   const dayEnd = (iso: string): Date => new Date(`${iso}T23:59:59.999`);
   const addDays = (date: Date, days: number): Date => {
@@ -270,7 +314,7 @@ describe('supersession inherits origin (the per-source before stash)', () => {
   }
 
   /** A real-planner pure-move cascade pass, planning from the lane's effective before. */
-  function movePass(args: MovePassArgs): CascadePass<PlannerInstance[]> {
+  function movePass(args: MovePassArgs, snapshot: PlannerInstance[] = instances): CascadePass<PlannerInstance[]> {
     const own: CascadeBefore = { ...args.before, estimateMinutes: null };
     return {
       cascade: {
@@ -287,7 +331,7 @@ describe('supersession inherits origin (the per-source before stash)', () => {
       },
       settlement: args.settlement ?? { kind: 'plain' },
       sourcePath: PARENT,
-      snapshot: () => instances,
+      snapshot: () => snapshot,
       generation: 0,
     };
   }
@@ -383,5 +427,73 @@ describe('supersession inherits origin (the per-source before stash)', () => {
     const seenAfter: Array<CascadeBefore | undefined> = [];
     await laneKit.lane.runCascade(movePass({ before: A2, after: A3, seen: (b) => seenAfter.push(b) }));
     expect(seenAfter[0]).toEqual({ ...A2, estimateMinutes: null });
+  });
+
+  it('a capability drop before the cascade starts stashes the origin: after capability returns, the next drag displaces the subtree by BOTH moves', async () => {
+    let writable = false; // the host sheds its writer right after the main persist
+    const writes: PlannedWrite[] = [];
+    const h = harness({
+      canWrite: () => writable,
+      persist: (write) => {
+        writes.push(write);
+        return Promise.resolve();
+      },
+    });
+    const laneKit = laneOf(h);
+    await laneKit.lane.runCascade(movePass({ before: B0, after: A1 }));
+    expect(writes).toHaveLength(0); // the halted pass never cascaded
+
+    writable = true; // capability returns; the parent is dragged again
+    const seen: Array<CascadeBefore | undefined> = [];
+    await laneKit.lane.runCascade(movePass({ before: A1, after: A2, seen: (b) => seen.push(b) }));
+
+    // The successor planned from the STASHED origin (B0), not its own A1…
+    expect(seen[0]).toEqual({ ...B0, estimateMinutes: null });
+    // …so the child receives the FULL A→C displacement in one move (+7).
+    const childWrites = writes.filter((w) => w.sourcePath === CHILD);
+    expect(childWrites).toHaveLength(1);
+    expect(childWrites[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 7));
+    expect(childWrites[0]?.patch.end).toEqual(addDays(dayEnd('2026-08-04'), 7));
+  });
+
+  it('a mid-round supersession stashes the origin: the successor re-plans the landed child too, so every child lands at the cumulative displacement', async () => {
+    const CHILD2 = 'notes/C2.md';
+    const twoKids: PlannerInstance[] = [
+      ...instances,
+      { id: CHILD2, sourcePath: CHILD2, text: 'C2', parent: PARENT, start: day('2026-08-05'), end: dayEnd('2026-08-06') },
+    ];
+    const writes: PlannedWrite[] = [];
+    const h = harness();
+    const laneKit = laneOf(h);
+    h.deps.persist = (write) => {
+      writes.push(write);
+      // The second drag's main geometry write settles while the FIRST child's
+      // persist is in flight (the parent's source is not fenced by this round).
+      if (writes.length === 1) {
+        laneKit.clock.recordSettledGeometry({
+          sourcePath: PARENT,
+          instanceId: PARENT,
+          patch: { start: A2.start, end: A2.end },
+        });
+      }
+      return Promise.resolve();
+    };
+    await laneKit.lane.runCascade(movePass({ before: B0, after: A1 }, twoKids));
+    // Exactly one child landed (+3) before the per-write gate halted the round.
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 3));
+
+    const seen: Array<CascadeBefore | undefined> = [];
+    await laneKit.lane.runCascade(movePass({ before: A1, after: A2, seen: (b) => seen.push(b) }, twoKids));
+
+    // The successor inherited B0 and re-planned BOTH children from it: the
+    // landed child is overwritten to the cumulative +7 (never double-shifted),
+    // and the halted child receives the same +7 it was owed.
+    expect(seen[0]).toEqual({ ...B0, estimateMinutes: null });
+    const successorWrites = writes.slice(1).filter((w) => w.sourcePath === CHILD || w.sourcePath === CHILD2);
+    expect(successorWrites.map((w) => [w.sourcePath, w.patch.start])).toEqual([
+      [CHILD, addDays(day('2026-08-03'), 7)],
+      [CHILD2, addDays(day('2026-08-05'), 7)],
+    ]);
   });
 });

@@ -28,7 +28,7 @@
  * @module bases/dragExecutor
  */
 
-import type { GestureSettlement } from './dragCommitPlan';
+import type { BarBefore, GestureSettlement } from './dragCommitPlan';
 import {
   createCascadeLane,
   createGeometryClock,
@@ -39,6 +39,7 @@ import {
   type DragExecutorDeps,
   type MainGestureExecution,
 } from './dragExecutionLifecycle';
+import { createSettledFactsLedger } from './dragSettledFacts';
 import { createSourceQueues } from './dragSourceQueues';
 
 export type { CascadeAnswers, CascadeExecution, CascadePhase } from './dragCascadeLane';
@@ -53,12 +54,23 @@ export interface PlannedExecution<Facts = undefined> extends MainGestureExecutio
 export interface DragExecutor {
   /** Queue an execution behind any in-flight work on the same source. Never rejects. */
   submit<Facts>(execution: PlannedExecution<Facts>): Promise<void>;
+  /**
+   * Overlay the authored facts this executor's settled writes imply onto a
+   * live row read ({@link import('./dragSettledFacts')}): the controller
+   * suppresses recomputation for its own mutations, so rows lag the vault
+   * until a genuine refresh — which then wins back automatically.
+   */
+  rebaseSettledFacts(sourcePath: string, live: BarBefore): BarBefore;
 }
 
 export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
   const queues = createSourceQueues();
   const clock = createGeometryClock();
-  const lifecycle = createExecutionLifecycle(deps, clock.recordSettledGeometry);
+  const settledFacts = createSettledFactsLedger();
+  const lifecycle = createExecutionLifecycle(deps, (write) => {
+    clock.recordSettledGeometry(write);
+    settledFacts.recordSettled(write);
+  });
   const lane = createCascadeLane({ deps, lifecycle, queues, clock });
 
   function submit<Facts>(execution: PlannedExecution<Facts>): Promise<void> {
@@ -92,5 +104,5 @@ export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
     });
   }
 
-  return { submit };
+  return { submit, rebaseSettledFacts: settledFacts.rebase };
 }
