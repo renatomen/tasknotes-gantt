@@ -47,12 +47,12 @@ import {
 } from './dragCommitPlan';
 
 export {
-  emptyPlan, isEmptyPlan, verifyMirrorCoverage,
-  type CascadeChoices, type CascadeOutcome, type CommitGesture, type EchoPayload,
-  type EchoRow, type GestureChoice, type GesturePlan, type GestureSettlement,
-  type InferredGestureOutcome, type Plan, type PlannedPatch, type PlannedWrite,
-  type PlannerDerivation, type PlannerInstance, type PromptRequest, type SourceEchoes,
-  type UnmirroredReason,
+  emptyPlan, isEmptyPlan, memoizePlannerDerivation, verifyMirrorCoverage,
+  type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
+  type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
+  type GestureSettlement, type InferredGestureOutcome, type Plan, type PlannedPatch,
+  type PlannedWrite, type PlannerDerivation, type PlannerInstance, type PromptRequest,
+  type SourceEchoes, type UnmirroredReason,
 } from './dragCommitPlan';
 
 type BarGesture = Extract<CommitGesture, { kind: 'bar' }>;

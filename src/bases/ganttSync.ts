@@ -208,6 +208,13 @@ export interface SvarTask {
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
+     * The rendered span came from the derivation authority's ceiling fallback
+     * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
+     * row's custom record stays indistinguishable from a refreshed one — no
+     * renderer reads it yet. Absent when the span is a plain derivation.
+     */
+    stretchFlagged?: boolean;
+    /**
      * The task's effective Estimate meaning when it overrides the view default
      * (R11), read by `BarContent` to draw the corner override dot and its
      * tooltip. Absent = the task follows the view default (no dot). Folded into
@@ -378,6 +385,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
@@ -409,9 +417,10 @@ export type EchoTaskUpdate =
 /**
  * Shape an executor echo payload into the `update-task` patch for one row. A
  * geometry echo carries the derivation authority's FULL render geometry, so the
- * patch advances `custom.ghostRuns` alongside start/end (preserving the rest of
- * the row's custom record) — an echoed split bar renders exactly as a refreshed
- * one, with `undefined` for an empty run list just like {@link buildSvarTasks}.
+ * patch advances `custom.ghostRuns` AND `custom.stretchFlagged` alongside
+ * start/end (preserving the rest of the row's custom record) — an echoed split
+ * or ceiling-flagged bar renders exactly as a refreshed one, with `undefined`
+ * for an empty run list or an unflagged span just like {@link buildSvarTasks}.
  * Without the row's current custom record the patch stays span-only rather than
  * fabricating a partial record.
  */
@@ -428,6 +437,7 @@ export function echoTaskPatch(
     custom: {
       ...currentCustom,
       ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
+      stretchFlagged: geometry.flagged ? true : undefined,
     },
   };
 }

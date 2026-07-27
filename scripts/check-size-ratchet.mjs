@@ -4,9 +4,11 @@
  * baseline fails, and a shrinking change FAILS TOO until it lowers the baseline
  * to the new count — the lock is how the ratchet advances, so a stale baseline
  * can never let a later change regrow the file back up to it. The per-file
- * cognitive-complexity ceilings in eslint.config.mjs are
- * guarded the same way — a ceiling may only decrease, and no new per-file
- * ceiling entry may appear.
+ * cognitive-complexity ceilings in eslint.config.mjs are guarded with the SAME
+ * one-way lock: a raised ceiling or a new per-file entry fails, a LOWERED
+ * ceiling fails until its baseline is lowered to match, and a REMOVED
+ * exemption fails until its baseline entry is deleted — so the baseline table
+ * always mirrors the config exactly and stale headroom can never be re-spent.
  *
  * Run by ci.yml (build job). Runnable directly: `node scripts/check-size-ratchet.mjs`.
  *
@@ -89,8 +91,12 @@ export function extractComplexityCeilings(config) {
 }
 
 /**
- * Complexity ceilings are downward-only: a raised value or a NEW per-file
- * ceiling entry is a violation.
+ * Complexity ceilings ratchet exactly like line counts. A raised value or a
+ * NEW per-file ceiling entry is a violation; a ceiling BELOW its baseline is a
+ * violation too until the baseline is lowered to match (else the gain could be
+ * silently regrown inside the stale headroom); and a baseline entry whose
+ * exemption is gone from the config is a violation until the entry is removed
+ * (else the exemption could be silently re-added at its old ceiling).
  * @param {Record<string, number>} ceilings
  * @param {Record<string, number>} baselines
  * @returns {string[]}
@@ -106,6 +112,17 @@ export function checkCeilingBaselines(ceilings, baselines) {
     } else if (value > baseline) {
       violations.push(
         `eslint.config.mjs: cognitive-complexity ceiling for [${key}] rose to ${value} (baseline ${baseline}) — ceilings may only decrease.`,
+      );
+    } else if (value < baseline) {
+      violations.push(
+        `eslint.config.mjs: cognitive-complexity ceiling for [${key}] is ${value}, below the baseline of ${baseline} — lock the gain in by lowering CEILING_BASELINES in scripts/check-size-ratchet.mjs to ${value}.`,
+      );
+    }
+  }
+  for (const key of Object.keys(baselines)) {
+    if (ceilings[key] === undefined) {
+      violations.push(
+        `eslint.config.mjs no longer has a cognitive-complexity ceiling for [${key}] — lock the removal in by deleting its CEILING_BASELINES entry in scripts/check-size-ratchet.mjs.`,
       );
     }
   }
@@ -133,10 +150,13 @@ export function extractBaselineTable(source, name) {
 
 /**
  * Compare the working tree's baseline tables against the TARGET branch's copy
- * of this script: a value may only stay or decrease, and an entry present on
- * the base may not disappear — otherwise a PR could regrow a file simply by
- * raising (or deleting) its baseline and pass the working-tree check. A NEW
- * entry (a newly ratcheted file) is allowed.
+ * of this script: a value may only stay or decrease, and a LINE_BASELINES
+ * entry present on the base may not disappear — otherwise a PR could regrow a
+ * file simply by raising (or deleting) its baseline and pass the working-tree
+ * check. A NEW entry (a newly ratcheted file) is allowed. A CEILING_BASELINES
+ * entry MAY disappear: the working-tree check demands exactly that when its
+ * exemption leaves eslint.config.mjs, and fails a deletion whose exemption
+ * remains (the config would then carry a "new" un-baselined ceiling).
  * @param {string} baseSource  the base ref's check-size-ratchet.mjs source text
  * @param {{lines?: Record<string, number>, ceilings?: Record<string, number>}} [current]
  *   working-tree tables (injectable for tests; defaults to the real ones)
@@ -157,9 +177,11 @@ export function compareAgainstBase(baseSource, current = {}) {
     for (const [key, baseValue] of Object.entries(base)) {
       const value = table[key];
       if (value === undefined) {
-        violations.push(
-          `${name}: the entry for [${key}] was removed — ratcheted entries may only be lowered, never dropped.`,
-        );
+        if (name === "LINE_BASELINES") {
+          violations.push(
+            `${name}: the entry for [${key}] was removed — ratcheted entries may only be lowered, never dropped.`,
+          );
+        }
       } else if (value > baseValue) {
         violations.push(
           `${name}: [${key}] rose from ${baseValue} to ${value} — baselines may only decrease.`,

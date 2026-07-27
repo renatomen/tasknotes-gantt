@@ -2,8 +2,9 @@
  * The size ratchet's decision logic: a count above baseline fails, equal
  * passes, and lower FAILS TOO until the baseline is lowered to the new count —
  * the one-way lock that stops a stale baseline from letting a later change
- * regrow the file. The eslint complexity ceilings are downward-only (a raised
- * value or a new entry fails). The real eslint config is checked against the
+ * regrow the file. The eslint complexity ceilings ratchet the same way (a
+ * raised value, a new entry, an unlocked lower value, or a stale baseline for
+ * a removed exemption all fail). The real eslint config is checked against the
  * real ceiling baselines here too, so a ceiling edit fails the fast jest lane
  * before CI's script step.
  */
@@ -58,9 +59,30 @@ describe('checkCeilingBaselines', () => {
     expect(violations[0]).toContain('rose to 21 (baseline 20)');
   });
 
-  it('passes unchanged and lowered ceilings, and a removed entry', () => {
-    expect(checkCeilingBaselines({ 'a.ts': 20 }, { 'a.ts': 20, 'gone.ts': 30 })).toEqual([]);
-    expect(checkCeilingBaselines({ 'a.ts': 18 }, { 'a.ts': 20 })).toEqual([]);
+  it('passes a ceiling exactly at its baseline', () => {
+    expect(checkCeilingBaselines({ 'a.ts': 20 }, { 'a.ts': 20 })).toEqual([]);
+  });
+
+  it('FAILS a ceiling below its baseline, demanding the new lower value be locked in', () => {
+    const violations = checkCeilingBaselines({ 'a.ts': 18 }, { 'a.ts': 20 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('below the baseline of 20');
+    expect(violations[0]).toContain('lowering CEILING_BASELINES in scripts/check-size-ratchet.mjs to 18');
+  });
+
+  it('passes again once the lowered ceiling\'s baseline is locked to the new value', () => {
+    expect(checkCeilingBaselines({ 'a.ts': 18 }, { 'a.ts': 18 })).toEqual([]);
+  });
+
+  it('FAILS a removed exemption whose stale baseline lingers, demanding the entry\'s removal', () => {
+    const violations = checkCeilingBaselines({ 'a.ts': 20 }, { 'a.ts': 20, 'gone.ts': 30 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('[gone.ts]');
+    expect(violations[0]).toContain('deleting its CEILING_BASELINES entry');
+  });
+
+  it('passes again once the removed exemption\'s baseline entry is deleted', () => {
+    expect(checkCeilingBaselines({ 'a.ts': 20 }, { 'a.ts': 20 })).toEqual([]);
   });
 
   it('fails a NEW per-file ceiling entry — the exemption list may only shrink', () => {
@@ -84,7 +106,8 @@ describe('extractComplexityCeilings', () => {
     const raised = extractComplexityCeilings([
       { files: ['test/__mocks__/obsidian.ts'], rules: { 'sonarjs/cognitive-complexity': ['error', 24] } },
     ]);
-    expect(checkCeilingBaselines(raised, CEILING_BASELINES)).toHaveLength(1);
+    const violations = checkCeilingBaselines(raised, CEILING_BASELINES);
+    expect(violations.filter((v) => v.includes('rose to 24 (baseline 23)'))).toHaveLength(1);
   });
 });
 
@@ -122,13 +145,22 @@ describe('compareAgainstBase (CI: baselines vs the TARGET branch)', () => {
     ).toEqual([]);
   });
 
-  it('fails a REMOVED entry — a ratcheted file may not leave the table', () => {
+  it('fails a REMOVED line entry — a ratcheted file may not leave the table', () => {
     const violations = compareAgainstBase(
       baseSourceOf({ 'a.ts': 100, 'gone.ts': 40 }, { '**/*.ts': 15 }),
       current,
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('[gone.ts] was removed');
+  });
+
+  it('passes a REMOVED ceiling entry — deleting a retired exemption\'s baseline is the locked-in path', () => {
+    expect(
+      compareAgainstBase(
+        baseSourceOf({ 'a.ts': 100 }, { '**/*.ts': 15, 'retired.ts': 22 }),
+        current,
+      ),
+    ).toEqual([]);
   });
 
   it('passes an ADDED entry — newly ratcheted files are welcome', () => {

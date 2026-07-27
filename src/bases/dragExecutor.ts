@@ -6,15 +6,22 @@
  *
  * - **Per-source serialization.** Executions queue per source note; a gesture
  *   arriving while its source has an in-flight execution waits, and its task
- *   facts are captured at DEQUEUE time (`snapshot()`, once per gesture) — so a
- *   queued gesture is re-planned from post-settlement facts, never from the
- *   facts the prior gesture wrote over. That one capture then spans the whole
- *   gesture: the plan, any prompt re-plan, and every cascade round read it.
- *   Distinct sources proceed independently.
- * - **Cross-source cascade fencing.** A cascade round writes other sources
- *   (subtree children, ancestors); before it runs, the round joins the queue of
- *   EVERY source its plan writes (acquired in sorted order), so a gesture on a
- *   child source queued behind an in-flight cascade waits for it to settle.
+ *   facts are captured at DEQUEUE time (`snapshot()`, once per main gesture) —
+ *   so a queued gesture is re-planned from post-settlement facts, never from
+ *   the facts the prior gesture wrote over. That capture spans the plan and any
+ *   prompt re-plan. Distinct sources proceed independently.
+ * - **One global cascade lane.** Cascade rounds write OTHER sources (subtree
+ *   children, ancestors), so two in-flight gestures cascading into each other's
+ *   sources could otherwise circular-wait. Every cascade round instead runs
+ *   through a single shared lane (cascades are rare and user-paced, so global
+ *   serialization is observably free) — deadlock-free by construction: a
+ *   gesture's own-source slot is released at settlement, BEFORE its cascade
+ *   waits for the lane, and lane occupants wait only on source queues whose
+ *   work never needs the lane. Inside the lane each round re-captures
+ *   `snapshot()` and re-plans, so its facts are post-everything-that-settled
+ *   ahead of it; it then joins the queue of every source it writes (fencing
+ *   later gestures on those sources behind it) and re-plans once more if that
+ *   join had to wait, so a stale patch never overwrites a newer settled write.
  * - **Revert-baseline lifecycle.** Each execution's revert baseline is the
  *   plan's own `reverts`, carried as data; a failed or timed-out persist emits
  *   exactly that plan's reverts and touches nothing queued behind it.
@@ -31,14 +38,14 @@
  *   the injected `resolvePrompt` collects the choice (prompt side-effects live
  *   behind that seam), and the gesture is re-planned with the choice before
  *   anything writes. The settled outcome is reported through `onSettled` and
- *   drives the execution's deferred cascade pass in the same queue slot —
+ *   drives the execution's deferred cascade pass through the global lane —
  *   planned round by round from the settlement (each round re-checks
  *   `canWrite`, so a capability flip stops the cascade between rounds), with
- *   cascade prompts collected through the same `resolvePrompt` seam, the
- *   `after-subtree` resume protocol reporting which sources persisted, and
- *   per-source revert isolation (a failed cascade write reverts only its own
- *   source and the loop continues) — always after the persists it depends on
- *   have actually settled.
+ *   cascade prompts collected through the same `resolvePrompt` seam (outside
+ *   the lane, so a modal never blocks other cascades), the `after-subtree`
+ *   resume protocol reporting which sources persisted, and per-source revert
+ *   isolation (a failed cascade write reverts only its own source and the loop
+ *   continues) — always after the persists it depends on have actually settled.
  *
  * Dependency-free (no Obsidian/Svelte/SVAR), mirroring {@link ./dragCommitPlanner}.
  *
@@ -72,13 +79,14 @@ export type CascadeAnswers = Pick<
 /** Which cascade phase a failed write belonged to (a presentation seam only). */
 export type CascadePhase = 'subtree' | 'shrink' | 'extend';
 
-/** The deferred cascade pass, run in the gesture's queue slot once it settles. */
+/** The deferred cascade pass, run through the global lane once the gesture settles. */
 export interface CascadeExecution<Facts = undefined> {
   /**
    * Re-plan the cascade from the gesture's settlement, the answers gathered so
-   * far, and the gesture's one dequeue-time facts capture — called once per
-   * round, so a collected prompt answer or reported subtree result always
-   * reaches the very next plan.
+   * far, and a FRESH facts capture taken inside the lane — so a collected
+   * prompt answer, a reported subtree result, or a write settled ahead of this
+   * round always reaches the very next plan. MUST be pure (no side effects):
+   * a write-carrying round calls it again after fencing the sources it writes.
    */
   plan(settlement: GestureSettlement, answers: CascadeAnswers, facts: Facts): Plan;
   /** A cascade persist failed (its source's reverts have already been emitted). */
@@ -89,10 +97,11 @@ export interface CascadeExecution<Facts = undefined> {
 export interface PlannedExecution<Facts = undefined> {
   sourcePath: string;
   /**
-   * Capture the current task facts. Called exactly ONCE, at dequeue — so a
-   * gesture queued behind an in-flight same-source execution plans from
-   * post-settlement facts — and the same capture is handed to the plan, any
-   * prompt re-plan, and every cascade round of this gesture.
+   * Capture the current task facts. The main gesture captures ONCE, at dequeue
+   * — so a gesture queued behind an in-flight same-source execution plans from
+   * post-settlement facts — and that capture spans the plan and any prompt
+   * re-plan. Each cascade round captures AFRESH inside the global lane, so its
+   * plan reads facts settled ahead of it, never the pre-cascade world.
    */
   snapshot(): Facts;
   /**
@@ -148,11 +157,32 @@ interface ExecutionContext<Facts> {
 
 export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
   const tails = new Map<string, Promise<void>>();
+  // THE global cascade lane: every cascade round of every gesture chains here.
+  let cascadeLane: Promise<void> = Promise.resolve();
 
   function submit<Facts>(execution: PlannedExecution<Facts>): Promise<void> {
     const generation = deps.generation?.() ?? 0;
-    const next = joinQueues([execution.sourcePath], () => runGuarded(execution, generation));
-    return next;
+    // The own-source slot covers the MAIN gesture only; it settles at gesture
+    // settlement so the cascade never holds a source while waiting for the
+    // lane (the deadlock-freedom invariant — see the module doc).
+    const outcome: { settlement: GestureSettlement | null } = { settlement: null };
+    const main = joinQueues([execution.sourcePath], async () => {
+      try {
+        outcome.settlement = await runMain(execution, generation);
+      } catch (error) {
+        // A throw outside the persist loop (e.g. the plan callback itself)
+        // still reports, and never breaks the source's queue behind it.
+        execution.onFailure?.(error);
+      }
+    });
+    return main.then(async () => {
+      if (outcome.settlement === null || !execution.cascade) return;
+      try {
+        await runCascade(execution.cascade, outcome.settlement, execution, generation);
+      } catch (error) {
+        execution.onFailure?.(error);
+      }
+    });
   }
 
   /**
@@ -174,32 +204,25 @@ export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
     return next;
   }
 
-  async function runGuarded<Facts>(
-    execution: PlannedExecution<Facts>,
-    generation: number,
-  ): Promise<void> {
-    try {
-      await run(execution, generation);
-    } catch (error) {
-      // A throw outside the persist loop (e.g. the plan callback itself) still
-      // reports, and never breaks the source's queue for gestures behind it.
-      execution.onFailure?.(error);
-    }
+  function liveIn(generation: number): () => boolean {
+    return () => deps.isLive() && (deps.generation?.() ?? 0) === generation;
   }
 
-  async function run<Facts>(execution: PlannedExecution<Facts>, generation: number): Promise<void> {
-    const ctxLive = (): boolean => deps.isLive() && (deps.generation?.() ?? 0) === generation;
-    if (!deps.canWrite() || !ctxLive()) return;
-    // ONE facts capture per gesture, taken at dequeue: post-settlement fresh
-    // across queued gestures, held constant within this one.
-    const ctx: ExecutionContext<Facts> = { facts: execution.snapshot(), live: ctxLive };
+  /** Run the main gesture; the settlement it reached, or null when abandoned. */
+  async function runMain<Facts>(
+    execution: PlannedExecution<Facts>,
+    generation: number,
+  ): Promise<GestureSettlement | null> {
+    const live = liveIn(generation);
+    if (!deps.canWrite() || !live()) return null;
+    // ONE facts capture per main gesture, taken at dequeue: post-settlement
+    // fresh across queued gestures, held constant through the prompt re-plan.
+    const ctx: ExecutionContext<Facts> = { facts: execution.snapshot(), live };
     const plan = execution.plan(undefined, ctx.facts);
-    if (!plan) return;
-    const settlement = plan.prompt
-      ? await runPromptedPlan(plan.prompt, plan, execution, ctx)
-      : await executePlan(plan, execution, ctx);
-    if (settlement === null || !execution.cascade) return;
-    await runCascade(execution.cascade, settlement, execution.sourcePath, ctx);
+    if (!plan) return null;
+    return plan.prompt
+      ? runPromptedPlan(plan.prompt, plan, execution, ctx)
+      : executePlan(plan, execution, ctx);
   }
 
   async function runPromptedPlan<Facts>(
@@ -246,52 +269,98 @@ export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
   // consumes, so the planner runs out of things to ask well inside the cap.
   const MAX_CASCADE_ROUNDS = 6;
 
+  /** What one lane round resolved to, driving the outer cascade loop. */
+  type RoundOutcome =
+    | { kind: 'abandoned' }
+    | { kind: 'prompt'; prompt: PromptRequest }
+    | { kind: 'retry' }
+    | { kind: 'done'; persisted: readonly string[]; resume: Plan['resume'] };
+
   /**
-   * The deferred cascade pass: re-plan each round from the settlement, the
-   * accumulated answers, and the gesture's one facts capture — collecting
-   * prompt answers and honoring the `after-subtree` resume protocol (report
-   * which sources persisted, re-plan). A round that writes OTHER sources joins
-   * their queues first, so gestures on those sources never interleave with it.
+   * The deferred cascade pass: each round runs through the global lane with a
+   * fresh facts capture, collecting prompt answers (outside the lane) and
+   * honoring the `after-subtree` resume protocol (report which sources
+   * persisted, re-plan). A `retry` round (its write set drifted while fencing)
+   * re-runs against the loop's round cap.
    */
   async function runCascade<Facts>(
     cascade: CascadeExecution<Facts>,
     settlement: GestureSettlement,
-    ownSource: string,
-    ctx: ExecutionContext<Facts>,
+    execution: PlannedExecution<Facts>,
+    generation: number,
   ): Promise<void> {
+    const live = liveIn(generation);
     let answers: CascadeAnswers = {};
     for (let round = 0; round < MAX_CASCADE_ROUNDS; round += 1) {
-      if (!deps.canWrite() || !ctx.live()) return;
-      const plan = cascade.plan(settlement, answers, ctx.facts);
-      if (plan.prompt) {
-        const collected = await collectCascadeAnswer(plan.prompt, answers);
-        if (!ctx.live() || !collected) return;
+      if (!deps.canWrite() || !live()) return;
+      const outcome = await throughLane(() =>
+        runLaneRound(cascade, settlement, answers, execution.snapshot, live),
+      );
+      if (outcome.kind === 'abandoned') return;
+      if (outcome.kind === 'retry') continue;
+      if (outcome.kind === 'prompt') {
+        const collected = await collectCascadeAnswer(outcome.prompt, answers);
+        if (!live() || !collected) return;
         answers = collected;
         continue;
       }
-      const persisted = await runCascadeRound(plan, cascade, ownSource, ctx);
-      if (persisted === null || plan.resume !== 'after-subtree') return;
-      answers = { ...answers, persistedSubtreeSources: persisted };
+      if (outcome.resume !== 'after-subtree') return;
+      answers = { ...answers, persistedSubtreeSources: outcome.persisted };
     }
   }
 
+  /** Chain a task onto the global cascade lane (never holds any source queue). */
+  function throughLane<T>(task: () => Promise<T>): Promise<T> {
+    const run = cascadeLane.then(task);
+    cascadeLane = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /**
-   * One write-carrying cascade round, run while holding the queue of every
-   * OTHER source the plan writes (the gesture's own slot is already held).
+   * One cascade round, run inside the lane. The plan callback is called with a
+   * FRESH snapshot to declare the round (prompt / nothing / writes); a
+   * write-carrying round then joins the queue of every source it writes —
+   * fencing later gestures on those sources behind it — and, having possibly
+   * waited there, plans once more from another fresh capture so the persisted
+   * patch reflects every write settled ahead of it. If that final plan writes
+   * a source the round didn't fence (its facts drifted during the wait), the
+   * round persists nothing and reports `retry`.
    */
-  function runCascadeRound<Facts>(
-    plan: Plan,
+  async function runLaneRound<Facts>(
     cascade: CascadeExecution<Facts>,
-    ownSource: string,
-    ctx: ExecutionContext<Facts>,
-  ): Promise<readonly string[] | null> {
-    const others = plan.writes.map((w) => w.sourcePath).filter((s) => s !== ownSource);
-    let persisted: readonly string[] | null = null;
-    return joinQueues(others, async () => {
-      if (!ctx.live()) return;
+    settlement: GestureSettlement,
+    answers: CascadeAnswers,
+    snapshot: () => Facts,
+    live: () => boolean,
+  ): Promise<RoundOutcome> {
+    if (!live()) return { kind: 'abandoned' };
+    const probe = cascade.plan(settlement, answers, snapshot());
+    if (probe.prompt) return { kind: 'prompt', prompt: probe.prompt };
+    const fenced = [...new Set(probe.writes.map((w) => w.sourcePath))];
+    if (fenced.length === 0) {
+      emitEchoes(probe.echoes);
+      return { kind: 'done', persisted: [], resume: probe.resume };
+    }
+    let outcome: RoundOutcome = { kind: 'abandoned' };
+    await joinQueues(fenced, async () => {
+      if (!live()) return;
+      const plan = cascade.plan(settlement, answers, snapshot());
+      if (plan.prompt) {
+        outcome = { kind: 'prompt', prompt: plan.prompt };
+        return;
+      }
+      if (!plan.writes.every((w) => fenced.includes(w.sourcePath))) {
+        outcome = { kind: 'retry' };
+        return;
+      }
       emitEchoes(plan.echoes);
-      persisted = await persistCascadeWrites(plan, cascade, ctx);
-    }).then(() => persisted);
+      const persisted = await persistCascadeWrites(plan, cascade, live);
+      if (persisted !== null) outcome = { kind: 'done', persisted, resume: plan.resume };
+    });
+    return outcome;
   }
 
   async function collectCascadeAnswer(
@@ -313,16 +382,16 @@ export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
   async function persistCascadeWrites<Facts>(
     plan: Plan,
     cascade: CascadeExecution<Facts>,
-    ctx: ExecutionContext<Facts>,
+    live: () => boolean,
   ): Promise<readonly string[] | null> {
     const persisted: string[] = [];
     for (const write of plan.writes) {
       try {
         await timeBound(deps.persist(write));
-        if (!ctx.live()) return null;
+        if (!live()) return null;
         persisted.push(write.sourcePath);
       } catch (error) {
-        if (!ctx.live()) return null;
+        if (!live()) return null;
         emitEchoes(plan.reverts.filter((revert) => revert.sourcePath === write.sourcePath));
         cascade.onFailure?.(error, cascadePhaseOf(plan, write));
       }

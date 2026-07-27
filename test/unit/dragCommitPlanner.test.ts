@@ -25,13 +25,15 @@
  *   varying by write class (main, gate-main, subtree, shrink, extend,
  *   progress), so failure rows cross exactly those carriers.
  */
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import {
   planGestureCommit,
   planCascade,
   verifyMirrorCoverage,
   isEmptyPlan,
   emptyPlan,
+  memoizePlannerDerivation,
+  type DerivationMemo,
   type CascadeChoices,
   type CascadeOutcome,
   type CommitGesture,
@@ -1119,5 +1121,86 @@ describe('named rows', () => {
     for (const row of plan.echoes[0]?.rows ?? []) {
       expect(row.payload).toEqual({ kind: 'geometry', geometry });
     }
+  });
+});
+
+describe('memoizePlannerDerivation (the per-gesture derivation memo)', () => {
+  const geometry = (iso: string) => ({
+    start: day(iso),
+    end: dayEnd(iso),
+    flagged: false,
+    ghostRuns: [],
+  });
+  const baseDerivation = (): PlannerDerivation => ({
+    minutesToSpanDays,
+    spanDaysToMinutes,
+    inclusiveDaySpan,
+  });
+
+  it('materializes an identical deriveEstimate query once and replays the same answer', () => {
+    const deriveEstimate = jest.fn((_source: string, span: { start: Date; end: Date }) => ({
+      ...geometry('2026-03-02'),
+      start: span.start,
+      end: span.end,
+      days: 3,
+    }));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate });
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-04') };
+
+    const first = memoized.deriveEstimate!('a.md', span);
+    const again = memoized.deriveEstimate!('a.md', { ...span });
+
+    expect(deriveEstimate).toHaveBeenCalledTimes(1);
+    expect(again).toBe(first);
+  });
+
+  it('computes distinct deriveEstimate queries separately (different source or span)', () => {
+    const deriveEstimate = jest.fn(() => ({ ...geometry('2026-03-02'), days: 1 }));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate });
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-04') };
+
+    memoized.deriveEstimate!('a.md', span);
+    memoized.deriveEstimate!('b.md', span);
+    memoized.deriveEstimate!('a.md', { start: span.start, end: dayEnd('2026-03-05') });
+
+    expect(deriveEstimate).toHaveBeenCalledTimes(3);
+  });
+
+  it('memoizes deriveSpan by (source, edge, anchor, minutes)', () => {
+    const deriveSpan = jest.fn(() => geometry('2026-03-02'));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveSpan });
+
+    const first = memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 480);
+    const again = memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 480);
+    memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 960);
+
+    expect(deriveSpan).toHaveBeenCalledTimes(2);
+    expect(again).toBe(first);
+  });
+
+  it('shares one gesture memo across wrapper instances, and a fresh memo starts cold', () => {
+    const deriveEstimate = jest.fn(() => ({ ...geometry('2026-03-02'), days: 2 }));
+    const memo: DerivationMemo = new Map();
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-03') };
+
+    // The container builds a NEW wrapper per plan call but hands every call of
+    // one gesture the same memo — the estimate/echo/re-plan calls share facts.
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, memo).deriveEstimate!('a.md', span);
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, memo).deriveEstimate!('a.md', span);
+    expect(deriveEstimate).toHaveBeenCalledTimes(1);
+
+    // The next gesture's fresh memo never sees the previous gesture's answers.
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, new Map()).deriveEstimate!('a.md', span);
+    expect(deriveEstimate).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes conversions through untouched and keeps absent authority callbacks absent', () => {
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), defaultDurationDays: 5 });
+    expect(memoized.deriveEstimate).toBeUndefined();
+    expect(memoized.deriveSpan).toBeUndefined();
+    expect(memoized.minutesToSpanDays).toBe(minutesToSpanDays);
+    expect(memoized.spanDaysToMinutes).toBe(spanDaysToMinutes);
+    expect(memoized.inclusiveDaySpan).toBe(inclusiveDaySpan);
+    expect(memoized.defaultDurationDays).toBe(5);
   });
 });

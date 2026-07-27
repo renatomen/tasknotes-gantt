@@ -57,6 +57,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isFetched: over.isFetched ?? false,
     isTopLevelPlacement: over.isTopLevelPlacement ?? false,
     ghostRuns: over.ghostRuns,
+    stretchFlagged: over.stretchFlagged,
     interpretationOverridden: over.interpretationOverridden,
   };
 }
@@ -831,6 +832,13 @@ describe('taskStateKey', () => {
     expect(built?.custom.ghostRuns).toEqual(ghostRuns);
   });
 
+  it('threads stretchFlagged onto SvarTask.custom (true when flagged, absent otherwise) so echo and refresh agree', () => {
+    const [flagged] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', stretchFlagged: true })] }));
+    const [plain] = buildSvarTasks(inputs({ instances: [inst({ id: 'b' })] }));
+    expect(flagged?.custom.stretchFlagged).toBe(true);
+    expect(plain?.custom.stretchFlagged).toBeUndefined();
+  });
+
   it('is identical for identical content', () => {
     const [a] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
@@ -1031,13 +1039,13 @@ describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () =>
 });
 
 describe('echoTaskPatch', () => {
-  const geometryPayload = (ghostRuns: Array<{ startDate: string; days: number }>) =>
+  const geometryPayload = (ghostRuns: Array<{ startDate: string; days: number }>, flagged = false) =>
     ({
       kind: 'geometry',
       geometry: {
         start: new Date(2026, 0, 5),
         end: new Date(2026, 0, 9),
-        flagged: false,
+        flagged,
         ghostRuns,
       },
     }) as const;
@@ -1077,5 +1085,24 @@ describe('echoTaskPatch', () => {
       start: new Date(2026, 0, 5),
       end: new Date(2026, 0, 9),
     });
+  });
+
+  it('carries the ceiling-fallback provenance: a flagged geometry echoes custom.stretchFlagged, preserving the rest of the record', () => {
+    const current = customOf();
+
+    const patch = echoTaskPatch(geometryPayload([], true), current);
+
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.stretchFlagged).toBe(true);
+    expect(custom).toMatchObject({ ...current, stretchFlagged: true });
+  });
+
+  it('clears a stale flag: an unflagged geometry echoes stretchFlagged as undefined, matching buildSvarTasks', () => {
+    const current = customOf({ stretchFlagged: true });
+    expect(current.stretchFlagged).toBe(true);
+
+    const patch = echoTaskPatch(geometryPayload([], false), current);
+
+    expect((patch as { custom: SvarTask['custom'] }).custom.stretchFlagged).toBeUndefined();
   });
 });

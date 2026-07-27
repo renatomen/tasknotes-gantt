@@ -114,9 +114,9 @@
   import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
   import {
-    planCascade, planGestureCommit,
-    type CommitGesture, type PlannedPatch, type PlannerDerivation, type PromptRequest,
-    type SourceEchoes,
+    memoizePlannerDerivation, planCascade, planGestureCommit,
+    type CommitGesture, type DerivationMemo, type PlannedPatch, type PlannerDerivation,
+    type PromptRequest, type SourceEchoes,
   } from './dragCommitPlanner';
   import { createDragExecutor, type CascadePhase, type PromptAnswer } from './dragExecutor';
   import { dlog } from '../debugLog';
@@ -2139,10 +2139,9 @@
 
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
-   * cascade included. The authoritative post-drag span comes from the SVAR
-   * store (the event payload is heterogeneous — diff-only on some gestures),
-   * `before` from the intercept's pre-drag capture; every OTHER planning fact
-   * comes from the `instances` snapshot the executor captures at dequeue.
+   * cascade included. The authoritative span comes from the SVAR store (the event
+   * payload is diff-only on some gestures), `before` from the intercept's pre-drag
+   * capture, other facts from executor snapshots; ONE derivation memo spans the gesture.
    */
   function submitBarGesture(args: {
     instanceId: string;
@@ -2169,10 +2168,11 @@
       // synchronously readable, so it applies from the very next drag.
       inferredDragMode: $data.getInferredDragMode(),
     };
+    const memo: DerivationMemo = new Map();
     void dragExecutor.submit({
       sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
       snapshot: () => instances,
-      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation()),
+      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation(memo)),
       onFailure: (err) => {
         console.error('[GanttContainer] reschedule persist failed:', err);
         new Notice("Couldn't save date change — check TaskNotes is running.");
@@ -2183,7 +2183,7 @@
             { instanceId, name, before, after, settlement },
             snapshot,
             { cascadeMode: get(data).cascadeMode, ...answers },
-            plannerDerivation(),
+            plannerDerivation(memo),
           ),
         onFailure: (err, phase) => {
           console.error(`[GanttContainer] ${phase} cascade persist failed:`, err);
@@ -2212,16 +2212,16 @@
     }
   }
 
-  /** The derivation surface plans read — the controller's write-path authority. */
-  function plannerDerivation(): PlannerDerivation {
-    return {
+  /** The derivation surface plans read — the write-path authority, memoized per gesture. */
+  function plannerDerivation(memo: DerivationMemo): PlannerDerivation {
+    return memoizePlannerDerivation({
       deriveEstimate: $data.deriveEstimate,
       deriveSpan: $data.deriveSpan,
       minutesToSpanDays,
       spanDaysToMinutes,
       inclusiveDaySpan,
       defaultDurationDays: $data.defaultDurationDays,
-    };
+    }, memo);
   }
 
   /**
@@ -2239,7 +2239,7 @@
     return dragExecutor.submit({
       sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
       snapshot: () => instances,
-      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation()),
+      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation(new Map())),
       onFailure: (err) => {
         console.error('[GanttContainer] progress persist failed:', err);
         new Notice("Couldn't save progress — check TaskNotes is running.");

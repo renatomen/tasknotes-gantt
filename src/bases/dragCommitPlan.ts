@@ -101,6 +101,45 @@ export interface PlannerDerivation {
   defaultDurationDays?: number;
 }
 
+/** One gesture's derivation cache — create per submitted gesture, never share. */
+export type DerivationMemo = Map<string, unknown>;
+
+/**
+ * Wrap a derivation's authority callbacks in a memo keyed by their call args,
+ * so the identical (source, span) or (source, edge, anchor, minutes) query —
+ * repeated across a gesture's estimate, echo, and re-plan calls — materializes
+ * its facts (vault calendars included) once. The memo's lifetime bounds the
+ * staleness: hand each gesture its OWN `memo` and answers never leak across
+ * gestures. The conversion members pass through untouched.
+ */
+export function memoizePlannerDerivation(
+  derivation: PlannerDerivation,
+  memo: DerivationMemo = new Map(),
+): PlannerDerivation {
+  const cached = <T>(key: string, compute: () => T): T => {
+    if (!memo.has(key)) memo.set(key, compute());
+    return memo.get(key) as T;
+  };
+  const { deriveEstimate, deriveSpan } = derivation;
+  return {
+    ...derivation,
+    deriveEstimate:
+      deriveEstimate &&
+      ((sourcePath, span) =>
+        cached(
+          JSON.stringify(['estimate', sourcePath, span.start.getTime(), span.end.getTime()]),
+          () => deriveEstimate(sourcePath, span),
+        )),
+    deriveSpan:
+      deriveSpan &&
+      ((sourcePath, edge, anchor, estimateMinutes) =>
+        cached(
+          JSON.stringify(['span', sourcePath, edge, anchor.getTime(), estimateMinutes]),
+          () => deriveSpan(sourcePath, edge, anchor, estimateMinutes),
+        )),
+  };
+}
+
 /** The fields a planned write persists (raw TaskPatch vocabulary). */
 export interface PlannedPatch {
   start?: Date;

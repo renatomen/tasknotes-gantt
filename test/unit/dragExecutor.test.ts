@@ -1,8 +1,9 @@
 /**
  * The executor's async choreography, driven through injected fakes: per-source
  * serialization with dequeue-time re-planning, independent sources, per-plan
- * revert baselines, post-await liveness abandonment, the persist timeout, and
- * the prompt seam.
+ * revert baselines, post-await liveness abandonment, the persist timeout, the
+ * prompt seam, and the global cascade lane (deadlock-free opposing cascades,
+ * fresh-fact re-planning, cross-source fencing).
  */
 import { describe, it, expect, jest } from '@jest/globals';
 import {
@@ -131,7 +132,7 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
   });
 
-  it('snapshots at dequeue: the queued gesture plans from the FIRST gesture\'s settled write, and ONE capture spans its prompt re-plan and cascade round', async () => {
+  it('snapshots at dequeue: the queued gesture plans from the FIRST gesture\'s settled write, ONE capture spans its prompt re-plan, and the cascade round re-captures afresh', async () => {
     const gate = deferred();
     const store = { progress: 10 };
     const h = harness({
@@ -176,12 +177,14 @@ describe('createDragExecutor', () => {
     expect(snapshot).not.toHaveBeenCalled();
     gate.resolve();
     await Promise.all([first, second]);
-    expect(snapshot).toHaveBeenCalledTimes(1);
-    // Plan, prompt re-plan, cascade round — all handed the SAME dequeue capture.
+    // Plan + prompt re-plan share the ONE dequeue capture; the cascade round
+    // captures afresh inside the lane (a second snapshot call, same facts here).
+    expect(snapshot).toHaveBeenCalledTimes(2);
     expect(captures).toHaveLength(3);
     expect(captures[0]).toEqual({ progress: 50 });
     expect(captures[1]).toBe(captures[0]);
-    expect(captures[2]).toBe(captures[0]);
+    expect(captures[2]).not.toBe(captures[0]);
+    expect(captures[2]).toEqual({ progress: 50 });
     expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual([
       'persist:10',
       'persist:50',
@@ -362,7 +365,7 @@ function cascadePlanOf(partial: Partial<Plan>): Plan {
 }
 
 describe('createDragExecutor cascade pass', () => {
-  it('drives the cascade from the settled gesture in the same queue slot, after the main persist', async () => {
+  it('drives the cascade from the settled gesture through the lane, after the main persist', async () => {
     const h = harness();
     const executor = createDragExecutor(h.deps);
     const seen: GestureSettlement[] = [];
@@ -379,7 +382,9 @@ describe('createDragExecutor cascade pass', () => {
       },
     });
 
-    expect(seen).toEqual([{ kind: 'plain' }]);
+    // A write-carrying round plans twice: once to declare its write set, once
+    // after fencing those sources — both from the settled gesture.
+    expect(seen).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
     expect(h.log).toEqual(['persist:a.md', 'persist:kid.md']);
   });
 
@@ -417,7 +422,8 @@ describe('createDragExecutor cascade pass', () => {
       },
     });
 
-    expect(rounds).toEqual([{}, { persistedSubtreeSources: ['good.md'] }]);
+    // Round 1 plans twice (declare + post-fence); round 2 gets the report.
+    expect(rounds).toEqual([{}, {}, { persistedSubtreeSources: ['good.md'] }]);
     // Only the FAILED source's reverts were emitted; the good one stayed put.
     expect(h.echoed.map((e) => e.sourcePath)).toEqual(['bad.md']);
     expect(failures).toEqual(['subtree']);
@@ -453,7 +459,7 @@ describe('createDragExecutor cascade pass', () => {
       },
     });
 
-    expect(rounds).toEqual([{}, { shrinkChoice: 'undo' }]);
+    expect(rounds).toEqual([{}, { shrinkChoice: 'undo' }, { shrinkChoice: 'undo' }]);
     expect(resolvePrompt).toHaveBeenCalledTimes(1);
     expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:a.md', 'persist:a.md']);
   });
@@ -655,8 +661,106 @@ describe('createDragExecutor cascade pass', () => {
       },
     });
 
-    // Round 1 planned and wrote; the per-round gate stopped round 2 outright.
-    expect(rounds).toEqual([{}]);
+    // Round 1 planned (declare + post-fence) and wrote; the per-round gate
+    // stopped round 2 outright.
+    expect(rounds).toEqual([{}, {}]);
     expect(h.log).toEqual(['persist:a.md', 'persist:kid.md']);
+  });
+
+  it('completes two OPPOSING cascades without deadlock (A cascades into B\'s source while B cascades into A\'s), and the waiting cascade plans from the facts the first one settled', async () => {
+    const gateA = deferred();
+    const gateB = deferred();
+    const store = { aCascadeLanded: false };
+    const h = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}:${write.patch.progress}`);
+        if (write.patch.progress === 1) return write.sourcePath === 'a.md' ? gateA.promise : gateB.promise;
+        if (write.sourcePath === 'b.md') store.aCascadeLanded = true; // A's cascade write settles
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const factsSeenByB: boolean[] = [];
+
+    // Both mains in flight at once; each cascades into the OTHER gesture's source
+    // — the exact shape that circular-waited under per-round multi-joins.
+    const a = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: { plan: () => cascadePlanOf({ writes: [writeOf('b.md', 2)] }) },
+    });
+    const b = executor.submit({
+      sourcePath: 'b.md',
+      snapshot: () => ({ aCascadeLanded: store.aCascadeLanded }),
+      plan: () => planOf({ writes: [writeOf('b.md', 1)] }),
+      cascade: {
+        plan: (_settlement, _answers, facts) => {
+          factsSeenByB.push(facts.aCascadeLanded);
+          return cascadePlanOf({ writes: [writeOf('a.md', 2)] });
+        },
+      },
+    });
+    await flushMicrotasks();
+    gateA.resolve();
+    gateB.resolve();
+    await Promise.all([a, b]);
+
+    // All four persists landed, in a consistent order: both mains first, then
+    // the two cascade rounds serialized through the single lane.
+    expect(h.log).toEqual([
+      'persist:a.md:1',
+      'persist:b.md:1',
+      'persist:b.md:2',
+      'persist:a.md:2',
+    ]);
+    // B's cascade waited on the lane and re-planned from post-A-cascade facts.
+    expect(factsSeenByB).toEqual([true, true]);
+  });
+
+  it('re-plans a cascade round from the facts a fenced source settled ahead of it: the persisted patch is never the pre-wait plan', async () => {
+    const gate = deferred();
+    const store = { b: 0 };
+    const h = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}:${write.patch.progress}`);
+        if (write.sourcePath === 'b.md' && write.patch.progress === 7) {
+          return gate.promise.then(() => {
+            store.b = 7; // the plain gesture's write settles into the facts
+          });
+        }
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const plannedFrom: number[] = [];
+
+    // A plain gesture holds b.md with a slow persist...
+    const plain = executor.submit({
+      sourcePath: 'b.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('b.md', 7)] }),
+    });
+    await flushMicrotasks();
+    // ...while a cascade plans a write into b.md from pre-settlement facts.
+    const cascading = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => ({ b: store.b }),
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, _answers, facts) => {
+          plannedFrom.push(facts.b);
+          return cascadePlanOf({ writes: [writeOf('b.md', 100 + facts.b)] });
+        },
+      },
+    });
+    await flushMicrotasks();
+    gate.resolve();
+    await Promise.all([plain, cascading]);
+
+    // Declared from stale facts (0), re-planned post-fence from settled facts
+    // (7) — and the persisted patch carries the fresh plan, not the stale one.
+    expect(plannedFrom).toEqual([0, 7]);
+    expect(h.log).toEqual(['persist:b.md:7', 'persist:a.md:1', 'persist:b.md:107']);
   });
 });
