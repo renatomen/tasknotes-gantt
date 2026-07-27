@@ -20,6 +20,41 @@ interface NumberConversionOptions {
 }
 
 /**
+ * Minimal structural view of a Bases Value object (including group keys).
+ * The concrete Value subclasses are not exported by Obsidian; this captures
+ * only the members the unwrapping code actually probes.
+ */
+interface BasesValueLike {
+  data?: unknown;
+  date?: unknown;
+  file?: { path?: string };
+  hasKey?: () => boolean;
+  length?: () => number;
+  at?: (index: number) => unknown;
+  toISOString?: () => string;
+}
+
+/**
+ * Minimal structural view of one Bases result group (`data.groupedData[n]`).
+ */
+export interface BasesGroupLike {
+  key?: BasesValueLike | null;
+  entries?: unknown[];
+  hasKey?: () => boolean;
+}
+
+/**
+ * Minimal structural view of the Bases view object this adapter reads
+ * (`view.data.data` / `view.data.groupedData`).
+ */
+export interface BasesViewLike {
+  data?: {
+    data?: BasesEntryLike[];
+    groupedData?: BasesGroupLike[];
+  };
+}
+
+/**
  * Format a Date as a local YYYY-MM-DD string (date only, no time).
  */
 function formatDateYmd(date: Date): string {
@@ -38,7 +73,7 @@ function formatDateYmd(date: Date): string {
  * - Other Value types: `.data`.
  * Falls back to the key itself when none of those shapes are present.
  */
-function unwrapBasesKeyValue(key: any): any {
+function unwrapBasesKeyValue(key: BasesValueLike): unknown {
   if (key.file && typeof key.file === "object") {
     return key.file.path;
   }
@@ -58,8 +93,10 @@ function unwrapBasesKeyValue(key: any): any {
  *
  * Only defined values are included, mirroring the original guarded assignments.
  */
-function collectCheapFileProperties(file: any): Record<string, any> {
-  const result: Record<string, any> = {};
+function collectCheapFileProperties(
+  file: BasesEntryLike["file"] | undefined,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
   if (!file) {
     return result;
   }
@@ -95,7 +132,10 @@ function blankToNull(value: unknown): unknown {
  * Falls back to `entry.properties` when `entry.frontmatter` is absent.
  * Returns null for undefined/null/empty-string values.
  */
-function readFrontmatterProperty(entry: any, propertyName: string): unknown {
+function readFrontmatterProperty(
+  entry: Pick<BasesEntryLike, "frontmatter" | "properties">,
+  propertyName: string,
+): unknown {
   const frontmatter = entry.frontmatter || entry.properties || {};
   return blankToNull(frontmatter[propertyName]);
 }
@@ -106,7 +146,7 @@ function readFrontmatterProperty(entry: any, propertyName: string): unknown {
  * `folder` name specially, then falls back to direct property access.
  * Returns null for undefined/null/empty-string values.
  */
-function readFileProperty(file: any, propertyName: string): unknown {
+function readFileProperty(file: BasesEntryLike["file"], propertyName: string): unknown {
   // Special file properties that need stat access
   if (propertyName === "ctime" && file.stat?.ctime !== undefined) {
     return file.stat.ctime;
@@ -124,7 +164,7 @@ function readFileProperty(file: any, propertyName: string): unknown {
   }
 
   // Direct property access for other file properties
-  return blankToNull(file[propertyName]);
+  return blankToNull((file as Record<string, unknown>)[propertyName]);
 }
 
 /**
@@ -132,13 +172,13 @@ function readFileProperty(file: any, propertyName: string): unknown {
  */
 export interface BasesDataItem {
   key?: string;
-  data?: any;
-  file?: any;
+  data?: BasesEntryLike;
+  file?: BasesEntryLike["file"];
   path?: string;
-  properties?: Record<string, any>;
-  frontmatter?: Record<string, any>;
+  properties?: Record<string, unknown>;
+  frontmatter?: Record<string, unknown>;
   name?: string;
-  basesData?: any; // Raw Bases data for formula computation
+  basesData?: BasesEntryLike; // Raw Bases data for formula computation
 }
 
 /**
@@ -146,7 +186,7 @@ export interface BasesDataItem {
  * Now supports both individual field extraction AND full data extraction like TaskNotes
  */
 export class BasesDataAdapter {
-  constructor(private readonly basesView?: any) {}
+  constructor(private readonly basesView?: BasesViewLike) {}
 
   /**
    * Extract all data items from Bases query result (TaskNotes pattern).
@@ -162,7 +202,7 @@ export class BasesDataAdapter {
     }
 
     const entries = this.basesView.data.data;
-    return entries.map((entry: any) => ({
+    return entries.map((entry) => ({
       key: entry.file.path,
       data: entry,
       file: entry.file,
@@ -178,7 +218,7 @@ export class BasesDataAdapter {
    *
    * Note: Returns pre-grouped data. Bases has already applied groupBy configuration.
    */
-  getGroupedData(): any[] {
+  getGroupedData(): BasesGroupLike[] {
     return this.basesView?.data?.groupedData || [];
   }
 
@@ -203,7 +243,7 @@ export class BasesDataAdapter {
    * Get property value from a Bases entry (TaskNotes pattern).
    * Uses public API: entry.getValue()
    */
-  getPropertyValue(entry: any, propertyId: string): any {
+  getPropertyValue(entry: Pick<BasesEntryLike, "getValue">, propertyId: string): unknown {
     try {
       const value = entry.getValue(propertyId);
       return this.convertValueToNative(value);
@@ -218,13 +258,13 @@ export class BasesDataAdapter {
    * Handles Bases Value objects, particularly DateValue which has special structure.
    * For FileValue (links), returns the file path which can be rendered as a clickable link.
    */
-  convertGroupKeyToString(key: any): string {
-    // Check if key exists and is valid
-    if (key == null || (key.hasKey && !key.hasKey())) {
+  convertGroupKeyToString(key: unknown): string {
+    const keyValue = key as BasesValueLike | null | undefined;
+    if (keyValue == null || (keyValue.hasKey && !keyValue.hasKey())) {
       return "Unknown";
     }
 
-    const actualValue = unwrapBasesKeyValue(key);
+    const actualValue = unwrapBasesKeyValue(keyValue);
 
     // Handle null/undefined after extraction
     if (actualValue === null || actualValue === undefined) {
@@ -254,7 +294,10 @@ export class BasesDataAdapter {
    * Call this during rendering for visible items only - NOT during bulk extraction.
    * This is much more efficient for expensive properties like backlinks.
    */
-  getComputedProperty(basesEntry: any, propertyId: string): any {
+  getComputedProperty(
+    basesEntry: Pick<BasesEntryLike, "getValue"> | null | undefined,
+    propertyId: string,
+  ): unknown {
     if (!basesEntry) return null;
 
     try {
@@ -273,7 +316,7 @@ export class BasesDataAdapter {
    * Extracts frontmatter and basic file properties only (cheap operations).
    * Computed file properties (backlinks, links, etc.) are fetched lazily via getComputedProperty().
    */
-  private extractEntryProperties(entry: any): Record<string, any> {
+  private extractEntryProperties(entry: BasesEntryLike): Record<string, unknown> {
     // Extract all properties from the entry's frontmatter
     // We don't filter by visible properties here - that happens during rendering
     // This ensures all properties are available for TaskInfo creation
@@ -315,7 +358,7 @@ export class BasesDataAdapter {
 
     // Access file properties directly (file. prefix)
     if (prefix === 'file' && propertyName && entry.file) {
-      return readFileProperty(entry.file as any, propertyName);
+      return readFileProperty(entry.file, propertyName);
     }
 
     // For computed properties or formula properties, use getValue()
@@ -334,41 +377,42 @@ export class BasesDataAdapter {
    *
    * Based on TaskNotes implementation pattern.
    */
-  private convertValueToNative(value: any): any {
-    if (value == null || value.constructor?.name === "NullValue") {
+  private convertValueToNative(value: unknown): unknown {
+    const basesValue = value as BasesValueLike | null | undefined;
+    if (basesValue == null || basesValue.constructor?.name === "NullValue") {
       return null;
     }
 
     // PrimitiveValue (string, number, boolean)
-    if (value.data !== undefined) {
-      return value.data;
+    if (basesValue.data !== undefined) {
+      return basesValue.data;
     }
 
     // ListValue
-    if (typeof value.length === "function") {
-      const len = value.length();
+    if (typeof basesValue.length === "function") {
+      const len = basesValue.length();
       const result = [];
       for (let i = 0; i < len; i++) {
-        const item = value.at(i);
+        const item = basesValue.at!(i);
         result.push(this.convertValueToNative(item));
       }
       return result;
     }
 
     // DateValue - check for date property (more reliable than constructor check)
-    if (value.date instanceof Date) {
+    if (basesValue.date instanceof Date) {
       // Return the date as ISO string for consistency
-      return value.date.toISOString();
+      return basesValue.date.toISOString();
     }
 
     // DateValue - legacy check with toISOString method
-    if (value.constructor?.name === "DateValue" && value.toISOString) {
-      return value.toISOString();
+    if (basesValue.constructor?.name === "DateValue" && basesValue.toISOString) {
+      return basesValue.toISOString();
     }
 
     // FileValue
-    if (value.file) {
-      return value.file.path;
+    if (basesValue.file) {
+      return basesValue.file.path;
     }
 
     // Fallback: try to extract raw data

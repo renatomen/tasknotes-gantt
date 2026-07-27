@@ -911,6 +911,7 @@
     if (api) applyDisplayFilters();
   });
 
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
   function syncToGantt(d: GanttData): void {
     // A column-config change can't be applied incrementally — SVAR has no
     // per-column update action, and a new `columns` reference re-inits the whole
@@ -2301,6 +2302,7 @@
     }
   }
 
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
   async function persistReschedule(instanceId: string): Promise<void> {
     if (!onMutate || !api) return;
 
@@ -2506,6 +2508,7 @@
    * shift. All writes go through `onMutate` (→ TaskNotes) plus an optimistic
    * `api.exec` echo for the bar; the follow-up refresh runs under `syncing`.
    */
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
   async function processSubtreeAndExtend(): Promise<void> {
     dragScheduled = false;
     const drag = activeDrag;

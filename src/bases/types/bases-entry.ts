@@ -19,7 +19,7 @@ import type { BasesPropertyId } from "obsidian";
  * expressible against the public types. Rather than re-route through the
  * computed `getValue()` path (a behavior + perf change — out of scope), we type
  * the extraction surface against this single narrow interface and keep the
- * `Value`-unwrapping (`convertValueToNative`) behind one `any` seam.
+ * `Value`-unwrapping (`convertValueToNative`) behind one structural seam.
  *
  * The official `BasesEntry` is structurally assignable to this interface, so the
  * real query entries (`view.data.data`) flow in unchanged.
@@ -27,13 +27,14 @@ import type { BasesPropertyId } from "obsidian";
 export interface BasesEntryLike {
   /**
    * The entry's file. The official `TFile` is assignable here; the adapter reads
-   * `path`/`name`/`basename`/`stat`/`parent` plus arbitrary `file.`-prefixed
-   * names off this object (via the `readFileProperty` loose-`any` helper).
+   * `path`/`name`/`basename`/`extension`/`stat`/`parent` plus arbitrary
+   * `file.`-prefixed names off this object (via the `readFileProperty` helper).
    */
   file: {
     path: string;
     name: string;
     basename: string;
+    extension?: string;
     stat?: { size?: number; ctime?: number; mtime?: number };
     parent?: { name?: string } | null;
   };
