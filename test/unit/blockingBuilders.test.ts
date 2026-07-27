@@ -258,70 +258,78 @@ describe('buildTaskBlocking cache key and epoch', () => {
   });
 });
 
-describe('buildCountWorkingDays (write-side estimate counter)', () => {
-  it('counts only working days of the resized span', () => {
+describe('buildDeriveEstimate (write-side span→estimate derivation)', () => {
+  const span = { start: new Date(2026, 3, 10), end: new Date(2026, 3, 14) };
+
+  it('counts only working days of the resized span, with the geometry the record re-derives to', () => {
     const { controller } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
-    const count = controller.buildCountWorkingDays();
+    const derive = controller.buildDeriveEstimate();
     // Fri 2026-04-10 .. Tue 2026-04-14: Sat+Sun blocked → 3 working days.
-    expect(count?.('Tasks/T.md', new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
+    const derived = derive('Tasks/T.md', span);
+    expect(derived.days).toBe(3);
+    expect(iso(derived.start)).toBe('2026-04-10');
+    expect(iso(derived.end)).toBe('2026-04-14');
+    expect(derived.flagged).toBe(false);
   });
 
   it('windows FRESH facts for the counted span — far spans still see their blocked days', () => {
     const { controller, buildTaskBlocking } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
     // Prime the pass cache with the near-term span (its window ends 2027-06-18).
     buildTaskBlocking(passTasks);
-    const count = controller.buildCountWorkingDays();
+    const derive = controller.buildDeriveEstimate();
     // Mon 2027-06-14 .. Fri 2027-06-18 sits inside the authored blocked run: a
     // stale pass window would read the days beyond it as working (5); fresh
     // facts windowed for THIS span see them all blocked → floor 1.
-    expect(count?.('Tasks/T.md', new Date(2027, 5, 14), new Date(2027, 5, 18))).toBe(1);
+    expect(derive('Tasks/T.md', { start: new Date(2027, 5, 14), end: new Date(2027, 5, 18) }).days).toBe(1);
   });
 
-  it('returns null for a task with no calendar (the plain span is the record)', () => {
+  it('answers null days for a task with no calendar (the plain span is the record)', () => {
     const { controller } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
-    const count = controller.buildCountWorkingDays();
-    expect(count?.('Tasks/NoCal.md', new Date(2026, 3, 10), new Date(2026, 3, 14))).toBeNull();
+    const derived = controller.buildDeriveEstimate()('Tasks/NoCal.md', span);
+    expect(derived.days).toBeNull();
+    expect(iso(derived.start)).toBe('2026-04-10');
+    expect(iso(derived.end)).toBe('2026-04-14');
   });
 
-  it('is absent entirely when no axis engages working-day counting', () => {
+  it('answers the plain span with null days when no axis engages working-day counting', () => {
     const { controller } = makeHarness();
-    expect(controller.buildCountWorkingDays()).toBeUndefined();
+    const derived = controller.buildDeriveEstimate()('Tasks/T.md', span);
+    expect(derived.days).toBeNull();
+    expect(iso(derived.start)).toBe('2026-04-10');
+    expect(iso(derived.end)).toBe('2026-04-14');
   });
 });
 
-describe('buildProjectDerivedSpan (write-side re-derivation projection)', () => {
+describe('buildDeriveSpan (write-side re-derivation projection)', () => {
   it('projects a derived end over working days from its anchor', () => {
     const { controller } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
-    const project = controller.buildProjectDerivedSpan();
-    const projected = project?.('Tasks/T.md', 'end', new Date(2026, 3, 10), 3 * 1440);
-    if (!projected) throw new Error('expected a projection');
+    const projected = controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2026, 3, 10), 3 * 1440);
     expect(iso(projected.start)).toBe('2026-04-10');
     expect(iso(projected.end)).toBe('2026-04-14'); // Fri + Mon + Tue
+    expect(projected.flagged).toBe(false);
   });
 
   it('walks off a blocked anchor day instead of flooring there', () => {
     const { controller } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
-    const project = controller.buildProjectDerivedSpan();
-    const projected = project?.('Tasks/T.md', 'end', new Date(2026, 3, 11), 1440);
-    if (!projected) throw new Error('expected a projection');
+    const projected = controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2026, 3, 11), 1440);
     expect(iso(projected.end)).toBe('2026-04-13'); // Sat anchor → next Monday
   });
 
   it('windows FRESH facts for the grown estimate — the walk clears a far blocked run', () => {
     const { controller, buildTaskBlocking } = makeHarness({ tngantt_estimateMeaning: 'working-days' });
     buildTaskBlocking(passTasks);
-    const project = controller.buildProjectDerivedSpan();
     // Fri 2027-06-11 anchor, 2 working days: the weekend + the authored run
     // 06-14..06-22 are blocked, so the second working day is Wed 06-23 — visible
     // only when the facts are windowed for THIS projection, not the pass.
-    const projected = project?.('Tasks/T.md', 'end', new Date(2027, 5, 11), 2 * 1440);
-    if (!projected) throw new Error('expected a projection');
+    const projected = controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2027, 5, 11), 2 * 1440);
     expect(iso(projected.end)).toBe('2027-06-23');
   });
 
-  it('is absent when no working-day axis engages, and null for a calendar-days task', () => {
+  it('answers the plain projection when no working-day axis engages', () => {
     const flat = makeHarness();
-    expect(flat.controller.buildProjectDerivedSpan()).toBeUndefined();
+    const projected = flat.controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2026, 3, 10), 3 * 1440);
+    expect(iso(projected.start)).toBe('2026-04-10');
+    expect(iso(projected.end)).toBe('2026-04-12'); // 3 plain calendar days, no stretch
   });
 });
 
@@ -343,13 +351,12 @@ describe('one-sided re-derivation identity (save-time == refresh-time)', () => {
     };
     const { controller } = makeHarness({ tngantt_estimateMeaning: 'working-days' }, [task]);
 
-    const saveTime = controller.buildProjectDerivedSpan()?.(
+    const saveTime = controller.buildDeriveSpan()(
       'Tasks/T.md',
       'end',
       new Date(2026, 3, 10),
       3 * 1440,
     );
-    if (!saveTime) throw new Error('expected a save-time projection');
 
     await controller.init();
     const refreshTime = (await controller.getInstances()).find(

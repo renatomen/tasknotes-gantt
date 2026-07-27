@@ -38,6 +38,13 @@ jobs:
         # Mechanical guard, per "enforce always-X with a mechanism, not memory":
         # regenerate locally with `node scripts/update-release-index.mjs`.
         run: node scripts/update-release-index.mjs --check
+      - name: Size ratchet (legacy files may only shrink)
+        # GanttContainer.svelte and register.ts are exempt from the eslint
+        # max-lines cap; this ratchet is their gate instead — a PR that grows
+        # one past its checked-in baseline fails, and a shrinking PR locks the
+        # gain in by lowering the baseline. The per-file cognitive-complexity
+        # ceilings in eslint.config.mjs are guarded the same way, downward-only.
+        run: node scripts/check-size-ratchet.mjs
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

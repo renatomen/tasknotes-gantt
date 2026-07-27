@@ -103,16 +103,14 @@ import {
   projectPlainSpan,
   shadingCacheKey,
   spanEvaluationWindow,
+  type DerivedEstimate,
+  type DerivedGeometry,
   type SpanDerivationFacts,
   type TaskBlocking,
 } from './calendar/derivation';
 import type { CalendarNoteInput } from './calendar/resolveCalendars';
 import { minutesToSpanDays } from './durationConversion';
 import { resolveParentLink } from '../datasource/parentLink';
-import {
-  countWorkingDaysResolver,
-  workingDaysMeaningGate,
-} from './calendar/estimateMeaning';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
@@ -1749,58 +1747,54 @@ export class GanttController {
   }
 
   /**
-   * The write path's resize→estimate working-day counter, or undefined when no
-   * axis engages working-day counting. Answers come from the derivation
-   * authority over blocking facts windowed FRESH for the span being counted —
-   * the per-pass lookup is sized for the PRE-drag spans, and days beyond its
-   * window deliberately read as working, which would count blocked days as
-   * worked on a drag past it. Transient, so the pass cache survives.
+   * The write path's span→estimate derivation: the working-day count the span
+   * records (null when the plain span is the record) PLUS the full render
+   * geometry that record re-derives to — always answerable, since even a
+   * calendar-days task renders ghost runs under split rendering. Answers come
+   * from the derivation authority over blocking facts windowed FRESH for the
+   * span being counted — the per-pass lookup is sized for the PRE-drag spans,
+   * and days beyond its window deliberately read as working, which would count
+   * blocked days as worked on a drag past it. Transient, so the pass cache
+   * survives.
    */
-  public buildCountWorkingDays():
-    | ((taskPath: string, start: Date, end: Date) => number | null)
-    | undefined {
-    const { viewMeaning, overrideMapped, meaningForTask } = this.estimateMeaningEnv();
-    return countWorkingDaysResolver(
-      viewMeaning,
-      overrideMapped,
-      meaningForTask,
-      (taskPath, start, end) => {
-        const blocking = this.transientBlockingFor({
-          path: taskPath,
-          start,
-          end,
-          estimateMinutes: null,
-        });
-        const facts = this.spanFactsFor(taskPath, { start, end, dateStatus: 'complete' }, blocking, 1);
-        return deriveEstimate(facts, { start, end }).days;
-      },
-    );
+  public buildDeriveEstimate(): (
+    taskPath: string,
+    span: { start: Date; end: Date },
+  ) => DerivedEstimate {
+    return (taskPath, span) => {
+      const blocking = this.transientBlockingFor({
+        path: taskPath,
+        start: span.start,
+        end: span.end,
+        estimateMinutes: null,
+      });
+      const facts = this.spanFactsFor(
+        taskPath,
+        { start: span.start, end: span.end, dateStatus: 'complete' },
+        blocking,
+        1,
+      );
+      return deriveEstimate(facts, span);
+    };
   }
 
   /**
-   * The inferred-edge re-derivation projection for the write path: the span an
-   * estimate will RE-DERIVE from its authored anchor, answered by the same
-   * derivation the read pass renders. Undefined when the view has no
-   * working-day axis at all; null for a calendar-days task (nothing
-   * re-projects). Blocking facts are windowed fresh for THIS estimate — the
-   * per-pass lookup is sized for the pre-drag estimates, and a grown estimate
-   * would walk into its blind zone and stop short of the read path's answer.
+   * The inferred-edge re-derivation projection for the write path: the FULL
+   * render geometry an estimate will re-derive from its authored anchor,
+   * answered by the same derivation the read pass renders — a calendar-days
+   * task answers its plain projection (with split-rendering ghost runs where a
+   * calendar contrasts). Blocking facts are windowed fresh for THIS estimate —
+   * the per-pass lookup is sized for the pre-drag estimates, and a grown
+   * estimate would walk into its blind zone and stop short of the read path's
+   * answer.
    */
-  public buildProjectDerivedSpan():
-    | ((
-        taskPath: string,
-        edge: 'start' | 'end',
-        anchor: Date,
-        estimateMinutes: number,
-      ) => { start: Date; end: Date } | null)
-    | undefined {
-    const { viewMeaning, overrideMapped, meaningForTask } = this.estimateMeaningEnv();
-    const usesWorkingDays = workingDaysMeaningGate(viewMeaning, overrideMapped, meaningForTask);
-    if (!usesWorkingDays) return undefined;
+  public buildDeriveSpan(): (
+    taskPath: string,
+    edge: 'start' | 'end',
+    anchor: Date,
+    estimateMinutes: number,
+  ) => DerivedGeometry {
     return (taskPath, edge, anchor, estimateMinutes) => {
-      // A calendar-days task does not stretch; the meaning answers the yes/no
-      // without materializing the vault's calendars.
-      if (!usesWorkingDays(taskPath)) return null;
       const durationDays = minutesToSpanDays(estimateMinutes);
       const blocking = this.transientBlockingFor({
         path: taskPath,
@@ -1809,31 +1803,7 @@ export class GanttController {
         estimateMinutes,
       });
       const plain = projectPlainSpan(edge, anchor, durationDays);
-      const derived = deriveSpan(
-        this.spanFactsFor(taskPath, plain, blocking, durationDays),
-        estimateMinutes,
-      );
-      return { start: derived.start, end: derived.end };
-    };
-  }
-
-  /**
-   * The estimate-meaning environment the write-side builders resolve against —
-   * sourced from the same providers the read pass reads, so both paths answer
-   * from one configuration.
-   */
-  private estimateMeaningEnv(): {
-    viewMeaning: EstimateMeaning;
-    overrideMapped: boolean;
-    meaningForTask: (taskPath: string) => EstimateMeaning;
-  } {
-    const policy = this.policyConfigProvider();
-    const viewMeaning = policy.viewEstimateMeaning ?? 'calendar-days';
-    return {
-      viewMeaning,
-      overrideMapped:
-        (this.derivationInputs?.effectiveMappings().estimateMeaningProperty ?? '') !== '',
-      meaningForTask: policy.estimateMeaningForTask ?? (() => viewMeaning),
+      return deriveSpan(this.spanFactsFor(taskPath, plain, blocking, durationDays), estimateMinutes);
     };
   }
 

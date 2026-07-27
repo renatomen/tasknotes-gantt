@@ -1232,8 +1232,8 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: calendarShading.calendarBySource,
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
-      countWorkingDays: controller.buildCountWorkingDays(),
-      projectDerivedSpan: controller.buildProjectDerivedSpan(),
+      deriveEstimate: controller.buildDeriveEstimate(),
+      deriveSpan: controller.buildDeriveSpan(),
       defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
     };
   }
