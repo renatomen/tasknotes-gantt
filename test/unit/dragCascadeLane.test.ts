@@ -199,6 +199,46 @@ describe('createCascadeLane', () => {
     expect(rounds).toEqual([{}, {}]);
     expect(h.log).toEqual(['persist:kid.md']);
   });
+
+  it('re-checks capability before EVERY write in a round: a mid-loop loss stops after the landed write, reverts the unwritten rows, and stays silent', async () => {
+    let writable = true;
+    const failures: CascadePhase[] = [];
+    const h = harness({
+      canWrite: () => writable,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        // the first descendant's persist settles and the host sheds its writer
+        if (write.sourcePath === 'kid1.md') writable = false;
+        return Promise.resolve();
+      },
+    });
+    const { lane } = laneOf(h);
+    const rounds: CascadeAnswers[] = [];
+
+    await lane.runCascade(
+      passOf({
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return cascadePlanOf({
+            resume: 'after-subtree',
+            writes: [writeOf('kid1.md', 2), writeOf('kid2.md', 3), writeOf('kid3.md', 4)],
+            reverts: [revertOf('kid1.md'), revertOf('kid2.md'), revertOf('kid3.md')],
+          });
+        },
+        onFailure: (_error, phase) => failures.push(phase),
+      }),
+    );
+
+    // Exactly one write landed; the per-write gate stopped kid2/kid3 cold.
+    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:kid1.md']);
+    // The unwritten rows' optimistic echoes reverted; the landed one stayed.
+    expect(h.echoed.map((echoes) => echoes.sourcePath)).toEqual(['kid2.md', 'kid3.md']);
+    // The same silent halt the between-round loss uses: no failure report, and
+    // the landed write still reaches the resume report before the entry gate
+    // ends the cascade.
+    expect(failures).toEqual([]);
+    expect(rounds).toEqual([{}, {}]);
+  });
 });
 
 describe('supersession inherits origin (the per-source before stash)', () => {

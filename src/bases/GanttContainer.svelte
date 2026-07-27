@@ -114,8 +114,8 @@
   import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
   import {
-    memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
-    type CommitGesture, type DerivationMemo, type PlannedPatch, type PlannerDerivation,
+    createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
+    type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch, type PlannerDerivation,
     type PromptRequest, type SourceEchoes,
   } from './dragCommitPlanner';
   import { createDragExecutor, type CascadePhase, type PromptAnswer } from './dragExecutor';
@@ -2141,45 +2141,45 @@
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
    * cascade included. Both spans read the SVAR store (the event payload is
-   * diff-only): `after` one tick post-commit, `before` at intercept capture.
+   * diff-only): `after` one tick post-commit, `before` at intercept capture,
+   * rebased at dequeue when a predecessor's settle/revert moved the row.
    */
-  function submitBarGesture(args: {
-    instanceId: string;
-    name: string;
-    before: {
-      start: Date | null;
-      end: Date | null;
-      dateStatus: DateStatus | null;
-      estimateMinutes: number | null;
-    };
-  }): void {
+  function submitBarGesture(args: { instanceId: string; name: string; before: BarBefore }): void {
     const { instanceId, name, before } = args;
     if (!api) return;
     const moved = api.getState().tasks.byId(instanceId);
     if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
     const after: DateRange = { start: moved.start, end: moved.end };
-    const gesture: CommitGesture = {
-      kind: 'bar',
-      instanceId, before, after,
-      estimateWritable: timeEstimateWriteEnabled && !readOnly,
-      // Read at gesture time: a persisted "don't ask again" choice is
-      // synchronously readable, so it applies from the very next drag.
-      inferredDragMode: $data.getInferredDragMode(),
-    };
+    // Read at gesture time: a persisted "don't ask again" choice is
+    // synchronously readable, so it applies from the very next drag.
+    const inferredDragMode = $data.getInferredDragMode();
+    // The `before` SPAN rebases once at dequeue (the first snapshot call), with
+    // the same store-read discipline as the intercept capture — so the plan's
+    // no-op/edge classification and revert baseline read the live row.
+    const rebase = createDequeueBeforeRebase(before, after, () =>
+      captureBarBefore(instanceId, instances.find((i) => i.id === instanceId)),
+    );
+    const gesture = (): CommitGesture => ({
+      kind: 'bar', instanceId, before: rebase.before(), after,
+      estimateWritable: timeEstimateWriteEnabled && !readOnly, inferredDragMode,
+    });
     const memo: DerivationMemo = new Map();
     void dragExecutor.submit({
       sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
-      snapshot: () => overlayStoreGeometry(instances, (id) => api?.getTask?.(id), instanceId),
-      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation(memo)),
+      snapshot: () => {
+        rebase.atDequeue();
+        return overlayStoreGeometry(instances, (id) => api?.getTask?.(id), instanceId);
+      },
+      plan: (choice, snapshot) => planGestureCommit(gesture(), snapshot, choice, plannerDerivation(memo)),
       onFailure: (err) => {
         console.error('[GanttContainer] reschedule persist failed:', err);
         new Notice("Couldn't save date change — check TaskNotes is running.");
       },
       cascade: {
-        before,
+        get before() { return rebase.before(); },
         plan: (settlement, answers, snapshot, laneBefore) =>
           planCascade(
-            { instanceId, name, before: laneBefore ?? before, after, settlement },
+            { instanceId, name, before: laneBefore ?? rebase.before(), after, settlement },
             snapshot,
             { cascadeMode: get(data).cascadeMode, ...answers },
             plannerDerivation(memo),

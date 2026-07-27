@@ -25,8 +25,9 @@
  *   settled-geometry sequence (the {@link GeometryClock}) against the one
  *   captured at settlement, and a mismatch skips the remaining rounds cleanly
  *   (no writes, prompts, or notices). Capability (`canWrite`) is re-checked at
- *   the same three points, so a flip stops the cascade before any further
- *   write.
+ *   the same three points AND before every write inside a round, so a flip —
+ *   even one landing between two descendant persists — stops the cascade
+ *   before any further write.
  * - **Supersession inherits origin.** A pass abandoned by supersession BEFORE
  *   its subtree phase persisted stashes its effective `before` (the earliest
  *   uncascaded pre-drag capture); the successor pass for the same source plans
@@ -331,7 +332,16 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
     gates: HostGates,
   ): Promise<readonly PersistedSubtreeWrite[] | null> {
     const persisted: PersistedSubtreeWrite[] = [];
-    for (const write of plan.writes) {
+    for (const [index, write] of plan.writes.entries()) {
+      // Capability can vanish MID-round too (an earlier persist settles and the
+      // host sheds its writer): re-checked before every write. A loss stops the
+      // remaining writes with the same silent halt the round-entry and
+      // post-fence checks use — no failure report — reverting only the
+      // still-unwritten rows' optimistic echoes (the landed writes are real).
+      if (!deps.canWrite()) {
+        revertUnwritten(plan, plan.writes.slice(index), gates);
+        return persisted;
+      }
       try {
         await lifecycle.persistWrite(write);
         if (!gates.alive()) return null;
@@ -350,6 +360,12 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
       }
     }
     return persisted;
+  }
+
+  /** Revert the still-unwritten rows' echoes when a mid-round halt strands them. */
+  function revertUnwritten(plan: Plan, remaining: readonly PlannedWrite[], gates: HostGates): void {
+    const sources = new Set(remaining.map((write) => write.sourcePath));
+    lifecycle.emitEchoes(plan.reverts.filter((revert) => sources.has(revert.sourcePath)), gates);
   }
 
   function cascadePhaseOf(plan: Plan, write: PlannedWrite): CascadePhase {

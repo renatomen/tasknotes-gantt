@@ -14,7 +14,21 @@ import {
   type CascadePhase,
   type PromptAnswer,
 } from '../../src/bases/dragExecutor';
-import type { GestureSettlement } from '../../src/bases/dragCommitPlan';
+import {
+  createDequeueBeforeRebase,
+  type BarBefore,
+  type GestureChoice,
+  type GesturePlan,
+  type GestureSettlement,
+  type PlannerDerivation,
+  type PlannerInstance,
+} from '../../src/bases/dragCommitPlan';
+import { planGestureCommit } from '../../src/bases/dragCommitPlanner';
+import {
+  inclusiveDaySpan,
+  minutesToSpanDays,
+  spanDaysToMinutes,
+} from '../../src/controller/durationConversion';
 import {
   cascadePlanOf,
   deferred,
@@ -24,6 +38,7 @@ import {
   planOf,
   revertOf,
   writeOf,
+  type Harness,
 } from './dragExecutorTestKit';
 
 describe('createDragExecutor', () => {
@@ -110,6 +125,142 @@ describe('createDragExecutor', () => {
       'persist:10',
       'persist:50',
     ]);
+  });
+
+  /** The container's bar-gesture wiring in miniature: real planner, live-row
+   *  reads through the dequeue rebase, echoes landing back on the store. */
+  function barGestureKit() {
+    const spanOf = (startDay: number, endDay: number) => ({
+      start: new Date(2026, 0, startDay),
+      end: new Date(2026, 0, endDay, 23, 59, 59),
+    });
+    const [spanA, spanB, spanC] = [spanOf(1, 2), spanOf(3, 4), spanOf(5, 6)];
+    // The live SVAR row: every emitted echo (optimistic or revert) lands here.
+    const store = { span: { ...spanA } };
+    const derivation: PlannerDerivation = { minutesToSpanDays, spanDaysToMinutes, inclusiveDaySpan };
+    const beforeOf = (span: { start: Date; end: Date }): BarBefore => ({
+      ...span,
+      dateStatus: null,
+      estimateMinutes: null,
+    });
+    const barPlan = (
+      before: BarBefore,
+      after: { start: Date; end: Date },
+      snapshot: PlannerInstance[],
+      choice: GestureChoice,
+    ) =>
+      planGestureCommit(
+        { kind: 'bar', instanceId: 'a.md#0', before, after, estimateWritable: false, inferredDragMode: 'estimate-and-dates' },
+        snapshot,
+        choice,
+        derivation,
+      );
+    const rowOf = (): PlannerInstance[] => [{ id: 'a.md#0', sourcePath: 'a.md', text: 'T', ...store.span }];
+    const applyEchoToStore = (h: ReturnType<typeof harness>) => (echoes: Parameters<typeof h.deps.echo>[0]) => {
+      h.echoed.push(echoes);
+      const payload = echoes.rows[0]?.payload;
+      if (payload?.kind === 'geometry') {
+        store.span = { start: payload.geometry.start, end: payload.geometry.end };
+      }
+    };
+    return { spanA, spanB, spanC, store, beforeOf, barPlan, rowOf, applyEchoToStore };
+  }
+
+  it("rebases a queued gesture's `before` at dequeue: the predecessor's failed write reverts the row to A, so B→C plans the real A→C write with reverts baselined at A", async () => {
+    const kit = barGestureKit();
+    const { spanA, spanB, spanC, store, beforeOf, barPlan, rowOf } = kit;
+    const gate = deferred();
+    const h: Harness = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.patch.start?.getDate()}-${write.patch.end?.getDate()}`);
+        return write.patch.start === spanB.start
+          ? gate.promise.then(() => Promise.reject(new Error('save failed')))
+          : Promise.resolve();
+      },
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: rowOf,
+      plan: (choice, snapshot) => barPlan(beforeOf(spanA), spanB, snapshot, choice),
+    });
+    await flushMicrotasks(); // A→B echoed optimistically; its persist is in flight
+    store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
+    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => store.span);
+    let queuedPlan: GesturePlan | null = null;
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => {
+        queuedPlan = barPlan(rebase.before(), spanC, snapshot, choice);
+        return queuedPlan;
+      },
+    });
+    gate.resolve(); // the first write fails; its revert echoes the row back to A
+    await Promise.all([first, second]);
+
+    // The queued gesture planned the FULL A→C write — a real write off the
+    // reverted row, not the stale gesture-time B — and it landed.
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4', 'persist:5-6']);
+    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    // Its revert baseline is A, where the row really sat at dequeue.
+    expect(queuedPlan?.reverts[0]?.rows[0]?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { ...spanA, flagged: false, ghostRuns: [] },
+    });
+    expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'plain' }]);
+  });
+
+  it("keeps a queued gesture's `before` when the predecessor SUCCEEDED: the row still holds this gesture's own drag, so B→C stays B→C", async () => {
+    const kit = barGestureKit();
+    const { spanA, spanB, spanC, store, beforeOf, barPlan, rowOf } = kit;
+    const gate = deferred();
+    const h: Harness = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.patch.start?.getDate()}-${write.patch.end?.getDate()}`);
+        return write.patch.start === spanB.start ? gate.promise : Promise.resolve();
+      },
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: rowOf,
+      plan: (choice, snapshot) => barPlan(beforeOf(spanA), spanB, snapshot, choice),
+    });
+    await flushMicrotasks();
+    store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
+    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => store.span);
+    let queuedPlan: GesturePlan | null = null;
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => {
+        queuedPlan = barPlan(rebase.before(), spanC, snapshot, choice);
+        return queuedPlan;
+      },
+    });
+    gate.resolve(); // the first write settles; no revert touches the row
+    await Promise.all([first, second]);
+
+    // The row still shows this gesture's own post-drag span, so the capture
+    // stands: B→C writes C with reverts baselined at B.
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4', 'persist:5-6']);
+    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    expect(queuedPlan?.reverts[0]?.rows[0]?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { ...spanB, flagged: false, ghostRuns: [] },
+    });
+    expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
   });
 
   it('lets gestures on distinct sources proceed independently', async () => {

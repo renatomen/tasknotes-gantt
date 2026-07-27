@@ -48,8 +48,8 @@ import {
 } from './dragCommitPlan';
 
 export {
-  emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, verifyMirrorCoverage,
-  type CascadeBefore, type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
+  createDequeueBeforeRebase, emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, verifyMirrorCoverage,
+  type BarBefore, type CascadeBefore, type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
   type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
   type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,
   type PlannedPatch, type PlannedWrite, type PlannerDerivation, type PlannerInstance,

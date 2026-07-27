@@ -5,7 +5,12 @@
  * while every frontmatter-derived fact stays with the controller row.
  */
 import { describe, it, expect } from '@jest/globals';
-import { overlayStoreGeometry, type PlannerInstance } from '../../src/bases/dragCommitPlan';
+import {
+  createDequeueBeforeRebase,
+  overlayStoreGeometry,
+  type BarBefore,
+  type PlannerInstance,
+} from '../../src/bases/dragCommitPlan';
 import { planCascade, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
 import {
   inclusiveDaySpan,
@@ -134,5 +139,61 @@ describe('overlayStoreGeometry', () => {
     expect(patchOf('C1.md')?.end).toEqual(dayEnd('2026-08-14'));
     expect(patchOf('C2.md')?.start).toEqual(day('2026-08-15'));
     expect(patchOf('C2.md')?.end).toEqual(dayEnd('2026-08-16'));
+  });
+});
+
+describe('createDequeueBeforeRebase', () => {
+  const gestureBefore = (): BarBefore => ({
+    start: day('2026-08-03'),
+    end: dayEnd('2026-08-04'),
+    dateStatus: 'inferred-end',
+    estimateMinutes: 480,
+  });
+  const after = { start: day('2026-08-10'), end: dayEnd('2026-08-11') };
+
+  it('keeps the gesture-time capture while the live row still holds this gesture\'s own post-drag span', () => {
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ ...after }));
+
+    rebase.atDequeue();
+
+    expect(rebase.before()).toEqual(gestureBefore());
+  });
+
+  it('rebases only the SPAN from a live row someone else moved; dateStatus/estimate stay gesture-time', () => {
+    const settled = { start: day('2026-08-01'), end: dayEnd('2026-08-02') };
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => settled);
+
+    rebase.atDequeue();
+
+    expect(rebase.before()).toEqual({ ...settled, dateStatus: 'inferred-end', estimateMinutes: 480 });
+  });
+
+  it('rebases ONCE: later dequeue marks (cascade-round snapshots) reuse the first capture', () => {
+    const live = { start: day('2026-08-01'), end: dayEnd('2026-08-02') };
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ ...live }));
+
+    rebase.atDequeue();
+    const first = rebase.before();
+    live.start = day('2026-08-20');
+    live.end = dayEnd('2026-08-21');
+    rebase.atDequeue();
+
+    expect(rebase.before()).toBe(first);
+  });
+
+  it('keeps the gesture-time capture when the live read answers without Dates', () => {
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ start: null, end: null }));
+
+    rebase.atDequeue();
+
+    expect(rebase.before()).toEqual(gestureBefore());
+  });
+
+  it('is untouched before the dequeue mark: the gesture-time capture is the effective one', () => {
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => {
+      throw new Error('must not read the live row before dequeue');
+    });
+
+    expect(rebase.before()).toEqual(gestureBefore());
   });
 });

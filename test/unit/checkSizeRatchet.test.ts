@@ -163,13 +163,23 @@ describe('compareAgainstBase (CI: baselines vs the TARGET branch)', () => {
     ).toEqual([]);
   });
 
-  it('passes an ADDED entry — newly ratcheted files are welcome', () => {
+  it('passes an ADDED line entry — newly ratcheted files strengthen the gate', () => {
     expect(
       compareAgainstBase(baseSourceOf({ 'a.ts': 100 }, { '**/*.ts': 15 }), {
         lines: { 'a.ts': 100, 'new.ts': 50 },
         ceilings: { '**/*.ts': 15 },
       }),
     ).toEqual([]);
+  });
+
+  it('FAILS an ADDED ceiling entry — a fresh complexity exemption cannot ride in via PR', () => {
+    const violations = compareAgainstBase(baseSourceOf({ 'a.ts': 100 }, { '**/*.ts': 15 }), {
+      lines: { 'a.ts': 100 },
+      ceilings: { '**/*.ts': 15, 'hotspot.ts': 22 },
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('new entry for [hotspot.ts]');
+    expect(violations[0]).toContain('refactor the hotspot');
   });
 
   it('guards ceilings the same way: a raised ceiling fails', () => {

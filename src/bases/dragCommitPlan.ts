@@ -22,17 +22,20 @@ import type { DateStatus } from '../controller/datePolicy';
 import type { InferredDragAction, InferredDragMode, InferredEdge } from './inferredDragGate';
 import type { AncestorExtension, DateRange } from './cascadeGate';
 
+/** The pre-drag bar capture: the SPAN plus frontmatter-derived facts. */
+export interface BarBefore {
+  start: Date | null;
+  end: Date | null;
+  dateStatus: DateStatus | null;
+  estimateMinutes: number | null;
+}
+
 /** A committed drag gesture: pre-drag capture plus gesture-time config reads. */
 export type CommitGesture =
   | {
       kind: 'bar';
       instanceId: string;
-      before: {
-        start: Date | null;
-        end: Date | null;
-        dateStatus: DateStatus | null;
-        estimateMinutes: number | null;
-      };
+      before: BarBefore;
       /** The authoritative post-drag span (SVAR store read). */
       after: DateRange;
       /** `timeEstimateWriteEnabled && !readOnly`, resolved by the caller. */
@@ -371,6 +374,47 @@ export function overlayStoreGeometry<Row extends { id: string; start: Date | nul
       ? { ...row, start: live.start, end: live.end }
       : row;
   });
+}
+
+/**
+ * The gesture's `before` capture, rebased ONCE at dequeue. A queued gesture
+ * captured its `before` from the predecessor's optimistic position; if that
+ * predecessor reverted (or settled elsewhere) while this gesture waited, the
+ * row moved under it — planning from the stale span misreads the no-op/edge
+ * classification and baselines reverts at a position the row no longer holds.
+ * At dequeue the live row normally holds THIS gesture's own post-drag span
+ * (SVAR applied the drag at commit), so only a span someone ELSE left behind
+ * rebases the capture — and only the SPAN moves: dateStatus and estimate are
+ * gesture-time frontmatter facts no predecessor echo rewrites, and `after`
+ * stays untouched.
+ */
+export interface DequeueRebasedBefore {
+  /** The effective capture: gesture-time until dequeue, rebased after it. */
+  before(): BarBefore;
+  /** Mark the dequeue moment; the FIRST call rebases, later calls are no-ops. */
+  atDequeue(): void;
+}
+
+export function createDequeueBeforeRebase(
+  gestureBefore: BarBefore,
+  after: DateRange,
+  readLiveSpan: () => { start: Date | null; end: Date | null },
+): DequeueRebasedBefore {
+  let effective = gestureBefore;
+  let dequeued = false;
+  return {
+    before: () => effective,
+    atDequeue() {
+      if (dequeued) return;
+      dequeued = true;
+      const live = readLiveSpan();
+      if (!(live.start instanceof Date) || !(live.end instanceof Date)) return;
+      const holdsOwnDrag =
+        live.start.getTime() === after.start.getTime() &&
+        live.end.getTime() === after.end.getTime();
+      if (!holdsOwnDrag) effective = { ...gestureBefore, start: live.start, end: live.end };
+    },
+  };
 }
 
 export function plainGeometry(span: DateRange): DerivedGeometry {

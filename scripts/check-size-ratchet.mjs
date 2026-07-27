@@ -153,10 +153,14 @@ export function extractBaselineTable(source, name) {
  * of this script: a value may only stay or decrease, and a LINE_BASELINES
  * entry present on the base may not disappear — otherwise a PR could regrow a
  * file simply by raising (or deleting) its baseline and pass the working-tree
- * check. A NEW entry (a newly ratcheted file) is allowed. A CEILING_BASELINES
- * entry MAY disappear: the working-tree check demands exactly that when its
- * exemption leaves eslint.config.mjs, and fails a deletion whose exemption
- * remains (the config would then carry a "new" un-baselined ceiling).
+ * check. A NEW LINE_BASELINES entry (a newly ratcheted file) is allowed — it
+ * strengthens the gate. A NEW CEILING_BASELINES entry FAILS: the ceiling table
+ * is a CLOSED set against the base, or a PR could smuggle in a fresh per-file
+ * complexity exemption alongside its matching eslint override and pass every
+ * working-tree check. A CEILING_BASELINES entry MAY disappear: the
+ * working-tree check demands exactly that when its exemption leaves
+ * eslint.config.mjs, and fails a deletion whose exemption remains (the config
+ * would then carry a "new" un-baselined ceiling).
  * @param {string} baseSource  the base ref's check-size-ratchet.mjs source text
  * @param {{lines?: Record<string, number>, ceilings?: Record<string, number>}} [current]
  *   working-tree tables (injectable for tests; defaults to the real ones)
@@ -185,6 +189,14 @@ export function compareAgainstBase(baseSource, current = {}) {
       } else if (value > baseValue) {
         violations.push(
           `${name}: [${key}] rose from ${baseValue} to ${value} — baselines may only decrease.`,
+        );
+      }
+    }
+    if (name !== "CEILING_BASELINES") continue;
+    for (const key of Object.keys(table)) {
+      if (base[key] === undefined) {
+        violations.push(
+          `${name}: new entry for [${key}] — new complexity exemptions are not added via PR; refactor the hotspot under the existing ceilings instead.`,
         );
       }
     }
