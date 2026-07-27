@@ -968,7 +968,7 @@ describe('named rows', () => {
       }],
     };
     expect(verifyMirrorCoverage(plan, instances)).toEqual([
-      `${T}: ancestor-extend-refresh-only cannot mark a progress write`,
+      `${T}: ancestor-extend-refresh-only marks date-only extensions`,
     ]);
   });
 
