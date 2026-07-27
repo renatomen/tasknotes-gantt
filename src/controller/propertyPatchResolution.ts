@@ -11,14 +11,14 @@
  * phantom success.
  *
  * Extracted from `GanttController` (mirroring {@link ../datasource/dateFieldMapping}
- * and {@link ../bases/sortKeyMapping}) so the resolution rules are unit-testable
+ * and {@link ./sortKeyMapping}) so the resolution rules are unit-testable
  * without a controller. Dependency-free: no Obsidian/SVAR.
  *
  * @module controller/propertyPatchResolution
  */
 
-import { matchMappedFieldRole, type MappedFieldRole } from '../bases/mappedFieldRole';
-import type { FieldMappings } from '../bases/types/field-mapping';
+import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
+import type { FieldMappings } from '../datasource/fieldMappings';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
 

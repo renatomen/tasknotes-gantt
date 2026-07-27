@@ -27,6 +27,7 @@ export {
   resolveDateMapping,
   bareProperty,
   toNoteProperty,
+  noteFrontmatterKey,
   type ResolvedDateMapping,
 } from './dateFieldMapping';
 

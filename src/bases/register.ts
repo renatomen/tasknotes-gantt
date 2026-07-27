@@ -84,7 +84,7 @@ import {
   isTimeEstimateWriteEnabled,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
-import { needsCalendarSeam, estimateMeaningForTask } from './estimateMeaningResolve';
+import { needsCalendarSeam, estimateMeaningForTask } from '../controller/calendar/estimateMeaning';
 
 /**
  * Trailing-debounce window (ms) for the Bases `onDataUpdated` storm (#161).
@@ -116,9 +116,9 @@ import {
   associationTaskPaths,
   calendarAssociationsFrom,
   createShadingCssCache,
-  shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
+import { shadingCacheKey } from '../controller/calendar/derivation';
 import { nextInstanceScopeClass } from './instanceScope';
 import {
   readDisplaySelection,
@@ -136,7 +136,7 @@ import {
   type PluginLifetime,
 } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
-import { resolveParentLink } from './parentLink';
+import { resolveParentLink } from '../datasource/parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';

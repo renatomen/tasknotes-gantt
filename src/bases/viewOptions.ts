@@ -19,6 +19,7 @@ import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarChannelSource, BarIconSource } from './barTreatment';
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
+import type { EstimateMeaning, NonWorkingRendering } from '../controller/calendar/estimateMeaning';
 
 /**
  * The field-mapping property options. The Gantt view splits these across its
@@ -542,11 +543,10 @@ export function readHighlightWeekends(get: (key: string) => unknown): boolean {
   return get('tngantt_highlightWeekends') !== false;
 }
 
-/** Per-view interpretation of a time-estimate (affects only derived edges). */
-export type EstimateMeaning = 'working-days' | 'calendar-days';
-
-/** Per-view rendering of non-working days on bars. */
-export type NonWorkingRendering = 'shaded' | 'split';
+// Estimate-meaning axis types are calendar-domain and live with the
+// controller's derivation authority; re-exported so the view layer's existing
+// importers keep one import site.
+export type { EstimateMeaning, NonWorkingRendering };
 
 /**
  * Read the per-view Estimate meaning; unrecognized/absent → `calendar-days`
@@ -562,18 +562,6 @@ export function readEstimateMeaning(get: (key: string) => unknown): EstimateMean
  */
 export function readNonWorkingRendering(get: (key: string) => unknown): NonWorkingRendering {
   return get('tngantt_nonWorkingRendering') === 'split' ? 'split' : 'shaded';
-}
-
-/**
- * Resolve a task's effective Estimate meaning: a valid per-task override value
- * (`working-days` / `calendar-days`) wins; anything else falls back to the view
- * default. Pure; the register-side per-task read supplies `taskValue`.
- */
-export function resolveEstimateMeaning(
-  viewDefault: EstimateMeaning,
-  taskValue: unknown,
-): EstimateMeaning {
-  return taskValue === 'working-days' || taskValue === 'calendar-days' ? taskValue : viewDefault;
 }
 
 /**

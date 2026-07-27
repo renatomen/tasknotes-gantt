@@ -57,7 +57,7 @@
 /* global clearTimeout */
 import type { App, BasesEntry, BasesSortConfig } from 'obsidian';
 import { TFile } from 'obsidian';
-import type { FieldMappings } from '../bases/types/field-mapping';
+import type { FieldMappings } from '../datasource/fieldMappings';
 import {
   BasesSource,
   CompositeSource,
@@ -65,6 +65,7 @@ import {
   resolveDateMapping,
   bareProperty,
   toNoteProperty,
+  noteFrontmatterKey,
   type ChoiceOption,
   type ChoiceRole,
   type DataSource,
@@ -100,19 +101,18 @@ import {
   deriveEstimate,
   deriveSpan,
   projectPlainSpan,
+  shadingCacheKey,
   spanEvaluationWindow,
   type SpanDerivationFacts,
   type TaskBlocking,
 } from './calendar/derivation';
 import type { CalendarNoteInput } from './calendar/resolveCalendars';
 import { minutesToSpanDays } from './durationConversion';
-import { shadingCacheKey } from '../bases/calendarShading';
-import { frontmatterSignatureKeys } from '../bases/entrySignature';
-import { resolveParentLink } from '../bases/parentLink';
+import { resolveParentLink } from '../datasource/parentLink';
 import {
   countWorkingDaysResolver,
   workingDaysMeaningGate,
-} from '../bases/estimateMeaningResolve';
+} from './calendar/estimateMeaning';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
@@ -121,7 +121,7 @@ import {
   type CompanionResolveOptions,
   type RelationshipIndex,
 } from '../datasource/companionResolve';
-import { positionFetchedAmongMatched } from '../bases/sortKeyMapping';
+import { positionFetchedAmongMatched } from './sortKeyMapping';
 
 /**
  * Date-policy + visibility configuration the controller applies when building a
@@ -1730,7 +1730,7 @@ export class GanttController {
    * The pass's blocking lookup, fed the POLICY-RESOLVED span of every task —
    * one-sided and undated tasks included — so the read pass windows its facts
    * exactly where the write-side derivation windows its own, and an estimate
-   * saved as working days re-derives to the same span after a refresh (R6).
+   * saved as working days re-derives to the same span after a refresh.
    */
   private resolveBlockingLookup(
     config: WorkingTimeStretchConfig,
@@ -1882,7 +1882,7 @@ export class GanttController {
     if (!inputs) return () => null;
     const app = this.app;
     const calendarProperty = inputs.effectiveMappings().calendarProperty ?? '';
-    const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
+    const frontmatterKey = noteFrontmatterKey(calendarProperty);
     if (!frontmatterKey) return () => null;
     const associations = tasks.flatMap((task) => {
       const file = app.vault.getAbstractFileByPath(task.path);

@@ -352,29 +352,6 @@ function registryTarget(
   return null;
 }
 
-/**
- * Staleness key for the shading assembly: when nothing calendar-relevant
- * changed — the watch epoch (calendar-note contents), the mapped association
- * property, the window, the associations — the whole vault walk and
- * evaluation are skipped and the cached stylesheet is reused.
- */
-export function shadingCacheKey(inputs: {
-  epoch: number;
-  calendarProperty: string;
-  window: EvaluationWindow | null;
-  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
-  /** Sorted displayed paths for an explicit selection; '' while auto. */
-  selectionKey?: string;
-}): string {
-  return JSON.stringify([
-    inputs.epoch,
-    inputs.calendarProperty,
-    inputs.window,
-    inputs.associations.map((association) => [association.taskPath, association.value]),
-    inputs.selectionKey ?? '',
-  ]);
-}
-
 export interface ShadingCssCache {
   compute(key: string, produce: () => ShadingComputation): ShadingComputation;
 }

@@ -31,7 +31,7 @@ import {
   type GhostRun,
   type StretchDateStatus,
 } from './stretch';
-import { minutesToSpanDays } from '../durationConversion';
+import { minutesToSpanDays, spanDaysToMinutes } from '../durationConversion';
 import type { EstimateMeaning, NonWorkingRendering } from '../InstanceExpansion';
 
 /** A task's blocking query, materialized over a bounded window. */
@@ -72,7 +72,7 @@ export interface DerivedGeometry {
   ghostRuns: GhostRun[];
 }
 
-/** A derived estimate: the working-day count plus the span's echo geometry. */
+/** A derived estimate: the working-day count plus the record's re-derived geometry. */
 export interface DerivedEstimate extends DerivedGeometry {
   /**
    * Inclusive working-day count of the span (floor 1 — a bar is never zero),
@@ -117,8 +117,11 @@ export function deriveSpan(
 /**
  * Derive the estimate a span records: the working-day count for a
  * `working-days` task with a calendar, null when the plain span is the record.
- * The result echoes the span's full render geometry so a write-side echo shows
- * exactly what the read pass would render.
+ * The geometry is the RESULT's, not the input's: the counted estimate is
+ * round-tripped through {@link deriveSpan} over the same blocking facts, so the
+ * advertised span always equals what a refresh derives once the estimate
+ * persists — a resize onto a fully blocked span floors to one working day and
+ * advertises the walked span, never the blocked input dates.
  */
 export function deriveEstimate(
   facts: SpanDerivationFacts,
@@ -128,13 +131,37 @@ export function deriveEstimate(
     facts.meaning === 'working-days' && facts.blocking
       ? countUnblockedDays(facts.blocking, span.start, span.end)
       : null;
-  return {
-    days,
-    start: span.start,
-    end: span.end,
-    flagged: false,
-    ghostRuns: ghostRunsFor(facts, span.start, span.end, false),
-  };
+  return { days, ...persistedGeometry(facts, span, days) };
+}
+
+/**
+ * The geometry the read path derives once the record persists. A plain-span
+ * record (null days) re-derives from the span itself; a working-day estimate
+ * re-derives from its authored anchor's plain projection — the same shape the
+ * date policy produces on refresh.
+ */
+function persistedGeometry(
+  facts: SpanDerivationFacts,
+  span: { start: Date; end: Date },
+  days: number | null,
+): DerivedGeometry {
+  if (days === null) {
+    return deriveSpan({ ...facts, start: span.start, end: span.end }, null);
+  }
+  const plain = plainSpanOfEstimate(facts.dateStatus, span, days);
+  return deriveSpan({ ...facts, start: plain.start, end: plain.end }, spanDaysToMinutes(days));
+}
+
+/** The plain span an estimate re-derives from: its anchor's projection for a
+ *  derived edge; the span itself when both dates are authored (no edge moves). */
+function plainSpanOfEstimate(
+  dateStatus: StretchDateStatus,
+  span: { start: Date; end: Date },
+  days: number,
+): { start: Date; end: Date } {
+  if (dateStatus === 'inferred-end') return projectPlainSpan('end', span.start, days);
+  if (dateStatus === 'inferred-start') return projectPlainSpan('start', span.end, days);
+  return span;
 }
 
 /**
@@ -208,6 +235,30 @@ export function spanEvaluationWindow(
     startDate: addDaysIso(localIso(min), -marginDays),
     endDateExclusive: addDaysIso(localIso(max), marginDays + 1),
   };
+}
+
+/**
+ * Staleness key for a calendar-derived assembly (the shading stylesheet, the
+ * blocking-facts lookup): when nothing calendar-relevant changed — the watch
+ * epoch (calendar-note contents), the mapped association property, the window,
+ * the associations — the whole vault walk and evaluation can be skipped and
+ * the cached result reused.
+ */
+export function shadingCacheKey(inputs: {
+  epoch: number;
+  calendarProperty: string;
+  window: EvaluationWindow | null;
+  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
+  /** Sorted displayed paths for an explicit selection; '' while auto. */
+  selectionKey?: string;
+}): string {
+  return JSON.stringify([
+    inputs.epoch,
+    inputs.calendarProperty,
+    inputs.window,
+    inputs.associations.map((association) => [association.taskPath, association.value]),
+    inputs.selectionKey ?? '',
+  ]);
 }
 
 /** Add every day of the span that falls inside the window to the set. */

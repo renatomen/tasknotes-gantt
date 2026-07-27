@@ -252,7 +252,7 @@ describe('deriveEstimate', () => {
     expect(derived.days).toBeNull();
   });
 
-  it('carries echo geometry: the span itself plus its ghost runs, never a flag', () => {
+  it('carries re-derived geometry: a resize landing on the derivation answer echoes it', () => {
     const derived = deriveEstimate(facts({ rendering: 'split' }), {
       start: day('2026-08-07'),
       end: dayEnd('2026-08-11'),
@@ -261,6 +261,46 @@ describe('deriveEstimate', () => {
     expect(iso(derived.end)).toBe('2026-08-11');
     expect(derived.flagged).toBe(false);
     expect(derived.ghostRuns).toEqual([{ startDate: '2026-08-08', days: 2 }]);
+  });
+
+  it('end edge, fully blocked resize: floors to 1 AND advertises the walked span', () => {
+    // A Sat..Sun drag counts zero working days → floor 1. Once that estimate
+    // persists, the read path walks the derived end from the Saturday anchor to
+    // Monday — so the advertised geometry must be the walked span, never the
+    // blocked input dates.
+    const derived = deriveEstimate(facts(), { start: day('2026-08-08'), end: dayEnd('2026-08-09') });
+    expect(derived.days).toBe(1);
+    expect(iso(derived.start)).toBe('2026-08-08');
+    expect(iso(derived.end)).toBe('2026-08-10');
+    expect(derived.flagged).toBe(false);
+  });
+
+  it('start edge, fully blocked resize: floors to 1 AND advertises the back-walked span', () => {
+    const derived = deriveEstimate(facts({ dateStatus: 'inferred-start' }), {
+      start: day('2026-08-08'),
+      end: dayEnd('2026-08-09'),
+    });
+    expect(derived.days).toBe(1);
+    expect(iso(derived.start)).toBe('2026-08-07');
+    expect(iso(derived.end)).toBe('2026-08-09');
+    expect(derived.flagged).toBe(false);
+  });
+
+  it('round-trip identity: geometry equals deriveSpan of the resulting estimate', () => {
+    const span = { start: day('2026-08-07'), end: dayEnd('2026-08-11') };
+    const estimate = deriveEstimate(facts({ rendering: 'split' }), span);
+    expect(estimate.days).toBe(3);
+    const plain = projectPlainSpan('end', span.start, 3);
+    const rederived = deriveSpan(
+      facts({ rendering: 'split', start: plain.start, end: plain.end }),
+      3 * 1440,
+    );
+    expect({
+      start: estimate.start,
+      end: estimate.end,
+      flagged: estimate.flagged,
+      ghostRuns: estimate.ghostRuns,
+    }).toEqual(rederived);
   });
 });
 

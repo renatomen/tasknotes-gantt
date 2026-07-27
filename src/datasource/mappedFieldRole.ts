@@ -1,9 +1,9 @@
 /**
  * Pure matcher from a bare frontmatter key to the mapped canonical field it
- * addresses — the shared core of the editor resolver ({@link ./cellEditability})
- * and the write path ({@link ../controller/propertyPatchResolution}), so the
- * two sides can never drift on HOW a key matches a mapping (`note.` prefix
- * normalized on both sides, first match wins).
+ * addresses — the shared core of the view's editor resolver and the
+ * controller's write path, so the two sides can never drift on HOW a key
+ * matches a mapping (`note.` prefix normalized on both sides, first match
+ * wins). Layer-neutral: it reads only the mapping configuration.
  *
  * Precedence is caller-owned: the two sides deliberately rank `text`
  * differently (the editor resolver last, the write path ahead of status), so
@@ -11,11 +11,11 @@
  *
  * Dependency-free (no Obsidian/SVAR).
  *
- * @module bases/mappedFieldRole
+ * @module datasource/mappedFieldRole
  */
 
-import { bareProperty } from '../datasource/dateFieldMapping';
-import type { FieldMappings } from './types/field-mapping';
+import { bareProperty } from './dateFieldMapping';
+import type { FieldMappings } from './fieldMappings';
 
 /** A mapped canonical field a bare frontmatter key can address. */
 export type MappedFieldRole =

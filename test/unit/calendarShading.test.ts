@@ -5,9 +5,9 @@ import {
   collectShadedDates,
   computeCalendarShadingCss,
   createShadingCssCache,
-  shadingCacheKey,
   shadingWindow,
 } from '../../src/bases/calendarShading';
+import { shadingCacheKey } from '../../src/controller/calendar/derivation';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
 import type { CalendarNoteInput, LinkResolver } from '../../src/controller/calendar/resolveCalendars';
 

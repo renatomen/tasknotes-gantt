@@ -16,7 +16,6 @@ import {
   readShowToolbar,
   readEstimateMeaning,
   readNonWorkingRendering,
-  resolveEstimateMeaning,
   readHighlightWeekends,
   readBarFillSource,
   readBarStripSource,
@@ -444,20 +443,6 @@ describe("readNonWorkingRendering (U1)", () => {
     expect(readNonWorkingRendering((k) => ({ tngantt_nonWorkingRendering: "shaded" })[k])).toBe(
       "shaded",
     );
-  });
-});
-
-describe("resolveEstimateMeaning (U2 per-task override)", () => {
-  it("a valid per-task value overrides the view default", () => {
-    expect(resolveEstimateMeaning("calendar-days", "working-days")).toBe("working-days");
-    expect(resolveEstimateMeaning("working-days", "calendar-days")).toBe("calendar-days");
-  });
-
-  it("falls back to the view default when the per-task value is unset or junk", () => {
-    expect(resolveEstimateMeaning("working-days", undefined)).toBe("working-days");
-    expect(resolveEstimateMeaning("calendar-days", "")).toBe("calendar-days");
-    expect(resolveEstimateMeaning("working-days", "nonsense")).toBe("working-days");
-    expect(resolveEstimateMeaning("calendar-days", 42)).toBe("calendar-days");
   });
 });
 
