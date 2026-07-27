@@ -79,6 +79,7 @@ import type {
 } from './dragCommitPlan';
 import type { DragExecutorDeps, ExecutionLifecycle, HostGates } from './dragExecutionLifecycle';
 import type { SourceQueues } from './dragSourceQueues';
+import { dayDelta } from './dayGranularity';
 
 /** The cascade answers the executor accumulates across its prompt/resume rounds. */
 export type CascadeAnswers = Pick<
@@ -228,8 +229,19 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
   ): CascadeBefore | undefined {
     if (!stashed) return own;
     if (!own?.start || !own.end || !stashed.start) return stashed;
-    const ownSpanMs = own.end.getTime() - own.start.getTime();
-    return { ...stashed, end: new Date(stashed.start.getTime() + ownSpanMs) };
+    // Calendar days, not milliseconds: a DST hour inside either span would
+    // otherwise make the reshaped end drift a day off the successor's length.
+    const ownDays = dayDelta(own.start, own.end);
+    const end = new Date(
+      stashed.start.getFullYear(),
+      stashed.start.getMonth(),
+      stashed.start.getDate() + ownDays,
+      own.end.getHours(),
+      own.end.getMinutes(),
+      own.end.getSeconds(),
+      own.end.getMilliseconds(),
+    );
+    return { ...stashed, end };
   }
 
   /**

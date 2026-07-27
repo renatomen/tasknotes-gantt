@@ -332,6 +332,77 @@ describe('GanttController — recompute race guard (recomputeSeq)', () => {
   });
 });
 
+describe('GanttController — recomputeGeneration (task-fact re-read counters)', () => {
+  function subscribableController(tn: FakeSource): GanttController {
+    tn.enableSubscribe();
+    return makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+  }
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  it('starts at {started: 0, delivered: 0} before any recompute', () => {
+    const controller = subscribableController(new FakeSource({ tasks: [task({ path: 'a.md' })] }));
+
+    expect(controller.recomputeGeneration()).toEqual({ started: 0, delivered: 0 });
+  });
+
+  it('advances delivered for a genuine re-read even when the snapshot is unchanged and notify is skipped', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+    expect(controller.recomputeGeneration()).toEqual({ started: 1, delivered: 1 });
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // A source change event re-reads the (identical) tasks: no notify, but the
+    // re-read DID deliver — the rows now provably carry current vault truth.
+    tn.fireChange();
+    await flush();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(controller.recomputeGeneration()).toEqual({ started: 2, delivered: 2 });
+  });
+
+  it('advances NEITHER counter for a config-only recompute (reuseTasks over cached tasks)', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+    expect(tn.getTasksCalls).toBe(1);
+
+    await controller.refreshSource({ reuseTasks: true });
+
+    // Nothing was re-read from the vault, so nothing can invalidate a settled-
+    // facts ledger entry: the counters must not move.
+    expect(tn.getTasksCalls).toBe(1);
+    expect(controller.recomputeGeneration()).toEqual({ started: 1, delivered: 1 });
+  });
+
+  it('never ticks delivered for a stale recompute discarded by the latest-wins guard', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // read 2 (older)
+    tn.fireChange(); // read 3 (newer = latest)
+    expect(gates).toHaveLength(2);
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 1 });
+
+    // The NEWER read delivers first…
+    gates[1]!([task({ path: 'new.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+    // …then the older resolves and is discarded: delivered must NOT move (a
+    // regression to 2 would also unwind the newer read's proof).
+    gates[0]!([task({ path: 'old.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+  });
+});
+
 describe('GanttController — getInstances expansion', () => {
   it('expands multi-parent source tasks consistently with InstanceExpansion', async () => {
     // child has parents [A, B], both visible → two instances (under A, under B).

@@ -2,7 +2,7 @@
 /**
  * Pre-push review gate: a push is allowed only when BOTH local review layers
  * (ce-code-review and the local Codex review) have recorded a clean receipt
- * against the exact commit being pushed.
+ * against every commit being pushed.
  *
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
@@ -10,14 +10,19 @@
  *   node scripts/check-review-receipts.mjs record <layer>   # after a clean review of HEAD
  *   node scripts/check-review-receipts.mjs check            # pre-push hook entry point
  *
- * Receipts live in .git/ (per-clone, never committed) and bind to the HEAD
- * commit sha, so any new commit invalidates them.
+ * `check` reads git's pre-push stdin lines ("<local-ref> <local-sha>
+ * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
+ * local sha (deletions skipped); run manually without piped input it falls
+ * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
+ * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
+
+const DELETED_REF_SHA = '0'.repeat(40);
 
 function gitTopLevelDir() {
   return execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim();
@@ -33,18 +38,32 @@ function receiptPath() {
 
 function readReceipts() {
   try {
-    return JSON.parse(readFileSync(receiptPath(), 'utf8'));
+    const parsed = JSON.parse(readFileSync(receiptPath(), 'utf8'));
+    return typeof parsed?.receipts === 'object' && parsed.receipts !== null
+      ? parsed
+      : { receipts: {} };
   } catch {
-    return { sha: null, layers: {} };
+    return { receipts: {} };
   }
 }
 
-export function evaluateReceipts(receipts, sha, requiredLayers = REQUIRED_LAYERS) {
-  if (receipts.sha !== sha) {
-    return { ok: false, missing: [...requiredLayers], staleSha: receipts.sha };
+/** The distinct local shas a pre-push stdin payload pushes (deletions skipped). */
+export function parsePushedLocalShas(stdinText) {
+  const shas = stdinText
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/)[1])
+    .filter((sha) => sha !== undefined && /^[0-9a-f]{40}$/.test(sha) && sha !== DELETED_REF_SHA);
+  return [...new Set(shas)];
+}
+
+export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
+  const missingBySha = {};
+  for (const sha of shas) {
+    const layers = store.receipts?.[sha] ?? {};
+    const missing = requiredLayers.filter((layer) => !layers[layer]);
+    if (missing.length > 0) missingBySha[sha] = missing;
   }
-  const missing = requiredLayers.filter((layer) => !receipts.layers[layer]);
-  return { ok: missing.length === 0, missing, staleSha: null };
+  return { ok: Object.keys(missingBySha).length === 0, missingBySha };
 }
 
 function record(layer) {
@@ -53,26 +72,39 @@ function record(layer) {
     process.exit(1);
   }
   const sha = headSha();
-  const receipts = readReceipts();
-  const layers = receipts.sha === sha ? receipts.layers : {};
-  layers[layer] = new Date().toISOString();
-  writeFileSync(receiptPath(), `${JSON.stringify({ sha, layers }, null, 2)}\n`);
+  const store = readReceipts();
+  store.receipts[sha] = { ...store.receipts[sha], [layer]: new Date().toISOString() };
+  writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
   console.log(`recorded clean ${layer} receipt for ${sha.slice(0, 7)}`);
 }
 
+function readPipedStdin() {
+  if (process.stdin.isTTY) return '';
+  try {
+    return readFileSync(0, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 function check() {
-  const sha = headSha();
-  const verdict = evaluateReceipts(readReceipts(), sha);
+  const stdinText = readPipedStdin();
+  // Piped ref lines gate the pushed shas (a deletion-only push gates nothing);
+  // a manual run with no piped input falls back to gating HEAD.
+  const shas = stdinText.trim() === '' ? [headSha()] : parsePushedLocalShas(stdinText);
+  const verdict = evaluateReceipts(readReceipts(), shas);
   if (verdict.ok) {
-    console.log(`review receipts OK for ${sha.slice(0, 7)}: ${REQUIRED_LAYERS.join(' + ')}`);
+    const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
+    console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
     return;
   }
-  const staleNote = verdict.staleSha
-    ? ` (receipts are for ${verdict.staleSha.slice(0, 7)}, HEAD is ${sha.slice(0, 7)})`
-    : '';
-  console.error(`pre-push: missing clean review receipts for HEAD${staleNote}: ${verdict.missing.join(', ')}`);
-  console.error('Run both local review layers against this commit, fix every finding, then record:');
-  for (const layer of verdict.missing) {
+  const missingLayers = new Set();
+  for (const [sha, missing] of Object.entries(verdict.missingBySha)) {
+    console.error(`pre-push: missing clean review receipts for ${sha.slice(0, 7)}: ${missing.join(', ')}`);
+    for (const layer of missing) missingLayers.add(layer);
+  }
+  console.error('Run both local review layers against each pushed commit, fix every finding, then record:');
+  for (const layer of missingLayers) {
     console.error(`  node scripts/check-review-receipts.mjs record ${layer}`);
   }
   process.exit(1);

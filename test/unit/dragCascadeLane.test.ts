@@ -29,6 +29,7 @@ import {
   spanDaysToMinutes,
 } from '../../src/controller/durationConversion';
 import type { PromptAnswer } from '../../src/bases/dragExecutor';
+import { dayDelta } from '../../src/bases/dayGranularity';
 import { cascadePlanOf, deferred, harness, revertOf, writeOf, type Harness } from './dragExecutorTestKit';
 
 function laneOf(h: Harness) {
@@ -561,6 +562,53 @@ describe('pre-delivery halts inherit origin (the per-source before stash)', () =
     const childWrites = writes.filter((w) => w.sourcePath === CHILD);
     expect(childWrites).toHaveLength(1);
     expect(childWrites[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 7));
+  });
+
+  /** Stash B0, then run a successor whose own span is `ownBefore`, capturing the effective origin. */
+  async function reshapeSeenFor(ownBefore: { start: Date; end: Date }): Promise<CascadeBefore | undefined> {
+    let writable = false; // the first pass halts pre-delivery and stashes B0
+    const h = harness({
+      canWrite: () => writable,
+      persist: () => Promise.resolve(),
+    });
+    const laneKit = laneOf(h);
+    await laneKit.lane.runCascade(movePass({ before: B0, after: A1 }));
+
+    writable = true;
+    const ownAfter = span(addDays(ownBefore.start, 4), addDays(ownBefore.end, 4));
+    const seen: Array<CascadeBefore | undefined> = [];
+    await laneKit.lane.runCascade(
+      movePass({ before: ownBefore, after: ownAfter, seen: (b) => seen.push(b) }),
+    );
+    return seen[0];
+  }
+
+  it('re-shapes an inherited origin by CALENDAR days: a span whose wall-clock ms undercount its day span keeps its full length', async () => {
+    // The successor's span covers 5 calendar days but only ~4.06 days of wall-
+    // clock ms — the shape a DST-crossing span has, reproduced with explicit
+    // local times so the truncation bites in ANY zone: ms arithmetic would
+    // land the reshaped end a day short.
+    const ownBefore = span(new Date(2026, 2, 8, 23, 0), new Date(2026, 2, 13, 0, 30));
+
+    const effective = await reshapeSeenFor(ownBefore);
+
+    // B0's start + the successor's 5 CALENDAR days, carrying own end's time-of-day.
+    expect(effective?.start).toEqual(B0.start);
+    expect(effective?.end).toEqual(new Date(2026, 7, 8, 0, 30));
+    expect(dayDelta(effective!.start!, effective!.end!)).toBe(dayDelta(ownBefore.start, ownBefore.end));
+  });
+
+  it('re-shapes a spring-forward-crossing span without drift: the reshaped end keeps the end-of-day wall clock', async () => {
+    // Explicit local dates around the 2026-03-08 US transition: in a DST zone
+    // this span is one hour short of days×24h, and ms arithmetic would erode
+    // the reshaped end below 23:59:59.999; in a DST-less zone it is exact.
+    const ownBefore = span(day('2026-03-06'), dayEnd('2026-03-09'));
+
+    const effective = await reshapeSeenFor(ownBefore);
+
+    // Same 4-day, end-of-day shape anchored at the stashed start: exactly B0.
+    expect(effective).toEqual({ ...B0, estimateMinutes: null });
+    expect(dayDelta(effective!.start!, effective!.end!)).toBe(dayDelta(ownBefore.start, ownBefore.end));
   });
 
   it('a mid-round supersession stashes the origin: the successor re-plans the landed child too, so every child lands at the cumulative displacement', async () => {

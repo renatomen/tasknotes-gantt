@@ -28,7 +28,7 @@
  * @module bases/dragExecutor
  */
 
-import type { BarBefore, GestureSettlement } from './dragCommitPlan';
+import type { BarBefore, GestureSettlement, SourceEchoes } from './dragCommitPlan';
 import {
   createCascadeLane,
   createGeometryClock,
@@ -80,16 +80,24 @@ export interface DragExecutorOptions extends DragExecutorDeps {
   refreshGeneration?: () => RefreshGeneration;
 }
 
+/** True when the echoes move what the dequeue rebase reads — the row's geometry. */
+function carriesGeometry(echoes: SourceEchoes): boolean {
+  return echoes.rows.some((row) => row.payload.kind === 'geometry');
+}
+
 export function createDragExecutor(options: DragExecutorOptions): DragExecutor {
   const { refreshGeneration, ...bare } = options;
   const echoSeq = new Map<string, number>();
   const echoSeqOf = (sourcePath: string): number => echoSeq.get(sourcePath) ?? 0;
-  // Every echo emission ticks the per-source count BEFORE reaching the host —
-  // the moved-by-another-execution signal the dequeue rebase reads.
+  // A geometry-bearing echo ticks the per-source count BEFORE reaching the
+  // host — the moved-by-another-execution signal the dequeue rebase reads. A
+  // progress-only echo (e.g. a failed progress persist's revert) moves no
+  // geometry, so ticking for it would make a queued date gesture distrust a
+  // span a predecessor never touched.
   const deps: DragExecutorDeps = {
     ...bare,
     echo: (echoes) => {
-      echoSeq.set(echoes.sourcePath, echoSeqOf(echoes.sourcePath) + 1);
+      if (carriesGeometry(echoes)) echoSeq.set(echoes.sourcePath, echoSeqOf(echoes.sourcePath) + 1);
       bare.echo(echoes);
     },
   };

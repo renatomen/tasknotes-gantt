@@ -34,6 +34,7 @@
  */
 
 import type { DateStatus } from '../controller/datePolicy';
+import type { RecomputeGeneration } from '../controller/GanttController';
 import type { BarBefore, PlannedWrite } from './dragCommitPlan';
 
 /** What the settled writes imply; absent members mean "nothing settled for this". */
@@ -49,16 +50,15 @@ interface AuthoredFactsSnapshot {
 }
 
 /**
- * The host's recompute counters (self-writes are suppressed and never tick):
- * `started` counts recomputes begun, `delivered` counts snapshots that reached
- * the rows. An entry stores `started` at settle and drops once `delivered`
- * passes it — only a re-read that BEGAN after the write landed can prove the
- * rows carry post-write vault truth. Absent = value comparison alone decides.
+ * The host's re-read counters ({@link RecomputeGeneration} — self-writes are
+ * suppressed and config-only recomputes reuse cached tasks, so neither ticks):
+ * `started` counts genuine task-fact re-reads begun, `delivered` counts their
+ * snapshots reaching the rows. An entry stores `started` at settle and drops
+ * once `delivered` passes it — only a re-read that BEGAN after the write
+ * landed can prove the rows carry post-write vault truth. Absent = value
+ * comparison alone decides.
  */
-export interface RefreshGeneration {
-  started: number;
-  delivered: number;
-}
+export type RefreshGeneration = RecomputeGeneration;
 
 export interface SettledFactsLedger {
   /** Fold one successfully settled write's implied authored facts in. */

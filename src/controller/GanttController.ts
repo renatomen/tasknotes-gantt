@@ -403,6 +403,19 @@ export interface ReadinessStatus {
   matchedEdgesResolved: boolean;
 }
 
+/**
+ * The controller's task-fact re-read counters ({@link GanttController.recomputeGeneration}),
+ * the drag executor's refresh-generation signal: `started` counts recomputes
+ * that re-read task facts from the vault (`source.getTasks()`); `delivered`
+ * counts those same recomputes' snapshots reaching readers. A config-only
+ * recompute (reused cached tasks) moves neither — it can prove nothing about
+ * post-write vault truth.
+ */
+export interface RecomputeGeneration {
+  started: number;
+  delivered: number;
+}
+
 /** Maps a TaskNotes reltype to the SVAR link type. */
 const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
   FINISHTOSTART: 'e2s',
@@ -502,12 +515,16 @@ export class GanttController {
    */
   private recomputeSeq = 0;
   /**
-   * Recomputes whose snapshot was ASSIGNED (delivered to readers), even when
-   * the change gate skipped notify. Paired with {@link recomputeSeq} as the
-   * drag executor's refresh-generation signal ({@link recomputeGeneration}):
-   * our own mutation events suppress recompute, so only genuine re-reads tick.
+   * Task-fact re-reads only ({@link RecomputeGeneration}): a recompute that
+   * will call `source.getTasks()` ticks `started` before its build and
+   * `delivered` at snapshot assignment (even when the change gate skips
+   * notify; a latest-wins discard never delivers). A config-only recompute
+   * (`reuseTasks` over cached tasks) re-reads nothing and ticks neither —
+   * advancing the ledger's clock for it would drop settled-fact overlays
+   * against rows that still hold pre-write values.
    */
-  private deliveredRecomputeSeq = 0;
+  private readStartedSeq = 0;
+  private readDeliveredSeq = 0;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
@@ -752,15 +769,16 @@ export class GanttController {
   }
 
   /**
-   * The recompute counters the drag executor's settled-facts ledger keys its
-   * invalidation on: recomputes `started` (captured at write settle) and
-   * snapshots `delivered` (compared at read). Our own mutation events suppress
-   * recompute entirely, so only a genuine vault re-read moves either counter —
-   * and only a re-read that STARTED after a write settled can prove the rows
+   * The re-read counters the drag executor's settled-facts ledger keys its
+   * invalidation on: task-fact re-reads `started` (captured at write settle)
+   * and their snapshots `delivered` (compared at read). Our own mutation
+   * events suppress recompute entirely, and a config-only recompute reuses the
+   * cached tasks, so only a genuine vault re-read moves either counter — and
+   * only a re-read that STARTED after a write settled can prove the rows
    * carry post-write truth (a straddling recompute may have read pre-write).
    */
-  public recomputeGeneration(): { started: number; delivered: number } {
-    return { started: this.recomputeSeq, delivered: this.deliveredRecomputeSeq };
+  public recomputeGeneration(): RecomputeGeneration {
+    return { started: this.readStartedSeq, delivered: this.readDeliveredSeq };
   }
 
   /**
@@ -1495,8 +1513,13 @@ export class GanttController {
     // recompute starts while we await, discard our (now-stale) result.
     const seq = ++this.recomputeSeq;
     const source = this.activeSource;
+    // Resolved HERE (one decision point): whether this recompute re-reads task
+    // facts from the vault. Only such re-reads move the generation counters.
+    const willReadTaskFacts =
+      source !== null && !((opts.reuseTasks ?? false) && this.cachedRawTasks !== null);
+    const readSeq = willReadTaskFacts ? ++this.readStartedSeq : null;
     const next: Snapshot = source
-      ? await this.buildSnapshot(source, opts.reuseTasks ?? false)
+      ? await this.buildSnapshot(source, !willReadTaskFacts)
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
@@ -1515,7 +1538,7 @@ export class GanttController {
     // counter the storm/loop e2es read to detect an unbounded notify loop.
     dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
-    this.deliveredRecomputeSeq = seq;
+    if (readSeq !== null) this.readDeliveredSeq = readSeq;
     // Commit the readiness signal AFTER the latest-wins guard above (U1): a
     // discarded stale build returns early before this line, so a slow re-check
     // resolving last can never overwrite a newer build's readiness (R13).

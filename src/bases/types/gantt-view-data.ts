@@ -17,6 +17,7 @@ import type {
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
 import type { DerivedEstimate, DerivedGeometry } from '../../controller/calendar/derivation';
+import type { RecomputeGeneration } from '../../controller/GanttController';
 import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarChannelSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
@@ -111,13 +112,14 @@ export interface GanttData {
     estimateMinutes: number,
   ) => DerivedGeometry;
   /**
-   * The controller's recompute counters (started / delivered), the drag
-   * executor's refresh-generation signal: self-writes suppress recompute, so
-   * a moved counter proves a GENUINE vault re-read. The executor's settled-
-   * facts ledger records `started` when a write settles and drops its overlay
-   * once `delivered` passes it. Absent only when no controller is wired.
+   * The controller's task-fact re-read counters (started / delivered), the
+   * drag executor's refresh-generation signal: self-writes suppress recompute
+   * and config-only recomputes reuse cached tasks, so a moved counter proves a
+   * GENUINE vault re-read. The executor's settled-facts ledger records
+   * `started` when a write settles and drops its overlay once `delivered`
+   * passes it. Absent only when no controller is wired.
    */
-  refreshGeneration?: () => { started: number; delivered: number };
+  refreshGeneration?: () => RecomputeGeneration;
   /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the

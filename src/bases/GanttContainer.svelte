@@ -1970,9 +1970,10 @@
           return true;
         }
         const beforeFacts = captureBarBefore(id, before);
+        const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
         const name = before?.text ?? 'this task';
         // Deferred one tick so the SVAR store holds the committed post-drag span.
-        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts }), 0);
+        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
       }
       return true;
     });
@@ -2139,11 +2140,11 @@
 
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
-   * cascade included. Both spans read the SVAR store (the event payload is
-   * diff-only): `after` one tick post-commit, `before` at intercept capture.
-   */
-  function submitBarGesture(args: { instanceId: string; name: string; before: BarBefore }): void {
-    const { instanceId, name, before } = args;
+   * cascade included. `after` reads the SVAR store one tick post-commit;
+   * `before` and the echo-seq baseline arrive from intercept time — an echo
+   * landing inside that deferred tick must read as a predecessor's move. */
+  function submitBarGesture(args: { instanceId: string; name: string; before: BarBefore; echoSeqAtCapture: number }): void {
+    const { instanceId, name, before, echoSeqAtCapture } = args;
     if (!api) return;
     const moved = api.getState().tasks.byId(instanceId);
     if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
@@ -2151,7 +2152,6 @@
     // Read at gesture time: a persisted "don't ask again" choice applies from the next drag.
     const inferredDragMode = $data.getInferredDragMode();
     const sourcePath = instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId;
-    const echoSeqAtCapture = dragExecutor.echoSeqOf(sourcePath);
     // Rebases once at dequeue: the span when a predecessor's echo moved the row
     // (even to exactly `after`); the authored facts always.
     const rebase = createDequeueBeforeRebase({

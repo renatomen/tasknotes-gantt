@@ -271,6 +271,108 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'no-cascade' }]);
   });
 
+  it('a predecessor revert emitted BETWEEN capture and submit still reads as movedByPredecessor at dequeue', async () => {
+    const kit = barGestureKit();
+    const { spanA, spanB, store, beforeOf, barPlan, rowOf } = kit;
+    const gate = deferred();
+    const h: Harness = harness({
+      persist: (write) =>
+        write.patch.start === spanB.start
+          ? gate.promise.then(() => Promise.reject(new Error('save failed')))
+          : Promise.resolve(),
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    const first = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: rowOf,
+      plan: (choice, snapshot) => barPlan(beforeOf(spanA), spanB, snapshot, choice),
+    });
+    await flushMicrotasks(); // A→B echoed optimistically; the failing persist is in flight
+    // Intercept time: the baseline is read synchronously with the capture; the
+    // user's drag B→A is applied; the submit itself is deferred a tick.
+    const echoSeqAtCapture = executor.echoSeqOf('a.md');
+    store.span = { ...spanA };
+    gate.resolve();
+    await first; // the failed persist's revert (a geometry echo) lands INSIDE the deferred tick
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: beforeOf(spanB),
+      after: spanA,
+      readLive: () => beforeOf(store.span),
+      movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
+    });
+    let queuedPlan: GesturePlan | null = null;
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => {
+        queuedPlan = barPlan(rebase.before(), spanA, snapshot, choice);
+        return queuedPlan;
+      },
+    });
+
+    // The baseline predates the revert, so the rebase saw the moved row and
+    // trusted the live span: a clean no-op, never a stale B-baselined write.
+    expect(queuedPlan?.writes).toEqual([]);
+    expect(queuedPlan?.reverts).toEqual([]);
+    expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'no-cascade' }]);
+  });
+
+  it('a progress-only revert never ticks the echo seq: a date gesture queued behind a failed progress persist still plans its real write', async () => {
+    const kit = barGestureKit();
+    const { spanB, spanC, store, beforeOf, barPlan, rowOf } = kit;
+    store.span = { ...spanB };
+    const gate = deferred();
+    const h: Harness = harness({
+      persist: (write) =>
+        write.patch.progress !== undefined
+          ? gate.promise.then(() => Promise.reject(new Error('save failed')))
+          : Promise.resolve(),
+      echo: (echoes) => kit.applyEchoToStore(h)(echoes),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    // A progress drag whose persist will fail; its revert restores progress only.
+    const first = executor.submit(
+      execution('a.md', () => planOf({ writes: [writeOf('a.md', 40)], reverts: [revertOf('a.md')] })),
+    );
+    await flushMicrotasks();
+    // The user drags the bar B→C while the progress persist is in flight.
+    const echoSeqAtCapture = executor.echoSeqOf('a.md');
+    store.span = { ...spanC };
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: beforeOf(spanB),
+      after: spanC,
+      readLive: () => beforeOf(store.span),
+      movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
+    });
+    let queuedPlan: GesturePlan | null = null;
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => {
+        rebase.atDequeue();
+        return rowOf();
+      },
+      plan: (choice, snapshot) => {
+        queuedPlan = barPlan(rebase.before(), spanC, snapshot, choice);
+        return queuedPlan;
+      },
+    });
+    gate.resolve(); // the progress persist fails; its revert echoes NO geometry
+    await Promise.all([first, second]);
+
+    // The progress-only revert moved no geometry, so the queued gesture kept
+    // its own B capture and planned the real B→C date write — never a no-op
+    // born of mistaking the untouched span for a predecessor's landing.
+    expect(h.echoed.some((e) => e.rows.some((r) => r.payload.kind === 'progress'))).toBe(true);
+    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'plain' }]);
+  });
+
   it("keeps a queued gesture's `before` when the predecessor SUCCEEDED: the row still holds this gesture's own drag, so B→C stays B→C", async () => {
     const kit = barGestureKit();
     const { spanA, spanB, spanC, store, beforeOf, barPlan, rowOf } = kit;
