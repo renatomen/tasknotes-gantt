@@ -12,9 +12,16 @@
  *
  * `check` reads git's pre-push stdin lines ("<local-ref> <local-sha>
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
- * local sha (deletions skipped); run manually without piped input it falls
+ * local sha (deletions skipped, tag objects peeled to their commit); any
+ * malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
+ *
+ * A receipt attests that the chain of reviews ending at that commit was run
+ * clean - reviews diff against the previously receipted or pushed state, so
+ * the tip receipt covers the ancestors pushed with it. The mechanism binds
+ * review artifacts to shas; that each review honestly covered its range is
+ * the review process's responsibility, not this script's.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +29,11 @@ import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
 
-const DELETED_REF_SHA = '0'.repeat(40);
+const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+
+function isDeletion(sha) {
+  return /^0+$/.test(sha);
+}
 
 function gitTopLevelDir() {
   return execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim();
@@ -47,13 +58,33 @@ function readReceipts() {
   }
 }
 
-/** The distinct local shas a pre-push stdin payload pushes (deletions skipped). */
-export function parsePushedLocalShas(stdinText) {
-  const shas = stdinText
-    .split('\n')
-    .map((line) => line.trim().split(/\s+/)[1])
-    .filter((sha) => sha !== undefined && /^[0-9a-f]{40}$/.test(sha) && sha !== DELETED_REF_SHA);
-  return [...new Set(shas)];
+/**
+ * The distinct pushed local shas plus every nonblank line that is not a valid
+ * ref record - the caller must fail closed on any invalid line, because a
+ * silently discarded line would let its ref through ungated.
+ */
+export function parsePushedRefLines(stdinText) {
+  const shas = new Set();
+  const invalid = [];
+  for (const line of stdinText.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    const tokens = trimmed.split(/\s+/);
+    const localSha = tokens[1];
+    if (tokens.length !== 4 || !SHA_PATTERN.test(localSha) || !SHA_PATTERN.test(tokens[3])) {
+      invalid.push(trimmed);
+      continue;
+    }
+    if (!isDeletion(localSha)) shas.add(localSha);
+  }
+  return { shas: [...shas], invalid };
+}
+
+/** Annotated tags push their tag object's sha; receipts key on commits. */
+function peelToCommit(sha) {
+  return execFileSync('git', ['rev-parse', '--verify', `${sha}^{commit}`], {
+    encoding: 'utf8',
+  }).trim();
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
@@ -91,7 +122,18 @@ function check() {
   const stdinText = readPipedStdin();
   // Piped ref lines gate the pushed shas (a deletion-only push gates nothing);
   // a manual run with no piped input falls back to gating HEAD.
-  const shas = stdinText.trim() === '' ? [headSha()] : parsePushedLocalShas(stdinText);
+  let shas;
+  if (stdinText.trim() === '') {
+    shas = [headSha()];
+  } else {
+    const { shas: pushed, invalid } = parsePushedRefLines(stdinText);
+    if (invalid.length > 0) {
+      console.error('pre-push: unparseable ref line(s) - refusing to gate blind:');
+      for (const line of invalid) console.error(`  ${line}`);
+      process.exit(1);
+    }
+    shas = pushed.map(peelToCommit);
+  }
   const verdict = evaluateReceipts(readReceipts(), shas);
   if (verdict.ok) {
     const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';

@@ -401,6 +401,28 @@ describe('GanttController — recomputeGeneration (task-fact re-read counters)',
     await flush();
     expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
   });
+
+  it('retries a genuine read superseded by a config-only recompute so delivered catches started', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // genuine read, gated in flight
+    await controller.refreshSource({ reuseTasks: true }); // config-only supersedes it
+    expect(controller.recomputeGeneration()).toEqual({ started: 2, delivered: 1 });
+
+    // The superseded read resolves, is discarded, and must schedule a fresh
+    // genuine read — otherwise delivered would trail started forever and
+    // settled-fact overlays would outlive their vault truth.
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush();
+    expect(gates).toHaveLength(2);
+    gates[1]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+  });
 });
 
 describe('GanttController — getInstances expansion', () => {

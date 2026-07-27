@@ -1523,6 +1523,12 @@ export class GanttController {
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
+      // A genuine read superseded by config-only recomputes would leave
+      // `delivered` forever behind `started`, pinning settled-fact overlays
+      // past their vault truth. Retry unless a newer genuine read will deliver.
+      if (readSeq !== null && !this.disposed && this.readStartedSeq === readSeq) {
+        void this.recompute();
+      }
       return;
     }
 
