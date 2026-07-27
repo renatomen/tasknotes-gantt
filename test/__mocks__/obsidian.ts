@@ -126,6 +126,28 @@ export class App {
  */
 export class TFile {
   path = '';
+  basename = '';
+}
+
+/**
+ * Stub of Obsidian's `BasesView` base class so the Bases Gantt view can be
+ * constructed in unit tests. The real Bases runtime wires `app`/`config`/`data`
+ * internally; this stand-in reads them off the supplied QueryController-shaped
+ * object so a test can inject its fakes through the factory seam.
+ */
+export class BasesView extends Component {
+  app: App;
+  config: unknown;
+  data: unknown;
+  allProperties: unknown[] = [];
+
+  constructor(controller: unknown) {
+    super();
+    const wired = (controller ?? {}) as { app?: App; config?: unknown; data?: unknown };
+    this.app = wired.app as App;
+    this.config = wired.config ?? null;
+    this.data = wired.data ?? null;
+  }
 }
 
 /**

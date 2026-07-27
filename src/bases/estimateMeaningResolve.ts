@@ -1,16 +1,15 @@
 /**
  * Pure decision logic for the Estimate-meaning axis, extracted from the register
  * so it is unit-testable independently of the Obsidian vault. The register keeps
- * only the thin app-wiring (reading frontmatter, the per-pass blocking lookup)
- * and delegates every decision here.
+ * only the thin app-wiring (reading frontmatter) and delegates every decision
+ * here; span↔estimate derivation itself lives with the controller's derivation
+ * authority.
  */
 import {
   resolveEstimateMeaning,
   type EstimateMeaning,
   type NonWorkingRendering,
 } from './viewOptions';
-import { applyWorkingTimeStretch } from '../controller/calendar/stretch';
-import { minutesToSpanDays } from '../controller/durationConversion';
 
 /**
  * Whether the availability seam must engage for a view. The seam is only needed
@@ -76,45 +75,3 @@ export function countWorkingDaysResolver(
     usesWorkingDays(taskPath) ? countWorkingDays(taskPath, start, end) : null;
 }
 
-/** The blocking facts a span projection needs (a subset of the stretch seam). */
-export interface SpanBlocking {
-  isBlocked(dayIso: string): boolean;
-  /** Widest authored blocked run (days) — feeds the scan ceiling. */
-  maxBlockedRunDays: number;
-}
-
-/**
- * Project the span an estimate will RE-DERIVE from its authored anchor — the
- * write path's mirror of the read path's derivation, built ON the read path:
- * the same {@link applyWorkingTimeStretch}, the same blocking facts, the same
- * ceiling formula the controller uses. Anything less drifts (a lookalike walk
- * missed both the fully-blocked floor and the authored-run ceiling headroom).
- *
- * `blocking` null means the task has no working-day seam — the plain span is
- * already the derivation. A stretch that hits its ceiling falls back to the
- * plain span exactly as the read path does (fail-visible there, plain here).
- */
-export function projectDerivedSpan(args: {
-  edge: 'start' | 'end';
-  anchor: Date;
-  estimateMinutes: number;
-  blocking: SpanBlocking | null;
-  addDays: (date: Date, days: number) => Date;
-}): { start: Date; end: Date } {
-  const durationDays = Math.max(1, minutesToSpanDays(args.estimateMinutes));
-  const far = args.addDays(args.anchor, (args.edge === 'end' ? 1 : -1) * (durationDays - 1));
-  const plain =
-    args.edge === 'end' ? { start: args.anchor, end: far } : { start: far, end: args.anchor };
-  if (!args.blocking) return plain;
-  const stretched = applyWorkingTimeStretch({
-    start: plain.start,
-    end: plain.end,
-    dateStatus: args.edge === 'end' ? 'inferred-end' : 'inferred-start',
-    durationDays,
-    isBlocked: args.blocking.isBlocked,
-    ceilingDays: 8 * durationDays + args.blocking.maxBlockedRunDays,
-  });
-  return stretched === null || stretched.flagged
-    ? plain
-    : { start: stretched.start, end: stretched.end };
-}
