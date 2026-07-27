@@ -48,7 +48,7 @@ import {
 } from './dragCommitPlan';
 
 export {
-  emptyPlan, isEmptyPlan, memoizePlannerDerivation, verifyMirrorCoverage,
+  emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, verifyMirrorCoverage,
   type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
   type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
   type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,

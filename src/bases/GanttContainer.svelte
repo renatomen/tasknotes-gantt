@@ -114,7 +114,7 @@
   import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
   import {
-    memoizePlannerDerivation, planCascade, planGestureCommit,
+    memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
     type CommitGesture, type DerivationMemo, type PlannedPatch, type PlannerDerivation,
     type PromptRequest, type SourceEchoes,
   } from './dragCommitPlanner';
@@ -1252,17 +1252,17 @@
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
 
-  // Note: SVAR Gantt may generate console warnings:
-  // - Non-passive event listeners for touch/wheel (required for drag functionality)
-  // - Performance violations during chart rendering (expected for complex UI)
-  // CSP violations for external fonts are prevented by fonts={false} and custom icon implementation
-
   let api: GanttAPI = $state();
 
-  // Bumped when the SVAR api re-binds (initGantt) and on teardown; the drag
-  // executor gates in-flight work on it, so stale executions abandon cleanly.
+  // Bumped when the SVAR api re-binds (initGantt) and on teardown. The executor
+  // treats a bump alone as a REMOUNT (post-persist data work continues), so
+  // teardown also sets `destroyed` — `api` stays assigned, alive-looking.
   let hostGeneration = 0;
-  onDestroy(() => void (hostGeneration += 1));
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+    hostGeneration += 1;
+  });
 
   // ── Viewport height (plan 003 U2) ───────────────────────────────────────
   // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
@@ -2056,8 +2056,8 @@
   // Runs planner-built commit plans with per-source serialization; every echoed
   // or reverted row goes through echoSourceGeometry under the echo-guard source.
   const dragExecutor = createDragExecutor({
-    canWrite: () => !readOnly && !!onMutate && !!api,
-    isLive: () => !!api,
+    canWrite: () => !destroyed && !readOnly && !!onMutate && !!api,
+    isLive: () => !destroyed && !!api,
     generation: () => hostGeneration,
     persist: (write) =>
       onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
@@ -2171,7 +2171,7 @@
     const memo: DerivationMemo = new Map();
     void dragExecutor.submit({
       sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
-      snapshot: () => instances,
+      snapshot: () => overlayStoreGeometry(instances, (id) => api?.getTask?.(id), instanceId),
       plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation(memo)),
       onFailure: (err) => {
         console.error('[GanttContainer] reschedule persist failed:', err);

@@ -336,6 +336,32 @@ export function datedInstancesOf(
   return instances.filter((i) => i.sourcePath === sourcePath && i.start && i.end);
 }
 
+/**
+ * Overlay live store spans onto controller rows for a cascade-fresh snapshot.
+ * Controller rows lag optimistic echoes (self-write events skip recompute), so
+ * a snapshot taken between stacked gestures would replay pre-echo geometry.
+ * Geometry comes from the store row when it answers with real Dates; every
+ * other fact (dateStatus, estimate, ghost runs) stays with the controller row
+ * — frontmatter-derived facts the store does not carry.
+ *
+ * `exceptId` names the DRAGGED row, which must NOT overlay: the snapshot is
+ * captured at dequeue, after SVAR applied the drag, so its store span is the
+ * post-drag position — overlaying it turns the cancel/failure restore into a
+ * no-op. Its geometry authority is the gesture's own before/after capture.
+ */
+export function overlayStoreGeometry<Row extends { id: string; start: Date | null; end: Date | null }>(
+  instances: ReadonlyArray<Row>,
+  getTask: (id: string) => { start?: unknown; end?: unknown } | undefined,
+  exceptId?: string,
+): Row[] {
+  return instances.map((row) => {
+    const live = row.id === exceptId ? undefined : getTask(row.id);
+    return live?.start instanceof Date && live.end instanceof Date
+      ? { ...row, start: live.start, end: live.end }
+      : row;
+  });
+}
+
 export function plainGeometry(span: DateRange): DerivedGeometry {
   return { start: span.start, end: span.end, flagged: false, ghostRuns: [] };
 }

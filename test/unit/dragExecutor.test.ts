@@ -566,6 +566,46 @@ describe('createDragExecutor cascade pass', () => {
     expect(cascadeFailures).toHaveLength(0);
   });
 
+  it('DESTROYED wins over an alive-looking api closure: teardown mid-persist drops the post-persist cascade entirely', async () => {
+    // The host wiring under test: isLive/canWrite close over an api that STAYS
+    // assigned through onDestroy — the destroyed flag alone must read as death,
+    // and a generation bump alone must keep reading as a survivable remount.
+    const host = { api: {} as object | null, destroyed: false, generation: 0 };
+    const rounds: CascadeAnswers[] = [];
+    const h = harness({
+      isLive: () => !host.destroyed && !!host.api,
+      canWrite: () => !host.destroyed && !!host.api,
+      generation: () => host.generation,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        if (write.sourcePath === 'a.md') {
+          host.destroyed = true; // onDestroy: dead first...
+          host.generation += 1; // ...then the generation bump
+        }
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)], echoes: [revertOf('a.md')] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return cascadePlanOf({ writes: [writeOf('kid.md', 2)], reverts: [revertOf('kid.md')] });
+        },
+      },
+    });
+
+    expect(host.api).toBeTruthy(); // the closure still sees an assigned api
+    expect(rounds).toHaveLength(0); // yet no cascade round ever planned
+    expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:a.md']);
+    expect(h.echoed.map((e) => e.sourcePath)).toEqual(['a.md']); // the pre-persist optimistic echo only
+    expect(h.settled).toHaveLength(0); // the settlement report is view work — dropped too
+  });
+
   it('an ask-mode round needing a prompt after a generation flip, with no prompt seam, skips via the failure notice', async () => {
     let generation = 0;
     const cascadeFailures: CascadePhase[] = [];
