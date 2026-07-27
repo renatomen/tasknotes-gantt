@@ -68,7 +68,6 @@
     type InferredDragAction,
     type InferredEdge,
   } from './inferredDragGate';
-  import { dayDelta } from './dayGranularity';
   import { InferredDragModal } from './InferredDragModal';
   import {
     choiceEditorOptions,
@@ -2484,9 +2483,6 @@
   // outcome instead of the optimistic pre-decision dates. Resolves with the action
   // that landed, or null when the user cancelled or the write failed. Consumed and
   // cleared by processSubtreeAndExtend; the two are always scheduled as a pair.
-  // The gate's resolved decision: which action landed, on which edge, with what
-  // estimate — everything the deferred cascade needs to reason about the
-  // gesture's FINAL geometry rather than the optimistic dragged span.
   interface InferredGestureOutcome {
     action: InferredDragAction;
     edge: InferredEdge;
@@ -2569,25 +2565,6 @@
           anchorDate,
           inferredChoice.estimateMinutes,
         ) ?? draggedRange;
-      // Show what was actually saved. The estimate re-derives to this range, which
-      // over blocked days is NOT the span SVAR optimistically drew — and our own
-      // write's echo is suppressed, so the chart would keep the optimistic
-      // geometry (while the cascade extends ancestors against this one) until some
-      // later refresh made the bar jump. Mirrored siblings share the source date,
-      // so they move together, exactly as the subtree-shift and revert paths do.
-      if (
-        dayDelta(moved.start, draggedRange.start) !== 0 ||
-        dayDelta(moved.end, draggedRange.end) !== 0
-      ) {
-        for (const inst of instances) {
-          if (inst.sourcePath !== dSource) continue;
-          api.exec('update-task', {
-            id: inst.id,
-            task: { start: draggedRange.start, end: draggedRange.end },
-            eventSource: OG_ECHO_SOURCE,
-          });
-        }
-      }
     }
     if (dSource) addRange(dSource, draggedRange.start, draggedRange.end);
 
@@ -2697,12 +2674,30 @@
           }
         }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
+        for (const inst of instances) {
+          if (inst.sourcePath === dSource && inst.id !== drag.id) {
+            api.exec('update-task', {
+              id: inst.id,
+              task: { start: target.start, end: target.end },
+              eventSource: OG_ECHO_SOURCE,
+            });
+          }
+        }
         try {
           await withTimeout(onMutate(drag.id, revert), MUTATION_TIMEOUT_MS);
         } catch (err) {
           console.error('[GanttContainer] shrink-fit persist failed:', err);
           // Revert the bar to the resize persistReschedule already saved.
           api.exec('update-task', { id: drag.id, task: { start: moved.start, end: moved.end }, eventSource: OG_ECHO_SOURCE });
+          for (const inst of instances) {
+            if (inst.sourcePath === dSource && inst.id !== drag.id) {
+              api.exec('update-task', {
+                id: inst.id,
+                task: { start: moved.start, end: moved.end },
+                eventSource: OG_ECHO_SOURCE,
+              });
+            }
+          }
           new Notice("Couldn't adjust the parent date — check TaskNotes is running.");
         }
         return; // shrink handled; don't also run the extend gate

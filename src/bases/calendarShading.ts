@@ -484,8 +484,8 @@ export function computeTaskBlocking(
   };
 }
 
-/** Inclusive count of the span's days the calendar leaves workable — 0 when none is. */
-export function unblockedDaysInSpan(
+/** Inclusive working-day count of a local span (floor 1 — a bar is never zero). */
+export function countWorkingDaysInSpan(
   blocking: TaskBlockingQuery,
   start: Date,
   end: Date,
@@ -495,36 +495,7 @@ export function unblockedDaysInSpan(
   for (let day = localIso(start); day <= endIso; day = addDaysIso(day, 1)) {
     if (!blocking.isBlocked(day)) count += 1;
   }
-  return count;
-}
-
-/** Inclusive working-day count of a local span (floor 1 — a bar is never zero). */
-export function countWorkingDaysInSpan(
-  blocking: TaskBlockingQuery,
-  start: Date,
-  end: Date,
-): number {
-  return Math.max(1, unblockedDaysInSpan(blocking, start, end));
-}
-
-/**
- * The working-day count to PERSIST as a span's estimate, or `null` when the
- * working-day interpretation cannot express this span.
- *
- * A span the calendar blocks entirely has no working days to count, and the read
- * path does not pretend otherwise: its stretch flags and falls back to the plain
- * span. So the write path reports `null` here and lets its caller fall back the
- * same way. Flooring to one instead (what a bare {@link countWorkingDaysInSpan}
- * does — correct for rendering a bar, wrong for authoring a duration) would
- * persist a one-day estimate for a span the user just fitted to four days.
- */
-export function workingDaysForEstimate(
-  blocking: TaskBlockingQuery,
-  start: Date,
-  end: Date,
-): number | null {
-  const workable = unblockedDaysInSpan(blocking, start, end);
-  return workable === 0 ? null : workable;
+  return Math.max(1, count);
 }
 
 function materializeBlocking(

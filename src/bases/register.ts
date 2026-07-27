@@ -125,7 +125,7 @@ import {
   associationTaskPaths,
   calendarAssociationsFrom,
   computeTaskBlocking,
-  workingDaysForEstimate,
+  countWorkingDaysInSpan,
   createShadingCssCache,
   shadingCacheKey,
   shadingWindow,
@@ -692,7 +692,7 @@ class ObsidianGanttBasesView extends BasesView {
           { transient: true },
         );
         const blocking = lookup(taskPath);
-        return blocking ? workingDaysForEstimate(blocking, start, end) : null;
+        return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
       },
     );
   }
