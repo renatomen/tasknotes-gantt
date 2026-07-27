@@ -378,15 +378,14 @@ export function overlayStoreGeometry<Row extends { id: string; start: Date | nul
 
 /**
  * The gesture's `before` capture, rebased ONCE at dequeue. A queued gesture
- * captured its `before` from the predecessor's optimistic position; if that
- * predecessor reverted (or settled elsewhere) while this gesture waited, the
- * row moved under it — planning from the stale span misreads the no-op/edge
- * classification and baselines reverts at a position the row no longer holds.
- * At dequeue the live row normally holds THIS gesture's own post-drag span
- * (SVAR applied the drag at commit), so only a span someone ELSE left behind
- * rebases the capture — and only the SPAN moves: dateStatus and estimate are
- * gesture-time frontmatter facts no predecessor echo rewrites, and `after`
- * stays untouched.
+ * captured its `before` from the predecessor's optimistic position; planning
+ * from that stale span misreads the no-op/edge classification and baselines
+ * reverts where the row no longer sits. The live row normally holds THIS
+ * gesture's own post-drag span, so only a span someone ELSE left behind
+ * rebases the capture — but the authored facts (dateStatus, estimate) re-read
+ * unconditionally, since a predecessor's settled write can have materialised
+ * an edge or changed the estimate even when the span guard skips; the stale
+ * copy would suppress the write that undoes it. Null live facts fall back.
  */
 export interface DequeueRebasedBefore {
   /** The effective capture: gesture-time until dequeue, rebased after it. */
@@ -398,7 +397,7 @@ export interface DequeueRebasedBefore {
 export function createDequeueBeforeRebase(
   gestureBefore: BarBefore,
   after: DateRange,
-  readLiveSpan: () => { start: Date | null; end: Date | null },
+  readLive: () => BarBefore,
 ): DequeueRebasedBefore {
   let effective = gestureBefore;
   let dequeued = false;
@@ -407,12 +406,14 @@ export function createDequeueBeforeRebase(
     atDequeue() {
       if (dequeued) return;
       dequeued = true;
-      const live = readLiveSpan();
-      if (!(live.start instanceof Date) || !(live.end instanceof Date)) return;
+      const live = readLive();
       const holdsOwnDrag =
-        live.start.getTime() === after.start.getTime() &&
-        live.end.getTime() === after.end.getTime();
-      if (!holdsOwnDrag) effective = { ...gestureBefore, start: live.start, end: live.end };
+        live.start?.getTime() === after.start.getTime() &&
+        live.end?.getTime() === after.end.getTime();
+      const { start, end } = live.start && live.end && !holdsOwnDrag ? live : gestureBefore;
+      const dateStatus = live.dateStatus ?? gestureBefore.dateStatus;
+      const estimateMinutes = live.estimateMinutes ?? gestureBefore.estimateMinutes;
+      effective = { start, end, dateStatus, estimateMinutes };
     },
   };
 }

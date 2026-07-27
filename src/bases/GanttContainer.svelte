@@ -2153,9 +2153,9 @@
     // Read at gesture time: a persisted "don't ask again" choice is
     // synchronously readable, so it applies from the very next drag.
     const inferredDragMode = $data.getInferredDragMode();
-    // The `before` SPAN rebases once at dequeue (the first snapshot call), with
-    // the same store-read discipline as the intercept capture — so the plan's
-    // no-op/edge classification and revert baseline read the live row.
+    // The `before` capture rebases once at dequeue (the first snapshot call):
+    // the span only when another gesture moved the row; the authored facts
+    // always, since a settled predecessor write may have changed them.
     const rebase = createDequeueBeforeRebase(before, after, () =>
       captureBarBefore(instanceId, instances.find((i) => i.id === instanceId)),
     );

@@ -11,7 +11,7 @@ import {
   type BarBefore,
   type PlannerInstance,
 } from '../../src/bases/dragCommitPlan';
-import { planCascade, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
+import { planCascade, planGestureCommit, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
 import {
   inclusiveDaySpan,
   minutesToSpanDays,
@@ -151,42 +151,64 @@ describe('createDequeueBeforeRebase', () => {
   });
   const after = { start: day('2026-08-10'), end: dayEnd('2026-08-11') };
 
-  it('keeps the gesture-time capture while the live row still holds this gesture\'s own post-drag span', () => {
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ ...after }));
+  it('keeps the gesture-time SPAN while the live row still holds this gesture\'s own post-drag span, yet re-reads the authored facts', () => {
+    const live: BarBefore = { ...after, dateStatus: 'complete', estimateMinutes: 960 };
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => live);
 
     rebase.atDequeue();
 
-    expect(rebase.before()).toEqual(gestureBefore());
+    expect(rebase.before()).toEqual({
+      start: gestureBefore().start,
+      end: gestureBefore().end,
+      dateStatus: 'complete',
+      estimateMinutes: 960,
+    });
   });
 
-  it('rebases only the SPAN from a live row someone else moved; dateStatus/estimate stay gesture-time', () => {
-    const settled = { start: day('2026-08-01'), end: dayEnd('2026-08-02') };
+  it('rebases the span from a live row someone else moved, facts included', () => {
+    const settled: BarBefore = {
+      start: day('2026-08-01'),
+      end: dayEnd('2026-08-02'),
+      dateStatus: 'complete',
+      estimateMinutes: 960,
+    };
     const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => settled);
 
     rebase.atDequeue();
 
-    expect(rebase.before()).toEqual({ ...settled, dateStatus: 'inferred-end', estimateMinutes: 480 });
+    expect(rebase.before()).toEqual(settled);
   });
 
   it('rebases ONCE: later dequeue marks (cascade-round snapshots) reuse the first capture', () => {
-    const live = { start: day('2026-08-01'), end: dayEnd('2026-08-02') };
+    const live: BarBefore = {
+      start: day('2026-08-01'),
+      end: dayEnd('2026-08-02'),
+      dateStatus: 'inferred-end',
+      estimateMinutes: 480,
+    };
     const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ ...live }));
 
     rebase.atDequeue();
     const first = rebase.before();
     live.start = day('2026-08-20');
     live.end = dayEnd('2026-08-21');
+    live.estimateMinutes = 999;
     rebase.atDequeue();
 
     expect(rebase.before()).toBe(first);
   });
 
-  it('keeps the gesture-time capture when the live read answers without Dates', () => {
-    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({ start: null, end: null }));
+  it('keeps the gesture-time span when the live read answers without Dates, still refreshing non-null facts', () => {
+    const rebase = createDequeueBeforeRebase(gestureBefore(), after, () => ({
+      start: null,
+      end: null,
+      dateStatus: null,
+      estimateMinutes: 960,
+    }));
 
     rebase.atDequeue();
 
-    expect(rebase.before()).toEqual(gestureBefore());
+    expect(rebase.before()).toEqual({ ...gestureBefore(), estimateMinutes: 960 });
   });
 
   it('is untouched before the dequeue mark: the gesture-time capture is the effective one', () => {
@@ -195,5 +217,49 @@ describe('createDequeueBeforeRebase', () => {
     });
 
     expect(rebase.before()).toEqual(gestureBefore());
+  });
+
+  it('estimate-only resize, then a queued resize back: the dequeue facts refresh plans the estimate write back down, where the gesture-time copy would suppress it', () => {
+    // The note's estimate settled at 5 days while this gesture waited; its own
+    // gesture-time capture still says 3 days. The bar sits at the gesture's own
+    // post-drag 3-day span, so the span guard skips — only the facts refresh
+    // can surface the needed write.
+    const fiveDaySpan = { start: day('2026-08-03'), end: dayEnd('2026-08-07') };
+    const threeDaySpan = { start: day('2026-08-03'), end: dayEnd('2026-08-05') };
+    const staleCapture: BarBefore = {
+      ...fiveDaySpan,
+      dateStatus: 'inferred-end',
+      estimateMinutes: spanDaysToMinutes(3),
+    };
+    const settledFacts: BarBefore = {
+      ...threeDaySpan,
+      dateStatus: 'inferred-end',
+      estimateMinutes: spanDaysToMinutes(5),
+    };
+    const instances: PlannerInstance[] = [
+      { id: 'a.md#0', sourcePath: 'a.md', text: 'T', ...fiveDaySpan },
+    ];
+    const derivation: PlannerDerivation = { minutesToSpanDays, spanDaysToMinutes, inclusiveDaySpan };
+    const gestureOf = (before: BarBefore) =>
+      ({
+        kind: 'bar',
+        instanceId: 'a.md#0',
+        before,
+        after: threeDaySpan,
+        estimateWritable: true,
+        inferredDragMode: 'estimate-only',
+      }) as const;
+    const rebase = createDequeueBeforeRebase(staleCapture, threeDaySpan, () => settledFacts);
+
+    rebase.atDequeue();
+    const plan = planGestureCommit(gestureOf(rebase.before()), instances, undefined, derivation);
+    const stalePlan = planGestureCommit(gestureOf(staleCapture), instances, undefined, derivation);
+
+    expect(plan.writes).toEqual([
+      { sourcePath: 'a.md', instanceId: 'a.md#0', patch: { estimate: spanDaysToMinutes(3) } },
+    ]);
+    // The unrebased capture writes nothing: 3 derived days match its stale
+    // 3-day estimate, leaving the note at 5 days while the bar echoes 3.
+    expect(stalePlan.writes).toEqual([]);
   });
 });

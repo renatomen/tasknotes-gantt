@@ -188,7 +188,7 @@ describe('createDragExecutor', () => {
     });
     await flushMicrotasks(); // A→B echoed optimistically; its persist is in flight
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
-    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => store.span);
+    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => beforeOf(store.span));
     let queuedPlan: GesturePlan | null = null;
     const second = executor.submit({
       sourcePath: 'a.md',
@@ -236,7 +236,7 @@ describe('createDragExecutor', () => {
     });
     await flushMicrotasks();
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
-    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => store.span);
+    const rebase = createDequeueBeforeRebase(beforeOf(spanB), spanC, () => beforeOf(store.span));
     let queuedPlan: GesturePlan | null = null;
     const second = executor.submit({
       sourcePath: 'a.md',
