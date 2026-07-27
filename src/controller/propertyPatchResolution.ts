@@ -18,7 +18,7 @@
  */
 
 import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
-import type { FieldMappings } from '../datasource/fieldMappings';
+import type { FieldMappings } from '../datasource';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
 

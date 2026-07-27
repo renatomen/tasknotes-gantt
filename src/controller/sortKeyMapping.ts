@@ -34,7 +34,7 @@
  */
 import type { BasesSortConfig } from 'obsidian';
 import type { CompanionTask } from '../datasource/companionResolve';
-import type { FieldMappings } from '../datasource/fieldMappings';
+import type { FieldMappings } from '../datasource';
 
 /** A Gantt field a Base sort property can map onto. */
 export type SortableField = 'start' | 'end' | 'text' | 'status' | 'progress';

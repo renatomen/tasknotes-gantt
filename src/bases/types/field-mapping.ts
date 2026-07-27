@@ -9,9 +9,9 @@
  * @module bases/types/field-mapping
  */
 
-import type { FieldMappings } from '../../datasource/fieldMappings';
+import type { FieldMappings } from '../../datasource';
 
-export type { FieldMappings, ProgressMode, TimeEstimateMode } from '../../datasource/fieldMappings';
+export type { FieldMappings, ProgressMode, TimeEstimateMode } from '../../datasource';
 
 /**
  * Task structure expected by SVAR Gantt library

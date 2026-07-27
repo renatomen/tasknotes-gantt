@@ -57,7 +57,7 @@
 /* global clearTimeout */
 import type { App, BasesEntry, BasesSortConfig } from 'obsidian';
 import { TFile } from 'obsidian';
-import type { FieldMappings } from '../datasource/fieldMappings';
+import type { FieldMappings } from '../datasource';
 import {
   BasesSource,
   CompositeSource,

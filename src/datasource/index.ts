@@ -45,3 +45,4 @@ export type {
   TaskNotesEventRef,
   TaskNotesEventHandler,
 } from './TaskNotesSource';
+export type { FieldMappings, ProgressMode, TimeEstimateMode } from './fieldMappings';
