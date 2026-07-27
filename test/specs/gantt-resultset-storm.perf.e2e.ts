@@ -58,6 +58,7 @@ async function fireToggle(
       const SKIP = new Set(["app", "vault", "workspace", "containerEl", "contentEl", "scope", "leaf", "headerEl", "navigation", "owner", "metadataCache"]);
       const seen = new Set<unknown>();
       let set = false; let configChanged = false;
+      // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
       const visit = (obj: unknown, depth: number): void => {
         if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 7) return;
         if ((obj as { nodeType?: number }).nodeType !== undefined) return;

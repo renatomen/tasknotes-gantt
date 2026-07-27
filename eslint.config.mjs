@@ -3,6 +3,7 @@ import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import sveltePlugin from 'eslint-plugin-svelte';
 import svelteParser from 'svelte-eslint-parser';
+import sonarjs from 'eslint-plugin-sonarjs';
 
 export default [
   // Files/folders to ignore
@@ -46,16 +47,19 @@ export default [
     },
     plugins: {
       "@typescript-eslint": tsPlugin,
+      sonarjs,
     },
     rules: {
       // keep initial rule set minimal; we can tighten later per standards
       "no-empty": ["error", { allowEmptyCatch: true }],
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
+      "sonarjs/cognitive-complexity": ["error", 15],
+      "max-lines": ["error", { max: 500, skipBlankLines: false, skipComments: false }],
     },
   },
   {
@@ -102,17 +106,50 @@ export default [
     },
     plugins: {
       svelte: sveltePlugin,
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      sonarjs
     },
     rules: {
       ...sveltePlugin.configs.recommended.rules,
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       // Defer to the TS-aware rule (matches the .ts block). Core no-unused-vars
       // misfires on TS function-type parameter names (e.g. `(ev: MouseEvent) =>
       // void` in a type annotation), which aren't runtime bindings.
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'sonarjs/cognitive-complexity': ['error', 15],
+      'max-lines': ['error', { max: 500, skipBlankLines: false, skipComments: false }]
     }
+  },
+  // max-lines is scoped to production code only: spec/probe length is not the
+  // complexity the size gate targets.
+  {
+    files: ["test/**"],
+    rules: {
+      "max-lines": "off",
+    },
+  },
+  // max-lines legacy exemptions: these files were already over the cap when the
+  // gate was armed. This list may only shrink — never add to it.
+  {
+    files: [
+      "src/bases/GanttContainer.svelte",
+      "src/bases/register.ts",
+      "src/controller/GanttController.ts",
+      "src/datasource/TaskNotesSource.ts",
+      "src/editor/CalendarEditorForm.svelte",
+      "src/bases/ganttSync.ts",
+      "src/bases/barTreatment.ts",
+      "src/bases/viewOptions.ts",
+      "src/bases/cellEditCommit.ts",
+      "src/bases/cascadeGate.ts",
+      "src/bases/calendarShading.ts",
+      "src/bases/services/BasesDataAdapter.ts",
+      "src/controller/InstanceExpansion.ts",
+    ],
+    rules: {
+      "max-lines": "off",
+    },
   },
   {
     files: ["test/**/*.ts"],

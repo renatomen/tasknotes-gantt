@@ -7,10 +7,23 @@
  */
 
 import { describe, it, expect, beforeEach } from "@jest/globals";
-import { BasesDataAdapter } from "../../src/bases/services/BasesDataAdapter";
+import {
+  BasesDataAdapter,
+  type BasesGroupLike,
+  type BasesViewLike,
+} from "../../src/bases/services/BasesDataAdapter";
+import type { BasesEntryLike } from "../../src/bases/types/bases-entry";
+
+interface MockBasesView extends BasesViewLike {
+  data: { data: BasesEntryLike[]; groupedData: BasesGroupLike[] };
+  config: {
+    getOrder: () => string[];
+    getDisplayName: (propId: string) => string;
+  };
+}
 
 describe("BasesDataAdapter - Integration Tests", () => {
-  let mockBasesView: any;
+  let mockBasesView: MockBasesView;
   let adapter: BasesDataAdapter;
 
   beforeEach(() => {
@@ -44,7 +57,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
             due: "2024-01-15",
             status: "open",
           },
-          getValue: (propId: string) => null,
+          getValue: (_propId: string) => null,
         },
         {
           file: {
@@ -57,7 +70,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
             due: "2024-01-20",
             status: "in-progress",
           },
-          getValue: (propId: string) => null,
+          getValue: (_propId: string) => null,
         },
       ];
 
@@ -88,7 +101,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
             },
           },
           frontmatter: {},
-          getValue: (propId: string) => null,
+          getValue: (_propId: string) => null,
         },
       ];
 
@@ -114,7 +127,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
             basename: "note",
           },
           // No frontmatter property
-          getValue: (propId: string) => null,
+          getValue: (_propId: string) => null,
         },
       ];
 
@@ -136,7 +149,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
           basename: "task",
         },
         frontmatter: { title: "Task" },
-        getValue: (propId: string) => ({ data: "test" }),
+        getValue: (_propId: string) => ({ data: "test" }),
       };
       mockBasesView.data.data = [mockEntry];
 
@@ -167,8 +180,8 @@ describe("BasesDataAdapter - Integration Tests", () => {
 
       // Assert
       expect(result).toHaveLength(2);
-      expect(result[0].key.data).toBe("2024-01-15");
-      expect(result[1].key.data).toBe("2024-01-20");
+      expect(result[0].key?.data).toBe("2024-01-15");
+      expect(result[1].key?.data).toBe("2024-01-20");
     });
   });
 
@@ -236,7 +249,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
       // Arrange
       const mockEntry = {
         file: { path: "test.md", name: "test.md", basename: "test" },
-        getValue: (propId: string) => ({
+        getValue: (_propId: string) => ({
           date: new Date("2024-01-15"),
         }),
       };
@@ -253,7 +266,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
       const items = [{ data: "item1" }, { data: "item2" }];
       const mockEntry = {
         file: { path: "test.md", name: "test.md", basename: "test" },
-        getValue: (propId: string) => ({
+        getValue: (_propId: string) => ({
           length: () => items.length,
           at: (i: number) => items[i],
         }),
@@ -271,7 +284,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
       // Arrange
       const mockEntry = {
         file: { path: "test.md", name: "test.md", basename: "test" },
-        getValue: (propId: string) => null,
+        getValue: (_propId: string) => null,
       };
 
       // Act
@@ -421,7 +434,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
       // Arrange
       const mockEntry = {
         file: { path: "test.md", name: "test.md", basename: "test" },
-        getValue: (propId: string) => {
+        getValue: (_propId: string) => {
           throw new Error("Property not available");
         },
       };

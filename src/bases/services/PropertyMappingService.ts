@@ -83,7 +83,7 @@ function appendVisibleProperties(
     const value = extractValue(propertyId);
     if (value !== null && value !== undefined) {
       // Store additional properties directly on the task object for SVAR grid access
-      (task as any)[propertyId] = value;
+      (task as SVARTask & Record<string, unknown>)[propertyId] = value;
     }
   }
   return task;

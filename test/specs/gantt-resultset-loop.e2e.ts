@@ -124,6 +124,7 @@ async function driveBurst(
       // Bounded BFS for our gantt BasesView: it exposes both `config.set` and
       // `onDataUpdated`. Skips DOM nodes + the known-huge app/vault/workspace
       // graphs so it never traverses the whole app.
+      // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
       const findView = (obj: unknown, depth: number, label: string): Record<string, unknown> | null => {
         if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 5) return null;
         if ((obj as { nodeType?: number }).nodeType !== undefined) return null; // DOM node

@@ -122,6 +122,7 @@ async function fireConfigToggle(
       const seen = new Set<unknown>();
       let set = false;
       let configChanged = false;
+      // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
       const visit = (obj: unknown, depth: number): void => {
         if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 6) return;
         if ((obj as { nodeType?: number }).nodeType !== undefined) return;
