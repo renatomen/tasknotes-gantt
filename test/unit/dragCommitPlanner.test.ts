@@ -1067,6 +1067,64 @@ describe('named rows', () => {
     expect(cascade.writes[0]?.patch.end).toEqual(dayEnd('2026-08-10'));
   });
 
+  it('stacked drags: `before` captured from the live optimistic span makes a drag back to the original dates a WRITE, never a no-op', () => {
+    // First gesture A→B is queued/in flight: the controller snapshot
+    // (`instances`) still holds A — self-write echoes skip recomputation —
+    // while the SVAR row the user grabs shows the optimistic B. The capture
+    // reads the STORE span, so before=B, after=A is a real move that writes
+    // A back over the first persist.
+    const fixture = buildFixture('leaf', 1);
+    const spanA = { start: BEFORE.start, end: BEFORE.end };
+    const spanB = { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) };
+    const revertDrag: CommitGesture = {
+      kind: 'bar',
+      instanceId: fixture.draggedId,
+      before: { ...spanB, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE },
+      after: spanA,
+      estimateWritable: true,
+      inferredDragMode: 'ask',
+    };
+    const plan = planGestureCommit(revertDrag, fixture.instances, undefined, derivation());
+    expect(isEmptyPlan(plan)).toBe(false);
+    expect(plan.writes[0]?.patch.start).toEqual(spanA.start);
+    expect(plan.writes[0]?.patch.end).toEqual(spanA.end);
+    // The revert baseline stays on CONTROLLER facts (`instances` = A): a failed
+    // persist leaves the note untouched, so a refresh re-derives A — never the
+    // first gesture's optimistic B, which its own persist may yet fail.
+    expect(plan.reverts[0]?.rows[0]?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: spanA.start, end: spanA.end, flagged: false, ghostRuns: [] },
+    });
+    // A STALE capture (before read from `instances` = A) is exactly the silent-
+    // divergence bug this pins: before == after collapses to the empty plan.
+    const staleCapture = planGestureCommit(
+      { ...revertDrag, before: { ...spanA, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE } },
+      fixture.instances,
+      undefined,
+      derivation(),
+    );
+    expect(isEmptyPlan(staleCapture)).toBe(true);
+  });
+
+  it('a genuinely no-op jiggle (live-store before == after) still yields the empty plan', () => {
+    const fixture = buildFixture('leaf', 1);
+    const plan = planGestureCommit(
+      {
+        kind: 'bar',
+        instanceId: fixture.draggedId,
+        before: { start: BEFORE.start, end: BEFORE.end, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE },
+        after: { start: day('2026-08-03'), end: day('2026-08-06') }, // same days
+        estimateWritable: true,
+        inferredDragMode: 'ask',
+      },
+      fixture.instances,
+      undefined,
+      derivation(),
+    );
+    expect(isEmptyPlan(plan)).toBe(true);
+    expect(plan.settlement.onSuccess.kind).toBe('no-cascade');
+  });
+
   it('a calendar-days task under split rendering echoes its real ghost runs after a drag (null day count, full geometry)', () => {
     const fixture = buildFixture('leaf', 2);
     const after = afterSpanFor('resize-end', 'leaf'); // 2026-08-03 .. 2026-08-08

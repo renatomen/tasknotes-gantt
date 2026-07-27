@@ -1912,20 +1912,18 @@
 
     // Unified drag wiring. Parents are ordinary (non-summary) tasks, so
     // dragging one moves only that bar — SVAR fires a single committing
-    // `update-task` (no eventSource) for the dragged task D and no cascade.
-    // The committed gesture is captured here and submitted to the drag
-    // executor, which runs the planner's gesture plan and then its deferred
-    // cascade pass (subtree shift, shrink-fit, gated ancestor extend) in one
-    // per-source queue slot. `inProgress` frames and our own echoes / refreshes
-    // are ignored. No moveSummaryKids/resetSummaryDates fire for non-summary
-    // rows, so `action` events are not expected and are left as a no-op.
+    // `update-task` (no eventSource) and no cascade. The committed gesture is
+    // submitted to the drag executor, which runs the planner's gesture plan
+    // and its deferred cascade pass (subtree shift, shrink-fit, gated ancestor
+    // extend) in one per-source queue slot. `inProgress` frames and our own
+    // echoes / refreshes are ignored; `action` events stay a no-op (no
+    // moveSummaryKids/resetSummaryDates fire for non-summary rows).
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
       // Cell edits fold into the same event stream: the grid's update-cell
       // bridge re-emits a committed inline edit as an untagged `update-task`
-      // whose task copy carries a flat `[columnId]` key. classifyUpdateGesture
-      // tells those apart from drag/resize gestures by diffing the copy's flat
-      // keys against the row's stored values.
+      // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
+      // from drag/resize gestures by diffing flat keys against stored values.
       const gesture = classifyUpdateGesture(ev, {
         echoSource: OG_ECHO_SOURCE,
         syncing,
@@ -1952,17 +1950,12 @@
       if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
         const before = instances.find((i) => i.id === id);
-        // Progress-handle drag (U6): in Property mode, persist the new percentage
-        // on release. TaskNotes mode hides the handle (progressReadonly), so this
-        // only fires in Property mode.
-        //
+        // Progress-handle drag: Property mode persists the new percentage on
+        // release (TaskNotes mode hides the handle via progressReadonly).
         // Identify a progress gesture by the SVAR payload SHAPE, not just a
-        // changed progress value: the progress marker emits `task: { progress }`
-        // with NO start/end, whereas a date drag/resize emits `task: { start, end }`
-        // (and SVAR may echo the task's current `progress: 0` for a blank-progress
-        // task). Keying only on `progress !== before` would then misread a date
-        // drag as a progress write — writing 0 to the property and dropping the
-        // date edit. Requiring progress present AND start/end absent avoids that.
+        // changed progress value: the marker emits `task: { progress }` with NO
+        // start/end, whereas a date drag emits `task: { start, end }` (and may
+        // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
         const t = ev.task ?? {};
         const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
         const newProgress = t.progress;
@@ -1976,12 +1969,7 @@
           setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
           return true;
         }
-        const beforeFacts = {
-          start: before?.start ?? null,
-          end: before?.end ?? null,
-          dateStatus: before?.dateStatus ?? null,
-          estimateMinutes: before?.estimateMinutes ?? null,
-        };
+        const beforeFacts = captureBarBefore(id, before);
         const name = before?.text ?? 'this task';
         // Deferred one tick so the SVAR store holds the committed post-drag span.
         setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts }), 0);
@@ -2137,11 +2125,23 @@
     extend: "Couldn't update a parent date — check TaskNotes is running.",
   };
 
+  /** Pre-drag bar facts: SPAN from the live SVAR row (optimistic echoes of an
+   *  in-flight persist included — a stale `instances` span turns a revert drag
+   *  into a silent no-op plan); dateStatus/estimate from the snapshot. */
+  function captureBarBefore(id: string, before: (typeof instances)[number] | undefined) {
+    const grabbed = api.getTask?.(id);
+    return {
+      start: grabbed?.start instanceof Date ? grabbed.start : (before?.start ?? null),
+      end: grabbed?.end instanceof Date ? grabbed.end : (before?.end ?? null),
+      dateStatus: before?.dateStatus ?? null,
+      estimateMinutes: before?.estimateMinutes ?? null,
+    };
+  }
+
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
-   * cascade included. The authoritative span comes from the SVAR store (the event
-   * payload is diff-only on some gestures), `before` from the intercept's pre-drag
-   * capture, other facts from executor snapshots; ONE derivation memo spans the gesture.
+   * cascade included. Both spans read the SVAR store (the event payload is
+   * diff-only): `after` one tick post-commit, `before` at intercept capture.
    */
   function submitBarGesture(args: {
     instanceId: string;
