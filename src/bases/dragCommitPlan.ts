@@ -212,7 +212,14 @@ export function verifyMirrorCoverage(
       violations.push(marker);
       continue;
     }
-    if (write.patch.start === undefined && write.patch.end === undefined) continue;
+    // An estimate write moves the derived edge just as a date write does, so it
+    // demands the same sibling geometry coverage.
+    if (
+      write.patch.start === undefined &&
+      write.patch.end === undefined &&
+      write.patch.estimate === undefined
+    )
+      continue;
     if (write.unmirrored) continue;
     const echo = plan.echoes.find((e) => e.sourcePath === write.sourcePath);
     const covered = new Set(

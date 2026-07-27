@@ -423,7 +423,7 @@ function assertWriteAsTodayShape(
 ): void {
   expect(patch?.start).toBeDefined();
   expect(patch?.end).toBeDefined();
-  // R10: a move keeps the 4-day count — the estimate write is suppressed.
+  // A move keeps the 4-day count, so the estimate write is suppressed.
   if (combo.gesture === 'move' || combo.gesture === 'none') expect(patch?.estimate).toBeUndefined();
   else expect(patch?.estimate).toBeDefined();
   // A failed plain main persist settles aborted — never a cascading plain.
@@ -684,7 +684,7 @@ describe('impossible combinations are impossible by behavior, not skipped', () =
 
 // ── Named rows ───────────────────────────────────────────────────────────────
 
-/** Mon–Fri working, Sat/Sun blocked — the weekend derivation for the R10 rows. */
+/** Mon–Fri working, Sat/Sun blocked — the derivation for the estimate-suppression rows. */
 function weekendDerivation(): PlannerDerivation {
   const workingDaysIn = (span: { start: Date; end: Date }): number => {
     let count = 0;
@@ -904,6 +904,17 @@ describe('named rows', () => {
       derivation(),
     );
     expect(isEmptyPlan(cascade)).toBe(true);
+  });
+
+  it('an estimate-only write demands geometry coverage like a date write', () => {
+    const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
+    const plan = {
+      ...emptyPlan(),
+      writes: [{ sourcePath: T, instanceId: T, patch: { estimate: 7200 } }],
+    };
+    expect(verifyMirrorCoverage(plan, instances)).toEqual([
+      `${T}: instance ${T} lacks a geometry echo`,
+    ]);
   });
 
   it('a progress echo row never satisfies geometry mirror coverage', () => {
