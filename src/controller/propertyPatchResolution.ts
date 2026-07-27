@@ -17,6 +17,7 @@
  * @module controller/propertyPatchResolution
  */
 
+import { matchMappedFieldRole, type MappedFieldRole } from '../bases/mappedFieldRole';
 import type { FieldMappings } from '../bases/types/field-mapping';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
@@ -105,47 +106,9 @@ export function resolvePropertyPatch(
   if (!key) {
     throw new TypeError(`Unresolvable property id: ${propertyId}`);
   }
-  const { mappings } = options;
-  if (key === bareProperty(mappings.startProperty)) {
-    return { start: asDatePatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.endProperty)) {
-    return { end: asDatePatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.textProperty)) {
-    return { text: asStringPatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.statusProperty)) {
-    if (!options.statusWritable) {
-      throw new Error(
-        `Mapped status property ${propertyId} is not the field TaskNotes persists to; edit refused`,
-      );
-    }
-    return { status: asStringPatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.priorityProperty)) {
-    if (!options.priorityWritable) {
-      throw new Error(
-        `Mapped priority property ${propertyId} is not the field TaskNotes persists to; edit refused`,
-      );
-    }
-    return { priority: asStringPatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.progressProperty)) {
-    if (!options.progressWritable) {
-      throw new Error(
-        `Mapped progress property ${propertyId} is not writable (TaskNotes computed mode); edit refused`,
-      );
-    }
-    return { progress: asNumberPatchValue(value, propertyId) };
-  }
-  if (key === bareProperty(mappings.timeEstimateProperty)) {
-    if (!options.estimateWritable) {
-      throw new Error(
-        `Mapped Time Estimate property ${propertyId} is not writable (no write target resolved); edit refused`,
-      );
-    }
-    return { estimate: asNumberPatchValue(value, propertyId) };
+  const role = matchMappedFieldRole(key, options.mappings, PATCH_ROLE_PRECEDENCE);
+  if (role) {
+    return mappedFieldPatch(role, propertyId, value, options);
   }
   if (CANONICAL_TASKINFO_KEYS.has(key)) {
     throw new TypeError(
@@ -153,6 +116,68 @@ export function resolvePropertyPatch(
     );
   }
   return { fieldWrite: { key, value: asFieldWriteValue(value, propertyId) } };
+}
+
+/**
+ * The write path's mapped-field precedence. Text ranks ahead of status — the
+ * editor resolver ranks it last, and both orders are pinned by tests.
+ */
+const PATCH_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
+  'start',
+  'end',
+  'text',
+  'status',
+  'priority',
+  'progress',
+  'estimate',
+];
+
+/** Build the dedicated patch member for a matched mapped-field role. */
+function mappedFieldPatch(
+  role: MappedFieldRole,
+  propertyId: string,
+  value: unknown,
+  options: PropertyPatchOptions,
+): TaskPatch {
+  switch (role) {
+    case 'start':
+      return { start: asDatePatchValue(value, propertyId) };
+    case 'end':
+      return { end: asDatePatchValue(value, propertyId) };
+    case 'text':
+      return { text: asStringPatchValue(value, propertyId) };
+    case 'status':
+      refuseUnlessWritable(
+        options.statusWritable,
+        `Mapped status property ${propertyId} is not the field TaskNotes persists to; edit refused`,
+      );
+      return { status: asStringPatchValue(value, propertyId) };
+    case 'priority':
+      refuseUnlessWritable(
+        options.priorityWritable,
+        `Mapped priority property ${propertyId} is not the field TaskNotes persists to; edit refused`,
+      );
+      return { priority: asStringPatchValue(value, propertyId) };
+    case 'progress':
+      refuseUnlessWritable(
+        options.progressWritable,
+        `Mapped progress property ${propertyId} is not writable (TaskNotes computed mode); edit refused`,
+      );
+      return { progress: asNumberPatchValue(value, propertyId) };
+    case 'estimate':
+      refuseUnlessWritable(
+        options.estimateWritable,
+        `Mapped Time Estimate property ${propertyId} is not writable (no write target resolved); edit refused`,
+      );
+      return { estimate: asNumberPatchValue(value, propertyId) };
+  }
+}
+
+/** Throw the fail-closed refusal when a mapped field has no live write target. */
+function refuseUnlessWritable(writable: boolean, refusal: string): void {
+  if (!writable) {
+    throw new Error(refusal);
+  }
 }
 
 /** Narrow a raw property-edit value for a mapped date field (`null` clears). */
