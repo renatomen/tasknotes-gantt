@@ -13,25 +13,16 @@
  * @module bases/columnSort
  */
 import type { TypedValue } from './propertyValues';
+// The one locale-numeric scalar comparison convention lives with the
+// controller's interleave; imported here so the grid column sort can't drift
+// from it.
+import { compareScalars } from '../controller/sortKeyMapping';
+
+export { compareScalars };
 
 /** True when a TypedValue carries no displayable value (sorts last in ascending). */
 function isEmpty(v: TypedValue | undefined): boolean {
   return v == null || v.kind === 'empty' || v.value == null;
-}
-
-/**
- * Ascending, type-aware comparison of two raw scalar values: dates compare
- * chronologically, numbers numerically, booleans false<true, and everything else
- * by a locale-aware, numeric-aware string form. Shared by {@link compareTypedValues}
- * (grid column sort) and the default-view interleave (`sortKeyMapping`) so the one
- * locale-numeric compare convention can't drift between them. Empty/null handling
- * is the caller's job — this assumes both values are present.
- */
-export function compareScalars(a: unknown, b: unknown): number {
-  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  if (typeof a === 'boolean' && typeof b === 'boolean') return (a ? 1 : 0) - (b ? 1 : 0);
-  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base', numeric: true });
 }
 
 /**

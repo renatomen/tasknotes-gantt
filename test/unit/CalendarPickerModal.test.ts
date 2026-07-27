@@ -11,7 +11,7 @@ import {
   stripSubpath,
   type CalendarNoteInput,
 } from '../../src/controller/calendar/resolveCalendars';
-import { resolveParentLink } from '../../src/bases/parentLink';
+import { resolveParentLink } from '../../src/datasource/parentLink';
 import { parseCalendarFrontmatter } from '../../src/controller/calendar/schema';
 import { readDisplaySelection, type DisplaySelection } from '../../src/bases/calendarSelection';
 import {

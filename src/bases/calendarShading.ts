@@ -10,9 +10,13 @@
  * variable, so calendar shading matches the weekend look in every theme.
  */
 
-import { addDaysIso, type CalendarDefinition, type DatedSpan } from '../controller/calendar/schema';
+import type { CalendarDefinition } from '../controller/calendar/schema';
 import { evaluatePattern, type EvaluationWindow } from '../controller/calendar/patternWindow';
-import { workingComplement } from '../controller/calendar/workingDays';
+import {
+  addSpanDatesInWindow,
+  addWorkingComplementDates,
+  spanEvaluationWindow,
+} from '../controller/calendar/derivation';
 import {
   buildCalendarRegistry,
   resolveTaskCalendar,
@@ -42,28 +46,12 @@ const CONFLICT_DECLARATION =
   '{background:repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)!important;}';
 
 /**
- * The evaluation window for shading: the tasks' pre-stretch span padded by a
- * margin generous enough to cover SVAR's own scale rounding. Null when there
- * is nothing to shade against (no dated tasks).
+ * The evaluation window for shading — the derivation authority's span window
+ * under its shading name, so the stylesheet evaluates over exactly the window
+ * the blocking facts materialize in. The default margin generously covers
+ * SVAR's own scale rounding.
  */
-export function shadingWindow(
-  spans: ReadonlyArray<{ start: Date | null; end: Date | null }>,
-  marginDays = 62,
-): EvaluationWindow | null {
-  let min: Date | null = null;
-  let max: Date | null = null;
-  for (const span of spans) {
-    if (!(span.start instanceof Date) || !(span.end instanceof Date)) continue;
-    if (Number.isNaN(span.start.getTime()) || Number.isNaN(span.end.getTime())) continue;
-    if (min === null || span.start < min) min = span.start;
-    if (max === null || span.end > max) max = span.end;
-  }
-  if (min === null || max === null) return null;
-  return {
-    startDate: addDaysIso(localIso(min), -marginDays),
-    endDateExclusive: addDaysIso(localIso(max), marginDays + 1),
-  };
-}
+export const shadingWindow = spanEvaluationWindow;
 
 /**
  * Every displayed date of the given calendars inside the window — blocking
@@ -78,22 +66,12 @@ export function collectShadedDates(
 ): string[] {
   const dates = new Set<string>();
   for (const calendar of calendars) {
-    for (const span of calendar.nonWorking) addSpanDates(dates, span, window);
-    for (const span of calendar.events) addSpanDates(dates, span, window);
-    addWorkingComplement(dates, calendar, window);
+    for (const span of calendar.nonWorking) addSpanDatesInWindow(dates, span, window);
+    for (const span of calendar.events) addSpanDatesInWindow(dates, span, window);
+    addWorkingComplementDates(dates, calendar, window);
     addRecurringEvents(dates, calendar, window);
   }
   return [...dates].sort((a, b) => a.localeCompare(b));
-}
-
-/** Shade the non-working days the calendar's working rules leave uncovered —
- *  pattern or availability blocks, via the shared source. */
-function addWorkingComplement(
-  dates: Set<string>,
-  calendar: CalendarDefinition,
-  window: EvaluationWindow,
-): void {
-  for (const date of workingComplement(calendar, window).blocked) dates.add(date);
 }
 
 function addRecurringEvents(
@@ -374,29 +352,6 @@ function registryTarget(
   return null;
 }
 
-/**
- * Staleness key for the shading assembly: when nothing calendar-relevant
- * changed — the watch epoch (calendar-note contents), the mapped association
- * property, the window, the associations — the whole vault walk and
- * evaluation are skipped and the cached stylesheet is reused.
- */
-export function shadingCacheKey(inputs: {
-  epoch: number;
-  calendarProperty: string;
-  window: EvaluationWindow | null;
-  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
-  /** Sorted displayed paths for an explicit selection; '' while auto. */
-  selectionKey?: string;
-}): string {
-  return JSON.stringify([
-    inputs.epoch,
-    inputs.calendarProperty,
-    inputs.window,
-    inputs.associations.map((association) => [association.taskPath, association.value]),
-    inputs.selectionKey ?? '',
-  ]);
-}
-
 export interface ShadingCssCache {
   compute(key: string, produce: () => ShadingComputation): ShadingComputation;
 }
@@ -415,120 +370,3 @@ export function createShadingCssCache(): ShadingCssCache {
   };
 }
 
-export interface TaskBlockingQuery {
-  isBlocked(dayIso: string): boolean;
-  /** Widest blocked run (days) across the task's calendars — ceiling headroom. */
-  maxBlockedRunDays: number;
-}
-
-export interface TaskBlockingInputs {
-  markedNotes: readonly CalendarNoteInput[];
-  resolveLink: LinkResolver;
-  associations: ReadonlyArray<{ value: unknown; taskPath: string }>;
-  taskSpans: ReadonlyArray<{ start: Date | null; end: Date | null }>;
-  /** Window headroom beyond the task extent (covers the scan ceiling). */
-  extraWindowDays: number;
-}
-
-/**
- * Per-task blocking lookup for working-time stretch: each calendar's BLOCKING
- * days (non-working spans plus the working pattern's complement — display
- * events never block) materialize once over the padded window; a task's query
- * unions its calendars' sets by reference. Days beyond the materialized
- * window read as working, so an extreme span degrades toward the authored
- * calendar-day placement rather than guessing. A broken or absent association
- * yields null — such tasks never stretch.
- */
-export function computeTaskBlocking(
-  inputs: TaskBlockingInputs,
-): (taskPath: string) => TaskBlockingQuery | null {
-  const window = shadingWindow(inputs.taskSpans, 62 + inputs.extraWindowDays);
-  if (window === null) return () => null;
-
-  const registry = buildCalendarRegistry(inputs.markedNotes, inputs.resolveLink);
-  const blockedByCalendar = new Map<string, { days: Set<string>; maxRun: number }>();
-  const calendarsByTask = new Map<string, CalendarRecord[]>();
-
-  for (const association of inputs.associations) {
-    const resolved = resolveTaskCalendar(
-      registry,
-      association.value,
-      association.taskPath,
-      inputs.resolveLink,
-    );
-    if (resolved.schedulingSuspended || resolved.calendars.length === 0) continue;
-    calendarsByTask.set(association.taskPath, resolved.calendars);
-    for (const record of resolved.calendars) {
-      if (!blockedByCalendar.has(record.path)) {
-        blockedByCalendar.set(record.path, materializeBlocking(record.definition, window));
-      }
-    }
-  }
-
-  return (taskPath) => {
-    const records = calendarsByTask.get(taskPath);
-    if (!records) return null;
-    const sets = records
-      .map((record) => blockedByCalendar.get(record.path))
-      .filter((entry): entry is { days: Set<string>; maxRun: number } => entry !== undefined);
-    // Runs from different calendars can abut, so the union's widest run is
-    // over-approximated by the sum — generous ceiling headroom, still bounded.
-    const maxBlockedRunDays = Math.min(
-      366,
-      sets.reduce((total, entry) => total + entry.maxRun, 0),
-    );
-    return {
-      isBlocked: (dayIso) => sets.some((entry) => entry.days.has(dayIso)),
-      maxBlockedRunDays,
-    };
-  };
-}
-
-/** Inclusive working-day count of a local span (floor 1 — a bar is never zero). */
-export function countWorkingDaysInSpan(
-  blocking: TaskBlockingQuery,
-  start: Date,
-  end: Date,
-): number {
-  let count = 0;
-  const endIso = localIso(end);
-  for (let day = localIso(start); day <= endIso; day = addDaysIso(day, 1)) {
-    if (!blocking.isBlocked(day)) count += 1;
-  }
-  return Math.max(1, count);
-}
-
-function materializeBlocking(
-  definition: CalendarDefinition,
-  window: EvaluationWindow,
-): { days: Set<string>; maxRun: number } {
-  const days = new Set<string>();
-  for (const span of definition.nonWorking) addSpanDates(days, span, window);
-  addWorkingComplement(days, definition, window);
-
-  let maxRun = 0;
-  let run = 0;
-  let previous: string | null = null;
-  for (const day of [...days].sort((a, b) => a.localeCompare(b))) {
-    run = previous !== null && addDaysIso(previous, 1) === day ? run + 1 : 1;
-    if (run > maxRun) maxRun = run;
-    previous = day;
-  }
-  return { days, maxRun };
-}
-
-function addSpanDates(dates: Set<string>, span: DatedSpan, window: EvaluationWindow): void {
-  const start = span.startDate > window.startDate ? span.startDate : window.startDate;
-  const end =
-    span.endDateExclusive < window.endDateExclusive ? span.endDateExclusive : window.endDateExclusive;
-  for (let day = start; day < end; day = addDaysIso(day, 1)) {
-    dates.add(day);
-  }
-}
-
-function localIso(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}

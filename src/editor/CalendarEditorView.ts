@@ -18,7 +18,7 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
-import { resolveParentLink } from '../bases/parentLink';
+import { resolveParentLink } from '../datasource/parentLink';
 import { classifyMember, type MemberResolution } from './unionPreview';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,

@@ -39,6 +39,7 @@ const config = {
     // *.svelte imports are stubbed in unit tests; components are e2e-tested.
     "\\.svelte$": "<rootDir>/test/__mocks__/svelteComponent.js",
     "^svelte$": "<rootDir>/test/__mocks__/svelteRuntime.js",
+    "^svelte/store$": "<rootDir>/test/__mocks__/svelteStore.js",
   },
   // Coverage (enabled via `--coverage`, i.e. `npm run test:coverage`).
   // V8 provider: the @swc/jest transform replaces Babel, so Babel-based
