@@ -61,12 +61,12 @@
     type SubtreeShift,
   } from './cascadeGate';
   import {
-    normalizeInferredDragMode,
     classifyDraggedEdge,
     resolveInferredEdge,
     resolveInferredDragOutcome,
     buildInferredDragPatch,
     type InferredDragAction,
+    type InferredEdge,
   } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
   import {
@@ -1984,6 +1984,7 @@
           beforeStart: before?.start ?? null,
           beforeEnd: before?.end ?? null,
           beforeDateStatus: before?.dateStatus ?? null,
+          beforeEstimateMinutes: before?.estimateMinutes ?? null,
         };
         setTimeout(() => void persistReschedule(id), 0);
         scheduleSubtreeAndExtend();
@@ -2370,6 +2371,10 @@
     // clears it on the next tick). Authored edges and whole-bar moves fall through
     // to the default commit above.
     const before = activeDrag;
+    // No-op until the inferred-edge gate below engages and hands the cascade a
+    // promise to wait on; a plain drag settles nothing.
+    let settleInferredGesture: (outcome: InferredGestureOutcome | null) => void = () => {};
+    let inferredOutcome: InferredGestureOutcome | null = null;
     if (
       before?.id === instanceId &&
       before.beforeStart &&
@@ -2380,28 +2385,36 @@
         classifyDraggedEdge(before.beforeStart, before.beforeEnd, newStart, newEnd),
         before.beforeDateStatus ?? 'complete',
       );
+      // Read at gesture time, not from the (snapshot) view data: the config a
+      // "don't ask again" choice persisted into is synchronously readable, so
+      // the choice — or its explicit re-enable back to `ask` — applies from the
+      // very next drag, ahead of the refresh that carries the new snapshot.
       const outcome = resolveInferredDragOutcome({
         inferredEdge,
-        mode: normalizeInferredDragMode($data.inferredDragMode),
+        mode: $data.getInferredDragMode(),
         estimateWritable: true,
       });
       if (inferredEdge && outcome !== 'write-as-today') {
-        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates).
-        // Stand the subtree/extend cascade down so it can't commit shrink-fit or
-        // ancestor-extend writes against the optimistic pre-decision dates while the
-        // prompt is open — or against a choice the user cancels or downgrades to
-        // estimate-only (which materialises no date). Set before any await so the
-        // paired processSubtreeAndExtend, running next this tick, sees it.
-        inferredPromptEngaged = true;
+        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates),
+        // so the paired subtree/extend cascade must WAIT for the decision rather than
+        // commit shrink-fit or ancestor-extend writes against the optimistic
+        // pre-decision dates. Hand it a promise, resolved with the action that landed
+        // (or null), before any await — processSubtreeAndExtend runs next this tick.
+        inferredGesture = new Promise<InferredGestureOutcome | null>((resolve) => {
+          settleInferredGesture = resolve;
+        });
         let action: InferredDragAction;
         if (outcome === 'prompt') {
           const choice = await new InferredDragModal(app).openAndGetChoice();
           if (!choice) {
             // Cancel reverts the bar (+ mirrored siblings) and writes nothing.
             revertToOriginals();
+            settleInferredGesture(null);
             return;
           }
           action = choice.action;
+          // A failed persist needs no compensation: the stored mode stays `ask`
+          // and the next gesture's config read prompts again, honestly.
           if (choice.dontAskAgain) onInferredDragModeChange?.(action);
         } else {
           action = outcome;
@@ -2413,6 +2426,7 @@
           newEnd,
           estimateMinutes,
         });
+        inferredOutcome = { action, edge: inferredEdge, estimateMinutes: fields.estimateMinutes };
         patch = { estimate: fields.estimateMinutes };
         if (fields.materialise) {
           if (fields.materialise.edge === 'end') patch.end = fields.materialise.date;
@@ -2423,10 +2437,12 @@
 
     try {
       await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
+      settleInferredGesture(inferredOutcome);
     } catch (err) {
       console.error('[GanttContainer] reschedule persist failed:', err);
       // Revert the dragged row and all mirrored siblings to pre-drag dates.
       revertToOriginals();
+      settleInferredGesture(null);
       new Notice("Couldn't save date change — check TaskNotes is running.");
     }
   }
@@ -2457,13 +2473,22 @@
     beforeStart: Date | null;
     beforeEnd: Date | null;
     beforeDateStatus: DateStatus | null;
+    /** The authored estimate before the drag, so an undo can put it back. */
+    beforeEstimateMinutes: number | null;
   } | null = null;
   let dragScheduled = false;
   // Set synchronously by persistReschedule (which runs first) when an inferred-edge
-  // drag routes its write through the gate, so the deferred subtree/extend pass —
-  // which shares this gesture's tick — knows to stand down. Consumed and cleared by
-  // processSubtreeAndExtend; the two are always scheduled as a pair.
-  let inferredPromptEngaged = false;
+  // drag routes its write through the gate. The deferred subtree/extend pass — which
+  // shares this gesture's tick — awaits it, so the cascade acts on the decision's
+  // outcome instead of the optimistic pre-decision dates. Resolves with the action
+  // that landed, or null when the user cancelled or the write failed. Consumed and
+  // cleared by processSubtreeAndExtend; the two are always scheduled as a pair.
+  interface InferredGestureOutcome {
+    action: InferredDragAction;
+    edge: InferredEdge;
+    estimateMinutes: number;
+  }
+  let inferredGesture: Promise<InferredGestureOutcome | null> | null = null;
 
   /** Schedule the deferred subtree-shift + extend pass once per drag. */
   function scheduleSubtreeAndExtend(): void {
@@ -2486,13 +2511,16 @@
     const drag = activeDrag;
     activeDrag = null;
     // An inferred-edge drag routes its write through persistReschedule's gate, which
-    // owns this note for the gesture. Skip the subtree/extend cascade entirely so it
-    // never races that decision (a leaf inferred task has no descendants/ancestors to
-    // act on anyway; a parent's cascade against unmaterialised dates is unsafe).
-    if (inferredPromptEngaged) {
-      inferredPromptEngaged = false;
-      return;
-    }
+    // owns this note for the gesture — so wait for that decision instead of racing
+    // it, then cascade from the dates it left behind. A cancelled or failed write put
+    // the bar back at its pre-drag span, so there is nothing to cascade. Ancestors
+    // still extend either way: an estimate-only choice leaves the dragged edge
+    // derived, and that derived date IS the rendered edge, so a parent must still
+    // wrap what the timeline shows.
+    const inferred = inferredGesture;
+    inferredGesture = null;
+    const inferredChoice = inferred ? await inferred : undefined;
+    if (inferred && inferredChoice === null) return;
     if (!api || !onMutate || readOnly || !drag) return;
 
     const moved = api.getState().tasks.byId(drag.id);
@@ -2519,7 +2547,26 @@
       }
     };
     const dSource = instances.find((i) => i.id === drag.id)?.sourcePath;
-    if (dSource) addRange(dSource, moved.start, moved.end);
+    // Estimate-only leaves the dragged edge COMPUTED, and under working-day
+    // interpretation it re-derives off the dragged date (the saved estimate counts
+    // only working days). Cascade from the REAL derivation — the same stretch the
+    // read path runs, threaded through projectDerivedSpan — not from the
+    // optimistic dragged span, so an ancestor is never extended past the child's
+    // actual derived range. A null projection means no working-day seam, where the
+    // plain span is the derivation; the dragged span already is that plain span.
+    let draggedRange: DateRange = { start: moved.start, end: moved.end };
+    const anchorDate =
+      inferredChoice?.edge === 'end' ? drag.beforeStart : drag.beforeEnd;
+    if (inferredChoice?.action === 'estimate-only' && anchorDate && dSource) {
+      draggedRange =
+        $data.projectDerivedSpan?.(
+          dSource,
+          inferredChoice.edge,
+          anchorDate,
+          inferredChoice.estimateMinutes,
+        ) ?? draggedRange;
+    }
+    if (dSource) addRange(dSource, draggedRange.start, draggedRange.end);
 
     if (delta !== 0) {
       // Every instance to shift: the dragged subtree's descendants AND their
@@ -2559,11 +2606,17 @@
           new Notice("Couldn't move a child task — check TaskNotes is running.");
         }
       }
-    } else if (drag.beforeStart && drag.beforeEnd) {
+    } else if (drag.beforeStart && drag.beforeEnd && inferredChoice?.action !== 'estimate-only') {
       // Parent-shrink guard: a *resize* (no subtree shift) that newly leaves D
       // smaller than its direct children. Offer to adjust D to wrap them, or
       // undo the resize — per the per-view mode. A pure move (delta !== 0) can't
       // orphan children (they moved with D), so this only runs for resizes.
+      //
+      // Skipped after an estimate-only decision: both of its outcomes write D's own
+      // start AND end, which would materialise the very edge the user chose to leave
+      // derived (and "undo resize" would stamp the pre-drag dates on top of an
+      // estimate that is already saved). The overflow is allowed instead — the
+      // ancestor extend below still runs, since it only widens OTHER notes.
       const childRanges: DateRange[] = instances
         .filter((i) => i.parent === drag.id && i.start && i.end)
         .map((i) => ({ start: i.start as Date, end: i.end as Date }));
@@ -2586,13 +2639,65 @@
           }).openAndGetChoice();
         }
         const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
+        const revert: TaskPatch = { start: target.start, end: target.end };
+        // An inferred-edge decision already saved the estimate the DRAGGED span
+        // implied, and this branch is about to persist different dates — leaving
+        // the two apart would have the note claim a duration its own span
+        // contradicts. Keep them consistent for either choice:
+        //  - Adjust to fit → recompute from the fitted span, the same way the
+        //    original write derived it (working days when a calendar is associated,
+        //    plain days otherwise).
+        //  - Undo resize → put back the authored estimate. A task that had none
+        //    had its edge derived from the view default; the pre-drag span's value
+        //    restores what the bar showed, since the write path cannot restore
+        //    the field's absence itself.
+        if (inferredChoice != null) {
+          const sourcePath = instances.find((i) => i.id === drag.id)?.sourcePath;
+          if (adjust) {
+            const workingDays = sourcePath
+              ? $data.countWorkingDays?.(sourcePath, target.start, target.end)
+              : undefined;
+            revert.estimate = spanDaysToMinutes(
+              workingDays ?? inclusiveDaySpan(target.start, target.end),
+            );
+          } else {
+            // A task with no authored estimate derived its pre-drag bar FROM the
+            // view default, so that default is the exact implicit value to put
+            // back. Recounting the span drifts wherever the derivation was
+            // non-trivial — a stretched span recounts fine, but the flagged
+            // fallback (fully blocked calendar) floors to one day.
+            revert.estimate =
+              drag.beforeEstimateMinutes ??
+              spanDaysToMinutes(
+                $data.defaultDurationDays ?? inclusiveDaySpan(drag.beforeStart, drag.beforeEnd),
+              );
+          }
+        }
         api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
+        for (const inst of instances) {
+          if (inst.sourcePath === dSource && inst.id !== drag.id) {
+            api.exec('update-task', {
+              id: inst.id,
+              task: { start: target.start, end: target.end },
+              eventSource: OG_ECHO_SOURCE,
+            });
+          }
+        }
         try {
-          await withTimeout(onMutate(drag.id, { start: target.start, end: target.end }), MUTATION_TIMEOUT_MS);
+          await withTimeout(onMutate(drag.id, revert), MUTATION_TIMEOUT_MS);
         } catch (err) {
           console.error('[GanttContainer] shrink-fit persist failed:', err);
           // Revert the bar to the resize persistReschedule already saved.
           api.exec('update-task', { id: drag.id, task: { start: moved.start, end: moved.end }, eventSource: OG_ECHO_SOURCE });
+          for (const inst of instances) {
+            if (inst.sourcePath === dSource && inst.id !== drag.id) {
+              api.exec('update-task', {
+                id: inst.id,
+                task: { start: moved.start, end: moved.end },
+                eventSource: OG_ECHO_SOURCE,
+              });
+            }
+          }
           new Notice("Couldn't adjust the parent date — check TaskNotes is running.");
         }
         return; // shrink handled; don't also run the extend gate

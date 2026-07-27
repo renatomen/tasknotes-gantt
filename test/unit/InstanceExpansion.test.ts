@@ -28,6 +28,24 @@ function byId(instances: readonly RenderInstance[], id: string): RenderInstance 
   return found;
 }
 
+describe('expandInstances — authored estimate carry-through', () => {
+  it('carries the authored estimate onto every instance of a task', () => {
+    // The view writes a span-derived estimate on an inferred-edge drag, so undoing
+    // that gesture needs the AUTHORED value — reconstructing it from the pre-drag
+    // span would round a sub-day estimate up to a whole day.
+    const result = expandInstances([
+      { ...task({ path: 'Parent.md' }) },
+      { ...task({ path: 'Sub.md', estimate: 90, parents: ['Parent.md'] }) },
+    ]);
+    expect(byId(result.instances, 'Sub.md#parent-Parent.md').estimateMinutes).toBe(90);
+  });
+
+  it('reports no estimate as null rather than omitting it', () => {
+    const result = expandInstances([task({ path: 'T.md' })]);
+    expect(byId(result.instances, 'T.md').estimateMinutes).toBeNull();
+  });
+});
+
 describe('expandInstances — ghost-run carry-through', () => {
   it('carries ghostRuns and stretchFlagged from the source task onto every instance', () => {
     const ghostRuns = [{ startDate: '2026-08-08', days: 2 }];

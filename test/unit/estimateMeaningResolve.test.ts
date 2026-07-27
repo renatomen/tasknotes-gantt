@@ -2,6 +2,8 @@ import {
   needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
+  workingDaysMeaningGate,
+  projectDerivedSpan,
 } from '../../src/bases/estimateMeaningResolve';
 
 describe('needsCalendarSeam', () => {
@@ -49,6 +51,24 @@ describe('estimateMeaningForTask', () => {
   });
 });
 
+describe('workingDaysMeaningGate', () => {
+  it('is undefined when no axis engages working-day counting', () => {
+    expect(workingDaysMeaningGate('calendar-days', false, () => 'calendar-days')).toBeUndefined();
+  });
+
+  it('answers per task, so a caller needs no calendar assembly to classify one', () => {
+    const gate = workingDaysMeaningGate('working-days', true, (p) =>
+      p === 'flat.md' ? 'calendar-days' : 'working-days',
+    );
+    expect(gate?.('flat.md')).toBe(false);
+    expect(gate?.('stretchy.md')).toBe(true);
+  });
+
+  it('engages via a mapped override even when the view default is calendar-days', () => {
+    expect(workingDaysMeaningGate('calendar-days', true, () => 'working-days')?.('t.md')).toBe(true);
+  });
+});
+
 describe('countWorkingDaysResolver', () => {
   const start = new Date(2026, 0, 1);
   const end = new Date(2026, 0, 5);
@@ -76,5 +96,77 @@ describe('countWorkingDaysResolver', () => {
   it('engages via a mapped override even when the view default is calendar-days', () => {
     const resolver = countWorkingDaysResolver('calendar-days', true, () => 'working-days', () => 2);
     expect(resolver?.('t.md', start, end)).toBe(2);
+  });
+});
+
+describe('projectDerivedSpan', () => {
+  const addDays = (date: Date, days: number): Date => {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+  };
+  const iso = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  // Sat/Sun blocked, generous authored-run headroom.
+  const weekends = {
+    isBlocked: (dayIso: string) => {
+      const day = new Date(`${dayIso}T00:00:00`).getDay();
+      return day === 0 || day === 6;
+    },
+    maxBlockedRunDays: 2,
+  };
+  const monday = new Date(2026, 5, 1);
+
+  it('returns the plain span when the task has no blocking seam', () => {
+    expect(
+      projectDerivedSpan({ edge: 'end', anchor: monday, estimateMinutes: 3 * 1440, blocking: null, addDays }),
+    ).toEqual({ start: monday, end: new Date(2026, 5, 3) });
+  });
+
+  it('advances a one-day estimate anchored on a blocked day, like the read path', () => {
+    // The lookalike walk this replaces accepted the blocked Saturday at offset 0,
+    // because the span counter floors a fully blocked span to 1.
+    const saturday = new Date(2026, 5, 6);
+    const projected = projectDerivedSpan({
+      edge: 'end',
+      anchor: saturday,
+      estimateMinutes: 1440,
+      blocking: weekends,
+      addDays,
+    });
+    expect(iso(projected.end)).toBe('2026-06-08'); // the next Monday
+  });
+
+  it('stretches a multi-day estimate across the weekend exactly as the read path does', () => {
+    const projected = projectDerivedSpan({
+      edge: 'end',
+      anchor: monday,
+      estimateMinutes: 6 * 1440,
+      blocking: weekends,
+      addDays,
+    });
+    expect(iso(projected.end)).toBe('2026-06-08');
+  });
+
+  it('projects an inferred start backwards over blocked days', () => {
+    const projected = projectDerivedSpan({
+      edge: 'start',
+      anchor: monday,
+      estimateMinutes: 2 * 1440,
+      blocking: weekends,
+      addDays,
+    });
+    expect(iso(projected.start)).toBe('2026-05-29'); // the previous Friday
+  });
+
+  it('falls back to the plain span when the stretch hits its ceiling', () => {
+    const dead = { isBlocked: () => true, maxBlockedRunDays: 0 };
+    expect(
+      projectDerivedSpan({ edge: 'end', anchor: monday, estimateMinutes: 2 * 1440, blocking: dead, addDays }),
+    ).toEqual({ start: monday, end: new Date(2026, 5, 2) });
   });
 });

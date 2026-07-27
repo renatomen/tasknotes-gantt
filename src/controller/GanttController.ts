@@ -1915,6 +1915,12 @@ function instancesEqual(
       x.isFetched !== y.isFetched ||
       x.dateStatus !== y.dateStatus ||
       x.status !== y.status ||
+      // The carried estimate is part of the snapshot's identity, not decoration:
+      // the write path reads it as the pre-drag value an undo restores. An
+      // estimate edit that does not cross a whole-day boundary moves no date and
+      // no status, so without this the view would keep serving a stale value and
+      // an undo would overwrite the newer estimate.
+      x.estimateMinutes !== y.estimateMinutes ||
       !datesEqual(x.start, y.start) ||
       !datesEqual(x.end, y.end)
     ) {

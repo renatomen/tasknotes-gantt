@@ -530,6 +530,30 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
     expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
   });
 
+  it('notifies when only the estimate changed, moving no date', async () => {
+    // A sub-day estimate edit (90 → 120 minutes) resolves the same dates and the
+    // same status, so the snapshot differs ONLY in the carried estimate. The view
+    // still has to hear about it: the write path reads that value as the pre-drag
+    // estimate an undo restores, and a stale one would overwrite the newer edit.
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md', estimate: 90 })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    tn.tasks = [task({ path: 'a.md', estimate: 120 })];
+    tn.fireChange();
+    await flushAsync();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances()).map((i) => i.estimateMinutes)).toEqual([120]);
+  });
+
   it('does NOT notify when a change event recomputes a value-equal snapshot (backstop)', async () => {
     const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
     tn.enableSubscribe();

@@ -196,12 +196,6 @@ Left open deliberately during the Codex-backlog resolution pass — acknowledged
 
 - **Refresh the evaluated-date stylesheet on viewport pan/zoom** (#266, plan-doc thread) — a
   viewport-driven refresh of the calendar shading sheet; acknowledged deferral.
-- **Cascade stand-down after an inferred-edge decision** (#314, `GanttContainer.svelte`) — the
-  inferred-edge drag intentionally stands `computeShrinkFit`/`computeMoveExtensions` down; the
-  residual parent estimate-and-dates materialise is a known, deliberate deferral.
-- **WDIO coverage of the inferred-date resize/modal/write round-trip** (#314,
-  `gantt-inferred-date-drag.e2e.ts`) — the spec asserts the flag state only; the full write
-  round-trip / real SVAR resize is a documented harness limitation.
 
 Also deferred to their own units: fetched-bar calendar colour + its shading refresh (#281, U5d),
 and the P3 timezone-offset DST-staleness recompute (#297).
@@ -361,3 +355,19 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **Update #161 bug report** stale SVAR version refs (2.3.0 → 2.7.0) — `2026-06-25-001` (#161 closed; low value).
 - **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (already recorded as #53 scope wall; long-horizon).
 - **Visual assets — day-scale before/after** (0.1.0-beta.10, #252): a short before/after (wide vs compact day columns) for the "Day opens at its narrowest columns" change; skipped in the release-notes draft as marginal/subtle, capture with the deferred motion-GIF batch (maximized window).
+
+### Inferred-edge undo: authorship vs appearance
+Source: the inferred-edge drag review. Undoing a shrink-cascade after an
+**Estimate and dates** choice restores the pre-drag dates and (now) the pre-drag
+estimate — but the pre-drag end of an inferred-end task was *derived*, so writing
+it back authors a date that was not authored before. A fully faithful undo would
+un-author the edge the choice materialised, which needs a patch path that can
+clear a frontmatter field rather than set one. Deliberately deferred: the
+alternative (dropping the date silently) is equally a guess, so this wants a
+maintainer decision on what "undo" means for a derived edge.
+
+The same applies to the estimate: a task with **no** authored estimate had its edge
+derived from the view default, so the undo writes an explicit estimate equal to what
+was implicit — the appearance is restored exactly, the authorship is not. Restoring
+absence needs a patch path that can *clear* a field (today `applyEstimateWrite`
+only writes numbers, and TaskNotes-field clearing semantics are unverified).

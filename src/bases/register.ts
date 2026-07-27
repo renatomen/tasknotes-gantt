@@ -90,6 +90,8 @@ import {
   needsCalendarSeam,
   estimateMeaningForTask,
   countWorkingDaysResolver,
+  workingDaysMeaningGate,
+  projectDerivedSpan,
 } from './estimateMeaningResolve';
 
 /**
@@ -680,10 +682,70 @@ class ObsidianGanttBasesView extends BasesView {
       overrideMapped,
       this.buildEstimateMeaningForTask(viewMeaning),
       (taskPath, start, end) => {
-        const blocking = this.lastBlockingLookup?.(taskPath);
+        // Fresh facts windowed for the span being counted: the per-pass lookup is
+        // sized for the PRE-drag spans, and days beyond its window deliberately
+        // read as working — an estimate-only resize dragged past it would count
+        // blocked days as worked and persist an inflated estimate. Transient, so
+        // the pass cache survives; the cost is per drag commit, not per render.
+        const lookup = this.buildTaskBlocking(
+          [{ path: taskPath, start, end, estimateMinutes: null }],
+          { transient: true },
+        );
+        const blocking = lookup(taskPath);
         return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
       },
     );
+  }
+
+  /**
+   * The register-side wiring for {@link projectDerivedSpan}: the inferred-edge
+   * cascade's re-derivation projection, backed by the same per-pass blocking
+   * lookup the stretch and the estimate counter read. Absent when the view has
+   * no working-day seam at all — the plain span is the derivation then.
+   */
+  private buildProjectDerivedSpan():
+    | ((
+        taskPath: string,
+        edge: 'start' | 'end',
+        anchor: Date,
+        estimateMinutes: number,
+      ) => { start: Date; end: Date } | null)
+    | undefined {
+    const viewMeaning = readEstimateMeaning((key) => this.config.get(key));
+    const usesWorkingDays = workingDaysMeaningGate(
+      viewMeaning,
+      (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '',
+      this.buildEstimateMeaningForTask(viewMeaning),
+    );
+    if (!usesWorkingDays) return undefined;
+    return (taskPath, edge, anchor, estimateMinutes) => {
+      // Same per-task gate as the counter, asked directly: a calendar-days task
+      // does not stretch. Reading the meaning costs nothing, where invoking the
+      // counter to test its null would materialize the vault's calendars just to
+      // answer a yes/no — before the projection builds its own facts below.
+      if (!usesWorkingDays(taskPath)) return null;
+      // Fresh blocking facts windowed for THIS estimate: the per-pass lookup was
+      // sized for the pre-drag estimates, and days beyond its window deliberately
+      // read as working — a grown estimate would walk into that blind zone and
+      // stop short of where the read path will re-derive after the refresh.
+      const lookup = this.buildTaskBlocking(
+        [{ path: taskPath, start: anchor, end: anchor, estimateMinutes }],
+        { transient: true },
+      );
+      // No calendar for this task: the plain span already IS the derivation.
+      const blocking = lookup(taskPath) ?? null;
+      return projectDerivedSpan({
+        edge,
+        anchor,
+        estimateMinutes,
+        blocking,
+        addDays: (date, days) => {
+          const next = new Date(date);
+          next.setDate(next.getDate() + days);
+          return next;
+        },
+      });
+    };
   }
 
   /**
@@ -695,6 +757,7 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private buildTaskBlocking(
     tasks: readonly StretchTaskInput[],
+    opts: { transient?: boolean } = {},
   ): (taskPath: string) => TaskBlocking | null {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -720,15 +783,21 @@ class ObsidianGanttBasesView extends BasesView {
     });
     if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
     const markedNotes = this.collectMarkedCalendarNotes();
-    this.lastBlockingKey = key;
-    this.lastBlockingLookup = computeTaskBlocking({
+    const lookup = computeTaskBlocking({
       markedNotes,
       resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
       associations,
       taskSpans: tasks,
       extraWindowDays: 8 * maxDurationDays + 366,
     });
-    return this.lastBlockingLookup;
+    // A transient build (the drag-time projection, windowed for ONE grown
+    // estimate) must not displace the pass-level cache the estimate counter and
+    // the stretch share.
+    if (!opts.transient) {
+      this.lastBlockingKey = key;
+      this.lastBlockingLookup = lookup;
+    }
+    return lookup;
   }
 
   /** The association task paths of the last shading build (entries + instances). */
@@ -1285,7 +1354,7 @@ class ObsidianGanttBasesView extends BasesView {
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
-      inferredDragMode: this.getInferredDragMode(),
+      getInferredDragMode: () => this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
@@ -1301,6 +1370,8 @@ class ObsidianGanttBasesView extends BasesView {
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
       countWorkingDays: this.buildCountWorkingDays(),
+      projectDerivedSpan: this.buildProjectDerivedSpan(),
+      defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
     };
   }
 

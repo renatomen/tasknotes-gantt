@@ -264,6 +264,13 @@ describe('computeTaskBlocking + countWorkingDaysInSpan', () => {
     // Fri 10 .. Tue 14: Fri + Mon + Tue working, Sat + Sun blocked.
     expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
   });
+
+  it('floors a fully-blocked span to one day for RENDERING (a bar is never zero)', () => {
+    const blocking = blockingOf('Tasks/T.md');
+    if (!blocking) throw new Error('expected blocking');
+    // Sat 11 .. Sun 12: both blocked by the weekday pattern's complement.
+    expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 11), new Date(2026, 3, 12))).toBe(1);
+  });
 });
 
 describe('shading cache (skip-if-unchanged gate)', () => {
