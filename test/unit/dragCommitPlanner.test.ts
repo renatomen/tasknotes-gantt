@@ -1043,6 +1043,38 @@ describe('named rows', () => {
     expect(cascade.writes[0]?.patch.end).toEqual(dayEnd('2026-08-10'));
   });
 
+  it('a calendar-days task under split rendering echoes its real ghost runs after a drag (null day count, full geometry)', () => {
+    const fixture = buildFixture('leaf', 2);
+    const after = afterSpanFor('resize-end', 'leaf'); // 2026-08-03 .. 2026-08-08
+    const geometry = {
+      start: after.start,
+      end: after.end,
+      flagged: false,
+      ghostRuns: [{ startDate: '2026-08-08', days: 1 }],
+    };
+    // Calendar-days: no working-day axis, so the day count is null (nothing
+    // recounts) — but split rendering still gives the span real ghost runs,
+    // and the echo must carry them, never the plain-geometry fallback.
+    const deriv = derivation({ deriveEstimate: () => ({ days: null, ...geometry }) });
+    const plan = planGestureCommit(
+      buildGesture(
+        { outcome: 'write-as-today', gesture: 'resize-end', instances: 2, role: 'leaf', mode: 'ask', persist: 'success' },
+        fixture,
+      ),
+      fixture.instances,
+      undefined,
+      deriv,
+    );
+    // A null count falls back to the calendar-day span for the estimate write.
+    expect(plan.writes[0]?.patch.estimate).toBe(
+      spanDaysToMinutes(inclusiveDaySpan(after.start, after.end)),
+    );
+    expect(plan.echoes[0]?.rows).toHaveLength(2);
+    for (const row of plan.echoes[0]?.rows ?? []) {
+      expect(row.payload).toEqual({ kind: 'geometry', geometry });
+    }
+  });
+
   it('echoes carry the authority\'s FULL geometry — flag and ghost runs included', () => {
     const fixture = buildFixture('leaf', 2);
     const geometry = {

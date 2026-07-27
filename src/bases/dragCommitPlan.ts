@@ -77,18 +77,23 @@ export interface PlannerInstance {
  * The derivation authority's answers, injected as data — the planner never
  * assembles blocking facts or windows itself, and never imports the controller
  * at runtime. `deriveEstimate`/`deriveSpan` are the controller's source-keyed
- * write-path surfaces (null / absent = no working-day axis engages, the plain
- * span is the record); the conversions come from the single minutes↔days seam
- * so the planner carries no second conversion.
+ * write-path surfaces. Both answer FULL render geometry for EVERY task and
+ * rendering mode — split rendering attaches ghost runs even to a task with no
+ * working-day axis — so the nullable member is the day COUNT
+ * (`DerivedEstimate.days`: null = the plain span is the record, no estimate
+ * recount), never the geometry. An absent callback means no derivation
+ * authority is wired at all; only then is the plain span the render truth.
+ * The conversions come from the single minutes↔days seam so the planner
+ * carries no second conversion.
  */
 export interface PlannerDerivation {
-  deriveEstimate?: (sourcePath: string, span: DateRange) => DerivedEstimate | null;
+  deriveEstimate?: (sourcePath: string, span: DateRange) => DerivedEstimate;
   deriveSpan?: (
     sourcePath: string,
     edge: InferredEdge,
     anchor: Date,
     estimateMinutes: number,
-  ) => DerivedGeometry | null;
+  ) => DerivedGeometry;
   minutesToSpanDays(minutes: number): number;
   spanDaysToMinutes(days: number): number;
   inclusiveDaySpan(start: Date, end: Date): number;
@@ -259,7 +264,7 @@ export function plainGeometry(span: DateRange): DerivedGeometry {
   return { start: span.start, end: span.end, flagged: false, ghostRuns: [] };
 }
 
-/** The authority's full geometry for a span, or the plain span when no axis engages. */
+/** The authority's full geometry for a span; the plain span only when no authority is wired. */
 export function echoGeometryFor(
   derivation: PlannerDerivation,
   sourcePath: string,
