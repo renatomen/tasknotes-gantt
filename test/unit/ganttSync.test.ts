@@ -367,6 +367,33 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).not.toContain(`${statusSlug('wip')} ${statusSlug('wip')}`);
   });
 
+  it('registers ids in a stable order (the registration order is a downstream contract)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    const s = statusSlug('wip');
+    const p = prioritySlug('high');
+    expect(ids).toEqual([
+      DATE_STATUS_TYPE,
+      PARENT_ROLE_CLASS,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`,
+      s,
+      `${DATE_STATUS_TYPE} ${s}`,
+      p,
+      `${DATE_STATUS_TYPE} ${p}`,
+      `${PARENT_ROLE_CLASS} ${s}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${s}`,
+      `${PARENT_ROLE_CLASS} ${p}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${p}`,
+      `${s} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${s} ${PARENT_ROLE_CLASS}`,
+      `${s} ${p}`,
+      `${DATE_STATUS_TYPE} ${s} ${p}`,
+      `${p} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${p} ${PARENT_ROLE_CLASS}`,
+      `${p} ${s}`,
+      `${DATE_STATUS_TYPE} ${p} ${s}`,
+    ]);
+  });
+
   it('never pairs two calendars (only cross-group), so the set stays linear in the calendar count', () => {
     const calendar = Array.from({ length: 10 }, (_, i) => ({ value: `cal-${i}`, color: '#0a0' }));
     const ids = buildTreatmentTaskTypes({ ...palettes, calendar }).map((t) => t.id);
