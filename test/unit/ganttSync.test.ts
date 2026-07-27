@@ -15,6 +15,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildSvarTasks,
   buildTreatmentTaskTypes,
+  crossGroupClassPairs,
   planTaskSync,
   planLinkSync,
   planReorder,
@@ -366,6 +367,33 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).not.toContain(`${statusSlug('wip')} ${statusSlug('wip')}`);
   });
 
+  it('registers ids in a stable order (the registration order is a downstream contract)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    const s = statusSlug('wip');
+    const p = prioritySlug('high');
+    expect(ids).toEqual([
+      DATE_STATUS_TYPE,
+      PARENT_ROLE_CLASS,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`,
+      s,
+      `${DATE_STATUS_TYPE} ${s}`,
+      p,
+      `${DATE_STATUS_TYPE} ${p}`,
+      `${PARENT_ROLE_CLASS} ${s}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${s}`,
+      `${PARENT_ROLE_CLASS} ${p}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${p}`,
+      `${s} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${s} ${PARENT_ROLE_CLASS}`,
+      `${s} ${p}`,
+      `${DATE_STATUS_TYPE} ${s} ${p}`,
+      `${p} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${p} ${PARENT_ROLE_CLASS}`,
+      `${p} ${s}`,
+      `${DATE_STATUS_TYPE} ${p} ${s}`,
+    ]);
+  });
+
   it('never pairs two calendars (only cross-group), so the set stays linear in the calendar count', () => {
     const calendar = Array.from({ length: 10 }, (_, i) => ({ value: `cal-${i}`, color: '#0a0' }));
     const ids = buildTreatmentTaskTypes({ ...palettes, calendar }).map((t) => t.id);
@@ -387,6 +415,37 @@ describe('buildTreatmentTaskTypes', () => {
     // cross-group pairs), so the count is exactly linear: doubling the span of
     // added calendars doubles the growth. A quadratic cross-product would ~4x it.
     expect(count(40) - count(20)).toBe((count(20) - count(10)) * 2);
+  });
+
+  describe('crossGroupClassPairs — the ordered two-class pairing core', () => {
+    it('pairs every class across distinct groups, in both orders, fill-major', () => {
+      expect([...crossGroupClassPairs([['a'], ['x', 'y']])]).toEqual([
+        ['a', 'x'],
+        ['a', 'y'],
+        ['x', 'a'],
+        ['y', 'a'],
+      ]);
+    });
+
+    it('never pairs classes drawn from the same group (including a class with itself)', () => {
+      expect([...crossGroupClassPairs([['a', 'b']])]).toEqual([]);
+    });
+
+    it('spans every distinct group pair when there are more than two groups', () => {
+      const pairs = [...crossGroupClassPairs([['a'], ['b'], ['c']])];
+      expect(pairs).toEqual([
+        ['a', 'b'],
+        ['a', 'c'],
+        ['b', 'a'],
+        ['b', 'c'],
+        ['c', 'a'],
+        ['c', 'b'],
+      ]);
+    });
+
+    it('produces no pairs for empty input', () => {
+      expect([...crossGroupClassPairs([])]).toEqual([]);
+    });
   });
 
   it('covers every composed form a priority + cue bar can produce (whole-string contract)', () => {

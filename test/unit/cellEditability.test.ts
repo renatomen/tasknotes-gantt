@@ -77,6 +77,10 @@ describe('resolveCellEditor — computed and name columns', () => {
     expect(resolveCellEditor('file.name', deps())).toBeNull();
   });
 
+  it('resolves a colon-form file: property to no editor', () => {
+    expect(resolveCellEditor('file:ctime', deps())).toBeNull();
+  });
+
   it('resolves formula.* to no editor even when its bare name is mapped', () => {
     const d = deps({ mappings: mappings({ endProperty: 'note.due' }) });
     expect(resolveCellEditor('formula.due', d)).toBeNull();
@@ -150,6 +154,22 @@ describe('resolveCellEditor — mapped canonical fields', () => {
       taskNotesFieldType: registered('start', { type: 'text' }),
     });
     expect(resolveCellEditor('note.start', d)).toEqual({ kind: 'date', dateRole: 'start' });
+  });
+
+  it('resolves as start when one key is mapped as both start and end (first mapped match wins)', () => {
+    const d = deps({
+      mappings: mappings({ startProperty: 'note.when', endProperty: 'note.when' }),
+    });
+    expect(resolveCellEditor('note.when', d)).toEqual({ kind: 'date', dateRole: 'start' });
+  });
+
+  it('resolves as status when one key is mapped as both status and text (text ranks last here)', () => {
+    // The editor resolver ranks text LAST; the write path ranks it ahead of status.
+    // Pinned on both sides so the shared matcher cannot silently unify the orders.
+    const d = deps({
+      mappings: mappings({ statusProperty: 'note.x', textProperty: 'note.x' }),
+    });
+    expect(resolveCellEditor('note.x', d)).toEqual({ kind: 'choice-status' });
   });
 });
 
