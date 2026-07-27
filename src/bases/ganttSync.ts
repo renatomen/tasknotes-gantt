@@ -35,6 +35,7 @@ import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
+import type { EchoPayload } from './dragCommitPlan';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -398,6 +399,37 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
+}
+
+/** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
+export type EchoTaskUpdate =
+  | { progress: number }
+  | { start: Date; end: Date; custom?: SvarTask['custom'] };
+
+/**
+ * Shape an executor echo payload into the `update-task` patch for one row. A
+ * geometry echo carries the derivation authority's FULL render geometry, so the
+ * patch advances `custom.ghostRuns` alongside start/end (preserving the rest of
+ * the row's custom record) — an echoed split bar renders exactly as a refreshed
+ * one, with `undefined` for an empty run list just like {@link buildSvarTasks}.
+ * Without the row's current custom record the patch stays span-only rather than
+ * fabricating a partial record.
+ */
+export function echoTaskPatch(
+  payload: EchoPayload,
+  currentCustom: SvarTask['custom'] | undefined,
+): EchoTaskUpdate {
+  if (payload.kind === 'progress') return { progress: payload.progress };
+  const { geometry } = payload;
+  if (!currentCustom) return { start: geometry.start, end: geometry.end };
+  return {
+    start: geometry.start,
+    end: geometry.end,
+    custom: {
+      ...currentCustom,
+      ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
+    },
+  };
 }
 
 /**

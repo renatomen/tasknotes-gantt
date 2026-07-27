@@ -108,6 +108,7 @@ import {
   type SpanDerivationFacts,
   type TaskBlocking,
 } from './calendar/derivation';
+import { needsCalendarSeam } from './calendar/estimateMeaning';
 import type { CalendarNoteInput } from './calendar/resolveCalendars';
 import { minutesToSpanDays } from './durationConversion';
 import { resolveParentLink } from '../datasource/parentLink';
@@ -1762,12 +1763,14 @@ export class GanttController {
     span: { start: Date; end: Date },
   ) => DerivedEstimate {
     return (taskPath, span) => {
-      const blocking = this.transientBlockingFor({
-        path: taskPath,
-        start: span.start,
-        end: span.end,
-        estimateMinutes: null,
-      });
+      const blocking = this.writeSeamNeeded(taskPath)
+        ? this.transientBlockingFor({
+            path: taskPath,
+            start: span.start,
+            end: span.end,
+            estimateMinutes: null,
+          })
+        : null;
       const facts = this.spanFactsFor(
         taskPath,
         { start: span.start, end: span.end, dateStatus: 'complete' },
@@ -1796,12 +1799,14 @@ export class GanttController {
   ) => DerivedGeometry {
     return (taskPath, edge, anchor, estimateMinutes) => {
       const durationDays = minutesToSpanDays(estimateMinutes);
-      const blocking = this.transientBlockingFor({
-        path: taskPath,
-        start: anchor,
-        end: anchor,
-        estimateMinutes,
-      });
+      const blocking = this.writeSeamNeeded(taskPath)
+        ? this.transientBlockingFor({
+            path: taskPath,
+            start: anchor,
+            end: anchor,
+            estimateMinutes,
+          })
+        : null;
       const plain = projectPlainSpan(edge, anchor, durationDays);
       return deriveSpan(this.spanFactsFor(taskPath, plain, blocking, durationDays), estimateMinutes);
     };
@@ -1814,18 +1819,35 @@ export class GanttController {
     blocking: TaskBlocking | null,
     defaultDurationDays: number,
   ): SpanDerivationFacts {
-    const policy = this.policyConfigProvider();
-    const meaning =
-      policy.estimateMeaningForTask?.(taskPath) ?? policy.viewEstimateMeaning ?? 'calendar-days';
     return {
       start: span.start,
       end: span.end,
       dateStatus: span.dateStatus,
-      meaning,
-      rendering: policy.nonWorkingRendering ?? 'shaded',
+      meaning: this.effectiveMeaningFor(taskPath),
+      rendering: this.policyConfigProvider().nonWorkingRendering ?? 'shaded',
       blocking,
       defaultDurationDays,
     };
+  }
+
+  /** A task's effective Estimate meaning under the live policy config. */
+  private effectiveMeaningFor(taskPath: string): EstimateMeaning {
+    const policy = this.policyConfigProvider();
+    return (
+      policy.estimateMeaningForTask?.(taskPath) ?? policy.viewEstimateMeaning ?? 'calendar-days'
+    );
+  }
+
+  /**
+   * Whether THIS task's write-path derivation reads the calendar at all. A
+   * calendar-days task under non-split rendering answers its plain projection,
+   * so assembling transient blocking facts (a full marked-notes vault walk) on
+   * every drag would be pure waste. The per-task meaning is already resolved
+   * here, so the seam predicate's override axis is folded in (passed false).
+   */
+  private writeSeamNeeded(taskPath: string): boolean {
+    const rendering = this.policyConfigProvider().nonWorkingRendering ?? 'shaded';
+    return needsCalendarSeam(rendering, this.effectiveMeaningFor(taskPath), false);
   }
 
   /** Fresh, transient blocking facts windowed for ONE span (the pass cache survives). */

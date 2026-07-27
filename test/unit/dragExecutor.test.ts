@@ -93,10 +93,15 @@ function harness(overrides: Partial<DragExecutorDeps> = {}): Harness {
 
 function execution(
   sourcePath: string,
-  plan: PlannedExecution['plan'],
+  plan: (choice: GestureChoice) => GesturePlan | null,
   onFailure?: PlannedExecution['onFailure'],
 ): PlannedExecution {
-  return { sourcePath, plan, onFailure };
+  return { sourcePath, snapshot: () => undefined, plan, onFailure };
+}
+
+/** Settle enough microtask turns for in-flight executor rounds to reach their persists. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('createDragExecutor', () => {
@@ -124,6 +129,63 @@ describe('createDragExecutor', () => {
     expect(planSecond).toHaveBeenCalledTimes(1);
     expect(h.log).toEqual(['persist:10', 'persist:50']);
     expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
+  });
+
+  it('snapshots at dequeue: the queued gesture plans from the FIRST gesture\'s settled write, and ONE capture spans its prompt re-plan and cascade round', async () => {
+    const gate = deferred();
+    const store = { progress: 10 };
+    const h = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.patch.progress}`);
+        if (write.patch.progress === 10) {
+          return gate.promise.then(() => {
+            store.progress = 50; // the first gesture's write settles into the facts
+          });
+        }
+        return Promise.resolve();
+      },
+      resolvePrompt: () =>
+        Promise.resolve<PromptAnswer | null>({
+          kind: 'inferred-drag',
+          choice: { action: 'estimate-and-dates' },
+        }),
+    });
+    const executor = createDragExecutor(h.deps);
+    const snapshot = jest.fn(() => ({ progress: store.progress }));
+    const captures: Array<{ progress: number }> = [];
+
+    const first = executor.submit(execution('a.md', () => planOf({ writes: [writeOf('a.md', 10)] })));
+    const second = executor.submit({
+      sourcePath: 'a.md',
+      snapshot,
+      plan: (choice, facts) => {
+        captures.push(facts);
+        return choice === undefined
+          ? planOf({ prompt: { kind: 'inferred-drag' } })
+          : planOf({ writes: [writeOf('a.md', facts.progress)] });
+      },
+      cascade: {
+        plan: (_settlement, _answers, facts) => {
+          captures.push(facts);
+          return cascadePlanOf({});
+        },
+      },
+    });
+    await Promise.resolve();
+
+    expect(snapshot).not.toHaveBeenCalled();
+    gate.resolve();
+    await Promise.all([first, second]);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    // Plan, prompt re-plan, cascade round — all handed the SAME dequeue capture.
+    expect(captures).toHaveLength(3);
+    expect(captures[0]).toEqual({ progress: 50 });
+    expect(captures[1]).toBe(captures[0]);
+    expect(captures[2]).toBe(captures[0]);
+    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual([
+      'persist:10',
+      'persist:50',
+    ]);
   });
 
   it('lets gestures on distinct sources proceed independently', async () => {
@@ -307,6 +369,7 @@ describe('createDragExecutor cascade pass', () => {
 
     await executor.submit({
       sourcePath: 'a.md',
+      snapshot: () => undefined,
       plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
       cascade: {
         plan: (settlement) => {
@@ -333,6 +396,7 @@ describe('createDragExecutor cascade pass', () => {
 
     await executor.submit({
       sourcePath: 'a.md',
+      snapshot: () => undefined,
       plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
       cascade: {
         plan: (_settlement, answers) => {
@@ -369,6 +433,7 @@ describe('createDragExecutor cascade pass', () => {
 
     await executor.submit({
       sourcePath: 'a.md',
+      snapshot: () => undefined,
       plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
       cascade: {
         plan: (_settlement, answers) => {
@@ -403,6 +468,7 @@ describe('createDragExecutor cascade pass', () => {
 
     await executor.submit({
       sourcePath: 'a.md',
+      snapshot: () => undefined,
       plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
       cascade: {
         plan: (_settlement, answers) =>
@@ -436,6 +502,7 @@ describe('createDragExecutor cascade pass', () => {
 
     await executor.submit({
       sourcePath: 'a.md',
+      snapshot: () => undefined,
       plan: (choice) =>
         choice === undefined
           ? planOf({ prompt: { kind: 'inferred-drag' } })
@@ -455,5 +522,141 @@ describe('createDragExecutor cascade pass', () => {
     // (faked here as the empty plan) is what guarantees nothing cascades.
     expect(cascadeSettlements).toEqual([{ kind: 'aborted' }]);
     expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual([]);
+  });
+
+  it('fences cascade writes: a gesture on a child source queued mid-cascade waits for the cascade and plans from post-cascade facts', async () => {
+    const gate = deferred();
+    const store = { b: 0 };
+    const h = harness({
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}:${write.patch.progress}`);
+        if (write.sourcePath === 'b.md' && write.patch.progress === 2) {
+          return gate.promise.then(() => {
+            store.b = 2; // the cascade's write to the child settles into the facts
+          });
+        }
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const seenChildFacts: number[] = [];
+
+    const gestureA = executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: () => cascadePlanOf({ writes: [writeOf('b.md', 2)] }),
+      },
+    });
+    await flushMicrotasks(); // the cascade round's write to b.md is now in flight
+    const gestureB = executor.submit({
+      sourcePath: 'b.md',
+      snapshot: () => ({ b: store.b }),
+      plan: (_choice, facts) => {
+        seenChildFacts.push(facts.b);
+        return planOf({ writes: [writeOf('b.md', 100 + facts.b)] });
+      },
+    });
+    await flushMicrotasks();
+
+    // The child gesture joined the cascade's fence: nothing planned yet.
+    expect(seenChildFacts).toEqual([]);
+    gate.resolve();
+    await Promise.all([gestureA, gestureB]);
+    expect(seenChildFacts).toEqual([2]);
+    expect(h.log).toEqual(['persist:a.md:1', 'persist:b.md:2', 'persist:b.md:102']);
+  });
+
+  it('abandons everything when the host generation changes mid-cascade: no writes, echoes, prompts, or failure reports', async () => {
+    let generation = 0;
+    const failures: unknown[] = [];
+    const cascadeFailures: CascadePhase[] = [];
+    const resolvePrompt = jest.fn(() => {
+      generation += 1; // the view remounts while the shrink-fit modal is open
+      return Promise.resolve<PromptAnswer | null>({ kind: 'shrink-fit', choice: 'adjust' });
+    });
+    const h = harness({ generation: () => generation, resolvePrompt });
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      onFailure: (error) => failures.push(error),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          if (answers.shrinkChoice === undefined) {
+            return cascadePlanOf({
+              prompt: {
+                kind: 'shrink-fit',
+                name: 'Parent',
+                attempted: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 2) },
+                fit: { start: new Date(2026, 0, 1), end: new Date(2026, 0, 5) },
+              },
+            });
+          }
+          return cascadePlanOf({ writes: [writeOf('a.md', 2)], echoes: [revertOf('a.md')] });
+        },
+        onFailure: (_error, phase) => cascadeFailures.push(phase),
+      },
+    });
+
+    // The prompt round ran, then the generation gate stopped the cascade cold.
+    expect(rounds).toEqual([{}]);
+    expect(h.log.filter((entry) => entry.startsWith('persist'))).toEqual(['persist:a.md']);
+    expect(h.echoed).toHaveLength(0);
+    expect(failures).toHaveLength(0);
+    expect(cascadeFailures).toHaveLength(0);
+  });
+
+  it('never submits into a newer generation: an execution submitted before a remount does not run after it', async () => {
+    let generation = 0;
+    const plan = jest.fn(() => planOf({ writes: [writeOf('a.md', 1)] }));
+    const h = harness({ generation: () => generation });
+    const executor = createDragExecutor(h.deps);
+
+    const submitted = executor.submit(execution('a.md', plan));
+    generation += 1;
+    await submitted;
+
+    expect(plan).not.toHaveBeenCalled();
+    expect(h.settled).toHaveLength(0);
+  });
+
+  it('stops the cascade between rounds when write capability is lost', async () => {
+    let writable = true;
+    const h = harness({
+      canWrite: () => writable,
+      persist: (write) => {
+        h.log.push(`persist:${write.sourcePath}`);
+        // e.g. the view flips read-only during the subtree round
+        if (write.sourcePath === 'kid.md') writable = false;
+        return Promise.resolve();
+      },
+    });
+    const executor = createDragExecutor(h.deps);
+    const rounds: CascadeAnswers[] = [];
+
+    await executor.submit({
+      sourcePath: 'a.md',
+      snapshot: () => undefined,
+      plan: () => planOf({ writes: [writeOf('a.md', 1)] }),
+      cascade: {
+        plan: (_settlement, answers) => {
+          rounds.push(answers);
+          return cascadePlanOf({
+            resume: 'after-subtree',
+            writes: [writeOf('kid.md', 2)],
+          });
+        },
+      },
+    });
+
+    // Round 1 planned and wrote; the per-round gate stopped round 2 outright.
+    expect(rounds).toEqual([{}]);
+    expect(h.log).toEqual(['persist:a.md', 'persist:kid.md']);
   });
 });

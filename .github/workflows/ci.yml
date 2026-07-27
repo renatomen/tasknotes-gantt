@@ -45,6 +45,24 @@ jobs:
         # gain in by lowering the baseline. The per-file cognitive-complexity
         # ceilings in eslint.config.mjs are guarded the same way, downward-only.
         run: node scripts/check-size-ratchet.mjs
+      - name: Size ratchet vs the PR base (baselines may only go down)
+        # The working-tree ratchet above proves file counts match the checked-in
+        # baselines; this step closes the other door — a PR that RAISES a
+        # baseline (or deletes a ratcheted entry) to make room would still pass
+        # it, so compare the PR's baseline tables against the TARGET branch's
+        # copy of the script. New (added) entries are allowed; raised or removed
+        # ones fail. Comparison logic lives in check-size-ratchet.mjs
+        # (compareAgainstBase), unit-tested by checkSizeRatchet.test.ts.
+        shell: bash
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          if git show "origin/$BASE_REF:scripts/check-size-ratchet.mjs" > "$RUNNER_TEMP/base-check-size-ratchet.mjs" 2>/dev/null; then
+            node scripts/check-size-ratchet.mjs --against-base "$RUNNER_TEMP/base-check-size-ratchet.mjs"
+          else
+            echo "base ref has no check-size-ratchet.mjs yet — nothing to ratchet against."
+          fi
+        env:
+          BASE_REF: ${{ github.base_ref }}
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

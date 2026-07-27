@@ -1,8 +1,10 @@
 /**
  * Size ratchet: the legacy god-files may only shrink. Their line counts are
  * pinned here as checked-in baselines; a change that grows a file past its
- * baseline fails, and a shrinking PR updates the baseline DOWNWARD to lock the
- * gain in. The per-file cognitive-complexity ceilings in eslint.config.mjs are
+ * baseline fails, and a shrinking change FAILS TOO until it lowers the baseline
+ * to the new count — the lock is how the ratchet advances, so a stale baseline
+ * can never let a later change regrow the file back up to it. The per-file
+ * cognitive-complexity ceilings in eslint.config.mjs are
  * guarded the same way — a ceiling may only decrease, and no new per-file
  * ceiling entry may appear.
  *
@@ -44,14 +46,16 @@ export function countLines(text) {
 }
 
 /**
- * Check every ratcheted file against its baseline.
+ * Check every ratcheted file against its baseline. One-way lock: a count above
+ * the baseline is a violation, and a count BELOW it is a violation too — the
+ * author must lower LINE_BASELINES to the new count, so the shrink can never be
+ * silently regrown by a later change riding the stale headroom.
  * @param {Record<string, number>} baselines
  * @param {(path: string) => string} readFile
- * @returns {{violations: string[], improvements: string[]}}
+ * @returns {string[]} violations (empty = clean)
  */
 export function checkLineBaselines(baselines, readFile) {
   const violations = [];
-  const improvements = [];
   for (const [file, baseline] of Object.entries(baselines)) {
     const count = countLines(readFile(file));
     if (count > baseline) {
@@ -59,12 +63,12 @@ export function checkLineBaselines(baselines, readFile) {
         `${file}: ${count} lines exceeds the ratchet baseline of ${baseline} — this file may only shrink.`,
       );
     } else if (count < baseline) {
-      improvements.push(
-        `${file}: ${count} lines is below the baseline of ${baseline} — lock it in by lowering the baseline to ${count}.`,
+      violations.push(
+        `${file}: ${count} lines is below the baseline of ${baseline} — lock the gain in by lowering LINE_BASELINES in scripts/check-size-ratchet.mjs to ${count}.`,
       );
     }
   }
-  return { violations, improvements };
+  return violations;
 }
 
 /**
@@ -109,27 +113,92 @@ export function checkCeilingBaselines(ceilings, baselines) {
 }
 
 /**
+ * Pull a named baseline table (`export const NAME = {...};`) out of another
+ * revision's copy of this script. Entries are `"key": integer` pairs by
+ * construction; anything unrecognized is simply not an entry. Null when the
+ * table itself is missing.
+ * @param {string} source
+ * @param {string} name
+ * @returns {Record<string, number> | null}
+ */
+export function extractBaselineTable(source, name) {
+  const match = new RegExp(String.raw`export const ${name} = \{([\s\S]*?)\};`).exec(source);
+  if (!match) return null;
+  const table = {};
+  for (const entry of match[1].matchAll(/"([^"]+)":\s*(\d+)/g)) {
+    table[entry[1]] = Number(entry[2]);
+  }
+  return table;
+}
+
+/**
+ * Compare the working tree's baseline tables against the TARGET branch's copy
+ * of this script: a value may only stay or decrease, and an entry present on
+ * the base may not disappear — otherwise a PR could regrow a file simply by
+ * raising (or deleting) its baseline and pass the working-tree check. A NEW
+ * entry (a newly ratcheted file) is allowed.
+ * @param {string} baseSource  the base ref's check-size-ratchet.mjs source text
+ * @param {{lines?: Record<string, number>, ceilings?: Record<string, number>}} [current]
+ *   working-tree tables (injectable for tests; defaults to the real ones)
+ * @returns {string[]} violations (empty = clean)
+ */
+export function compareAgainstBase(baseSource, current = {}) {
+  const tables = {
+    LINE_BASELINES: current.lines ?? LINE_BASELINES,
+    CEILING_BASELINES: current.ceilings ?? CEILING_BASELINES,
+  };
+  const violations = [];
+  for (const [name, table] of Object.entries(tables)) {
+    const base = extractBaselineTable(baseSource, name);
+    if (!base) {
+      violations.push(`${name}: table not found in the base ref's script — refusing to compare.`);
+      continue;
+    }
+    for (const [key, baseValue] of Object.entries(base)) {
+      const value = table[key];
+      if (value === undefined) {
+        violations.push(
+          `${name}: the entry for [${key}] was removed — ratcheted entries may only be lowered, never dropped.`,
+        );
+      } else if (value > baseValue) {
+        violations.push(
+          `${name}: [${key}] rose from ${baseValue} to ${value} — baselines may only decrease.`,
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+/**
  * Run both ratchets against the working tree.
  * @param {{log?: Pick<Console, "log" | "error">}} [opts]
  * @returns {Promise<string[]>} violations (empty = clean)
  */
 export async function checkSizeRatchet({ log = console } = {}) {
-  const { violations, improvements } = checkLineBaselines(LINE_BASELINES, (file) =>
-    fs.readFileSync(file, "utf8"),
-  );
+  const violations = checkLineBaselines(LINE_BASELINES, (file) => fs.readFileSync(file, "utf8"));
   const config = (await import(pathToFileURL("eslint.config.mjs").href)).default;
   violations.push(...checkCeilingBaselines(extractComplexityCeilings(config), CEILING_BASELINES));
-  for (const improvement of improvements) log.log?.(improvement);
   if (violations.length) {
     for (const violation of violations) log.error?.(violation);
   } else {
-    log.log?.("size ratchet OK: ratcheted files at or below their baselines, ceilings unchanged.");
+    log.log?.("size ratchet OK: ratcheted files exactly at their baselines, ceilings unchanged.");
   }
   return violations;
 }
 
+/** CLI: default runs the working-tree ratchet; `--against-base <file>` compares
+ *  the baselines against the given base-ref copy of this script (CI's PR gate). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void checkSizeRatchet().then((violations) => {
+  const baseArg = process.argv.indexOf("--against-base");
+  if (baseArg !== -1) {
+    const violations = compareAgainstBase(fs.readFileSync(process.argv[baseArg + 1], "utf8"));
+    for (const violation of violations) console.error(violation);
     if (violations.length) process.exit(1);
-  });
+    console.log("baseline ratchet OK: no baseline rose and none was removed vs the base ref.");
+  } else {
+    void checkSizeRatchet().then((violations) => {
+      if (violations.length) process.exit(1);
+    });
+  }
 }

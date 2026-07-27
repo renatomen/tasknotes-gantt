@@ -1,18 +1,23 @@
 /**
  * The size ratchet's decision logic: a count above baseline fails, equal
- * passes, lower passes and reports the new baseline; the eslint complexity
- * ceilings are downward-only (a raised value or a new entry fails). The real
- * eslint config is checked against the real ceiling baselines here too, so a
- * ceiling edit fails the fast jest lane before CI's script step.
+ * passes, and lower FAILS TOO until the baseline is lowered to the new count —
+ * the one-way lock that stops a stale baseline from letting a later change
+ * regrow the file. The eslint complexity ceilings are downward-only (a raised
+ * value or a new entry fails). The real eslint config is checked against the
+ * real ceiling baselines here too, so a ceiling edit fails the fast jest lane
+ * before CI's script step.
  */
 import { describe, it, expect } from '@jest/globals';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import {
   CEILING_BASELINES,
   LINE_BASELINES,
   checkCeilingBaselines,
   checkLineBaselines,
+  compareAgainstBase,
   countLines,
+  extractBaselineTable,
   extractComplexityCeilings,
 } from '../../scripts/check-size-ratchet.mjs';
 
@@ -20,22 +25,24 @@ const fileOf = (lines: number): string => 'x\n'.repeat(lines);
 
 describe('checkLineBaselines', () => {
   it('fails a file above its baseline', () => {
-    const { violations } = checkLineBaselines({ 'a.ts': 10 }, () => fileOf(11));
+    const violations = checkLineBaselines({ 'a.ts': 10 }, () => fileOf(11));
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('11 lines exceeds the ratchet baseline of 10');
   });
 
-  it('passes a file exactly at its baseline, with nothing to report', () => {
-    const { violations, improvements } = checkLineBaselines({ 'a.ts': 10 }, () => fileOf(10));
-    expect(violations).toEqual([]);
-    expect(improvements).toEqual([]);
+  it('passes a file exactly at its baseline', () => {
+    expect(checkLineBaselines({ 'a.ts': 10 }, () => fileOf(10))).toEqual([]);
   });
 
-  it('passes a file below its baseline and reports the new baseline to lock in', () => {
-    const { violations, improvements } = checkLineBaselines({ 'a.ts': 10 }, () => fileOf(7));
-    expect(violations).toEqual([]);
-    expect(improvements).toHaveLength(1);
-    expect(improvements[0]).toContain('lowering the baseline to 7');
+  it('FAILS a file below its baseline, demanding the new lower count be locked in', () => {
+    const violations = checkLineBaselines({ 'a.ts': 10 }, () => fileOf(7));
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('below the baseline of 10');
+    expect(violations[0]).toContain('lowering LINE_BASELINES in scripts/check-size-ratchet.mjs to 7');
+  });
+
+  it('passes again once the baseline is lowered to the new count', () => {
+    expect(checkLineBaselines({ 'a.ts': 7 }, () => fileOf(7))).toEqual([]);
   });
 
   it('counts wc -l style: a trailing newline starts no new line', () => {
@@ -78,6 +85,82 @@ describe('extractComplexityCeilings', () => {
       { files: ['test/__mocks__/obsidian.ts'], rules: { 'sonarjs/cognitive-complexity': ['error', 24] } },
     ]);
     expect(checkCeilingBaselines(raised, CEILING_BASELINES)).toHaveLength(1);
+  });
+});
+
+/** A base-ref script in the real file's shape, carrying the given tables. */
+function baseSourceOf(
+  lines: Record<string, number>,
+  ceilings: Record<string, number> = {},
+): string {
+  const table = (entries: Record<string, number>): string =>
+    Object.entries(entries)
+      .map(([key, value]) => `  "${key}": ${value},`)
+      .join('\n');
+  return [
+    'export const LINE_BASELINES = {',
+    table(lines),
+    '};',
+    'export const CEILING_BASELINES = {',
+    table(ceilings),
+    '};',
+  ].join('\n');
+}
+
+describe('compareAgainstBase (CI: baselines vs the TARGET branch)', () => {
+  const current = { lines: { 'a.ts': 100 }, ceilings: { '**/*.ts': 15 } };
+
+  it('fails a RAISED baseline against the base ref', () => {
+    const violations = compareAgainstBase(baseSourceOf({ 'a.ts': 90 }, { '**/*.ts': 15 }), current);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('[a.ts] rose from 90 to 100');
+  });
+
+  it('passes a lowered baseline', () => {
+    expect(
+      compareAgainstBase(baseSourceOf({ 'a.ts': 110 }, { '**/*.ts': 15 }), current),
+    ).toEqual([]);
+  });
+
+  it('fails a REMOVED entry — a ratcheted file may not leave the table', () => {
+    const violations = compareAgainstBase(
+      baseSourceOf({ 'a.ts': 100, 'gone.ts': 40 }, { '**/*.ts': 15 }),
+      current,
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('[gone.ts] was removed');
+  });
+
+  it('passes an ADDED entry — newly ratcheted files are welcome', () => {
+    expect(
+      compareAgainstBase(baseSourceOf({ 'a.ts': 100 }, { '**/*.ts': 15 }), {
+        lines: { 'a.ts': 100, 'new.ts': 50 },
+        ceilings: { '**/*.ts': 15 },
+      }),
+    ).toEqual([]);
+  });
+
+  it('guards ceilings the same way: a raised ceiling fails', () => {
+    const violations = compareAgainstBase(
+      baseSourceOf({ 'a.ts': 100 }, { '**/*.ts': 14 }),
+      current,
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('[**/*.ts] rose from 14 to 15');
+  });
+
+  it('refuses to compare when a table is missing from the base source', () => {
+    const violations = compareAgainstBase('// not the script', current);
+    expect(violations).toHaveLength(2);
+    expect(violations[0]).toContain('not found');
+  });
+
+  it('extracts the REAL script\'s own tables verbatim (the format the regex must keep matching)', () => {
+    const source = readFileSync('scripts/check-size-ratchet.mjs', 'utf8');
+    expect(extractBaselineTable(source, 'LINE_BASELINES')).toEqual(LINE_BASELINES);
+    expect(extractBaselineTable(source, 'CEILING_BASELINES')).toEqual(CEILING_BASELINES);
+    // And a self-comparison is clean by definition.
+    expect(compareAgainstBase(source)).toEqual([]);
   });
 });
 

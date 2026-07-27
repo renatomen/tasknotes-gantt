@@ -18,7 +18,7 @@
   } from './themeResolver';
   import type { TaskPatch } from '../datasource/types';
   import type { GanttData } from './types/gantt-view-data';
-  import type { RenderInstance, RenderLink } from '../controller/InstanceExpansion';
+  import type { RenderLink } from '../controller/InstanceExpansion';
   import { buildTreatmentStyle } from './barTreatment';
   import { nextInstanceScopeClass } from './instanceScope';
   import { buildMarkerOverlay } from './markerOverlay';
@@ -26,7 +26,7 @@
   import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
-  import { setContext, tick } from 'svelte';
+  import { onDestroy, setContext, tick } from 'svelte';
   import {
     GRID_APP_CONTEXT_KEY,
     GRID_DATE_LOCALE_CONTEXT_KEY,
@@ -42,6 +42,7 @@
     planLinkSync,
     planReorder,
     baseSortDescriptor,
+    echoTaskPatch,
     shouldBulkReseed,
     structuralOpCount,
     type SvarTask,
@@ -1258,6 +1259,11 @@
 
   let api: GanttAPI = $state();
 
+  // Bumped when the SVAR api re-binds (initGantt) and on teardown; the drag
+  // executor gates in-flight work on it, so stale executions abandon cleanly.
+  let hostGeneration = 0;
+  onDestroy(() => void (hostGeneration += 1));
+
   // ── Viewport height (plan 003 U2) ───────────────────────────────────────
   // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
   // SVAR's own height inputs from its reactive store — the collapse-aware
@@ -1734,6 +1740,8 @@
 
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
+    // A re-bound api is a new host world: retire in-flight executor work.
+    if (api && api !== ganttApi) hostGeneration += 1;
     api = ganttApi;
     wireColumnResizePersistence(ganttApi);
     wireGridWidthPersistence(ganttApi);
@@ -1968,11 +1976,6 @@
           setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
           return true;
         }
-        // ONE pre-drag capture (instances is still the pre-drag snapshot now)
-        // spans the whole gesture: the plan, any prompt re-plan, and the
-        // resumed cascade all read it, so a data refresh landing mid-modal
-        // cannot skew the plan or its revert baselines.
-        const snapshot = instances;
         const beforeFacts = {
           start: before?.start ?? null,
           end: before?.end ?? null,
@@ -1981,10 +1984,7 @@
         };
         const name = before?.text ?? 'this task';
         // Deferred one tick so the SVAR store holds the committed post-drag span.
-        setTimeout(
-          () => submitBarGesture({ instanceId: id, name, before: beforeFacts, snapshot }),
-          0,
-        );
+        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts }), 0);
       }
       return true;
     });
@@ -2070,6 +2070,7 @@
   const dragExecutor = createDragExecutor({
     canWrite: () => !readOnly && !!onMutate && !!api,
     isLive: () => !!api,
+    generation: () => hostGeneration,
     persist: (write) =>
       onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
     echo: echoSourceGeometry,
@@ -2139,8 +2140,9 @@
   /**
    * Submit a committed bar drag/resize as one planned, executor-run gesture,
    * cascade included. The authoritative post-drag span comes from the SVAR
-   * store (the event payload is heterogeneous — diff-only on some gestures);
-   * every other fact comes from the intercept's pre-drag capture.
+   * store (the event payload is heterogeneous — diff-only on some gestures),
+   * `before` from the intercept's pre-drag capture; every OTHER planning fact
+   * comes from the `instances` snapshot the executor captures at dequeue.
    */
   function submitBarGesture(args: {
     instanceId: string;
@@ -2151,9 +2153,8 @@
       dateStatus: DateStatus | null;
       estimateMinutes: number | null;
     };
-    snapshot: RenderInstance[];
   }): void {
-    const { instanceId, name, before, snapshot } = args;
+    const { instanceId, name, before } = args;
     if (!api) return;
     const moved = api.getState().tasks.byId(instanceId);
     if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
@@ -2164,20 +2165,20 @@
       before,
       after,
       estimateWritable: timeEstimateWriteEnabled && !readOnly,
-      // Read at gesture time, not from the (snapshot) view data: a persisted
-      // "don't ask again" choice is synchronously readable, so it applies from
-      // the very next drag, ahead of the refresh carrying the new snapshot.
+      // Read at gesture time: a persisted "don't ask again" choice is
+      // synchronously readable, so it applies from the very next drag.
       inferredDragMode: $data.getInferredDragMode(),
     };
     void dragExecutor.submit({
-      sourcePath: snapshot.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
-      plan: (choice) => planGestureCommit(gesture, snapshot, choice, plannerDerivation()),
+      sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
+      snapshot: () => instances,
+      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation()),
       onFailure: (err) => {
         console.error('[GanttContainer] reschedule persist failed:', err);
         new Notice("Couldn't save date change — check TaskNotes is running.");
       },
       cascade: {
-        plan: (settlement, answers) =>
+        plan: (settlement, answers, snapshot) =>
           planCascade(
             { instanceId, name, before, after, settlement },
             snapshot,
@@ -2201,14 +2202,12 @@
     };
   }
 
-  /** The sole executor echo emitter: planned rows re-enter SVAR tagged as our own. */
+  /** The sole executor echo emitter: rows re-enter SVAR tagged as our own,
+   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end. */
   function echoSourceGeometry(echoes: SourceEchoes): void {
     if (!api) return;
     for (const row of echoes.rows) {
-      const task =
-        row.payload.kind === 'progress'
-          ? { progress: row.payload.progress }
-          : { start: row.payload.geometry.start, end: row.payload.geometry.end };
+      const task = echoTaskPatch(row.payload, api.getTask?.(row.instanceId)?.custom);
       api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
     }
   }
@@ -2239,7 +2238,8 @@
     const gesture: CommitGesture = { kind: 'progress', instanceId, progress, beforeProgress };
     return dragExecutor.submit({
       sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
-      plan: (choice) => planGestureCommit(gesture, instances, choice, plannerDerivation()),
+      snapshot: () => instances,
+      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation()),
       onFailure: (err) => {
         console.error('[GanttContainer] progress persist failed:', err);
         new Notice("Couldn't save progress — check TaskNotes is running.");

@@ -15,6 +15,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildSvarTasks,
   buildTreatmentTaskTypes,
+  echoTaskPatch,
   crossGroupClassPairs,
   planTaskSync,
   planLinkSync,
@@ -1026,5 +1027,55 @@ describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () =>
   it('structuralOpCount sums task adds+deletes+moves and link adds+deletes, excluding updates', () => {
     expect(structuralOpCount(plan({}), linkPlan({}))).toBe(0);
     expect(structuralOpCount(plan({ adds: 3, deletes: 2, moves: 1, updates: 99 }), linkPlan({ adds: 4, deletes: 5 }))).toBe(15);
+  });
+});
+
+describe('echoTaskPatch', () => {
+  const geometryPayload = (ghostRuns: Array<{ startDate: string; days: number }>) =>
+    ({
+      kind: 'geometry',
+      geometry: {
+        start: new Date(2026, 0, 5),
+        end: new Date(2026, 0, 9),
+        flagged: false,
+        ghostRuns,
+      },
+    }) as const;
+
+  const customOf = (over: Partial<RenderInstance> = {}): SvarTask['custom'] =>
+    buildSvarTasks(inputs({ instances: [inst({ id: 'a', ...over })] }))[0]!.custom;
+
+  it('maps a progress echo to a progress-only patch', () => {
+    expect(echoTaskPatch({ kind: 'progress', progress: 40 }, customOf())).toEqual({
+      progress: 40,
+    });
+  });
+
+  it('carries the full geometry: start/end AND custom.ghostRuns, preserving the rest of the custom record', () => {
+    const current = customOf({ ghostRuns: [{ startDate: '2026-01-02', days: 1 }] });
+    const runs = [{ startDate: '2026-01-07', days: 2 }];
+
+    const patch = echoTaskPatch(geometryPayload(runs), current);
+
+    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9) });
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.ghostRuns).toEqual(runs);
+    // Everything else in the row's custom record rides along untouched.
+    expect(custom).toMatchObject({ ...current, ghostRuns: runs });
+  });
+
+  it('clears stale ghost runs: an empty derived run list echoes as undefined, matching buildSvarTasks', () => {
+    const current = customOf({ ghostRuns: [{ startDate: '2026-01-02', days: 1 }] });
+
+    const patch = echoTaskPatch(geometryPayload([]), current);
+
+    expect((patch as { custom: SvarTask['custom'] }).custom.ghostRuns).toBeUndefined();
+  });
+
+  it('stays span-only when the row has no current custom record to advance', () => {
+    expect(echoTaskPatch(geometryPayload([{ startDate: '2026-01-07', days: 2 }]), undefined)).toEqual({
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 9),
+    });
   });
 });

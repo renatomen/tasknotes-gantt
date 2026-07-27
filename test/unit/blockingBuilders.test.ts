@@ -46,6 +46,8 @@ interface Harness {
   buildTaskBlocking: ControllerInternals['buildTaskBlocking'];
   /** Count of full vault walks (getMarkdownFiles calls). */
   vaultWalks(): number;
+  /** Count of marked-calendar-notes collections the controller asked for. */
+  markedNoteCollections(): number;
   setEpoch(epoch: number): void;
 }
 
@@ -158,6 +160,7 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
   const internals = view as unknown as ViewInternals;
   const watched = view as unknown as { calendarWatch: { epoch(): number } | null };
   const source = new StubSource(tasks);
+  let markedNoteCollections = 0;
   const controller = new GanttController({
     app,
     basesInput: () => ({ entries: [], mappings: internals.buildFieldMappings() }),
@@ -165,7 +168,10 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
     derivationInputs: {
       effectiveMappings: () => internals.getEffectiveMappings(),
       calendarEpoch: () => watched.calendarWatch?.epoch() ?? 0,
-      markedCalendarNotes: () => internals.collectMarkedCalendarNotes(),
+      markedCalendarNotes: () => {
+        markedNoteCollections += 1;
+        return internals.collectMarkedCalendarNotes();
+      },
     },
     now: () => new Date(2026, 3, 8), // Wed 2026-04-08
     deps: {
@@ -178,6 +184,7 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
     buildTaskBlocking: (tasksArg, opts) =>
       (controller as unknown as ControllerInternals).buildTaskBlocking(tasksArg, opts),
     vaultWalks,
+    markedNoteCollections: () => markedNoteCollections,
     setEpoch: (epoch: number) => {
       watched.calendarWatch = { epoch: () => epoch };
     },
@@ -330,6 +337,42 @@ describe('buildDeriveSpan (write-side re-derivation projection)', () => {
     const projected = flat.controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2026, 3, 10), 3 * 1440);
     expect(iso(projected.start)).toBe('2026-04-10');
     expect(iso(projected.end)).toBe('2026-04-12'); // 3 plain calendar days, no stretch
+  });
+});
+
+describe('write-path calendar-seam short-circuit (no seam → no blocking assembly)', () => {
+  // Fri 2026-04-10 .. Tue 2026-04-14 (spans the weekend the fixture calendar blocks).
+  const span = { start: new Date(2026, 3, 10), end: new Date(2026, 3, 14) };
+
+  it('a calendar-days + shaded task answers both builders without collecting marked notes', () => {
+    const { controller, markedNoteCollections, vaultWalks } = makeHarness();
+    const derived = controller.buildDeriveEstimate()('Tasks/T.md', span);
+    expect(derived.days).toBeNull();
+    expect(iso(derived.start)).toBe('2026-04-10');
+    expect(iso(derived.end)).toBe('2026-04-14');
+    expect(derived.ghostRuns).toEqual([]);
+    const projected = controller.buildDeriveSpan()('Tasks/T.md', 'end', new Date(2026, 3, 10), 3 * 1440);
+    expect(iso(projected.end)).toBe('2026-04-12'); // 3 plain calendar days
+    expect(markedNoteCollections()).toBe(0);
+    expect(vaultWalks()).toBe(0);
+  });
+
+  it('a working-days task still assembles blocking facts', () => {
+    const { controller, markedNoteCollections } = makeHarness({
+      tngantt_estimateMeaning: 'working-days',
+    });
+    expect(controller.buildDeriveEstimate()('Tasks/T.md', span).days).toBe(3);
+    expect(markedNoteCollections()).toBeGreaterThan(0);
+  });
+
+  it('a calendar-days + SPLIT task still gets ghost runs — the seam engages for rendering', () => {
+    const { controller, markedNoteCollections } = makeHarness({
+      tngantt_nonWorkingRendering: 'split',
+    });
+    const derived = controller.buildDeriveEstimate()('Tasks/T.md', span);
+    expect(derived.days).toBeNull(); // calendar-days: the plain span stays the record
+    expect(derived.ghostRuns.length).toBeGreaterThan(0); // Sat+Sun inside the span
+    expect(markedNoteCollections()).toBeGreaterThan(0);
   });
 });
 
