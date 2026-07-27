@@ -31,6 +31,7 @@ import {
   planCascade,
   verifyMirrorCoverage,
   isEmptyPlan,
+  emptyPlan,
   type CascadeChoices,
   type CascadeOutcome,
   type CommitGesture,
@@ -415,16 +416,27 @@ function assertProgressRow(combo: Combo, flow: Flow): void {
   expect(flow.cascades.every(isEmptyPlan)).toBe(true);
 }
 
+function assertWriteAsTodayShape(
+  combo: Combo,
+  flow: Flow,
+  patch: Plan['writes'][number]['patch'] | undefined,
+): void {
+  expect(patch?.start).toBeDefined();
+  expect(patch?.end).toBeDefined();
+  // R10: a move keeps the 4-day count — the estimate write is suppressed.
+  if (combo.gesture === 'move' || combo.gesture === 'none') expect(patch?.estimate).toBeUndefined();
+  else expect(patch?.estimate).toBeDefined();
+  // A failed plain main persist settles aborted — never a cascading plain.
+  const mainFailed = combo.persist === 'failure' && failureClassOf(combo)?.startsWith('main');
+  expect(flow.settlement.kind).toBe(mainFailed ? 'aborted' : 'plain');
+}
+
 function assertCommittedShape(combo: Combo, flow: Flow, fixture: Fixture): void {
   const plan = flow.committed;
   const patch = plan.writes[0]?.patch;
   switch (combo.outcome) {
     case 'write-as-today': {
-      expect(patch?.start).toBeDefined();
-      expect(patch?.end).toBeDefined();
-      // R10: a move keeps the 4-day count — the estimate write is suppressed.
-      if (combo.gesture === 'move' || combo.gesture === 'none') expect(patch?.estimate).toBeUndefined();
-      else expect(patch?.estimate).toBeDefined();
+      assertWriteAsTodayShape(combo, flow, patch);
       break;
     }
     case 'prompt-cancel': {
@@ -476,9 +488,20 @@ function assertSubtreeCascade(combo: Combo, flow: Flow, fixture: Fixture): void 
     expect(echo.rows).toHaveLength(datedOf(fixture, echo.sourcePath));
   }
   if (combo.persist === 'failure') {
-    // Per-source reverts restore each shifted instance's own snapshot.
+    // Per-source reverts restore each instance's own PRE-DRAG snapshot — the
+    // payload values are the snapshot dates, never the shifted span.
+    expect(first.reverts.length).toBeGreaterThan(0);
     for (const revert of first.reverts) {
-      expect(revert.rows).toHaveLength(datedOf(fixture, revert.sourcePath));
+      const snapshots = fixture.instances.filter((i) => i.sourcePath === revert.sourcePath);
+      expect(revert.rows).toEqual(
+        snapshots.map((i) => ({
+          instanceId: i.id,
+          payload: {
+            kind: 'geometry',
+            geometry: { start: i.start, end: i.end, flagged: false, ghostRuns: [] },
+          },
+        })),
+      );
     }
   }
   expect(flow.cascades.slice(1).every(isEmptyPlan)).toBe(true); // wide/no ancestors
@@ -867,6 +890,157 @@ describe('named rows', () => {
       kind: 'geometry',
       geometry: { start: landed.start, end: landed.end, flagged: false, ghostRuns: [] },
     });
+  });
+
+  it('a parent pure-move whose main persist FAILS cascades nothing: the aborted settlement yields the empty plan', () => {
+    const fixture = buildFixture('parent', 1);
+    const combo: Combo = { outcome: 'write-as-today', gesture: 'move', instances: 1, role: 'parent', mode: 'auto', persist: 'failure' };
+    const { committed } = resolveCommitted(combo, fixture, derivation());
+    expect(committed.settlement.onFailure.kind).toBe('aborted');
+    const cascade = planCascade(
+      cascadeOutcomeFor(combo, fixture, committed.settlement.onFailure),
+      fixture.instances,
+      { cascadeMode: 'auto' },
+      derivation(),
+    );
+    expect(isEmptyPlan(cascade)).toBe(true);
+  });
+
+  it('a progress echo row never satisfies geometry mirror coverage', () => {
+    const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
+    const plan = {
+      ...emptyPlan(),
+      writes: [{ sourcePath: T, instanceId: T, patch: { start: day('2026-08-10'), end: dayEnd('2026-08-13') } }],
+      echoes: [{ sourcePath: T, rows: [{ instanceId: T, payload: { kind: 'progress' as const, progress: 10 } }] }],
+    };
+    expect(verifyMirrorCoverage(plan, instances)).toEqual([
+      `${T}: instance ${T} lacks a geometry echo`,
+    ]);
+  });
+
+  it('progress-by-design on a geometry patch is a coverage violation, not an exemption', () => {
+    const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
+    const plan = {
+      ...emptyPlan(),
+      writes: [{
+        sourcePath: T,
+        instanceId: T,
+        patch: { start: day('2026-08-10'), end: dayEnd('2026-08-13') },
+        unmirrored: 'progress-by-design' as const,
+      }],
+    };
+    expect(verifyMirrorCoverage(plan, instances)).toEqual([
+      `${T}: progress-by-design cannot exempt a geometry write`,
+    ]);
+  });
+
+  it('ancestor-extend-refresh-only on a progress patch is a coverage violation', () => {
+    const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
+    const plan = {
+      ...emptyPlan(),
+      writes: [{
+        sourcePath: T,
+        instanceId: T,
+        patch: { progress: 40 },
+        unmirrored: 'ancestor-extend-refresh-only' as const,
+      }],
+    };
+    expect(verifyMirrorCoverage(plan, instances)).toEqual([
+      `${T}: ancestor-extend-refresh-only cannot mark a progress write`,
+    ]);
+  });
+
+  it('mixed subtree persistence: the failed source reverts to snapshot; the persisted shift still drives the extend re-plan', () => {
+    // C1 and C2 each have a second placement under an alternate parent (W1/W2)
+    // that does NOT move with T — the persisted child's shift must extend ITS
+    // alternate parent; the failed child's must not.
+    const fixture: Fixture = {
+      instances: [
+        inst(T, T, '2026-08-03', '2026-08-06'),
+        inst('C1#t', C1, '2026-08-03', '2026-08-04', T),
+        inst('C2#t', C2, '2026-08-05', '2026-08-06', T),
+        inst('W1', 'notes/W1.md', '2026-08-01', '2026-08-08'),
+        inst('C1#w', C1, '2026-08-03', '2026-08-04', 'W1'),
+        inst('W2', 'notes/W2.md', '2026-08-01', '2026-08-08'),
+        inst('C2#w', C2, '2026-08-05', '2026-08-06', 'W2'),
+      ],
+      draggedId: T,
+    };
+    const outcome: CascadeOutcome = {
+      instanceId: T,
+      name: T,
+      before: { start: BEFORE.start, end: BEFORE.end, estimateMinutes: STORED_ESTIMATE },
+      after: { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) },
+      settlement: { kind: 'plain' },
+    };
+    const first = planCascade(outcome, fixture.instances, { cascadeMode: 'auto' }, derivation());
+    expect(first.resume).toBe('after-subtree');
+    expect(first.writes.map((w) => w.sourcePath).sort()).toEqual([C1, C2]);
+    // The failed source's carried revert restores BOTH its placements to snapshot.
+    const c2Revert = first.reverts.find((r) => r.sourcePath === C2);
+    expect(c2Revert?.rows).toEqual([
+      { instanceId: 'C2#t', payload: { kind: 'geometry', geometry: { start: day('2026-08-05'), end: dayEnd('2026-08-06'), flagged: false, ghostRuns: [] } } },
+      { instanceId: 'C2#w', payload: { kind: 'geometry', geometry: { start: day('2026-08-05'), end: dayEnd('2026-08-06'), flagged: false, ghostRuns: [] } } },
+    ]);
+    // Resume with only C1 persisted: W1 (C1's alternate parent) is extended; W2 is not.
+    const second = planCascade(
+      outcome,
+      fixture.instances,
+      { cascadeMode: 'auto', persistedSubtreeSources: [C1] },
+      derivation(),
+    );
+    expect(second.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
+    expect(second.writes[0]?.unmirrored).toBe('ancestor-extend-refresh-only');
+    expect(second.writes[0]?.patch.end).toEqual(addDays(dayEnd('2026-08-04'), 7));
+  });
+
+  it('an estimate-only outcome whose derived day-count matches the stored estimate writes nothing, still echoes and settles inferred', () => {
+    const instances = [
+      inst('P1', 'notes/P1.md', '2026-08-07', '2026-08-07'),
+      inst('T#p1', T, '2026-08-07', '2026-08-07', 'P1'),
+    ];
+    // The derived span deliberately differs from the optimistic drag (ends 08-10,
+    // not 08-09) so the cascade seeding is provably the DERIVED span.
+    const derivedGeom = {
+      start: day('2026-08-07'),
+      end: dayEnd('2026-08-10'),
+      flagged: false,
+      ghostRuns: [{ startDate: '2026-08-08', days: 2 }],
+    };
+    const deriv: PlannerDerivation = { ...weekendDerivation(), deriveSpan: () => derivedGeom };
+    const gesture: CommitGesture = {
+      kind: 'bar',
+      instanceId: 'T#p1',
+      // Fri, 1 working day, 90-minute estimate; resized over the weekend keeps 1 working day.
+      before: { start: day('2026-08-07'), end: dayEnd('2026-08-07'), dateStatus: 'inferred-end', estimateMinutes: 90 },
+      after: { start: day('2026-08-07'), end: dayEnd('2026-08-09') },
+      estimateWritable: true,
+      inferredDragMode: 'ask',
+    };
+    const plan = planGestureCommit(gesture, instances, { action: 'estimate-only' }, deriv);
+    expect(plan.writes).toEqual([]);
+    expect(plan.reverts).toEqual([]);
+    expect(plan.echoes[0]?.rows).toEqual([
+      { instanceId: 'T#p1', payload: { kind: 'geometry', geometry: derivedGeom } },
+    ]);
+    expect(plan.settlement.onSuccess.kind).toBe('inferred');
+    // The cascade still runs estimate-only seeding: the DERIVED end (08-10, past
+    // the optimistic 08-09) is what exceeds P1 and sizes its extension.
+    const cascade = planCascade(
+      {
+        instanceId: 'T#p1',
+        name: T,
+        before: { start: day('2026-08-07'), end: dayEnd('2026-08-07'), estimateMinutes: 90 },
+        after: gesture.after,
+        settlement: plan.settlement.onSuccess,
+      },
+      instances,
+      { cascadeMode: 'auto' },
+      deriv,
+    );
+    expect(cascade.writes.map((w) => w.sourcePath)).toEqual(['notes/P1.md']);
+    expect(cascade.writes[0]?.unmirrored).toBe('ancestor-extend-refresh-only');
+    expect(cascade.writes[0]?.patch.end).toEqual(dayEnd('2026-08-10'));
   });
 
   it('echoes carry the authority\'s FULL geometry — flag and ghost runs included', () => {

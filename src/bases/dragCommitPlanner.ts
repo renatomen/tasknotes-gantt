@@ -21,7 +21,9 @@
  * (executor must report subtree persist results and re-plan) — never an await.
  * The estimate field is written only when the derived working-day count
  * differs from the stored estimate's day-count, so a sub-day estimate
- * survives a drag that keeps that count unchanged.
+ * survives a drag that keeps that count unchanged. Any failed main persist —
+ * plain or gated — settles the gesture as aborted, so the cascade never shifts
+ * children under a parent whose own write was reverted.
  *
  * Dependency-free (no Obsidian/Svelte/SVAR), mirroring {@link ./cascadeGate}.
  *
@@ -248,6 +250,7 @@ function planDefaultCommit(
       reverts: [restoreEchoes(sourcePath, instances)],
     },
     PLAIN,
+    ABORTED,
   );
 }
 

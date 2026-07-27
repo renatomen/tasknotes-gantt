@@ -190,9 +190,11 @@ export interface GesturePlan extends Plan {
 export type GestureChoice = { action: InferredDragAction } | null | undefined;
 
 /**
- * The mirror invariant: every geometry write either has an echo covering ALL
- * dated instances of its source, or carries an explicit unmirrored marker.
- * Returns human-readable violations (empty = the plan is covered).
+ * The mirror invariant: every geometry write either has a GEOMETRY echo
+ * covering ALL dated instances of its source, or carries the unmirrored marker
+ * legitimate for its patch shape (progress-by-design marks progress patches;
+ * ancestor-extend-refresh-only marks geometry patches). Returns human-readable
+ * violations (empty = the plan is covered).
  */
 export function verifyMirrorCoverage(
   plan: Plan,
@@ -200,10 +202,17 @@ export function verifyMirrorCoverage(
 ): string[] {
   const violations: string[] = [];
   for (const write of plan.writes) {
+    const marker = unmirroredMarkerViolation(write);
+    if (marker) {
+      violations.push(marker);
+      continue;
+    }
     if (write.patch.start === undefined && write.patch.end === undefined) continue;
     if (write.unmirrored) continue;
     const echo = plan.echoes.find((e) => e.sourcePath === write.sourcePath);
-    const covered = new Set(echo?.rows.map((r) => r.instanceId) ?? []);
+    const covered = new Set(
+      echo?.rows.filter((r) => r.payload.kind === 'geometry').map((r) => r.instanceId) ?? [],
+    );
     for (const inst of datedInstancesOf(instances, write.sourcePath)) {
       if (!covered.has(inst.id)) {
         violations.push(`${write.sourcePath}: instance ${inst.id} lacks a geometry echo`);
@@ -211,6 +220,18 @@ export function verifyMirrorCoverage(
     }
   }
   return violations;
+}
+
+/** A marker on the wrong patch shape never exempts the write — it is a violation. */
+function unmirroredMarkerViolation(write: PlannedWrite): string | null {
+  const hasGeometry = write.patch.start !== undefined || write.patch.end !== undefined;
+  if (write.unmirrored === 'progress-by-design' && hasGeometry) {
+    return `${write.sourcePath}: progress-by-design cannot exempt a geometry write`;
+  }
+  if (write.unmirrored === 'ancestor-extend-refresh-only' && write.patch.progress !== undefined) {
+    return `${write.sourcePath}: ancestor-extend-refresh-only cannot mark a progress write`;
+  }
+  return null;
 }
 
 /** The dragged instance's source, falling back to the id (root ids ARE their sourcePath). */
@@ -221,6 +242,12 @@ export function sourcePathOf(
   return instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId;
 }
 
+/**
+ * Every rendered row is dated by construction — the controller's date policy
+ * resolves even a date-less task to a placeholder span before expansion — so
+ * this filter is a type-narrowing guard, not row selection: echo coverage over
+ * dated instances IS full sibling coverage.
+ */
 export function datedInstancesOf(
   instances: ReadonlyArray<PlannerInstance>,
   sourcePath: string,
