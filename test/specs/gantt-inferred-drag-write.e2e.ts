@@ -545,4 +545,28 @@ describe("Gantt (OG) inferred-date drag writes", () => {
       },
     );
   });
+
+  it("persists the working-day estimate and authors no date for an estimate-only seam drag", async () => {
+    await switchBase("InferredDragSeam.base", ["Seam Only.md", "Blocked Parent.md", "Blocked Child.md"]);
+    // Mon 05-04 + 2 working days → the bar ends Tue 05-05.
+    await waitForBar("Seam Only.md");
+    await dragEndEdge("Seam Only.md", 5);
+    await waitForPrompt(lastDragged);
+    await chooseAction("Estimate only");
+
+    // Dragging the end 5 days out spans Mon..Sun — 5 working days, since Sat and
+    // Sun carry no work. The persisted estimate must be those 5 working days, not
+    // the 7 calendar days just drawn.
+    await browser.waitUntil(
+      async () => /timeEstimate:\s*7200/.test(await readNote("Seam Only.md")),
+      {
+        timeout: 20000,
+        timeoutMsg: async () =>
+          `the working-day estimate was not saved — note is now: ${await readNote("Seam Only.md")}`,
+      },
+    );
+    expect(await readNote("Seam Only.md")).toMatch(/timeEstimate:\s*7200/);
+    // And no date was authored — the edge stays derived.
+    expect(await readNote("Seam Only.md")).not.toMatch(/due:/);
+  });
 });
