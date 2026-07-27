@@ -906,6 +906,17 @@ describe('named rows', () => {
     expect(isEmptyPlan(cascade)).toBe(true);
   });
 
+  it('neither unmirrored marker can exempt an estimate-only write', () => {
+    const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
+    for (const unmirrored of ['progress-by-design', 'ancestor-extend-refresh-only'] as const) {
+      const plan = {
+        ...emptyPlan(),
+        writes: [{ sourcePath: T, instanceId: T, patch: { estimate: 7200 }, unmirrored }],
+      };
+      expect(verifyMirrorCoverage(plan, instances)).toHaveLength(1);
+    }
+  });
+
   it('an estimate-only write demands geometry coverage like a date write', () => {
     const instances = [inst(T, T, '2026-08-03', '2026-08-06')];
     const plan = {

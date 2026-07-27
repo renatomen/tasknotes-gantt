@@ -236,12 +236,19 @@ export function verifyMirrorCoverage(
 
 /** A marker on the wrong patch shape never exempts the write — it is a violation. */
 function unmirroredMarkerViolation(write: PlannedWrite): string | null {
-  const hasGeometry = write.patch.start !== undefined || write.patch.end !== undefined;
+  // An estimate write moves a derived edge, so it counts as geometry here too.
+  const hasGeometry =
+    write.patch.start !== undefined ||
+    write.patch.end !== undefined ||
+    write.patch.estimate !== undefined;
   if (write.unmirrored === 'progress-by-design' && hasGeometry) {
     return `${write.sourcePath}: progress-by-design cannot exempt a geometry write`;
   }
-  if (write.unmirrored === 'ancestor-extend-refresh-only' && write.patch.progress !== undefined) {
-    return `${write.sourcePath}: ancestor-extend-refresh-only cannot mark a progress write`;
+  if (
+    write.unmirrored === 'ancestor-extend-refresh-only' &&
+    (write.patch.progress !== undefined || write.patch.estimate !== undefined)
+  ) {
+    return `${write.sourcePath}: ancestor-extend-refresh-only marks date-only extensions`;
   }
   return null;
 }
