@@ -1505,7 +1505,7 @@ export class GanttController {
    * re-notify carrying unchanged data does not re-render (fixes the in-place
    * refresh loop where each render re-triggered Bases' notify — #161).
    */
-  private async recompute(opts: { reuseTasks?: boolean } = {}): Promise<void> {
+  private async recompute(opts: { reuseTasks?: boolean; retriedRead?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -1518,6 +1518,9 @@ export class GanttController {
     // facts from the vault. Only such re-reads move the generation counters.
     const willReadTaskFacts =
       source !== null && !((opts.reuseTasks ?? false) && this.cachedRawTasks !== null);
+    // Each externally-triggered genuine read restores the retry budget;
+    // retries never restore their own, so no supersession pattern self-feeds.
+    if (willReadTaskFacts && !opts.retriedRead) this.consecutiveReadRetries = 0;
     const readSeq = willReadTaskFacts ? ++this.readStartedSeq : null;
     const next: Snapshot = source
       ? await this.buildSnapshot(source, !willReadTaskFacts)
@@ -1526,11 +1529,11 @@ export class GanttController {
     if (this.disposed || seq !== this.recomputeSeq) {
       // A genuine read superseded by config-only recomputes would leave
       // `delivered` forever behind `started`, pinning settled-fact overlays
-      // past their vault truth. Retry unless a newer genuine read will
-      // deliver — but only once per delivery: a read slower than the Bases
-      // refresh debounce would otherwise straddle its own poke's config-only
-      // notify and self-feed forever. After a spent budget the next genuine
-      // notify reconverges the counters; until then overlays merely persist.
+      // past their vault truth. Retry — but at most once per external
+      // genuine read: a read slower than the Bases refresh debounce would
+      // otherwise straddle its own poke's config-only notify and self-feed
+      // forever. A spent budget leaves `delivered` trailing, which only
+      // prolongs overlay retention, never drops it early.
       const shouldRetry =
         readSeq !== null &&
         !this.disposed &&
@@ -1538,7 +1541,7 @@ export class GanttController {
         this.consecutiveReadRetries < 1;
       if (shouldRetry) {
         this.consecutiveReadRetries += 1;
-        void this.recompute();
+        void this.recompute({ retriedRead: true });
       }
       return;
     }

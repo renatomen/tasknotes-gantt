@@ -454,6 +454,36 @@ describe('GanttController — recomputeGeneration (task-fact re-read counters)',
     await flush();
     expect(controller.recomputeGeneration()).toEqual({ started: 4, delivered: 4 });
   });
+
+  it('refills the retry budget on each external genuine read: a spent budget does not starve later reads', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange();
+    await controller.refreshSource({ reuseTasks: true });
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush(); // retry spawned
+    await controller.refreshSource({ reuseTasks: true });
+    gates[1]!([task({ path: 'stale.md' })]);
+    await flush(); // retry superseded too: budget spent
+    expect(gates).toHaveLength(2);
+
+    // A LATER external genuine read superseded the same way must get its own
+    // retry - the budget refills per external read, never per self-retry.
+    tn.fireChange();
+    await flush();
+    expect(gates).toHaveLength(3);
+    await controller.refreshSource({ reuseTasks: true });
+    gates[2]!([task({ path: 'stale.md' })]);
+    await flush();
+    expect(gates).toHaveLength(4);
+    gates[3]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 5, delivered: 5 });
+  });
 });
 
 describe('GanttController — getInstances expansion', () => {

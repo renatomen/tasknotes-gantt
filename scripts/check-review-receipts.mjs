@@ -134,8 +134,9 @@ function check() {
     }
     try {
       shas = [...new Set(pushed.map(peelToCommit))];
-    } catch {
+    } catch (error) {
       console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
+      console.error(`  ${error instanceof Error ? error.message : error}`);
       process.exit(1);
     }
   }
