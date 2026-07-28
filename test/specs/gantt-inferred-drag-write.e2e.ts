@@ -49,6 +49,15 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-inferred-drag-writ
  */
 const MAX_UPDATES_PER_COMMIT = 5;
 
+/**
+ * How long the tally must stay put before the write counts as settled. A ceiling
+ * sampled once cannot tell a finished write from a slow storm: a loop firing
+ * every few hundred milliseconds stays under any bound the moment it is read and
+ * keeps running after the case passes. Quiescence is the property that actually
+ * distinguishes them, and the storm this guards against runs for many seconds.
+ */
+const QUIET_WINDOW_MS = 3000;
+
 /** Enable the Bases core plugin (required to open a `.base`). */
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -588,5 +597,10 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     const updates = updatesAfter - updatesBefore;
     expect(updates).toBeGreaterThanOrEqual(1);
     expect(updates).toBeLessThanOrEqual(MAX_UPDATES_PER_COMMIT);
+
+    // Then prove it STOPPED. A storm slower than the moment of sampling would
+    // satisfy the bound above and keep running once the case ended.
+    await browser.pause(QUIET_WINDOW_MS);
+    expect(await dataUpdateCount()).toBe(updatesAfter);
   });
 });
