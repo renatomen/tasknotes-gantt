@@ -3,10 +3,21 @@
  * (subtree children, ancestors), so two in-flight gestures cascading into each
  * other's sources could otherwise circular-wait. Every cascade round instead
  * runs through a single shared lane (cascades are rare and user-paced, so
- * global serialization is observably free) — deadlock-free by construction:
- * a gesture's own-source slot is released at settlement, BEFORE its cascade
- * waits for the lane, and lane occupants wait only on source queues whose work
- * never needs the lane.
+ * global serialization is observably free) — deadlock-free and lane-live by
+ * construction: a gesture's own-source slot is released at settlement, BEFORE
+ * its cascade waits for the lane; lane occupants wait only on source queues
+ * whose work never needs the lane (so no wait cycle exists); and that one
+ * cross-resource wait — acquiring the round's write fence — is deadline-
+ * bounded, because a slow write holds its source queue to SETTLEMENT (the
+ * lifecycle's slow-persist policy) and an unbounded fence wait over a hung
+ * source would park the ONE lane for every source's later cascades. A fence
+ * not acquired by the deadline resolves the round as a pre-delivery halt
+ * (origin stashed, silent — the hung write's own path reports), the lane
+ * frees, and the late-acquired fence body releases untouched; only the hung
+ * source's own queue stays parked behind its unfinished write. Once acquired,
+ * a round's OWN writes hold the lane to settlement like any honest persist
+ * (they cannot be released without risking a late-landing overwrite) — the
+ * accepted residual, covered by the slow-write notice.
  *
  * What it owns:
  *
@@ -37,7 +48,8 @@
  *   child (landed and skipped) from the stashed origin; keeping the landed
  *   echoes would double-shift them under the successor's cumulative delta.
  * - **Pre-delivery halts inherit origin.** A pass halted BEFORE its subtree
- *   phase delivered — superseded, capability lost, host dead — stashes its
+ *   phase delivered — superseded, capability lost, host dead, fence never
+ *   acquired — stashes its
  *   effective `before` (the earliest uncascaded pre-drag capture); the next
  *   pass for the same source plans from the stashed capture instead of its
  *   own, so one subtree move covers the full cumulative displacement the
@@ -68,6 +80,7 @@
  *
  * @module bases/dragCascadeLane
  */
+/* global clearTimeout */
 
 import type {
   CascadeBefore,
@@ -161,7 +174,14 @@ export interface CascadeLaneDeps {
   lifecycle: ExecutionLifecycle;
   queues: SourceQueues;
   clock: GeometryClock;
+  /** Bound on WAITING for a round's write fence (module doc: lane liveness). */
+  fenceAcquisitionDeadlineMs?: number;
 }
+
+// A slow write holds its source queue to settlement, so an unbounded fence
+// wait over a hung source would park the ONE global lane for everyone.
+// Mirrors the slow-persist reporting deadline's magnitude.
+const FENCE_ACQUISITION_DEADLINE_MS = 10_000;
 
 // A hard backstop only: every round either finishes, collects one prompt
 // answer, or reports the subtree results — each fills a choice the next plan
@@ -177,6 +197,7 @@ type RoundOutcome =
 
 export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
   const { deps, lifecycle, queues, clock } = laneDeps;
+  const fenceDeadlineMs = laneDeps.fenceAcquisitionDeadlineMs ?? FENCE_ACQUISITION_DEADLINE_MS;
   // THE global cascade lane: every cascade round of every gesture chains here.
   let cascadeLane: Promise<void> = Promise.resolve();
   // Per-source earliest-uncascaded `before` (module doc: pre-delivery halts inherit origin).
@@ -336,7 +357,9 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
       return { kind: 'done', persisted: [], resume: probe.resume };
     }
     let outcome: RoundOutcome = { kind: 'abandoned' };
-    await queues.join(fenced, async () => {
+    // A deadline elapse leaves `outcome` at abandoned: the pass halts
+    // pre-delivery (origin stashed) having planned once and written nothing.
+    await fenceWithinDeadline(fenced, async () => {
       if (!proceed()) return;
       const plan = cascade.plan(settlement, answers, snapshot(), before());
       if (plan.prompt) {
@@ -354,6 +377,40 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
       }
     });
     return outcome;
+  }
+
+  /**
+   * Join the fenced queues, bounding only the ACQUISITION wait: once the body
+   * has started, its own writes are awaited to settlement like any persist.
+   * At the deadline the caller resumes (its round halts pre-delivery and the
+   * lane frees) while the join stays queued on the fenced sources; when it
+   * finally acquires them, the body sees the abandonment and releases the
+   * fence untouched — no plan call, no write, no echo after abandonment.
+   */
+  function fenceWithinDeadline(fenced: readonly string[], body: () => Promise<void>): Promise<void> {
+    let acquired = false;
+    let abandoned = false;
+    const fence = queues.join(fenced, async () => {
+      if (abandoned) return;
+      acquired = true;
+      await body();
+    });
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        abandoned = !acquired;
+        if (abandoned) resolve();
+      }, fenceDeadlineMs);
+      fence.then(
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (error) => {
+          clearTimeout(timer);
+          if (!abandoned) reject(error);
+        },
+      );
+    });
   }
 
   async function collectCascadeAnswer<Facts>(

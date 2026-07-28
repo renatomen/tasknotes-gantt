@@ -30,13 +30,14 @@ import {
 } from '../../src/controller/durationConversion';
 import type { PromptAnswer } from '../../src/bases/dragExecutor';
 import { dayDelta } from '../../src/bases/dayGranularity';
-import { cascadePlanOf, deferred, harness, revertOf, writeOf, type Harness } from './dragExecutorTestKit';
+import { cascadePlanOf, deferred, flushMicrotasks, harness, revertOf, writeOf, type Harness } from './dragExecutorTestKit';
 
-function laneOf(h: Harness) {
+function laneOf(h: Harness, fenceAcquisitionDeadlineMs?: number) {
   const queues = createSourceQueues();
   const clock = createGeometryClock();
   const lifecycle = createExecutionLifecycle(h.deps, clock.recordSettledGeometry);
-  return { lane: createCascadeLane({ deps: h.deps, lifecycle, queues, clock }), clock };
+  const lane = createCascadeLane({ deps: h.deps, lifecycle, queues, clock, fenceAcquisitionDeadlineMs });
+  return { lane, clock, queues };
 }
 
 function passOf(cascade: CascadeExecution): CascadePass<undefined> {
@@ -685,5 +686,95 @@ describe('pre-delivery halts inherit origin (the per-source before stash)', () =
       [CHILD, addDays(day('2026-08-03'), 7)],
       [CHILD2, addDays(day('2026-08-05'), 7)],
     ]);
+  });
+
+  describe('fence-acquisition deadline (lane liveness under a hung write)', () => {
+    it("a never-settling fenced source starves nobody: the deadline frees the lane and a SECOND source's cascade proceeds", async () => {
+      const h = harness();
+      const laneKit = laneOf(h, 20);
+      const hung = deferred();
+      // A slow write holds 'stuck.md' to settlement (the lifecycle policy).
+      void laneKit.queues.join(['stuck.md'], () => hung.promise);
+      const first = laneKit.lane.runCascade(
+        passOf({ plan: () => cascadePlanOf({ writes: [writeOf('stuck.md', 1)] }) }),
+      );
+      const second = laneKit.lane.runCascade({
+        ...passOf({ plan: () => cascadePlanOf({ writes: [writeOf('free.md', 1)] }) }),
+        sourcePath: 'b.md',
+      });
+
+      await Promise.all([first, second]);
+
+      // The hung write is STILL unsettled, yet the other source's cascade ran.
+      expect(h.log).toEqual(['persist:free.md']);
+      hung.resolve();
+    });
+
+    it('a fence acquired after the deadline is a no-op: the abandoned round never re-plans, writes, or echoes', async () => {
+      const h = harness();
+      const laneKit = laneOf(h, 20);
+      const hung = deferred();
+      void laneKit.queues.join(['stuck.md'], () => hung.promise);
+      let planCalls = 0;
+      await laneKit.lane.runCascade(
+        passOf({
+          plan: () => {
+            planCalls += 1;
+            return cascadePlanOf({ writes: [writeOf('stuck.md', 1)], echoes: [revertOf('stuck.md')] });
+          },
+        }),
+      );
+      expect(planCalls).toBe(1); // declare only — the post-fence re-plan never ran
+
+      hung.resolve();
+      await flushMicrotasks();
+
+      expect(planCalls).toBe(1);
+      expect(h.log).toEqual([]); // no persist, no echo — the late body released the fence untouched
+    });
+
+    it('a deadline halt stashes the origin: once the hung write settles, the successor delivers the owed displacement', async () => {
+      const writes: PlannedWrite[] = [];
+      const h = harness({
+        persist: (write) => {
+          writes.push(write);
+          return Promise.resolve();
+        },
+      });
+      const laneKit = laneOf(h, 20);
+      const hung = deferred();
+      void laneKit.queues.join([CHILD], () => hung.promise);
+      await laneKit.lane.runCascade(movePass({ before: B0, after: A1 })); // halts at the deadline
+      expect(writes).toHaveLength(0);
+
+      hung.resolve();
+      await flushMicrotasks();
+      expect(writes).toHaveLength(0); // the abandoned round's late fence wrote nothing
+
+      const seen: Array<CascadeBefore | undefined> = [];
+      await laneKit.lane.runCascade(movePass({ before: A1, after: A2, seen: (b) => seen.push(b) }));
+
+      // The successor inherited the halted pass's origin (B0): one subtree
+      // move carries the full +7 the deadline halt never delivered.
+      expect(seen[0]).toEqual({ ...B0, estimateMinutes: null });
+      const childWrites = writes.filter((w) => w.sourcePath === CHILD);
+      expect(childWrites).toHaveLength(1);
+      expect(childWrites[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 7));
+    });
+
+    it('a fence acquired just under the deadline runs the round normally', async () => {
+      const h = harness();
+      const laneKit = laneOf(h, 1000);
+      const hold = deferred();
+      void laneKit.queues.join(['kid.md'], () => hold.promise);
+      const run = laneKit.lane.runCascade(
+        passOf({ plan: () => cascadePlanOf({ writes: [writeOf('kid.md', 2)] }) }),
+      );
+      setTimeout(() => hold.resolve(), 25);
+
+      await run;
+
+      expect(h.log).toEqual(['persist:kid.md']);
+    });
   });
 });
