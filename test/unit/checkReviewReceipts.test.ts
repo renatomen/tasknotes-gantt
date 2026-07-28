@@ -1,6 +1,8 @@
 import {
   evaluateReceipts,
+  isDocsOnlyChange,
   parsePushedRefLines,
+  partitionPushedShas,
   REQUIRED_LAYERS,
 } from '../../scripts/check-review-receipts.mjs';
 
@@ -67,31 +69,49 @@ describe('evaluateReceipts', () => {
 });
 
 describe('parsePushedRefLines', () => {
-  it('extracts the local sha of each pushed ref line', () => {
+  it('pairs each pushed local sha with the remote sha its range is measured from', () => {
     const stdin =
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/heads/b ${OTHER_SHA} refs/heads/b ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA, OTHER_SHA], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({
+      pushes: [
+        { localSha: SHA, remoteSha: OTHER_SHA },
+        { localSha: OTHER_SHA, remoteSha: DELETED },
+      ],
+      invalid: [],
+    });
   });
 
   it('skips branch deletions (local sha all zeros)', () => {
     const stdin = `refs/heads/gone ${DELETED} refs/heads/gone ${SHA}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ pushes: [], invalid: [] });
   });
 
-  it('deduplicates the same sha pushed under two refs', () => {
+  it('deduplicates an identical ref record pushed twice', () => {
+    const line = `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n`;
+
+    expect(parsePushedRefLines(line + line)).toEqual({
+      pushes: [{ localSha: SHA, remoteSha: OTHER_SHA }],
+      invalid: [],
+    });
+  });
+
+  it('keeps both records when one tip is pushed to two refs from different remote states', () => {
     const stdin =
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/tags/v1 ${SHA} refs/tags/v1 ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [] });
+    expect(parsePushedRefLines(stdin).pushes).toEqual([
+      { localSha: SHA, remoteSha: OTHER_SHA },
+      { localSha: SHA, remoteSha: DELETED },
+    ]);
   });
 
   it('yields nothing for empty or blank stdin (manual invocation falls back to HEAD)', () => {
-    expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [] });
-    expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [] });
+    expect(parsePushedRefLines('')).toEqual({ pushes: [], invalid: [] });
+    expect(parsePushedRefLines('\n  \n')).toEqual({ pushes: [], invalid: [] });
   });
 
   it('surfaces malformed lines instead of silently discarding them', () => {
@@ -99,7 +119,7 @@ describe('parsePushedRefLines', () => {
 
     const parsed = parsePushedRefLines(stdin);
 
-    expect(parsed.shas).toEqual([SHA]);
+    expect(parsed.pushes).toEqual([{ localSha: SHA, remoteSha: OTHER_SHA }]);
     expect(parsed.invalid).toEqual(['not a ref line']);
   });
 
@@ -115,6 +135,81 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${sha256} refs/heads/a ${'d'.repeat(64)}\n` +
       `refs/heads/gone ${'0'.repeat(64)} refs/heads/gone ${sha256}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [sha256], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({
+      pushes: [{ localSha: sha256, remoteSha: 'd'.repeat(64) }],
+      invalid: [],
+    });
+  });
+});
+
+describe('isDocsOnlyChange', () => {
+  it('exempts a change confined to the docs tree', () => {
+    expect(isDocsOnlyChange(['docs/backlog.md'])).toBe(true);
+  });
+
+  it('exempts a nested docs path', () => {
+    expect(isDocsOnlyChange(['docs/solutions/logic-errors/a-learning.md'])).toBe(true);
+  });
+
+  it('exempts a multi-file change whose every path is under docs', () => {
+    expect(isDocsOnlyChange(['docs/a.md', 'docs/plans/b.md', 'docs/media/c.png'])).toBe(true);
+  });
+
+  it('refuses a change that also touches source', () => {
+    expect(isDocsOnlyChange(['docs/a.md', 'src/bases/register.ts'])).toBe(false);
+  });
+
+  it('matches on a path boundary, not a bare prefix', () => {
+    expect(isDocsOnlyChange(['documentation/a.md'])).toBe(false);
+    expect(isDocsOnlyChange(['docsy/a.md'])).toBe(false);
+  });
+
+  it('refuses a root file whose whole name is docs', () => {
+    expect(isDocsOnlyChange(['docs'])).toBe(false);
+  });
+
+  it('refuses an empty change list — an unknown range is never exempt', () => {
+    expect(isDocsOnlyChange([])).toBe(false);
+  });
+
+  it('refuses a range that could not be resolved to a path list', () => {
+    expect(isDocsOnlyChange(null)).toBe(false);
+  });
+});
+
+describe('partitionPushedShas', () => {
+  const record = (localSha: string, remoteSha = OTHER_SHA) => ({ localSha, remoteSha });
+
+  it('exempts a sha whose only pushed range is docs-only', () => {
+    const verdict = partitionPushedShas([record(SHA)], () => true);
+
+    expect(verdict).toEqual({ exempt: [SHA], gated: [] });
+  });
+
+  it('gates a sha whose pushed range touches code', () => {
+    const verdict = partitionPushedShas([record(SHA)], () => false);
+
+    expect(verdict).toEqual({ exempt: [], gated: [SHA] });
+  });
+
+  it('gates only the code-bearing ref when one push carries both kinds', () => {
+    const docsRef = record(SHA);
+    const codeRef = record(OTHER_SHA);
+
+    const verdict = partitionPushedShas([docsRef, codeRef], (r) => r.localSha === SHA);
+
+    expect(verdict).toEqual({ exempt: [SHA], gated: [OTHER_SHA] });
+  });
+
+  it('gates a tip whose ranges disagree: one docs-only ref does not exempt its code-bearing twin', () => {
+    const records = [record(SHA, OTHER_SHA), record(SHA, DELETED)];
+
+    const verdict = partitionPushedShas(records, (r) => r.remoteSha === OTHER_SHA);
+
+    expect(verdict).toEqual({ exempt: [], gated: [SHA] });
+  });
+
+  it('yields nothing to gate for an empty push', () => {
+    expect(partitionPushedShas([], () => true)).toEqual({ exempt: [], gated: [] });
   });
 });
