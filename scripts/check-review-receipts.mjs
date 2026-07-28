@@ -17,6 +17,14 @@
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
+ * A ref whose whole pushed range changes nothing outside the docs tree is
+ * exempt and needs no receipts — prose carries no reviewable behavior. The
+ * exemption is decided per ref over that ref's own range, so a push carrying
+ * both a docs ref and a code ref still gates the code one, and a range mixing
+ * docs with anything else is not exempt. Every ambiguity fails CLOSED: an
+ * unresolvable range, a failed git call, and an empty path list all demand
+ * receipts, because the cost of a wrong exemption is unreviewed code.
+ *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
  * the tip receipt covers the ancestors pushed with it. The mechanism binds
@@ -29,18 +37,40 @@ import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
 
+/** The exempt subtree, matched with its separator so a sibling like `docsy/` cannot pass. */
+export const DOCS_PREFIX = 'docs/';
+
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** git's canonical empty tree, the diff base for a pushed root commit. */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 function isDeletion(sha) {
   return /^0+$/.test(sha);
 }
 
+/**
+ * `quiet` silences the subprocess's own stderr for calls whose failure is
+ * expected and handled here — an unresolvable range must read as one clear
+ * refusal, not as a bare git fatal the caller has to interpret.
+ */
+function git(args, { quiet = false } = {}) {
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    stdio: quiet ? ['ignore', 'pipe', 'ignore'] : undefined,
+  });
+}
+
 function gitTopLevelDir() {
-  return execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim();
+  return git(['rev-parse', '--git-dir']).trim();
 }
 
 function headSha() {
-  return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  return git(['rev-parse', 'HEAD']).trim();
+}
+
+function shortSha(sha) {
+  return sha.slice(0, 7);
 }
 
 function receiptPath() {
@@ -59,32 +89,105 @@ function readReceipts() {
 }
 
 /**
- * The distinct pushed local shas plus every nonblank line that is not a valid
- * ref record - the caller must fail closed on any invalid line, because a
- * silently discarded line would let its ref through ungated.
+ * The distinct pushed ref records - each pairing the local sha being pushed with
+ * the remote sha its range is measured from - plus every nonblank line that is
+ * not a valid ref record. The caller must fail closed on any invalid line,
+ * because a silently discarded line would let its ref through ungated.
+ *
+ * Both shas are kept because the remote one is the only honest diff base: one
+ * tip pushed to two refs from different remote states is two different ranges.
  */
 export function parsePushedRefLines(stdinText) {
-  const shas = new Set();
+  const pushes = [];
+  const seen = new Set();
   const invalid = [];
   for (const line of stdinText.split('\n')) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
     const tokens = trimmed.split(/\s+/);
-    const localSha = tokens[1];
-    if (tokens.length !== 4 || !SHA_PATTERN.test(localSha) || !SHA_PATTERN.test(tokens[3])) {
+    const [, localSha, , remoteSha] = tokens;
+    if (tokens.length !== 4 || !SHA_PATTERN.test(localSha) || !SHA_PATTERN.test(remoteSha)) {
       invalid.push(trimmed);
       continue;
     }
-    if (!isDeletion(localSha)) shas.add(localSha);
+    if (isDeletion(localSha)) continue;
+    const key = `${localSha} ${remoteSha}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pushes.push({ localSha, remoteSha });
   }
-  return { shas: [...shas], invalid };
+  return { pushes, invalid };
 }
 
 /** Annotated tags push their tag object's sha; receipts key on commits. */
 function peelToCommit(sha) {
-  return execFileSync('git', ['rev-parse', '--verify', `${sha}^{commit}`], {
-    encoding: 'utf8',
-  }).trim();
+  return git(['rev-parse', '--verify', `${sha}^{commit}`]).trim();
+}
+
+/**
+ * The commit a pushed range is measured from: the remote's current tip, or - for
+ * a ref the remote does not have yet - the parent of the oldest commit the push
+ * would introduce. Null when no range can be established.
+ */
+function pushRangeBase(localSha, remoteSha) {
+  if (!isDeletion(remoteSha)) return remoteSha;
+  const introduced = git(['rev-list', localSha, '--not', '--remotes'], { quiet: true })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (introduced.length === 0) return null;
+  const oldest = introduced[introduced.length - 1];
+  const parents = git(['rev-list', '--parents', '-n', '1', oldest], { quiet: true })
+    .trim()
+    .split(/\s+/)
+    .slice(1);
+  return parents[0] ?? EMPTY_TREE;
+}
+
+/**
+ * Every path a push would change, or null when the range cannot be resolved - an
+ * unfetched remote tip, a failed git call. Paths are read NUL-separated so git
+ * never quotes them, and renames are read as delete-plus-add so a file moved out
+ * of the docs tree cannot hide behind its new path alone.
+ */
+function changedPathsForPush({ localSha, remoteSha }) {
+  try {
+    const base = pushRangeBase(localSha, remoteSha);
+    if (base === null) return null;
+    return git(['diff', '--name-only', '-z', '--no-renames', base, localSha], { quiet: true })
+      .split('\0')
+      .filter((path) => path !== '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a resolved change list is confined to the docs tree. An unresolved
+ * range (null) and an empty list are both refused: neither is evidence that
+ * nothing outside docs changed.
+ */
+export function isDocsOnlyChange(changedPaths) {
+  if (!Array.isArray(changedPaths) || changedPaths.length === 0) return false;
+  return changedPaths.every((path) => path.startsWith(DOCS_PREFIX));
+}
+
+/**
+ * Split the pushed shas into the exempt and the gated. A sha is exempt only when
+ * EVERY record carrying it is exempt, so a tip pushed to two refs cannot inherit
+ * one ref's docs-only range to cover another ref's code.
+ */
+export function partitionPushedShas(pushes, isExempt) {
+  const verdictBySha = new Map();
+  for (const push of pushes) {
+    const exempt = isExempt(push);
+    const known = verdictBySha.get(push.localSha);
+    verdictBySha.set(push.localSha, known === undefined ? exempt : known && exempt);
+  }
+  const exempt = [];
+  const gated = [];
+  for (const [sha, isClean] of verdictBySha) (isClean ? exempt : gated).push(sha);
+  return { exempt, gated };
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
@@ -106,7 +209,7 @@ function record(layer) {
   const store = readReceipts();
   store.receipts[sha] = { ...store.receipts[sha], [layer]: new Date().toISOString() };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
-  console.log(`recorded clean ${layer} receipt for ${sha.slice(0, 7)}`);
+  console.log(`recorded clean ${layer} receipt for ${shortSha(sha)}`);
 }
 
 function readPipedStdin() {
@@ -118,37 +221,30 @@ function readPipedStdin() {
   }
 }
 
-function check() {
-  const stdinText = readPipedStdin();
-  // Piped ref lines gate the pushed shas (a deletion-only push gates nothing);
-  // a manual run with no piped input falls back to gating HEAD.
-  let shas;
-  if (stdinText.trim() === '') {
-    shas = [headSha()];
-  } else {
-    const { shas: pushed, invalid } = parsePushedRefLines(stdinText);
-    if (invalid.length > 0) {
-      console.error('pre-push: unparseable ref line(s) - refusing to gate blind:');
-      for (const line of invalid) console.error(`  ${line}`);
-      process.exit(1);
-    }
-    try {
-      shas = [...new Set(pushed.map(peelToCommit))];
-    } catch (error) {
-      console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
-      console.error(`  ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
+function refuse(headline, details) {
+  console.error(headline);
+  for (const detail of details) console.error(`  ${detail}`);
+  process.exit(1);
+}
+
+function reportVerdict(gatedShas, exemptShas) {
+  for (const sha of exemptShas) {
+    console.log(`review receipts not required for ${shortSha(sha)}: changes only ${DOCS_PREFIX}`);
   }
-  const verdict = evaluateReceipts(readReceipts(), shas);
+  const verdict = evaluateReceipts(readReceipts(), gatedShas);
   if (verdict.ok) {
-    const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
-    console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
+    if (gatedShas.length > 0) {
+      console.log(
+        `review receipts OK for ${gatedShas.map(shortSha).join(', ')}: ${REQUIRED_LAYERS.join(' + ')}`,
+      );
+    } else if (exemptShas.length === 0) {
+      console.log('review receipts OK: deletion-only push');
+    }
     return;
   }
   const missingLayers = new Set();
   for (const [sha, missing] of Object.entries(verdict.missingBySha)) {
-    console.error(`pre-push: missing clean review receipts for ${sha.slice(0, 7)}: ${missing.join(', ')}`);
+    console.error(`pre-push: missing clean review receipts for ${shortSha(sha)}: ${missing.join(', ')}`);
     for (const layer of missing) missingLayers.add(layer);
   }
   console.error('Run both local review layers against each pushed commit, fix every finding, then record:');
@@ -156,6 +252,32 @@ function check() {
     console.error(`  node scripts/check-review-receipts.mjs record ${layer}`);
   }
   process.exit(1);
+}
+
+function check() {
+  const stdinText = readPipedStdin();
+  // A manual run carries no pushed range, so it gates HEAD outright: the
+  // docs-only exemption needs a range and never fires without one.
+  if (stdinText.trim() === '') {
+    reportVerdict([headSha()], []);
+    return;
+  }
+  const { pushes, invalid } = parsePushedRefLines(stdinText);
+  if (invalid.length > 0) {
+    refuse('pre-push: unparseable ref line(s) - refusing to gate blind:', invalid);
+  }
+  let records;
+  try {
+    records = pushes.map((push) => ({ ...push, localSha: peelToCommit(push.localSha) }));
+  } catch (error) {
+    refuse('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind', [
+      error instanceof Error ? error.message : String(error),
+    ]);
+  }
+  const { exempt, gated } = partitionPushedShas(records, (push) =>
+    isDocsOnlyChange(changedPathsForPush(push)),
+  );
+  reportVerdict(gated, exempt);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
