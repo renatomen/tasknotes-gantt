@@ -88,8 +88,17 @@ function git(args, { quiet = false } = {}) {
   });
 }
 
-function gitTopLevelDir() {
+function gitDir() {
   return git(['rev-parse', '--git-dir']).trim();
+}
+
+/**
+ * Let git resolve a repository path rather than composing one. A linked worktree
+ * has its own git dir but shares the repository-wide files, so joining onto
+ * `--git-dir` would look inside the worktree for something that lives beside it.
+ */
+function gitPath(relative) {
+  return git(['rev-parse', '--git-path', relative]).trim();
 }
 
 function headSha() {
@@ -101,7 +110,7 @@ function shortSha(sha) {
 }
 
 function receiptPath() {
-  return join(gitTopLevelDir(), 'review-receipts.json');
+  return join(gitDir(), 'review-receipts.json');
 }
 
 function readReceipts() {
@@ -159,7 +168,7 @@ function peelToCommit(sha) {
  * cannot be read is exactly the reason it cannot be trusted absent.
  */
 function graftsActive() {
-  const graftFile = process.env.GIT_GRAFT_FILE ?? join(gitTopLevelDir(), 'info', 'grafts');
+  const graftFile = process.env.GIT_GRAFT_FILE ?? gitPath('info/grafts');
   if (!existsSync(graftFile)) return false;
   try {
     return readFileSync(graftFile, 'utf8')
