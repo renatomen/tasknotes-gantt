@@ -80,6 +80,9 @@ beforeAll(() => {
   git(['config', 'user.email', 'probe@example.invalid']);
   git(['config', 'user.name', 'Probe']);
   git(['config', 'commit.gpgsign', 'false']);
+  // Tag signing too: a machine with `tag.gpgSign` on would prompt or fail here,
+  // which would make a suite that calls itself hermetic depend on the machine.
+  git(['config', 'tag.gpgSign', 'false']);
   baseCommit = commitFile('README.md', 'base\n', 'base');
   codeCommit = commitFile('src/thing.ts', 'export const a = 1;\n', 'code');
   docsCommit = commitFile('docs/note.md', 'prose\n', 'docs');
@@ -190,6 +193,31 @@ describe('check-review-receipts check', () => {
 
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('unparseable ref line');
+  });
+
+  it('refuses a line with the right shas but the wrong token count', () => {
+    // Both other malformed cases carry exactly four tokens and fail on their sha
+    // fields, so dropping the count check would admit this line unnoticed.
+    const run = runCheck(`refs/heads/probe ${docsCommit} refs/heads/probe ${baseCommit} extra\n`);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('unparseable ref line');
+  });
+
+  it('refuses a pushed object that cannot be peeled to a commit', () => {
+    // A tag pointing at a blob has no commit to key receipts on. Skipping it
+    // would let its ref through ungated, so the gate must refuse instead.
+    const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
+    git(['tag', '-a', '-m', 'blobby', 'blob-tag', blob]);
+    const blobTag = git(['rev-parse', 'refs/tags/blob-tag']);
+    try {
+      const run = runCheck(refLine(blobTag, ZERO, 'refs/tags/blob-tag'));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('cannot resolve a pushed object to a commit');
+    } finally {
+      git(['tag', '-d', 'blob-tag']);
+    }
   });
 
   it.each([39, 41, 63, 65])('refuses a LOCAL sha of the wrong width (%i)', (width) => {

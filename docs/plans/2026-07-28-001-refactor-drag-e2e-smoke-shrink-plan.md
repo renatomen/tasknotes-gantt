@@ -3,7 +3,7 @@ title: Drag e2e Smoke Shrink and the Docs-Only Receipt Exemption - Plan
 type: refactor
 date: 2026-07-28
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: implementation-ready
+artifact_readiness: shipped
 product_contract_source: ce-plan-bootstrap
 execution: code
 origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
@@ -25,13 +25,17 @@ origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
 
 ### Summary
 
-The inferred-drag write spec explores a combinatorial space that pure tests now own, at twenty-to-forty minutes per real-Obsidian loop. Cut it to the three journeys only real Obsidian can prove, with an explicit ledger recording where each retired case's coverage went. Separately, teach the pre-push receipts gate that a docs-only push needs no review receipts, so an exemption the maintainer already approved is enforced by the script rather than remembered by the pusher.
+The inferred-drag write spec explores a combinatorial space that pure tests now own, at twenty-to-forty minutes per real-Obsidian loop. Cut it to the three journeys only real Obsidian can prove, with an explicit ledger recording where each retired case's coverage went.
+
+*(This plan originally carried a second objective — teaching the pre-push receipts gate to exempt docs-only pushes. It shipped and was then removed; see Superseded. Nothing below should be read as an instruction to rebuild it.)*
 
 ### Problem Frame
 
 Two unrelated residues of the same campaign.
 
 The drag spec grew one case per review round: ten cases, 572 lines, each booting a real Obsidian and driving real SVAR mouse events. U2's derivation table and U3's planner table have since absorbed the outcome matrix — outcome × gesture × instances × tree role × cascade mode × persist result — at unit speed. What e2e still uniquely proves is narrow: that the prompt seam engages in a real Obsidian, that echoes reach every placement of a source note through the real store, and that a committed write does not re-poke the entry-signature into a re-notify storm. Everything else is redundant exploration paid for at e2e prices.
+
+*(SUPERSEDED — the framing below argued for the exemption. It is kept as the record of the reasoning that turned out to be wrong: the mechanism-over-memory instinct was right, but it was applied to an optimization that should not have existed. Always reviewing is the mechanism; the exemption was the judgment call dressed as one.)*
 
 The receipts gate refuses any push whose commits lack clean receipts from both local review layers. The maintainer approved a docs-only exemption, but approval that lives in a person's judgment is not a mechanism — the repo's own learning is that guarantees need a toolchain step, not a note. Today a docs-only push either burns two full review layers or gets waved through by hand, and only the second option is fast, so the gate quietly trains people to bypass it.
 
