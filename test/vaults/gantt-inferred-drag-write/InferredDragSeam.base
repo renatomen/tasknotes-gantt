@@ -1,6 +1,7 @@
 filters:
   or:
     - 'file.name == "Seam Only"'
+    - 'file.name == "Seam Container"'
     - 'file.name == "Blocked Parent"'
     - 'file.name == "Blocked Child"'
 views:
