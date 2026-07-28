@@ -252,15 +252,6 @@ async function dragEndEdge(
   }, { notePath, days });
 }
 
-/** One day in pixels, read off the finest time-scale row — no gesture involved. */
-async function dayColumnWidth(): Promise<number> {
-  return browser.execute(() => {
-    const rows = document.querySelectorAll(".og-bases-gantt .wx-scale .wx-row");
-    const dayCell = rows[rows.length - 1]?.querySelector(".wx-cell") as HTMLElement | null;
-    return dayCell?.getBoundingClientRect().width ?? 0;
-  });
-}
-
 /** A rendered bar's geometry + classes, read in-page (endsWith on `data-id`). */
 async function barInfo(notePath: string): Promise<{ width: number; classes: string } | null> {
   return browser.execute((name: string) => {
@@ -475,15 +466,13 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     const duplicateId = "Seam Only.md#parent-Seam Container.md";
     await waitForBar(duplicateId);
 
-    const pxPerDay = await dayColumnWidth();
-    expect(pxPerDay).toBeGreaterThan(0);
     const updatesBefore = await dataUpdateCount();
     expect(updatesBefore).toBeGreaterThanOrEqual(0); // the counter was actually found
 
     // Drag the end 5 days out: the gesture draws Mon..Sun, but Sat and Sun carry
     // no work, so the authority derives five WORKING days (Mon..Fri) instead. Both
     // placements must end up on that derived span, never the one drawn.
-    await dragEndEdge("Seam Only.md", 5);
+    const { pxPerDay } = await dragEndEdge("Seam Only.md", 5);
     await waitForPrompt(lastDragged);
     await chooseAction("Estimate only");
 
