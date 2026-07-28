@@ -44,7 +44,7 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 - R3. Every retired case's coverage is accounted for in a ledger committed with the change: retained in a journey, owned by a named unit-test module, or deliberately dropped with a stated reason.
 - R4. No production code changes. The `src/` tree and both ratcheted files are untouched by this PR.
 
-**Receipts gate**
+**Receipts gate** — SUPERSEDED; these requirements shipped and were then removed (see Superseded above)
 
 - R5. A pushed ref whose entire pushed range changes nothing outside `docs/` requires no review receipts; the push is allowed and the exemption is reported on stdout.
 - R6. A pushed range that touches anything outside `docs/` is gated exactly as today, including a range that mixes docs and non-docs changes.
@@ -140,7 +140,9 @@ U1 → U2. The receipts gate is fast, self-contained, and unit-provable, so it l
 
 ## Implementation Units
 
-### U1. Docs-only exemption in the pre-push review-receipts gate
+### U1. Docs-only exemption in the pre-push review-receipts gate — SUPERSEDED, see above
+
+Shipped as described below, then removed. Kept as the record of what was built and why it was wrong; the reasoning is in the Superseded section.
 
 - **Goal**: an approved exemption becomes a mechanism — a docs-only push passes the gate without receipts, and everything else is gated exactly as before (R5–R9).
 - **Requirements**: R5, R6, R7, R8, R9. Covers AE2, AE3, AE4.
@@ -242,9 +244,9 @@ Recorded here rather than absorbed silently, per the Definition of Done.
 
 ## Definition of Done
 
-- R1–R9 satisfied.
+- R1–R4 satisfied. R5–R9 shipped and were then removed — see Superseded above; the gate now requires receipts for every push, with no exemption.
 - The spec contains exactly three cases and passes in real Obsidian.
 - The coverage ledger is committed and accurate — every retired case resolves to a retained journey, a named unit-test module, or a stated deliberate drop.
-- A docs-only push passes the receipts gate with no receipts recorded; a mixed push does not.
+- Every push requires clean receipts from both review layers. The two fixes kept from the removed work — replacement objects disabled on every git call, and a failed read of the pushed ref lines refusing rather than falling back to HEAD — have regression coverage rather than hand verification alone.
 - No `src/` file changed; both ratcheted files untouched at their exact baselines.
 - Deviations from this plan — including the revert journey covering the cancel path rather than an injected persist failure — are reported in the PR description, not silently absorbed.
