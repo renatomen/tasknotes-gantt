@@ -13,7 +13,7 @@ origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
 
 ## Goal Capsule
 
-- **Objective**: land the drag-derivation campaign's U4 phase (c) — the inferred-drag write spec drops from ten cases to three smoke journeys, because the merged planner and derivation tables now own the matrix — and mechanize the approved docs-only exemption in the pre-push review-receipts gate so it stops being a per-push judgment call.
+- **Objective**: land the drag-derivation campaign's U4 phase (c) — the inferred-drag write spec drops from ten cases to three smoke journeys, because the merged planner and derivation tables now own the matrix. *(The plan's second objective, mechanizing a docs-only exemption in the pre-push receipts gate, shipped and was then removed — see Superseded. The gate now requires receipts for every push.)*
 - **Authority hierarchy**: the campaign plan (see Sources) governs requirements and the campaign's merge gate; this plan governs one PR's execution. Repo conventions (AGENTS.md, docs/conventions/) govern style and workflow. Where this plan contradicts observed code reality, surface the deviation instead of guessing.
 - **Execution profile**: one PR, branched from `main` at `3ea482e`. Per-PR gate: CI green AND a Codex verdict attributed to the current head with zero unresolved threads. Every push additionally requires clean receipts from both local review layers.
 - **Stop conditions**: any drag behavior change (this PR is test-and-tooling only — the `src/` tree is not touched); a retained journey that cannot be made to pass without changing production code; evidence that a settled decision cannot work.
@@ -55,9 +55,9 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 ### Acceptance Examples
 
 - AE1. Covers R2. **Given** an inferred-end task on a working-week calendar with a second placement, **when** its end is dragged out across the blocked weekend and "Estimate only" is chosen, **then** the working-day estimate persists, no due date is authored, and both placements settle on the *derived* span rather than the one the gesture drew.
-- AE2. Covers R5. **Given** a branch whose pushed commits touch only `docs/`, **when** the pre-push hook runs with no receipts recorded, **then** the push is allowed.
-- AE3. Covers R6. **Given** a pushed range containing one docs commit and one `src/` commit, **when** the hook runs with no receipts, **then** the push is refused.
-- AE4. Covers R7. **Given** one push carrying a docs-only branch and a code-bearing branch, **when** the hook runs with receipts for neither, **then** only the code-bearing ref is named in the refusal.
+- AE2. *(SUPERSEDED with R5-R9.)* Covers R5. **Given** a branch whose pushed commits touch only `docs/`, **when** the pre-push hook runs with no receipts recorded, **then** the push is allowed.
+- AE3. *(SUPERSEDED.)* Covers R6. **Given** a pushed range containing one docs commit and one `src/` commit, **when** the hook runs with no receipts, **then** the push is refused.
+- AE4. *(SUPERSEDED.)* Covers R7. **Given** one push carrying a docs-only branch and a code-bearing branch, **when** the hook runs with receipts for neither, **then** only the code-bearing ref is named in the refusal.
 
 ### Scope Boundaries
 
@@ -250,6 +250,6 @@ Recorded here rather than absorbed silently, per the Definition of Done.
 - The spec contains exactly three cases and passes in real Obsidian.
 - The coverage ledger is committed and accurate — every retired case resolves to a retained journey, a named unit-test module, or a stated deliberate drop.
 - Every push requires clean receipts from both review layers, proven through the real entry point against a throwaway repository rather than the developer's own receipt store. The suite is mutation-checked: reinstalling the exemption makes exactly the docs-only case fail.
-- Honest coverage gap: the failed-stdin branch is NOT covered. Forcing `readFileSync(0)` to throw is not reachable from a subprocess — a closed or ignored fd 0 yields EOF, not an error — so that path is hand-verified only. Its failure direction is closed (it refuses), which is why the gap is tolerable rather than invisible.
+- The failed-stdin branch IS covered. It was first reported as unreachable from a subprocess; review corrected that — handing the child a directory as fd 0 makes `readFileSync(0)` throw `EISDIR`, which reaches the branch without patching the module under test. Verified on this platform before the claim was written down.
 - No `src/` file changed; both ratcheted files untouched at their exact baselines.
 - Deviations from this plan — including the revert journey covering the cancel path rather than an injected persist failure — are reported in the PR description, not silently absorbed.
