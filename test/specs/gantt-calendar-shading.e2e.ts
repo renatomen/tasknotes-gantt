@@ -87,13 +87,18 @@ describe("Gantt (OG) calendar-aware shading", () => {
   });
 
   it("shades the associated calendar's holiday column", async () => {
+    let background: string | null = null;
     await browser.waitUntil(
       async () => {
-        const background = await cellBackground("og-d-2026-04-10");
+        background = await cellBackground("og-d-2026-04-10");
         return background !== null && !TRANSPARENT.has(background);
       },
       { timeout: 30000, timeoutMsg: "holiday column never shaded" }
     );
+
+    const shaded = background as unknown as string | null;
+    expect(shaded).not.toBeNull();
+    expect(TRANSPARENT.has(shaded as string)).toBe(false);
   });
 
   it("shades the holiday's scale-header cell to match the body column", async () => {
@@ -133,12 +138,17 @@ describe("Gantt (OG) calendar-aware shading", () => {
       );
     });
 
+    let background: string | null = null;
     await browser.waitUntil(
       async () => {
-        const background = await cellBackground("og-d-2026-04-08");
+        background = await cellBackground("og-d-2026-04-08");
         return background !== null && !TRANSPARENT.has(background);
       },
       { timeout: 30000, timeoutMsg: "live calendar edit never re-shaded the chart" }
     );
+
+    const shaded = background as unknown as string | null;
+    expect(shaded).not.toBeNull();
+    expect(TRANSPARENT.has(shaded as string)).toBe(false);
   });
 });

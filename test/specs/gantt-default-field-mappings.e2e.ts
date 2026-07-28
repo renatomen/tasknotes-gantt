@@ -311,7 +311,19 @@ describe("Gantt (OG) unset field mappings default to TaskNotes' properties", () 
   });
 
   it("marks the unmapped status/priority/scheduled cells editable on the managed row only", async () => {
-    const state = await readGridState();
+    // Editability resolves after the source settles, so a single read on arrival
+    // races it — and a not-yet-settled cell is indistinguishable from one the row
+    // gate correctly refused. Poll until the managed row is editable, then assert
+    // the whole picture against that same settled snapshot.
+    let state = await readGridState();
+    await browser.waitUntil(
+      async () => {
+        state = await readGridState();
+        return state.cells[`${TASK_ROW}|${STATUS_COL}`]?.editable === true;
+      },
+      { timeout: 10000, timeoutMsg: "the managed row's status cell never became editable" },
+    );
+
     expect(state.cells[`${TASK_ROW}|${STATUS_COL}`]?.editable).toBe(true);
     expect(state.cells[`${TASK_ROW}|${PRIORITY_COL}`]?.editable).toBe(true);
     expect(state.cells[`${TASK_ROW}|${SCHEDULED_COL}`]?.editable).toBe(true);
