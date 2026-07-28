@@ -1191,8 +1191,7 @@ class ObsidianGanttBasesView extends BasesView {
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
       highlightWeekends: this.getHighlightWeekends(),
-      // #161: read the SAME config key as before (UI + .base syntax unchanged), but
-      // it now drives a view-level filter-tasks display filter, not the instance set.
+      // #161: the same config key as before, now a view-level display filter.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
       // #161: the show-undated/show-partial toggles flow through the store like
       // hide-top — a presentation filter over the stable instance set, never a
@@ -1232,8 +1231,9 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: calendarShading.calendarBySource,
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
-      countWorkingDays: controller.buildCountWorkingDays(),
-      projectDerivedSpan: controller.buildProjectDerivedSpan(),
+      deriveEstimate: controller.buildDeriveEstimate(),
+      deriveSpan: controller.buildDeriveSpan(),
+      refreshGeneration: () => controller.recomputeGeneration(),
       defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
     };
   }

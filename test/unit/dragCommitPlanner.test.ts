@@ -25,20 +25,24 @@
  *   varying by write class (main, gate-main, subtree, shrink, extend,
  *   progress), so failure rows cross exactly those carriers.
  */
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import {
   planGestureCommit,
   planCascade,
   verifyMirrorCoverage,
   isEmptyPlan,
   emptyPlan,
+  memoizePlannerDerivation,
+  type DerivationMemo,
   type CascadeChoices,
   type CascadeOutcome,
   type CommitGesture,
   type GestureChoice,
   type GesturePlan,
   type GestureSettlement,
+  type PersistedSubtreeWrite,
   type Plan,
+  type PlannedWrite,
   type PlannerDerivation,
   type PlannerInstance,
 } from '../../src/bases/dragCommitPlanner';
@@ -356,6 +360,15 @@ function cascadeOutcomeFor(combo: Combo, fixture: Fixture, settlement: GestureSe
   };
 }
 
+/** The persisted-write report the executor sends back: source plus the write's own span. */
+function persistedWriteOf(write: PlannedWrite): PersistedSubtreeWrite {
+  const { start, end } = write.patch;
+  return {
+    sourcePath: write.sourcePath,
+    ...(start !== undefined && end !== undefined ? { range: { start, end } } : {}),
+  };
+}
+
 function answerCascade(plan: Plan, answers: CascadeChoices, failureClass: FailureClass | null): boolean {
   if (plan.prompt?.kind === 'shrink-fit') {
     answers.shrinkChoice = 'adjust';
@@ -366,8 +379,8 @@ function answerCascade(plan: Plan, answers: CascadeChoices, failureClass: Failur
     return true;
   }
   if (plan.resume === 'after-subtree') {
-    answers.persistedSubtreeSources =
-      failureClass === 'subtree' ? [] : plan.writes.map((w) => w.sourcePath);
+    answers.persistedSubtreeWrites =
+      failureClass === 'subtree' ? [] : plan.writes.map(persistedWriteOf);
     return true;
   }
   return false;
@@ -1005,15 +1018,60 @@ describe('named rows', () => {
       { instanceId: 'C2#w', payload: { kind: 'geometry', geometry: { start: day('2026-08-05'), end: dayEnd('2026-08-06'), flagged: false, ghostRuns: [] } } },
     ]);
     // Resume with only C1 persisted: W1 (C1's alternate parent) is extended; W2 is not.
+    // The report carries C1's persisted write span — the already-moved range.
+    const c1Write = first.writes.find((w) => w.sourcePath === C1);
     const second = planCascade(
       outcome,
       fixture.instances,
-      { cascadeMode: 'auto', persistedSubtreeSources: [C1] },
+      { cascadeMode: 'auto', persistedSubtreeWrites: [persistedWriteOf(c1Write as PlannedWrite)] },
       derivation(),
     );
     expect(second.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
     expect(second.writes[0]?.unmirrored).toBe('ancestor-extend-refresh-only');
     expect(second.writes[0]?.patch.end).toEqual(addDays(dayEnd('2026-08-04'), 7));
+  });
+
+  it('subtree resume against a REFRESHED snapshot extends by a single shift: the persisted ranges are already the moved ranges', () => {
+    // The snapshot has refreshed between the subtree persist and the resume:
+    // C1's placements already sit at their moved (+7) positions. The moved
+    // range is the persisted write's own span — re-applying the delta on top
+    // of the refreshed rows would feed a DOUBLE-shifted range to the extend.
+    const refreshed: PlannerInstance[] = [
+      inst(T, T, '2026-08-10', '2026-08-13'),
+      inst('C1#t', C1, '2026-08-10', '2026-08-11', T),
+      inst('W1', 'notes/W1.md', '2026-08-01', '2026-08-08'),
+      inst('C1#w', C1, '2026-08-10', '2026-08-11', 'W1'),
+    ];
+    const outcome: CascadeOutcome = {
+      instanceId: T,
+      name: T,
+      before: { start: BEFORE.start, end: BEFORE.end, estimateMinutes: STORED_ESTIMATE },
+      after: { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) },
+      settlement: { kind: 'plain' },
+    };
+    const persisted: PersistedSubtreeWrite = {
+      sourcePath: C1,
+      range: { start: day('2026-08-10'), end: dayEnd('2026-08-11') },
+    };
+    const plan = planCascade(
+      outcome,
+      refreshed,
+      { cascadeMode: 'auto', persistedSubtreeWrites: [persisted] },
+      derivation(),
+    );
+    expect(plan.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
+    expect(plan.writes[0]?.patch.end).toEqual(dayEnd('2026-08-11'));
+
+    // A rangeless report (a persisted write that carried no span) falls back
+    // to the CURRENT snapshot range — also the moved range, never re-shifted.
+    const fallback = planCascade(
+      outcome,
+      refreshed,
+      { cascadeMode: 'auto', persistedSubtreeWrites: [{ sourcePath: C1 }] },
+      derivation(),
+    );
+    expect(fallback.writes.map((w) => w.sourcePath)).toEqual(['notes/W1.md']);
+    expect(fallback.writes[0]?.patch.end).toEqual(dayEnd('2026-08-11'));
   });
 
   it('an estimate-only outcome whose derived day-count matches the stored estimate writes nothing, still echoes and settles inferred', () => {
@@ -1063,6 +1121,96 @@ describe('named rows', () => {
     expect(cascade.writes.map((w) => w.sourcePath)).toEqual(['notes/P1.md']);
     expect(cascade.writes[0]?.unmirrored).toBe('ancestor-extend-refresh-only');
     expect(cascade.writes[0]?.patch.end).toEqual(dayEnd('2026-08-10'));
+  });
+
+  it('stacked drags: `before` captured from the live optimistic span makes a drag back to the original dates a WRITE, never a no-op', () => {
+    // First gesture A→B is queued/in flight: the controller snapshot
+    // (`instances`) still holds A — self-write echoes skip recomputation —
+    // while the SVAR row the user grabs shows the optimistic B. The capture
+    // reads the STORE span, so before=B, after=A is a real move that writes
+    // A back over the first persist.
+    const fixture = buildFixture('leaf', 1);
+    const spanA = { start: BEFORE.start, end: BEFORE.end };
+    const spanB = { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) };
+    const revertDrag: CommitGesture = {
+      kind: 'bar',
+      instanceId: fixture.draggedId,
+      before: { ...spanB, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE },
+      after: spanA,
+      estimateWritable: true,
+      inferredDragMode: 'ask',
+    };
+    const plan = planGestureCommit(revertDrag, fixture.instances, undefined, derivation());
+    expect(isEmptyPlan(plan)).toBe(false);
+    expect(plan.writes[0]?.patch.start).toEqual(spanA.start);
+    expect(plan.writes[0]?.patch.end).toEqual(spanA.end);
+    // The DRAGGED row's revert baseline is the live-captured `before` (B): the
+    // controller row still holds A only because self-write echoes skip
+    // recomputation, and the snapshot overlay deliberately excludes the dragged
+    // row — reverting to A would snap the bar back past the first drag's
+    // settled write. If that first persist itself failed, its own revert and
+    // the eventual refresh re-derive the note's truth either way.
+    expect(plan.reverts[0]?.rows[0]?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: spanB.start, end: spanB.end, flagged: false, ghostRuns: [] },
+    });
+    // A STALE capture (before read from `instances` = A) is exactly the silent-
+    // divergence bug this pins: before == after collapses to the empty plan.
+    const staleCapture = planGestureCommit(
+      { ...revertDrag, before: { ...spanA, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE } },
+      fixture.instances,
+      undefined,
+      derivation(),
+    );
+    expect(isEmptyPlan(staleCapture)).toBe(true);
+  });
+
+  it("stacked drags: cancelling the second drag reverts the dragged bar to the FIRST drag's settled span, siblings to their snapshot", () => {
+    // Drag 1 (A→B) settled; the snapshot still holds A for the dragged row
+    // (excluded from the store overlay). Cancelling drag 2 (B→C) must restore
+    // the live-captured B — never the pre-first-drag A.
+    const fixture = buildFixture('leaf', 2);
+    const spanB = { start: addDays(BEFORE.start, 7), end: addDays(BEFORE.end, 7) };
+    const gesture: CommitGesture = {
+      kind: 'bar',
+      instanceId: fixture.draggedId,
+      before: { ...spanB, dateStatus: 'inferred-end', estimateMinutes: STORED_ESTIMATE },
+      after: { start: spanB.start, end: addDays(spanB.end, 2) },
+      estimateWritable: true,
+      inferredDragMode: 'ask',
+    };
+    const plan = planGestureCommit(gesture, fixture.instances, null, derivation());
+    expect(plan.settlement.onSuccess.kind).toBe('aborted');
+    const rows = plan.echoes[0]?.rows ?? [];
+    const dragged = rows.find((r) => r.instanceId === fixture.draggedId);
+    const sibling = rows.find((r) => r.instanceId !== fixture.draggedId);
+    expect(dragged?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: spanB.start, end: spanB.end, flagged: false, ghostRuns: [] },
+    });
+    expect(sibling?.payload).toEqual({
+      kind: 'geometry',
+      geometry: { start: BEFORE.start, end: BEFORE.end, flagged: false, ghostRuns: [] },
+    });
+  });
+
+  it('a genuinely no-op jiggle (live-store before == after) still yields the empty plan', () => {
+    const fixture = buildFixture('leaf', 1);
+    const plan = planGestureCommit(
+      {
+        kind: 'bar',
+        instanceId: fixture.draggedId,
+        before: { start: BEFORE.start, end: BEFORE.end, dateStatus: 'complete', estimateMinutes: STORED_ESTIMATE },
+        after: { start: day('2026-08-03'), end: day('2026-08-06') }, // same days
+        estimateWritable: true,
+        inferredDragMode: 'ask',
+      },
+      fixture.instances,
+      undefined,
+      derivation(),
+    );
+    expect(isEmptyPlan(plan)).toBe(true);
+    expect(plan.settlement.onSuccess.kind).toBe('no-cascade');
   });
 
   it('a calendar-days task under split rendering echoes its real ghost runs after a drag (null day count, full geometry)', () => {
@@ -1119,5 +1267,86 @@ describe('named rows', () => {
     for (const row of plan.echoes[0]?.rows ?? []) {
       expect(row.payload).toEqual({ kind: 'geometry', geometry });
     }
+  });
+});
+
+describe('memoizePlannerDerivation (the per-gesture derivation memo)', () => {
+  const geometry = (iso: string) => ({
+    start: day(iso),
+    end: dayEnd(iso),
+    flagged: false,
+    ghostRuns: [],
+  });
+  const baseDerivation = (): PlannerDerivation => ({
+    minutesToSpanDays,
+    spanDaysToMinutes,
+    inclusiveDaySpan,
+  });
+
+  it('materializes an identical deriveEstimate query once and replays the same answer', () => {
+    const deriveEstimate = jest.fn((_source: string, span: { start: Date; end: Date }) => ({
+      ...geometry('2026-03-02'),
+      start: span.start,
+      end: span.end,
+      days: 3,
+    }));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate });
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-04') };
+
+    const first = memoized.deriveEstimate!('a.md', span);
+    const again = memoized.deriveEstimate!('a.md', { ...span });
+
+    expect(deriveEstimate).toHaveBeenCalledTimes(1);
+    expect(again).toBe(first);
+  });
+
+  it('computes distinct deriveEstimate queries separately (different source or span)', () => {
+    const deriveEstimate = jest.fn(() => ({ ...geometry('2026-03-02'), days: 1 }));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate });
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-04') };
+
+    memoized.deriveEstimate!('a.md', span);
+    memoized.deriveEstimate!('b.md', span);
+    memoized.deriveEstimate!('a.md', { start: span.start, end: dayEnd('2026-03-05') });
+
+    expect(deriveEstimate).toHaveBeenCalledTimes(3);
+  });
+
+  it('memoizes deriveSpan by (source, edge, anchor, minutes)', () => {
+    const deriveSpan = jest.fn(() => geometry('2026-03-02'));
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), deriveSpan });
+
+    const first = memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 480);
+    const again = memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 480);
+    memoized.deriveSpan!('a.md', 'end', day('2026-03-02'), 960);
+
+    expect(deriveSpan).toHaveBeenCalledTimes(2);
+    expect(again).toBe(first);
+  });
+
+  it('shares one gesture memo across wrapper instances, and a fresh memo starts cold', () => {
+    const deriveEstimate = jest.fn(() => ({ ...geometry('2026-03-02'), days: 2 }));
+    const memo: DerivationMemo = new Map();
+    const span = { start: day('2026-03-02'), end: dayEnd('2026-03-03') };
+
+    // The container builds a NEW wrapper per plan call but hands every call of
+    // one gesture the same memo — the estimate/echo/re-plan calls share facts.
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, memo).deriveEstimate!('a.md', span);
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, memo).deriveEstimate!('a.md', span);
+    expect(deriveEstimate).toHaveBeenCalledTimes(1);
+
+    // The next gesture's fresh memo never sees the previous gesture's answers.
+    memoizePlannerDerivation({ ...baseDerivation(), deriveEstimate }, new Map()).deriveEstimate!('a.md', span);
+    expect(deriveEstimate).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes conversions through untouched and keeps absent authority callbacks absent', () => {
+    const memoized = memoizePlannerDerivation({ ...baseDerivation(), defaultDurationDays: 5 });
+    expect(memoized.deriveEstimate).toBeUndefined();
+    expect(memoized.deriveSpan).toBeUndefined();
+    expect(memoized.minutesToSpanDays).toBe(minutesToSpanDays);
+    expect(memoized.spanDaysToMinutes).toBe(spanDaysToMinutes);
+    expect(memoized.inclusiveDaySpan).toBe(inclusiveDaySpan);
+    expect(memoized.defaultDurationDays).toBe(5);
   });
 });

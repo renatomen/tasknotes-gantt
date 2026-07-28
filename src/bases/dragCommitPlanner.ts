@@ -40,19 +40,22 @@ import {
   normalizeCascadeMode, type DateRange, type SubtreeShift,
 } from './cascadeGate';
 import {
-  echoGeometryFor, emptyPlan, plainGeometry, restoreEchoes, sourceEchoes, sourcePathOf,
+  echoGeometryFor, emptyPlan, gestureRestoreEchoes, persistedMovedRange, plainGeometry,
+  restoreEchoes, sourceEchoes, sourcePathOf,
   type CascadeChoices, type CascadeOutcome, type CommitGesture, type GestureChoice,
   type GesturePlan, type GestureSettlement, type InferredGestureOutcome, type Plan,
   type PlannedPatch, type PlannerDerivation, type PlannerInstance, type PromptRequest,
 } from './dragCommitPlan';
 
+export { createDequeueBeforeRebase, type DequeueRebasedBefore } from './dragDequeueRebase';
+export { computeMoveDelta } from './cascadeGate';
 export {
-  emptyPlan, isEmptyPlan, verifyMirrorCoverage,
-  type CascadeChoices, type CascadeOutcome, type CommitGesture, type EchoPayload,
-  type EchoRow, type GestureChoice, type GesturePlan, type GestureSettlement,
-  type InferredGestureOutcome, type Plan, type PlannedPatch, type PlannedWrite,
-  type PlannerDerivation, type PlannerInstance, type PromptRequest, type SourceEchoes,
-  type UnmirroredReason,
+  emptyPlan, isEmptyPlan, memoizePlannerDerivation, overlayStoreGeometry, pureMoveBefore, verifyMirrorCoverage,
+  type BarBefore, type CascadeBefore, type CascadeChoices, type CascadeOutcome, type CommitGesture, type DerivationMemo,
+  type EchoPayload, type EchoRow, type GestureChoice, type GesturePlan,
+  type GestureSettlement, type InferredGestureOutcome, type PersistedSubtreeWrite, type Plan,
+  type PlannedPatch, type PlannedWrite, type PlannerDerivation, type PlannerInstance,
+  type PromptRequest, type SourceEchoes, type UnmirroredReason,
 } from './dragCommitPlan';
 
 type BarGesture = Extract<CommitGesture, { kind: 'bar' }>;
@@ -161,7 +164,7 @@ interface InferredCommitArgs {
 
 /** The inferred-edge gate; null when it does not engage (default commit applies). */
 function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
-  const { gesture, instances, choice, sourcePath, estimate } = args;
+  const { gesture, instances, choice, derivation, sourcePath, estimate } = args;
   const inferredEdge = resolveInferredEdge(args.draggedEdge, gesture.before.dateStatus ?? 'complete');
   const outcome = resolveInferredDragOutcome({
     inferredEdge,
@@ -172,7 +175,7 @@ function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
   if (outcome === 'prompt' && choice === undefined) return promptingPlan(args);
   if (outcome === 'prompt' && choice === null) {
     // Cancel restores every row of the source to its pre-drag geometry; nothing writes.
-    return gesturePlan({ echoes: [restoreEchoes(sourcePath, instances)] }, ABORTED);
+    return gesturePlan({ echoes: [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)] }, ABORTED);
   }
   const action: InferredDragAction =
     outcome === 'prompt' && choice ? choice.action : (outcome as InferredDragAction);
@@ -197,7 +200,7 @@ function planInferredCommit(args: InferredCommitArgs): GesturePlan | null {
     {
       writes: hasWrite ? [{ sourcePath, instanceId: gesture.instanceId, patch }] : [],
       echoes: [sourceEchoes(sourcePath, instances, inferredCommitGeometry(args, settled))],
-      reverts: hasWrite ? [restoreEchoes(sourcePath, instances)] : [],
+      reverts: hasWrite ? [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)] : [],
     },
     { kind: 'inferred', outcome: settled },
     ABORTED,
@@ -247,7 +250,7 @@ function planDefaultCommit(
     {
       writes: [{ sourcePath, instanceId: gesture.instanceId, patch }],
       echoes: [sourceEchoes(sourcePath, instances, echoGeometryFor(derivation, sourcePath, gesture.after))],
-      reverts: [restoreEchoes(sourcePath, instances)],
+      reverts: [gestureRestoreEchoes(gesture, sourcePath, instances, derivation)],
     },
     PLAIN,
     ABORTED,
@@ -331,14 +334,16 @@ interface SubtreePhaseArgs {
  */
 function planSubtreePhase(args: SubtreePhaseArgs, delta: number): Plan {
   const { outcome, instances, choices, derivation, movedRanges } = args;
-  const shifts = computeSubtreeMove(outcome.instanceId, delta, instances);
-  const bySource = groupBySource(shifts);
-  if (shifts.length > 0 && choices.persistedSubtreeSources === undefined) {
-    return subtreeMovePlan(bySource, instances, derivation);
+  if (choices.persistedSubtreeWrites === undefined) {
+    const shifts = computeSubtreeMove(outcome.instanceId, delta, instances);
+    if (shifts.length > 0) return subtreeMovePlan(groupBySource(shifts), instances, derivation);
   }
-  for (const src of choices.persistedSubtreeSources ?? []) {
-    const rep = bySource.get(src)?.[0];
-    if (rep) addRange(movedRanges, src, rep.start, rep.end);
+  // A persisted source's moved range comes from its persisted write (or its
+  // current snapshot) — never from re-applying the delta, which double-shifts
+  // once a refresh has already folded the persisted move into the snapshot.
+  for (const persisted of choices.persistedSubtreeWrites ?? []) {
+    const range = persistedMovedRange(persisted, instances);
+    if (range) addRange(movedRanges, persisted.sourcePath, range.start, range.end);
   }
   return planAncestorExtend(outcome, instances, choices, movedRanges);
 }

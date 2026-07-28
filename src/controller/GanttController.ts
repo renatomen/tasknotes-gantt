@@ -103,16 +103,15 @@ import {
   projectPlainSpan,
   shadingCacheKey,
   spanEvaluationWindow,
+  type DerivedEstimate,
+  type DerivedGeometry,
   type SpanDerivationFacts,
   type TaskBlocking,
 } from './calendar/derivation';
+import { needsCalendarSeam } from './calendar/estimateMeaning';
 import type { CalendarNoteInput } from './calendar/resolveCalendars';
 import { minutesToSpanDays } from './durationConversion';
 import { resolveParentLink } from '../datasource/parentLink';
-import {
-  countWorkingDaysResolver,
-  workingDaysMeaningGate,
-} from './calendar/estimateMeaning';
 import { resolvePropertyPatch } from './propertyPatchResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
@@ -404,6 +403,19 @@ export interface ReadinessStatus {
   matchedEdgesResolved: boolean;
 }
 
+/**
+ * The controller's task-fact re-read counters ({@link GanttController.recomputeGeneration}),
+ * the drag executor's refresh-generation signal: `started` counts recomputes
+ * that re-read task facts from the vault (`source.getTasks()`); `delivered`
+ * counts those same recomputes' snapshots reaching readers. A config-only
+ * recompute (reused cached tasks) moves neither — it can prove nothing about
+ * post-write vault truth.
+ */
+export interface RecomputeGeneration {
+  started: number;
+  delivered: number;
+}
+
 /** Maps a TaskNotes reltype to the SVAR link type. */
 const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
   FINISHTOSTART: 'e2s',
@@ -502,6 +514,18 @@ export class GanttController {
    * snapshot builds clobbering each other.
    */
   private recomputeSeq = 0;
+  /**
+   * Task-fact re-reads only ({@link RecomputeGeneration}): a recompute that
+   * will call `source.getTasks()` ticks `started` before its build and
+   * `delivered` at snapshot assignment (even when the change gate skips
+   * notify; a latest-wins discard never delivers). A config-only recompute
+   * (`reuseTasks` over cached tasks) re-reads nothing and ticks neither —
+   * advancing the ledger's clock for it would drop settled-fact overlays
+   * against rows that still hold pre-write values.
+   */
+  private readStartedSeq = 0;
+  private readDeliveredSeq = 0;
+  private consecutiveReadRetries = 0;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
@@ -743,6 +767,19 @@ export class GanttController {
   public async getInstances(): Promise<RenderInstance[]> {
     const snap = await this.ensureSnapshot();
     return [...snap.expansion.instances];
+  }
+
+  /**
+   * The re-read counters the drag executor's settled-facts ledger keys its
+   * invalidation on: task-fact re-reads `started` (captured at write settle)
+   * and their snapshots `delivered` (compared at read). Our own mutation
+   * events suppress recompute entirely, and a config-only recompute reuses the
+   * cached tasks, so only a genuine vault re-read moves either counter — and
+   * only a re-read that STARTED after a write settled can prove the rows
+   * carry post-write truth (a straddling recompute may have read pre-write).
+   */
+  public recomputeGeneration(): RecomputeGeneration {
+    return { started: this.readStartedSeq, delivered: this.readDeliveredSeq };
   }
 
   /**
@@ -1468,7 +1505,7 @@ export class GanttController {
    * re-notify carrying unchanged data does not re-render (fixes the in-place
    * refresh loop where each render re-triggered Bases' notify — #161).
    */
-  private async recompute(opts: { reuseTasks?: boolean } = {}): Promise<void> {
+  private async recompute(opts: { reuseTasks?: boolean; retriedRead?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -1477,11 +1514,35 @@ export class GanttController {
     // recompute starts while we await, discard our (now-stale) result.
     const seq = ++this.recomputeSeq;
     const source = this.activeSource;
+    // Resolved HERE (one decision point): whether this recompute re-reads task
+    // facts from the vault. Only such re-reads move the generation counters.
+    const willReadTaskFacts =
+      source !== null && !((opts.reuseTasks ?? false) && this.cachedRawTasks !== null);
+    // Each externally-triggered genuine read restores the retry budget;
+    // retries never restore their own, so no supersession pattern self-feeds.
+    if (willReadTaskFacts && !opts.retriedRead) this.consecutiveReadRetries = 0;
+    const readSeq = willReadTaskFacts ? ++this.readStartedSeq : null;
     const next: Snapshot = source
-      ? await this.buildSnapshot(source, opts.reuseTasks ?? false)
+      ? await this.buildSnapshot(source, !willReadTaskFacts)
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
+      // A genuine read superseded by config-only recomputes would leave
+      // `delivered` forever behind `started`, pinning settled-fact overlays
+      // past their vault truth. Retry — but at most once per external
+      // genuine read: a read slower than the Bases refresh debounce would
+      // otherwise straddle its own poke's config-only notify and self-feed
+      // forever. A spent budget leaves `delivered` trailing, which only
+      // prolongs overlay retention, never drops it early.
+      const shouldRetry =
+        readSeq !== null &&
+        !this.disposed &&
+        this.readStartedSeq === readSeq &&
+        this.consecutiveReadRetries < 1;
+      if (shouldRetry) {
+        this.consecutiveReadRetries += 1;
+        void this.recompute({ retriedRead: true });
+      }
       return;
     }
 
@@ -1497,6 +1558,10 @@ export class GanttController {
     // counter the storm/loop e2es read to detect an unbounded notify loop.
     dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
+    if (readSeq !== null) {
+      this.readDeliveredSeq = readSeq;
+      this.consecutiveReadRetries = 0;
+    }
     // Commit the readiness signal AFTER the latest-wins guard above (U1): a
     // discarded stale build returns early before this line, so a slow re-check
     // resolving last can never overwrite a newer build's readiness (R13).
@@ -1749,91 +1814,67 @@ export class GanttController {
   }
 
   /**
-   * The write path's resize→estimate working-day counter, or undefined when no
-   * axis engages working-day counting. Answers come from the derivation
-   * authority over blocking facts windowed FRESH for the span being counted —
-   * the per-pass lookup is sized for the PRE-drag spans, and days beyond its
-   * window deliberately read as working, which would count blocked days as
-   * worked on a drag past it. Transient, so the pass cache survives.
+   * The write path's span→estimate derivation: the working-day count the span
+   * records (null when the plain span is the record) PLUS the full render
+   * geometry that record re-derives to — always answerable, since even a
+   * calendar-days task renders ghost runs under split rendering. Answers come
+   * from the derivation authority over blocking facts windowed FRESH for the
+   * span being counted — the per-pass lookup is sized for the PRE-drag spans,
+   * and days beyond its window deliberately read as working, which would count
+   * blocked days as worked on a drag past it. Transient, so the pass cache
+   * survives.
    */
-  public buildCountWorkingDays():
-    | ((taskPath: string, start: Date, end: Date) => number | null)
-    | undefined {
-    const { viewMeaning, overrideMapped, meaningForTask } = this.estimateMeaningEnv();
-    return countWorkingDaysResolver(
-      viewMeaning,
-      overrideMapped,
-      meaningForTask,
-      (taskPath, start, end) => {
-        const blocking = this.transientBlockingFor({
-          path: taskPath,
-          start,
-          end,
-          estimateMinutes: null,
-        });
-        const facts = this.spanFactsFor(taskPath, { start, end, dateStatus: 'complete' }, blocking, 1);
-        return deriveEstimate(facts, { start, end }).days;
-      },
-    );
-  }
-
-  /**
-   * The inferred-edge re-derivation projection for the write path: the span an
-   * estimate will RE-DERIVE from its authored anchor, answered by the same
-   * derivation the read pass renders. Undefined when the view has no
-   * working-day axis at all; null for a calendar-days task (nothing
-   * re-projects). Blocking facts are windowed fresh for THIS estimate — the
-   * per-pass lookup is sized for the pre-drag estimates, and a grown estimate
-   * would walk into its blind zone and stop short of the read path's answer.
-   */
-  public buildProjectDerivedSpan():
-    | ((
-        taskPath: string,
-        edge: 'start' | 'end',
-        anchor: Date,
-        estimateMinutes: number,
-      ) => { start: Date; end: Date } | null)
-    | undefined {
-    const { viewMeaning, overrideMapped, meaningForTask } = this.estimateMeaningEnv();
-    const usesWorkingDays = workingDaysMeaningGate(viewMeaning, overrideMapped, meaningForTask);
-    if (!usesWorkingDays) return undefined;
-    return (taskPath, edge, anchor, estimateMinutes) => {
-      // A calendar-days task does not stretch; the meaning answers the yes/no
-      // without materializing the vault's calendars.
-      if (!usesWorkingDays(taskPath)) return null;
-      const durationDays = minutesToSpanDays(estimateMinutes);
-      const blocking = this.transientBlockingFor({
-        path: taskPath,
-        start: anchor,
-        end: anchor,
-        estimateMinutes,
-      });
-      const plain = projectPlainSpan(edge, anchor, durationDays);
-      const derived = deriveSpan(
-        this.spanFactsFor(taskPath, plain, blocking, durationDays),
-        estimateMinutes,
+  public buildDeriveEstimate(): (
+    taskPath: string,
+    span: { start: Date; end: Date },
+  ) => DerivedEstimate {
+    return (taskPath, span) => {
+      const blocking = this.writeSeamNeeded(taskPath)
+        ? this.transientBlockingFor({
+            path: taskPath,
+            start: span.start,
+            end: span.end,
+            estimateMinutes: null,
+          })
+        : null;
+      const facts = this.spanFactsFor(
+        taskPath,
+        { start: span.start, end: span.end, dateStatus: 'complete' },
+        blocking,
+        1,
       );
-      return { start: derived.start, end: derived.end };
+      return deriveEstimate(facts, span);
     };
   }
 
   /**
-   * The estimate-meaning environment the write-side builders resolve against —
-   * sourced from the same providers the read pass reads, so both paths answer
-   * from one configuration.
+   * The inferred-edge re-derivation projection for the write path: the FULL
+   * render geometry an estimate will re-derive from its authored anchor,
+   * answered by the same derivation the read pass renders — a calendar-days
+   * task answers its plain projection (with split-rendering ghost runs where a
+   * calendar contrasts). Blocking facts are windowed fresh for THIS estimate —
+   * the per-pass lookup is sized for the pre-drag estimates, and a grown
+   * estimate would walk into its blind zone and stop short of the read path's
+   * answer.
    */
-  private estimateMeaningEnv(): {
-    viewMeaning: EstimateMeaning;
-    overrideMapped: boolean;
-    meaningForTask: (taskPath: string) => EstimateMeaning;
-  } {
-    const policy = this.policyConfigProvider();
-    const viewMeaning = policy.viewEstimateMeaning ?? 'calendar-days';
-    return {
-      viewMeaning,
-      overrideMapped:
-        (this.derivationInputs?.effectiveMappings().estimateMeaningProperty ?? '') !== '',
-      meaningForTask: policy.estimateMeaningForTask ?? (() => viewMeaning),
+  public buildDeriveSpan(): (
+    taskPath: string,
+    edge: 'start' | 'end',
+    anchor: Date,
+    estimateMinutes: number,
+  ) => DerivedGeometry {
+    return (taskPath, edge, anchor, estimateMinutes) => {
+      const durationDays = minutesToSpanDays(estimateMinutes);
+      const blocking = this.writeSeamNeeded(taskPath)
+        ? this.transientBlockingFor({
+            path: taskPath,
+            start: anchor,
+            end: anchor,
+            estimateMinutes,
+          })
+        : null;
+      const plain = projectPlainSpan(edge, anchor, durationDays);
+      return deriveSpan(this.spanFactsFor(taskPath, plain, blocking, durationDays), estimateMinutes);
     };
   }
 
@@ -1844,18 +1885,35 @@ export class GanttController {
     blocking: TaskBlocking | null,
     defaultDurationDays: number,
   ): SpanDerivationFacts {
-    const policy = this.policyConfigProvider();
-    const meaning =
-      policy.estimateMeaningForTask?.(taskPath) ?? policy.viewEstimateMeaning ?? 'calendar-days';
     return {
       start: span.start,
       end: span.end,
       dateStatus: span.dateStatus,
-      meaning,
-      rendering: policy.nonWorkingRendering ?? 'shaded',
+      meaning: this.effectiveMeaningFor(taskPath),
+      rendering: this.policyConfigProvider().nonWorkingRendering ?? 'shaded',
       blocking,
       defaultDurationDays,
     };
+  }
+
+  /** A task's effective Estimate meaning under the live policy config. */
+  private effectiveMeaningFor(taskPath: string): EstimateMeaning {
+    const policy = this.policyConfigProvider();
+    return (
+      policy.estimateMeaningForTask?.(taskPath) ?? policy.viewEstimateMeaning ?? 'calendar-days'
+    );
+  }
+
+  /**
+   * Whether THIS task's write-path derivation reads the calendar at all. A
+   * calendar-days task under non-split rendering answers its plain projection,
+   * so assembling transient blocking facts (a full marked-notes vault walk) on
+   * every drag would be pure waste. The per-task meaning is already resolved
+   * here, so the seam predicate's override axis is folded in (passed false).
+   */
+  private writeSeamNeeded(taskPath: string): boolean {
+    const rendering = this.policyConfigProvider().nonWorkingRendering ?? 'shaded';
+    return needsCalendarSeam(rendering, this.effectiveMeaningFor(taskPath), false);
   }
 
   /** Fresh, transient blocking facts windowed for ONE span (the pass cache survives). */
@@ -1866,6 +1924,26 @@ export class GanttController {
   /** Pass-level blocking memo: read pass and write-path builders share it. */
   private lastBlockingKey: string | null = null;
   private lastBlockingLookup: ((taskPath: string) => TaskBlocking | null) | null = null;
+
+  /** Marked-notes vault-walk memo, keyed by the calendar epoch. */
+  private lastMarkedNotesEpoch: number | null = null;
+  private lastMarkedNotes: CalendarNoteInput[] | null = null;
+
+  /**
+   * The vault's marked calendar notes, collected once per calendar epoch — the
+   * staleness authority every blocking cache already keys on. Transient builds
+   * bypass the pass-level lookup memo (their windows are span-sized), so a
+   * parent move deriving geometry per descendant would otherwise enumerate the
+   * whole vault once per descendant, synchronously, on the drag path.
+   */
+  private markedNotesFor(inputs: DerivationInputs): CalendarNoteInput[] {
+    const epoch = inputs.calendarEpoch();
+    if (this.lastMarkedNotes === null || epoch !== this.lastMarkedNotesEpoch) {
+      this.lastMarkedNotesEpoch = epoch;
+      this.lastMarkedNotes = inputs.markedCalendarNotes();
+    }
+    return this.lastMarkedNotes;
+  }
 
   /**
    * Per-pass blocking lookup for working-time derivation, assembled from the
@@ -1907,7 +1985,7 @@ export class GanttController {
     });
     if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
     const lookup = computeTaskBlocking({
-      markedNotes: inputs.markedCalendarNotes(),
+      markedNotes: this.markedNotesFor(inputs),
       resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
       associations,
       taskSpans: tasks,

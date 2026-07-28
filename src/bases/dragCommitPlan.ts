@@ -20,19 +20,22 @@
 import type { DerivedEstimate, DerivedGeometry } from '../controller/calendar/derivation';
 import type { DateStatus } from '../controller/datePolicy';
 import type { InferredDragAction, InferredDragMode, InferredEdge } from './inferredDragGate';
-import type { AncestorExtension, DateRange } from './cascadeGate';
+import { computeMoveDelta, type AncestorExtension, type DateRange } from './cascadeGate';
+
+/** The pre-drag bar capture: the SPAN plus frontmatter-derived facts. */
+export interface BarBefore {
+  start: Date | null;
+  end: Date | null;
+  dateStatus: DateStatus | null;
+  estimateMinutes: number | null;
+}
 
 /** A committed drag gesture: pre-drag capture plus gesture-time config reads. */
 export type CommitGesture =
   | {
       kind: 'bar';
       instanceId: string;
-      before: {
-        start: Date | null;
-        end: Date | null;
-        dateStatus: DateStatus | null;
-        estimateMinutes: number | null;
-      };
+      before: BarBefore;
       /** The authoritative post-drag span (SVAR store read). */
       after: DateRange;
       /** `timeEstimateWriteEnabled && !readOnly`, resolved by the caller. */
@@ -42,11 +45,22 @@ export type CommitGesture =
     }
   | { kind: 'progress'; instanceId: string; progress: number; beforeProgress: number };
 
+/**
+ * The pre-drag capture a cascade measures its displacement from. Under
+ * supersession-inherits-origin (the lane's stash) this can be an EARLIER
+ * gesture's capture, so the subtree move covers the cumulative displacement.
+ */
+export interface CascadeBefore {
+  start: Date | null;
+  end: Date | null;
+  estimateMinutes: number | null;
+}
+
 /** The settled gesture the cascade pass plans from (post-settlement store facts). */
 export interface CascadeOutcome {
   instanceId: string;
   name: string;
-  before: { start: Date | null; end: Date | null; estimateMinutes: number | null };
+  before: CascadeBefore;
   after: DateRange;
   settlement: GestureSettlement;
 }
@@ -57,8 +71,31 @@ export interface CascadeChoices {
   cascadeMode: unknown;
   shrinkChoice?: 'adjust' | 'undo';
   extendApproved?: boolean;
-  /** Sources whose subtree write persisted, once the executor ran the subtree phase. */
-  persistedSubtreeSources?: readonly string[];
+  /** The subtree writes that persisted, once the executor ran the subtree phase. */
+  persistedSubtreeWrites?: readonly PersistedSubtreeWrite[];
+}
+
+/** One persisted subtree write, reported back to the resume re-plan. */
+export interface PersistedSubtreeWrite {
+  sourcePath: string;
+  /** The exact span the write carried — the moved range, refresh-independent. */
+  range?: DateRange;
+}
+
+/**
+ * The moved range a persisted subtree write settled: the write's own span, or
+ * the source's CURRENT snapshot range when the write carried none. Never the
+ * gesture delta re-applied — a snapshot refreshed after the persist already
+ * contains the shift, and re-shifting it would feed double-moved ranges to
+ * the ancestor extend.
+ */
+export function persistedMovedRange(
+  persisted: PersistedSubtreeWrite,
+  instances: ReadonlyArray<PlannerInstance>,
+): DateRange | null {
+  if (persisted.range) return persisted.range;
+  const row = instances.find((i) => i.sourcePath === persisted.sourcePath && i.start && i.end);
+  return row ? { start: row.start as Date, end: row.end as Date } : null;
 }
 
 /** The slice of a render row the planner reads (structurally satisfied by RenderInstance). */
@@ -99,6 +136,45 @@ export interface PlannerDerivation {
   inclusiveDaySpan(start: Date, end: Date): number;
   /** The view's default duration — the implicit estimate a bar with none derived from. */
   defaultDurationDays?: number;
+}
+
+/** One gesture's derivation cache — create per submitted gesture, never share. */
+export type DerivationMemo = Map<string, unknown>;
+
+/**
+ * Wrap a derivation's authority callbacks in a memo keyed by their call args,
+ * so the identical (source, span) or (source, edge, anchor, minutes) query —
+ * repeated across a gesture's estimate, echo, and re-plan calls — materializes
+ * its facts (vault calendars included) once. The memo's lifetime bounds the
+ * staleness: hand each gesture its OWN `memo` and answers never leak across
+ * gestures. The conversion members pass through untouched.
+ */
+export function memoizePlannerDerivation(
+  derivation: PlannerDerivation,
+  memo: DerivationMemo = new Map(),
+): PlannerDerivation {
+  const cached = <T>(key: string, compute: () => T): T => {
+    if (!memo.has(key)) memo.set(key, compute());
+    return memo.get(key) as T;
+  };
+  const { deriveEstimate, deriveSpan } = derivation;
+  return {
+    ...derivation,
+    deriveEstimate:
+      deriveEstimate &&
+      ((sourcePath, span) =>
+        cached(
+          JSON.stringify(['estimate', sourcePath, span.start.getTime(), span.end.getTime()]),
+          () => deriveEstimate(sourcePath, span),
+        )),
+    deriveSpan:
+      deriveSpan &&
+      ((sourcePath, edge, anchor, estimateMinutes) =>
+        cached(
+          JSON.stringify(['span', sourcePath, edge, anchor.getTime(), estimateMinutes]),
+          () => deriveSpan(sourcePath, edge, anchor, estimateMinutes),
+        )),
+  };
 }
 
 /** The fields a planned write persists (raw TaskPatch vocabulary). */
@@ -274,6 +350,71 @@ export function datedInstancesOf(
   return instances.filter((i) => i.sourcePath === sourcePath && i.start && i.end);
 }
 
+/** The live store row's geometry surface: the span plus the custom record the
+ *  echoes advance (ghost runs and the stretch flag ride `custom`, store-style). */
+export interface LiveGeometryTask {
+  start?: unknown;
+  end?: unknown;
+  custom?: {
+    ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    stretchFlagged?: boolean;
+  };
+}
+
+/**
+ * Overlay live store geometry onto controller rows for a cascade-fresh
+ * snapshot. Controller rows lag optimistic echoes (self-write events skip
+ * recompute), so a snapshot taken between stacked gestures would replay
+ * pre-echo geometry. When the store row answers with real Dates, the row takes
+ * its span AND its custom geometry fields (ghost runs, stretch flag) — echoes
+ * advance those alongside the span, and a restore echo built from this
+ * snapshot must repaint the live segments, not stale ones. Every other fact
+ * (dateStatus, estimate) stays with the controller row — frontmatter-derived
+ * facts the store does not carry.
+ *
+ * `exceptId` names the DRAGGED row, which must NOT overlay: the snapshot is
+ * captured at dequeue, after SVAR applied the drag, so its store span is the
+ * post-drag position — overlaying it turns the cancel/failure restore into a
+ * no-op. Its geometry authority is the gesture's own before/after capture.
+ */
+export function overlayStoreGeometry<
+  Row extends {
+    id: string;
+    start: Date | null;
+    end: Date | null;
+    ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    stretchFlagged?: boolean;
+  },
+>(
+  instances: ReadonlyArray<Row>,
+  getTask: (id: string) => LiveGeometryTask | undefined,
+  exceptId?: string,
+): Row[] {
+  return instances.map((row) => {
+    const live = row.id === exceptId ? undefined : getTask(row.id);
+    if (!(live?.start instanceof Date) || !(live.end instanceof Date)) return row;
+    const overlaid = { ...row, start: live.start, end: live.end };
+    // A store row with no custom record answers no geometry fields either way,
+    // so the controller row's own stay in place.
+    return live.custom
+      ? { ...overlaid, ghostRuns: live.custom.ghostRuns, stretchFlagged: live.custom.stretchFlagged }
+      : overlaid;
+  });
+}
+
+/**
+ * The gesture's `before`, only when the gesture is a PURE MOVE of the span —
+ * the one gesture kind owing its subtree a displacement. A resize (or a
+ * placeholder with no span) hands the cascade lane no origin, opting out of
+ * origin inheritance: a halted resize has nothing to owe, and a stashed
+ * resize shape would make a later move read as unequal edge deltas — not a
+ * move at all — and drop the children's shift.
+ */
+export function pureMoveBefore(before: BarBefore, after: DateRange): CascadeBefore | undefined {
+  const moves = computeMoveDelta(before.start, before.end, after.start, after.end) !== 0;
+  return moves ? before : undefined;
+}
+
 export function plainGeometry(span: DateRange): DerivedGeometry {
   return { start: span.start, end: span.end, flagged: false, ghostRuns: [] };
 }
@@ -301,6 +442,34 @@ export function sourceEchoes(
       instanceId: i.id,
       payload: { kind: 'geometry', geometry },
     })),
+  };
+}
+
+/**
+ * The main gesture's failure/cancel baseline. Sibling rows restore their own
+ * snapshot geometry, but the DRAGGED row restores the gesture's live-captured
+ * pre-drag span (rendered as the authority's full geometry): its snapshot row
+ * is deliberately excluded from the store-geometry overlay, so under stacked
+ * drags it can still hold a prior drag's pre-echo span — reverting to that
+ * would snap the bar back past the previous drag's settled write.
+ */
+export function gestureRestoreEchoes(
+  gesture: { instanceId: string; before: { start: Date | null; end: Date | null } },
+  sourcePath: string,
+  instances: ReadonlyArray<PlannerInstance>,
+  derivation: PlannerDerivation,
+): SourceEchoes {
+  const { start, end } = gesture.before;
+  const restored = restoreEchoes(sourcePath, instances);
+  if (!start || !end) return restored;
+  const geometry = echoGeometryFor(derivation, sourcePath, { start, end });
+  return {
+    sourcePath,
+    rows: restored.rows.map((row) =>
+      row.instanceId === gesture.instanceId
+        ? { ...row, payload: { kind: 'geometry', geometry } }
+        : row,
+    ),
   };
 }
 

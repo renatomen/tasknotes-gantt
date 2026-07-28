@@ -2,166 +2,144 @@
  * The drag executor: runs {@link import('./dragCommitPlanner')} plans against
  * injected primitives — it decides nothing, the planner decides everything.
  *
- * What it owns:
+ * A thin composer over three sibling primitives, each owning its policy:
  *
- * - **Per-source serialization.** Executions queue per source note; a gesture
- *   arriving while its source has an in-flight execution waits, and its plan
- *   callback runs at DEQUEUE time — so a queued gesture is re-planned from
- *   post-settlement task facts, never from optimistic store geometry. Distinct
- *   sources proceed independently.
- * - **Revert-baseline lifecycle.** Each execution's revert baseline is the
- *   plan's own `reverts`, carried as data; a failed or timed-out persist emits
- *   exactly that plan's reverts and touches nothing queued behind it.
- * - **Post-await liveness.** After every await the injected `isLive` predicate
- *   gates continuation; a dead host abandons cleanly — no writes, no echoes.
- * - **Plan execution.** Writes go through the injected `persist` (time-bounded
- *   here, so a hung write still reverts); every echoed or reverted row goes
- *   through the single injected `echo` emitter. A plan carrying a prompt has
- *   its optimistic echoes emitted first, the injected `resolvePrompt` collects
- *   the choice (prompt side-effects live behind that seam), and the gesture is
- *   re-planned with the choice before anything writes. The settled outcome is
- *   reported through `onSettled` — the seam a deferred cascade pass plans from,
- *   always after the persists it depends on have actually settled.
+ * - {@link ./dragSourceQueues} — per-source serialization: executions queue
+ *   per source note, and a gesture's task facts are captured at DEQUEUE time
+ *   so a queued gesture re-plans from post-settlement facts. Distinct sources
+ *   proceed independently.
+ * - {@link ./dragExecutionLifecycle} — the continue-gates (component death
+ *   drops everything; a generation flip with the host alive abandons only
+ *   pre-write work and suppresses echoes), the time-bounded persist, prompt
+ *   re-planning, revert baselines, and settlement reporting for the main
+ *   gesture.
+ * - {@link ./dragCascadeLane} — the deferred cascade pass through THE single
+ *   global lane: declare→fence→re-plan rounds, supersession via the settled-
+ *   geometry clock, cascade prompt collection, and the after-subtree resume
+ *   protocol.
+ *
+ * Composition order is the executor's only policy: the own-source slot covers
+ * the MAIN gesture and settles BEFORE the cascade waits for the lane (the
+ * deadlock-freedom invariant), every settled write ticks the supersession
+ * clock, and a plan-callback throw reports without breaking the queue.
  *
  * Dependency-free (no Obsidian/Svelte/SVAR), mirroring {@link ./dragCommitPlanner}.
  *
  * @module bases/dragExecutor
  */
-/* global clearTimeout */
 
-import type {
-  GestureChoice,
-  GesturePlan,
-  GestureSettlement,
-  PlannedWrite,
-  PromptRequest,
-  SourceEchoes,
-} from './dragCommitPlan';
+import type { BarBefore, GestureSettlement, SourceEchoes } from './dragCommitPlan';
+import {
+  createCascadeLane,
+  createGeometryClock,
+  type CascadeExecution,
+} from './dragCascadeLane';
+import {
+  createExecutionLifecycle,
+  type DragExecutorDeps,
+  type MainGestureExecution,
+} from './dragExecutionLifecycle';
+import { createSettledFactsLedger, type RefreshGeneration } from './dragSettledFacts';
+import { createSourceQueues } from './dragSourceQueues';
+
+export type { CascadeAnswers, CascadeExecution, CascadePhase } from './dragCascadeLane';
+export type { DragExecutorDeps, PromptAnswer } from './dragExecutionLifecycle';
+export type { RefreshGeneration } from './dragSettledFacts';
 
 /** One submitted gesture, planned lazily so dequeue re-plans from current facts. */
-export interface PlannedExecution {
-  sourcePath: string;
-  /**
-   * Build the plan from current task facts. Called at dequeue, and again with
-   * the collected choice after a prompt resolves — the caller's closure holds
-   * the one pre-drag snapshot spanning every call. Null = nothing to run.
-   */
-  plan(choice: GestureChoice): GesturePlan | null;
-  /** A persist in this execution failed (its reverts have already been emitted). */
-  onFailure?(error: unknown): void;
-}
-
-export interface DragExecutorDeps {
-  /** Write gate (read-only mode, dead api): false skips the execution entirely. */
-  canWrite(): boolean;
-  /** Checked after every await; false abandons the execution silently. */
-  isLive(): boolean;
-  /** Persist one planned write against its source note. */
-  persist(write: PlannedWrite): Promise<void>;
-  /** The sole echo emitter: every echoed and reverted row lands here. */
-  echo(echoes: SourceEchoes): void;
-  /**
-   * Collect the user's answer to a plan's prompt. Prompt side-effects (e.g.
-   * persisting a don't-ask-again choice) belong behind this seam. Absent =
-   * every prompt resolves as cancelled.
-   */
-  resolvePrompt?(prompt: PromptRequest): Promise<GestureChoice>;
-  /** The settled outcome, reported after every persist in the plan has settled. */
-  onSettled?(settlement: GestureSettlement): void;
-  /** Reject an unsettled persist after this many ms so a hung write still reverts. */
-  persistTimeoutMs?: number;
+export interface PlannedExecution<Facts = undefined> extends MainGestureExecution<Facts> {
+  /** Absent = the gesture has no deferred cascade pass (progress drags). */
+  cascade?: CascadeExecution<Facts>;
 }
 
 export interface DragExecutor {
   /** Queue an execution behind any in-flight work on the same source. Never rejects. */
-  submit(execution: PlannedExecution): Promise<void>;
+  submit<Facts>(execution: PlannedExecution<Facts>): Promise<void>;
+  /**
+   * Overlay the authored facts this executor's settled writes imply onto a
+   * live row read ({@link import('./dragSettledFacts')}): the controller
+   * suppresses recomputation for its own mutations, so rows lag the vault
+   * until a genuine refresh — which then wins back automatically.
+   */
+  rebaseSettledFacts(sourcePath: string, live: BarBefore): BarBefore;
+  /**
+   * How many echoes this executor has emitted for the source. A gesture
+   * captures it at intercept and compares at dequeue: a moved count means
+   * another execution echoed the row in between (a predecessor's optimistic,
+   * settled, or reverted geometry) — its own echoes only ever land later. The
+   * dequeue rebase uses it to trust the live span even when a predecessor
+   * left the row EXACTLY at this gesture's target (a revert to A under a
+   * queued B→A), where span equality alone would misread it as the gesture's
+   * own optimistic position and baseline the failure revert at stale B.
+   */
+  echoSeqOf(sourcePath: string): number;
 }
 
-export function createDragExecutor(deps: DragExecutorDeps): DragExecutor {
-  const tails = new Map<string, Promise<void>>();
+/** Deps plus the host's recompute counters (see {@link RefreshGeneration}). */
+export interface DragExecutorOptions extends DragExecutorDeps {
+  refreshGeneration?: () => RefreshGeneration;
+}
 
-  function submit(execution: PlannedExecution): Promise<void> {
-    const tail = tails.get(execution.sourcePath) ?? Promise.resolve();
-    const next = tail.then(() => runGuarded(execution));
-    tails.set(execution.sourcePath, next);
-    void next.finally(() => {
-      if (tails.get(execution.sourcePath) === next) tails.delete(execution.sourcePath);
-    });
-    return next;
-  }
+/** True when the echoes move what the dequeue rebase reads — the row's geometry. */
+function carriesGeometry(echoes: SourceEchoes): boolean {
+  return echoes.rows.some((row) => row.payload.kind === 'geometry');
+}
 
-  async function runGuarded(execution: PlannedExecution): Promise<void> {
-    try {
-      await run(execution);
-    } catch (error) {
-      // A throw outside the persist loop (e.g. the plan callback itself) still
-      // reports, and never breaks the source's queue for gestures behind it.
-      execution.onFailure?.(error);
-    }
-  }
+export function createDragExecutor(options: DragExecutorOptions): DragExecutor {
+  const { refreshGeneration, ...bare } = options;
+  const echoSeq = new Map<string, number>();
+  const echoSeqOf = (sourcePath: string): number => echoSeq.get(sourcePath) ?? 0;
+  // A geometry-bearing echo ticks the per-source count BEFORE reaching the
+  // host — the moved-by-another-execution signal the dequeue rebase reads. A
+  // progress-only echo (e.g. a failed progress persist's revert) moves no
+  // geometry, so ticking for it would make a queued date gesture distrust a
+  // span a predecessor never touched.
+  const deps: DragExecutorDeps = {
+    ...bare,
+    echo: (echoes) => {
+      if (carriesGeometry(echoes)) echoSeq.set(echoes.sourcePath, echoSeqOf(echoes.sourcePath) + 1);
+      bare.echo(echoes);
+    },
+  };
+  const queues = createSourceQueues();
+  const clock = createGeometryClock();
+  const settledFacts = createSettledFactsLedger(refreshGeneration);
+  const lifecycle = createExecutionLifecycle(deps, (write) => {
+    clock.recordSettledGeometry(write);
+    settledFacts.recordSettled(write);
+  });
+  const lane = createCascadeLane({ deps, lifecycle, queues, clock });
 
-  async function run(execution: PlannedExecution): Promise<void> {
-    if (!deps.canWrite() || !deps.isLive()) return;
-    const plan = execution.plan(undefined);
-    if (!plan) return;
-    if (plan.prompt) {
-      await runPromptedPlan(plan.prompt, plan, execution);
-      return;
-    }
-    await executePlan(plan, execution);
-  }
-
-  async function runPromptedPlan(
-    prompt: PromptRequest,
-    plan: GesturePlan,
-    execution: PlannedExecution,
-  ): Promise<void> {
-    emitEchoes(plan.echoes);
-    const choice = deps.resolvePrompt ? await deps.resolvePrompt(prompt) : null;
-    if (!deps.isLive()) return;
-    const resolved = execution.plan(choice ?? null);
-    if (!resolved || resolved.prompt) return;
-    await executePlan(resolved, execution);
-  }
-
-  async function executePlan(plan: GesturePlan, execution: PlannedExecution): Promise<void> {
-    emitEchoes(plan.echoes);
-    let failed = false;
-    try {
-      for (const write of plan.writes) {
-        await timeBound(deps.persist(write));
-        if (!deps.isLive()) return;
+  function submit<Facts>(execution: PlannedExecution<Facts>): Promise<void> {
+    const generation = deps.generation?.() ?? 0;
+    // The own-source slot covers the MAIN gesture only; it settles at gesture
+    // settlement so the cascade never holds a source while waiting for the
+    // lane (the deadlock-freedom invariant — see the module doc).
+    const outcome: { settlement: GestureSettlement | null } = { settlement: null };
+    const main = queues.join([execution.sourcePath], async () => {
+      try {
+        outcome.settlement = await lifecycle.runMain(execution, generation);
+      } catch (error) {
+        // A throw outside the persist loop (e.g. the plan callback itself)
+        // still reports, and never breaks the source's queue behind it.
+        execution.onFailure?.(error);
       }
-    } catch (error) {
-      if (!deps.isLive()) return;
-      failed = true;
-      emitEchoes(plan.reverts);
-      execution.onFailure?.(error);
-    }
-    deps.onSettled?.(failed ? plan.settlement.onFailure : plan.settlement.onSuccess);
-  }
-
-  function emitEchoes(echoes: ReadonlyArray<SourceEchoes>): void {
-    for (const source of echoes) deps.echo(source);
-  }
-
-  function timeBound(persist: Promise<void>): Promise<void> {
-    const ms = deps.persistTimeoutMs;
-    if (ms === undefined) return persist;
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('write timed out')), ms);
-      persist.then(
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        },
-      );
+    });
+    return main.then(async () => {
+      if (outcome.settlement === null || !execution.cascade) return;
+      try {
+        await lane.runCascade({
+          cascade: execution.cascade,
+          settlement: outcome.settlement,
+          sourcePath: execution.sourcePath,
+          snapshot: execution.snapshot,
+          generation,
+        });
+      } catch (error) {
+        execution.onFailure?.(error);
+      }
     });
   }
 
-  return { submit };
+  return { submit, rebaseSettledFacts: settledFacts.rebase, echoSeqOf };
 }
