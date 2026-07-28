@@ -519,7 +519,14 @@ describe("Gantt (OG) inferred-date drag writes", () => {
 
     // The echo is written under the echo-guard and must stay invisible to the
     // entry signature; a re-notify storm would run the tally far past this.
+    //
+    // Bracketed, not capped. The committed write MUST advance the live view's
+    // tally, so a lower bound is what proves the counter being read is the one
+    // under test: an unlocated counter reports -1 and a stale view never moves,
+    // and either would satisfy a ceiling alone while observing nothing.
     const updatesAfter = await dataUpdateCount();
-    expect(updatesAfter - updatesBefore).toBeLessThanOrEqual(MAX_UPDATES_PER_COMMIT);
+    const updates = updatesAfter - updatesBefore;
+    expect(updates).toBeGreaterThanOrEqual(1);
+    expect(updates).toBeLessThanOrEqual(MAX_UPDATES_PER_COMMIT);
   });
 });
