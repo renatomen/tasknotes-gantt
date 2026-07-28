@@ -34,7 +34,7 @@
  * the review process's responsibility, not this script's.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
@@ -152,6 +152,25 @@ function peelToCommit(sha) {
 }
 
 /**
+ * Whether a graft file is in play. Grafts fake commit ancestry for every history
+ * command, and unlike replacement objects no flag turns them off — so a grafted
+ * range can read as docs-only while the push still transfers the commits the
+ * graft hid. A present-but-unreadable file counts as active: the reason it
+ * cannot be read is exactly the reason it cannot be trusted absent.
+ */
+function graftsActive() {
+  const graftFile = process.env.GIT_GRAFT_FILE ?? join(gitTopLevelDir(), 'info', 'grafts');
+  if (!existsSync(graftFile)) return false;
+  try {
+    return readFileSync(graftFile, 'utf8')
+      .split('\n')
+      .some((line) => line.trim() !== '' && !line.trim().startsWith('#'));
+  } catch {
+    return true;
+  }
+}
+
+/**
  * What a push would introduce: the base for a net tree diff, plus the rev-list
  * arguments naming each introduced commit. Null when git handed us no
  * authoritative base, which forfeits the exemption.
@@ -187,6 +206,7 @@ function pushRange(localSha, remoteSha) {
  */
 function changedPathsForPush({ localSha, remoteSha }) {
   try {
+    if (graftsActive()) return null;
     const range = pushRange(localSha, remoteSha);
     if (range === null) return null;
     const netDiff = git(
