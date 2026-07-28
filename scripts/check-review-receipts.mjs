@@ -49,12 +49,18 @@ function isDeletion(sha) {
 }
 
 /**
+ * Every call runs with replacement objects disabled, because this script exists
+ * to describe what a push will TRANSFER. A replaced object rewrites what `diff`
+ * and `log` report while the pack transfer still sends the original, so honoring
+ * replacements would let the gate inspect one commit and the remote receive
+ * another.
+ *
  * `quiet` silences the subprocess's own stderr for calls whose failure is
  * expected and handled here — an unresolvable range must read as one clear
  * refusal, not as a bare git fatal the caller has to interpret.
  */
 function git(args, { quiet = false } = {}) {
-  return execFileSync('git', args, {
+  return execFileSync('git', ['--no-replace-objects', ...args], {
     encoding: 'utf8',
     stdio: quiet ? ['ignore', 'pipe', 'ignore'] : undefined,
   });

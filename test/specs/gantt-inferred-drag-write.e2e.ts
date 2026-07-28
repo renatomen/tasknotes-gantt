@@ -171,16 +171,28 @@ async function openPristineMainBase(): Promise<void> {
   await browser.executeObsidian(({ app }) => {
     app.workspace.detachLeavesOfType("bases");
   });
+  // Pristine ONCE is not settled: detaching does not cancel a save already in
+  // flight, so a single clean read can be overtaken by that write landing after
+  // it. Requiring the fixture to survive consecutive reads is the same
+  // stability proxy the bar waits use.
+  let consecutivePristine = 0;
   await browser.waitUntil(
-    async () =>
-      browser.executeObsidian(async ({ app }, args) => {
+    async () => {
+      const pristine = await browser.executeObsidian(async ({ app }, args) => {
         const file = app.vault.getAbstractFileByPath(args.path);
         if (!file) throw new Error(`no base fixture at ${args.path}`);
         if ((await app.vault.read(file as never)) === args.content) return true;
         await app.vault.modify(file as never, args.content);
         return false;
-      }, { path: MAIN_BASE, content: PRISTINE_MAIN_BASE }),
-    { timeout: 20000, timeoutMsg: "the main base config never settled back to its fixture state" },
+      }, { path: MAIN_BASE, content: PRISTINE_MAIN_BASE });
+      consecutivePristine = pristine ? consecutivePristine + 1 : 0;
+      return consecutivePristine >= 3;
+    },
+    {
+      timeout: 20000,
+      interval: 400,
+      timeoutMsg: "the main base config never settled back to its fixture state",
+    },
   );
   await switchBase(MAIN_BASE, TASK_NOTES);
 }
