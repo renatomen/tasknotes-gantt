@@ -10,11 +10,14 @@
  *   once a persist lands, the settlement and its downstream data writes
  *   continue; only echoes stay suppressed, because the remounted store
  *   refreshes from the vault.
- * - **The persist timeout wrapper.** Writes go through the injected `persist`,
- *   time-bounded here so a hung write still reverts — the timeout only stops
- *   WAITING: the underlying mutation is not cancelled and may still land
- *   later, which is safe only because reverts are display echoes the next
- *   refresh reconciles.
+ * - **The slow-persist deadline.** Writes go through the injected `persist`,
+ *   awaited to SETTLEMENT: `persistTimeoutMs` only fires the reporting hook,
+ *   never a release. The underlying mutation cannot be cancelled, so releasing
+ *   at the deadline would free the source queue while the write still runs — a
+ *   newer same-source gesture could persist first and the late landing would
+ *   overwrite it. A slow write instead keeps its source fenced; later gestures
+ *   queue behind it, and the eventual outcome settles normally (success ticks
+ *   the settled-write hooks, failure reverts and reports).
  * - **Settlement reporting.** A gesture plan's writes run in order; a failure
  *   emits exactly that plan's reverts, reports through `onFailure`, and the
  *   settled outcome (success or failure branch) goes through `onSettled`.
@@ -65,8 +68,14 @@ export interface DragExecutorDeps {
   resolvePrompt?(prompt: PromptRequest): Promise<PromptAnswer | null>;
   /** The settled outcome, reported after every persist in the plan has settled. */
   onSettled?(settlement: GestureSettlement): void;
-  /** Reject an unsettled persist after this many ms so a hung write still reverts. */
+  /**
+   * Report a persist still unsettled after this many ms (via
+   * {@link onPersistTimeout}). The write is ALWAYS awaited to settlement —
+   * the deadline reports, it never releases (module doc).
+   */
   persistTimeoutMs?: number;
+  /** A persist ran past `persistTimeoutMs` and is still being awaited. */
+  onPersistTimeout?(write: PlannedWrite): void;
 }
 
 /** The host's two continue-gates, split by what they may abandon (module doc). */
@@ -103,7 +112,7 @@ export interface ExecutionLifecycle {
   gatesFor(generation: number): HostGates;
   /** Emit echoes, generation-gated: a remounted store refreshes from the vault. */
   emitEchoes(echoes: ReadonlyArray<SourceEchoes>, gates: HostGates): void;
-  /** Persist one write, time-bounded, reporting settled geometry on success. */
+  /** Persist one write to settlement (slow-persist deadline reports only). */
   persistWrite(write: PlannedWrite): Promise<void>;
   /** Run the main gesture; the settlement it reached, or null when abandoned. */
   runMain<Facts>(
@@ -137,7 +146,7 @@ export function createExecutionLifecycle(
   }
 
   async function persistWrite(write: PlannedWrite): Promise<void> {
-    await timeBound(deps.persist(write));
+    await reportIfSlow(deps.persist(write), write);
     onWritePersisted?.(write);
   }
 
@@ -200,22 +209,15 @@ export function createExecutionLifecycle(
     return settlement;
   }
 
-  function timeBound(persist: Promise<void>): Promise<void> {
+  /** Await the persist to SETTLEMENT, reporting once at the deadline. The
+   *  vault mutation cannot be cancelled, so rejecting here instead would
+   *  release the source queue under a still-running write — a newer gesture
+   *  could persist first and the late landing would overwrite it. */
+  function reportIfSlow(persist: Promise<void>, write: PlannedWrite): Promise<void> {
     const ms = deps.persistTimeoutMs;
     if (ms === undefined) return persist;
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('write timed out')), ms);
-      persist.then(
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        },
-      );
-    });
+    const timer = setTimeout(() => deps.onPersistTimeout?.(write), ms);
+    return persist.finally(() => clearTimeout(timer));
   }
 
   return { gatesFor, emitEchoes, persistWrite, runMain };

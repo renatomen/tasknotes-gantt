@@ -52,9 +52,10 @@
  *   runs to a clean end (a completed cascade settles the source's account even
  *   when it found nothing to shift). An `aborted` or `no-cascade` settlement
  *   never touches the stash (its gesture wrote no geometry, so nothing was
- *   superseded or delivered), and a lost or declined prompt or the round cap
- *   leaves it untouched: an owed displacement stays owed for the next cascade
- *   on that source.
+ *   superseded or delivered), and a lost or declined prompt leaves it
+ *   untouched: an owed displacement stays owed for the next cascade on that
+ *   source. Round-cap exhaustion is a pre-delivery halt like any other — the
+ *   pass stashes its effective origin so the owed displacement survives.
  * - **Prompt collection and resume.** Cascade prompts go through the injected
  *   `resolvePrompt` seam OUTSIDE the lane (a modal never blocks other
  *   cascades); an ask-mode round with no reachable prompt after a generation
@@ -284,6 +285,9 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
       answers = { ...answers, persistedSubtreeWrites: outcome.persisted };
       stash.delivered();
     }
+    // Round-cap exhaustion (every remaining round drifted or asked) is a
+    // pre-delivery halt: no-op when the subtree phase already delivered.
+    stash.halted();
   }
 
   /** Chain a task onto the global cascade lane (never holds any source queue). */

@@ -68,6 +68,37 @@ describe('createDragExecutor', () => {
     expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
   });
 
+  it('a persist past the deadline keeps its source fenced: the queued gesture persists only after the slow write settles', async () => {
+    const slow = deferred();
+    const timedOut: string[] = [];
+    let calls = 0;
+    const h = harness({
+      persist: (write) => {
+        calls += 1;
+        h.log.push(`persist:${write.patch.progress}`);
+        return calls === 1 ? slow.promise : Promise.resolve();
+      },
+      persistTimeoutMs: 5,
+      onPersistTimeout: (write) => timedOut.push(write.sourcePath),
+    });
+    const executor = createDragExecutor(h.deps);
+
+    const first = executor.submit(execution('a.md', () => planOf({ writes: [writeOf('a.md', 1)] })));
+    const second = executor.submit(execution('a.md', () => planOf({ writes: [writeOf('a.md', 2)] })));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    // Deadline long past: the report fired, but the newer gesture is still
+    // queued — a release here would let it persist under the running write,
+    // and the late landing would then overwrite the newer dates.
+    expect(timedOut).toEqual(['a.md']);
+    expect(h.log).toEqual(['persist:1']);
+
+    slow.resolve();
+    await Promise.all([first, second]);
+    expect(h.log).toEqual(['persist:1', 'persist:2']);
+    expect(h.settled).toEqual([{ kind: 'plain' }, { kind: 'plain' }]);
+  });
+
   it('snapshots at dequeue: the queued gesture plans from the FIRST gesture\'s settled write, ONE capture spans its prompt re-plan, and the cascade round re-captures afresh', async () => {
     const gate = deferred();
     const store = { progress: 10 };

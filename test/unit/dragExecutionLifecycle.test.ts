@@ -1,14 +1,14 @@
 /**
  * The lifecycle primitive, driven directly through runMain: the write gate,
- * post-await liveness abandonment, revert baselines across rejecting and
- * hung persists, the persist timeout, the prompt seam's re-plan, and the
- * generation-gated echo emitter.
+ * post-await liveness abandonment, revert baselines across rejecting persists,
+ * the slow-persist deadline (report-and-keep-waiting), the prompt seam's
+ * re-plan, and the generation-gated echo emitter.
  */
 import { describe, it, expect, jest } from '@jest/globals';
 import { createExecutionLifecycle } from '../../src/bases/dragExecutionLifecycle';
 import type { GestureChoice, PlannedWrite } from '../../src/bases/dragCommitPlan';
 import type { PromptAnswer } from '../../src/bases/dragExecutor';
-import { execution, harness, planOf, revertOf, writeOf } from './dragExecutorTestKit';
+import { deferred, execution, harness, planOf, revertOf, writeOf } from './dragExecutorTestKit';
 
 describe('createExecutionLifecycle', () => {
   it('abandons cleanly when liveness is lost after an await: no further writes, echoes, or settlement', async () => {
@@ -60,15 +60,54 @@ describe('createExecutionLifecycle', () => {
     expect(h.settled).toHaveLength(0);
   });
 
-  it('reverts when a persist never settles within the injected timeout', async () => {
-    const failures: Error[] = [];
+  it('a persist past the deadline reports but stays awaited: a late success settles normally, without reverts', async () => {
+    const slow = deferred();
+    const timedOut: string[] = [];
+    const recorded: string[] = [];
     const h = harness({
-      persist: () => new Promise<void>(() => undefined),
-      persistTimeoutMs: 15,
+      persist: () => slow.promise,
+      persistTimeoutMs: 5,
+      onPersistTimeout: (write) => timedOut.push(write.sourcePath),
+    });
+    const lifecycle = createExecutionLifecycle(h.deps, (write) => recorded.push(write.sourcePath));
+
+    let settled = false;
+    const run = lifecycle
+      .runMain(
+        execution('a.md', () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] })),
+        0,
+      )
+      .then((settlement) => {
+        settled = true;
+        return settlement;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    // The deadline fired its report, but the execution is still waiting — the
+    // source queue slot is held, so no newer gesture can persist underneath.
+    expect(timedOut).toEqual(['a.md']);
+    expect(settled).toBe(false);
+    expect(recorded).toEqual([]);
+
+    slow.resolve();
+    expect(await run).toEqual({ kind: 'plain' });
+    expect(h.echoed).toHaveLength(0); // no reverts: the vault write landed
+    expect(recorded).toEqual(['a.md']); // the settled-write hooks still tick
+    expect(h.settled).toEqual([{ kind: 'plain' }]);
+  });
+
+  it('a persist past the deadline that then rejects reverts with the REAL error', async () => {
+    const slow = deferred();
+    const failures: Error[] = [];
+    const timedOut: string[] = [];
+    const h = harness({
+      persist: () => slow.promise,
+      persistTimeoutMs: 5,
+      onPersistTimeout: (write) => timedOut.push(write.sourcePath),
     });
     const lifecycle = createExecutionLifecycle(h.deps);
 
-    await lifecycle.runMain(
+    const run = lifecycle.runMain(
       execution(
         'a.md',
         () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] }),
@@ -76,9 +115,13 @@ describe('createExecutionLifecycle', () => {
       ),
       0,
     );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    slow.reject(new Error('save failed'));
 
+    expect(await run).toEqual({ kind: 'aborted' });
+    expect(timedOut).toEqual(['a.md']);
     expect(h.echoed.map((e) => e.sourcePath)).toEqual(['a.md']);
-    expect(failures[0]?.message).toBe('write timed out');
+    expect(failures[0]?.message).toBe('save failed');
     expect(h.settled).toEqual([{ kind: 'aborted' }]);
   });
 

@@ -1925,6 +1925,26 @@ export class GanttController {
   private lastBlockingKey: string | null = null;
   private lastBlockingLookup: ((taskPath: string) => TaskBlocking | null) | null = null;
 
+  /** Marked-notes vault-walk memo, keyed by the calendar epoch. */
+  private lastMarkedNotesEpoch: number | null = null;
+  private lastMarkedNotes: CalendarNoteInput[] | null = null;
+
+  /**
+   * The vault's marked calendar notes, collected once per calendar epoch — the
+   * staleness authority every blocking cache already keys on. Transient builds
+   * bypass the pass-level lookup memo (their windows are span-sized), so a
+   * parent move deriving geometry per descendant would otherwise enumerate the
+   * whole vault once per descendant, synchronously, on the drag path.
+   */
+  private markedNotesFor(inputs: DerivationInputs): CalendarNoteInput[] {
+    const epoch = inputs.calendarEpoch();
+    if (this.lastMarkedNotes === null || epoch !== this.lastMarkedNotesEpoch) {
+      this.lastMarkedNotesEpoch = epoch;
+      this.lastMarkedNotes = inputs.markedCalendarNotes();
+    }
+    return this.lastMarkedNotes;
+  }
+
   /**
    * Per-pass blocking lookup for working-time derivation, assembled from the
    * view-owned {@link DerivationInputs} and memoized on a cache-safe staleness
@@ -1965,7 +1985,7 @@ export class GanttController {
     });
     if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
     const lookup = computeTaskBlocking({
-      markedNotes: inputs.markedCalendarNotes(),
+      markedNotes: this.markedNotesFor(inputs),
       resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
       associations,
       taskSpans: tasks,

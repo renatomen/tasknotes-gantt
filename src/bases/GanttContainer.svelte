@@ -2064,7 +2064,7 @@
       onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
     echo: echoSourceGeometry,
     resolvePrompt,
-    persistTimeoutMs: MUTATION_TIMEOUT_MS,
+    persistTimeoutMs: MUTATION_TIMEOUT_MS, onPersistTimeout: () => new Notice('Saving is taking longer than expected — the change will apply when it finishes.'),
     refreshGeneration: () => $data.refreshGeneration?.() ?? { started: 0, delivered: 0 },
   });
 

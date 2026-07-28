@@ -259,8 +259,31 @@ describe('buildTaskBlocking cache key and epoch', () => {
       { transient: true },
     );
     expect(transient).not.toBe(pass);
-    // The pass cache survives: the next pass-level ask is the SAME lookup, no re-walk.
+    // The pass cache survives: the next pass-level ask is the SAME lookup —
+    // and the transient build shared the epoch-memoized marked notes, so the
+    // whole sequence walked the vault exactly once.
     expect(buildTaskBlocking(passTasks)).toBe(pass);
+    expect(vaultWalks()).toBe(1);
+  });
+
+  it('transient builds share ONE marked-notes walk per epoch: per-descendant drag derivation stays off the vault', () => {
+    const { buildTaskBlocking, vaultWalks, markedNoteCollections, setEpoch } = makeHarness();
+    const spanFor = (dayOfApril: number): StretchTaskInput[] => [
+      {
+        path: 'Tasks/T.md',
+        start: new Date(2026, 3, dayOfApril),
+        end: new Date(2026, 3, dayOfApril + 1),
+        estimateMinutes: null,
+      },
+    ];
+    buildTaskBlocking(spanFor(6), { transient: true });
+    buildTaskBlocking(spanFor(8), { transient: true });
+    buildTaskBlocking(spanFor(10), { transient: true });
+    expect(vaultWalks()).toBe(1);
+    expect(markedNoteCollections()).toBe(1);
+    // A calendar edit flips the epoch: the memo re-collects exactly once.
+    setEpoch(1);
+    buildTaskBlocking(spanFor(6), { transient: true });
     expect(vaultWalks()).toBe(2);
   });
 });

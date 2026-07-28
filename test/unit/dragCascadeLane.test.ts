@@ -611,6 +611,41 @@ describe('pre-delivery halts inherit origin (the per-source before stash)', () =
     expect(dayDelta(effective!.start!, effective!.end!)).toBe(dayDelta(ownBefore.start, ownBefore.end));
   });
 
+  it('round-cap exhaustion stashes the origin: six drifting rounds persist nothing, and the next drag covers the owed displacement', async () => {
+    const writes: PlannedWrite[] = [];
+    const h = harness({
+      persist: (write) => {
+        writes.push(write);
+        return Promise.resolve();
+      },
+    });
+    const laneKit = laneOf(h);
+    // Every round's post-fence re-plan writes a source the round did not
+    // fence, so every round retries and the cap exhausts the pass.
+    let drift = 0;
+    await laneKit.lane.runCascade({
+      cascade: {
+        before: { ...B0, estimateMinutes: null },
+        plan: () => cascadePlanOf({ writes: [writeOf(`drift-${(drift += 1)}.md`, 1)] }),
+      },
+      settlement: { kind: 'plain' },
+      sourcePath: PARENT,
+      snapshot: () => undefined,
+      generation: 0,
+    });
+    expect(writes).toHaveLength(0); // the exhausted pass never delivered
+
+    const seen: Array<CascadeBefore | undefined> = [];
+    await laneKit.lane.runCascade(movePass({ before: A1, after: A2, seen: (b) => seen.push(b) }));
+
+    // The successor inherited the exhausted pass's origin (B0), so ONE subtree
+    // move carries the full cumulative displacement (+7).
+    expect(seen[0]).toEqual({ ...B0, estimateMinutes: null });
+    const childWrites = writes.filter((w) => w.sourcePath === CHILD);
+    expect(childWrites).toHaveLength(1);
+    expect(childWrites[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 7));
+  });
+
   it('a mid-round supersession stashes the origin: the successor re-plans the landed child too, so every child lands at the cumulative displacement', async () => {
     const CHILD2 = 'notes/C2.md';
     const twoKids: PlannerInstance[] = [

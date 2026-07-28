@@ -46,7 +46,7 @@ const row = (id: string, startIso: string, endIso: string, parent?: string): Ove
 });
 
 describe('overlayStoreGeometry', () => {
-  it('uses the store span when the store answers with real Dates, keeping every non-geometry field from the controller row', () => {
+  it('uses the store span when the store answers with real Dates; a custom-less live row leaves every other field with the controller row', () => {
     const controller = [row('a.md', '2026-08-03', '2026-08-06')];
     const storeStart = day('2026-08-10');
     const storeEnd = dayEnd('2026-08-13');
@@ -59,6 +59,25 @@ describe('overlayStoreGeometry', () => {
     expect(overlaid[0]?.estimateMinutes).toBe(480);
     expect(overlaid[0]?.ghostRuns).toEqual([{ startDate: '2026-08-03', days: 2 }]);
     expect(overlaid[0]?.stretchFlagged).toBe(true);
+  });
+
+  it('adopts the live custom geometry fields with the span: a restore echo repaints the echoed ghost runs, not stale ones', () => {
+    const controller = [row('a.md', '2026-08-03', '2026-08-06')];
+    const liveRuns = [{ startDate: '2026-08-10', days: 1 }];
+
+    const overlaid = overlayStoreGeometry(controller, () => ({
+      start: day('2026-08-10'),
+      end: dayEnd('2026-08-13'),
+      custom: { ghostRuns: liveRuns, stretchFlagged: undefined },
+    }));
+
+    // The echoes advanced ghost runs and the flag alongside the span, so the
+    // live custom record is the truth — the stale snapshot values must not
+    // survive into a later cancel/failure restore.
+    expect(overlaid[0]?.ghostRuns).toBe(liveRuns);
+    expect(overlaid[0]?.stretchFlagged).toBeUndefined();
+    expect(overlaid[0]?.dateStatus).toBe('inferred-end');
+    expect(overlaid[0]?.estimateMinutes).toBe(480);
   });
 
   it('falls back per-row: a missing store row or a non-Date span leaves that row untouched while others overlay', () => {
