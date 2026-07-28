@@ -23,7 +23,9 @@
  * both a docs ref and a code ref still gates the code one, and a range mixing
  * docs with anything else is not exempt. Every ambiguity fails CLOSED: an
  * unresolvable range, a failed git call, and an empty path list all demand
- * receipts, because the cost of a wrong exemption is unreviewed code.
+ * receipts, because the cost of a wrong exemption is unreviewed code. That
+ * includes a branch the destination does not have yet — its first push is
+ * gated, since nothing local can be trusted to say where its range begins.
  *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
@@ -41,9 +43,6 @@ export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
 export const DOCS_PREFIX = 'docs/';
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
-
-/** git's canonical empty tree, the diff base for a pushed root commit. */
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 function isDeletion(sha) {
   return /^0+$/.test(sha);
@@ -124,64 +123,51 @@ function peelToCommit(sha) {
   return git(['rev-parse', '--verify', `${sha}^{commit}`]).trim();
 }
 
-function isKnownRemote(remoteName) {
-  if (!remoteName) return false;
-  return git(['remote'], { quiet: true })
-    .split('\n')
-    .map((line) => line.trim())
-    .includes(remoteName);
-}
-
 /**
- * What a push would introduce: a base for the net tree diff, plus the rev-list
- * arguments naming each introduced commit. Null when no range can be established.
+ * What a push would introduce: the base for a net tree diff, plus the rev-list
+ * arguments naming each introduced commit. Null when git handed us no
+ * authoritative base, which forfeits the exemption.
  *
- * For a ref the destination does not have yet, reachability is scoped to THAT
- * destination. Excluding everything reachable from any remote answers a
- * different question: a commit living only on some other remote would be
- * filtered out of the range while still being sent to this one.
+ * Only a ref the destination already has earns one, because only then does git
+ * supply that destination's current tip. For a ref it does not have yet there is
+ * no cheap trustworthy base: local tracking refs answer about a different moment
+ * and sometimes a different destination, so any reading of them can exclude a
+ * code-bearing commit the push would still introduce. Gating a new branch's
+ * first push costs one review; guessing its base costs the invariant.
  */
-function pushRange(localSha, remoteSha, remoteName) {
-  if (!isDeletion(remoteSha)) return { base: remoteSha, revs: [`${remoteSha}..${localSha}`] };
-  if (!isKnownRemote(remoteName)) return null;
-  const revs = [localSha, '--not', `--remotes=${remoteName}`];
-  const introduced = git(['rev-list', ...revs], { quiet: true })
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '');
-  if (introduced.length === 0) return null;
-  const oldest = introduced[introduced.length - 1];
-  const parents = git(['rev-list', '--parents', '-n', '1', oldest], { quiet: true })
-    .trim()
-    .split(/\s+/)
-    .slice(1);
-  return { base: parents[0] ?? EMPTY_TREE, revs };
+function pushRange(localSha, remoteSha) {
+  if (isDeletion(remoteSha)) return null;
+  return { base: remoteSha, revs: [`${remoteSha}..${localSha}`] };
 }
 
 /**
- * Every path a push would change, or null when the range cannot be resolved - an
- * unfetched remote tip, an unnameable destination, a failed git call.
+ * Every path a push would change, or null when the range cannot be resolved - a
+ * ref the destination does not have yet, an unfetched tip, a failed git call.
  *
  * The union of two readings, because each is blind where the other sees. The net
- * tree diff covers merge commits, whose own diffs a per-commit listing omits. The
- * per-commit listing covers a change added and then reverted inside the range,
- * which the net diff cancels to nothing while the push still carries the commit.
- * Exempting on either reading alone would let one of those through.
+ * tree diff covers the endpoint state. The per-commit listing covers a change
+ * added and then reverted inside the range, which the net diff cancels to
+ * nothing while the push still carries the commit that introduced it.
+ *
+ * The per-commit listing asks for merge diffs explicitly: git omits them by
+ * default, so without that a path introduced by one merge resolution and undone
+ * by another would appear in neither reading.
  *
  * Paths are read NUL-separated so git never quotes them, and renames are read as
  * delete-plus-add so a file moved out of the docs tree cannot hide behind its
  * new path alone.
  */
-function changedPathsForPush({ localSha, remoteSha }, remoteName) {
+function changedPathsForPush({ localSha, remoteSha }) {
   try {
-    const range = pushRange(localSha, remoteSha, remoteName);
+    const range = pushRange(localSha, remoteSha);
     if (range === null) return null;
     const netDiff = git(['diff', '--name-only', '-z', '--no-renames', range.base, localSha], {
       quiet: true,
     });
-    const perCommit = git(['log', '--format=', '--name-only', '-z', '--no-renames', ...range.revs], {
-      quiet: true,
-    });
+    const perCommit = git(
+      ['log', '--format=', '--name-only', '-m', '-z', '--no-renames', ...range.revs],
+      { quiet: true },
+    );
     return [...new Set(`${netDiff}\0${perCommit}`.split('\0').filter((path) => path !== ''))];
   } catch {
     return null;
@@ -280,7 +266,7 @@ function reportVerdict(gatedShas, exemptShas) {
   process.exit(1);
 }
 
-function check(remoteName) {
+function check() {
   const stdinText = readPipedStdin();
   // A manual run carries no pushed range, so it gates HEAD outright: the
   // docs-only exemption needs a range and never fires without one.
@@ -301,18 +287,18 @@ function check(remoteName) {
     ]);
   }
   const { exempt, gated } = partitionPushedShas(records, (push) =>
-    isDocsOnlyChange(changedPathsForPush(push, remoteName)),
+    isDocsOnlyChange(changedPathsForPush(push)),
   );
   reportVerdict(gated, exempt);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
 if (isDirectRun) {
-  const [, , command, argument] = process.argv;
-  if (command === 'record') record(argument);
-  else if (command === 'check') check(argument);
+  const [, , command, layer] = process.argv;
+  if (command === 'record') record(layer);
+  else if (command === 'check') check();
   else {
-    console.error('usage: check-review-receipts.mjs record <layer> | check [remote]');
+    console.error('usage: check-review-receipts.mjs record <layer> | check');
     process.exit(1);
   }
 }

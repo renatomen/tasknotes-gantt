@@ -165,12 +165,23 @@ async function ensureGanttReady(): Promise<void> {
  * asynchronously — is what keeps the journeys runnable in any order.
  */
 async function openPristineMainBase(): Promise<void> {
-  await browser.executeObsidian(async ({ app }, args) => {
-    const file = app.vault.getAbstractFileByPath(args.path);
-    if (!file) throw new Error(`no base fixture at ${args.path}`);
-    if ((await app.vault.read(file as never)) === args.content) return;
-    await app.vault.modify(file as never, args.content);
-  }, { path: MAIN_BASE, content: PRISTINE_MAIN_BASE });
+  // Detach FIRST. A journey that persisted a choice does not await the config
+  // write, so restoring under a live view would race that write: it could land
+  // after the restore, or make an early "already pristine" read stale.
+  await browser.executeObsidian(({ app }) => {
+    app.workspace.detachLeavesOfType("bases");
+  });
+  await browser.waitUntil(
+    async () =>
+      browser.executeObsidian(async ({ app }, args) => {
+        const file = app.vault.getAbstractFileByPath(args.path);
+        if (!file) throw new Error(`no base fixture at ${args.path}`);
+        if ((await app.vault.read(file as never)) === args.content) return true;
+        await app.vault.modify(file as never, args.content);
+        return false;
+      }, { path: MAIN_BASE, content: PRISTINE_MAIN_BASE }),
+    { timeout: 20000, timeoutMsg: "the main base config never settled back to its fixture state" },
+  );
   await switchBase(MAIN_BASE, TASK_NOTES);
 }
 
@@ -355,8 +366,11 @@ async function promptAppears(ms: number): Promise<boolean> {
     await (await $(".modal")).waitForDisplayed({ timeout: ms });
     return true;
   } catch (error) {
+    // Matched on the wait's OWN wording, not a bare "timeout": a transport or
+    // command timeout means observation failed, which must surface rather than
+    // read as a confident absence.
     const message = error instanceof Error ? error.message : String(error);
-    if (/still not displayed|timeout/i.test(message)) return false;
+    if (/still not displayed/i.test(message)) return false;
     throw error;
   }
 }
