@@ -25,9 +25,10 @@ import { fileURLToPath } from "node:url";
  *      geometry, not the geometry the gesture drew, to every placement of the
  *      source — without re-poking the entry signature into a re-notify storm.
  *
- * ORDER IS LOAD-BEARING: journey 2 ends by persisting "Don't ask again" on the
- * main base, which suppresses the prompt for every later gesture on that view.
- * Any case needing a prompt there must run before it.
+ * Each journey opens the base it needs from the pristine fixture, so none of
+ * them depends on running after another. Journey 2 persists a "Don't ask again"
+ * choice into the main view's config, which would otherwise leave every later
+ * gesture on that view prompt-free.
  *
  * SELECTOR NOTE: bars are SVAR `.wx-bar` elements carrying `data-id` = the note
  * path with a leading ":" (SVAR `setID`), so we target with the ends-with form
@@ -64,7 +65,10 @@ async function enableBases(): Promise<void> {
 
 // The spec drives two bases: the main one (cascade `auto`) and the seam view,
 // whose calendar-bearing fixtures own the echo journey.
-let currentBase = "InferredDragWrite.base";
+const MAIN_BASE = "InferredDragWrite.base";
+const SEAM_BASE = "InferredDragSeam.base";
+const PRISTINE_MAIN_BASE = fs.readFileSync(path.join(fixtureVault, MAIN_BASE), "utf8");
+let currentBase = MAIN_BASE;
 let expectedBars: string[] = [];
 const TASK_NOTES = [
   "Solo Inferred.md",
@@ -150,6 +154,24 @@ async function ensureGanttReady(): Promise<void> {
     },
     { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
   );
+}
+
+/**
+ * Put the main base's view config back to its fixture state, then open it fresh.
+ *
+ * A "Don't ask again" choice persists into that view config, which would leave
+ * every later gesture on the view prompt-free. Restoring the file before the
+ * view is opened — rather than under a live view, which would settle
+ * asynchronously — is what keeps the journeys runnable in any order.
+ */
+async function openPristineMainBase(): Promise<void> {
+  await browser.executeObsidian(async ({ app }, args) => {
+    const file = app.vault.getAbstractFileByPath(args.path);
+    if (!file) throw new Error(`no base fixture at ${args.path}`);
+    if ((await app.vault.read(file as never)) === args.content) return;
+    await app.vault.modify(file as never, args.content);
+  }, { path: MAIN_BASE, content: PRISTINE_MAIN_BASE });
+  await switchBase(MAIN_BASE, TASK_NOTES);
 }
 
 /** Point the spec at a base and wait for exactly the bars that view renders. */
@@ -321,13 +343,21 @@ async function chooseAction(label: string): Promise<void> {
   await (await (await $(".modal")).$(`button=${label}`)).click();
 }
 
-/** Whether a prompt appears within `ms` (used to assert one does NOT). */
+/**
+ * Whether a prompt appears within `ms` (used to assert one does NOT).
+ *
+ * Only a timeout counts as absence. Swallowing every rejection would let a dead
+ * session or a selector that stopped resolving read as a clean "no prompt", so a
+ * negative assertion built on it could pass while observing nothing.
+ */
 async function promptAppears(ms: number): Promise<boolean> {
   try {
     await (await $(".modal")).waitForDisplayed({ timeout: ms });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/still not displayed|timeout/i.test(message)) return false;
+    throw error;
   }
 }
 
@@ -362,27 +392,8 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     await ensureGanttReady();
   });
 
-  // FIRST: needs the main base's prompt, which journey 2 switches off for good.
-  it("writes nothing and puts the bar back when the inferred-edge prompt is cancelled", async () => {
-    const before = await readNote("Cancel Me.md");
-    const widthBefore = (await waitForBar("Cancel Me.md")).width;
-    expect(widthBefore).toBeGreaterThan(0);
-
-    await dragEndEdge("Cancel Me.md", 3);
-    await waitForPrompt(lastDragged);
-    await browser.keys(["Escape"]); // cancel = Escape / backdrop, by design
-
-    // Re-front the base first: the starter-note steal can unmount the chart while
-    // the prompt holds focus, and an unmounted chart has no bar to measure.
-    await ensureGanttReady();
-    await browser.waitUntil(async () => (await barInfo("Cancel Me.md"))?.width === widthBefore, {
-      timeout: 20000,
-      timeoutMsg: "a cancelled inferred drag did not restore the bar",
-    });
-    expect(await readNote("Cancel Me.md")).toBe(before); // byte-identical: nothing written
-  });
-
   it("prompts on an inferred edge, writes the choice with its cascade, then stops asking once told to", async () => {
+    await openPristineMainBase();
     // Write-enabled: no read-only banner, so SVAR bars are draggable at all.
     await expect($$(".og-readonly-text")).toBeElementsArrayOfSize(0);
     expect((await waitForBar("Solo Inferred.md")).classes).toContain("datestatus-flagged");
@@ -437,9 +448,32 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     expect(askTwice).toMatch(/due:\s*'?2026-04-10'?/);
   });
 
+  // Deliberately declared AFTER the journey that persists "Don't ask again": this
+  // case needs the prompt, so its passing here is what proves the reset works and
+  // keeps the suite honest about being runnable in any order.
+  it("writes nothing and puts the bar back when the inferred-edge prompt is cancelled", async () => {
+    await openPristineMainBase();
+    const before = await readNote("Cancel Me.md");
+    const widthBefore = (await waitForBar("Cancel Me.md")).width;
+    expect(widthBefore).toBeGreaterThan(0);
+
+    await dragEndEdge("Cancel Me.md", 3);
+    await waitForPrompt(lastDragged);
+    await browser.keys(["Escape"]); // cancel = Escape / backdrop, by design
+
+    // Re-front the base first: the starter-note steal can unmount the chart while
+    // the prompt holds focus, and an unmounted chart has no bar to measure.
+    await ensureGanttReady();
+    await browser.waitUntil(async () => (await barInfo("Cancel Me.md"))?.width === widthBefore, {
+      timeout: 20000,
+      timeoutMsg: "a cancelled inferred drag did not restore the bar",
+    });
+    expect(await readNote("Cancel Me.md")).toBe(before); // byte-identical: nothing written
+  });
+
   // LAST: drives the seam base, so it leaves the spec pointed elsewhere.
   it("mirrors an estimate-only drag over blocked days to every placement without a re-notify storm", async () => {
-    await switchBase("InferredDragSeam.base", SEAM_NOTES);
+    await switchBase(SEAM_BASE, SEAM_NOTES);
     // `Seam Only` starts Mon 05-04 with a two-working-day estimate on a calendar
     // whose weekends are blocked, and no authored end — so its end is the inferred
     // edge and its span is a working-day walk, not the days a drag draws.

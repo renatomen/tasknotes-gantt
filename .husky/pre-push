@@ -1,1 +1,1 @@
-node scripts/check-review-receipts.mjs check
+node scripts/check-review-receipts.mjs check "$1"
