@@ -194,7 +194,18 @@ function changedPathsForPush({ localSha, remoteSha }) {
       { quiet: true },
     );
     const perCommit = git(
-      ['log', '--format=', ...PATH_READING_FLAGS, '--diff-merges=separate', ...range.revs],
+      [
+        'log',
+        '--format=',
+        ...PATH_READING_FLAGS,
+        // Both switchable defaults the log reading depends on, pinned here rather
+        // than inherited: the merge-diff shorthand takes its format from
+        // configuration, and a root commit's own diff can be configured away —
+        // which would hide every path an orphan root introduces.
+        '--diff-merges=separate',
+        '--root',
+        ...range.revs,
+      ],
       { quiet: true },
     );
     return [...new Set(`${netDiff}\0${perCommit}`.split('\0').filter((path) => path !== ''))];
