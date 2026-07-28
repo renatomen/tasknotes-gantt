@@ -41,7 +41,10 @@ export interface FenceRequest {
  * handled internally — no rejection escapes unhandled after abandonment.
  */
 export function fenceWithinDeadline(request: FenceRequest): Promise<void> {
-  const { queues, sources, deadlineMs, body } = request;
+  const { queues, deadlineMs, body } = request;
+  // A duplicated source would queue its second hold behind the first's held
+  // slot and the barrier could never fill - dedupe rather than trust callers.
+  const sources = [...new Set(request.sources)];
   if (sources.length === 0) return body();
   let abandoned = false;
   let acquired = false;
@@ -59,7 +62,9 @@ export function fenceWithinDeadline(request: FenceRequest): Promise<void> {
     waiting -= 1;
     if (waiting === 0) {
       acquired = true;
-      bodyRun = body();
+      // Deferred invocation turns a synchronous throw into a rejection, so
+      // release always fires and no fenced queue can wedge on a broken body.
+      bodyRun = Promise.resolve().then(body);
       bodyRun.then(release, release);
     }
     return held;

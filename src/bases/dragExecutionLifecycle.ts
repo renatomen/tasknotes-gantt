@@ -158,7 +158,12 @@ export function createExecutionLifecycle(
     try {
       await reportIfSlow(deps.persist(write), write);
     } finally {
-      deps.onWriteSettled?.(write);
+      try {
+        deps.onWriteSettled?.(write);
+      } catch {
+        // A reporting observer must never change the persist outcome: a throw
+        // here would fail a landed write or mask the original error.
+      }
     }
     onWritePersisted?.(write);
   }

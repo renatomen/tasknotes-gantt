@@ -125,6 +125,51 @@ describe('createExecutionLifecycle', () => {
     expect(h.settled).toEqual([{ kind: 'aborted' }]);
   });
 
+  it('a throwing settlement observer cannot fail a landed write', async () => {
+    const failures: Error[] = [];
+    const h = harness({
+      onWriteSettled: () => {
+        throw new Error('observer broke');
+      },
+    });
+    const lifecycle = createExecutionLifecycle(h.deps);
+
+    const settlement = await lifecycle.runMain(
+      execution(
+        'a.md',
+        () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] }),
+        (error) => failures.push(error as Error),
+      ),
+      0,
+    );
+
+    expect(settlement).toEqual({ kind: 'plain' });
+    expect(failures).toHaveLength(0);
+    expect(h.echoed).toHaveLength(0);
+  });
+
+  it('a throwing settlement observer cannot mask a rejecting persist\'s real error', async () => {
+    const failures: Error[] = [];
+    const h = harness({
+      persist: () => Promise.reject(new Error('save failed')),
+      onWriteSettled: () => {
+        throw new Error('observer broke');
+      },
+    });
+    const lifecycle = createExecutionLifecycle(h.deps);
+
+    await lifecycle.runMain(
+      execution(
+        'a.md',
+        () => planOf({ writes: [writeOf('a.md', 1)], reverts: [revertOf('a.md')] }),
+        (error) => failures.push(error as Error),
+      ),
+      0,
+    );
+
+    expect(failures[0]?.message).toBe('save failed');
+  });
+
   it('signals per-write settlement with the same sourcePath the timeout named, once the slow MAIN write settles', async () => {
     const slow = deferred();
     const timedOut: string[] = [];
