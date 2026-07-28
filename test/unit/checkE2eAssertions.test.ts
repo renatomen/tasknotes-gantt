@@ -57,7 +57,7 @@ describe('findTestCases', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 
-  it('spans a body containing parentheses inside strings and template literals', () => {
+  it('is undisturbed by parentheses inside strings and template literals', () => {
     const source = wrap(
       '  it("epsilon", async () => {\n' +
         '    const s = "a ) ( b";\n' +
@@ -69,7 +69,13 @@ describe('findTestCases', () => {
     const cases = findTestCases(source);
 
     expect(cases.map((c) => c.name)).toEqual(['epsilon']);
-    expect(cases[0]!.body).toContain('expect(s)');
+    expect(cases[0]!.asserts).toBe(true);
+  });
+
+  it('names a case whose title is not a plain literal rather than dropping it', () => {
+    const source = wrap('  it(`kappa ${n}`, () => { expect(1).toBe(1); });');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['<unnamed>']);
   });
 
   it('reports the line each case starts on', () => {
