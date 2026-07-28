@@ -423,6 +423,37 @@ describe('GanttController — recomputeGeneration (task-fact re-read counters)',
     await flush();
     expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
   });
+
+  it('spends at most one retry per delivery: a re-superseded retry gives up instead of storming', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // genuine read, gated
+    await controller.refreshSource({ reuseTasks: true }); // config-only supersedes
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush(); // discard spawns the single budgeted retry
+    expect(gates).toHaveLength(2);
+
+    await controller.refreshSource({ reuseTasks: true }); // supersedes the retry too
+    gates[1]!([task({ path: 'stale-again.md' })]);
+    await flush();
+
+    // A read slower than the refresh debounce would otherwise self-feed
+    // forever; the spent budget stops the cycle and leaves delivered behind
+    // until the next genuine notify reconverges it.
+    expect(gates).toHaveLength(2);
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 1 });
+
+    tn.fireChange(); // the next genuine notify reconverges the counters
+    await flush();
+    expect(gates).toHaveLength(3);
+    gates[2]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 4, delivered: 4 });
+  });
 });
 
 describe('GanttController — getInstances expansion', () => {

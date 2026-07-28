@@ -132,7 +132,12 @@ function check() {
       for (const line of invalid) console.error(`  ${line}`);
       process.exit(1);
     }
-    shas = pushed.map(peelToCommit);
+    try {
+      shas = [...new Set(pushed.map(peelToCommit))];
+    } catch {
+      console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
+      process.exit(1);
+    }
   }
   const verdict = evaluateReceipts(readReceipts(), shas);
   if (verdict.ok) {

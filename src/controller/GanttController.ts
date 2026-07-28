@@ -525,6 +525,7 @@ export class GanttController {
    */
   private readStartedSeq = 0;
   private readDeliveredSeq = 0;
+  private consecutiveReadRetries = 0;
   private readonly now: () => Date;
   private readonly createTaskNotesSource: (app: App) => Promise<DataSource | null>;
   private readonly createBasesSource: (
@@ -1525,8 +1526,18 @@ export class GanttController {
     if (this.disposed || seq !== this.recomputeSeq) {
       // A genuine read superseded by config-only recomputes would leave
       // `delivered` forever behind `started`, pinning settled-fact overlays
-      // past their vault truth. Retry unless a newer genuine read will deliver.
-      if (readSeq !== null && !this.disposed && this.readStartedSeq === readSeq) {
+      // past their vault truth. Retry unless a newer genuine read will
+      // deliver — but only once per delivery: a read slower than the Bases
+      // refresh debounce would otherwise straddle its own poke's config-only
+      // notify and self-feed forever. After a spent budget the next genuine
+      // notify reconverges the counters; until then overlays merely persist.
+      const shouldRetry =
+        readSeq !== null &&
+        !this.disposed &&
+        this.readStartedSeq === readSeq &&
+        this.consecutiveReadRetries < 1;
+      if (shouldRetry) {
+        this.consecutiveReadRetries += 1;
         void this.recompute();
       }
       return;
@@ -1544,7 +1555,10 @@ export class GanttController {
     // counter the storm/loop e2es read to detect an unbounded notify loop.
     dlog(`[OGDBG] recompute seq=${seq} changed=${changed} reason=${reason}`);
     this.snapshot = next;
-    if (readSeq !== null) this.readDeliveredSeq = readSeq;
+    if (readSeq !== null) {
+      this.readDeliveredSeq = readSeq;
+      this.consecutiveReadRetries = 0;
+    }
     // Commit the readiness signal AFTER the latest-wins guard above (U1): a
     // discarded stale build returns early before this line, so a slow re-check
     // resolving last can never overwrite a newer build's readiness (R13).
