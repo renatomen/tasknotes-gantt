@@ -17,7 +17,10 @@
  *   newer same-source gesture could persist first and the late landing would
  *   overwrite it. A slow write instead keeps its source fenced; later gestures
  *   queue behind it, and the eventual outcome settles normally (success ticks
- *   the settled-write hooks, failure reverts and reports).
+ *   the settled-write hooks, failure reverts and reports). Either way the
+ *   write's settlement is reported through `onWriteSettled` — the per-source
+ *   counterpart to `onPersistTimeout`, for main and cascade writes alike, so
+ *   slow-save state keyed by source clears when THAT source's write settles.
  * - **Settlement reporting.** A gesture plan's writes run in order; a failure
  *   emits exactly that plan's reverts, reports through `onFailure`, and the
  *   settled outcome (success or failure branch) goes through `onSettled`.
@@ -76,6 +79,12 @@ export interface DragExecutorDeps {
   persistTimeoutMs?: number;
   /** A persist ran past `persistTimeoutMs` and is still being awaited. */
   onPersistTimeout?(write: PlannedWrite): void;
+  /**
+   * A write settled (success OR failure), main and cascade paths both — the
+   * per-source counterpart to {@link onPersistTimeout}: state keyed on the
+   * write's source clears when ITS write settles, never another source's.
+   */
+  onWriteSettled?(write: PlannedWrite): void;
 }
 
 /** The host's two continue-gates, split by what they may abandon (module doc). */
@@ -146,7 +155,11 @@ export function createExecutionLifecycle(
   }
 
   async function persistWrite(write: PlannedWrite): Promise<void> {
-    await reportIfSlow(deps.persist(write), write);
+    try {
+      await reportIfSlow(deps.persist(write), write);
+    } finally {
+      deps.onWriteSettled?.(write);
+    }
     onWritePersisted?.(write);
   }
 

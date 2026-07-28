@@ -12,9 +12,12 @@
  * lifecycle's slow-persist policy) and an unbounded fence wait over a hung
  * source would park the ONE lane for every source's later cascades. A fence
  * not acquired by the deadline resolves the round as a pre-delivery halt
- * (origin stashed, silent — the hung write's own path reports), the lane
- * frees, and the late-acquired fence body releases untouched; only the hung
- * source's own queue stays parked behind its unfinished write. Once acquired,
+ * (origin stashed, silent — the hung write's own path reports) and the lane
+ * frees; the fence is acquired per source behind a shared start barrier
+ * ({@link ./dragFence}), so abandonment releases each fenced source the
+ * moment its OWN prior settles and the late holds release untouched — only
+ * the hung source's own queue stays parked behind its unfinished write, and
+ * a later gesture on any OTHER fenced source proceeds. Once acquired,
  * a round's OWN writes hold the lane to settlement like any honest persist
  * (they cannot be released without risking a late-landing overwrite) — the
  * accepted residual, covered by the slow-write notice.
@@ -80,7 +83,6 @@
  *
  * @module bases/dragCascadeLane
  */
-/* global clearTimeout */
 
 import type {
   CascadeBefore,
@@ -93,6 +95,7 @@ import type {
 } from './dragCommitPlan';
 import type { DragExecutorDeps, ExecutionLifecycle, HostGates } from './dragExecutionLifecycle';
 import type { SourceQueues } from './dragSourceQueues';
+import { fenceWithinDeadline } from './dragFence';
 import { dayDelta } from './dayGranularity';
 
 /** The cascade answers the executor accumulates across its prompt/resume rounds. */
@@ -359,58 +362,29 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
     let outcome: RoundOutcome = { kind: 'abandoned' };
     // A deadline elapse leaves `outcome` at abandoned: the pass halts
     // pre-delivery (origin stashed) having planned once and written nothing.
-    await fenceWithinDeadline(fenced, async () => {
-      if (!proceed()) return;
-      const plan = cascade.plan(settlement, answers, snapshot(), before());
-      if (plan.prompt) {
-        outcome = { kind: 'prompt', prompt: plan.prompt };
-        return;
-      }
-      if (!plan.writes.every((w) => fenced.includes(w.sourcePath))) {
-        outcome = { kind: 'retry' };
-        return;
-      }
-      lifecycle.emitEchoes(plan.echoes, gates);
-      const persisted = await persistCascadeWrites(plan, cascade, gates, superseded);
-      if (Array.isArray(persisted)) {
-        outcome = { kind: 'done', persisted, resume: plan.resume };
-      }
+    await fenceWithinDeadline({
+      queues,
+      sources: fenced,
+      deadlineMs: fenceDeadlineMs,
+      body: async () => {
+        if (!proceed()) return;
+        const plan = cascade.plan(settlement, answers, snapshot(), before());
+        if (plan.prompt) {
+          outcome = { kind: 'prompt', prompt: plan.prompt };
+          return;
+        }
+        if (!plan.writes.every((w) => fenced.includes(w.sourcePath))) {
+          outcome = { kind: 'retry' };
+          return;
+        }
+        lifecycle.emitEchoes(plan.echoes, gates);
+        const persisted = await persistCascadeWrites(plan, cascade, gates, superseded);
+        if (Array.isArray(persisted)) {
+          outcome = { kind: 'done', persisted, resume: plan.resume };
+        }
+      },
     });
     return outcome;
-  }
-
-  /**
-   * Join the fenced queues, bounding only the ACQUISITION wait: once the body
-   * has started, its own writes are awaited to settlement like any persist.
-   * At the deadline the caller resumes (its round halts pre-delivery and the
-   * lane frees) while the join stays queued on the fenced sources; when it
-   * finally acquires them, the body sees the abandonment and releases the
-   * fence untouched — no plan call, no write, no echo after abandonment.
-   */
-  function fenceWithinDeadline(fenced: readonly string[], body: () => Promise<void>): Promise<void> {
-    let acquired = false;
-    let abandoned = false;
-    const fence = queues.join(fenced, async () => {
-      if (abandoned) return;
-      acquired = true;
-      await body();
-    });
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        abandoned = !acquired;
-        if (abandoned) resolve();
-      }, fenceDeadlineMs);
-      fence.then(
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        (error) => {
-          clearTimeout(timer);
-          if (!abandoned) reject(error);
-        },
-      );
-    });
   }
 
   async function collectCascadeAnswer<Facts>(

@@ -125,6 +125,49 @@ describe('createExecutionLifecycle', () => {
     expect(h.settled).toEqual([{ kind: 'aborted' }]);
   });
 
+  it('signals per-write settlement with the same sourcePath the timeout named, once the slow MAIN write settles', async () => {
+    const slow = deferred();
+    const timedOut: string[] = [];
+    const writeSettled: string[] = [];
+    const h = harness({
+      persist: () => slow.promise,
+      persistTimeoutMs: 5,
+      onPersistTimeout: (write) => timedOut.push(write.sourcePath),
+      onWriteSettled: (write) => writeSettled.push(write.sourcePath),
+    });
+    const lifecycle = createExecutionLifecycle(h.deps);
+
+    const run = lifecycle.runMain(
+      execution('a.md', () => planOf({ writes: [writeOf('a.md', 1)] })),
+      0,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    // The timeout named the write's source; settlement has not signalled yet.
+    expect(timedOut).toEqual(['a.md']);
+    expect(writeSettled).toEqual([]);
+
+    slow.resolve();
+    await run;
+    expect(writeSettled).toEqual(['a.md']); // the SAME source, on ITS settlement
+  });
+
+  it('signals per-write settlement on the CASCADE write path too, for success AND failure alike', async () => {
+    const writeSettled: string[] = [];
+    const h = harness({
+      persist: (write) =>
+        write.sourcePath === 'bad.md' ? Promise.reject(new Error('save failed')) : Promise.resolve(),
+      onWriteSettled: (write) => writeSettled.push(write.sourcePath),
+    });
+    const lifecycle = createExecutionLifecycle(h.deps);
+
+    // Cascade rounds persist through persistWrite directly (no executePlan).
+    await lifecycle.persistWrite(writeOf('kid.md', 1));
+    await expect(lifecycle.persistWrite(writeOf('bad.md', 1))).rejects.toThrow('save failed');
+
+    expect(writeSettled).toEqual(['kid.md', 'bad.md']);
+  });
+
   it('emits the optimistic echoes, collects the prompt choice, and executes the re-planned commit', async () => {
     const choiceGiven: GestureChoice = { action: 'estimate-only' };
     const resolvePrompt = jest.fn(() =>

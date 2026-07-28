@@ -116,7 +116,7 @@
   import {
     createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
     pureMoveBefore, type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch,
-    type PlannerDerivation, type PromptRequest, type SourceEchoes,
+    type PlannedWrite, type PlannerDerivation, type PromptRequest, type SourceEchoes,
   } from './dragCommitPlanner';
   import { createDragExecutor, type CascadePhase, type PromptAnswer } from './dragExecutor';
   import { dlog } from '../debugLog';
@@ -519,10 +519,10 @@
   // Tags our own programmatic store writes (sibling mirror, revert) so the update-task
   // intercept ignores them and we never re-persist an echo (the SVAR-store echo guard — KTD "two echo loops").
   const OG_ECHO_SOURCE = 'og-self';
-  // A write still unsettled after this window raises ONE slow-save Notice per gesture (reset at settlement; silent once destroyed) — it never releases the write.
+  // A write still unsettled after this window raises ONE slow-save Notice per SOURCE, cleared when that source's own write settles (silent once destroyed) — it never releases the write.
   const MUTATION_TIMEOUT_MS = 10000;
-  let slowSaveNoticed = false;
-  const notifySlowSaveOnce = () => { if (destroyed || slowSaveNoticed) return; slowSaveNoticed = true; new Notice('Saving is taking longer than expected — the change will apply when it finishes.'); };
+  const slowSaveNoticed = new Set<string>();
+  const notifySlowSaveOnce = (write: PlannedWrite) => { if (destroyed || slowSaveNoticed.has(write.sourcePath)) return; slowSaveNoticed.add(write.sourcePath); new Notice('Saving is taking longer than expected — the change will apply when it finishes.'); };
 
   // Generated stylesheet applying the per-view treatment: the Fill channel paints
   // the bar body and the Strip channel the left accent, independently (or the
@@ -2064,7 +2064,7 @@
       onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
     echo: echoSourceGeometry,
     resolvePrompt,
-    persistTimeoutMs: MUTATION_TIMEOUT_MS, onPersistTimeout: notifySlowSaveOnce, onSettled: () => { slowSaveNoticed = false; },
+    persistTimeoutMs: MUTATION_TIMEOUT_MS, onPersistTimeout: notifySlowSaveOnce, onWriteSettled: (write) => { slowSaveNoticed.delete(write.sourcePath); },
     refreshGeneration: () => $data.refreshGeneration?.() ?? { started: 0, delivered: 0 },
   });
 

@@ -762,6 +762,76 @@ describe('pre-delivery halts inherit origin (the per-source before stash)', () =
       expect(childWrites[0]?.patch.start).toEqual(addDays(day('2026-08-03'), 7));
     });
 
+    it('abandonment releases each fenced source independently: a MAIN gesture on the free source proceeds while only the hung source stays parked', async () => {
+      const h = harness();
+      const laneKit = laneOf(h, 20);
+      const hung = deferred();
+      // A slow write holds 'c1.md' to settlement while the round fences [c1, c2].
+      void laneKit.queues.join(['c1.md'], () => hung.promise);
+      await laneKit.lane.runCascade(
+        passOf({ plan: () => cascadePlanOf({ writes: [writeOf('c1.md', 1), writeOf('c2.md', 1)] }) }),
+      );
+
+      // The hung write is STILL unsettled, yet c2's queue is already free: a
+      // main gesture joining [c2.md] runs now instead of parking behind c1.
+      let mainRan = false;
+      await laneKit.queues.join(['c2.md'], async () => {
+        mainRan = true;
+      });
+      expect(mainRan).toBe(true);
+      expect(h.log).toEqual([]); // the abandoned round wrote and echoed nothing
+
+      hung.resolve();
+      await flushMicrotasks();
+      expect(h.log).toEqual([]); // the late c1 hold released the fence untouched
+    });
+
+    it('a multi-source fence acquired in time runs the body exactly once, writing every fenced source', async () => {
+      const h = harness();
+      const laneKit = laneOf(h, 1000);
+      let planCalls = 0;
+
+      await laneKit.lane.runCascade(
+        passOf({
+          plan: () => {
+            planCalls += 1;
+            return cascadePlanOf({ writes: [writeOf('kid1.md', 1), writeOf('kid2.md', 2)] });
+          },
+        }),
+      );
+
+      expect(planCalls).toBe(2); // declare + ONE post-fence re-plan, no more
+      expect(h.log).toEqual(['persist:kid1.md', 'persist:kid2.md']);
+    });
+
+    it('a fenced prior that REJECTS after the deadline abandonment stays handled: no unhandled rejection escapes', async () => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const h = harness();
+        const laneKit = laneOf(h, 20);
+        const hung = deferred();
+        // The hung write's own submitter handles its failure (as the lifecycle does).
+        const hungOutcome = laneKit.queues
+          .join(['stuck.md'], () => hung.promise)
+          .then(() => 'settled', () => 'failed');
+        await laneKit.lane.runCascade(
+          passOf({ plan: () => cascadePlanOf({ writes: [writeOf('stuck.md', 1), writeOf('free.md', 1)] }) }),
+        );
+
+        hung.reject(new Error('save failed late'));
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(await hungOutcome).toBe('failed');
+        expect(h.log).toEqual([]); // the abandoned round never wrote
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+
     it('a fence acquired just under the deadline runs the round normally', async () => {
       const h = harness();
       const laneKit = laneOf(h, 1000);
