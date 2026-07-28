@@ -35,6 +35,28 @@ describe('findTestCases', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 
+  it('finds a test() case, since an unrecognised case form would go unchecked', () => {
+    const source = wrap('  test("eta", () => { expect(1).toBe(1); });');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['eta']);
+  });
+
+  it('does not mistake a regex .test( call for a case', () => {
+    const source = wrap(
+      '  it("theta", () => {\n' +
+        '    expect(/due:/.test("due: x")).toBe(true);\n' +
+        '  });',
+    );
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['theta']);
+  });
+
+  it('does not mistake a property access like obj.it( for a case', () => {
+    const source = wrap('  helper.it("iota", () => {});');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
   it('spans a body containing parentheses inside strings and template literals', () => {
     const source = wrap(
       '  it("epsilon", async () => {\n' +
@@ -123,6 +145,86 @@ describe('assertionLessCases', () => {
     expect(assertionLessCases(source).map((c) => c.name)).toEqual(['hidden']);
   });
 
+  it('is not truncated by a closing paren inside a regex literal', () => {
+    const source = wrap(
+      '  it("regexy", async () => {\n' +
+        '    const r = /\\)/;\n' +
+        '    expect(r.test(")")).toBe(true);\n' +
+        '  });',
+    );
+
+    expect(assertionLessCases(source)).toEqual([]);
+  });
+
+  it('does not let an opening paren in a regex swallow the next case and borrow its assertion', () => {
+    const source = wrap(
+      '  it("bare", async () => {\n' +
+        '    const r = /\\(/;\n' +
+        '    await go(r);\n' +
+        '  });\n' +
+        '  it("asserts", async () => {\n' +
+        '    expect(1).toBe(1);\n' +
+        '  });',
+    );
+
+    expect(assertionLessCases(source).map((c) => c.name)).toEqual(['bare']);
+  });
+
+  it('treats division as division, not as the start of a regex', () => {
+    const source = wrap(
+      '  it("divides", async () => {\n' +
+        '    const ratio = width / height;\n' +
+        '    const other = a / b;\n' +
+        '    expect(ratio).toBeGreaterThan(other);\n' +
+        '  });',
+    );
+
+    expect(assertionLessCases(source)).toEqual([]);
+  });
+
+  it('handles an escaped slash and a slash inside a character class', () => {
+    const source = wrap(
+      '  it("slashy", async () => {\n' +
+        '    const a = /x\\/y/;\n' +
+        '    const b = /[/]/;\n' +
+        '    expect(a).not.toEqual(b);\n' +
+        '  });',
+    );
+
+    expect(assertionLessCases(source)).toEqual([]);
+  });
+
+  it('does not count an expect hidden inside a nested template literal', () => {
+    const source = wrap(
+      '  it("nested template", async () => {\n' +
+        '    const msg = `outer ${`inner expect(1).toBe(1)`} end`;\n' +
+        '    await go(msg);\n' +
+        '  });',
+    );
+
+    expect(assertionLessCases(source).map((c) => c.name)).toEqual(['nested template']);
+  });
+
+  it('does not accept a bare expect with no matcher', () => {
+    const source = wrap('  it("no matcher", async () => {\n    expect(await read());\n  });');
+
+    expect(assertionLessCases(source).map((c) => c.name)).toEqual(['no matcher']);
+  });
+
+  it('accepts the matcher forms the suite actually uses', () => {
+    for (const call of [
+      'expect(v).toBe(1);',
+      'expect(v).not.toBeNull();',
+      'await expect($$(".x")).toBeElementsArrayOfSize(0);',
+      'await expect(p).resolves.toBe(1);',
+      'expect(v)\n      .toEqual(w);',
+    ]) {
+      const source = wrap(`  it("m", async () => {\n    ${call}\n  });`);
+
+      expect(assertionLessCases(source)).toEqual([]);
+    }
+  });
+
   it('reports an unterminated case rather than skipping it', () => {
     const source = 'describe("s", () => {\n  it("truncated", async () => {\n    await go();\n';
 
@@ -140,8 +242,11 @@ describe('isScannedSpec', () => {
     expect(isScannedSpec('test/specs/_local-clone-search.e2e.ts')).toBe(false);
   });
 
-  it('skips a path that merely contains the local prefix deeper down', () => {
-    expect(isScannedSpec('test/specs/nested/_local-thing.e2e.ts')).toBe(false);
+  it('scans a nested spec even when its name carries the local prefix', () => {
+    // The exclusion mirrors the gitignore and eslint ignore, both of which cover
+    // only direct children of test/specs. A nested file is committed, so
+    // excluding it would let a real spec bypass the gate.
+    expect(isScannedSpec('test/specs/nested/_local-thing.e2e.ts')).toBe(true);
   });
 
   it('skips non-spec files', () => {
