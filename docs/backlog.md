@@ -16,6 +16,36 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
+### P1 — Container decomposition (maintainer-ruled REQUIRED, 2026-07-28)
+GanttContainer.svelte sits ratcheted at exactly 3659 lines. The Farley ruling made its
+decomposition mandatory, not optional: extract the cell-edit wiring, syncToGantt (complexity 28),
+and the modal plumbing into focused modules, shrinking the ratchet baseline with each landing.
+- Includes the pre-existing cell-edit timeout hazard the #349 round-13 review documented:
+  the cell-edit path still uses reject-at-timeout (withTimeout), releasing under a running
+  write — the same overtake hazard the drag path fixed with report-and-hold. Fix during the
+  cell-edit extraction by reusing the drag path's settlement semantics.
+- Source: PR #349 review record; plan `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`.
+
+### P1 — Legacy over-500 files become extraction units (maintainer-ruled REQUIRED, 2026-07-28)
+The eslint max-lines exemption list is shrink-only; each legacy file over 500 lines becomes its
+own extraction unit until the list is empty. register.ts (ratcheted at 1463) is the largest.
+- Source: `eslint.config.mjs` exemption list; the 2026-07-28 quality-standard ruling.
+
+### P2 — Executor residuals from the #349 review chain (documented, deliberate)
+Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
+revisit if any bites in practice:
+- A dequeue landing inside the 500ms Bases refresh debounce can read a pre-write row; fully
+  closing it needs the executor to overlay its own persisted patches.
+- A permanently hung persist parks its source's queue (deduplicated notice shown); recovery is
+  view remount. The fence deadline equals the slow-write notice threshold, so a 10–15s write
+  gets its cascade deferred to the next drag.
+- Remount epoch-0 window: the marked-notes memo survives on the controller while the calendar
+  watch is torn down and recreated at epoch 0; an edit in the unwired gap could serve stale
+  marked notes for one transient build.
+- Settlement-observer failures are swallowed silently (why-comment present); route to the gated
+  debugLog if diagnostics are ever needed.
+- Source: PR #349 review threads + local review artifacts, 2026-07-28.
+
 ### P1 — e2e: pointer-drag simulation harness
 The single most-repeated residual. Multiple deferred e2e tests are all blocked on the same missing
 capability: simulating pointer-drag in headless WDIO (drag-to-persist, drag-to-resize, drag-to-link).
