@@ -218,6 +218,16 @@ U1 → U2. The receipts gate is fast, self-contained, and unit-provable, so it l
 
 Operational notes: run `obsidian` CLI commands from PowerShell, never Git Bash. Never switch branches while a WDIO run is loading specs. Move the gitignored `test/specs/_local-*.e2e.ts` probes aside before any full-glob e2e run.
 
+## Superseded: the docs-only exemption was removed
+
+R5–R9 shipped and were then reverted, deliberately. Recorded here rather than quietly deleted, because the reasoning is the useful part.
+
+The exemption was an optimization, and it was paid for in the one script whose entire job is to be trusted. Its cost profile was inverted: always-reviewing costs a small, bounded, predictable amount — a reviewer glances at prose and says fine — while a wrong exemption costs an unbounded, silent amount, because unreviewed code reaches the remote and nobody learns until something breaks. That trade is bad at any frequency, which is what makes it a principle rather than a threshold.
+
+The evidence bore it out. Eight defects, three of them exploitable by a constructed push, across eight adversarial review rounds — two found only after the local gate had declared the branch sound. Every one lived in the exemption; the decision logic it wrapped (`evaluateReceipts`) was nine lines and correct from the first commit. The distinction that explains it: asking "has this been reviewed?" is a lookup, while asking "what does this push actually change?" invites a question git answers differently depending on replacement objects, grafts, worktree layout, and four configuration switches.
+
+Removing it returned the file from 383 lines to 188 and deleted every one of those defect sites. Two fixes found along the way were genuine and independent of the exemption, so they were kept: replacement objects are disabled on every git call, and a failed read of the pushed ref lines now refuses instead of silently falling back to gating HEAD.
+
 ## Deviations and Findings from Execution
 
 Recorded here rather than absorbed silently, per the Definition of Done.
