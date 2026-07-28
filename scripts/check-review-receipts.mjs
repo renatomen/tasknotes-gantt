@@ -44,6 +44,28 @@ export const DOCS_PREFIX = 'docs/';
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 
+/**
+ * Flags shared by both path readings, each pinning a behavior that repository or
+ * user configuration can otherwise turn off underneath the gate:
+ *
+ * - NUL-separated names, so git never quotes a path it would then have to escape.
+ * - Renames read as delete-plus-add, so a file moved out of the docs tree cannot
+ *   hide behind its new path alone.
+ * - Submodule changes always shown, because an ignore setting would drop a
+ *   gitlink outside the docs tree from both readings while a docs path kept the
+ *   union non-empty.
+ *
+ * The per-commit reading adds an explicit merge-diff format for the same reason:
+ * the shorthand for "show merge diffs" defers its format to configuration, and
+ * a repository that disables it silently hides every path a merge introduced.
+ */
+const PATH_READING_FLAGS = [
+  '--name-only',
+  '-z',
+  '--no-renames',
+  '--ignore-submodules=none',
+];
+
 function isDeletion(sha) {
   return /^0+$/.test(sha);
 }
@@ -167,11 +189,12 @@ function changedPathsForPush({ localSha, remoteSha }) {
   try {
     const range = pushRange(localSha, remoteSha);
     if (range === null) return null;
-    const netDiff = git(['diff', '--name-only', '-z', '--no-renames', range.base, localSha], {
-      quiet: true,
-    });
+    const netDiff = git(
+      ['diff', ...PATH_READING_FLAGS, range.base, localSha],
+      { quiet: true },
+    );
     const perCommit = git(
-      ['log', '--format=', '--name-only', '-m', '-z', '--no-renames', ...range.revs],
+      ['log', '--format=', ...PATH_READING_FLAGS, '--diff-merges=separate', ...range.revs],
       { quiet: true },
     );
     return [...new Set(`${netDiff}\0${perCommit}`.split('\0').filter((path) => path !== ''))];
@@ -230,12 +253,19 @@ function record(layer) {
   console.log(`recorded clean ${layer} receipt for ${shortSha(sha)}`);
 }
 
+/**
+ * The piped ref lines, and whether reading them failed. The two are NOT the same
+ * absence: no input means a manual run, which gates HEAD, while a failed read
+ * means the pushed refs are unknown. Collapsing the second into the first would
+ * gate HEAD on a real push and let an unreceipted ref through whenever HEAD
+ * happened to hold receipts.
+ */
 function readPipedStdin() {
-  if (process.stdin.isTTY) return '';
+  if (process.stdin.isTTY) return { text: '', failed: false };
   try {
-    return readFileSync(0, 'utf8');
+    return { text: readFileSync(0, 'utf8'), failed: false };
   } catch {
-    return '';
+    return { text: '', failed: true };
   }
 }
 
@@ -273,7 +303,10 @@ function reportVerdict(gatedShas, exemptShas) {
 }
 
 function check() {
-  const stdinText = readPipedStdin();
+  const { text: stdinText, failed } = readPipedStdin();
+  if (failed) {
+    refuse('pre-push: cannot read the pushed ref lines - refusing to gate blind', []);
+  }
   // A manual run carries no pushed range, so it gates HEAD outright: the
   // docs-only exemption needs a range and never fires without one.
   if (stdinText.trim() === '') {

@@ -116,10 +116,11 @@ Range derivation by remote-sha shape:
 
 | Remote sha on the ref line | Pushed range | Rationale |
 |---|---|---|
-| A real commit present locally | `<remote-sha>..<local-sha>` | Exactly what the remote will gain. |
-| All zeros (new branch) | The commits reachable from `<local-sha>` but not from any remote-tracking ref | Git's own recommended new-branch idiom; avoids diffing against an arbitrary default branch. |
+| A real commit present locally | `<remote-sha>..<local-sha>` | Exactly what the remote will gain, on git's own authority. |
+| All zeros (a ref the destination lacks) | none — fail closed, no exemption | Nothing local is trustworthy enough to say where the range begins (see D-6). |
 | Present but unresolvable locally | none — fail closed | An unfetched remote sha means the range is a guess (KTD8). |
-| No stdin at all (manual run) | none — fail closed, gate HEAD as today | Preserves the current manual-invocation contract. |
+| No stdin at all (manual run) | none — fail closed, gate HEAD | Preserves the manual-invocation contract. |
+| Stdin unreadable | none — fail closed, refuse the push | Unknown pushed refs is not the same absence as no pushed refs. |
 
 Directional guidance: the exact helper names and the shape of the git invocations are finalized in implementation.
 
@@ -225,6 +226,8 @@ Recorded here rather than absorbed silently, per the Definition of Done.
 - **D-2. An estimate-only choice that grows the derived span still reaches the ancestor cascade.** Nesting the dragged note under a tight-windowed parent raised a second modal even though "Estimate only" authors no dates: the child's *rendered* span outgrew the parent, and the extend cascade fired on that. Plausibly correct — a parent should contain its child's rendered span regardless of provenance — but currently asserted nowhere. Designed around with a roomy container fixture so the journey stays about the echo property. **Deserves its own planner-table row; out of scope here.**
 - **D-3. The revert journey covers the cancel path, not an injected persist failure.** No fault-injection seam exists to drive a real persist failure from e2e, and the executor's failure-revert orderings already have direct jest coverage. Adding the seam would be new test infrastructure, not a shrink.
 - **D-4. The update bound is calibrated, not assumed.** A clean run advances the view's update tally by exactly one — the frontmatter write — because the echoes ride under the echo-guard and never reach the entry signature. The bound is set with headroom above that measurement; the first draft's ceiling was loose enough to pass with the echo-guard deleted.
+- **D-6. A ref the destination does not have earns no exemption — the inferred base is gone.** The plan first derived a new branch's base from local remote-tracking refs. Successive review rounds found three distinct ways that reading exempts a push carrying code: it excludes commits held by any remote rather than the destination; the argument is glob-matched, so one remote name can match another's refs; and tracking refs answer about a stale moment. Three failures in one spot is the problem reporting that it has no cheap trustworthy answer, so the inference was deleted rather than patched a fourth time. A new branch's first push is gated; every push after it is eligible. Cost: one review per new docs branch. Bought: the invariant.
+- **D-7. Both path readings pin the git behaviors configuration can switch off.** Reviews found three ways a local setting silently narrows what the gate sees: replacement objects rewrite what `diff` and `log` report while the pack transfer sends the original; `log.diffMerges=off` suppresses merge paths even when merge diffs are requested by shorthand (measured here: 78 paths down to 27); and a submodule ignore setting drops gitlink changes entirely. Each is now pinned explicitly rather than inherited. The general rule this leaves behind: a gate must inspect what the push transfers, never a reading that configuration can redefine.
 - **D-5. Case count fell by seven; line count fell by about fifty.** The retired cases were short and the helpers they shared are the bulk of the file, while the echo journey added two. The win is wall-clock and combinatorial surface, not diff size.
 
 ## Definition of Done
