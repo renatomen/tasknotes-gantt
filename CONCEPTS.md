@@ -25,6 +25,28 @@ A contiguous run of blocked days inside a stretched bar, rendered as a dimmed pi
 ### Availability seam
 The internal query boundary that answers "is this date blocked?" without a consumer inspecting a calendar note directly. It is not one shared query: task-level blocking (stretching, scheduling decisions later) is answered per task from that task's associated calendar, while background shading is the union of the view's displayed calendars. The two paths derive from the same calendar definitions but are resolved separately, so a day can be shaded in the background without blocking an unassociated task.
 
+## Drag commit
+
+### Echo
+An optimistic correction written to the chart's own store so the bar shows where a gesture will land before — or instead of — the vault agreeing. An echo is display truth, never data: when the write behind it cannot land, the echo is reverted, and reverting one never undoes a write that did land. Echoes carrying geometry are what a queued gesture reads to tell "someone else moved this bar" from "this is my own drag's position"; echoes carrying only progress say nothing about geometry.
+
+### Cascade
+The propagation of a parent's committed move to its subtree, run after the parent's own write settles. A cascade is displacement, not assignment: children shift by the parent's delta rather than adopting its dates. Only pure moves cascade — a resize changes shape and owes the subtree nothing.
+
+### Fence
+A cascade round's claim on the source queues it is about to write, held so no other gesture can persist underneath it mid-round. Acquisition is deadline-bounded and each source is held independently: a round that cannot assemble its whole fence in time abandons rather than waiting, and abandoning releases every source as soon as that source's own prior work settles, so one stuck write cannot park the others.
+
+### Origin stash
+The pre-drag position a halted cascade leaves behind so its unpaid displacement survives to the next attempt. Any pre-delivery halt stashes — capability loss, supersession, exhausted rounds — and a successor inherits the stash and measures from it, so the subtree receives the cumulative shift rather than only the newest one. A delivered cascade settles the account and stashes nothing.
+
+### Settled facts
+The authored values a write is known to have persisted, remembered per source because the plugin suppresses its own recompute and the rows it reads therefore still show pre-write values. A settled fact overlays a stale row only until a vault re-read that began after the write has delivered; a read that merely reuses cached tasks proves nothing and cannot retire it.
+
+## Review gate
+
+### Review receipt
+An attestation that a named review layer ran clean against one exact commit, recorded per clone and never committed. Receipts gate the push rather than the merge: every ref being pushed needs one on its tip from every required layer, and a tip receipt attests the chain of reviews ending there rather than each commit behind it. Because a receipt names a commit, any new commit — including the fix for a review finding — starts with none and must earn its own.
+
 ## Field mapping
 
 ### Field mapping
