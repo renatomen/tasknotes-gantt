@@ -120,6 +120,13 @@ async function driveBurst(
       const structure: Array<{ depth: number; key: string; hasConfigSet: boolean; hasOnDataUpdated: boolean; viewType?: string }> = [];
       let count = 0;
       const seen = new Set<unknown>();
+      const readChild = (record: Record<string, unknown>, key: string): unknown => {
+        try {
+          return record[key];
+        } catch {
+          return undefined;
+        }
+      };
 
       // Bounded BFS for our gantt BasesView: it exposes both `config.set` and
       // `onDataUpdated`. Skips DOM nodes + the known-huge app/vault/workspace
@@ -137,12 +144,7 @@ async function driveBurst(
         if (hasConfigSet && hasOnDataUpdated) return rec;
         for (const childKey of Object.keys(rec)) {
           if (SKIP.has(childKey)) continue;
-          let child: unknown;
-          try {
-            child = rec[childKey];
-          } catch {
-            continue;
-          }
+          const child = readChild(rec, childKey);
           if (child && typeof child === "object") {
             const found = findView(child, depth + 1, `${label}.${childKey}`);
             if (found) return found;
