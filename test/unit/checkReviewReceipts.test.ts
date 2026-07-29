@@ -18,6 +18,18 @@ describe('evaluateReceipts', () => {
     expect(verdict.missingBySha).toEqual({});
   });
 
+  it('does not accept the retired model-specific receipt as the cross-model peer', () => {
+    const retiredLayers = {
+      'ce-code-review': '2026-07-28T00:00:00.000Z',
+      'codex-local': '2026-07-28T00:00:00.000Z',
+    };
+
+    const verdict = evaluateReceipts({ receipts: { [SHA]: retiredLayers } }, [SHA]);
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.missingBySha).toEqual({ [SHA]: ['cross-model-peer'] });
+  });
+
   it('fails with every layer missing when no receipts exist', () => {
     const verdict = evaluateReceipts({ receipts: {} }, [SHA]);
 

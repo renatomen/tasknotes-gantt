@@ -33,7 +33,7 @@ Run a **layered pre-push gate with mechanical enforcement**, not a single review
 
 **Layer 1 — multi-persona, repo-standards-aware.** The `ce-code-review` pass reads the delta through distinct lenses: correctness, project standards, testing, maintainability, reliability, and prior learnings. It knows this repo — its conventions files, its `docs/solutions/` store, its naming and architecture rules — so it catches "this violates how we do things here" findings that a context-free reader cannot.
 
-**Layer 2 — independent cross-model adversarial.** A separate pass via the Codex CLI at `xhigh` reasoning, run with `independence_verified` true, i.e. it does not see layer 1's findings before forming its own. Independence is the point: two correlated readers are one reader with extra latency. Different model, different prompt, no shared prior — that's what makes the second sample worth its cost.
+**Layer 2 — independent cross-model adversarial.** The implementing model delegates a separate pass to the other model family at its configured high-effort setting: Codex delegates to Claude, and Claude delegates to Codex. Run it with `independence_verified` true, i.e. it does not see layer 1's findings before forming its own. Independence is the point: two correlated readers are one reader with extra latency. Different model, different prompt, no shared prior — that's what makes the second sample worth its cost.
 
 The two layers differ deliberately. Layer 1 asks "is this right *for this repo*"; layer 2 asks "is this right at all, and what breaks it". Neither subsumes the other.
 
@@ -121,10 +121,10 @@ Each push is the first read of the delta. Regressions introduced by a fix are re
 ```
 fix -> commit
     -> layer 1: ce-code-review on the DELTA (multi-persona, repo-standards-aware)
-    -> layer 2: Codex CLI xhigh on the DELTA (independent, independence_verified)
+    -> layer 2: cross-model peer on the DELTA (different family, independent, independence_verified)
     -> both clean?  no  -> fix -> commit -> repeat (new commit = no receipts)
                      yes -> node scripts/check-review-receipts.mjs record ce-code-review
-                            node scripts/check-review-receipts.mjs record codex-local
+                            node scripts/check-review-receipts.mjs record cross-model-peer
     -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
 ```
 
