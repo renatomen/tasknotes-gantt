@@ -18,8 +18,8 @@
  * than no checker, because it reports coverage it never looked at. The parser
  * that compiles this code already knows all of it.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
 /** Where the scan starts; every exclusion below is relative to exactly this. */
@@ -56,13 +56,35 @@ export function relativeImports(source, fileName = 'module.ts') {
   return specifiers;
 }
 
-/** Resolve a relative specifier the way the runner would, or null if absent. */
+/**
+ * Bundler resolution deliberately: it is the most permissive mode, and a gate
+ * should fail toward opening more files rather than fewer.
+ */
+const RESOLUTION_OPTIONS = {
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  allowImportingTsExtensions: true,
+};
+
+/**
+ * Resolve a relative specifier to the file it names, or null if it names none.
+ *
+ * The compiler's own resolver, not a reconstruction of it. A hand-rolled loop
+ * over `x`, `x.ts`, `x/index.ts` looks complete and is not: under ESM a
+ * TypeScript module is imported as `./x.js`, which resolves to `x.ts` — a rule
+ * no filename inspection would arrive at. That form dropped out silently, and a
+ * scan that silently narrows itself is the one failure this whole file exists to
+ * prevent.
+ *
+ * Null is safe to skip. A relative specifier that resolves to nothing cannot
+ * register a case, because the runner would fail to load the importing spec at
+ * all rather than run it green.
+ */
 function resolveModule(fromFile, specifier) {
-  const base = resolve(dirname(fromFile), specifier);
-  for (const candidate of [base, `${base}.ts`, join(base, 'index.ts')]) {
-    if (candidate.endsWith('.ts') && existsSync(candidate)) return candidate;
-  }
-  return null;
+  const { resolvedModule } = ts.resolveModuleName(specifier, fromFile, RESOLUTION_OPTIONS, ts.sys);
+  // The compiler answers in forward slashes on every platform; `resolve` puts it
+  // back in the host's spelling so one file cannot enter the visited set twice
+  // under two names and be reported twice.
+  return resolvedModule ? resolve(resolvedModule.resolvedFileName) : null;
 }
 
 /**

@@ -1,4 +1,6 @@
-import { resolve, sep } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import {
   assertionLessCases,
   findTestCases,
@@ -366,24 +368,87 @@ describe('relativeImports', () => {
 });
 
 describe('loadedModules', () => {
-  it('returns the entrypoint even when it imports nothing resolvable', () => {
-    const entry = resolve('test/specs/gantt-calendar-shading.e2e.ts');
+  let root: string;
 
-    expect(loadedModules([entry])).toContain(entry);
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'e2e-assertion-gate-'));
   });
 
-  it('reaches a module the entrypoint imports, wherever it lives', () => {
-    // The real spec imports the perf generator from outside test/specs, which is
-    // precisely the reach a directory walk would miss.
-    const entry = resolve('test/specs/gantt-perf-fullstack.perf.e2e.ts');
-    const reached = loadedModules([entry]).map((f) => f.split(sep).join('/'));
-
-    expect(reached.some((f) => f.includes('/test/perf/generator/'))).toBe(true);
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
   });
 
-  it('terminates on an import cycle', () => {
-    const entry = resolve('test/specs/gantt-calendar-shading.e2e.ts');
+  const write = (name: string, source: string): string => {
+    const file = join(root, name);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, source, 'utf8');
+    return file;
+  };
 
-    expect(loadedModules([entry, entry]).length).toBeGreaterThan(0);
+  /** What was reached, by filename — the temp root itself carries no meaning. */
+  const reachedFrom = (entry: string): string[] =>
+    loadedModules([entry])
+      .map((file) => basename(file))
+      .sort();
+
+  it('reaches a module named by a plain relative specifier', () => {
+    write('helper.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import { go } from "./helper.ts";\ngo();\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'helper.ts']);
+  });
+
+  it('reaches a module named without an extension', () => {
+    write('helper.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import { go } from "./helper";\ngo();\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'helper.ts']);
+  });
+
+  it('reaches a directory import through its index', () => {
+    write('suite/index.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import { go } from "./suite";\ngo();\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'index.ts']);
+  });
+
+  it('reaches the TypeScript file an ESM ".js" specifier names', () => {
+    // Under ESM a TypeScript module is imported by its EMITTED name, so `./x.js`
+    // names `x.ts`. Nothing about the specifier text says so; only the compiler's
+    // resolver knows, and a hand-rolled candidate list drops this one silently.
+    write('helper.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import { go } from "./helper.js";\ngo();\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'helper.ts']);
+  });
+
+  it('reaches a module through a re-export rather than an import', () => {
+    write('cases.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'export * from "./cases";\n');
+
+    expect(reachedFrom(entry)).toEqual(['cases.ts', 'entry.e2e.ts']);
+  });
+
+  it('terminates when two modules import each other', () => {
+    write('a.ts', 'import "./b";\nexport const a = 1;\n');
+    write('b.ts', 'import "./a";\nexport const b = 1;\n');
+    const entry = write('entry.e2e.ts', 'import "./a";\n');
+
+    expect(reachedFrom(entry)).toEqual(['a.ts', 'b.ts', 'entry.e2e.ts']);
+  });
+
+  it('keeps the entrypoint when a specifier names no file at all', () => {
+    const entry = write('entry.e2e.ts', 'import "./absent";\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts']);
+  });
+
+  it('reaches a suite that lives outside the spec tree entirely', () => {
+    // The reach a directory walk cannot have: the shared module sits above the
+    // scanned root, and only the import edge says it runs.
+    write('shared/journeys.ts', 'export const go = () => {};\n');
+    const entry = write('specs/entry.e2e.ts', 'import { go } from "../shared/journeys";\ngo();\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'journeys.ts']);
   });
 });
