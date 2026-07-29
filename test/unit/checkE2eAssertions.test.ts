@@ -323,6 +323,42 @@ describe('cases the file defines for itself', () => {
     expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
   });
 
+  it('still counts a case when the file merely declares the runner global', () => {
+    // `declare const it` describes something that already exists rather than
+    // creating it, and the call it types is the runner's. Reading the ambient
+    // declaration as a binding would hide every case in the file.
+    const source = [
+      'declare const it: (name: string, run: () => void) => void;',
+      'it("a real case", () => {});',
+    ].join('\n');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
+  });
+
+  it('still counts a hosted case, which no local name can take over', () => {
+    const source = ['const it = 1;', 'globalThis.it("a real case", () => {});'].join('\n');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
+  });
+
+  it('ignores a helper destructured out of an object', () => {
+    const source = ['const { test } = helpers;', 'test("ordinary helper call", () => {});'].join('\n');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
+  it('ignores a helper bound by a catch clause', () => {
+    const source = ['try { risky(); } catch (it) {', '  it("not a case", () => {});', '}'].join('\n');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
+  it('ignores a helper bound by a for-of initialiser', () => {
+    const source = ['for (const test of helpers) {', '  test("not a case", () => {});', '}'].join('\n');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
   it('still counts a case that sits beside an unrelated local name', () => {
     const source = ['const helper = () => {};', 'it("a real case", () => {});'].join('\n');
 
@@ -481,6 +517,12 @@ describe('importedModuleSpecifiers', () => {
 
   it('refuses a computed require for the same reason', () => {
     expect(() => importedModuleSpecifiers('require(base + "/suite");')).toThrow(UnreadableLoad);
+  });
+
+  it('skips a type-only import-equals, which emits no load', () => {
+    const source = ['import type Suite = require("./types");', 'import "./suite";'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
   });
 
   it('leaves a locally defined require alone, whatever it is passed', () => {
