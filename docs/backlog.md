@@ -16,6 +16,17 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
+### P2 — Existence-only e2e assertions are the next tier down (2026-07-29)
+The assertion gate makes a case with NO assertion impossible; it says nothing about
+weak ones. Eleven `toBeGreaterThan(0)`-shaped checks remain across the calendar and
+field-mapping specs — they assert that something rendered, not that the right thing
+did. Two conflict cases in `gantt-calendar-editor.e2e.ts` were tightened this way
+(count -> the weekday rows the conflicts actually fall on, which fails for a misparse
+a count waves through); the same treatment applies to the rest. Out of scope for the
+gate unit deliberately: that unit's job was cases asserting nothing at all.
+- Source: layer-2 review of the assertion-gate branch; a `grep` for the pattern after
+  fixing the first instance is what surfaced them.
+
 ### P1 — Container decomposition (maintainer-ruled REQUIRED, 2026-07-28)
 GanttContainer.svelte sits ratcheted at exactly 3659 lines. The Farley ruling made its
 decomposition mandatory, not optional: extract the cell-edit wiring, syncToGantt (complexity 28),

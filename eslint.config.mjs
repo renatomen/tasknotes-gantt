@@ -131,6 +131,18 @@ export default [
       "max-lines": "off",
     },
   },
+  // A case that only awaits a `waitUntil` looks like a test and is not one: the
+  // wait proves something settled, never what it settled TO, so the case passes
+  // whenever its predicate is satisfiable at all. Seven cases in this suite were
+  // that shape. The rule ships with a plugin already in this config and reads
+  // the code through the same parser and scope analysis as every other rule
+  // here, which is why there is no bespoke checker beside it.
+  {
+    files: ["test/**/*.ts"],
+    rules: {
+      "sonarjs/assertions-in-tests": "error",
+    },
+  },
   // max-lines legacy exemptions: these files were already over the cap when the
   // gate was armed. This list may only shrink — never add to it.
   {
