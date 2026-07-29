@@ -53,8 +53,10 @@ async function activeViewType(): Promise<string | null> {
 
 interface EditorConflictState {
   yearConflicts: number;
-  /** Distinct weekday rows the conflicts fall on; the grid lays Mon..Sun as rows 1..7. */
-  conflictRows: number[];
+  /** Conflicts per weekday row; the grid lays Mon..Sun out as rows 1..7. */
+  conflictsByRow: Record<number, number>;
+  /** The year the grid is rendering, read from it rather than from the clock. */
+  year: number;
   text: string;
   cls: string;
 }
@@ -62,6 +64,24 @@ interface EditorConflictState {
 /** The year grid's rows for weekdays, its Mon-first layout being 1-based. */
 const FRIDAY_ROW = 5;
 const SUNDAY_ROW = 7;
+
+/**
+ * How often a weekday falls in a year. Asserting the COUNT per weekday is what
+ * pins recurrence: a set of distinct rows is satisfied by a single cell per row,
+ * so a broken expansion that produced one Friday would pass it.
+ */
+function weekdayOccurrences(year: number, mondayBasedRow: number): number {
+  const jsDay = mondayBasedRow === 7 ? 0 : mondayBasedRow; // grid row 7 is Sunday
+  let count = 0;
+  for (
+    const day = new Date(Date.UTC(year, 0, 1));
+    day.getUTCFullYear() === year;
+    day.setUTCDate(day.getUTCDate() + 1)
+  ) {
+    if (day.getUTCDay() === jsDay) count += 1;
+  }
+  return count;
+}
 
 /**
  * The year grid's conflict count and the status banner, read from the ACTIVE
@@ -80,18 +100,20 @@ async function readConflictState(): Promise<EditorConflictState | null> {
     const conflicted = Array.from(
       root.querySelectorAll<HTMLElement>(".og-year-cell.og-year-conflict"),
     );
-    const rows = new Set<number>();
+    const byRow: Record<number, number> = {};
     for (const cell of conflicted) {
       // Read the style PROPERTY, not the attribute: Svelte compiles an
       // interpolated style into direct property assignments, so the attribute
       // can be absent while the value is plainly there.
       const raw = cell.style.gridRow || cell.style.gridRowStart;
       const row = Number(/(\d+)/.exec(raw ?? "")?.[1]);
-      if (Number.isFinite(row)) rows.add(row);
+      if (Number.isFinite(row)) byRow[row] = (byRow[row] ?? 0) + 1;
     }
+    const label = root.querySelector(".og-year-grid")?.getAttribute("aria-label") ?? "";
     return {
       yearConflicts: conflicted.length,
-      conflictRows: [...rows].sort((a, b) => a - b),
+      conflictsByRow: byRow,
+      year: Number(/(\d{4})/.exec(label)?.[1] ?? 0),
       text: banner?.textContent ?? "",
       cls: banner?.className ?? "",
     };
@@ -1067,8 +1089,17 @@ describe("Gantt (OG) calendar editor routing", () => {
       timeoutMsg: "a late-indexed calendar note never re-routed to the editor",
     });
 
+    // Both halves of the claim, and the link between them: it is not enough that
+    // A calendar reached the editor — it must be the one whose marker indexed
+    // late, or a reroute of some other note would satisfy this.
     expect(openedPath).toMatch(/^Calendars\//);
-    expect(await activeViewType()).toBe(EDITOR_VIEW);
+    const routed = await browser.executeObsidian(({ app }) => {
+      const state = app.workspace.activeLeaf?.getViewState();
+      const file = state?.state?.["file"];
+      return { type: state?.type ?? null, file: typeof file === "string" ? file : null };
+    });
+    expect(routed.type).toBe(EDITOR_VIEW);
+    expect(routed.file).toBe(openedPath);
 
     await deleteNotes([openedPath]);
   });
@@ -1196,6 +1227,7 @@ describe("Gantt (OG) calendar editor routing", () => {
         return (
           seen !== null &&
           seen.yearConflicts > 0 &&
+          seen.year > 0 &&
           seen.text.includes("conflict") &&
           seen.cls.includes("og-cal-status-warn")
         );
@@ -1206,11 +1238,15 @@ describe("Gantt (OG) calendar editor routing", () => {
       },
     );
 
-    // A Mon-Fri member and a Sun-Thu member disagree on Fridays AND Sundays, so
-    // the days themselves are the claim. A count would stay green with every
-    // Sunday conflict dropped, since the Friday cells and the banner remain.
+    // A Mon-Fri member and a Sun-Thu member disagree on Fridays AND Sundays, on
+    // EVERY one of them. The per-weekday counts are the claim: a set of rows is
+    // satisfied by a single cell per row, so a broken expansion producing one
+    // Friday and one Sunday would pass it.
     const state = seen as unknown as EditorConflictState;
-    expect(state.conflictRows).toEqual([FRIDAY_ROW, SUNDAY_ROW]);
+    expect(state.conflictsByRow).toEqual({
+      [FRIDAY_ROW]: weekdayOccurrences(state.year, FRIDAY_ROW),
+      [SUNDAY_ROW]: weekdayOccurrences(state.year, SUNDAY_ROW),
+    });
     expect(state.text).toContain("conflict");
     expect(state.cls).toContain("og-cal-status-warn");
 
@@ -1251,9 +1287,9 @@ describe("Gantt (OG) calendar editor routing", () => {
     // any single-weekday disagreement — a member misparsed as Tue-Fri differs on
     // Mondays and lands on the same tally — so the day itself is what pins it.
     const state = seen as unknown as EditorConflictState;
-    expect(state.conflictRows).toEqual([FRIDAY_ROW]);
-    expect(state.yearConflicts).toBeGreaterThanOrEqual(52); // every Friday of the year
-    expect(state.yearConflicts).toBeLessThanOrEqual(53);
+    expect(state.conflictsByRow).toEqual({
+      [FRIDAY_ROW]: weekdayOccurrences(state.year, FRIDAY_ROW),
+    });
 
     await deleteNotes(["Avail Set.md", "Avail Mon Thu.md", "Weekdays Cal.md"]);
   });
