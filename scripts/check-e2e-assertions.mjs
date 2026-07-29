@@ -44,17 +44,28 @@ export function isScannedSpec(relativePath) {
   return !normalized.split('/')[0]?.startsWith('_local-');
 }
 
+/** Whether every name a clause brings in is a type, so nothing of it survives. */
+function bindsOnlyTypes(namedBindings) {
+  if (!namedBindings || !ts.isNamedImports(namedBindings)) return false;
+  return namedBindings.elements.length > 0 && namedBindings.elements.every((el) => el.isTypeOnly);
+}
+
 /**
  * A static import or re-export that still exists at runtime.
  *
- * `import type { X } from './y'` is erased before anything executes, so a module
- * reached only that way never registers a case and following it would fail an
- * otherwise clean run.
+ * The rule is simply "what TypeScript erases". `import type { X } from './y'`
+ * is gone before anything executes, and so is `import { type X } from './y'`
+ * once every name in it is a type — a module reached only that way never
+ * registers a case, and following it could only fail an otherwise clean run.
+ * A default or namespace binding alongside means the import still runs.
  */
 function isRuntimeModuleDeclaration(node) {
-  if (ts.isImportDeclaration(node)) return node.importClause?.isTypeOnly !== true;
   if (ts.isExportDeclaration(node)) return node.isTypeOnly !== true;
-  return false;
+  if (!ts.isImportDeclaration(node)) return false;
+  const clause = node.importClause;
+  if (clause === undefined) return true; // `import './y'` — loaded for effect
+  if (clause.isTypeOnly) return false;
+  return clause.name !== undefined || !bindsOnlyTypes(clause.namedBindings);
 }
 
 const isDynamicImport = (node) =>
@@ -163,12 +174,11 @@ export function loadedModules(entrypoints) {
     const file = queue.pop();
     if (seen.has(file)) continue;
     seen.add(file);
-    let source;
-    try {
-      source = readFileSync(file, 'utf8');
-    } catch {
-      continue; // a specifier that resolves to nothing cannot register a case
-    }
+    // Deliberately unguarded. Every file queued here was proved to exist, by the
+    // directory listing or by the resolver, so a read that fails now means the
+    // scan cannot see a module the runner will load. Skipping it quietly is the
+    // one outcome this gate exists to rule out, so it fails loudly instead.
+    const source = readFileSync(file, 'utf8');
     for (const specifier of importedModuleSpecifiers(source, file)) {
       const resolved = resolveModule(file, specifier);
       if (resolved !== null && !seen.has(resolved)) queue.push(resolved);

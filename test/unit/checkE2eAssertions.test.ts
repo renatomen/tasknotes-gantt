@@ -389,6 +389,24 @@ describe('importedModuleSpecifiers', () => {
     expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
   });
 
+  it('skips an import whose every named binding is inline-type', () => {
+    const source = ['import { type A, type B } from "./types";', 'import "./suite";'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
+  });
+
+  it('keeps an import that binds a value alongside an inline type', () => {
+    expect(importedModuleSpecifiers('import { go, type A } from "./suite";')).toEqual(['./suite']);
+  });
+
+  it('keeps an import with a default binding beside inline types', () => {
+    expect(importedModuleSpecifiers('import go, { type A } from "./suite";')).toEqual(['./suite']);
+  });
+
+  it('keeps a side-effect import, which exists only to run', () => {
+    expect(importedModuleSpecifiers('import "./suite";')).toEqual(['./suite']);
+  });
+
   it('ignores a type-position import, which loads nothing', () => {
     const source = 'let x: import("./types").Fixture;';
 
@@ -464,6 +482,13 @@ describe('loadedModules', () => {
     const entry = write('entry.e2e.ts', 'import "./a";\n');
 
     expect(reachedFrom(entry)).toEqual(['a.ts', 'b.ts', 'entry.e2e.ts']);
+  });
+
+  it('fails loudly when a queued file cannot be read', () => {
+    // Every file reaching the read was proved to exist, so a failure here means
+    // the scan cannot see a module the runner loads. Reporting clean over it is
+    // the single outcome the gate exists to rule out.
+    expect(() => loadedModules([root])).toThrow();
   });
 
   it('keeps the entrypoint when a specifier names no file at all', () => {
