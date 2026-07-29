@@ -22,15 +22,50 @@ import { fileURLToPath } from "node:url";
  * SELECTOR NOTE: SVAR renders one overlay div per visible day cell inside
  * `.wx-gantt-holidays`, classed with our classifier's whole return string —
  * `og-cal-cell og-d-YYYY-MM-DD` plus `wx-weekend` on locale weekends. Shading
- * is pure CSS (`--wx-gantt-holiday-background`), so the assertions read
- * computed background colors.
+ * is pure CSS (`--wx-gantt-holiday-background`), so the assertions ask the
+ * browser how much paint each cell ended up carrying.
  */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar");
 
-const TRANSPARENT = new Set(["rgba(0, 0, 0, 0)", "transparent"]);
+/**
+ * How much paint a cell carries, 0 to 255, or null when the cell is absent.
+ *
+ * Asks the browser to resolve the colour rather than comparing the text it
+ * prints. A set of known transparent spellings looks equivalent and is not:
+ * CSS Color 4 keeps `oklch()` and `color(srgb ...)` in their own notation and
+ * serialises a zero alpha as written, so `oklch(60% 0.1 240 / 0)` is invisible
+ * and matches no such set — a cell with nothing on it would have counted as
+ * shaded, and the case asserting it would have passed. Painting the colour and
+ * reading the pixel back settles it in whatever notation it arrives in.
+ *
+ * The canvas begins transparent and is left that way if the colour will not
+ * parse, so an unreadable value reads as unpainted and fails a case that
+ * expected shading, rather than the reverse.
+ */
+async function cellPaint(scope: string, dateClass: string): Promise<number | null> {
+  return browser.execute(
+    (containerClass: string, cls: string) => {
+      const cell = document.querySelector(`.og-bases-gantt .${containerClass} .${cls}`);
+      if (!cell) return null;
+      const context = document.createElement("canvas").getContext("2d");
+      if (!context) return null;
+      context.fillStyle = "rgba(0, 0, 0, 0)";
+      context.fillStyle = window.getComputedStyle(cell).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[3] ?? null;
+    },
+    scope,
+    dateClass
+  );
+}
+
+const bodyPaint = (dateClass: string): Promise<number | null> =>
+  cellPaint("wx-gantt-holidays", dateClass);
+
+const headerPaint = (dateClass: string): Promise<number | null> => cellPaint("wx-scale", dateClass);
 
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -60,29 +95,20 @@ async function openBase(basePath: string): Promise<void> {
   );
 }
 
-async function cellBackground(dateClass: string): Promise<string | null> {
-  return browser.execute((cls: string) => {
-    const cell = document.querySelector(`.og-bases-gantt .wx-gantt-holidays .${cls}`);
-    return cell ? window.getComputedStyle(cell).backgroundColor : null;
-  }, dateClass);
-}
-
 /**
- * Poll a body cell until it carries a real colour, and return that colour.
+ * Poll a body cell until it carries paint, and return how much.
  *
  * Returning it is the point. Waiting proves only that the cell settled, so a
- * case ending at the wait asserts nothing; and reading the value back out of the
- * predicate's closure defeats the compiler's narrowing, which is what a pair of
- * casts was previously papering over. Handing the settled value back leaves the
- * caller something it can assert on directly.
+ * case ending at the wait asserts nothing; handing the settled value back leaves
+ * the caller something it can assert on directly.
  */
-async function shadedBackground(dateClass: string): Promise<string> {
-  let settled = "";
+async function paintedBody(dateClass: string): Promise<number> {
+  let settled = 0;
   await browser.waitUntil(
     async () => {
-      const background = await cellBackground(dateClass);
-      if (background === null || TRANSPARENT.has(background)) return false;
-      settled = background;
+      const paint = await bodyPaint(dateClass);
+      if (paint === null || paint === 0) return false;
+      settled = paint;
       return true;
     },
     { timeout: 30000, timeoutMsg: `${dateClass} never shaded` }
@@ -90,13 +116,6 @@ async function shadedBackground(dateClass: string): Promise<string> {
   return settled;
 }
 
-/** The scale-header cell for a date — SVAR stamps identity classes there too. */
-async function headerCellBackground(dateClass: string): Promise<string | null> {
-  return browser.execute((cls: string) => {
-    const cell = document.querySelector(`.og-bases-gantt .wx-scale .${cls}`);
-    return cell ? window.getComputedStyle(cell).backgroundColor : null;
-  }, dateClass);
-}
 
 describe("Gantt (OG) calendar-aware shading", () => {
   before(async () => {
@@ -110,27 +129,21 @@ describe("Gantt (OG) calendar-aware shading", () => {
   });
 
   it("shades the associated calendar's holiday column", async () => {
-    const shaded = await shadedBackground("og-d-2026-04-10");
-
-    expect(TRANSPARENT.has(shaded)).toBe(false);
+    expect(await paintedBody("og-d-2026-04-10")).toBeGreaterThan(0);
   });
 
   it("shades the holiday's scale-header cell to match the body column", async () => {
-    await browser.waitUntil(
-      async () => {
-        const background = await headerCellBackground("og-d-2026-04-10");
-        return background !== null && !TRANSPARENT.has(background);
-      },
-      { timeout: 30000, timeoutMsg: "holiday header cell never shaded" }
-    );
-    const ordinary = await headerCellBackground("og-d-2026-04-08");
-    expect(ordinary === null || TRANSPARENT.has(ordinary)).toBe(true);
+    await browser.waitUntil(async () => ((await headerPaint("og-d-2026-04-10")) ?? 0) > 0, {
+      timeout: 30000,
+      timeoutMsg: "holiday header cell never shaded",
+    });
+
+    expect(await headerPaint("og-d-2026-04-10")).toBeGreaterThan(0);
+    expect(await headerPaint("og-d-2026-04-08")).toBe(0);
   });
 
   it("leaves an ordinary weekday identity cell unpainted (upgrade-invisible)", async () => {
-    const background = await cellBackground("og-d-2026-04-08");
-    expect(background).not.toBeNull();
-    expect(TRANSPARENT.has(background as string)).toBe(true);
+    expect(await bodyPaint("og-d-2026-04-08")).toBe(0);
   });
 
   it("keeps locale weekend shading alongside calendar shading", async () => {
@@ -139,6 +152,11 @@ describe("Gantt (OG) calendar-aware shading", () => {
   });
 
   it("re-shades live when the calendar note gains a holiday (watch liveness)", async () => {
+    // The precondition belongs to this case rather than to the order the file
+    // happens to run in. Without it, a cell already shaded would satisfy the
+    // wait on arrival and the case would report liveness having observed none.
+    expect(await bodyPaint("og-d-2026-04-08")).toBe(0);
+
     await browser.executeObsidian(async ({ app }) => {
       const file = app.vault.getAbstractFileByPath("NZ Holidays.md");
       if (!file) throw new Error("fixture calendar missing");
@@ -152,8 +170,6 @@ describe("Gantt (OG) calendar-aware shading", () => {
       );
     });
 
-    const shaded = await shadedBackground("og-d-2026-04-08");
-
-    expect(TRANSPARENT.has(shaded)).toBe(false);
+    expect(await paintedBody("og-d-2026-04-08")).toBeGreaterThan(0);
   });
 });
