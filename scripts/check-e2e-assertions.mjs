@@ -90,15 +90,6 @@ const isRequireCall = (node) =>
   ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require';
 
 /**
- * Whether this module runs as CommonJS, where `require` is genuinely the loader.
- *
- * The extension decides it, as it does for the runner's own loader. Everywhere
- * else the project emits ESM and `require` is simply a name a file may bind to
- * anything, which is what makes the same call mean two different things.
- */
-const runsAsCommonJs = (fileName) => fileName.endsWith('.cts') || fileName.endsWith('.cjs');
-
-/**
  * Every module specifier a source loads at runtime, however it spells it.
  *
  * Deliberately not filtered to specifiers beginning with a dot. Which text
@@ -135,23 +126,18 @@ export function importedModuleSpecifiers(source, fileName = 'module.ts') {
     if (target && ts.isStringLiteralLike(target)) specifiers.push(target.text);
     else refuse(call);
   };
-  /**
-   * `require` reads two ways and the file's own extension decides which. Under
-   * CommonJS it is the loader, so an unreadable target must be refused exactly
-   * as `import` is. Under ESM it is only a name, `require` is not defined, and a
-   * call to it would break the module on load rather than let it run green — so
-   * a computed one there loads nothing and is passed over.
-   */
-  const collectRequire = (call) => {
-    const target = call.arguments[0];
-    if (target && ts.isStringLiteralLike(target)) specifiers.push(target.text);
-    else if (runsAsCommonJs(fileName)) refuse(call);
-  };
   const visit = (node) => {
     if (isRuntimeModuleDeclaration(node)) collect(node.moduleSpecifier);
     else if (ts.isImportEqualsDeclaration(node)) collect(externalModuleName(node));
-    else if (isRequireCall(node)) collectRequire(node);
-    else if (isDynamicImport(node)) collectImport(node);
+    // `require` is refused on the same terms as `import`, with no test for
+    // whether this file is the sort where `require` means anything. That test
+    // was tried, by extension, and cannot be made to hold: a `.ts` module can
+    // build a working loader with `createRequire`, and the runner's CommonJS
+    // hook can run a `.ts` file with a real `require` regardless of its name.
+    // Each refinement left a hole of the silent kind. One rule with no
+    // exceptions costs a loud complaint about a helper that merely shares the
+    // name — of which this tree contains none — and closes all of them.
+    else if (isRequireCall(node) || isDynamicImport(node)) collectImport(node);
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(tree, visit);
@@ -257,27 +243,52 @@ const GLOBAL_HOSTS = new Set(['globalThis', 'global', 'window']);
  * reads as `helper` and is correctly not a case — except through a global host,
  * where `globalThis.it(...)` is the same `it`.
  *
- * Known limit: a case reached through an alias (`const scenario = it`) is not
- * recognised, because that needs symbol resolution rather than syntax. Aliasing
- * a case function is deliberate, not accidental, so the gate targets ordinary
- * code and does not claim to stop someone determined to evade it.
+ * KNOWN LIMIT, and it is a contract rather than an oversight. What is recognised
+ * is a case written the way cases are written: a name, optionally with `only`,
+ * `skip`, `call` or `apply` hung off it, reached directly or through a global
+ * host. What is not recognised is a case reached by a route no one arrives at by
+ * accident and which syntax alone cannot follow — an alias (`const scenario =
+ * it`), a bound function (`it.bind(null)(...)`), a computed member
+ * (`it[pick()]`). Each needs symbol resolution or a runtime value.
+ *
+ * The boundary is drawn there deliberately. This gate guards against a case
+ * written without an assertion, which is a mistake, and mistakes are written
+ * plainly; it is not a barrier against someone hiding a case from their own CI,
+ * and pretending otherwise would mean an unbounded chase after forms nobody
+ * writes. Every extra form taught to this function in that chase introduced a
+ * NEW way to miss an ordinary one, which is the worse error by far.
  */
-const hostedOn = (node) =>
-  ts.isPropertyAccessExpression(node) &&
-  ts.isIdentifier(node.expression) &&
-  GLOBAL_HOSTS.has(node.expression.text);
+/**
+ * The member a node reads, when the member's name is written plainly enough to
+ * be read. `it.call` and `it["call"]` name the same thing and are both plain;
+ * `it[name]` is not, and yields nothing.
+ */
+function readMember(node) {
+  if (ts.isPropertyAccessExpression(node)) return { object: node.expression, name: node.name.text };
+  if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) {
+    return { object: node.expression, name: node.argumentExpression.text };
+  }
+  return null;
+}
+
+/** `globalThis`, and anything reached from it that is itself a host. */
+function isGlobalHost(node) {
+  if (ts.isIdentifier(node)) return GLOBAL_HOSTS.has(node.text);
+  const member = readMember(node);
+  return member !== null && GLOBAL_HOSTS.has(member.name) && isGlobalHost(member.object);
+}
 
 function calleeName(node) {
   let current = node.expression;
   if (ts.isIdentifier(current)) return current.text;
-  // Peel the properties hung off the name, innermost last. Each has to be one
+  // Peel the members hung off the name, outermost first. Each has to be one
   // that keeps the call a case; the first that is not ends it. `it.only.call`
   // peels twice and is still `it`, while `it.toString` stops at the first step.
-  while (ts.isPropertyAccessExpression(current)) {
-    if (hostedOn(current)) return current.name.text;
-    if (!CASE_PASSTHROUGH.has(current.name.text)) return null;
-    if (ts.isIdentifier(current.expression)) return current.expression.text;
-    current = current.expression;
+  for (let member = readMember(current); member !== null; member = readMember(current)) {
+    if (isGlobalHost(member.object)) return member.name;
+    if (!CASE_PASSTHROUGH.has(member.name)) return null;
+    if (ts.isIdentifier(member.object)) return member.object.text;
+    current = member.object;
   }
   return null;
 }

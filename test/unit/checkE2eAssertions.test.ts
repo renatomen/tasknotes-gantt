@@ -63,6 +63,18 @@ describe('findTestCases', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 
+  it('finds a case named through a static computed member', () => {
+    const source = wrap('  it["call"](null, "xi", () => {});');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['<unnamed>']);
+  });
+
+  it('finds a case on a host reached through another host', () => {
+    const source = wrap('  globalThis.globalThis.it("omicron", () => {});');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['omicron']);
+  });
+
   it('finds a case invoked through call or apply, which mocha registers', () => {
     const source = wrap(
       '  it.call(null, "lambda", () => { expect(1).toBe(1); });\n' +
@@ -490,19 +502,16 @@ describe('importedModuleSpecifiers', () => {
     expect(scan).toThrow(/entry\.e2e\.ts:1 loads a module through an expression/);
   });
 
-  it('refuses a computed require in a module that runs as CommonJS', () => {
-    // In a .cts or .cjs module the runner gives `require` its real meaning, so
-    // an unreadable target hides whatever it loads exactly as `import` would.
-    expect(() => importedModuleSpecifiers('require(base + "/suite");', 'bridge.cts')).toThrow(
-      UnreadableLoad,
-    );
-  });
-
-  it('passes over a computed require in an ESM module, where it loads nothing', () => {
-    // Everywhere else `require` is only a name a file may bind to anything, and
-    // is not defined at runtime — such a call breaks the module on load rather
-    // than letting it run green, so it cannot be hiding a suite that passes.
-    expect(importedModuleSpecifiers('require(base + "/suite");', 'spec.e2e.ts')).toEqual([]);
+  it('refuses a computed require whatever the file is called', () => {
+    // No test for whether this file is the sort where `require` means anything.
+    // That was tried by extension and could not be made to hold: a .ts module
+    // can build a working loader with createRequire, and the runner's CommonJS
+    // hook can give a .ts file a real require. One rule, no exceptions.
+    for (const name of ['bridge.cts', 'bridge.cjs', 'spec.e2e.ts', 'helper.mts']) {
+      expect(() => importedModuleSpecifiers('require(base + "/suite");', name)).toThrow(
+        UnreadableLoad,
+      );
+    }
   });
 
   it('skips a type-only import-equals, which emits no load', () => {
@@ -511,10 +520,13 @@ describe('importedModuleSpecifiers', () => {
     expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
   });
 
-  it('leaves a helper that merely shares the name alone', () => {
+  it('complains about a helper that merely shares the name, which is the price', () => {
+    // Telling this apart from the loader needs a scope model, and the one built
+    // for that job dropped real cases silently three rounds running. Complaining
+    // about a helper is visible and fixed by renaming; the alternative was not.
     const source = ['const require = (spec: unknown) => spec;', 'require({ any: "thing" });'].join('\n');
 
-    expect(importedModuleSpecifiers(source)).toEqual([]);
+    expect(() => importedModuleSpecifiers(source)).toThrow(UnreadableLoad);
   });
 
   it('still collects a require that names a module by a plain string', () => {
