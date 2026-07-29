@@ -34,12 +34,27 @@ export function isScannedSpec(path) {
   return !/(^|\/)test\/specs\/_local-[^/]*$/.test(normalized);
 }
 
-/** The name a call is made under: `it`, `it.only`, `describe`, `expect`, … */
+/** Globals a case can legitimately be reached through. */
+const GLOBAL_HOSTS = new Set(['globalThis', 'global', 'window']);
+
+/**
+ * The name a call is made under: `it`, `it.only`, `globalThis.it`, `expect`, …
+ *
+ * A property access resolves to its leading identifier, so `helper.it(...)`
+ * reads as `helper` and is correctly not a case — except through a global host,
+ * where `globalThis.it(...)` is the same `it`.
+ *
+ * Known limit: a case reached through an alias (`const scenario = it`) is not
+ * recognised, because that needs symbol resolution rather than syntax. Aliasing
+ * a case function is deliberate, not accidental, so the gate targets ordinary
+ * code and does not claim to stop someone determined to evade it.
+ */
 function calleeName(node) {
   const callee = node.expression;
   if (ts.isIdentifier(callee)) return callee.text;
-  if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
-    return callee.expression.text;
+  if (!ts.isPropertyAccessExpression(callee)) return null;
+  if (ts.isIdentifier(callee.expression)) {
+    return GLOBAL_HOSTS.has(callee.expression.text) ? callee.name.text : callee.expression.text;
   }
   return null;
 }
@@ -47,23 +62,61 @@ function calleeName(node) {
 const CASE_CALLEES = new Set(['it', 'test']);
 
 /**
- * Whether an `expect(...)` actually invokes a matcher. A bare `expect(value)`
- * checks nothing, and `expect(value).toBe` merely names one without calling it;
- * both are statements that mention assertion without making one. Walking up the
- * property-access chain answers this exactly, where matching text could not.
+ * Matcher naming, by convention: `toBe`, `toContain`, `toBeElementsArrayOfSize`.
+ * Modifiers like `not` and `resolves` are not listed because they are never the
+ * property being CALLED — they sit mid-chain, and only the called name decides.
+ */
+const MATCHER_NAME = /^to[A-Z]/;
+
+/**
+ * Built-ins that satisfy the matcher shape without asserting anything. `toString`
+ * is the obvious one — it begins `to` followed by a capital exactly as every
+ * matcher does — and calling it on an expectation is a statement that looks like
+ * an assertion from any distance a text search can see.
+ */
+const NOT_MATCHERS = new Set([
+  'toString', 'toLocaleString', 'toJSON', 'toFixed', 'toPrecision', 'toExponential',
+  'toISOString', 'toUTCString', 'toDateString', 'toTimeString', 'toLocaleDateString',
+  'toLocaleTimeString', 'toLowerCase', 'toUpperCase', 'toSorted', 'toReversed', 'toSpliced',
+]);
+
+const isMatcherName = (name) => MATCHER_NAME.test(name) && !NOT_MATCHERS.has(name);
+
+/**
+ * Whether an `expect(...)` actually invokes a matcher.
+ *
+ * Three things are not assertions and all of them look like one from a
+ * distance: a bare `expect(value)` checks nothing; `expect(value).toBe` names a
+ * matcher without calling it; and `expect(value).toString()` calls something
+ * that is not a matcher at all. So the chain must both END in a call and
+ * mention a matcher-shaped name along the way.
  */
 function invokesMatcher(expectCall) {
   let node = expectCall;
   while (node.parent && ts.isPropertyAccessExpression(node.parent)) {
     node = node.parent;
     if (node.parent && ts.isCallExpression(node.parent) && node.parent.expression === node) {
-      return true;
+      // The property actually being invoked decides. Anything earlier in the
+      // chain is a modifier, so `expect(v).toBe.toString()` is a toString call
+      // that merely passed a matcher name on its way past.
+      return isMatcherName(node.name.text);
     }
   }
   return false;
 }
 
-/** Whether any call inside this node is an `expect(...)` with a matcher. */
+/**
+ * Whether any call inside this node is an `expect(...)` with a matcher.
+ *
+ * Nested function bodies count, because the assertions that matter here mostly
+ * live in them — a `waitUntil` predicate is a nested arrow that certainly runs.
+ * The cost is that an assertion inside a nested function that is NEVER called
+ * still satisfies the gate. Reachability is undecidable in general, and jest
+ * ships `expect.hasAssertions()` precisely because static analysis cannot
+ * answer it, so this raises the floor rather than proving execution: a case
+ * with no assertion anywhere becomes impossible, a case whose assertion never
+ * runs does not.
+ */
 function containsAssertion(node) {
   let found = false;
   const visit = (child) => {
@@ -120,8 +173,13 @@ function specFiles(dir) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...specFiles(path));
-    else if (isScannedSpec(path)) found.push(path);
+    // The ignore pattern covers directories too, along with everything under
+    // them — descending into one would scan probes git never tracked.
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('_local-')) found.push(...specFiles(path));
+    } else if (isScannedSpec(path)) {
+      found.push(path);
+    }
   }
   return found;
 }

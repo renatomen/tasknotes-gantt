@@ -265,3 +265,36 @@ describe('isScannedSpec', () => {
     expect(isScannedSpec('test\\specs\\_local-keepopen.e2e.ts')).toBe(false);
   });
 });
+
+describe('assertion shape', () => {
+  const wrapCase = (body: string): string =>
+    `describe("s", () => {\n  it("c", async () => {\n${body}\n  });\n});\n`;
+
+  it('rejects a call on the expect chain that is not a matcher', () => {
+    expect(assertionLessCases(wrapCase('    expect(1).toString();')).map((c) => c.name)).toEqual([
+      'c',
+    ]);
+  });
+
+  it('rejects a matcher name that is only read, then something else called', () => {
+    expect(
+      assertionLessCases(wrapCase('    expect(1).toBe.toString();')).map((c) => c.name),
+    ).toEqual(['c']);
+  });
+
+  it('accepts a modifier followed by a matcher', () => {
+    expect(assertionLessCases(wrapCase('    expect(1).not.toBe(2);'))).toEqual([]);
+  });
+
+  it('finds a case declared through a global host', () => {
+    const source = 'describe("s", () => {\n  globalThis.it("g", () => {});\n});\n';
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['g']);
+  });
+
+  it('still ignores an ordinary property access that merely ends in it', () => {
+    const source = 'describe("s", () => {\n  helper.it("h", () => {});\n});\n';
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+});

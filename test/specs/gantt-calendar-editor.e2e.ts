@@ -1224,7 +1224,12 @@ describe("Gantt (OG) calendar editor routing", () => {
       { timeout: 15000, timeoutMsg: "the availability-only member produced no conflicts in the union" },
     );
 
-    expect(conflicts).toBeGreaterThan(0);
+    // Not merely "some conflict": the two members disagree on Fridays and only
+    // Fridays, so the year grid should carry roughly one per week. A bare
+    // greater-than-zero would stay green if the availability member were
+    // misparsed into some other schedule that also happens to differ.
+    expect(conflicts).toBeGreaterThanOrEqual(50);
+    expect(conflicts).toBeLessThanOrEqual(53);
 
     await deleteNotes(["Avail Set.md", "Avail Mon Thu.md", "Weekdays Cal.md"]);
   });
