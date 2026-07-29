@@ -1,7 +1,10 @@
+import { resolve, sep } from 'node:path';
 import {
   assertionLessCases,
   findTestCases,
   isScannedSpec,
+  loadedModules,
+  relativeImports,
 } from '../../scripts/check-e2e-assertions.mjs';
 
 const wrap = (body: string): string => `describe("s", () => {\n${body}\n});\n`;
@@ -341,5 +344,46 @@ describe('shared suites', () => {
   it('still ignores declaration files and non-TypeScript', () => {
     expect(isScannedSpec('globals.d.ts')).toBe(false);
     expect(isScannedSpec('fixture.json')).toBe(false);
+  });
+});
+
+describe('relativeImports', () => {
+  it('collects relative import and re-export specifiers', () => {
+    const source = [
+      'import { a } from "./sibling";',
+      'import b from "../shared/journeys";',
+      'export * from "./more";',
+      'import { x } from "@wdio/globals";',
+      'import ts from "typescript";',
+    ].join('\n');
+
+    expect(relativeImports(source)).toEqual(['./sibling', '../shared/journeys', './more']);
+  });
+
+  it('ignores bare package specifiers, which cannot be a local suite', () => {
+    expect(relativeImports('import { browser } from "@wdio/globals";')).toEqual([]);
+  });
+});
+
+describe('loadedModules', () => {
+  it('returns the entrypoint even when it imports nothing resolvable', () => {
+    const entry = resolve('test/specs/gantt-calendar-shading.e2e.ts');
+
+    expect(loadedModules([entry])).toContain(entry);
+  });
+
+  it('reaches a module the entrypoint imports, wherever it lives', () => {
+    // The real spec imports the perf generator from outside test/specs, which is
+    // precisely the reach a directory walk would miss.
+    const entry = resolve('test/specs/gantt-perf-fullstack.perf.e2e.ts');
+    const reached = loadedModules([entry]).map((f) => f.split(sep).join('/'));
+
+    expect(reached.some((f) => f.includes('/test/perf/generator/'))).toBe(true);
+  });
+
+  it('terminates on an import cycle', () => {
+    const entry = resolve('test/specs/gantt-calendar-shading.e2e.ts');
+
+    expect(loadedModules([entry, entry]).length).toBeGreaterThan(0);
   });
 });

@@ -18,8 +18,8 @@
  * than no checker, because it reports coverage it never looked at. The parser
  * that compiles this code already knows all of it.
  */
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
 /** Where the scan starts; every exclusion below is relative to exactly this. */
@@ -42,6 +42,57 @@ export function isScannedSpec(relativePath) {
   // never opened. A module with no cases simply contributes none.
   if (!normalized.endsWith('.ts') || normalized.endsWith('.d.ts')) return false;
   return !normalized.split('/')[0]?.startsWith('_local-');
+}
+
+/** The relative module specifiers a source imports or re-exports. */
+export function relativeImports(source, fileName = 'module.ts') {
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const specifiers = [];
+  for (const statement of tree.statements) {
+    const clause = statement.moduleSpecifier;
+    if (!clause || !ts.isStringLiteral(clause)) continue;
+    if (clause.text.startsWith('.')) specifiers.push(clause.text);
+  }
+  return specifiers;
+}
+
+/** Resolve a relative specifier the way the runner would, or null if absent. */
+function resolveModule(fromFile, specifier) {
+  const base = resolve(dirname(fromFile), specifier);
+  for (const candidate of [base, `${base}.ts`, join(base, 'index.ts')]) {
+    if (candidate.endsWith('.ts') && existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Every module mocha would load for these entrypoints: the specs themselves plus
+ * whatever they reach by import, transitively.
+ *
+ * Following imports rather than walking a directory is the difference between
+ * scanning what RUNS and scanning what happens to sit nearby. A shared suite
+ * lives wherever its author put it, and one placed outside the spec tree would
+ * otherwise register cases this gate never opened.
+ */
+export function loadedModules(entrypoints) {
+  const seen = new Set();
+  const queue = [...entrypoints];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    let source;
+    try {
+      source = readFileSync(file, 'utf8');
+    } catch {
+      continue; // a specifier that resolves to nothing cannot register a case
+    }
+    for (const specifier of relativeImports(source, file)) {
+      const resolved = resolveModule(file, specifier);
+      if (resolved !== null && !seen.has(resolved)) queue.push(resolved);
+    }
+  }
+  return [...seen];
 }
 
 /** Globals a case can legitimately be reached through. */
@@ -217,11 +268,14 @@ function specFiles(dir, relative = '') {
 }
 
 function main() {
+  const entrypoints = specFiles(SPEC_ROOT)
+    .filter((relativePath) => relativePath.endsWith('.e2e.ts'))
+    .map((relativePath) => resolve(SPEC_ROOT, relativePath));
   const offenders = [];
-  for (const relative of specFiles(SPEC_ROOT)) {
-    const file = join(SPEC_ROOT, relative);
-    for (const { name, line } of assertionLessCases(readFileSync(file, 'utf8'), relative)) {
-      offenders.push(`${SPEC_ROOT.replaceAll('\\', '/')}/${relative}:${line}  ${name}`);
+  for (const file of loadedModules(entrypoints).sort()) {
+    const shown = relative(process.cwd(), file).replaceAll('\\', '/');
+    for (const { name, line } of assertionLessCases(readFileSync(file, 'utf8'), file)) {
+      offenders.push(`${shown}:${line}  ${name}`);
     }
   }
   if (offenders.length === 0) {
