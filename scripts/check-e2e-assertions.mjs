@@ -86,25 +86,17 @@ const externalModuleName = (node) =>
 const isDynamicImport = (node) =>
   ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
 
+const isRequireCall = (node) =>
+  ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require';
+
 /**
- * A `require` naming a module by a plain string.
+ * Whether this module runs as CommonJS, where `require` is genuinely the loader.
  *
- * Narrower than `import()` on purpose, because the two differ in how certain
- * they are. `import` is a keyword: wherever it appears a module is loaded, so a
- * target the gate cannot read has to be refused out loud. `require` is an
- * ordinary identifier that any file may bind to anything, so a call with a
- * computed argument is as likely to be somebody's helper as a module load, and
- * failing the build over it would refuse code that loads nothing. Such a call is
- * passed over instead — safely, because this project emits ESM, where a real
- * `require` is not defined and would break the spec on load rather than let it
- * run green.
+ * The extension decides it, as it does for the runner's own loader. Everywhere
+ * else the project emits ESM and `require` is simply a name a file may bind to
+ * anything, which is what makes the same call mean two different things.
  */
-const isLiteralRequireCall = (node) =>
-  ts.isCallExpression(node) &&
-  ts.isIdentifier(node.expression) &&
-  node.expression.text === 'require' &&
-  node.arguments[0] !== undefined &&
-  ts.isStringLiteralLike(node.arguments[0]);
+const runsAsCommonJs = (fileName) => fileName.endsWith('.cts') || fileName.endsWith('.cjs');
 
 /**
  * Every module specifier a source loads at runtime, however it spells it.
@@ -127,27 +119,39 @@ export function importedModuleSpecifiers(source, fileName = 'module.ts') {
   const collect = (node) => {
     if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
   };
-  const collectLoadOrRefuse = (call) => {
-    const target = call.arguments[0];
-    if (target && ts.isStringLiteralLike(target)) {
-      specifiers.push(target.text);
-      return;
-    }
-    // A computed specifier still loads a module, and no amount of reading the
-    // syntax says which. Guessing would mean reporting clean over whatever it
-    // names, so the scan says out loud that it cannot see rather than pretending
-    // there is nothing there.
+  // A computed specifier still loads a module, and no amount of reading the
+  // syntax says which. Guessing would mean reporting clean over whatever it
+  // names, so the scan says out loud that it cannot see rather than describing
+  // the view as empty.
+  const refuse = (call) => {
     const { line } = tree.getLineAndCharacterOfPosition(call.getStart(tree));
     throw new UnreadableLoad(
       `${fileName}:${line + 1} loads a module through an expression, so the gate cannot tell ` +
         'which file it reaches. Name the module with a plain string literal.',
     );
   };
+  const collectImport = (call) => {
+    const target = call.arguments[0];
+    if (target && ts.isStringLiteralLike(target)) specifiers.push(target.text);
+    else refuse(call);
+  };
+  /**
+   * `require` reads two ways and the file's own extension decides which. Under
+   * CommonJS it is the loader, so an unreadable target must be refused exactly
+   * as `import` is. Under ESM it is only a name, `require` is not defined, and a
+   * call to it would break the module on load rather than let it run green — so
+   * a computed one there loads nothing and is passed over.
+   */
+  const collectRequire = (call) => {
+    const target = call.arguments[0];
+    if (target && ts.isStringLiteralLike(target)) specifiers.push(target.text);
+    else if (runsAsCommonJs(fileName)) refuse(call);
+  };
   const visit = (node) => {
     if (isRuntimeModuleDeclaration(node)) collect(node.moduleSpecifier);
     else if (ts.isImportEqualsDeclaration(node)) collect(externalModuleName(node));
-    else if (isLiteralRequireCall(node)) collect(node.arguments[0]);
-    else if (isDynamicImport(node)) collectLoadOrRefuse(node);
+    else if (isRequireCall(node)) collectRequire(node);
+    else if (isDynamicImport(node)) collectImport(node);
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(tree, visit);
@@ -264,19 +268,17 @@ const hostedOn = (node) =>
   GLOBAL_HOSTS.has(node.expression.text);
 
 function calleeName(node) {
-  const callee = node.expression;
-  if (ts.isIdentifier(callee)) return callee.text;
-  if (!ts.isPropertyAccessExpression(callee)) return null;
-  // `globalThis.it(...)` — the host contributes nothing; the name is the case.
-  if (hostedOn(callee)) return callee.name.text;
-  // Past this point something is hung off the name, and only a modifier keeps
-  // it a case. `it.toString(...)` calls a method that happens to sit on `it`.
-  if (!CASE_MODIFIERS.has(callee.name.text)) return null;
-  // `globalThis.it.only(...)` — one level deeper, same answer.
-  if (hostedOn(callee.expression)) return callee.expression.name.text;
-  // `it.only(...)` resolves to its leading name; `helper.only(...)` resolves to
-  // `helper`, which is correctly not a case.
-  if (ts.isIdentifier(callee.expression)) return callee.expression.text;
+  let current = node.expression;
+  if (ts.isIdentifier(current)) return current.text;
+  // Peel the properties hung off the name, innermost last. Each has to be one
+  // that keeps the call a case; the first that is not ends it. `it.only.call`
+  // peels twice and is still `it`, while `it.toString` stops at the first step.
+  while (ts.isPropertyAccessExpression(current)) {
+    if (hostedOn(current)) return current.name.text;
+    if (!CASE_PASSTHROUGH.has(current.name.text)) return null;
+    if (ts.isIdentifier(current.expression)) return current.expression.text;
+    current = current.expression;
+  }
   return null;
 }
 
@@ -310,11 +312,19 @@ function isBareCallTo(node, name) {
 const CASE_CALLEES = new Set(['it', 'test', 'specify', 'xit', 'xspecify']);
 
 /**
- * The properties that still name a case when hung off one: `it.only(...)` and
- * `it.skip(...)` register cases; `it.toString(...)` merely borrows the name on
- * its way past, exactly as a matcher chain does.
+ * The properties that still name a case when hung off one.
+ *
+ * `only` and `skip` select which cases run; `call` and `apply` are how any
+ * function is invoked, and mocha registers a case through them exactly as it
+ * does through a direct call. Anything else — `toString` being the obvious one
+ * — merely borrows the name on its way past, the same trap a matcher chain sets
+ * a few functions below.
+ *
+ * `it.each(table)(name, fn)` is deliberately absent: mocha's BDD interface has
+ * no `each`, so in a spec it would throw on load rather than register anything.
+ * Should an each-plugin ever be added, this set is where it belongs.
  */
-const CASE_MODIFIERS = new Set(['only', 'skip']);
+const CASE_PASSTHROUGH = new Set(['only', 'skip', 'call', 'apply']);
 
 /**
  * Matcher naming, by convention: `toBe`, `toContain`, `toBeElementsArrayOfSize`.

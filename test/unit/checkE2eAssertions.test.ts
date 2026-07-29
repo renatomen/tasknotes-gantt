@@ -63,6 +63,16 @@ describe('findTestCases', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 
+  it('finds a case invoked through call or apply, which mocha registers', () => {
+    const source = wrap(
+      '  it.call(null, "lambda", () => { expect(1).toBe(1); });\n' +
+        '  it.apply(null, ["mu", () => {}]);\n' +
+        '  it.only.call(null, "nu", () => {});',
+    );
+
+    expect(findTestCases(source).length).toBe(3);
+  });
+
   it('does not count a method that merely hangs off a case function', () => {
     // `it.only` and `it.skip` register cases; anything else called on `it` is
     // an ordinary method borrowing the name on its way past, the same trap a
@@ -480,14 +490,19 @@ describe('importedModuleSpecifiers', () => {
     expect(scan).toThrow(/entry\.e2e\.ts:1 loads a module through an expression/);
   });
 
-  it('passes over a computed require rather than refusing it', () => {
-    // `import` is a keyword, so an unreadable target there must be refused.
-    // `require` is an ordinary identifier any file may bind to anything, so a
-    // computed argument is as likely to be a helper call as a module load, and
-    // refusing would fail the build over code that loads nothing. Safe here
-    // because this project emits ESM, where a real `require` is undefined and
-    // would break the spec on load rather than let it run green.
-    expect(importedModuleSpecifiers('require(base + "/suite");')).toEqual([]);
+  it('refuses a computed require in a module that runs as CommonJS', () => {
+    // In a .cts or .cjs module the runner gives `require` its real meaning, so
+    // an unreadable target hides whatever it loads exactly as `import` would.
+    expect(() => importedModuleSpecifiers('require(base + "/suite");', 'bridge.cts')).toThrow(
+      UnreadableLoad,
+    );
+  });
+
+  it('passes over a computed require in an ESM module, where it loads nothing', () => {
+    // Everywhere else `require` is only a name a file may bind to anything, and
+    // is not defined at runtime — such a call breaks the module on load rather
+    // than letting it run green, so it cannot be hiding a suite that passes.
+    expect(importedModuleSpecifiers('require(base + "/suite");', 'spec.e2e.ts')).toEqual([]);
   });
 
   it('skips a type-only import-equals, which emits no load', () => {
