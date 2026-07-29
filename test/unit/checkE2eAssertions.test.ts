@@ -311,6 +311,18 @@ describe('cases the file defines for itself', () => {
     expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
   });
 
+  it('still counts a case when the shadow sits in a scope that does not enclose it', () => {
+    // The walk goes up from the call, not across the file. A shadow somewhere
+    // else must not quietly switch off the cases that are real, which is the
+    // one direction of error worth more than every case this could catch.
+    const source = [
+      'function helper() { const it = (name: string, run: () => void) => run(); }',
+      'it("a real case", () => {});',
+    ].join('\n');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
+  });
+
   it('still counts a case that sits beside an unrelated local name', () => {
     const source = ['const helper = () => {};', 'it("a real case", () => {});'].join('\n');
 
@@ -469,6 +481,14 @@ describe('importedModuleSpecifiers', () => {
 
   it('refuses a computed require for the same reason', () => {
     expect(() => importedModuleSpecifiers('require(base + "/suite");')).toThrow(UnreadableLoad);
+  });
+
+  it('leaves a locally defined require alone, whatever it is passed', () => {
+    // A helper that merely shares the name loads no module, so failing the build
+    // over what it is handed would refuse code that is entirely fine.
+    const source = ['const require = (spec: unknown) => spec;', 'require({ any: "thing" });'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual([]);
   });
 
   it('reads a template literal that has no substitution, which names one file', () => {

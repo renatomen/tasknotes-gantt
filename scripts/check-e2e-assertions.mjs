@@ -81,8 +81,16 @@ const externalModuleName = (node) =>
 const isDynamicImport = (node) =>
   ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
 
+/**
+ * CommonJS `require`, and not a function of the file's own that shares the name
+ * — otherwise a helper called `require` taking anything but a string literal
+ * would fail the build over code that is perfectly fine.
+ */
 const isRequireCall = (node) =>
-  ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require';
+  ts.isCallExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  node.expression.text === 'require' &&
+  !isLocallyDefined(node, 'require');
 
 /**
  * Every module specifier a source loads at runtime, however it spells it.
