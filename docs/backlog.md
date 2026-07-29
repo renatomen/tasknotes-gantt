@@ -28,19 +28,22 @@ gate unit deliberately: that unit's job was cases asserting nothing at all.
   fixing the first instance is what surfaced them.
 
 ### P1 — Container decomposition (maintainer-ruled REQUIRED, 2026-07-28)
-GanttContainer.svelte sits ratcheted at exactly 3659 lines. The Farley ruling made its
-decomposition mandatory, not optional: extract the cell-edit wiring, syncToGantt (complexity 28),
-and the modal plumbing into focused modules, shrinking the ratchet baseline with each landing.
+GanttContainer.svelte combines responsibilities that should be independently understandable.
+The Farley ruling made its decomposition mandatory, not optional: extract the cell-edit wiring,
+syncToGantt, and the modal plumbing into focused modules through small, behavior-preserving
+landings.
 - Includes the pre-existing cell-edit timeout hazard the #349 round-13 review documented:
   the cell-edit path still uses reject-at-timeout (withTimeout), releasing under a running
-  write — the same overtake hazard the drag path fixed with report-and-hold. Fix during the
-  cell-edit extraction by reusing the drag path's settlement semantics.
+  write — the same overtake hazard the drag path fixed with report-and-hold. Do not change
+  this behavior during decomposition; address it only after the maintainability work, unless
+  it is reclassified as urgent and the maintainer approves stopping the project to fix it.
 - Source: PR #349 review record; plan `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`.
 
-### P1 — Legacy over-500 files become extraction units (maintainer-ruled REQUIRED, 2026-07-28)
-The eslint max-lines exemption list is shrink-only; each legacy file over 500 lines becomes its
-own extraction unit until the list is empty. register.ts (ratcheted at 1463) is the largest.
-- Source: `eslint.config.mjs` exemption list; the 2026-07-28 quality-standard ruling.
+### P1 — Eliminate cognitive-complexity exceptions (maintainer-ruled REQUIRED, 2026-07-30)
+Every production, test, and probe function must meet the global ESLint cognitive-complexity
+ceiling of 15. Remove all per-file overrides and inline suppressions through small,
+behavior-preserving single-responsibility refactors. File length alone is not a quality gate.
+- Source: the 2026-07-28 and 2026-07-30 maintainability rulings.
 
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
