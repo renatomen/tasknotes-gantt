@@ -59,8 +59,9 @@ interface EditorConflictState {
   cls: string;
 }
 
-/** The year grid's row for a weekday, its Mon-first layout being 1-based. */
+/** The year grid's rows for weekdays, its Mon-first layout being 1-based. */
 const FRIDAY_ROW = 5;
+const SUNDAY_ROW = 7;
 
 /**
  * The year grid's conflict count and the status banner, read from the ACTIVE
@@ -1205,8 +1206,11 @@ describe("Gantt (OG) calendar editor routing", () => {
       },
     );
 
+    // A Mon-Fri member and a Sun-Thu member disagree on Fridays AND Sundays, so
+    // the days themselves are the claim. A count would stay green with every
+    // Sunday conflict dropped, since the Friday cells and the banner remain.
     const state = seen as unknown as EditorConflictState;
-    expect(state.yearConflicts).toBeGreaterThan(0);
+    expect(state.conflictRows).toEqual([FRIDAY_ROW, SUNDAY_ROW]);
     expect(state.text).toContain("conflict");
     expect(state.cls).toContain("og-cal-status-warn");
 
