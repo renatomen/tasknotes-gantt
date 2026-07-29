@@ -53,9 +53,14 @@ async function activeViewType(): Promise<string | null> {
 
 interface EditorConflictState {
   yearConflicts: number;
+  /** Distinct weekday rows the conflicts fall on; the grid lays Mon..Sun as rows 1..7. */
+  conflictRows: number[];
   text: string;
   cls: string;
 }
+
+/** The year grid's row for a weekday, its Mon-first layout being 1-based. */
+const FRIDAY_ROW = 5;
 
 /**
  * The year grid's conflict count and the status banner, read from the ACTIVE
@@ -71,8 +76,21 @@ async function readConflictState(): Promise<EditorConflictState | null> {
       ?.containerEl;
     if (!root) return null;
     const banner = root.querySelector(".og-cal-status");
+    const conflicted = Array.from(
+      root.querySelectorAll<HTMLElement>(".og-year-cell.og-year-conflict"),
+    );
+    const rows = new Set<number>();
+    for (const cell of conflicted) {
+      // Read the style PROPERTY, not the attribute: Svelte compiles an
+      // interpolated style into direct property assignments, so the attribute
+      // can be absent while the value is plainly there.
+      const raw = cell.style.gridRow || cell.style.gridRowStart;
+      const row = Number(/(\d+)/.exec(raw ?? "")?.[1]);
+      if (Number.isFinite(row)) rows.add(row);
+    }
     return {
-      yearConflicts: root.querySelectorAll(".og-year-cell.og-year-conflict").length,
+      yearConflicts: conflicted.length,
+      conflictRows: [...rows].sort((a, b) => a - b),
       text: banner?.textContent ?? "",
       cls: banner?.className ?? "",
     };
@@ -1215,21 +1233,23 @@ describe("Gantt (OG) calendar editor routing", () => {
     await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
     await (await $(".og-cal-tab=Year")).click();
 
-    let conflicts = 0;
+    let seen: EditorConflictState | null = null;
     await browser.waitUntil(
       async () => {
-        conflicts = (await readConflictState())?.yearConflicts ?? 0;
-        return conflicts > 0;
+        seen = await readConflictState();
+        return (seen?.yearConflicts ?? 0) > 0;
       },
       { timeout: 15000, timeoutMsg: "the availability-only member produced no conflicts in the union" },
     );
 
-    // Not merely "some conflict": the two members disagree on Fridays and only
-    // Fridays, so the year grid should carry roughly one per week. A bare
-    // greater-than-zero would stay green if the availability member were
-    // misparsed into some other schedule that also happens to differ.
-    expect(conflicts).toBeGreaterThanOrEqual(50);
-    expect(conflicts).toBeLessThanOrEqual(53);
+    // Not merely "some conflict", and not merely a plausible count: the two
+    // members disagree on Fridays and ONLY Fridays. A count alone would accept
+    // any single-weekday disagreement — a member misparsed as Tue-Fri differs on
+    // Mondays and lands on the same tally — so the day itself is what pins it.
+    const state = seen as unknown as EditorConflictState;
+    expect(state.conflictRows).toEqual([FRIDAY_ROW]);
+    expect(state.yearConflicts).toBeGreaterThanOrEqual(52); // every Friday of the year
+    expect(state.yearConflicts).toBeLessThanOrEqual(53);
 
     await deleteNotes(["Avail Set.md", "Avail Mon Thu.md", "Weekdays Cal.md"]);
   });
