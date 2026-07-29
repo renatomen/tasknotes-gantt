@@ -22,16 +22,22 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
 
+/** Where the scan starts; every exclusion below is relative to exactly this. */
+export const SPEC_ROOT = join('test', 'specs');
+
 /**
- * Committed e2e specs only. The `_local-` probes are gitignored debug tools
- * pointing at private vaults, so they would false-fail a local run. Scoped to
- * direct children of the spec directory, exactly as the gitignore and the eslint
- * ignore are — reading wider would skip a nested file that IS committed.
+ * Whether a spec is scanned, given its path RELATIVE to the spec root.
+ *
+ * The `_local-` probes are gitignored debug tools pointing at private vaults, so
+ * they would false-fail a local run — but the ignore pattern covers only direct
+ * children of the spec root. Deciding on a relative path anchors that: matching
+ * the absolute path instead would exclude a committed
+ * `nested/test/specs/_local-x.e2e.ts`, whose name merely repeats the root.
  */
-export function isScannedSpec(path) {
-  const normalized = path.replaceAll('\\', '/');
+export function isScannedSpec(relativePath) {
+  const normalized = relativePath.replaceAll('\\', '/');
   if (!normalized.endsWith('.e2e.ts')) return false;
-  return !/(^|\/)test\/specs\/_local-[^/]*$/.test(normalized);
+  return !normalized.split('/')[0]?.startsWith('_local-');
 }
 
 /** Globals a case can legitimately be reached through. */
@@ -190,33 +196,28 @@ export function assertionLessCases(source, fileName) {
 }
 
 /**
- * Whether a directory is one the ignore pattern covers, contents and all. Scoped
- * to a DIRECT child of the spec directory, exactly as the pattern is: skipping
- * the name at any depth would stop scanning `test/specs/nested/_local-x/`, which
- * git tracks perfectly happily.
+ * Every scanned spec, as paths relative to the spec root. Only a DIRECT child of
+ * that root can be an ignored probe, so depth is tracked rather than inferred
+ * from the path text — a nested directory that happens to repeat the root's name
+ * is ordinary committed code.
  */
-function isIgnoredProbeDir(path) {
-  return /(^|\/)test\/specs\/_local-[^/]*$/.test(path.replaceAll('\\', '/'));
-}
-
-function specFiles(dir) {
+function specFiles(dir, relative = '') {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!isIgnoredProbeDir(path)) found.push(...specFiles(path));
-    } else if (isScannedSpec(path)) {
-      found.push(path);
-    }
+    const childRelative = relative === '' ? entry.name : `${relative}/${entry.name}`;
+    if (relative === '' && entry.name.startsWith('_local-')) continue;
+    if (entry.isDirectory()) found.push(...specFiles(join(dir, entry.name), childRelative));
+    else if (isScannedSpec(childRelative)) found.push(childRelative);
   }
   return found;
 }
 
 function main() {
   const offenders = [];
-  for (const file of specFiles(join('test', 'specs'))) {
-    for (const { name, line } of assertionLessCases(readFileSync(file, 'utf8'), file)) {
-      offenders.push(`${file.replaceAll('\\', '/')}:${line}  ${name}`);
+  for (const relative of specFiles(SPEC_ROOT)) {
+    const file = join(SPEC_ROOT, relative);
+    for (const { name, line } of assertionLessCases(readFileSync(file, 'utf8'), relative)) {
+      offenders.push(`${SPEC_ROOT.replaceAll('\\', '/')}/${relative}:${line}  ${name}`);
     }
   }
   if (offenders.length === 0) {

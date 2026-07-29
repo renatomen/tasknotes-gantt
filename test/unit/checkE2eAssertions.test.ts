@@ -240,29 +240,35 @@ describe('assertionLessCases', () => {
 
 describe('isScannedSpec', () => {
   it('scans a committed e2e spec', () => {
-    expect(isScannedSpec('test/specs/gantt-calendar-shading.e2e.ts')).toBe(true);
+    expect(isScannedSpec('gantt-calendar-shading.e2e.ts')).toBe(true);
   });
 
   it('skips the gitignored local probes', () => {
-    expect(isScannedSpec('test/specs/_local-keepopen.e2e.ts')).toBe(false);
-    expect(isScannedSpec('test/specs/_local-clone-search.e2e.ts')).toBe(false);
+    expect(isScannedSpec('_local-keepopen.e2e.ts')).toBe(false);
+    expect(isScannedSpec('_local-clone-search.e2e.ts')).toBe(false);
   });
 
   it('scans a nested spec even when its name carries the local prefix', () => {
     // The exclusion mirrors the gitignore and eslint ignore, both of which cover
     // only direct children of test/specs. A nested file is committed, so
     // excluding it would let a real spec bypass the gate.
-    expect(isScannedSpec('test/specs/nested/_local-thing.e2e.ts')).toBe(true);
+    expect(isScannedSpec('nested/_local-thing.e2e.ts')).toBe(true);
   });
 
   it('skips non-spec files', () => {
-    expect(isScannedSpec('test/unit/foo.test.ts')).toBe(false);
-    expect(isScannedSpec('src/main.ts')).toBe(false);
+    expect(isScannedSpec('../unit/foo.test.ts')).toBe(false);
+    expect(isScannedSpec('../../src/main.ts')).toBe(false);
   });
 
   it('normalises windows separators', () => {
-    expect(isScannedSpec('test\\specs\\gantt-calendar-shading.e2e.ts')).toBe(true);
-    expect(isScannedSpec('test\\specs\\_local-keepopen.e2e.ts')).toBe(false);
+    expect(isScannedSpec('nested\\gantt-calendar-shading.e2e.ts')).toBe(true);
+    expect(isScannedSpec('_local-probes\\case.e2e.ts')).toBe(false);
+  });
+
+  it('scans a path whose nested directories merely repeat the root name', () => {
+    // Anchored to the scan root, so a name that echoes it deeper down is
+    // ordinary committed code rather than an ignored probe.
+    expect(isScannedSpec('nested/test/specs/_local-bypass.e2e.ts')).toBe(true);
   });
 });
 
