@@ -19,7 +19,7 @@
  * that compiles this code already knows all of it.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
 /** Where the scan starts; every exclusion below is relative to exactly this. */
@@ -44,29 +44,88 @@ export function isScannedSpec(relativePath) {
   return !normalized.split('/')[0]?.startsWith('_local-');
 }
 
-/** The relative module specifiers a source imports or re-exports. */
-export function relativeImports(source, fileName = 'module.ts') {
+/**
+ * A static import or re-export that still exists at runtime.
+ *
+ * `import type { X } from './y'` is erased before anything executes, so a module
+ * reached only that way never registers a case and following it would fail an
+ * otherwise clean run.
+ */
+function isRuntimeModuleDeclaration(node) {
+  if (ts.isImportDeclaration(node)) return node.importClause?.isTypeOnly !== true;
+  if (ts.isExportDeclaration(node)) return node.isTypeOnly !== true;
+  return false;
+}
+
+const isDynamicImport = (node) =>
+  ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
+
+const isRequireCall = (node) =>
+  ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require';
+
+/**
+ * Every module specifier a source loads at runtime, however it spells it.
+ *
+ * Deliberately not filtered to specifiers beginning with a dot. Which text
+ * denotes a local module is a question about this project's resolver
+ * configuration, not about the first character: `@/x` is this repository's own
+ * `src/x` under the committed path alias, and discarding it as though it named a
+ * package would hide every case inside. The specifier's SHAPE decides nothing;
+ * where it resolves decides everything, so collection is total and resolution
+ * filters.
+ *
+ * The walk covers the whole tree rather than the top-level statements, because
+ * `await import('./suite')` is an expression and can sit anywhere. A type-position
+ * `import('./x').Foo` is a distinct node and is correctly not collected.
+ */
+export function importedModuleSpecifiers(source, fileName = 'module.ts') {
   const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const specifiers = [];
-  for (const statement of tree.statements) {
-    const clause = statement.moduleSpecifier;
-    if (!clause || !ts.isStringLiteral(clause)) continue;
-    if (clause.text.startsWith('.')) specifiers.push(clause.text);
-  }
+  const collect = (node) => {
+    if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
+  };
+  const visit = (node) => {
+    if (isRuntimeModuleDeclaration(node)) collect(node.moduleSpecifier);
+    else if (isDynamicImport(node) || isRequireCall(node)) collect(node.arguments[0]);
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(tree, visit);
   return specifiers;
 }
 
 /**
- * Bundler resolution deliberately: it is the most permissive mode, and a gate
- * should fail toward opening more files rather than fewer.
+ * The project's own resolution settings, so a specifier resolves here exactly as
+ * it does for the runner — path aliases included. Bundler mode is forced over
+ * whatever the project declares because it is the most permissive available, and
+ * a gate that must err should err toward opening more files rather than fewer.
  */
-const RESOLUTION_OPTIONS = {
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  allowImportingTsExtensions: true,
-};
+function projectResolutionOptions() {
+  const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, 'tsconfig.json');
+  const declared = configPath
+    ? ts.parseJsonConfigFileContent(
+        ts.readConfigFile(configPath, ts.sys.readFile).config ?? {},
+        ts.sys,
+        dirname(configPath),
+      ).options
+    : {};
+  return {
+    ...declared,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+  };
+}
+
+const RESOLUTION_OPTIONS = projectResolutionOptions();
+
+/** A dependency's own test cases are not this suite's to gate. */
+const isThirdParty = (resolved) =>
+  resolved.isExternalLibraryImport === true ||
+  resolved.resolvedFileName.split('/').includes('node_modules');
 
 /**
- * Resolve a relative specifier to the file it names, or null if it names none.
+ * Resolve a specifier to the local file it names, or null if it names none —
+ * which covers both an unresolvable specifier and one naming a dependency, whose
+ * own test cases are not this suite's to gate.
  *
  * The compiler's own resolver, not a reconstruction of it. A hand-rolled loop
  * over `x`, `x.ts`, `x/index.ts` looks complete and is not: under ESM a
@@ -75,16 +134,17 @@ const RESOLUTION_OPTIONS = {
  * scan that silently narrows itself is the one failure this whole file exists to
  * prevent.
  *
- * Null is safe to skip. A relative specifier that resolves to nothing cannot
- * register a case, because the runner would fail to load the importing spec at
- * all rather than run it green.
+ * Null is safe to skip. A specifier that resolves to nothing cannot register a
+ * case, because the runner would fail to load the importing spec at all rather
+ * than run it green.
  */
 function resolveModule(fromFile, specifier) {
   const { resolvedModule } = ts.resolveModuleName(specifier, fromFile, RESOLUTION_OPTIONS, ts.sys);
+  if (!resolvedModule || isThirdParty(resolvedModule)) return null;
   // The compiler answers in forward slashes on every platform; `resolve` puts it
   // back in the host's spelling so one file cannot enter the visited set twice
   // under two names and be reported twice.
-  return resolvedModule ? resolve(resolvedModule.resolvedFileName) : null;
+  return resolve(resolvedModule.resolvedFileName);
 }
 
 /**
@@ -109,7 +169,7 @@ export function loadedModules(entrypoints) {
     } catch {
       continue; // a specifier that resolves to nothing cannot register a case
     }
-    for (const specifier of relativeImports(source, file)) {
+    for (const specifier of importedModuleSpecifiers(source, file)) {
       const resolved = resolveModule(file, specifier);
       if (resolved !== null && !seen.has(resolved)) queue.push(resolved);
     }

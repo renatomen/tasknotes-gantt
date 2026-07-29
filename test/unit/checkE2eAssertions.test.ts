@@ -4,9 +4,9 @@ import { basename, dirname, join } from 'node:path';
 import {
   assertionLessCases,
   findTestCases,
+  importedModuleSpecifiers,
   isScannedSpec,
   loadedModules,
-  relativeImports,
 } from '../../scripts/check-e2e-assertions.mjs';
 
 const wrap = (body: string): string => `describe("s", () => {\n${body}\n});\n`;
@@ -349,21 +349,50 @@ describe('shared suites', () => {
   });
 });
 
-describe('relativeImports', () => {
-  it('collects relative import and re-export specifiers', () => {
+describe('importedModuleSpecifiers', () => {
+  it('collects import and re-export specifiers', () => {
     const source = [
       'import { a } from "./sibling";',
       'import b from "../shared/journeys";',
       'export * from "./more";',
-      'import { x } from "@wdio/globals";',
-      'import ts from "typescript";',
     ].join('\n');
 
-    expect(relativeImports(source)).toEqual(['./sibling', '../shared/journeys', './more']);
+    expect(importedModuleSpecifiers(source)).toEqual(['./sibling', '../shared/journeys', './more']);
   });
 
-  it('ignores bare package specifiers, which cannot be a local suite', () => {
-    expect(relativeImports('import { browser } from "@wdio/globals";')).toEqual([]);
+  it('collects a bare specifier too, because an alias can name a local module', () => {
+    // Under the committed "@/*" path alias this names src/e2e-shared. Judging a
+    // specifier by its first character would discard it as though it named a
+    // package; only the resolver can tell the two apart.
+    expect(importedModuleSpecifiers('import "@/e2e-shared";')).toEqual(['@/e2e-shared']);
+  });
+
+  it('collects a dynamic import, wherever in the file it sits', () => {
+    const source = 'describe("s", () => {\n  before(async () => { await import("./suite"); });\n});';
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
+  });
+
+  it('collects a require call', () => {
+    expect(importedModuleSpecifiers('require("./suite");')).toEqual(['./suite']);
+  });
+
+  it('skips a type-only import, which is erased before anything runs', () => {
+    const source = ['import type { Fixture } from "./types";', 'import "./suite";'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
+  });
+
+  it('skips a type-only re-export for the same reason', () => {
+    const source = ['export type * from "./types";', 'export * from "./suite";'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
+  });
+
+  it('ignores a type-position import, which loads nothing', () => {
+    const source = 'let x: import("./types").Fixture;';
+
+    expect(importedModuleSpecifiers(source)).toEqual([]);
   });
 });
 
@@ -441,6 +470,27 @@ describe('loadedModules', () => {
     const entry = write('entry.e2e.ts', 'import "./absent";\n');
 
     expect(reachedFrom(entry)).toEqual(['entry.e2e.ts']);
+  });
+
+  it('reaches a suite loaded by a dynamic import', () => {
+    write('suite.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'before(async () => { await import("./suite"); });\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'suite.ts']);
+  });
+
+  it('does not descend into a dependency, whose cases are not ours to gate', () => {
+    const entry = write('entry.e2e.ts', 'import { browser } from "@wdio/globals";\nbrowser;\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts']);
+  });
+
+  it('reaches a suite named through the project path alias', () => {
+    // "@/*" maps to src/*, so this names a real file in this repository. The
+    // temp entrypoint proves the alias is honoured wherever the importer sits.
+    const entry = write('entry.e2e.ts', 'import "@/releaseNotes";\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'releaseNotes.ts']);
   });
 
   it('reaches a suite that lives outside the spec tree entirely', () => {
