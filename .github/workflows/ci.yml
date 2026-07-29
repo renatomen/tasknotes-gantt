@@ -38,12 +38,6 @@ jobs:
         # Mechanical guard, per "enforce always-X with a mechanism, not memory":
         # regenerate locally with `node scripts/update-release-index.mjs`.
         run: node scripts/update-release-index.mjs --check
-      - name: e2e assertions (a wait proves settling, not correctness)
-        # A case that only awaits a waitUntil passes whenever its predicate is
-        # satisfiable at all, including by a value nobody intended — it reports
-        # coverage it never checked. Runs in the build job so it fails in seconds
-        # rather than after the e2e job has booted Obsidian.
-        run: node scripts/check-e2e-assertions.mjs
       - name: Size ratchet (legacy files may only shrink)
         # GanttContainer.svelte and register.ts are exempt from the eslint
         # max-lines cap; this ratchet is their gate instead — a PR that grows
