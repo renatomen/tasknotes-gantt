@@ -3,7 +3,7 @@ title: Drag e2e Smoke Shrink and the Docs-Only Receipt Exemption - Plan
 type: refactor
 date: 2026-07-28
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: implementation-ready
+artifact_readiness: shipped
 product_contract_source: ce-plan-bootstrap
 execution: code
 origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
@@ -13,7 +13,7 @@ origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
 
 ## Goal Capsule
 
-- **Objective**: land the drag-derivation campaign's U4 phase (c) — the inferred-drag write spec drops from ten cases to three smoke journeys, because the merged planner and derivation tables now own the matrix — and mechanize the approved docs-only exemption in the pre-push review-receipts gate so it stops being a per-push judgment call.
+- **Objective**: land the drag-derivation campaign's U4 phase (c) — the inferred-drag write spec drops from ten cases to three smoke journeys, because the merged planner and derivation tables now own the matrix. *(The plan's second objective, mechanizing a docs-only exemption in the pre-push receipts gate, shipped and was then removed — see Superseded. The gate now requires receipts for every push.)*
 - **Authority hierarchy**: the campaign plan (see Sources) governs requirements and the campaign's merge gate; this plan governs one PR's execution. Repo conventions (AGENTS.md, docs/conventions/) govern style and workflow. Where this plan contradicts observed code reality, surface the deviation instead of guessing.
 - **Execution profile**: one PR, branched from `main` at `3ea482e`. Per-PR gate: CI green AND a Codex verdict attributed to the current head with zero unresolved threads. Every push additionally requires clean receipts from both local review layers.
 - **Stop conditions**: any drag behavior change (this PR is test-and-tooling only — the `src/` tree is not touched); a retained journey that cannot be made to pass without changing production code; evidence that a settled decision cannot work.
@@ -25,13 +25,17 @@ origin: docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md
 
 ### Summary
 
-The inferred-drag write spec explores a combinatorial space that pure tests now own, at twenty-to-forty minutes per real-Obsidian loop. Cut it to the three journeys only real Obsidian can prove, with an explicit ledger recording where each retired case's coverage went. Separately, teach the pre-push receipts gate that a docs-only push needs no review receipts, so an exemption the maintainer already approved is enforced by the script rather than remembered by the pusher.
+The inferred-drag write spec explores a combinatorial space that pure tests now own, at twenty-to-forty minutes per real-Obsidian loop. Cut it to the three journeys only real Obsidian can prove, with an explicit ledger recording where each retired case's coverage went.
+
+*(This plan originally carried a second objective — teaching the pre-push receipts gate to exempt docs-only pushes. It shipped and was then removed; see Superseded. Nothing below should be read as an instruction to rebuild it.)*
 
 ### Problem Frame
 
 Two unrelated residues of the same campaign.
 
 The drag spec grew one case per review round: ten cases, 572 lines, each booting a real Obsidian and driving real SVAR mouse events. U2's derivation table and U3's planner table have since absorbed the outcome matrix — outcome × gesture × instances × tree role × cascade mode × persist result — at unit speed. What e2e still uniquely proves is narrow: that the prompt seam engages in a real Obsidian, that echoes reach every placement of a source note through the real store, and that a committed write does not re-poke the entry-signature into a re-notify storm. Everything else is redundant exploration paid for at e2e prices.
+
+*(SUPERSEDED — the framing below argued for the exemption. It is kept as the record of the reasoning that turned out to be wrong: the mechanism-over-memory instinct was right, but it was applied to an optimization that should not have existed. Always reviewing is the mechanism; the exemption was the judgment call dressed as one.)*
 
 The receipts gate refuses any push whose commits lack clean receipts from both local review layers. The maintainer approved a docs-only exemption, but approval that lives in a person's judgment is not a mechanism — the repo's own learning is that guarantees need a toolchain step, not a note. Today a docs-only push either burns two full review layers or gets waved through by hand, and only the second option is fast, so the gate quietly trains people to bypass it.
 
@@ -44,7 +48,7 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 - R3. Every retired case's coverage is accounted for in a ledger committed with the change: retained in a journey, owned by a named unit-test module, or deliberately dropped with a stated reason.
 - R4. No production code changes. The `src/` tree and both ratcheted files are untouched by this PR.
 
-**Receipts gate**
+**Receipts gate** — SUPERSEDED; these requirements shipped and were then removed (see Superseded above)
 
 - R5. A pushed ref whose entire pushed range changes nothing outside `docs/` requires no review receipts; the push is allowed and the exemption is reported on stdout.
 - R6. A pushed range that touches anything outside `docs/` is gated exactly as today, including a range that mixes docs and non-docs changes.
@@ -55,9 +59,9 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 ### Acceptance Examples
 
 - AE1. Covers R2. **Given** an inferred-end task on a working-week calendar with a second placement, **when** its end is dragged out across the blocked weekend and "Estimate only" is chosen, **then** the working-day estimate persists, no due date is authored, and both placements settle on the *derived* span rather than the one the gesture drew.
-- AE2. Covers R5. **Given** a branch whose pushed commits touch only `docs/`, **when** the pre-push hook runs with no receipts recorded, **then** the push is allowed.
-- AE3. Covers R6. **Given** a pushed range containing one docs commit and one `src/` commit, **when** the hook runs with no receipts, **then** the push is refused.
-- AE4. Covers R7. **Given** one push carrying a docs-only branch and a code-bearing branch, **when** the hook runs with receipts for neither, **then** only the code-bearing ref is named in the refusal.
+- AE2. *(SUPERSEDED with R5-R9.)* Covers R5. **Given** a branch whose pushed commits touch only `docs/`, **when** the pre-push hook runs with no receipts recorded, **then** the push is allowed.
+- AE3. *(SUPERSEDED.)* Covers R6. **Given** a pushed range containing one docs commit and one `src/` commit, **when** the hook runs with no receipts, **then** the push is refused.
+- AE4. *(SUPERSEDED.)* Covers R7. **Given** one push carrying a docs-only branch and a code-bearing branch, **when** the hook runs with receipts for neither, **then** only the code-bearing ref is named in the refusal.
 
 ### Scope Boundaries
 
@@ -89,12 +93,14 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 - KTD3. **"No re-notify storm" is asserted by reading the view's `dbgDataUpdates` counter, not by scraping console output.** The counter increments unconditionally on every `onDataUpdated` that reaches a mounted view — only its debug log is gated — so a bounded delta across the drag-and-settle window is a direct, always-available signal. Console scraping in Electron is unreliable and adding a production counter for a test would violate the repo's diagnostics-stay-cheap rule. Governs R2.
 - KTD4. **The prompt journey ends with the "Don't ask again" leg, and the revert journey runs before it.** The persisted choice flips the view's mode for every later gesture on that base, so its round trip is only observable as the closing leg of the journey that sets it — and any journey needing a prompt on the same base must run first. This keeps the config round trip in e2e without spending a fourth case. Governs R1.
 - KTD5. **Fixture notes stay; only spec cases are deleted** (session-settled: user-approved — chosen over pruning the orphaned fixtures in this PR: gitignored `test/specs/_local-*` probes are the maintainer's own debug tools and may consume those notes, so deleting them would break tooling invisibly). Unreferenced fixture notes are inert data, not dead code paths. The unreferenced set is recorded in Scope Boundaries for a confirmed follow-up.
-- KTD6. **The docs-only exemption is decided per pushed ref, over that ref's whole pushed range** (session-settled: user-approved — chosen over exempting any push containing docs changes: a mixed push would smuggle unreviewed code through a docs-shaped hole). Because `parsePushedRefLines` already keys on each line's local sha — the ref tip — per-ref and per-sha are the same partition, so `evaluateReceipts` stays pure and unchanged; the exemption becomes a filter applied before it. Governs R5, R6, R7.
-- KTD7. **`parsePushedRefLines` returns ref records, not bare shas.** Deriving a range needs each line's remote sha alongside its local sha, which the current return shape discards. Returning `{ localSha, remoteSha }` pairs keeps range derivation honest instead of re-parsing stdin twice; the caller derives the sha list it passes to `evaluateReceipts`. This changes an exported signature and its existing unit cases.
-- KTD8. **Fail closed on every ambiguity** (R8): an unresolvable remote sha, a git invocation that errors, and an empty changed-path set all yield no exemption. Renames are read with rename detection disabled so a file moved out of `docs/` lists both paths and correctly defeats the exemption.
-- KTD9. **`docs/` matches on a path boundary, and paths are read NUL-separated.** A prefix test would exempt `documentation/`; NUL separation avoids git's quoting of paths with spaces or non-ASCII characters, which this repo's docs tree contains.
+- KTD6. *(SUPERSEDED with R5-R9 — the exemption was removed; kept as the record of the decision.)* **The docs-only exemption is decided per pushed ref, over that ref's whole pushed range** (session-settled: user-approved — chosen over exempting any push containing docs changes: a mixed push would smuggle unreviewed code through a docs-shaped hole). Because `parsePushedRefLines` already keys on each line's local sha — the ref tip — per-ref and per-sha are the same partition, so `evaluateReceipts` stays pure and unchanged; the exemption becomes a filter applied before it. Governs R5, R6, R7.
+- KTD7. *(SUPERSEDED.)* **`parsePushedRefLines` returns ref records, not bare shas.** Deriving a range needs each line's remote sha alongside its local sha, which the current return shape discards. Returning `{ localSha, remoteSha }` pairs keeps range derivation honest instead of re-parsing stdin twice; the caller derives the sha list it passes to `evaluateReceipts`. This changes an exported signature and its existing unit cases.
+- KTD8. *(SUPERSEDED — the invariant survives, but it now has nothing to decide: with no exemption there is no ambiguity to resolve.)* **Fail closed on every ambiguity** (R8): an unresolvable remote sha, a git invocation that errors, and an empty changed-path set all yield no exemption. Renames are read with rename detection disabled so a file moved out of `docs/` lists both paths and correctly defeats the exemption.
+- KTD9. *(SUPERSEDED.)* **`docs/` matches on a path boundary, and paths are read NUL-separated.** A prefix test would exempt `documentation/`; NUL separation avoids git's quoting of paths with spaces or non-ASCII characters, which this repo's docs tree contains.
 
 ### High-Level Technical Design
+
+*(SUPERSEDED — this describes the removed exemption's decision path. The gate now has one rule: every pushed sha needs receipts.)*
 
 The gate's decision path, per pushed ref line:
 
@@ -140,7 +146,9 @@ U1 → U2. The receipts gate is fast, self-contained, and unit-provable, so it l
 
 ## Implementation Units
 
-### U1. Docs-only exemption in the pre-push review-receipts gate
+### U1. Docs-only exemption in the pre-push review-receipts gate — SUPERSEDED, see above
+
+Shipped as described below, then removed. Kept as the record of what was built and why it was wrong; the reasoning is in the Superseded section.
 
 - **Goal**: an approved exemption becomes a mechanism — a docs-only push passes the gate without receipts, and everything else is gated exactly as before (R5–R9).
 - **Requirements**: R5, R6, R7, R8, R9. Covers AE2, AE3, AE4.
@@ -218,6 +226,16 @@ U1 → U2. The receipts gate is fast, self-contained, and unit-provable, so it l
 
 Operational notes: run `obsidian` CLI commands from PowerShell, never Git Bash. Never switch branches while a WDIO run is loading specs. Move the gitignored `test/specs/_local-*.e2e.ts` probes aside before any full-glob e2e run.
 
+## Superseded: the docs-only exemption was removed
+
+R5–R9 shipped and were then reverted, deliberately. Recorded here rather than quietly deleted, because the reasoning is the useful part.
+
+The exemption was an optimization, and it was paid for in the one script whose entire job is to be trusted. Its cost profile was inverted: always-reviewing costs a small, bounded, predictable amount — a reviewer glances at prose and says fine — while a wrong exemption costs an unbounded, silent amount, because unreviewed code reaches the remote and nobody learns until something breaks. That trade is bad at any frequency, which is what makes it a principle rather than a threshold.
+
+The evidence bore it out. Eight defects, three of them exploitable by a constructed push, across eight adversarial review rounds — two found only after the local gate had declared the branch sound. Every one lived in the exemption; the decision logic it wrapped (`evaluateReceipts`) was nine lines and correct from the first commit. The distinction that explains it: asking "has this been reviewed?" is a lookup, while asking "what does this push actually change?" invites a question git answers differently depending on replacement objects, grafts, worktree layout, and four configuration switches.
+
+Removing it returned the file from 383 lines to 188 and deleted every one of those defect sites. Two fixes found along the way were genuine and independent of the exemption, so they were kept: replacement objects are disabled on every git call, and a failed read of the pushed ref lines now refuses instead of silently falling back to gating HEAD.
+
 ## Deviations and Findings from Execution
 
 Recorded here rather than absorbed silently, per the Definition of Done.
@@ -232,9 +250,10 @@ Recorded here rather than absorbed silently, per the Definition of Done.
 
 ## Definition of Done
 
-- R1–R9 satisfied.
+- R1–R4 satisfied. R5–R9 shipped and were then removed — see Superseded above; the gate now requires receipts for every push, with no exemption.
 - The spec contains exactly three cases and passes in real Obsidian.
 - The coverage ledger is committed and accurate — every retired case resolves to a retained journey, a named unit-test module, or a stated deliberate drop.
-- A docs-only push passes the receipts gate with no receipts recorded; a mixed push does not.
+- Every push requires clean receipts from both review layers, proven through the real entry point against a throwaway repository rather than the developer's own receipt store. The suite is mutation-checked: reinstalling the exemption makes exactly the docs-only case fail.
+- The failed-stdin branch IS covered. It was first reported as unreachable from a subprocess; review corrected that — handing the child a directory as fd 0 makes `readFileSync(0)` throw `EISDIR`, which reaches the branch without patching the module under test. Verified on this platform before the claim was written down.
 - No `src/` file changed; both ratcheted files untouched at their exact baselines.
 - Deviations from this plan — including the revert journey covering the cancel path rather than an injected persist failure — are reported in the PR description, not silently absorbed.

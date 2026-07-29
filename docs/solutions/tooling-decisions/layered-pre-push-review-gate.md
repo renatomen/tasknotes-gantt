@@ -45,15 +45,36 @@ The two layers differ deliberately. Layer 1 asks "is this right *for this repo*"
 node scripts/check-review-receipts.mjs check
 ```
 
-and `scripts/check-review-receipts.mjs` does the following (verified at the tree):
+and `scripts/check-review-receipts.mjs` does the following. Cited by name rather
+than by line, because line numbers rot — an earlier revision of this section
+pointed at lines that a later shrink had already moved:
 
-- `REQUIRED_LAYERS = ['ce-code-review', 'codex-local']` (`scripts/check-review-receipts.mjs:30`) — **both** layers are required, for **every** pushed ref tip.
-- Receipts live in `.git/review-receipts.json` (`scripts/check-review-receipts.mjs:46-48`), keyed by commit sha: `{"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}`. Inside `.git/` means per-clone and never committed — a receipt attests that *this* clone ran *this* review, and cannot be inherited by fetching a branch.
-- `record <layer>` (`:100-110`) stamps the current `HEAD` with an ISO timestamp, and rejects any layer name outside `REQUIRED_LAYERS`.
-- `check` (`:121-159`) reads git's pre-push stdin ref lines (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) and gates every distinct pushed local sha — the tip of each ref being pushed, not the checkout's `HEAD`.
-- `parsePushedRefLines` (`:66-81`) **fails closed**: a line that is not exactly four tokens with valid local and remote sha fields is collected as `invalid`, and `check` refuses the entire push rather than gate blind (`:130-134`). The comment on that function states the reason plainly — a silently discarded line would let its ref through ungated. Blank lines are skipped; deletions (all-zero shas) are recognized by `isDeletion` (`:34-36`) and not gated.
-- Annotated tags push the *tag object's* sha, so `peelToCommit` (`:84-88`) resolves `<sha>^{commit}` before lookup; a failure to resolve also refuses the push (`:137-141`).
-- With no piped stdin (a manual run), it falls back to gating `HEAD` (`:126-127`).
+- `REQUIRED_LAYERS` names both layers, and **both** are required for **every** pushed ref tip.
+- Receipts live in `.git/review-receipts.json`, keyed by commit sha: `{"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}`. Inside `.git/` means per-clone and never committed — a receipt attests that *this* clone ran *this* review, and cannot be inherited by fetching a branch.
+- `record <layer>` stamps the current `HEAD` with an ISO timestamp, and rejects any layer name outside `REQUIRED_LAYERS`.
+- `check` reads git's pre-push stdin ref lines (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) and gates every distinct pushed local sha — the tip of each ref being pushed, not the checkout's `HEAD`.
+- `parsePushedRefLines` **fails closed**: a line that is not exactly four tokens with valid local and remote sha fields is collected as `invalid`, and `check` refuses the entire push rather than gate blind. A silently discarded line would let its ref through ungated. Blank lines are skipped; deletions (all-zero shas) are recognized by `isDeletion` and not gated.
+- Annotated tags push the *tag object's* sha, so `peelToCommit` resolves `<sha>^{commit}` before lookup; a failure to resolve also refuses the push.
+- With no piped stdin (a manual run) it gates `HEAD`. A *failed* read is different and refuses outright — unknown refs and no refs are not the same absence, and collapsing them would gate `HEAD` during a real push.
+- Every git call runs with `--no-replace-objects`, so the script reasons about the objects a push actually transfers rather than local substitutes.
+
+**Coverage.** `test/unit/checkReviewReceipts.test.ts` covers the pure exports.
+`test/unit/checkReviewReceiptsCli.test.ts` covers the entry point itself against
+a repository it builds and a receipt store it writes — never the developer's
+own, since a suite reading the real store asserts whatever that store happens to
+contain.
+
+**A docs-only exemption was tried here and removed.** It let a push whose range
+changed nothing outside `docs/` skip receipts. It accumulated eight defects over
+eight review rounds, three exploitable by a constructed push, and two found only
+after the local layers had called the branch sound. Every one lived in the
+question *what does this push change?* — which git answers differently depending
+on replacement objects, grafts, worktree layout and several config switches —
+while the decision it wrapped, *has this commit been reviewed?*, stayed nine
+correct lines throughout. The lesson generalises past this gate: a gate's
+decision logic is easy and its perception is hard, so an optimisation that buys
+speed by perceiving more is usually a bad trade. Removing it returned the file
+from 383 lines to 188.
 
 The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The script's own header states its modest scope honestly: it makes an unreviewed push *mechanically impossible* by demanding receipts; whether each review honestly covered its range is the review process's job, not the script's.
 
@@ -66,7 +87,7 @@ The four P1s that eleven GitHub rounds missed, and where their fixes now live:
 1. **Echo-sequence baseline read too late.** The `movedByPredecessor` tie-break compared a baseline captured inside a deferred `setTimeout` submit rather than synchronously at intercept — so a predecessor revert landing in that window was invisible. The fix reads it at intercept: `src/bases/GanttContainer.svelte:1973` captures `echoSeqAtCapture` before the `setTimeout(...)` on `:1976` hands it to `submitBarGesture`, which uses it at `:2160`.
 2. **Progress-only reverts ticking the geometry echo sequence.** A failed progress persist's revert moves no geometry, but was bumping the per-source echo count — so a queued date gesture believed a predecessor had moved the bar and silently no-op'd its real date write. Fixed by the `carriesGeometry(echoes)` guard at `src/bases/dragExecutor.ts:100` (predicate at `:84`), with the reasoning kept in the comment above it.
 3. **Config-only recomputes advancing the settled-facts ledger.** A `reuseTasks` recompute over cached tasks re-reads nothing from the vault, yet was ticking the ledger's generation — dropping a valid overlay and re-opening exactly the stale-estimate suppression the ledger exists to prevent. Fixed by resolving `willReadTaskFacts` at one decision point in `src/controller/GanttController.ts:1517-1520`, with the invariant documented on the counters at `:517-525`.
-4. **The receipt gate itself validating only `HEAD`.** The new pre-push gate read the checkout's `HEAD` rather than the refs actually being pushed, so pushing a different branch — or several refs at once — gated the wrong sha entirely and let un-receipted work through. Fixed by the stdin ref-line parsing described above (`scripts/check-review-receipts.mjs:121-142`), covered by `test/unit/checkReviewReceipts.test.ts`. Note the deliberate limit that remains: the gate covers each pushed ref's **tip**, not every commit in the range; the script header states plainly that a tip receipt attests the chain of reviews ending there, and honest coverage of the ancestors is the review process's job, not the script's.
+4. **The receipt gate itself validating only `HEAD`.** The new pre-push gate read the checkout's `HEAD` rather than the refs actually being pushed, so pushing a different branch — or several refs at once — gated the wrong sha entirely and let un-receipted work through. Fixed by the stdin ref-line parsing described above, covered by `test/unit/checkReviewReceipts.test.ts` for the parser and `test/unit/checkReviewReceiptsCli.test.ts` for the entry point that consumes it. Note the deliberate limit that remains: the gate covers each pushed ref's **tip**, not every commit in the range; the script header states plainly that a tip receipt attests the chain of reviews ending there, and honest coverage of the ancestors is the review process's job, not the script's.
 
 The local cycles then converged. The first chain ran five: findings 8 → 3 → 3 → 2 → 0, changed lines 676 → 433 → 111 → 54 → 42. A second chain of four followed the next GitHub round and converged the same way, ending clean on both layers. Convergence in both dimensions — fewer findings *and* smaller deltas — is the signal that the loop was finding real things rather than churning.
 
