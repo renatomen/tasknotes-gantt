@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Pre-push review gate: a push is allowed only when BOTH local review layers
- * (ce-code-review and the local Codex review) have recorded a clean receipt
+ * (ce-code-review and an independent cross-model peer) have recorded a clean receipt
  * against every commit being pushed.
  *
  * The reviews themselves are agentic and run outside git; this script only
@@ -27,7 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const REQUIRED_LAYERS = ['ce-code-review', 'codex-local'];
+export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 

@@ -19,7 +19,7 @@ import { join, resolve } from 'node:path';
  */
 const SCRIPT = resolve('scripts/check-review-receipts.mjs');
 const ZERO = '0'.repeat(40);
-const LAYERS = ['ce-code-review', 'codex-local'] as const;
+const LAYERS = ['ce-code-review', 'cross-model-peer'] as const;
 
 let repo: string;
 let docsCommit: string;
@@ -55,19 +55,22 @@ const clean = (): Record<string, string> =>
   Object.fromEntries(LAYERS.map((layer) => [layer, '2026-07-29T00:00:00.000Z']));
 
 /** `stdin` as text, or a raw descriptor when the point is how the read behaves. */
-function runCheck(stdin: string | number): Run {
+function runScript(args: string[], stdin: string | number = ''): Run {
   const options =
     typeof stdin === 'number'
       ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const }
       : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const };
   try {
-    const stdout = execFileSync('node', [SCRIPT, 'check'], options);
+    const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
   } catch (error) {
     const failure = error as { status?: number; stdout?: string; stderr?: string };
     return { status: failure.status ?? -1, stdout: failure.stdout ?? '', stderr: failure.stderr ?? '' };
   }
 }
+
+const runCheck = (stdin: string | number): Run => runScript(['check'], stdin);
+const runRecord = (layer: string): Run => runScript(['record', layer]);
 
 const refLine = (local: string, remote: string, ref = 'refs/heads/probe'): string =>
   `${ref} ${local} ${ref} ${remote}\n`;
@@ -278,5 +281,27 @@ describe('check-review-receipts check', () => {
 
     expect(run.status).toBe(0);
     expect(run.stdout).toContain('review receipts OK');
+  });
+
+  it('records both model-neutral layers for HEAD', () => {
+    for (const layer of LAYERS) {
+      const record = runRecord(layer);
+      expect(record.status).toBe(0);
+      expect(record.stdout).toContain(`recorded clean ${layer} receipt`);
+    }
+
+    expect(runCheck('').status).toBe(0);
+  });
+
+  it('rejects the retired model-specific layer name', () => {
+    expect(runRecord('ce-code-review').status).toBe(0);
+
+    const retired = runRecord('codex-local');
+    const check = runCheck('');
+
+    expect(retired.status).toBe(1);
+    expect(retired.stderr).toContain('unknown review layer "codex-local"');
+    expect(check.status).toBe(1);
+    expect(check.stderr).toContain('cross-model-peer');
   });
 });
