@@ -173,10 +173,23 @@ describe('check-review-receipts check', () => {
     expect(run.stderr).toContain(short(docsCommit)); // HEAD of the probe repo
   });
 
-  it('refuses when the ref lines cannot be read at all', () => {
-    // A failed read is not the same absence as no input. Handing the child a
-    // directory as fd 0 makes readFileSync(0) throw, which is the only way to
-    // reach this branch without patching the module under test.
+  // A failed read is not the same absence as no input. Handing the child a
+  // directory as fd 0 makes readFileSync(0) throw, which reaches that branch
+  // without patching the module under test — but whether a directory can be
+  // opened as a descriptor at all varies by platform and runtime version. The
+  // probe runs once here so an environment that refuses skips the case instead
+  // of failing it: the branch fails closed either way, and a red build over an
+  // unbuildable fixture would say nothing about the gate.
+  const canOpenDirectoryAsFd = ((): boolean => {
+    try {
+      closeSync(openSync(tmpdir(), 'r'));
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  (canOpenDirectoryAsFd ? it : it.skip)('refuses when the ref lines cannot be read at all', () => {
     const directoryFd = openSync(repo, 'r');
     try {
       const run = runCheck(directoryFd);
