@@ -45,8 +45,10 @@
     echoTaskPatch,
     shouldBulkReseed,
     structuralOpCount,
+    type LinkSyncPlan,
     type SvarTask,
     type SvarTaskInputs,
+    type TaskSyncPlan,
   } from './ganttSync';
   import {
     classifyUpdateEvent,
@@ -904,185 +906,173 @@
     if (api) applyDisplayFilters();
   });
 
-  // eslint-disable-next-line sonarjs/cognitive-complexity -- pre-gate legacy hotspot; reduce on refactor, never extend
-  function syncToGantt(d: GanttData): void {
-    // A column-config change can't be applied incrementally — SVAR has no
-    // per-column update action, and a new `columns` reference re-inits the whole
-    // store from the seed props. So when the fingerprint changes, reseed columns
-    // AND tasks/links to the current data together (a lone columns reseed would
-    // re-init from the stale frozen task seed, dropping incremental updates),
-    // resync the applied maps, and let the single re-init render it. Zoom/scroll
-    // reset here — accepted, since this only fires on an actual column change.
+  interface GanttSyncPlan {
+    next: SvarTask[];
+    taskPlan: TaskSyncPlan;
+    linkPlan: LinkSyncPlan;
+    orderKey: string;
+    baseSortKey: string;
+    baseSortChanged: boolean;
+  }
+
+  function reseedColumnsIfNeeded(d: GanttData): boolean {
     const editorAttachKey = cellEditColumnIds.join('|');
-    if (d.gridColumnsKey !== appliedColumnsKey || editorAttachKey !== appliedEditorAttachKey) {
-      dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
-      appliedGridWidth = d.gridWidth; // reseed re-asserts the width itself
-      appliedEditorAttachKey = editorAttachKey;
-      reseedForColumnChange(d);
-      return;
-    }
+    const columnsChanged =
+      d.gridColumnsKey !== appliedColumnsKey
+      || editorAttachKey !== appliedEditorAttachKey;
+    if (!columnsChanged) return false;
 
-    // Apply a divider width changed via the settings panel (the "Table width
-    // (px)" option) even when nothing else changed — that refresh otherwise
-    // takes the content-NOOP path below and the new width would not show until
-    // a resize/reseed. Re-assert reads the fresh effective width from the store.
-    if (d.gridWidth !== appliedGridWidth) {
-      appliedGridWidth = d.gridWidth;
-      applyPersistedGridWidth();
-    }
+    dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+    appliedGridWidth = d.gridWidth;
+    appliedEditorAttachKey = editorAttachKey;
+    reseedForColumnChange(d);
+    return true;
+  }
 
+  function applyChangedGridWidth(d: GanttData): void {
+    if (d.gridWidth === appliedGridWidth) return;
+    appliedGridWidth = d.gridWidth;
+    applyPersistedGridWidth();
+  }
+
+  function planGanttSync(d: GanttData): GanttSyncPlan {
     const next = buildSvarTasks(toInputs(d));
     const taskPlan = planTaskSync(appliedTasks, next);
     const linkPlan = planLinkSync(appliedLinks, d.links);
     const orderKey = orderFingerprint(next);
-    // Base toolbar sort descriptor (U4/U5, KTD4). Compared against the last
-    // applied value to drive R6 (Base re-sort clears the ephemeral override) vs
-    // R8 (data-only refresh keeps it).
     const baseSortKey = baseSortDescriptor(config?.getSort?.());
-    const baseSortChanged = baseSortKey !== appliedBaseSortKey;
+    return {
+      next,
+      taskPlan,
+      linkPlan,
+      orderKey,
+      baseSortKey,
+      baseSortChanged: baseSortKey !== appliedBaseSortKey,
+    };
+  }
 
-    const contentNoop =
-      !taskPlan.moves.length &&
-      !taskPlan.updates.length &&
-      !taskPlan.deletes.length &&
-      !taskPlan.adds.length &&
-      !linkPlan.deletes.length &&
-      !linkPlan.adds.length;
-    // Nothing changed at all (content, order, or Base sort) → no work. The Base
-    // sort term keeps an R6 clear from being skipped when a toolbar re-sort
-    // happens to leave the row order identical (e.g. a single-row tree).
-    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) {
-      dlog('[OGDBG] sync NOOP');
-      return;
+  function isGanttSyncNoop(plan: GanttSyncPlan): boolean {
+    return plan.taskPlan.moves.length === 0
+      && plan.taskPlan.updates.length === 0
+      && plan.taskPlan.deletes.length === 0
+      && plan.taskPlan.adds.length === 0
+      && plan.linkPlan.deletes.length === 0
+      && plan.linkPlan.adds.length === 0
+      && plan.orderKey === appliedOrderKey
+      && !plan.baseSortChanged;
+  }
+
+  function clearEphemeralSortForBaseChange(baseSortChanged: boolean): void {
+    if (!ephemeralSort || !baseSortChanged) return;
+    ephemeralSort = null;
+    clearSvarSortArrow();
+  }
+
+  function applyBulkReseedIfNeeded(d: GanttData, plan: GanttSyncPlan): boolean {
+    const { taskPlan, linkPlan } = plan;
+    if (!shouldBulkReseed(taskPlan, linkPlan)) return false;
+
+    dlog(
+      `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
+        ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+    );
+    syncing = true;
+    try {
+      // Clear a stale override first so the reseed cannot reassert it.
+      clearEphemeralSortForBaseChange(plan.baseSortChanged);
+      reseedSeedsFromData(d);
+      applyPersistedGridWidth();
+    } finally {
+      syncing = false;
     }
-    // #161 U6: a WHOLESALE set replacement (search clear / filter change re-expands
-    // the whole companion tree → hundreds–thousands of add/delete execs) costs a DOM
-    // mutation storm per swing; a burst of those is the ~25s churn. Above the op
-    // threshold, apply the change as ONE virtualized re-init (reuse the column/theme
-    // reseed path) instead of the per-instance diff. Zoom/scroll reset is the correct
-    // trade-off here — the displayed set changed entirely, so prior view state is
-    // meaningless. Small diffs fall through to the incremental path below, which
-    // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
-    if (shouldBulkReseed(taskPlan, linkPlan)) {
-      dlog(
-        `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
-          ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
-      );
-      syncing = true;
-      try {
-        // R6 (mirror the incremental path): if the user changed the Base toolbar sort
-        // in the same swing, newest explicit sort wins — drop an active ephemeral sort
-        // first so reseedSeedsFromData doesn't re-assert a now-stale override.
-        if (ephemeralSort && baseSortChanged) {
-          ephemeralSort = null;
-          clearSvarSortArrow();
-        }
-        // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
-        // an active ephemeral sort), then re-assert the persisted divider width (a
-        // store re-init can recompute it). Columns are untouched (no column change).
-        reseedSeedsFromData(d);
-        applyPersistedGridWidth();
-      } finally {
-        syncing = false;
-      }
-      // A reinit CLEARS SVAR's filter-tasks state, and SVAR's own reinit effect can
-      // run AFTER the synchronous `$data` display-filter effect — so that effect's
-      // re-apply would be wiped and hidden rows (Hide-top / Show-undated off) flash
-      // back until the next refresh. Re-assert the active row-visibility filter once
-      // the reseed settles (deferred like the ephemeral-sort / grid-width restores).
-      setTimeout(() => applyDisplayFilters(), 0);
-      return;
+    // SVAR clears its display filter during reinit, after Svelte's synchronous
+    // data effect can run, so restore the filter after the reseed settles.
+    setTimeout(() => applyDisplayFilters(), 0);
+    return true;
+  }
+
+  function applyPlannedTaskAndLinkChanges(plan: GanttSyncPlan): void {
+    const { taskPlan, linkPlan } = plan;
+    // Endpoints must exist when links are added, and links must be removed
+    // before their endpoint tasks are deleted.
+    for (const move of taskPlan.moves) {
+      api.exec('move-task', {
+        id: move.id,
+        target: move.parent,
+        mode: 'child',
+        eventSource: OG_ECHO_SOURCE,
+      });
+    }
+    for (const update of taskPlan.updates) {
+      // SVAR consumes aligned shallow editor keys; the applied map keeps the
+      // canonical planned task used by the next diff.
+      api.exec('update-task', {
+        id: update.id,
+        task: withAlignedFlatKeys(update.task, cellEditColumnIds),
+        eventSource: OG_ECHO_SOURCE,
+      });
+      appliedTasks.set(update.id, update.task);
+    }
+    for (const id of linkPlan.deletes) {
+      api.exec('delete-link', { id, eventSource: OG_ECHO_SOURCE });
+      appliedLinks.delete(id);
+    }
+    for (const id of taskPlan.deletes) {
+      if (taskExists(id)) api.exec('delete-task', { id, eventSource: OG_ECHO_SOURCE });
+      appliedTasks.delete(id);
+    }
+    for (const task of taskPlan.adds) {
+      api.exec('add-task', { task, eventSource: OG_ECHO_SOURCE });
+      appliedTasks.set(task.id, task);
+    }
+    for (const link of linkPlan.adds) {
+      api.exec('add-link', { link, eventSource: OG_ECHO_SOURCE });
+      appliedLinks.set(link.id, link);
+    }
+  }
+
+  function reconcileTaskOrder(plan: GanttSyncPlan): number {
+    if (ephemeralSort && !plan.baseSortChanged) {
+      reassertEphemeralSort();
+      return 0;
     }
 
+    clearEphemeralSortForBaseChange(plan.baseSortChanged);
+    if (plan.orderKey === appliedOrderKey) return 0;
+
+    let reorderMoves = 0;
+    for (const move of planReorder(plan.next)) {
+      reorderMoves += 1;
+      api.exec('move-task', {
+        id: move.id,
+        target: move.after,
+        mode: 'after',
+        eventSource: OG_ECHO_SOURCE,
+      });
+    }
+    return reorderMoves;
+  }
+
+  function applyIncrementalSync(plan: GanttSyncPlan): void {
+    const { taskPlan, linkPlan } = plan;
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
         ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
-        ` orderChanged=${orderKey !== appliedOrderKey} baseSortChanged=${baseSortChanged}`,
+        ` orderChanged=${plan.orderKey !== appliedOrderKey} baseSortChanged=${plan.baseSortChanged}`,
     );
 
     syncing = true;
-    const tSyncStart = performance.now(); // [OGDBG #161]
+    const tSyncStart = performance.now();
     try {
-      // Order: reparent → field updates → remove links → remove tasks (leaf-first)
-      // → add tasks (parent-first) → add links (endpoints now exist).
-      for (const m of taskPlan.moves) {
-        api.exec('move-task', { id: m.id, target: m.parent, mode: 'child', eventSource: OG_ECHO_SOURCE });
-      }
-      for (const u of taskPlan.updates) {
-        // Re-assert the flat editor keys with every update: SVAR applies the
-        // payload as a shallow spread, so a flat key committed by an earlier
-        // inline edit would otherwise go stale against the refreshed
-        // custom.properties — and a later commit on another column would
-        // misattribute the edit to the stale key and write the old value back.
-        api.exec('update-task', {
-          id: u.id,
-          task: withAlignedFlatKeys(u.task, cellEditColumnIds),
-          eventSource: OG_ECHO_SOURCE,
-        });
-        appliedTasks.set(u.id, u.task);
-      }
-      for (const id of linkPlan.deletes) {
-        api.exec('delete-link', { id, eventSource: OG_ECHO_SOURCE });
-        appliedLinks.delete(id);
-      }
-      for (const id of taskPlan.deletes) {
-        if (taskExists(id)) api.exec('delete-task', { id, eventSource: OG_ECHO_SOURCE });
-        appliedTasks.delete(id);
-      }
-      for (const t of taskPlan.adds) {
-        api.exec('add-task', { task: t, eventSource: OG_ECHO_SOURCE });
-        appliedTasks.set(t.id, t);
-      }
-      for (const l of linkPlan.adds) {
-        api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
-        appliedLinks.set(l.id, l);
-      }
-      const tAfterExec = performance.now(); // [OGDBG #161]
-      let reorderMoves = 0; // [OGDBG #161]
-      // Reconcile sibling ORDER. Three cases (plan 2026-06-22-002, U4/U5):
-      if (ephemeralSort && !baseSortChanged) {
-        // R8 — an ephemeral column sort is active and the Base toolbar sort is
-        // unchanged (a plain data refresh). Keep the user's sort: re-assert it
-        // over the new row set instead of snapping back to Base order, and SKIP
-        // planReorder. Echo-guarded so it doesn't re-enter the sort-tasks
-        // interceptor (U2). `appliedOrderKey` still advances to the Base order of
-        // `next` below: the display is under ephemeral control, but the later
-        // clear/R6 reorder diffs against this baseline (a stale key would issue
-        // duplicate/missing moves).
-        reassertEphemeralSort();
-      } else {
-        // Default path (no ephemeral sort) OR R6 (the user changed the Base
-        // toolbar sort while a sort was active → newest explicit sort wins: drop
-        // the override and show the new Base order). The id-keyed diff above never
-        // reorders existing rows, so a pure reorder (toolbar sort) or a
-        // position-shifting add needs explicit `move-task` (mode `after`) steps —
-        // these keep each task under its parent so zoom/scroll survive.
-        if (ephemeralSort && baseSortChanged) {
-          ephemeralSort = null;
-          clearSvarSortArrow();
-        }
-        if (orderKey !== appliedOrderKey) {
-          for (const m of planReorder(next)) {
-            reorderMoves += 1;
-            api.exec('move-task', {
-              id: m.id,
-              target: m.after,
-              mode: 'after',
-              eventSource: OG_ECHO_SOURCE,
-            });
-          }
-        }
-      }
-      // Commit the applied order + Base sort descriptor INSIDE the try, after the
-      // moves land. If a move-task exec throws mid-sequence, these are skipped so
-      // the stale keys force the next sync to replay the work (rather than diffing
-      // against state we never finished applying).
-      appliedOrderKey = orderKey;
-      appliedBaseSortKey = baseSortKey;
-      // [OGDBG #161] split timing: exec loop (add/update/delete) vs reorder pass
-      // (planReorder + per-row move-task). A large reorderMoves with a big total
-      // is the O(N²) suspect for the refresh freeze.
+      applyPlannedTaskAndLinkChanges(plan);
+      const tAfterExec = performance.now();
+      const reorderMoves = reconcileTaskOrder(plan);
+      // Record the Base-order baseline even while an ephemeral sort controls
+      // display. Keeping this after every API action also preserves stale keys
+      // on failure, so the next sync retries.
+      appliedOrderKey = plan.orderKey;
+      appliedBaseSortKey = plan.baseSortKey;
       const now = performance.now();
       dlog(
         `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
@@ -1092,6 +1082,19 @@
     } finally {
       syncing = false;
     }
+  }
+
+  function syncToGantt(d: GanttData): void {
+    if (reseedColumnsIfNeeded(d)) return;
+    applyChangedGridWidth(d);
+
+    const plan = planGanttSync(d);
+    if (isGanttSyncNoop(plan)) {
+      dlog('[OGDBG] sync NOOP');
+      return;
+    }
+    if (applyBulkReseedIfNeeded(d, plan)) return;
+    applyIncrementalSync(plan);
   }
 
   /**
