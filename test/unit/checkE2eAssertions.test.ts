@@ -63,6 +63,15 @@ describe('findTestCases', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 
+  it('does not count a method that merely hangs off a case function', () => {
+    // `it.only` and `it.skip` register cases; anything else called on `it` is
+    // an ordinary method borrowing the name on its way past, the same trap a
+    // matcher chain sets with `expect(v).toString()`.
+    const source = wrap('  it.toString("nope", () => {});\n  globalThis.it.toString("also nope", () => {});');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
   it('is undisturbed by parentheses inside strings and template literals', () => {
     const source = wrap(
       '  it("epsilon", async () => {\n' +
@@ -281,52 +290,31 @@ describe('isScannedSpec', () => {
   });
 });
 
-describe('cases the file defines for itself', () => {
-  it('ignores a call to a locally declared function that shares mocha name', () => {
+describe('names the file might have taken over', () => {
+  it('counts a case even where the file declares a value of the same name', () => {
+    // Deliberate. Deciding whether a name belongs to the file or to the runner
+    // needs a scope model, and every gap in that model removes a REAL case
+    // while the run reports clean. One reported case that is not one is loud,
+    // rare, and fixed by renaming; the alternative failed quietly.
     const source = [
       'const it = (name: string, run: () => void) => run();',
-      'it("ordinary code, not a case", () => {});',
+      'it("reported, though it registers nothing", () => {});',
     ].join('\n');
 
-    expect(findTestCases(source)).toEqual([]);
+    expect(findTestCases(source).map((c) => c.name)).toEqual([
+      'reported, though it registers nothing',
+    ]);
   });
 
-  it('ignores a shadowing declaration in an enclosing scope', () => {
-    const source = [
-      'function helper() {',
-      '  const test = (name: string, run: () => void) => run();',
-      '  test("still not a case", () => {});',
-      '}',
-    ].join('\n');
-
-    expect(findTestCases(source)).toEqual([]);
-  });
-
-  it('still counts a case when the name is imported, which is mocha own', () => {
-    // A spec naming the runner's function explicitly is using that very
-    // function. Reading the import as a local binding would switch the gate off
-    // across the suite while it went on reporting clean.
-    const source = ['import { it } from "@wdio/globals";', 'it("a real case", () => {});'].join('\n');
+  it('counts a case reached through a destructured runner binding', () => {
+    // Mocha registers this one; a scope model that read the parameter as a
+    // local binding dropped it silently, which is what withdrew that model.
+    const source = 'describe("s", ({ it } = globalThis) => { it("a real case", () => {}); });';
 
     expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
   });
 
-  it('still counts a case when the shadow sits in a scope that does not enclose it', () => {
-    // The walk goes up from the call, not across the file. A shadow somewhere
-    // else must not quietly switch off the cases that are real, which is the
-    // one direction of error worth more than every case this could catch.
-    const source = [
-      'function helper() { const it = (name: string, run: () => void) => run(); }',
-      'it("a real case", () => {});',
-    ].join('\n');
-
-    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
-  });
-
-  it('still counts a case when the file merely declares the runner global', () => {
-    // `declare const it` describes something that already exists rather than
-    // creating it, and the call it types is the runner's. Reading the ambient
-    // declaration as a binding would hide every case in the file.
+  it('counts a case where the file merely declares the runner global', () => {
     const source = [
       'declare const it: (name: string, run: () => void) => void;',
       'it("a real case", () => {});',
@@ -335,32 +323,8 @@ describe('cases the file defines for itself', () => {
     expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
   });
 
-  it('still counts a hosted case, which no local name can take over', () => {
+  it('counts a hosted case standing beside a local name', () => {
     const source = ['const it = 1;', 'globalThis.it("a real case", () => {});'].join('\n');
-
-    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
-  });
-
-  it('ignores a helper destructured out of an object', () => {
-    const source = ['const { test } = helpers;', 'test("ordinary helper call", () => {});'].join('\n');
-
-    expect(findTestCases(source)).toEqual([]);
-  });
-
-  it('ignores a helper bound by a catch clause', () => {
-    const source = ['try { risky(); } catch (it) {', '  it("not a case", () => {});', '}'].join('\n');
-
-    expect(findTestCases(source)).toEqual([]);
-  });
-
-  it('ignores a helper bound by a for-of initialiser', () => {
-    const source = ['for (const test of helpers) {', '  test("not a case", () => {});', '}'].join('\n');
-
-    expect(findTestCases(source)).toEqual([]);
-  });
-
-  it('still counts a case that sits beside an unrelated local name', () => {
-    const source = ['const helper = () => {};', 'it("a real case", () => {});'].join('\n');
 
     expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
   });
@@ -510,13 +474,20 @@ describe('importedModuleSpecifiers', () => {
   it('refuses a dynamic import it cannot read rather than passing over it', () => {
     // Guessing which file a computed specifier names would mean reporting clean
     // over whatever it is, so the scan says out loud that it cannot see.
-    expect(() => importedModuleSpecifiers('await import("./" + name);', 'entry.e2e.ts')).toThrow(
-      /entry\.e2e\.ts:1 loads a module through an expression/,
-    );
+    const scan = (): string[] => importedModuleSpecifiers('await import("./" + name);', 'entry.e2e.ts');
+
+    expect(scan).toThrow(UnreadableLoad);
+    expect(scan).toThrow(/entry\.e2e\.ts:1 loads a module through an expression/);
   });
 
-  it('refuses a computed require for the same reason', () => {
-    expect(() => importedModuleSpecifiers('require(base + "/suite");')).toThrow(UnreadableLoad);
+  it('passes over a computed require rather than refusing it', () => {
+    // `import` is a keyword, so an unreadable target there must be refused.
+    // `require` is an ordinary identifier any file may bind to anything, so a
+    // computed argument is as likely to be a helper call as a module load, and
+    // refusing would fail the build over code that loads nothing. Safe here
+    // because this project emits ESM, where a real `require` is undefined and
+    // would break the spec on load rather than let it run green.
+    expect(importedModuleSpecifiers('require(base + "/suite");')).toEqual([]);
   });
 
   it('skips a type-only import-equals, which emits no load', () => {
@@ -525,12 +496,14 @@ describe('importedModuleSpecifiers', () => {
     expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
   });
 
-  it('leaves a locally defined require alone, whatever it is passed', () => {
-    // A helper that merely shares the name loads no module, so failing the build
-    // over what it is handed would refuse code that is entirely fine.
+  it('leaves a helper that merely shares the name alone', () => {
     const source = ['const require = (spec: unknown) => spec;', 'require({ any: "thing" });'].join('\n');
 
     expect(importedModuleSpecifiers(source)).toEqual([]);
+  });
+
+  it('still collects a require that names a module by a plain string', () => {
+    expect(importedModuleSpecifiers('require("./suite");')).toEqual(['./suite']);
   });
 
   it('reads a template literal that has no substitution, which names one file', () => {

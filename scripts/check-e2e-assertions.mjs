@@ -87,15 +87,24 @@ const isDynamicImport = (node) =>
   ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
 
 /**
- * CommonJS `require`, and not a function of the file's own that shares the name
- * — otherwise a helper called `require` taking anything but a string literal
- * would fail the build over code that is perfectly fine.
+ * A `require` naming a module by a plain string.
+ *
+ * Narrower than `import()` on purpose, because the two differ in how certain
+ * they are. `import` is a keyword: wherever it appears a module is loaded, so a
+ * target the gate cannot read has to be refused out loud. `require` is an
+ * ordinary identifier that any file may bind to anything, so a call with a
+ * computed argument is as likely to be somebody's helper as a module load, and
+ * failing the build over it would refuse code that loads nothing. Such a call is
+ * passed over instead — safely, because this project emits ESM, where a real
+ * `require` is not defined and would break the spec on load rather than let it
+ * run green.
  */
-const isRequireCall = (node) =>
+const isLiteralRequireCall = (node) =>
   ts.isCallExpression(node) &&
   ts.isIdentifier(node.expression) &&
   node.expression.text === 'require' &&
-  !isLocallyDefined(node, 'require');
+  node.arguments[0] !== undefined &&
+  ts.isStringLiteralLike(node.arguments[0]);
 
 /**
  * Every module specifier a source loads at runtime, however it spells it.
@@ -137,7 +146,8 @@ export function importedModuleSpecifiers(source, fileName = 'module.ts') {
   const visit = (node) => {
     if (isRuntimeModuleDeclaration(node)) collect(node.moduleSpecifier);
     else if (ts.isImportEqualsDeclaration(node)) collect(externalModuleName(node));
-    else if (isDynamicImport(node) || isRequireCall(node)) collectLoadOrRefuse(node);
+    else if (isLiteralRequireCall(node)) collect(node.arguments[0]);
+    else if (isDynamicImport(node)) collectLoadOrRefuse(node);
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(tree, visit);
@@ -259,10 +269,13 @@ function calleeName(node) {
   if (!ts.isPropertyAccessExpression(callee)) return null;
   // `globalThis.it(...)` — the host contributes nothing; the name is the case.
   if (hostedOn(callee)) return callee.name.text;
+  // Past this point something is hung off the name, and only a modifier keeps
+  // it a case. `it.toString(...)` calls a method that happens to sit on `it`.
+  if (!CASE_MODIFIERS.has(callee.name.text)) return null;
   // `globalThis.it.only(...)` — one level deeper, same answer.
   if (hostedOn(callee.expression)) return callee.expression.name.text;
-  // `it.only(...)` and `helper.it(...)` both resolve to their leading name,
-  // which is what makes the first a case and the second correctly not one.
+  // `it.only(...)` resolves to its leading name; `helper.only(...)` resolves to
+  // `helper`, which is correctly not a case.
   if (ts.isIdentifier(callee.expression)) return callee.expression.text;
   return null;
 }
@@ -277,92 +290,31 @@ function isBareCallTo(node, name) {
   return ts.isIdentifier(node.expression) && node.expression.text === name;
 }
 
-/** Mocha's BDD case forms. `xit`/`xspecify` are skipped cases, still gated. */
+/**
+ * Mocha's BDD case forms. `xit`/`xspecify` are skipped cases, still gated.
+ *
+ * A name here is taken at face value, with no attempt to work out whether the
+ * file defined it for itself. That attempt was made and withdrawn. It read
+ * enclosing scopes to spot a module's own `const test = (name, run) => run()`
+ * and stop reporting it as a case — worth having, since that report is a
+ * failure over code that is fine. But its own mistakes ran the other way: every
+ * name it judged local wrongly took a REAL case out of the count while the run
+ * went on saying clean, and three review rounds each turned up another way for
+ * it to be wrong — a callback parameter destructured out of `globalThis`, an
+ * ambient `declare const`, an explicit `globalThis.it` standing beside a local
+ * one. Guarding against a loud failure by machinery that fails silently is a
+ * bad trade at any price, so the guard is gone and the loud failure is
+ * accepted: a file with its own `it` or `test` helper gets one reported case
+ * that is not one, which is visible, immediate, and fixed by renaming.
+ */
 const CASE_CALLEES = new Set(['it', 'test', 'specify', 'xit', 'xspecify']);
 
-/** Every name a binding introduces, reaching into destructuring patterns. */
-function addBoundNames(name, names) {
-  if (!name) return;
-  if (ts.isIdentifier(name)) {
-    names.add(name.text);
-    return;
-  }
-  if (!ts.isObjectBindingPattern(name) && !ts.isArrayBindingPattern(name)) return;
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) addBoundNames(element.name, names);
-  }
-}
-
 /**
- * `declare const it: ...` describes something that already exists; it does not
- * create it. Reading it as a local binding would hide every real case in a file
- * that types the runner's globals for itself.
+ * The properties that still name a case when hung off one: `it.only(...)` and
+ * `it.skip(...)` register cases; `it.toString(...)` merely borrows the name on
+ * its way past, exactly as a matcher chain does.
  */
-const isAmbient = (statement) =>
-  statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DeclareKeyword) === true;
-
-/** Bindings a scope introduces other than through its statement list. */
-function scopeBindings(scope) {
-  if (ts.isCatchClause(scope)) return scope.variableDeclaration ? [scope.variableDeclaration] : [];
-  if (ts.isForStatement(scope) || ts.isForOfStatement(scope) || ts.isForInStatement(scope)) {
-    const initializer = scope.initializer;
-    return initializer && ts.isVariableDeclarationList(initializer) ? [...initializer.declarations] : [];
-  }
-  return [];
-}
-
-/** The value names a scope introduces. Imports are excluded on purpose. */
-function valueNamesDeclaredIn(scope) {
-  const names = new Set();
-  for (const parameter of ts.isFunctionLike(scope) ? (scope.parameters ?? []) : []) {
-    addBoundNames(parameter.name, names);
-  }
-  for (const binding of scopeBindings(scope)) addBoundNames(binding.name, names);
-  for (const statement of scope.statements ?? []) {
-    if (isAmbient(statement)) continue;
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) addBoundNames(declaration.name, names);
-    } else if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-      addBoundNames(statement.name, names);
-    }
-  }
-  return names;
-}
-
-/**
- * Whether this file defines the name itself, so the call is its own function
- * rather than the runner's.
- *
- * A module of its own with `const test = (name, run) => run()` registers no case
- * and must not be reported as one. Imports are deliberately NOT treated as
- * shadowing: a spec that writes `import { it } from '@wdio/globals'` is naming
- * the very function mocha would have provided, and counting that as a local
- * binding would switch the gate off across the whole suite while it went on
- * reporting clean — the one outcome worth more than any case it could catch.
- */
-function isLocallyDefined(node, name) {
-  for (let scope = node.parent; scope !== undefined; scope = scope.parent) {
-    if (valueNamesDeclaredIn(scope).has(name)) return true;
-  }
-  return false;
-}
-
-/** Whether a call reaches its function through a global object rather than a bare name. */
-function isReachedThroughGlobal(call) {
-  const callee = call.expression;
-  if (!ts.isPropertyAccessExpression(callee)) return false;
-  return hostedOn(callee) || hostedOn(callee.expression);
-}
-
-/**
- * Whether the file's own binding is what this call reaches.
- *
- * Only a bare name can be taken over that way. `globalThis.it(...)` names the
- * property regardless of what the file calls its own variables, so a local `it`
- * beside it hides nothing — and reading it as a shadow would drop a real case.
- */
-const isShadowedLocally = (call, name) =>
-  !isReachedThroughGlobal(call) && isLocallyDefined(call, name);
+const CASE_MODIFIERS = new Set(['only', 'skip']);
 
 /**
  * Matcher naming, by convention: `toBe`, `toContain`, `toBeElementsArrayOfSize`.
@@ -453,7 +405,7 @@ export function findTestCases(source, fileName = 'spec.e2e.ts') {
   const cases = [];
   const visit = (node) => {
     const callee = ts.isCallExpression(node) ? (calleeName(node) ?? '') : '';
-    if (CASE_CALLEES.has(callee) && !isShadowedLocally(node, callee)) {
+    if (CASE_CALLEES.has(callee)) {
       cases.push({
         name: caseTitle(node),
         line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
