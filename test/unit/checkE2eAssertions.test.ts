@@ -255,9 +255,12 @@ describe('isScannedSpec', () => {
     expect(isScannedSpec('nested/_local-thing.e2e.ts')).toBe(true);
   });
 
-  it('skips non-spec files', () => {
-    expect(isScannedSpec('../unit/foo.test.ts')).toBe(false);
-    expect(isScannedSpec('../../src/main.ts')).toBe(false);
+  it('skips files that are not TypeScript modules', () => {
+    // Paths are relative to the scan root, which the walk never leaves — so the
+    // only question here is the extension.
+    expect(isScannedSpec('fixture.json')).toBe(false);
+    expect(isScannedSpec('notes.md')).toBe(false);
+    expect(isScannedSpec('vault/Task.md')).toBe(false);
   });
 
   it('normalises windows separators', () => {
@@ -324,5 +327,19 @@ describe('case forms and expect shapes', () => {
     );
 
     expect(assertionLessCases(source).map((c) => c.name)).toEqual(['a']);
+  });
+});
+
+describe('shared suites', () => {
+  it('scans a sibling module that is not itself a spec', () => {
+    // A spec can import a helper that registers cases; mocha runs them, so the
+    // gate must open the helper too rather than trusting the filename.
+    expect(isScannedSpec('shared-suite.ts')).toBe(true);
+    expect(isScannedSpec('helpers/journeys.ts')).toBe(true);
+  });
+
+  it('still ignores declaration files and non-TypeScript', () => {
+    expect(isScannedSpec('globals.d.ts')).toBe(false);
+    expect(isScannedSpec('fixture.json')).toBe(false);
   });
 });

@@ -57,6 +57,8 @@ interface EditorConflictState {
   conflictsByRow: Record<number, number>;
   /** The year the grid is rendering, read from it rather than from the clock. */
   year: number;
+  /** Total rendered day cells — zero means the grid is absent, not clean. */
+  yearCells: number;
   text: string;
   cls: string;
 }
@@ -112,6 +114,7 @@ async function readConflictState(): Promise<EditorConflictState | null> {
     const label = root.querySelector(".og-year-grid")?.getAttribute("aria-label") ?? "";
     return {
       yearConflicts: conflicted.length,
+      yearCells: root.querySelectorAll(".og-year-cell").length,
       conflictsByRow: byRow,
       year: Number(/(\d{4})/.exec(label)?.[1] ?? 0),
       text: banner?.textContent ?? "",
@@ -1368,6 +1371,7 @@ describe("Gantt (OG) calendar editor routing", () => {
         seen = await readConflictState();
         return (
           seen !== null &&
+          seen.year > 0 && // the grid actually rendered
           seen.yearConflicts === 0 && // the counted year has none
           seen.text.includes("conflict") && // but the banner still warns
           seen.cls.includes("og-cal-status-warn")
@@ -1379,7 +1383,12 @@ describe("Gantt (OG) calendar editor routing", () => {
       },
     );
 
+    // A grid that never rendered also reports zero conflicts, and the banner
+    // shows on every tab — so "clean" only means anything once the grid is
+    // known to be there.
     const state = seen as unknown as EditorConflictState;
+    expect(state.year).toBeGreaterThan(0);
+    expect(state.yearCells).toBeGreaterThan(300);
     expect(state.yearConflicts).toBe(0); // the counted year is clean
     expect(state.text).toContain("conflict"); // and the banner still warns
     expect(state.cls).toContain("og-cal-status-warn");

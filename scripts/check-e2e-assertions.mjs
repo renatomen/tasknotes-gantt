@@ -36,7 +36,11 @@ export const SPEC_ROOT = join('test', 'specs');
  */
 export function isScannedSpec(relativePath) {
   const normalized = relativePath.replaceAll('\\', '/');
-  if (!normalized.endsWith('.e2e.ts')) return false;
+  // Every TypeScript module under the root, not only `.e2e.ts`. A spec may share
+  // a suite by importing a sibling that registers cases of its own; mocha runs
+  // those, so a gate keyed on the spec filename would report clean over cases it
+  // never opened. A module with no cases simply contributes none.
+  if (!normalized.endsWith('.ts') || normalized.endsWith('.d.ts')) return false;
   return !normalized.split('/')[0]?.startsWith('_local-');
 }
 
