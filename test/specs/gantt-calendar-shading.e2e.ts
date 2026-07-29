@@ -67,6 +67,29 @@ async function cellBackground(dateClass: string): Promise<string | null> {
   }, dateClass);
 }
 
+/**
+ * Poll a body cell until it carries a real colour, and return that colour.
+ *
+ * Returning it is the point. Waiting proves only that the cell settled, so a
+ * case ending at the wait asserts nothing; and reading the value back out of the
+ * predicate's closure defeats the compiler's narrowing, which is what a pair of
+ * casts was previously papering over. Handing the settled value back leaves the
+ * caller something it can assert on directly.
+ */
+async function shadedBackground(dateClass: string): Promise<string> {
+  let settled = "";
+  await browser.waitUntil(
+    async () => {
+      const background = await cellBackground(dateClass);
+      if (background === null || TRANSPARENT.has(background)) return false;
+      settled = background;
+      return true;
+    },
+    { timeout: 30000, timeoutMsg: `${dateClass} never shaded` }
+  );
+  return settled;
+}
+
 /** The scale-header cell for a date — SVAR stamps identity classes there too. */
 async function headerCellBackground(dateClass: string): Promise<string | null> {
   return browser.execute((cls: string) => {
@@ -87,18 +110,10 @@ describe("Gantt (OG) calendar-aware shading", () => {
   });
 
   it("shades the associated calendar's holiday column", async () => {
-    let background: string | null = null;
-    await browser.waitUntil(
-      async () => {
-        background = await cellBackground("og-d-2026-04-10");
-        return background !== null && !TRANSPARENT.has(background);
-      },
-      { timeout: 30000, timeoutMsg: "holiday column never shaded" }
-    );
+    const shaded = await shadedBackground("og-d-2026-04-10");
 
-    const shaded = background as unknown as string | null;
-    expect(shaded).not.toBeNull();
-    expect(TRANSPARENT.has(shaded as string)).toBe(false);
+    expect(shaded).toMatch(/^rgba?\(/);
+    expect(TRANSPARENT.has(shaded)).toBe(false);
   });
 
   it("shades the holiday's scale-header cell to match the body column", async () => {
@@ -138,17 +153,9 @@ describe("Gantt (OG) calendar-aware shading", () => {
       );
     });
 
-    let background: string | null = null;
-    await browser.waitUntil(
-      async () => {
-        background = await cellBackground("og-d-2026-04-08");
-        return background !== null && !TRANSPARENT.has(background);
-      },
-      { timeout: 30000, timeoutMsg: "live calendar edit never re-shaded the chart" }
-    );
+    const shaded = await shadedBackground("og-d-2026-04-08");
 
-    const shaded = background as unknown as string | null;
-    expect(shaded).not.toBeNull();
-    expect(TRANSPARENT.has(shaded as string)).toBe(false);
+    expect(shaded).toMatch(/^rgba?\(/);
+    expect(TRANSPARENT.has(shaded)).toBe(false);
   });
 });
