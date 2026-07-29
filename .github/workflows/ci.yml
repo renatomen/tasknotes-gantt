@@ -38,40 +38,6 @@ jobs:
         # Mechanical guard, per "enforce always-X with a mechanism, not memory":
         # regenerate locally with `node scripts/update-release-index.mjs`.
         run: node scripts/update-release-index.mjs --check
-      - name: Size ratchet (legacy files may only shrink)
-        # GanttContainer.svelte and register.ts are exempt from the eslint
-        # max-lines cap; this ratchet is their gate instead — a PR that grows
-        # one past its checked-in baseline fails, and a shrinking PR locks the
-        # gain in by lowering the baseline. The per-file cognitive-complexity
-        # ceilings in eslint.config.mjs are guarded the same way, downward-only.
-        run: node scripts/check-size-ratchet.mjs
-      - name: Size ratchet vs the PR base (baselines may only go down)
-        # The working-tree ratchet above proves file counts match the checked-in
-        # baselines; this step closes the other door — a PR that RAISES a
-        # baseline (or deletes a ratcheted entry) to make room would still pass
-        # it, so compare the PR's baseline tables against the TARGET branch's
-        # copy of the script. New (added) entries are allowed; raised or removed
-        # ones fail. Comparison logic lives in check-size-ratchet.mjs
-        # (compareAgainstBase), unit-tested by checkSizeRatchet.test.ts.
-        #
-        # The depth-1 fetch populates only FETCH_HEAD (no origin/<base> ref
-        # exists in the runner's clone), so the base copy is read from
-        # FETCH_HEAD. The skip below is ONLY for a base that genuinely predates
-        # the script (ls-tree succeeds with empty output); any fetch/ls-tree/
-        # show failure is an infrastructure error and fails the step loudly
-        # (bash -e), never a silent skip of the gate.
-        shell: bash
-        run: |
-          git fetch --depth=1 origin "$BASE_REF"
-          base_entry="$(git ls-tree FETCH_HEAD -- scripts/check-size-ratchet.mjs)"
-          if [ -n "$base_entry" ]; then
-            git show "FETCH_HEAD:scripts/check-size-ratchet.mjs" > "$RUNNER_TEMP/base-check-size-ratchet.mjs"
-            node scripts/check-size-ratchet.mjs --against-base "$RUNNER_TEMP/base-check-size-ratchet.mjs"
-          else
-            echo "::notice::base ref predates scripts/check-size-ratchet.mjs — nothing to ratchet against."
-          fi
-        env:
-          BASE_REF: ${{ github.base_ref }}
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

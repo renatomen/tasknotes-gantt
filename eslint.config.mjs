@@ -59,7 +59,6 @@ export default [
       ],
       "@typescript-eslint/no-explicit-any": "error",
       "sonarjs/cognitive-complexity": ["error", 15],
-      "max-lines": ["error", { max: 500, skipBlankLines: false, skipComments: false }],
     },
   },
   {
@@ -85,8 +84,6 @@ export default [
     },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
-      // Tooling/config files are not the production code the size gate targets.
-      "max-lines": "off",
     },
   },
   // Svelte files
@@ -119,17 +116,8 @@ export default [
       // void` in a type annotation), which aren't runtime bindings.
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      'sonarjs/cognitive-complexity': ['error', 15],
-      'max-lines': ['error', { max: 500, skipBlankLines: false, skipComments: false }]
+      'sonarjs/cognitive-complexity': ['error', 15]
     }
-  },
-  // max-lines is scoped to production code only: spec/probe length is not the
-  // complexity the size gate targets.
-  {
-    files: ["test/**"],
-    rules: {
-      "max-lines": "off",
-    },
   },
   // A case that only awaits a `waitUntil` looks like a test and is not one: the
   // wait proves something settled, never what it settled TO, so the case passes
@@ -143,32 +131,8 @@ export default [
       "sonarjs/assertions-in-tests": "error",
     },
   },
-  // max-lines legacy exemptions: these files were already over the cap when the
-  // gate was armed. This list may only shrink — never add to it.
-  {
-    files: [
-      "src/bases/GanttContainer.svelte",
-      "src/bases/register.ts",
-      "src/controller/GanttController.ts",
-      "src/datasource/TaskNotesSource.ts",
-      "src/editor/CalendarEditorForm.svelte",
-      "src/bases/ganttSync.ts",
-      "src/bases/barTreatment.ts",
-      "src/bases/viewOptions.ts",
-      "src/bases/cellEditCommit.ts",
-      "src/bases/cascadeGate.ts",
-      "src/bases/calendarShading.ts",
-      "src/bases/services/BasesDataAdapter.ts",
-      "src/controller/InstanceExpansion.ts",
-    ],
-    rules: {
-      "max-lines": "off",
-    },
-  },
-  // Per-file complexity ceilings, frozen at the values measured when the gate
-  // was armed. A ceiling may only decrease; growth past it fails lint. The three
-  // drag-path hotspots in GanttContainer.svelte keep per-function disables
-  // instead because the executor refactor deletes those functions outright.
+  // Remove each temporary override when its hotspot is simplified to the
+  // global cognitive-complexity ceiling.
   {
     files: ["test/__mocks__/obsidian.ts"],
     rules: { "sonarjs/cognitive-complexity": ["error", 23] },

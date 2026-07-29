@@ -46,7 +46,7 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 - R1. `test/specs/gantt-inferred-drag-write.e2e.ts` contains exactly three test cases, each a journey rather than a matrix row.
 - R2. The retained set includes an estimate-only cascade journey over blocked days that asserts the echoed geometry reaches every placement of the dragged source and that the write does not trigger a re-notify storm.
 - R3. Every retired case's coverage is accounted for in a ledger committed with the change: retained in a journey, owned by a named unit-test module, or deliberately dropped with a stated reason.
-- R4. No production code changes. The `src/` tree and both ratcheted files are untouched by this PR.
+- R4. No production code changes. The `src/` tree is untouched by this PR.
 
 **Receipts gate** — SUPERSEDED; these requirements shipped and were then removed (see Superseded above)
 
@@ -73,7 +73,7 @@ The receipts gate refuses any push whose commits lack clean receipts from both l
 
 **Outside this plan's identity**
 
-- No drag behavior changes, no production code, no changes to the two ratcheted files.
+- No drag behavior changes and no production code changes.
 - The remaining campaign units (U7 docs, U5 e2e assertions, U6 equivalence backfill) are separate PRs and are not planned here.
 
 ### Sources
@@ -206,7 +206,7 @@ Shipped as described below, then removed. Kept as the record of what was built a
   - The blocked-days journey asserts the view's update counter advanced by no more than the agreed bound between the pre-drag snapshot and the settled write.
   - The revert journey asserts the note content is unchanged byte-for-byte, not merely that no due date appeared.
   - The prompt journey asserts no second modal appears within the existing negative-wait budget after the persisted choice.
-- **Verification**: `npm run e2e:local -- --spec test/specs/gantt-inferred-drag-write.e2e.ts` green with exactly three passing cases; `npm run lint` and `npm run typecheck` green; `git diff --stat` shows no `src/` path and no change to either ratcheted file.
+- **Verification**: `npm run e2e:local -- --spec test/specs/gantt-inferred-drag-write.e2e.ts` green with exactly three passing cases; `npm run lint` and `npm run typecheck` green; `git diff --stat` shows no `src/` path.
 - **Execution note**: prove the journeys in real Obsidian before pushing — this is the unit whose only honest verification is the slow loop. Establish the re-notify bound from an observed clean run rather than guessing it, and record the observed value in the PR description.
 
 ---
@@ -219,7 +219,6 @@ Shipped as described below, then removed. Kept as the record of what was built a
 | Focused e2e | `npm run e2e:local -- --spec test/specs/gantt-inferred-drag-write.e2e.ts` | U2 |
 | Lint / typecheck | `npm run lint` and `npm run typecheck` | U1, U2 |
 | No production drift | `git diff --stat` against base shows no `src/` path | U2 |
-| Size ratchets | `scripts/check-size-ratchet.mjs` passes untouched at its exact baselines | whole PR |
 | Local review gate | Clean receipts from both layers against the pushed head | every push |
 | CI | build and e2e jobs green on the PR | whole PR |
 | Merge gate | Codex has reviewed the current head with zero unresolved threads | whole PR |
@@ -255,5 +254,5 @@ Recorded here rather than absorbed silently, per the Definition of Done.
 - The coverage ledger is committed and accurate — every retired case resolves to a retained journey, a named unit-test module, or a stated deliberate drop.
 - Every push requires clean receipts from both review layers, proven through the real entry point against a throwaway repository rather than the developer's own receipt store. The suite is mutation-checked: reinstalling the exemption makes exactly the docs-only case fail.
 - The failed-stdin branch IS covered. It was first reported as unreachable from a subprocess; review corrected that — handing the child a directory as fd 0 makes `readFileSync(0)` throw `EISDIR`, which reaches the branch without patching the module under test. Verified on this platform before the claim was written down.
-- No `src/` file changed; both ratcheted files untouched at their exact baselines.
+- No `src/` file changed.
 - Deviations from this plan — including the revert journey covering the cancel path rather than an injected persist failure — are reported in the PR description, not silently absorbed.

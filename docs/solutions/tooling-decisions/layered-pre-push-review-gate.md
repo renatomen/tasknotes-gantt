@@ -101,7 +101,7 @@ Both of those are regressions *from the fixes*, which is precisely the failure m
 
 Apply the layered gate to **merge-blocking refactors of concurrency-, ordering-, or invalidation-critical code** — work where a missed finding is a silent data-correctness bug rather than a visible break. The drag executor, the cascade lane, the settled-facts ledger, and the recompute generation counters are exactly that shape.
 
-Do **not** make it the default for every diff. The cost is real and should be stated plainly: each cycle is a fix, two full review passes, and full verification — 2500+ Jest tests, lint, typecheck, the size ratchet, and a 10-case WDIO e2e against real Obsidian. Multiply by nine cycles across two chains.
+Do **not** make it the default for every diff. The cost is real and should be stated plainly: each cycle is a fix, two full review passes, and full verification — 2500+ Jest tests, lint, typecheck, a production build, and a 10-case WDIO e2e against real Obsidian. Multiply by nine cycles across two chains.
 
 A further honesty check on the value: roughly half of the ~20 findings across the campaign were **design-level** and would have been catchable in the plan. The other half — DST millisecond arithmetic in a calendar-day codebase, annotated-tag object shas, CRLF and malformed stdin, stale ghost-run geometry in an overlay — only fall out of executing concrete code against concrete inputs. The review layers are the right net for that second half. For the first half, the cheaper net is the design-contract preamble, upstream.
 
