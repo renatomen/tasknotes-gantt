@@ -44,29 +44,39 @@ export function isScannedSpec(relativePath) {
   return !normalized.split('/')[0]?.startsWith('_local-');
 }
 
-/** Whether every name a clause brings in is a type, so nothing of it survives. */
-function bindsOnlyTypes(namedBindings) {
-  if (!namedBindings || !ts.isNamedImports(namedBindings)) return false;
-  return namedBindings.elements.length > 0 && namedBindings.elements.every((el) => el.isTypeOnly);
+/** Raised when the scan meets a load it cannot follow, rather than passing over it. */
+export class UnreadableLoad extends Error {}
+
+/** Whether every name a clause carries is a type, so nothing of it survives. */
+function bindsOnlyTypes(clause) {
+  if (!clause || !(ts.isNamedImports(clause) || ts.isNamedExports(clause))) return false;
+  return clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly);
 }
 
 /**
  * A static import or re-export that still exists at runtime.
  *
- * The rule is simply "what TypeScript erases". `import type { X } from './y'`
- * is gone before anything executes, and so is `import { type X } from './y'`
- * once every name in it is a type — a module reached only that way never
- * registers a case, and following it could only fail an otherwise clean run.
- * A default or namespace binding alongside means the import still runs.
+ * The rule is simply "what TypeScript erases", and it is spelled four ways:
+ * `import type { X } from './y'`, `export type { X } from './y'`, and either of
+ * those with the `type` on each name instead of the clause. All are gone before
+ * anything executes, so a module reached only that way never registers a case
+ * and following it could only fail an otherwise clean run. A default or
+ * namespace binding alongside, or a bare `export * from`, means it still runs.
  */
 function isRuntimeModuleDeclaration(node) {
-  if (ts.isExportDeclaration(node)) return node.isTypeOnly !== true;
+  if (ts.isExportDeclaration(node)) {
+    return node.isTypeOnly !== true && !bindsOnlyTypes(node.exportClause);
+  }
   if (!ts.isImportDeclaration(node)) return false;
   const clause = node.importClause;
   if (clause === undefined) return true; // `import './y'` — loaded for effect
   if (clause.isTypeOnly) return false;
   return clause.name !== undefined || !bindsOnlyTypes(clause.namedBindings);
 }
+
+/** `import suite = require('./suite')` — a runtime load in CommonJS-flavoured TS. */
+const externalModuleName = (node) =>
+  ts.isExternalModuleReference(node.moduleReference) ? node.moduleReference.expression : undefined;
 
 const isDynamicImport = (node) =>
   ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
@@ -95,9 +105,26 @@ export function importedModuleSpecifiers(source, fileName = 'module.ts') {
   const collect = (node) => {
     if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
   };
+  const collectLoadOrRefuse = (call) => {
+    const target = call.arguments[0];
+    if (target && ts.isStringLiteralLike(target)) {
+      specifiers.push(target.text);
+      return;
+    }
+    // A computed specifier still loads a module, and no amount of reading the
+    // syntax says which. Guessing would mean reporting clean over whatever it
+    // names, so the scan says out loud that it cannot see rather than pretending
+    // there is nothing there.
+    const { line } = tree.getLineAndCharacterOfPosition(call.getStart(tree));
+    throw new UnreadableLoad(
+      `${fileName}:${line + 1} loads a module through an expression, so the gate cannot tell ` +
+        'which file it reaches. Name the module with a plain string literal.',
+    );
+  };
   const visit = (node) => {
     if (isRuntimeModuleDeclaration(node)) collect(node.moduleSpecifier);
-    else if (isDynamicImport(node) || isRequireCall(node)) collect(node.arguments[0]);
+    else if (ts.isImportEqualsDeclaration(node)) collect(externalModuleName(node));
+    else if (isDynamicImport(node) || isRequireCall(node)) collectLoadOrRefuse(node);
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(tree, visit);
@@ -128,10 +155,16 @@ function projectResolutionOptions() {
 
 const RESOLUTION_OPTIONS = projectResolutionOptions();
 
-/** A dependency's own test cases are not this suite's to gate. */
-const isThirdParty = (resolved) =>
-  resolved.isExternalLibraryImport === true ||
-  resolved.resolvedFileName.split('/').includes('node_modules');
+/**
+ * A dependency's own test cases are not this suite's to gate.
+ *
+ * The compiler's flag alone, with no path inspection beside it. A second check
+ * for a `node_modules` path segment sat here and could not be made to fail: the
+ * flag is set for a bare package name, for a relative path walked into
+ * `node_modules` by hand, and for a path alias aimed inside it. Untestable
+ * because unreachable — and one more stand-in for a mechanism already present.
+ */
+const isThirdParty = (resolved) => resolved.isExternalLibraryImport === true;
 
 /**
  * Resolve a specifier to the local file it names, or null if it names none —
@@ -234,6 +267,41 @@ function isBareCallTo(node, name) {
 /** Mocha's BDD case forms. `xit`/`xspecify` are skipped cases, still gated. */
 const CASE_CALLEES = new Set(['it', 'test', 'specify', 'xit', 'xspecify']);
 
+/** The value names a scope introduces. Imports are excluded on purpose. */
+function valueNamesDeclaredIn(scope) {
+  const names = new Set();
+  const add = (name) => {
+    if (name && ts.isIdentifier(name)) names.add(name.text);
+  };
+  for (const parameter of ts.isFunctionLike(scope) ? (scope.parameters ?? []) : []) add(parameter.name);
+  for (const statement of scope.statements ?? []) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) add(declaration.name);
+    } else if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      add(statement.name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Whether this file defines the name itself, so the call is its own function
+ * rather than the runner's.
+ *
+ * A module of its own with `const test = (name, run) => run()` registers no case
+ * and must not be reported as one. Imports are deliberately NOT treated as
+ * shadowing: a spec that writes `import { it } from '@wdio/globals'` is naming
+ * the very function mocha would have provided, and counting that as a local
+ * binding would switch the gate off across the whole suite while it went on
+ * reporting clean — the one outcome worth more than any case it could catch.
+ */
+function isLocallyDefined(node, name) {
+  for (let scope = node.parent; scope !== undefined; scope = scope.parent) {
+    if (valueNamesDeclaredIn(scope).has(name)) return true;
+  }
+  return false;
+}
+
 /**
  * Matcher naming, by convention: `toBe`, `toContain`, `toBeElementsArrayOfSize`.
  * Modifiers like `not` and `resolves` are not listed because they are never the
@@ -322,7 +390,8 @@ export function findTestCases(source, fileName = 'spec.e2e.ts') {
   const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const cases = [];
   const visit = (node) => {
-    if (ts.isCallExpression(node) && CASE_CALLEES.has(calleeName(node) ?? '')) {
+    const callee = ts.isCallExpression(node) ? (calleeName(node) ?? '') : '';
+    if (CASE_CALLEES.has(callee) && !isLocallyDefined(node, callee)) {
       cases.push({
         name: caseTitle(node),
         line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
@@ -364,7 +433,16 @@ function main() {
     .filter((relativePath) => relativePath.endsWith('.e2e.ts'))
     .map((relativePath) => resolve(SPEC_ROOT, relativePath));
   const offenders = [];
-  for (const file of loadedModules(entrypoints).sort()) {
+  let modules;
+  try {
+    modules = loadedModules(entrypoints).sort();
+  } catch (failure) {
+    if (!(failure instanceof UnreadableLoad)) throw failure;
+    console.error('the e2e assertion gate cannot see the whole suite:');
+    console.error(`  ${failure.message}`);
+    process.exit(1);
+  }
+  for (const file of modules) {
     const shown = relative(process.cwd(), file).replaceAll('\\', '/');
     for (const { name, line } of assertionLessCases(readFileSync(file, 'utf8'), file)) {
       offenders.push(`${shown}:${line}  ${name}`);

@@ -7,6 +7,7 @@ import {
   importedModuleSpecifiers,
   isScannedSpec,
   loadedModules,
+  UnreadableLoad,
 } from '../../scripts/check-e2e-assertions.mjs';
 
 const wrap = (body: string): string => `describe("s", () => {\n${body}\n});\n`;
@@ -280,6 +281,43 @@ describe('isScannedSpec', () => {
   });
 });
 
+describe('cases the file defines for itself', () => {
+  it('ignores a call to a locally declared function that shares mocha name', () => {
+    const source = [
+      'const it = (name: string, run: () => void) => run();',
+      'it("ordinary code, not a case", () => {});',
+    ].join('\n');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
+  it('ignores a shadowing declaration in an enclosing scope', () => {
+    const source = [
+      'function helper() {',
+      '  const test = (name: string, run: () => void) => run();',
+      '  test("still not a case", () => {});',
+      '}',
+    ].join('\n');
+
+    expect(findTestCases(source)).toEqual([]);
+  });
+
+  it('still counts a case when the name is imported, which is mocha own', () => {
+    // A spec naming the runner's function explicitly is using that very
+    // function. Reading the import as a local binding would switch the gate off
+    // across the suite while it went on reporting clean.
+    const source = ['import { it } from "@wdio/globals";', 'it("a real case", () => {});'].join('\n');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
+  });
+
+  it('still counts a case that sits beside an unrelated local name', () => {
+    const source = ['const helper = () => {};', 'it("a real case", () => {});'].join('\n');
+
+    expect(findTestCases(source).map((c) => c.name)).toEqual(['a real case']);
+  });
+});
+
 describe('assertion shape', () => {
   const wrapCase = (body: string): string =>
     `describe("s", () => {\n  it("c", async () => {\n${body}\n  });\n});\n`;
@@ -407,6 +445,36 @@ describe('importedModuleSpecifiers', () => {
     expect(importedModuleSpecifiers('import "./suite";')).toEqual(['./suite']);
   });
 
+  it('skips a re-export whose every named binding is inline-type', () => {
+    const source = ['export { type A } from "./types";', 'export * from "./suite";'].join('\n');
+
+    expect(importedModuleSpecifiers(source)).toEqual(['./suite']);
+  });
+
+  it('keeps a re-export that carries a value alongside an inline type', () => {
+    expect(importedModuleSpecifiers('export { go, type A } from "./suite";')).toEqual(['./suite']);
+  });
+
+  it('collects an import-equals require, which loads at runtime', () => {
+    expect(importedModuleSpecifiers('import suite = require("./suite");')).toEqual(['./suite']);
+  });
+
+  it('refuses a dynamic import it cannot read rather than passing over it', () => {
+    // Guessing which file a computed specifier names would mean reporting clean
+    // over whatever it is, so the scan says out loud that it cannot see.
+    expect(() => importedModuleSpecifiers('await import("./" + name);', 'entry.e2e.ts')).toThrow(
+      /entry\.e2e\.ts:1 loads a module through an expression/,
+    );
+  });
+
+  it('refuses a computed require for the same reason', () => {
+    expect(() => importedModuleSpecifiers('require(base + "/suite");')).toThrow(UnreadableLoad);
+  });
+
+  it('reads a template literal that has no substitution, which names one file', () => {
+    expect(importedModuleSpecifiers('await import(`./suite`);')).toEqual(['./suite']);
+  });
+
   it('ignores a type-position import, which loads nothing', () => {
     const source = 'let x: import("./types").Fixture;';
 
@@ -504,8 +572,21 @@ describe('loadedModules', () => {
     expect(reachedFrom(entry)).toEqual(['entry.e2e.ts', 'suite.ts']);
   });
 
-  it('does not descend into a dependency, whose cases are not ours to gate', () => {
-    const entry = write('entry.e2e.ts', 'import { browser } from "@wdio/globals";\nbrowser;\n');
+  it('does not descend into a dependency named as a package', () => {
+    // The package is written into the fixture so the specifier genuinely
+    // RESOLVES. Naming a package absent from the fixture would pass just as
+    // well by resolving to nothing, proving the guard nothing at all.
+    write('node_modules/vendor/suite.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import "vendor/suite";\n');
+
+    expect(reachedFrom(entry)).toEqual(['entry.e2e.ts']);
+  });
+
+  it('does not descend into node_modules reached by a relative path', () => {
+    // Walked into by hand rather than named as a package, and still recognised
+    // as a dependency — the compiler's flag does not go by the spelling either.
+    write('node_modules/vendor/suite.ts', 'export const go = () => {};\n');
+    const entry = write('entry.e2e.ts', 'import "./node_modules/vendor/suite";\n');
 
     expect(reachedFrom(entry)).toEqual(['entry.e2e.ts']);
   });
