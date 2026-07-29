@@ -49,17 +49,37 @@ const GLOBAL_HOSTS = new Set(['globalThis', 'global', 'window']);
  * a case function is deliberate, not accidental, so the gate targets ordinary
  * code and does not claim to stop someone determined to evade it.
  */
+const hostedOn = (node) =>
+  ts.isPropertyAccessExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  GLOBAL_HOSTS.has(node.expression.text);
+
 function calleeName(node) {
   const callee = node.expression;
   if (ts.isIdentifier(callee)) return callee.text;
   if (!ts.isPropertyAccessExpression(callee)) return null;
-  if (ts.isIdentifier(callee.expression)) {
-    return GLOBAL_HOSTS.has(callee.expression.text) ? callee.name.text : callee.expression.text;
-  }
+  // `globalThis.it(...)` — the host contributes nothing; the name is the case.
+  if (hostedOn(callee)) return callee.name.text;
+  // `globalThis.it.only(...)` — one level deeper, same answer.
+  if (hostedOn(callee.expression)) return callee.expression.name.text;
+  // `it.only(...)` and `helper.it(...)` both resolve to their leading name,
+  // which is what makes the first a case and the second correctly not one.
+  if (ts.isIdentifier(callee.expression)) return callee.expression.text;
   return null;
 }
 
-const CASE_CALLEES = new Set(['it', 'test']);
+/**
+ * A call made under a BARE identifier, ignoring any property access. `expect(v)`
+ * is an expectation; `expect.any(Number)` is a value constructor that happens to
+ * share the leading name, and treating the two alike would let
+ * `expect.any(Number).toAsymmetricMatcher()` read as an assertion.
+ */
+function isBareCallTo(node, name) {
+  return ts.isIdentifier(node.expression) && node.expression.text === name;
+}
+
+/** Mocha's BDD case forms. `xit`/`xspecify` are skipped cases, still gated. */
+const CASE_CALLEES = new Set(['it', 'test', 'specify', 'xit', 'xspecify']);
 
 /**
  * Matcher naming, by convention: `toBe`, `toContain`, `toBeElementsArrayOfSize`.
@@ -121,7 +141,7 @@ function containsAssertion(node) {
   let found = false;
   const visit = (child) => {
     if (found) return;
-    if (ts.isCallExpression(child) && calleeName(child) === 'expect' && invokesMatcher(child)) {
+    if (ts.isCallExpression(child) && isBareCallTo(child, 'expect') && invokesMatcher(child)) {
       found = true;
       return;
     }
@@ -169,14 +189,22 @@ export function assertionLessCases(source, fileName) {
     .map(({ name, line }) => ({ name, line }));
 }
 
+/**
+ * Whether a directory is one the ignore pattern covers, contents and all. Scoped
+ * to a DIRECT child of the spec directory, exactly as the pattern is: skipping
+ * the name at any depth would stop scanning `test/specs/nested/_local-x/`, which
+ * git tracks perfectly happily.
+ */
+function isIgnoredProbeDir(path) {
+  return /(^|\/)test\/specs\/_local-[^/]*$/.test(path.replaceAll('\\', '/'));
+}
+
 function specFiles(dir) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    // The ignore pattern covers directories too, along with everything under
-    // them — descending into one would scan probes git never tracked.
     if (entry.isDirectory()) {
-      if (!entry.name.startsWith('_local-')) found.push(...specFiles(path));
+      if (!isIgnoredProbeDir(path)) found.push(...specFiles(path));
     } else if (isScannedSpec(path)) {
       found.push(path);
     }

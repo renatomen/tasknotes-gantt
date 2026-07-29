@@ -298,3 +298,25 @@ describe('assertion shape', () => {
     expect(findTestCases(source)).toEqual([]);
   });
 });
+
+describe('case forms and expect shapes', () => {
+  const wrapCase = (call: string): string => `describe("s", () => {\n  ${call}\n});\n`;
+
+  it.each(['specify', 'xit', 'xspecify'])('finds a %s case', (form) => {
+    expect(findTestCases(wrapCase(`${form}("f", () => {});`)).map((c) => c.name)).toEqual(['f']);
+  });
+
+  it('finds a case under a qualified global host modifier', () => {
+    expect(findTestCases(wrapCase('globalThis.it.only("q", () => {});')).map((c) => c.name)).toEqual(
+      ['q'],
+    );
+  });
+
+  it('does not treat expect.any as an expectation', () => {
+    const source = wrapCase(
+      'it("a", () => { const m = expect.any(Number).toAsymmetricMatcher(); void m; });',
+    );
+
+    expect(assertionLessCases(source).map((c) => c.name)).toEqual(['a']);
+  });
+});
