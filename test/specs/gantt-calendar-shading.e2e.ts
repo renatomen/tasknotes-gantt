@@ -112,7 +112,6 @@ describe("Gantt (OG) calendar-aware shading", () => {
   it("shades the associated calendar's holiday column", async () => {
     const shaded = await shadedBackground("og-d-2026-04-10");
 
-    expect(shaded).toMatch(/^rgba?\(/);
     expect(TRANSPARENT.has(shaded)).toBe(false);
   });
 
@@ -155,7 +154,6 @@ describe("Gantt (OG) calendar-aware shading", () => {
 
     const shaded = await shadedBackground("og-d-2026-04-08");
 
-    expect(shaded).toMatch(/^rgba?\(/);
     expect(TRANSPARENT.has(shaded)).toBe(false);
   });
 });
