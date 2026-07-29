@@ -359,6 +359,16 @@ interface SearchResultLike {
   matches: SearchMatchPart[];
 }
 
+function appendFrontmatterTags(tags: string[], rawTags: unknown): void {
+  if (Array.isArray(rawTags)) {
+    for (const tag of rawTags) {
+      if (typeof tag === 'string' && tag !== '') tags.push(tag.startsWith('#') ? tag : `#${tag}`);
+    }
+  } else if (typeof rawTags === 'string' && rawTags !== '') {
+    tags.push(rawTags.startsWith('#') ? rawTags : `#${rawTags}`);
+  }
+}
+
 /**
  * Flatten a note's `#`-prefixed tags the way the real `getAllTags` does — from
  * frontmatter `tags` (string or array) plus inline `tags` entries — so the vault
@@ -367,14 +377,7 @@ interface SearchResultLike {
 export function getAllTags(cache: CachedMetadataLike | null | undefined): string[] | null {
   if (!cache) return null;
   const tags: string[] = [];
-  const fmTags = cache.frontmatter?.tags;
-  if (Array.isArray(fmTags)) {
-    for (const tag of fmTags) {
-      if (typeof tag === 'string' && tag !== '') tags.push(tag.startsWith('#') ? tag : `#${tag}`);
-    }
-  } else if (typeof fmTags === 'string' && fmTags !== '') {
-    tags.push(fmTags.startsWith('#') ? fmTags : `#${fmTags}`);
-  }
+  appendFrontmatterTags(tags, cache.frontmatter?.tags);
   if (Array.isArray(cache.tags)) {
     for (const entry of cache.tags) {
       if (entry && typeof entry.tag === 'string') tags.push(entry.tag);

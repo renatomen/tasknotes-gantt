@@ -348,6 +348,11 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   `docs/plans/2026-06-18-001-feat-gantt-grid-bases-columns-plan.md`.
 
 ### P8 — e2e / CI infra
+- The scheduled #161 storm perf case "Show-undated tasks off still bounds evaluation under a noisy
+  Base" fails unchanged before and after the maintainability refactor: `fireToggle` reports the
+  setting and config changed, but the generated vault then has zero visible bars while the test
+  expects at least one. Reproduced against unchanged `main` behavior on 2026-07-30; do not diagnose
+  or fix until the complexity campaign is complete unless it is reclassified as urgent.
 - Commit the `vault-as-code` fixture (real frontmatter, secrets redacted) for CI, then wire the #161
   repro in as a gated job. Privacy decision the maintainer flagged as separate. Source:
   `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.

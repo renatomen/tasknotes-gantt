@@ -122,9 +122,14 @@ async function fireConfigToggle(
       const seen = new Set<unknown>();
       let set = false;
       let configChanged = false;
+      const shouldSkipTraversal = (obj: unknown, depth: number): boolean =>
+        !obj
+        || typeof obj !== "object"
+        || seen.has(obj)
+        || depth > 6
+        || (obj as { nodeType?: number }).nodeType !== undefined;
       const visit = (obj: unknown, depth: number): void => {
-        if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 6) return;
-        if ((obj as { nodeType?: number }).nodeType !== undefined) return;
+        if (shouldSkipTraversal(obj, depth)) return;
         seen.add(obj);
         const rec = obj as Record<string, unknown>;
         const cfg = rec.config as { set?: (kk: string, vv: unknown) => void } | undefined;

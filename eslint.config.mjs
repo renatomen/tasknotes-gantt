@@ -131,24 +131,6 @@ export default [
       "sonarjs/assertions-in-tests": "error",
     },
   },
-  // Remove each temporary override when its hotspot is simplified to the
-  // global cognitive-complexity ceiling.
-  {
-    files: ["test/__mocks__/obsidian.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 23] },
-  },
-  {
-    files: ["test/probe/_diag.probe.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 21] },
-  },
-  {
-    files: ["test/specs/gantt-resultset-loop.e2e.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 17] },
-  },
-  {
-    files: ["test/specs/gantt-perf-fullstack.perf.e2e.ts", "test/specs/gantt-resultset-storm.perf.e2e.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 16] },
-  },
   {
     files: ["test/**/*.{ts,mts}"],
     languageOptions: {
