@@ -37,7 +37,12 @@ landings.
   write — the same overtake hazard the drag path fixed with report-and-hold. Do not change
   this behavior during decomposition; address it only after the maintainability work, unless
   it is reclassified as urgent and the maintainer approves stopping the project to fix it.
-- Source: PR #349 review record; plan `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`.
+- Real-SVAR characterization also confirmed that a mixed incremental refresh clears the current
+  grid selection, while identical and width-only refreshes preserve it. Keep that behavior stable
+  during decomposition; decide and test the desired product behavior after maintainability work.
+- Sources: PR #349 review record; plan
+  `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
+  characterization during #354.
 
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
