@@ -86,6 +86,15 @@ export default [
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
     },
   },
+  {
+    files: ["scripts/check-review-receipts.mjs"],
+    plugins: {
+      sonarjs,
+    },
+    rules: {
+      "sonarjs/cognitive-complexity": ["error", 15],
+    },
+  },
   // Svelte files
   {
     files: ['**/*.svelte'],
