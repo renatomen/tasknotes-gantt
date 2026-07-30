@@ -37,7 +37,7 @@ Route every list-shaped field to a dedicated editor that never rides the bridge,
 
 1. **Route to the bypass editor.** `svarEditorConfigFor` maps `kind === 'list'` (`src/bases/cellEditCommit.ts:246`) and list-shaped `suggest` (`:231`) to `OG_CHIPS_EDITOR_TYPE` (`:74`) instead of the stock text input.
 2. **Seed from RAW frontmatter, not the TypedValue.** At editor-open, `wireSvarCellEditorForOpen` invokes the row-bound `readRawSeed` callback supplied by `GanttContainer.svelte`, then normalizes that verbatim stored list in `src/bases/svarCellEditorWiring.ts` — the grid's TypedValues carry only display forms, so seeding from them would bake in the bracket-stripping. Untouched entries then round-trip byte-identically.
-3. **Commit the whole value once through the direct path, and own Tab.** An outside click or Tab composes the final raw `string[]` and calls `applyAndPersistCellEdit(...)` once (`handleChipsCommit` → `applyAndPersistCellEdit` in `src/bases/GanttContainer.svelte`), never the bridge. The Tab handler commits directly and consumes the key so the grid hotkey's bridge close-commit never fires (`ChipsListEditor.svelte`):
+3. **Commit the whole value once through the direct path, and own Tab.** An outside click or Tab composes the final raw `string[]` and calls `cellEditCoordinator.commitChips(...)` (`src/bases/cellEditCoordinator.ts`) once through the row-bound `commitRawList` callback; the coordinator owns optimistic apply, persistence, and rollback, never the bridge. The Tab handler commits directly and consumes the key so the grid hotkey's bridge close-commit never fires (`ChipsListEditor.svelte`):
 
    ```svelte
    if (ev.key === 'Tab') {

@@ -66,7 +66,7 @@
   } from './cascadeGate';
   import { type InferredDragAction } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
-  import { commitBridgeCellEdit } from './cellEditCoordinator';
+  import { createCellEditCoordinator } from './cellEditCoordinator';
   import {
     choiceEditorOptions,
     dateRoleColumns,
@@ -79,15 +79,10 @@
     type SvarEditorConfig,
     type SvarRowLike,
   } from './cellEditCommit';
-  import { normalizeStoredList } from './taskNotesSuggest';
   import { wireSvarCellEditorForOpen } from './svarCellEditorWiring';
   import { bareProperty } from '../datasource/dateFieldMapping';
   import { ensureInlineEditorsRegistered } from './inlineEditors';
-  import {
-    classifyTypedValue,
-    EMPTY_TYPED_VALUE,
-    type TypedValue,
-  } from './propertyValues';
+  import type { TypedValue } from './propertyValues';
   import { formatPropertyValue } from './propertyFormat';
   import type { CellRender } from './cellRender';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
@@ -1409,9 +1404,27 @@
   // same resolved descriptors as the editor kinds.
   const suggestChannelByColumn = $derived(suggestColumns($data.cellEditors));
 
-  // Rows with an in-flight cell-edit write: the editor gate returns null for
-  // them, so a second edit can't race the pending persistence/revert.
-  const pendingCellEdits = new Set<string>();
+  const cellEditCoordinator = createCellEditCoordinator({
+    getPersistence: () => onMutateProperty,
+    storedPropertiesOf,
+    cellRendersOf,
+    rawStoredValueOf,
+    renderText: (value) => formatPropertyValue(value, initialData.dateLocale),
+    refreshFlatCell(instanceId, columnId, value) {
+      api?.exec('update-task', {
+        id: instanceId,
+        task: { [columnId]: value },
+        eventSource: OG_ECHO_SOURCE,
+      });
+    },
+    notify(message) {
+      new Notice(message);
+    },
+    reportPersistenceFailure(error) {
+      console.error('[GanttContainer] cell-edit persist failed:', error);
+    },
+    persistenceTimeoutMs: MUTATION_TIMEOUT_MS,
+  });
 
   // Editable-cell cue (discoverability): PropertyCell combines this live column
   // set with its row's `custom.editable` to add `og-cell-editable`. A getter so
@@ -1425,7 +1438,7 @@
    */
   function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
     if (readOnly || !onMutateProperty) return null;
-    if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
+    if (row?.id != null && cellEditCoordinator.isPending(String(row.id))) return null;
     const kind = editorKindByColumn.get(columnId);
     const suggestChannel = suggestChannelByColumn.get(columnId);
     const config = rowEditorConfig(row, kind, {
@@ -1456,7 +1469,12 @@
       chips: rowId
         ? {
             readRawSeed: () => rawStoredValueOf(rowId, columnId),
-            commitRawList: (raw) => handleChipsCommit(rowId, columnId, raw),
+            commitRawList: (raw) =>
+              cellEditCoordinator.commitChips({
+                instanceId: rowId,
+                columnId,
+                raw,
+              }),
           }
         : undefined,
     });
@@ -2106,11 +2124,8 @@
   }
 
   function handleCellEditCommit(instanceId: string, columnId: string, rawValue: unknown): boolean {
-    const persist = onMutateProperty;
     const kind = editorKindByColumn.get(columnId);
-    if (!persist || !kind) return false;
-    const properties = storedPropertiesOf(instanceId);
-    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
+    if (!kind) return false;
     // Choice commits carry the configured value strings so a bridge-coerced
     // numeric-looking pick ("01" arriving as 1) recovers the exact catalog value.
     const choiceValues =
@@ -2120,78 +2135,15 @@
           ? ($data.choiceOptions?.priority ?? []).map((o) => o.value)
           : undefined;
     const dateRole = dateRoleByColumn.get(columnId);
-    return commitBridgeCellEdit(
-      {
-        instanceId,
-        columnId,
-        kind,
-        rawValue,
-        storedValue: stored,
-        choiceValues,
-        dateRole,
-        datedRow: dateRole ? instances.find((instance) => instance.id === instanceId) : undefined,
-      },
-      {
-        applyAndPersist: applyAndPersistCellEdit,
-        notify(message) {
-          new Notice(message);
-        },
-      },
-    );
-  }
-
-  /**
-   * The shared optimistic-apply + persist tail of a cell edit — used by both
-   * the bridge-classified commits above and the suggest editor's direct list
-   * commits. Advances the stored baseline and the rendered cell text
-   * synchronously (rolled back with a failed write), marks the row pending,
-   * and persists through the controller. `refreshRow` additionally re-execs
-   * the row's flat key (echo-tagged) so SVAR re-renders when no store apply
-   * preceded the call — the direct path, which returns `false` to the bridge.
-   */
-  function applyAndPersistCellEdit(
-    instanceId: string,
-    columnId: string,
-    value: unknown,
-    opts: { refreshRow?: boolean } = {},
-  ): void {
-    const persist = onMutateProperty;
-    if (!persist) return;
-    const properties = storedPropertiesOf(instanceId);
-    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
-    const typed = classifyTypedValue(value);
-    if (properties) properties[columnId] = typed;
-    // Optimistic display: the cell renders custom.cellRenders[columnId].text,
-    // not the flat key SVAR just applied — advance it (text mode; a markdown
-    // descriptor is refreshed by the confirming data pass) so the committed
-    // value shows immediately. Rolled back with the baseline on failure.
-    const renders = cellRendersOf(instanceId);
-    const previousRender = renders?.[columnId];
-    if (renders) {
-      renders[columnId] = { mode: 'text', text: formatPropertyValue(typed, initialData.dateLocale) };
-    }
-    pendingCellEdits.add(instanceId);
-    if (opts.refreshRow) {
-      api?.exec('update-task', {
-        id: instanceId,
-        task: { [columnId]: storedFlatValue(typed) },
-        eventSource: OG_ECHO_SOURCE,
-      });
-    }
-    void persistCellEdit(persist, { instanceId, columnId, value, previous: stored, previousRender });
-  }
-
-  /**
-   * Direct commit for a chips list column: persist the whole edited RAW list once
-   * (compared against the current raw frontmatter so an unchanged session writes
-   * nothing). Reads the raw value at commit time because the grid's TypedValues
-   * carry only display forms — rebuilding from them would strip wikilink brackets.
-   */
-  function handleChipsCommit(instanceId: string, columnId: string, raw: string[]): void {
-    if (pendingCellEdits.has(instanceId)) return;
-    const current = normalizeStoredList(rawStoredValueOf(instanceId, columnId));
-    if (current.length === raw.length && current.every((v, i) => v === raw[i])) return;
-    applyAndPersistCellEdit(instanceId, columnId, raw, { refreshRow: true });
+    return cellEditCoordinator.commitBridge({
+      instanceId,
+      columnId,
+      kind,
+      rawValue,
+      choiceValues,
+      dateRole,
+      datedRow: dateRole ? instances.find((instance) => instance.id === instanceId) : undefined,
+    });
   }
 
   /** The RAW frontmatter value behind a row's note property (entries verbatim). */
@@ -2202,41 +2154,6 @@
     const file = app.vault.getAbstractFileByPath(sourcePath);
     if (!(file instanceof TFile)) return undefined;
     return app.metadataCache.getFileCache(file)?.frontmatter?.[key];
-  }
-
-  async function persistCellEdit(
-    persist: (instanceId: string, propertyId: string, value: unknown) => Promise<void>,
-    edit: {
-      instanceId: string;
-      columnId: string;
-      value: unknown;
-      previous: TypedValue;
-      previousRender: CellRender | undefined;
-    },
-  ): Promise<void> {
-    try {
-      await withTimeout(persist(edit.instanceId, edit.columnId, edit.value), MUTATION_TIMEOUT_MS);
-    } catch (err) {
-      console.error('[GanttContainer] cell-edit persist failed:', err);
-      const properties = storedPropertiesOf(edit.instanceId);
-      if (properties) properties[edit.columnId] = edit.previous;
-      const renders = cellRendersOf(edit.instanceId);
-      if (renders) {
-        if (edit.previousRender) {
-          renders[edit.columnId] = edit.previousRender;
-        } else {
-          delete renders[edit.columnId];
-        }
-      }
-      api?.exec('update-task', {
-        id: edit.instanceId,
-        task: { [edit.columnId]: storedFlatValue(edit.previous) },
-        eventSource: OG_ECHO_SOURCE,
-      });
-      new Notice("Couldn't save the change — check TaskNotes is running.");
-    } finally {
-      pendingCellEdits.delete(edit.instanceId);
-    }
   }
 
   /**
@@ -2253,23 +2170,6 @@
     if (Object.keys(patch).length > 0) {
       api?.exec('update-task', { id: instanceId, task: patch, eventSource: OG_ECHO_SOURCE });
     }
-  }
-
-  /** Reject after `ms` if `p` has not settled (so a hung write still reverts). */
-  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('write timed out')), ms);
-      p.then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
   }
 
   // Seed the view option once. Changing the `zoom` prop reference re-inits

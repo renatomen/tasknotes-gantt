@@ -37,6 +37,11 @@ landings.
   write — the same overtake hazard the drag path fixed with report-and-hold. Do not change
   this behavior during decomposition; address it only after the maintainability work, unless
   it is reclassified as urgent and the maintainer approves stopping the project to fix it.
+- Two render instances of one source have separate cell-edit gates but share property and
+  render records. Their writes can overlap; if a later write succeeds before an earlier one
+  rejects, the earlier rollback restores its original baseline and temporarily clobbers the
+  later value in the grid. Preserve this behavior during decomposition; correct it only after
+  the maintainability work, unless it is reclassified as urgent and the maintainer approves.
 - Real-SVAR characterization also confirmed that a mixed incremental refresh clears the current
   grid selection, while identical and width-only refreshes preserve it. Keep that behavior stable
   during decomposition; decide and test the desired product behavior after maintainability work.
