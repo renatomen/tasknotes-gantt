@@ -353,6 +353,12 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   setting and config changed, but the generated vault then has zero visible bars while the test
   expects at least one. Reproduced against unchanged `main` behavior on 2026-07-30; do not diagnose
   or fix until the complexity campaign is complete unless it is reclassified as urgent.
+- `vault-as-code verify` does not inspect secret values when a captured TaskNotes `data.json` is
+  malformed: extraction retains the raw bytes, generation writes the same bytes, and verification
+  swallows the JSON parse failure after the round trip matches. This is nonurgent because the tool
+  is manual/local, its private fixture is gitignored, and it is not shipped or CI-invoked. After
+  the complexity campaign, make extraction and verification fail closed before any fixture can be
+  treated as redacted. Source: #354 verifier characterization, 2026-07-30.
 - Commit the `vault-as-code` fixture (real frontmatter, secrets redacted) for CI, then wire the #161
   repro in as a gated job. Privacy decision the maintainer flagged as separate. Source:
   `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.

@@ -212,71 +212,177 @@ function cmdGenerate(fixturePath, outVault) {
   console.log(`[generate] ${fixturePath} → ${outVault}: ${fixture.notes.length} notes, ${fixture.folders.length} folders, ${fixture.bases.length} bases (bodies empty)`);
 }
 
+function toValueSet(items, key) {
+  return new Set(items.map((item) => (typeof item === "string" ? item : item[key])));
+}
+
+function diffSets(original, generated) {
+  const miss = [...original].filter((value) => !generated.has(value));
+  const extra = [...generated].filter((value) => !original.has(value));
+  return { miss, extra };
+}
+
+function compareVaultPaths(original, generated) {
+  return {
+    folders: {
+      originalCount: original.folders.length,
+      generatedCount: generated.folders.length,
+      ...diffSets(toValueSet(original.folders), toValueSet(generated.folders)),
+    },
+    notes: {
+      originalCount: original.notes.length,
+      generatedCount: generated.notes.length,
+      ...diffSets(toValueSet(original.notes, "p"), toValueSet(generated.notes, "p")),
+    },
+    bases: {
+      originalCount: original.bases.length,
+      generatedCount: generated.bases.length,
+      ...diffSets(toValueSet(original.bases, "p"), toValueSet(generated.bases, "p")),
+    },
+  };
+}
+
+function normalizeLineEndings(value) {
+  return (value ?? "").replace(/\r\n/g, "\n");
+}
+
+function compareFrontmatter(originalNotes, generatedNotes) {
+  const generatedFrontmatter = new Map(generatedNotes.map((note) => [note.p, note.fm]));
+  let mismatchCount = 0;
+  const samples = [];
+  for (const note of originalNotes) {
+    const generated = generatedFrontmatter.get(note.p);
+    if (generated === undefined) continue;
+    if (normalizeLineEndings(note.fm) === normalizeLineEndings(generated)) continue;
+    mismatchCount += 1;
+    if (samples.length < 5) samples.push(note.p);
+  }
+  return { mismatchCount, samples };
+}
+
+function readGeneratedPluginConfig(generatedVaultPath, relativePath) {
+  try {
+    return fs.readFileSync(
+      path.join(generatedVaultPath, relativePath.split("/").join(path.sep)),
+      "utf8",
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function pluginConfigMatches(generatedContent, fixtureContent) {
+  return (
+    generatedContent !== undefined
+    && normalizeLineEndings(generatedContent) === normalizeLineEndings(fixtureContent)
+  );
+}
+
+function isEmptySecretValue(value) {
+  if (value === "" || value == null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
+}
+
+function findTaskNotesSecretLeaks(content) {
+  const leaks = [];
+  try {
+    const data = JSON.parse(content);
+    for (const key of TASKNOTES_SECRET_KEYS) {
+      if (!isEmptySecretValue(data[key])) leaks.push(`SECRET:${key}`);
+    }
+  } catch {
+    return leaks;
+  }
+  return leaks;
+}
+
+// scanVault omits `.obsidian`, so plugin configs need their own round-trip check;
+// TaskNotes field mappings drive the relationship graph reproduced by the fixture.
+function comparePluginConfigs(pluginConfigs, generatedVaultPath) {
+  let mismatchCount = 0;
+  let secretLeakCount = 0;
+  const samples = [];
+  for (const pluginConfig of pluginConfigs) {
+    const generatedContent = readGeneratedPluginConfig(
+      generatedVaultPath,
+      pluginConfig.p,
+    );
+    if (!pluginConfigMatches(generatedContent, pluginConfig.c)) {
+      mismatchCount += 1;
+      if (samples.length < 5) samples.push(pluginConfig.p);
+    }
+    if (!pluginConfig.p.includes("/tasknotes/")) continue;
+    const leaks = findTaskNotesSecretLeaks(pluginConfig.c);
+    secretLeakCount += leaks.length;
+    samples.push(...leaks);
+  }
+  return {
+    capturedCount: pluginConfigs.length,
+    mismatchCount,
+    secretLeakCount,
+    samples,
+  };
+}
+
+function pathComparisonPassed(comparison) {
+  return comparison.miss.length === 0 && comparison.extra.length === 0;
+}
+
+function verificationPassed(pathComparisons, frontmatterComparison, pluginConfigComparison) {
+  return (
+    pathComparisonPassed(pathComparisons.folders)
+    && pathComparisonPassed(pathComparisons.notes)
+    && pathComparisonPassed(pathComparisons.bases)
+    && frontmatterComparison.mismatchCount === 0
+    && pluginConfigComparison.mismatchCount === 0
+    && pluginConfigComparison.secretLeakCount === 0
+  );
+}
+
+function reportVerification(
+  pathComparisons,
+  frontmatterComparison,
+  pluginConfigComparison,
+  passed,
+) {
+  const { folders, notes, bases } = pathComparisons;
+  console.log(`[verify] folders: orig=${folders.originalCount} gen=${folders.generatedCount} miss=${folders.miss.length} extra=${folders.extra.length}`);
+  console.log(`[verify] notes:   orig=${notes.originalCount} gen=${notes.generatedCount} miss=${notes.miss.length} extra=${notes.extra.length}`);
+  console.log(`[verify] bases:   orig=${bases.originalCount} gen=${bases.generatedCount} miss=${bases.miss.length} extra=${bases.extra.length}`);
+  console.log(`[verify] frontmatter mismatches: ${frontmatterComparison.mismatchCount}${frontmatterComparison.samples.length ? " e.g. " + frontmatterComparison.samples.join(", ") : ""}`);
+  console.log(`[verify] pluginConfigs: ${pluginConfigComparison.capturedCount} captured, mismatches=${pluginConfigComparison.mismatchCount}, secretLeaks=${pluginConfigComparison.secretLeakCount}${pluginConfigComparison.samples.length ? " e.g. " + pluginConfigComparison.samples.join(", ") : ""}`);
+  if (notes.miss.length) console.log(`[verify] sample missing notes: ${notes.miss.slice(0, 5).join(", ")}`);
+  console.log(`[verify] ${passed ? "PASS — generated vault is indistinguishable from original (except bodies)" : "FAIL — see diffs above"}`);
+}
+
 /** Fidelity gate: generate from the fixture, then diff against the original. */
 function cmdVerify(fixturePath, vaultPath) {
   const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
   const tmp = path.join(os.tmpdir(), `vac-verify-${process.pid}`);
   generateFromFixture(fixture, tmp);
 
-  const orig = scanVault(vaultPath);
-  const gen = scanVault(tmp);
+  const original = scanVault(vaultPath);
+  const generated = scanVault(tmp);
+  const pathComparisons = compareVaultPaths(original, generated);
+  // Raw frontmatter equality also covers the relationship graph that drives the repro.
+  const frontmatterComparison = compareFrontmatter(original.notes, generated.notes);
+  const pluginConfigComparison = comparePluginConfigs(fixture.pluginConfigs ?? [], tmp);
+  const passed = verificationPassed(
+    pathComparisons,
+    frontmatterComparison,
+    pluginConfigComparison,
+  );
 
-  const setOf = (arr, key) => new Set(arr.map((x) => (typeof x === "string" ? x : x[key])));
-  const diffSets = (a, b) => { const miss = [...a].filter((x) => !b.has(x)); const extra = [...b].filter((x) => !a.has(x)); return { miss, extra }; };
-
-  const folderDiff = diffSets(setOf(orig.folders), setOf(gen.folders));
-  const noteDiff = diffSets(setOf(orig.notes, "p"), setOf(gen.notes, "p"));
-  const baseDiff = diffSets(setOf(orig.bases, "p"), setOf(gen.bases, "p"));
-
-  // Frontmatter equality per shared note path.
-  const genFm = new Map(gen.notes.map((n) => [n.p, n.fm]));
-  let fmMismatch = 0; const fmSamples = [];
-  for (const n of orig.notes) {
-    const g = genFm.get(n.p);
-    if (g === undefined) continue;
-    const a = (n.fm ?? "").replace(/\r\n/g, "\n");
-    const b = (g ?? "").replace(/\r\n/g, "\n");
-    if (a !== b) { fmMismatch += 1; if (fmSamples.length < 5) fmSamples.push(n.p); }
-  }
-
-  // Plugin configs (`scanVault` skips `.obsidian`, so they need an explicit check):
-  // TaskNotes' data.json carries the field mappings that make the relationship graph
-  // reproduce — a fixture that lost/garbled them would otherwise still print PASS. Also
-  // assert the secret keys stayed REDACTED (empty) so a fixture can never re-leak them.
-  let pluginConfigMismatch = 0; let secretLeak = 0; const pcSamples = [];
-  for (const pc of fixture.pluginConfigs ?? []) {
-    let genContent; try { genContent = fs.readFileSync(path.join(tmp, pc.p.split("/").join(path.sep)), "utf8"); } catch { genContent = undefined; }
-    if (genContent === undefined || genContent.replace(/\r\n/g, "\n") !== (pc.c ?? "").replace(/\r\n/g, "\n")) {
-      pluginConfigMismatch += 1; if (pcSamples.length < 5) pcSamples.push(pc.p);
-    }
-    if (pc.p.includes("/tasknotes/")) {
-      try {
-        const d = JSON.parse(pc.c);
-        for (const k of TASKNOTES_SECRET_KEYS) {
-          const v = d[k];
-          const empty = v === "" || v == null || (Array.isArray(v) ? v.length === 0 : (typeof v === "object" ? Object.keys(v).length === 0 : false));
-          if (!empty) { secretLeak += 1; pcSamples.push(`SECRET:${k}`); }
-        }
-      } catch { /* unparseable tasknotes config — caught by the mismatch check above */ }
-    }
-  }
-
-  // Relationship-graph equality: the `in`-link multiset per note (the bug-relevant
-  // structure). Compared as raw frontmatter already covers it, but report explicitly.
-  const ok = folderDiff.miss.length === 0 && folderDiff.extra.length === 0
-    && noteDiff.miss.length === 0 && noteDiff.extra.length === 0
-    && baseDiff.miss.length === 0 && baseDiff.extra.length === 0
-    && fmMismatch === 0 && pluginConfigMismatch === 0 && secretLeak === 0;
-
-  console.log(`[verify] folders: orig=${orig.folders.length} gen=${gen.folders.length} miss=${folderDiff.miss.length} extra=${folderDiff.extra.length}`);
-  console.log(`[verify] notes:   orig=${orig.notes.length} gen=${gen.notes.length} miss=${noteDiff.miss.length} extra=${noteDiff.extra.length}`);
-  console.log(`[verify] bases:   orig=${orig.bases.length} gen=${gen.bases.length} miss=${baseDiff.miss.length} extra=${baseDiff.extra.length}`);
-  console.log(`[verify] frontmatter mismatches: ${fmMismatch}${fmSamples.length ? " e.g. " + fmSamples.join(", ") : ""}`);
-  console.log(`[verify] pluginConfigs: ${fixture.pluginConfigs?.length ?? 0} captured, mismatches=${pluginConfigMismatch}, secretLeaks=${secretLeak}${pcSamples.length ? " e.g. " + pcSamples.join(", ") : ""}`);
-  if (noteDiff.miss.length) console.log(`[verify] sample missing notes: ${noteDiff.miss.slice(0, 5).join(", ")}`);
-  console.log(`[verify] ${ok ? "PASS — generated vault is indistinguishable from original (except bodies)" : "FAIL — see diffs above"}`);
+  reportVerification(
+    pathComparisons,
+    frontmatterComparison,
+    pluginConfigComparison,
+    passed,
+  );
   fs.rmSync(tmp, { recursive: true, force: true });
-  if (!ok) process.exit(2);
+  if (!passed) process.exit(2);
 }
 
 const [cmd, a, b] = process.argv.slice(2);
