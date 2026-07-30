@@ -95,32 +95,67 @@ function extractFrontmatterBlock(content) {
   return m ? m[0] : null;
 }
 
-/** Walk a vault collecting every directory, every `.md` (path + frontmatter block),
- * and every `.base` (path + verbatim content). Skips dotfolders/attachments. */
-function scanVault(vaultPath) {
-  const folders = [];
-  const notes = [];   // { p, fm }  (fm = "" when the note has no frontmatter)
-  const bases = [];   // { p, c }
-  const walk = (relDir) => {
-    if (relDir) folders.push(relDir.split(path.sep).join("/"));
-    let entries;
-    try { entries = fs.readdirSync(path.join(vaultPath, relDir), { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(path.join(relDir, e.name)); continue; }
-      const rel = path.join(relDir, e.name);
-      const relPosix = rel.split(path.sep).join("/");
-      const ext = path.extname(e.name).toLowerCase();
-      if (ext === ".md") {
-        let content = ""; try { content = fs.readFileSync(path.join(vaultPath, rel), "utf8"); } catch { /* */ }
-        notes.push({ p: relPosix, fm: extractFrontmatterBlock(content) ?? "" });
-      } else if (ext === ".base") {
-        let content = ""; try { content = fs.readFileSync(path.join(vaultPath, rel), "utf8"); } catch { /* */ }
-        bases.push({ p: relPosix, c: content });
-      }
+function toPosixPath(relativePath) {
+  return relativePath.split(path.sep).join("/");
+}
+
+function readDirectoryEntriesOrEmpty(vaultPath, relativeDirectory) {
+  try {
+    return fs.readdirSync(path.join(vaultPath, relativeDirectory), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function readUtf8OrEmpty(vaultPath, relativePath) {
+  try {
+    return fs.readFileSync(path.join(vaultPath, relativePath), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function scanFile(vaultPath, relativePath, scanResult) {
+  const extension = path.extname(relativePath).toLowerCase();
+  if (extension === ".md") {
+    const content = readUtf8OrEmpty(vaultPath, relativePath);
+    scanResult.notes.push({
+      p: toPosixPath(relativePath),
+      fm: extractFrontmatterBlock(content) ?? "",
+    });
+    return;
+  }
+  if (extension === ".base") {
+    scanResult.bases.push({
+      p: toPosixPath(relativePath),
+      c: readUtf8OrEmpty(vaultPath, relativePath),
+    });
+  }
+}
+
+function scanDirectory(vaultPath, relativeDirectory, scanResult) {
+  if (relativeDirectory) scanResult.folders.push(toPosixPath(relativeDirectory));
+  const entries = readDirectoryEntriesOrEmpty(vaultPath, relativeDirectory);
+  for (const entry of entries) {
+    const relativePath = path.join(relativeDirectory, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) scanDirectory(vaultPath, relativePath, scanResult);
+      continue;
     }
+    scanFile(vaultPath, relativePath, scanResult);
+  }
+}
+
+/** Walk a vault collecting every directory, every `.md` (path + frontmatter block),
+ * and every `.base` (path + verbatim content). */
+function scanVault(vaultPath) {
+  const scanResult = {
+    folders: [],
+    notes: [],
+    bases: [],
   };
-  walk("");
-  return { folders, notes, bases };
+  scanDirectory(vaultPath, "", scanResult);
+  return scanResult;
 }
 
 function cmdExtract(vaultPath, fixturePath) {
