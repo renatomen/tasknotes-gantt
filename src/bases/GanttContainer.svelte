@@ -50,6 +50,8 @@
     type SvarTaskInputs,
     type TaskSyncPlan,
   } from './ganttSync';
+  import type { GanttSyncPort } from './ganttSyncPort';
+  import { createSvarGanttAdapter } from './svarGanttAdapter';
   import {
     classifyUpdateEvent,
     classifyUpdateGesture,
@@ -842,15 +844,6 @@
   // summary-date recomputation fired during an add/move).
   let syncing = false;
 
-  /** Whether a task id currently exists in SVAR's store (guards cascade deletes). */
-  function taskExists(id: string): boolean {
-    try {
-      return !!api?.getTask?.(id);
-    } catch {
-      return false;
-    }
-  }
-
   // Apply each store update as the minimal set of SVAR actions instead of
   // replacing the tasks array — so zoom and scroll survive writes, drags,
   // external TaskNotes edits, and Bases filter changes. Re-runs on every
@@ -992,47 +985,41 @@
     return true;
   }
 
-  function applyPlannedTaskAndLinkChanges(plan: GanttSyncPlan): void {
+  function applyPlannedTaskAndLinkChanges(
+    plan: GanttSyncPlan,
+    syncPort: GanttSyncPort,
+  ): void {
     const { taskPlan, linkPlan } = plan;
     // Endpoints must exist when links are added, and links must be removed
     // before their endpoint tasks are deleted.
     for (const move of taskPlan.moves) {
-      api.exec('move-task', {
-        id: move.id,
-        target: move.parent,
-        mode: 'child',
-        eventSource: OG_ECHO_SOURCE,
-      });
+      syncPort.moveTaskToParent(move.id, move.parent);
     }
     for (const update of taskPlan.updates) {
       // SVAR consumes aligned shallow editor keys; the applied map keeps the
       // canonical planned task used by the next diff.
-      api.exec('update-task', {
-        id: update.id,
-        task: withAlignedFlatKeys(update.task, cellEditColumnIds),
-        eventSource: OG_ECHO_SOURCE,
-      });
+      syncPort.updateTask(update.id, update.task);
       appliedTasks.set(update.id, update.task);
     }
     for (const id of linkPlan.deletes) {
-      api.exec('delete-link', { id, eventSource: OG_ECHO_SOURCE });
+      syncPort.deleteLink(id);
       appliedLinks.delete(id);
     }
     for (const id of taskPlan.deletes) {
-      if (taskExists(id)) api.exec('delete-task', { id, eventSource: OG_ECHO_SOURCE });
+      if (syncPort.hasTask(id)) syncPort.deleteTask(id);
       appliedTasks.delete(id);
     }
     for (const task of taskPlan.adds) {
-      api.exec('add-task', { task, eventSource: OG_ECHO_SOURCE });
+      syncPort.addTask(task);
       appliedTasks.set(task.id, task);
     }
     for (const link of linkPlan.adds) {
-      api.exec('add-link', { link, eventSource: OG_ECHO_SOURCE });
+      syncPort.addLink(link);
       appliedLinks.set(link.id, link);
     }
   }
 
-  function reconcileTaskOrder(plan: GanttSyncPlan): number {
+  function reconcileTaskOrder(plan: GanttSyncPlan, syncPort: GanttSyncPort): number {
     if (ephemeralSort && !plan.baseSortChanged) {
       reassertEphemeralSort();
       return 0;
@@ -1044,12 +1031,7 @@
     let reorderMoves = 0;
     for (const move of planReorder(plan.next)) {
       reorderMoves += 1;
-      api.exec('move-task', {
-        id: move.id,
-        target: move.after,
-        mode: 'after',
-        eventSource: OG_ECHO_SOURCE,
-      });
+      syncPort.moveTaskAfter(move.id, move.after);
     }
     return reorderMoves;
   }
@@ -1063,12 +1045,16 @@
         ` orderChanged=${plan.orderKey !== appliedOrderKey} baseSortChanged=${plan.baseSortChanged}`,
     );
 
+    const syncPort = createSvarGanttAdapter(api, {
+      echoSource: OG_ECHO_SOURCE,
+      cellEditColumnIds,
+    });
     syncing = true;
     const tSyncStart = performance.now();
     try {
-      applyPlannedTaskAndLinkChanges(plan);
+      applyPlannedTaskAndLinkChanges(plan, syncPort);
       const tAfterExec = performance.now();
-      const reorderMoves = reconcileTaskOrder(plan);
+      const reorderMoves = reconcileTaskOrder(plan, syncPort);
       // Record the Base-order baseline even while an ephemeral sort controls
       // display. Keeping this after every API action also preserves stale keys
       // on failure, so the next sync retries.

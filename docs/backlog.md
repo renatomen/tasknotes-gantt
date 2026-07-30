@@ -40,6 +40,11 @@ landings.
 - Real-SVAR characterization also confirmed that a mixed incremental refresh clears the current
   grid selection, while identical and width-only refreshes preserve it. Keep that behavior stable
   during decomposition; decide and test the desired product behavior after maintainability work.
+- Moving an existing task beneath a parent added by the same incremental refresh currently sends
+  the move before the parent exists. SVAR rejects that command asynchronously while the local
+  bookkeeping can advance, leaving the displayed hierarchy stale. Preserve the existing ordering
+  during decomposition; revisit coordinator ordering and failure handling after maintainability
+  work.
 - Sources: PR #349 review record; plan
   `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
   characterization during #354.
