@@ -39,12 +39,6 @@ landings.
   it is reclassified as urgent and the maintainer approves stopping the project to fix it.
 - Source: PR #349 review record; plan `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`.
 
-### P1 — Eliminate cognitive-complexity exceptions (maintainer-ruled REQUIRED, 2026-07-30)
-Every production, test, and probe function must meet the global ESLint cognitive-complexity
-ceiling of 15. Remove all per-file overrides and inline suppressions through small,
-behavior-preserving single-responsibility refactors. File length alone is not a quality gate.
-- Source: the 2026-07-28 and 2026-07-30 maintainability rulings.
-
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
 revisit if any bites in practice:

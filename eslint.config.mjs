@@ -11,6 +11,7 @@ export default [
     ignores: [
       "dist/**",
       "node_modules/**",
+      ".worktrees/**",
       "website/site/**",
       "coverage/**",
       ".wdio-*",
@@ -87,11 +88,7 @@ export default [
     },
   },
   {
-    files: [
-      "scripts/check-review-receipts.mjs",
-      "scripts/releaseFiles.mjs",
-      "scripts/vault-as-code.mjs",
-    ],
+    files: ["**/*.{js,mjs,cjs}"],
     plugins: {
       sonarjs,
     },
