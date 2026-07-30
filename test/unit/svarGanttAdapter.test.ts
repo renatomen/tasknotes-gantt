@@ -101,6 +101,21 @@ describe('createSvarGanttAdapter', () => {
     });
   });
 
+  it('returns immediately when an update command rejects asynchronously', async () => {
+    const api = commandApi();
+    const failure = new Error('store unavailable');
+    const completion = Promise.reject(failure);
+    const observedRejection = completion.catch((error: unknown) => error);
+    api.exec.mockReturnValue(completion);
+    const adapter = createSvarGanttAdapter(api, DEFAULT_OPTIONS);
+    const updatedTask = task();
+
+    const result = adapter.updateTask(updatedTask.id, updatedTask);
+
+    expect(result).toBeUndefined();
+    await expect(observedRejection).resolves.toBe(failure);
+  });
+
   it('deletes a link by id', () => {
     const api = commandApi();
     const adapter = createSvarGanttAdapter(api, DEFAULT_OPTIONS);
