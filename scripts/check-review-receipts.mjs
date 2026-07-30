@@ -132,38 +132,44 @@ function readPipedStdin() {
   }
 }
 
-function check() {
-  const { text: stdinText, failed } = readPipedStdin();
-  if (failed) {
-    console.error('pre-push: cannot read the pushed ref lines - refusing to gate blind');
+function refuseUnreadableRefLines() {
+  console.error('pre-push: cannot read the pushed ref lines - refusing to gate blind');
+  process.exit(1);
+}
+
+function refuseInvalidRefLines(invalid) {
+  console.error('pre-push: unparseable ref line(s) - refusing to gate blind:');
+  for (const line of invalid) console.error(`  ${line}`);
+  process.exit(1);
+}
+
+function peelPushedCommits(pushed) {
+  try {
+    return [...new Set(pushed.map(peelToCommit))];
+  } catch (error) {
+    console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
+    console.error(`  ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
-  // Piped ref lines gate the pushed shas (a deletion-only push gates nothing);
-  // a manual run with no piped input falls back to gating HEAD.
-  let shas;
-  if (stdinText.trim() === '') {
-    shas = [headSha()];
-  } else {
-    const { shas: pushed, invalid } = parsePushedRefLines(stdinText);
-    if (invalid.length > 0) {
-      console.error('pre-push: unparseable ref line(s) - refusing to gate blind:');
-      for (const line of invalid) console.error(`  ${line}`);
-      process.exit(1);
-    }
-    try {
-      shas = [...new Set(pushed.map(peelToCommit))];
-    } catch (error) {
-      console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
-      console.error(`  ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-  const verdict = evaluateReceipts(readReceipts(), shas);
-  if (verdict.ok) {
-    const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
-    console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
-    return;
-  }
+}
+
+function pushedCommitShas(stdinText) {
+  const { shas, invalid } = parsePushedRefLines(stdinText);
+  if (invalid.length > 0) refuseInvalidRefLines(invalid);
+  return peelPushedCommits(shas);
+}
+
+function shasToCheck(stdinText) {
+  if (stdinText.trim() === '') return [headSha()];
+  return pushedCommitShas(stdinText);
+}
+
+function reportCleanReceipts(shas) {
+  const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
+  console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
+}
+
+function refuseMissingReceipts(verdict) {
   const missingLayers = new Set();
   for (const [sha, missing] of Object.entries(verdict.missingBySha)) {
     console.error(`pre-push: missing clean review receipts for ${sha.slice(0, 7)}: ${missing.join(', ')}`);
@@ -174,6 +180,19 @@ function check() {
     console.error(`  node scripts/check-review-receipts.mjs record ${layer}`);
   }
   process.exit(1);
+}
+
+function check() {
+  const { text: stdinText, failed } = readPipedStdin();
+  if (failed) refuseUnreadableRefLines();
+
+  const shas = shasToCheck(stdinText);
+  const verdict = evaluateReceipts(readReceipts(), shas);
+  if (verdict.ok) {
+    reportCleanReceipts(shas);
+    return;
+  }
+  refuseMissingReceipts(verdict);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
