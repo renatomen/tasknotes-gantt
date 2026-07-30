@@ -72,22 +72,17 @@
     dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedFor,
-    OG_CHIPS_EDITOR_TYPE,
-    OG_TEXT_EDITOR_TYPE,
     resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
     storedFlatValue,
     suggestColumns,
     violatesDateOrder,
-    type ChipsEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
-    type TextEditorConfig,
   } from './cellEditCommit';
   import { normalizeStoredList } from './taskNotesSuggest';
-  import { createVaultWikilinkFetcher } from './vaultWikilinkSuggest';
-  import type { FileFilterConfig } from './fileFilter';
+  import { wireSvarCellEditorForOpen } from './svarCellEditorWiring';
   import { bareProperty } from '../datasource/dateFieldMapping';
   import { ensureInlineEditorsRegistered } from './inlineEditors';
   import {
@@ -1455,58 +1450,18 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return withChipsWiring(withTextEditorWiring(config, row), row, columnId);
-  }
-
-  /**
-   * Attach the vault `[[` fetcher to a text editor config per open (parallel to
-   * {@link withSuggestWiring}): the fetcher enumerates the vault relative to the
-   * row's note path, scoped by the field's autosuggest filter when the config
-   * carries one (a single-value suggest field; plain text is unfiltered), so the
-   * component gets a fresh source each open. Non-text configs pass through.
-   */
-  function withTextEditorWiring(
-    config: SvarEditorConfig,
-    row: SvarRowLike | undefined,
-  ): SvarEditorConfig {
-    if (typeof config === 'string' || config.type !== OG_TEXT_EDITOR_TYPE) return config;
     const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
-    const filter = (config.config as TextEditorConfig).autosuggestFilter as
-      | FileFilterConfig
-      | undefined;
-    return {
-      type: OG_TEXT_EDITOR_TYPE,
-      config: { fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter) },
-    };
-  }
-
-  /**
-   * Attach the per-open view callbacks to a chips list editor config: the
-   * add-input's `[[` fetcher (scoped by the field filter when present), the RAW
-   * stored list to seed chips from (verbatim entries — the grid's TypedValues
-   * carry only display forms), and the whole-list direct commit closure over
-   * this row. List commits never ride the bridge.
-   */
-  function withChipsWiring(
-    config: SvarEditorConfig,
-    row: SvarRowLike | undefined,
-    columnId: string,
-  ): SvarEditorConfig {
-    if (typeof config === 'string' || config.type !== OG_CHIPS_EDITOR_TYPE) return config;
     const rowId = row?.id != null ? String(row.id) : null;
-    if (!rowId) return config;
-    const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
-    const filter = (config.config as ChipsEditorConfig).autosuggestFilter as
-      | FileFilterConfig
-      | undefined;
-    return {
-      type: OG_CHIPS_EDITOR_TYPE,
-      config: {
-        fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter),
-        seed: normalizeStoredList(rawStoredValueOf(rowId, columnId)),
-        commitList: (raw: string[]) => handleChipsCommit(rowId, columnId, raw),
-      },
-    };
+    return wireSvarCellEditorForOpen(config, {
+      app,
+      sourcePath,
+      chips: rowId
+        ? {
+            readRawSeed: () => rawStoredValueOf(rowId, columnId),
+            commitRawList: (raw) => handleChipsCommit(rowId, columnId, raw),
+          }
+        : undefined,
+    });
   }
 
   /** Turn config-derived descriptors into SVAR columns (fresh objects). */
