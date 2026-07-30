@@ -90,6 +90,7 @@ export default [
     files: [
       "scripts/check-review-receipts.mjs",
       "scripts/releaseFiles.mjs",
+      "scripts/vault-as-code.mjs",
     ],
     plugins: {
       sonarjs,
