@@ -87,7 +87,10 @@ export default [
     },
   },
   {
-    files: ["scripts/check-review-receipts.mjs"],
+    files: [
+      "scripts/check-review-receipts.mjs",
+      "scripts/releaseFiles.mjs",
+    ],
     plugins: {
       sonarjs,
     },

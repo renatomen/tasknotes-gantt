@@ -30,21 +30,79 @@ function notes(date: string, body = "# Title\n\n## Added\n\n- something\n"): str
 }
 
 describe("parseVersion / compareVersions", () => {
+  function compare(a: string, b: string): number {
+    return compareVersions(parseVersion(a)!, parseVersion(b)!);
+  }
+
   it("parses stable and prerelease versions", () => {
     expect(parseVersion("1.2.3")).toMatchObject({ major: 1, minor: 2, patch: 3, prerelease: null });
     expect(parseVersion("1.2.0-beta.1")).toMatchObject({ patch: 0, prerelease: "beta.1" });
     expect(parseVersion("not-a-version")).toBeNull();
   });
 
+  it.each([
+    ["major", "3.0.0", "1.9.9", 2],
+    ["minor", "1.5.0", "1.2.9", 3],
+    ["patch", "1.2.9", "1.2.4", 5],
+  ])("returns the raw %s difference before comparing lower components", (_part, a, b, expected) => {
+    expect(compare(a, b)).toBe(expected);
+  });
+
+  const overflowedComponent = "9".repeat(400);
+  it.each([
+    ["major", `${overflowedComponent}.3.0`, `${overflowedComponent}.1.9`, 2],
+    ["minor", `1.${overflowedComponent}.3`, `1.${overflowedComponent}.1`, 2],
+    ["patch", `1.1.${overflowedComponent}`, `1.1.${overflowedComponent}`, 0],
+  ])("continues past equal overflowed %s components", (_part, a, b, expected) => {
+    expect(compare(a, b)).toBe(expected);
+  });
+
+  it.each([
+    ["1.2.3", "1.2.3"],
+    ["1.2.3-beta.1", "1.2.3-beta.1"],
+  ])("considers %s and %s equal", (a, b) => {
+    expect(compare(a, b)).toBe(0);
+  });
+
   it("orders a prerelease below its stable release", () => {
-    const beta = parseVersion("1.2.0-beta.1")!;
-    const stable = parseVersion("1.2.0")!;
-    expect(compareVersions(beta, stable)).toBeLessThan(0);
-    expect(compareVersions(stable, beta)).toBeGreaterThan(0);
+    expect(compare("1.2.0-beta.1", "1.2.0")).toBe(-1);
+    expect(compare("1.2.0", "1.2.0-beta.1")).toBe(1);
   });
 
   it("orders prerelease identifiers numerically", () => {
-    expect(compareVersions(parseVersion("1.2.0-beta.2")!, parseVersion("1.2.0-beta.10")!)).toBeLessThan(0);
+    expect(compare("1.2.0-beta.2", "1.2.0-beta.10")).toBe(-8);
+  });
+
+  it("continues after equal numeric prerelease identifiers", () => {
+    expect(compare("1.2.0-beta.2.3", "1.2.0-beta.2.1")).toBe(2);
+  });
+
+  it("treats digit-only prerelease identifiers with leading zeroes as numbers", () => {
+    expect(compare("1.2.0-beta.01", "1.2.0-beta.1")).toBe(0);
+  });
+
+  it.each([
+    ["1.2.0-Beta", "1.2.0-beta", -1],
+    ["1.2.0-beta.9", "1.2.0-beta.2a", 1],
+  ])("uses code-unit lexical ordering for %s and %s", (a, b, expected) => {
+    expect(compare(a, b)).toBe(expected);
+  });
+
+  it.each([
+    ["1.2.0-beta", "1.2.0-beta.1"],
+    ["1.2.0-beta", "1.2.0-beta."],
+  ])("orders the shorter matching prerelease %s before %s", (a, b) => {
+    expect(compare(a, b)).toBe(-1);
+  });
+
+  it("ignores full text when structured version fields match", () => {
+    const parsed = parseVersion("1.2.3-beta.1")!;
+    expect(
+      compareVersions(
+        { ...parsed, full: "first display value" },
+        { ...parsed, full: "second display value" },
+      ),
+    ).toBe(0);
   });
 });
 
