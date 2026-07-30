@@ -240,7 +240,7 @@ export function svarEditorConfigFor(
     };
   }
   if (kind === 'text') {
-    // The view attaches an unfiltered vault `[[` fetcher per open (withTextEditorWiring).
+    // Suggestion scope depends on the opening row, so the view attaches the fetcher per open.
     return { type: OG_TEXT_EDITOR_TYPE, config: {} };
   }
   if (kind === 'list') {
