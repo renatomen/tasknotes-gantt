@@ -66,18 +66,16 @@
   } from './cascadeGate';
   import { type InferredDragAction } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
+  import { commitBridgeCellEdit } from './cellEditCoordinator';
   import {
     choiceEditorOptions,
-    counterpartDate,
     dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedFor,
-    resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
     storedFlatValue,
     suggestColumns,
-    violatesDateOrder,
     type SvarEditorConfig,
     type SvarRowLike,
   } from './cellEditCommit';
@@ -2107,14 +2105,6 @@
     }
   }
 
-  /**
-   * Handle a committed inline cell edit: cast the bridged value back per the
-   * column's editor kind, then either block the apply (noop/reject, with a
-   * Notice on reject) or let SVAR's optimistic apply stand and persist through
-   * the controller — reverting (+Notice) if the write rejects or times out.
-   * The stored baseline advances synchronously so a quick follow-up edit diffs
-   * against what is being persisted, and rolls back with a failed write.
-   */
   function handleCellEditCommit(instanceId: string, columnId: string, rawValue: unknown): boolean {
     const persist = onMutateProperty;
     const kind = editorKindByColumn.get(columnId);
@@ -2129,29 +2119,25 @@
         : kind === 'choice-priority'
           ? ($data.choiceOptions?.priority ?? []).map((o) => o.value)
           : undefined;
-    const outcome = resolveCellEditCommit(kind, rawValue, stored, { choiceValues });
-    if (outcome.action === 'noop') return false;
-    if (outcome.action === 'reject') {
-      new Notice(`Couldn't save — ${outcome.reason}`);
-      return false;
-    }
-    // Cross-field date order: a mapped start (end) commit must not pass the
-    // row's real end (start). Single-edge semantics otherwise — one field
-    // write, no reshuffle of the counterpart, no subtree cascade.
-    const dateRole = outcome.value instanceof Date ? dateRoleByColumn.get(columnId) : undefined;
-    if (dateRole) {
-      const row = instances.find((i) => i.id === instanceId);
-      if (violatesDateOrder(dateRole, outcome.value as Date, counterpartDate(row, dateRole))) {
-        new Notice(
-          dateRole === 'start'
-            ? "Couldn't save — the start date must not be after the end date."
-            : "Couldn't save — the end date must not be before the start date.",
-        );
-        return false;
-      }
-    }
-    applyAndPersistCellEdit(instanceId, columnId, outcome.value);
-    return true;
+    const dateRole = dateRoleByColumn.get(columnId);
+    return commitBridgeCellEdit(
+      {
+        instanceId,
+        columnId,
+        kind,
+        rawValue,
+        storedValue: stored,
+        choiceValues,
+        dateRole,
+        datedRow: dateRole ? instances.find((instance) => instance.id === instanceId) : undefined,
+      },
+      {
+        applyAndPersist: applyAndPersistCellEdit,
+        notify(message) {
+          new Notice(message);
+        },
+      },
+    );
   }
 
   /**
