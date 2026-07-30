@@ -45,12 +45,14 @@
     echoTaskPatch,
     shouldBulkReseed,
     structuralOpCount,
-    type LinkSyncPlan,
     type SvarTask,
     type SvarTaskInputs,
-    type TaskSyncPlan,
   } from './ganttSync';
-  import type { GanttSyncPort } from './ganttSyncPort';
+  import {
+    applyIncrementalGanttSync,
+    type AppliedGanttSyncState,
+    type GanttSyncPlan,
+  } from './ganttSyncCoordinator';
   import { createSvarGanttAdapter } from './svarGanttAdapter';
   import {
     classifyUpdateEvent,
@@ -812,13 +814,6 @@
     ...buildInstanceCueTaskTypes(treatmentTaskTypes.map((t) => t.id)),
   ];
 
-  // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
-  // the initial render so the first diff after mount is a no-op.
-  const appliedTasks = new Map<string, SvarTask>();
-  for (const t of seedTasks0) appliedTasks.set(t.id, t);
-  const appliedLinks = new Map<string, RenderLink>();
-  for (const l of seedLinks0) appliedLinks.set(l.id, l);
-
   // Fingerprint of the rendered row ORDER (parent + id sequence). The
   // incremental diff is keyed by id and cannot reorder existing rows, so a
   // pure reorder — e.g. a Base toolbar sort change with the same task set —
@@ -829,14 +824,19 @@
   function orderFingerprint(tasks: readonly SvarTask[]): string {
     return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
   }
-  let appliedOrderKey = orderFingerprint(seedTasks0);
-  // Last-applied Base toolbar sort descriptor (plan 2026-06-22-002, U4/U5, KTD4).
-  // While an ephemeral column sort is active, the sync $effect compares this to
-  // `config.getSort()` to tell a Base re-sort (descriptor changed → clear the
-  // override, R6) from a plain data refresh (unchanged → keep & re-assert, R8).
-  // Tracking the descriptor — not a row-position fingerprint — is the deliberate
-  // fix: adding/removing a row shifts positions without a toolbar-sort change.
-  let appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
+
+  // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
+  // the initial render so the first diff after mount is a no-op.
+  const appliedSyncState: AppliedGanttSyncState = {
+    tasks: new Map(),
+    links: new Map(),
+    orderKey: orderFingerprint(seedTasks0),
+    // Last-applied Base toolbar sort descriptor. While an ephemeral column sort
+    // is active, this distinguishes a Base re-sort from a plain data refresh.
+    baseSortKey: baseSortDescriptor(config?.getSort?.()),
+  };
+  for (const task of seedTasks0) appliedSyncState.tasks.set(task.id, task);
+  for (const link of seedLinks0) appliedSyncState.links.set(link.id, link);
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -900,15 +900,6 @@
     if (api) applyDisplayFilters();
   });
 
-  interface GanttSyncPlan {
-    next: SvarTask[];
-    taskPlan: TaskSyncPlan;
-    linkPlan: LinkSyncPlan;
-    orderKey: string;
-    baseSortKey: string;
-    baseSortChanged: boolean;
-  }
-
   function reseedColumnsIfNeeded(d: GanttData): boolean {
     const editorAttachKey = cellEditColumnIds.join('|');
     const columnsChanged =
@@ -931,8 +922,8 @@
 
   function planGanttSync(d: GanttData): GanttSyncPlan {
     const next = buildSvarTasks(toInputs(d));
-    const taskPlan = planTaskSync(appliedTasks, next);
-    const linkPlan = planLinkSync(appliedLinks, d.links);
+    const taskPlan = planTaskSync(appliedSyncState.tasks, next);
+    const linkPlan = planLinkSync(appliedSyncState.links, d.links);
     const orderKey = orderFingerprint(next);
     const baseSortKey = baseSortDescriptor(config?.getSort?.());
     return {
@@ -941,7 +932,7 @@
       linkPlan,
       orderKey,
       baseSortKey,
-      baseSortChanged: baseSortKey !== appliedBaseSortKey,
+      baseSortChanged: baseSortKey !== appliedSyncState.baseSortKey,
     };
   }
 
@@ -952,7 +943,7 @@
       && plan.taskPlan.adds.length === 0
       && plan.linkPlan.deletes.length === 0
       && plan.linkPlan.adds.length === 0
-      && plan.orderKey === appliedOrderKey
+      && plan.orderKey === appliedSyncState.orderKey
       && !plan.baseSortChanged;
   }
 
@@ -985,64 +976,13 @@
     return true;
   }
 
-  function applyPlannedTaskAndLinkChanges(
-    plan: GanttSyncPlan,
-    syncPort: GanttSyncPort,
-  ): void {
-    const { taskPlan, linkPlan } = plan;
-    // Endpoints must exist when links are added, and links must be removed
-    // before their endpoint tasks are deleted.
-    for (const move of taskPlan.moves) {
-      syncPort.moveTaskToParent(move.id, move.parent);
-    }
-    for (const update of taskPlan.updates) {
-      // SVAR consumes aligned shallow editor keys; the applied map keeps the
-      // canonical planned task used by the next diff.
-      syncPort.updateTask(update.id, update.task);
-      appliedTasks.set(update.id, update.task);
-    }
-    for (const id of linkPlan.deletes) {
-      syncPort.deleteLink(id);
-      appliedLinks.delete(id);
-    }
-    for (const id of taskPlan.deletes) {
-      if (syncPort.hasTask(id)) syncPort.deleteTask(id);
-      appliedTasks.delete(id);
-    }
-    for (const task of taskPlan.adds) {
-      syncPort.addTask(task);
-      appliedTasks.set(task.id, task);
-    }
-    for (const link of linkPlan.adds) {
-      syncPort.addLink(link);
-      appliedLinks.set(link.id, link);
-    }
-  }
-
-  function reconcileTaskOrder(plan: GanttSyncPlan, syncPort: GanttSyncPort): number {
-    if (ephemeralSort && !plan.baseSortChanged) {
-      reassertEphemeralSort();
-      return 0;
-    }
-
-    clearEphemeralSortForBaseChange(plan.baseSortChanged);
-    if (plan.orderKey === appliedOrderKey) return 0;
-
-    let reorderMoves = 0;
-    for (const move of planReorder(plan.next)) {
-      reorderMoves += 1;
-      syncPort.moveTaskAfter(move.id, move.after);
-    }
-    return reorderMoves;
-  }
-
   function applyIncrementalSync(plan: GanttSyncPlan): void {
     const { taskPlan, linkPlan } = plan;
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
         ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
-        ` orderChanged=${plan.orderKey !== appliedOrderKey} baseSortChanged=${plan.baseSortChanged}`,
+        ` orderChanged=${plan.orderKey !== appliedSyncState.orderKey} baseSortChanged=${plan.baseSortChanged}`,
     );
 
     const syncPort = createSvarGanttAdapter(api, {
@@ -1051,15 +991,24 @@
     });
     syncing = true;
     const tSyncStart = performance.now();
+    let tAfterExec = tSyncStart;
     try {
-      applyPlannedTaskAndLinkChanges(plan, syncPort);
-      const tAfterExec = performance.now();
-      const reorderMoves = reconcileTaskOrder(plan, syncPort);
-      // Record the Base-order baseline even while an ephemeral sort controls
-      // display. Keeping this after every API action also preserves stale keys
-      // on failure, so the next sync retries.
-      appliedOrderKey = plan.orderKey;
-      appliedBaseSortKey = plan.baseSortKey;
+      const { reorderMoves } = applyIncrementalGanttSync({
+        plan,
+        port: syncPort,
+        state: appliedSyncState,
+        ephemeralSort: {
+          isActive: () => ephemeralSort !== null,
+          reassert: reassertEphemeralSort,
+          clear: () => {
+            ephemeralSort = null;
+            clearSvarSortArrow();
+          },
+        },
+        onTaskAndLinkChangesApplied: () => {
+          tAfterExec = performance.now();
+        },
+      });
       const now = performance.now();
       dlog(
         `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
@@ -1130,10 +1079,10 @@
       for (const m of planReorder(next)) {
         api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
       }
-      appliedOrderKey = orderFingerprint(next);
+      appliedSyncState.orderKey = orderFingerprint(next);
     } catch {
       /* a move-task threw mid-restore (e.g. store torn down); the stale
-         appliedOrderKey forces the next sync to replay the full reorder */
+         applied order key forces the next sync to replay the full reorder */
     } finally {
       syncing = false;
     }
@@ -1185,17 +1134,17 @@
     initialTasks = tasks;
     initialLinks = d.links;
 
-    appliedTasks.clear();
-    for (const t of tasks) appliedTasks.set(t.id, t);
-    appliedLinks.clear();
-    for (const l of d.links) appliedLinks.set(l.id, l);
+    appliedSyncState.tasks.clear();
+    for (const t of tasks) appliedSyncState.tasks.set(t.id, t);
+    appliedSyncState.links.clear();
+    for (const l of d.links) appliedSyncState.links.set(l.id, l);
     // The reseed re-inits SVAR from `tasks` (already in Base order), so the
     // applied order key tracks it — the next diff won't re-issue reorder moves.
-    // Re-baseline the Base sort descriptor too (symmetry with appliedOrderKey): a
+    // Re-baseline the Base sort descriptor too (symmetry with the order key): a
     // reseed coinciding with a toolbar-sort change must not leave the next sync
     // comparing against a stale descriptor.
-    appliedOrderKey = orderFingerprint(tasks);
-    appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
+    appliedSyncState.orderKey = orderFingerprint(tasks);
+    appliedSyncState.baseSortKey = baseSortDescriptor(config?.getSort?.());
 
     // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
     // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
@@ -2010,7 +1959,9 @@
       }
       if (readOnly || !onRemoveDependency || ev.id == null) return false;
       const rawId = String(ev.id);
-      const link = appliedLinks.get(rawId.startsWith(':') ? rawId.slice(1) : rawId);
+      const link = appliedSyncState.links.get(
+        rawId.startsWith(':') ? rawId.slice(1) : rawId,
+      );
       if (!link) return false;
       void onRemoveDependency(link.source, link.target).catch((err) => {
         console.error('[GanttContainer] remove-dependency failed:', err);
