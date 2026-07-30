@@ -50,6 +50,10 @@
   } from './ganttSync';
   import {
     applyIncrementalGanttSync,
+    createAppliedGanttSyncState,
+    createGanttSeedSnapshot,
+    ganttOrderFingerprint,
+    replaceAppliedGanttData,
     type AppliedGanttSyncState,
     type GanttSyncPlan,
   } from './ganttSyncCoordinator';
@@ -76,7 +80,6 @@
     storedFlatValue,
     suggestColumns,
     violatesDateOrder,
-    withAlignedFlatKeys,
     type ChipsEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
@@ -677,12 +680,11 @@
   );
 
   // ── SVAR store seeding + targeted diff-sync (Bug B) ─────────────────────────
-  // SVAR re-initialises its ENTIRE store (resetting zoom level, scroll, and
-  // selection) whenever the `tasks` / `links` / `taskTypes` / `zoom` props change
-  // reference — its internal `$effect(reinitStore)`. So we seed those props ONCE
-  // from the initial store value and thereafter apply every data change as
-  // targeted `api.exec` actions (the SVAR-sanctioned path; see ganttSync). The
-  // arrays and `svarReadonly` handed to `<Gantt>` below must NEVER be reassigned.
+  // SVAR re-initialises its store whenever the `tasks` / `links` / `taskTypes` /
+  // `zoom` props change reference, disturbing viewport state and making
+  // selection behavior path-dependent. Plain refreshes therefore use targeted
+  // `api.exec` actions. Only explicit column, bulk, and theme reseeds replace
+  // the seed arrays; `svarReadonly` remains fixed for the mount.
 
   /** Project the dynamic render data into the pure SVAR-task builder inputs. */
   function toInputs(d: GanttData): SvarTaskInputs {
@@ -751,20 +753,17 @@
     initialData.gridColumns,
     shippedEditorKinds(initialData.cellEditors),
   );
-  // Plain seed values, used both to seed the `$state` props below and the
-  // applied-state maps further down (referencing the consts, not the $state,
-  // avoids a spurious "state referenced locally" warning). Seeds carry aligned
-  // flat editor keys, like every diff-sync update (see withAlignedFlatKeys).
-  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData)).map((t) =>
-    withAlignedFlatKeys(t, initialEditorColumnIds),
-  );
-  const seedLinks0: RenderLink[] = initialData.links;
-  // Seed props handed to `<Gantt>`. Reassigned ONLY on a column-config change
-  // (which intentionally re-inits the SVAR store, resetting zoom/scroll); a
-  // plain data refresh leaves them untouched and flows through the targeted
-  // diff-sync below. `$state` so the reassignment reaches `<Gantt>`.
-  let initialTasks: SvarTask[] = $state(seedTasks0);
-  let initialLinks: RenderLink[] = $state(seedLinks0);
+  // The same canonical objects seed both SVAR and the applied-state baseline.
+  const initialSeed = createGanttSeedSnapshot({
+    tasks: buildSvarTasks(toInputs(initialData)),
+    links: initialData.links,
+    cellEditColumnIds: initialEditorColumnIds,
+  });
+  // Seed props handed to `<Gantt>`. Explicit column, bulk, and theme reseeds
+  // intentionally replace them and re-init the SVAR store; a plain data refresh
+  // leaves them untouched and flows through the targeted diff-sync below.
+  let initialTasks: SvarTask[] = $state(initialSeed.tasks);
+  let initialLinks: RenderLink[] = $state(initialSeed.links);
   // SVAR's own `readonly` is fixed at mount: capability is resolved once when the
   // controller selects its source and does not change for the view's lifetime.
   // The reactive `readOnly` above still drives the banner and the persist gate.
@@ -814,29 +813,14 @@
     ...buildInstanceCueTaskTypes(treatmentTaskTypes.map((t) => t.id)),
   ];
 
-  // Fingerprint of the rendered row ORDER (parent + id sequence). The
-  // incremental diff is keyed by id and cannot reorder existing rows, so a
-  // pure reorder — e.g. a Base toolbar sort change with the same task set —
-  // leaves SVAR in the prior order. We detect an order change and apply it via
-  // `move-task` (mode `after`) inside the syncing block (zoom/scroll survive;
-  // the syncing guard suppresses the echo/select that would otherwise open the
-  // edit modal). Seeded so the first diff after mount is a no-op.
-  function orderFingerprint(tasks: readonly SvarTask[]): string {
-    return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
-  }
-
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
   // the initial render so the first diff after mount is a no-op.
-  const appliedSyncState: AppliedGanttSyncState = {
-    tasks: new Map(),
-    links: new Map(),
-    orderKey: orderFingerprint(seedTasks0),
+  const appliedSyncState: AppliedGanttSyncState = createAppliedGanttSyncState(
+    initialSeed,
     // Last-applied Base toolbar sort descriptor. While an ephemeral column sort
     // is active, this distinguishes a Base re-sort from a plain data refresh.
-    baseSortKey: baseSortDescriptor(config?.getSort?.()),
-  };
-  for (const task of seedTasks0) appliedSyncState.tasks.set(task.id, task);
-  for (const link of seedLinks0) appliedSyncState.links.set(link.id, link);
+    baseSortDescriptor(config?.getSort?.()),
+  );
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
@@ -924,7 +908,7 @@
     const next = buildSvarTasks(toInputs(d));
     const taskPlan = planTaskSync(appliedSyncState.tasks, next);
     const linkPlan = planLinkSync(appliedSyncState.links, d.links);
-    const orderKey = orderFingerprint(next);
+    const orderKey = ganttOrderFingerprint(next);
     const baseSortKey = baseSortDescriptor(config?.getSort?.());
     return {
       next,
@@ -1079,7 +1063,7 @@
       for (const m of planReorder(next)) {
         api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
       }
-      appliedSyncState.orderKey = orderFingerprint(next);
+      appliedSyncState.orderKey = ganttOrderFingerprint(next);
     } catch {
       /* a move-task threw mid-restore (e.g. store torn down); the stale
          applied order key forces the next sync to replay the full reorder */
@@ -1126,24 +1110,19 @@
    * seed instead of the current data.
    */
   function reseedSeedsFromData(d: GanttData): void {
-    // Aligned flat editor keys, like the incremental update path — a reseed
-    // must leave every row's flat keys matching its stored values too.
-    const tasks = buildSvarTasks(toInputs(d)).map((t) =>
-      withAlignedFlatKeys(t, cellEditColumnIds),
-    );
-    initialTasks = tasks;
-    initialLinks = d.links;
-
-    appliedSyncState.tasks.clear();
-    for (const t of tasks) appliedSyncState.tasks.set(t.id, t);
-    appliedSyncState.links.clear();
-    for (const l of d.links) appliedSyncState.links.set(l.id, l);
+    const seed = createGanttSeedSnapshot({
+      tasks: buildSvarTasks(toInputs(d)),
+      links: d.links,
+      cellEditColumnIds,
+    });
+    initialTasks = seed.tasks;
+    initialLinks = seed.links;
+    replaceAppliedGanttData(appliedSyncState, seed);
     // The reseed re-inits SVAR from `tasks` (already in Base order), so the
     // applied order key tracks it — the next diff won't re-issue reorder moves.
     // Re-baseline the Base sort descriptor too (symmetry with the order key): a
     // reseed coinciding with a toolbar-sort change must not leave the next sync
     // comparing against a stale descriptor.
-    appliedSyncState.orderKey = orderFingerprint(tasks);
     appliedSyncState.baseSortKey = baseSortDescriptor(config?.getSort?.());
 
     // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an

@@ -5,6 +5,7 @@ import {
   type SvarTask,
   type TaskSyncPlan,
 } from './ganttSync';
+import { withAlignedFlatKeys } from './cellEditCommit';
 import type { GanttSyncPort } from './ganttSyncPort';
 
 export interface GanttSyncPlan {
@@ -21,6 +22,67 @@ export interface AppliedGanttSyncState {
   readonly links: Map<string, RenderLink>;
   orderKey: string;
   baseSortKey: string;
+}
+
+export interface GanttSeedSnapshot {
+  tasks: SvarTask[];
+  links: RenderLink[];
+}
+
+export interface CreateGanttSeedSnapshotOptions {
+  tasks: ReadonlyArray<SvarTask>;
+  links: RenderLink[];
+  cellEditColumnIds: ReadonlyArray<string>;
+}
+
+export function ganttOrderFingerprint(tasks: ReadonlyArray<SvarTask>): string {
+  return tasks.map((task) => `${task.parent ?? ''}>${task.id}`).join('|');
+}
+
+export function createGanttSeedSnapshot(
+  options: CreateGanttSeedSnapshotOptions,
+): GanttSeedSnapshot {
+  return {
+    tasks: options.tasks.map((task) =>
+      withAlignedFlatKeys(task, options.cellEditColumnIds),
+    ),
+    links: options.links,
+  };
+}
+
+function replaceMapContents<Value extends { id: string }>(
+  target: Map<string, Value>,
+  values: ReadonlyArray<Value>,
+): void {
+  target.clear();
+  for (const value of values) target.set(value.id, value);
+}
+
+/**
+ * Rebase the canonical data maps without reading the external Base-sort state.
+ * The composition boundary assigns that key after the seed props are installed.
+ */
+export function replaceAppliedGanttData(
+  state: AppliedGanttSyncState,
+  seed: GanttSeedSnapshot,
+): void {
+  replaceMapContents(state.tasks, seed.tasks);
+  replaceMapContents(state.links, seed.links);
+  state.orderKey = ganttOrderFingerprint(seed.tasks);
+}
+
+export function createAppliedGanttSyncState(
+  seed: GanttSeedSnapshot,
+  baseSortKey: string,
+): AppliedGanttSyncState {
+  const state: AppliedGanttSyncState = {
+    tasks: new Map(),
+    links: new Map(),
+    orderKey: '',
+    baseSortKey,
+  };
+  replaceAppliedGanttData(state, seed);
+  return state;
 }
 
 interface EphemeralSortPort {
