@@ -53,11 +53,13 @@ configuration when an editor opens. Bridge and direct-chips commits enter
 optimistic state, persistence, rollback, timeout, and the per-render-instance gate
 before calling `GanttController.mutateProperty()`.
 
-Surfaces gate write affordances on `capabilities.write`. Mutation methods are
-optional at the interface boundary, while dynamically read-only implementations
-may retain rejecting methods as defensive backstops. The capability flag remains
-the single source of read-only truth in
-[types.ts](../../src/datasource/types.ts).
+Surfaces gate write affordances that mutate through the data-source/controller
+boundary on `capabilities.write`. Mutation methods are optional at the interface
+boundary, while dynamically read-only implementations may retain rejecting methods
+as defensive backstops. The capability flag in
+[types.ts](../../src/datasource/types.ts) remains the source of truth for mutations
+performed through that boundary. TaskNotes-owned modal and context-menu interactions
+are companion entry points independent of data-source writability.
 
 ## Key files inside `src/bases/`
 
