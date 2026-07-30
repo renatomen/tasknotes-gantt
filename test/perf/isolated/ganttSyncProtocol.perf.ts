@@ -8,6 +8,7 @@ import type {
 import type { TaskPatch } from "../../../src/datasource/types";
 import type { GanttData } from "../../../src/bases/types/gantt-view-data";
 import { gridColumnsKey } from "../../../src/bases/gridColumns";
+import { BULK_RESEED_OP_THRESHOLD } from "../../../src/bases/ganttSync";
 import type { TaskGraph } from "../generator/graph";
 import { buildGanttData } from "../generator/buildGanttData";
 import GanttPerfHost from "./GanttPerfHost.svelte";
@@ -416,6 +417,41 @@ function mixedData(data: GanttData): GanttData {
   };
 }
 
+function bulkAdditionData(data: GanttData): {
+  next: GanttData;
+  firstAdded: RenderInstance;
+} {
+  const template = instanceByText(data, "Beta");
+  const additions = Array.from(
+    { length: BULK_RESEED_OP_THRESHOLD + 1 },
+    (_, index): RenderInstance => {
+      const sourcePath = `Tasks/Bulk-${String(index).padStart(3, "0")}.md`;
+      return {
+        ...template,
+        id: sourcePath,
+        sourcePath,
+        text: `Bulk ${index}`,
+      };
+    }
+  );
+  const next = cloneData(data);
+  const templateProperties = next.propertyValues.get(template.sourcePath) ?? {};
+  for (const addition of additions) {
+    next.propertyValues.set(addition.sourcePath, { ...templateProperties });
+    next.managedPaths.add(addition.sourcePath);
+  }
+  const [firstExisting, ...remainingExisting] = next.instances;
+  const [firstAdded] = additions;
+  if (!firstExisting || !firstAdded) throw new Error("Missing bulk fixture row");
+  return {
+    next: {
+      ...next,
+      instances: [firstExisting, ...additions, ...remainingExisting],
+    },
+    firstAdded,
+  };
+}
+
 async function mountHost() {
   const data = await initialData();
   const spies = callbackSpies();
@@ -566,6 +602,27 @@ test("a mixed refresh preserves collapsed state while applying the existing sele
   ).toBe(false);
   expectNoTaskCallbacks(spies);
   expect(spies.onGridWidthChange).not.toHaveBeenCalled();
+});
+
+test("a threshold-crossing structural addition preserves a surviving selection", async () => {
+  const { data, spies, screen, container, chart } = await mountHost();
+  const selected = instanceByText(data, "Alpha");
+  await selectRow(container, selected.id);
+  clearCallbacks(spies);
+  const { next, firstAdded } = bulkAdditionData(data);
+
+  await screen.rerender({ data: next });
+
+  await vi.waitFor(
+    () => expect(barById(container, firstAdded.id)).not.toBeNull(),
+    { timeout: 10000, interval: 50 }
+  );
+  await settleDebouncedBrowserEvents();
+  expect(container.querySelector(".wx-chart")).toBe(chart);
+  expect(
+    rowById(container, selected.id).classList.contains("wx-selected")
+  ).toBe(true);
+  expectNoTaskCallbacks(spies);
 });
 
 test("an external property refresh keeps a later edit attributable to its own column", async () => {

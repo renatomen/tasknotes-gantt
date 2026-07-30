@@ -49,6 +49,10 @@ landings.
   row-order fingerprint, the incremental path clears the sort arrow but skips replaying Base order.
   The chart can therefore retain the old ephemeral visual order. Preserve this behavior during
   decomposition and correct it only after the maintainability work.
+- If a column/editor signature and the Base sort descriptor change in the same refresh while an
+  ephemeral sort is active, the earlier column-reseed path rebaselines the Base descriptor and
+  reasserts the old ephemeral sort. Preserve this behavior during decomposition and correct it
+  only after the maintainability work.
 - Sources: PR #349 review record; plan
   `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
   characterization during #354.

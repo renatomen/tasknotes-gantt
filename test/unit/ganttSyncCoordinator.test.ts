@@ -3,6 +3,10 @@ import type { SvarTask } from '../../src/bases/ganttSync';
 import type { GanttSyncPort } from '../../src/bases/ganttSyncPort';
 import {
   applyIncrementalGanttSync,
+  createAppliedGanttSyncState,
+  createGanttSeedSnapshot,
+  ganttOrderFingerprint,
+  replaceAppliedGanttData,
   type AppliedGanttSyncState,
   type GanttSyncPlan,
 } from '../../src/bases/ganttSyncCoordinator';
@@ -115,6 +119,82 @@ function sortPort(events: string[], initiallyActive = false) {
     },
   };
 }
+
+describe('Gantt reseed state', () => {
+  it('aligns editable flat keys with their stored typed values', () => {
+    const original = task('alpha');
+    original.custom.properties = {
+      'note.owner': { kind: 'text', value: 'Grace' },
+    };
+
+    const seed = createGanttSeedSnapshot({
+      tasks: [original],
+      links: [],
+      cellEditColumnIds: ['note.owner'],
+    });
+
+    expect((seed.tasks[0] as SvarTask & Record<string, unknown>)['note.owner']).toBe('Grace');
+  });
+
+  it('retains the exact link array as the canonical seed', () => {
+    const links = [link('alpha-beta')];
+
+    const seed = createGanttSeedSnapshot({
+      tasks: [],
+      links,
+      cellEditColumnIds: [],
+    });
+
+    expect(seed.links).toBe(links);
+  });
+
+  it('creates applied state from the exact canonical seed objects', () => {
+    const first = task('first');
+    const second = task('second', first.id);
+    const dependency = link('first-second', first.id, second.id);
+    const seed = { tasks: [first, second], links: [dependency] };
+
+    const state = createAppliedGanttSyncState(seed, 'base-sort');
+
+    expect(state.tasks.get(first.id)).toBe(first);
+    expect(state.tasks.get(second.id)).toBe(second);
+    expect(state.links.get(dependency.id)).toBe(dependency);
+    expect(state.orderKey).toBe('>first|first>second');
+    expect(state.baseSortKey).toBe('base-sort');
+  });
+
+  it('rebases the existing map containers in seed order without changing the Base-sort key', () => {
+    const staleTask = task('stale');
+    const staleLink = link('stale-link');
+    const state = appliedState([staleTask], [staleLink]);
+    const taskMap = state.tasks;
+    const linkMap = state.links;
+    const second = task('second');
+    const first = task('first');
+    const replacementLink = link('second-first', second.id, first.id);
+
+    replaceAppliedGanttData(state, {
+      tasks: [second, first],
+      links: [replacementLink],
+    });
+
+    expect(state.tasks).toBe(taskMap);
+    expect(state.links).toBe(linkMap);
+    expect([...state.tasks.keys()]).toEqual([second.id, first.id]);
+    expect([...state.links.keys()]).toEqual([replacementLink.id]);
+    expect(state.tasks.get(second.id)).toBe(second);
+    expect(state.tasks.get(first.id)).toBe(first);
+    expect(state.links.get(replacementLink.id)).toBe(replacementLink);
+    expect(state.orderKey).toBe('>second|>first');
+    expect(state.baseSortKey).toBe('applied-base-sort');
+  });
+
+  it('fingerprints parent and row order without serializing task content', () => {
+    expect(ganttOrderFingerprint([task('first'), task('second', 'first')])).toBe(
+      '>first|first>second',
+    );
+  });
+});
 
 describe('applyIncrementalGanttSync', () => {
   it('executes the plan in the existing command sequence', () => {
