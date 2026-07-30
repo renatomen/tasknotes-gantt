@@ -15,7 +15,7 @@
     "install:vault": "node scripts/install-to-vault.mjs",
     "test": "jest --passWithNoTests",
     "test:coverage": "jest --coverage --passWithNoTests",
-    "lint": "eslint . --ext .ts,.svelte,.mts --max-warnings 0",
+    "lint": "eslint . --max-warnings 0",
     "typecheck": "svelte-check --tsconfig tsconfig.json",
     "format": "prettier --write .",
     "version": "node version-bump.mjs && node scripts/generate-release-notes-import.mjs && node scripts/update-release-index.mjs && git add manifest.json versions.json src/releaseNotes.ts docs/releases.md",
