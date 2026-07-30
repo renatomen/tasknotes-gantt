@@ -118,9 +118,10 @@
   import {
     createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
     pureMoveBefore, type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch,
-    type PlannedWrite, type PlannerDerivation, type PromptRequest, type SourceEchoes,
+    type PlannedWrite, type PlannerDerivation, type SourceEchoes,
   } from './dragCommitPlanner';
-  import { createDragExecutor, type CascadePhase, type PromptAnswer } from './dragExecutor';
+  import { createDragExecutor, type CascadePhase } from './dragExecutor';
+  import { createDragPromptResolver } from './dragPromptResolver';
   import { dlog } from '../debugLog';
 
   // The toggle handler our floating full-screen button invokes (wired as an
@@ -2057,6 +2058,13 @@
     }, 200); // Increased delay to ensure DOM is fully ready
   }
 
+  const resolvePrompt = createDragPromptResolver({
+    openInferredDragPrompt: () => new InferredDragModal(app).openAndGetChoice(),
+    openCascadePrompt: (options) =>
+      new CascadeConfirmModal(app, options).openAndGetChoice(),
+    persistInferredDragMode: (action) => onInferredDragModeChange?.(action),
+  });
+
   // Runs planner-built commit plans with per-source serialization; every
   // echoed or reverted row goes through echoSourceGeometry (echo-guard source).
   const dragExecutor = createDragExecutor({
@@ -2070,57 +2078,6 @@
     persistTimeoutMs: MUTATION_TIMEOUT_MS, onPersistTimeout: notifySlowSaveOnce, onWriteSettled: (write) => { slowSaveNoticed.delete(write.sourcePath); },
     refreshGeneration: () => $data.refreshGeneration?.() ?? { started: 0, delivered: 0 },
   });
-
-  /**
-   * The executor's prompt seam: each PromptRequest kind opens its modal and
-   * returns the collected answer. Prompt side-effects live here, read directly off
-   * the modal result — the "don't ask again" mode persist needs no failed-write
-   * compensation: it stays `ask` only if the persist itself fails, then asks again.
-   */
-  async function resolvePrompt(prompt: PromptRequest): Promise<PromptAnswer | null> {
-    if (prompt.kind === 'inferred-drag') {
-      const choice = await new InferredDragModal(app).openAndGetChoice();
-      if (choice?.dontAskAgain) onInferredDragModeChange?.(choice.action);
-      return { kind: 'inferred-drag', choice: choice ? { action: choice.action } : null };
-    }
-    if (prompt.kind === 'shrink-fit') return resolveShrinkPrompt(prompt);
-    return resolveExtendPrompt(prompt);
-  }
-
-  async function resolveShrinkPrompt(
-    prompt: Extract<PromptRequest, { kind: 'shrink-fit' }>,
-  ): Promise<PromptAnswer> {
-    const adjust = await new CascadeConfirmModal(app, {
-      title: 'Parent is smaller than its children',
-      body: `Resizing "${prompt.name}" leaves it smaller than the tasks inside it. Adjust it to wrap its children, or undo the resize.`,
-      confirmText: 'Adjust to fit',
-      cancelText: 'Undo resize',
-      rows: [
-        {
-          name: prompt.name,
-          oldStart: prompt.attempted.start,
-          oldEnd: prompt.attempted.end,
-          newStart: prompt.fit.start,
-          newEnd: prompt.fit.end,
-        },
-      ],
-    }).openAndGetChoice();
-    return { kind: 'shrink-fit', choice: adjust ? 'adjust' : 'undo' };
-  }
-
-  async function resolveExtendPrompt(
-    prompt: Extract<PromptRequest, { kind: 'extend' }>,
-  ): Promise<PromptAnswer> {
-    const approved = await new CascadeConfirmModal(app, {
-      title: 'Extend parent dates?',
-      body:
-        `Moving "${prompt.name}" carries it outside the planned window of the task(s) below. ` +
-        `Its new dates are already saved — this only extends them to include it, and can't be undone.`,
-      confirmText: 'Extend all',
-      rows: prompt.extensions,
-    }).openAndGetChoice();
-    return { kind: 'extend', approved };
-  }
 
   const CASCADE_FAILURE_NOTICE: Record<CascadePhase, string> = {
     subtree: "Couldn't move a child task — check TaskNotes is running.",
