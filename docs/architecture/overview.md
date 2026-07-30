@@ -6,12 +6,15 @@ given change, and how data flows. Conventions and *why* decisions live in
 
 ## The one sentence that orients everything
 
-**The Bases Base owns the task _set_; TaskNotes _enriches_ it.** The Gantt is an
-Obsidian Bases view, so the Base's filter + field mappings decide which notes are
-tasks and supply their dates/text/parents. TaskNotes, when installed, is layered
-on by note path to add dependency edges, status/priority palettes, and the write
-path — it never owns the set. When TaskNotes is absent the view degrades cleanly
-to a read-only timeline. This composition lives in
+**The Bases Base owns the matched seed set; TaskNotes enriches it.** The Gantt is
+an Obsidian Bases view, so the Base's filter and field mappings decide which notes
+are matched and supply their dates, text, and standalone parents. In companion
+mode, TaskNotes supplies the relationship graph and may add transitive descendants
+to the displayed context when "Show all" is enabled, but that expansion stays
+anchored to the matched Base roots rather than becoming an independent TaskNotes
+query. TaskNotes also adds dependency edges, status/priority palettes, and the
+write path. When TaskNotes is absent the view degrades cleanly to a read-only
+timeline. The source composition lives in
 [CompositeSource.ts](../../src/datasource/CompositeSource.ts).
 
 ## Top-level ownership
@@ -24,7 +27,7 @@ location; it is not a strict allowed-import graph.
 | Composition root | [`src/main.ts`](../../src/main.ts) | Plugin `onload`/`onunload`: registers the Gantt Bases view, calendar-note editor, "What's New" view and commands, settings tab, and post-update version check. | Adding a command, a registered view, or plugin-level wiring. |
 | Gantt Bases integration + presentation | [`src/bases/`](../../src/bases/) | `BasesView` lifecycle, per-view options, value extraction, synchronization and interaction boundaries, and the SVAR Svelte UI. | Anything the user sees or configures in a Gantt view, or the boundary between Obsidian, Svelte, and SVAR. |
 | Controller (source of truth) | [`src/controller/`](../../src/controller/) | Selects the active data source, expands source tasks into SVAR render instances, rewrites links, owns the snapshot, routes writes, and owns calendar-schema parsing and working-time derivation. | Changing how tasks become bars, calendar-domain derivation, link/instance logic, or write routing. |
-| Data sources | [`src/datasource/`](../../src/datasource/) | Capability-typed sources yielding **raw** values (no formatting): Bases supplies the set and parents, TaskNotes supplies dependencies and writes, and the composite combines them. | Reading or writing a field, or adding a backing system. |
+| Data sources | [`src/datasource/`](../../src/datasource/) | Capability-typed sources yielding **raw** values (no formatting): Bases supplies the matched seed set and standalone parents; TaskNotes supplies dependencies, writes, and the companion relationship graph used to derive optional displayed context. | Reading or writing a field, changing companion hierarchy inputs, or adding a backing system. |
 | Calendar editor | [`src/editor/`](../../src/editor/) | Calendar-note routing, editor state, persistence, and calendar previews. | Changing how calendar notes are opened, edited, saved, or previewed. |
 | Rendering geometry | [`src/render/`](../../src/render/) | Pure split-task segment geometry and guarded snapshots of the SVAR scale state used by segments and overlays. Viewport sizing separately observes scale height in the Bases composition root. | Changing split-task geometry or adapting segment/overlay rendering to a changed SVAR scale contract. |
 | Release / settings | [`src/release/`](../../src/release/) | Settings tab, "What's New" view, and version-planning logic. | Changing settings UI or release-notes behavior. |
