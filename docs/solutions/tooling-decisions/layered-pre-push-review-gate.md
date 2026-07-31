@@ -123,11 +123,12 @@ Each push is the first read of the delta. Regressions introduced by a fix are re
 
 ```
 fix -> commit
+    -> confirm the working tree is clean
     -> capture reviewed_sha from HEAD and give that SHA to both layers
     -> layer 1: ce-code-review on the DELTA (multi-persona, repo-standards-aware)
     -> layer 2: cross-model peer on the DELTA (different family, independent, independence_verified)
-    -> both clean?  no  -> fix -> commit -> repeat (new commit = no receipts)
-                     yes -> confirm HEAD still equals reviewed_sha
+    -> both clean?  no  -> fix -> commit -> repeat from the clean-tree check
+                     yes -> confirm the tree is clean and HEAD still equals reviewed_sha
                          -> node scripts/check-review-receipts.mjs record ce-code-review
                             node scripts/check-review-receipts.mjs record cross-model-peer
     -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
