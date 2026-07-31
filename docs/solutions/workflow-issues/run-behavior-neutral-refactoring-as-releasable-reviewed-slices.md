@@ -26,9 +26,11 @@ tags:
   - scope-control
 ---
 
+# Run behavior-neutral refactoring as releasable, independently reviewed slices
+
 ## Context
 
-The Farley-aligned maintainability campaign began with a serious process failure. Several days went into building, hardening, reviewing, and then deleting a bespoke assertion checker and related review machinery before production-code simplification had started. An installed SonarJS rule already answered the original testing question. The failure was not merely wasted setup time: it added code to reason about, directed review toward disposable tooling, and delayed delivery of the actual maintainability outcome.
+The Farley-aligned maintainability campaign began with a serious process failure. Several hours went into building, hardening, reviewing, and then deleting a bespoke assertion checker and related review machinery before production-code simplification had started. An installed SonarJS rule already answered the original testing question. The failure was not merely wasted setup time: it added code to reason about, directed review toward disposable tooling, and delayed delivery of the actual maintainability outcome.
 
 The corrective course changed the execution system:
 
