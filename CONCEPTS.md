@@ -45,7 +45,10 @@ The authored values a write is known to have persisted, remembered per source be
 ## Review gate
 
 ### Review receipt
-An attestation that a named review layer ran clean against one exact commit, recorded per clone and never committed. Receipts gate the push rather than the merge: every ref being pushed needs one on its tip from every required layer, and a tip receipt attests the chain of reviews ending there rather than each commit behind it. Because a receipt names a commit, any new commit — including the fix for a review finding — starts with none and must earn its own.
+An attestation that a named review layer ran clean against one exact commit, recorded in the current worktree's resolved Git metadata and never committed. Linked worktrees have separate receipt stores. Within the maintainer and repository-agent workflow, the installed pre-push hook uses receipts to gate each non-deletion ref tip it processes; a tip receipt attests the chain of reviews ending there rather than each commit behind it. The hook is local and can be absent or explicitly bypassed, so it is not remote proof of review. Because a receipt names a commit, any new commit — including the fix for a review finding — starts with none and must earn its own.
+
+### Design-contract preamble
+A short pre-implementation record for a change to concurrency, ordering, or invalidation contracts that names the waits and contracts being changed, the resulting wait or lock graph, and the failure direction of a false positive.
 
 ## Field mapping
 
