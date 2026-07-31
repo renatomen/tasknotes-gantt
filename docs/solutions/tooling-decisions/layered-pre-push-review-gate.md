@@ -1,6 +1,7 @@
 ---
 title: "A single AI reviewer is not a review gate — layer it, and enforce the layers mechanically"
 date: 2026-07-28
+last_refreshed: 2026-07-31
 category: docs/solutions/tooling-decisions
 module: code-review / pre-push-gate
 problem_type: tooling_decision
@@ -10,10 +11,10 @@ related_components:
   - tooling
   - testing_framework
 applies_when:
+  - "A maintainer or repository agent is about to push; both review receipts are required for every pushed ref tip"
   - "An AI code reviewer (GitHub-hosted bot, single CLI pass) is the only reader before merge"
   - "Review has settled into a fix, push, re-ping loop with no local pass before each push"
   - "The change touches concurrency, ordering, or invalidation contracts (queues, fences, caches, ledgers, retry budgets)"
-  - "Deciding whether 'always review locally before pushing' can rest on convention or needs a mechanical gate"
   - "A fix for a review finding is itself a candidate to introduce a regression"
 resolution_type: tooling_addition
 tags: [code-review, pre-push-gate, review-receipts, cross-model-review, concurrency, husky, design-contract, mechanical-enforcement]
@@ -50,7 +51,7 @@ than by line, because line numbers rot — an earlier revision of this section
 pointed at lines that a later shrink had already moved:
 
 - `REQUIRED_LAYERS` names both layers, and **both** are required for **every** pushed ref tip.
-- Receipts live in `.git/review-receipts.json`, keyed by commit sha: `{"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}`. Inside `.git/` means per-clone and never committed — a receipt attests that *this* clone ran *this* review, and cannot be inherited by fetching a branch.
+- Receipts live in the runtime-resolved Git directory (`git rev-parse --git-dir`) as `review-receipts.json`, keyed by commit sha: `{"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}`. The store is local to the current worktree and never committed; linked worktrees therefore have separate stores. A receipt attests that *this* worktree ran *this* review and cannot be inherited by fetching a branch.
 - `record <layer>` stamps the current `HEAD` with an ISO timestamp, and rejects any layer name outside `REQUIRED_LAYERS`.
 - `check` reads git's pre-push stdin ref lines (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) and gates every distinct pushed local sha — the tip of each ref being pushed, not the checkout's `HEAD`.
 - `parsePushedRefLines` **fails closed**: a line that is not exactly four tokens with valid local and remote sha fields is collected as `invalid`, and `check` refuses the entire push rather than gate blind. A silently discarded line would let its ref through ungated. Blank lines are skipped; deletions (all-zero shas) are recognized by `isDeletion` and not gated.
@@ -76,7 +77,7 @@ decision logic is easy and its perception is hard, so an optimisation that buys
 speed by perceiving more is usually a bad trade. Removing it returned the file
 from 383 lines to 188.
 
-The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The script's own header states its modest scope honestly: it makes an unreviewed push *mechanically impossible* by demanding receipts; whether each review honestly covered its range is the review process's job, not the script's.
+The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The script's own header states its modest scope honestly: when the hook is installed and not bypassed, it refuses a pushed tip without both receipts. Repository policy remains responsible for requiring the reviews and ensuring that each review honestly covered its range.
 
 **The design-contract preamble.** Adopted mid-campaign as a secondary discipline: for any fix touching concurrency, ordering, or invalidation, write — *before code* — (a) which waits and contracts change, (b) the post-change wait/lock graph, and (c) the failure direction of a false positive. This was adopted after a regression that the post-hoc review caught but the design should have (see Examples).
 
@@ -84,14 +85,14 @@ The consequence that makes the whole thing stick: **a new commit voids receipts.
 
 The four P1s that eleven GitHub rounds missed, and where their fixes now live:
 
-1. **Echo-sequence baseline read too late.** The `movedByPredecessor` tie-break compared a baseline captured inside a deferred `setTimeout` submit rather than synchronously at intercept — so a predecessor revert landing in that window was invisible. The fix reads it at intercept: `src/bases/GanttContainer.svelte:1973` captures `echoSeqAtCapture` before the `setTimeout(...)` on `:1976` hands it to `submitBarGesture`, which uses it at `:2160`.
-2. **Progress-only reverts ticking the geometry echo sequence.** A failed progress persist's revert moves no geometry, but was bumping the per-source echo count — so a queued date gesture believed a predecessor had moved the bar and silently no-op'd its real date write. Fixed by the `carriesGeometry(echoes)` guard at `src/bases/dragExecutor.ts:100` (predicate at `:84`), with the reasoning kept in the comment above it.
-3. **Config-only recomputes advancing the settled-facts ledger.** A `reuseTasks` recompute over cached tasks re-reads nothing from the vault, yet was ticking the ledger's generation — dropping a valid overlay and re-opening exactly the stale-estimate suppression the ledger exists to prevent. Fixed by resolving `willReadTaskFacts` at one decision point in `src/controller/GanttController.ts:1517-1520`, with the invariant documented on the counters at `:517-525`.
+1. **Echo-sequence baseline read too late.** The `movedByPredecessor` tie-break compared a baseline captured inside a deferred `setTimeout` submit rather than synchronously at intercept — so a predecessor revert landing in that window was invisible. The fix in `src/bases/GanttContainer.svelte` captures `echoSeqAtCapture` before scheduling the deferred `submitBarGesture`, whose `movedByPredecessor` callback compares the current sequence with that baseline.
+2. **Progress-only reverts ticking the geometry echo sequence.** A failed progress persist's revert moves no geometry, but was bumping the per-source echo count — so a queued date gesture believed a predecessor had moved the bar and silently no-op'd its real date write. Fixed by the `carriesGeometry(echoes)` guard in `src/bases/dragExecutor.ts`, with the reasoning kept in the comment above it.
+3. **Config-only recomputes advancing the settled-facts ledger.** A `reuseTasks` recompute over cached tasks re-reads nothing from the vault, yet was ticking the ledger's generation — dropping a valid overlay and re-opening exactly the stale-estimate suppression the ledger exists to prevent. Fixed by resolving `willReadTaskFacts` once inside `GanttController.recompute`, with the invariant documented on `readStartedSeq` and `readDeliveredSeq`.
 4. **The receipt gate itself validating only `HEAD`.** The new pre-push gate read the checkout's `HEAD` rather than the refs actually being pushed, so pushing a different branch — or several refs at once — gated the wrong sha entirely and let un-receipted work through. Fixed by the stdin ref-line parsing described above, covered by `test/unit/checkReviewReceipts.test.ts` for the parser and `test/unit/checkReviewReceiptsCli.test.ts` for the entry point that consumes it. Note the deliberate limit that remains: the gate covers each pushed ref's **tip**, not every commit in the range; the script header states plainly that a tip receipt attests the chain of reviews ending there, and honest coverage of the ancestors is the review process's job, not the script's.
 
 The local cycles then converged. The first chain ran five: findings 8 → 3 → 3 → 2 → 0, changed lines 676 → 433 → 111 → 54 → 42. A second chain of four followed the next GitHub round and converged the same way, ending clean on both layers. Convergence in both dimensions — fewer findings *and* smaller deltas — is the signal that the loop was finding real things rather than churning.
 
-**Two of those cycles caught regressions introduced by earlier fixes — before they reached the PR.** (a) A fence-until-settle fix, correct in itself (an Obsidian vault write cannot be cancelled, so the persist timeout became a *reporting* event and the queue stayed held), converted a 10-second-bounded stall into an **unbounded global cascade-lane starvation**, because a cascade round fence-waits on source queues from inside the single global lane (`src/bases/dragCascadeLane.ts:1-23` now documents the deadline-bounded fence and why it must be). (b) A retry budget that reset only on delivery — which, in the storm environment the budget exists for, never happens — starved every later superseded read. The current rule is the opposite and is stated at `src/controller/GanttController.ts:1521-1523`: every externally-triggered genuine read restores the budget, retries never restore their own.
+**Two of those cycles caught regressions introduced by earlier fixes — before they reached the PR.** (a) A fence-until-settle fix, correct in itself (an Obsidian vault write cannot be cancelled, so the persist timeout became a *reporting* event and the queue stayed held), converted a 10-second-bounded stall into an **unbounded global cascade-lane starvation**, because a cascade round fence-waits on source queues from inside the single global lane. `runLaneRound` in `src/bases/dragCascadeLane.ts` now uses `fenceWithinDeadline`, and the module contract explains why the fence must be deadline-bounded. (b) A retry budget that reset only on delivery — which, in the storm environment the budget exists for, never happens — starved every later superseded read. `GanttController.recompute` now restores `consecutiveReadRetries` for each externally-triggered genuine read while retries never restore their own budget.
 
 Both of those are regressions *from the fixes*, which is precisely the failure mode a fix→push→re-ping loop is worst at: the reviewer sees the new state, not the delta from the state it just approved.
 
@@ -99,11 +100,13 @@ Both of those are regressions *from the fixes*, which is precisely the failure m
 
 ## When to Apply
 
-Apply the layered gate to **merge-blocking refactors of concurrency-, ordering-, or invalidation-critical code** — work where a missed finding is a silent data-correctness bug rather than a visible break. The drag executor, the cascade lane, the settled-facts ledger, and the recompute generation counters are exactly that shape.
+In this repository, the installed local hook requires the two-layer gate for **every non-deletion ref tip it processes**. There is no risk-based or docs-only exemption encoded in that mechanism. When the hook is installed and not explicitly bypassed, it refuses any pushed tip without both exact-tip receipts. Hooks are a local enforcement layer, not remote proof: a clone without installed hooks or a push made with `--no-verify` can evade the mechanism. Repository policy therefore remains responsible for requiring honest reviews before receipts are recorded. The triggering incident involved concurrency-, ordering-, and invalidation-critical code, but the later exemption experiment showed that deciding which changes deserved review created a larger and less trustworthy mechanism than reviewing the smallest coherent delta.
 
-Do **not** make it the default for every diff. The cost is real and should be stated plainly: each cycle is a fix, two full review passes, and full verification — 2500+ Jest tests, lint, typecheck, a production build, and a 10-case WDIO e2e against real Obsidian. Multiply by nine cycles across two chains.
+Keep the cost proportional through batch size and mapped verification, not exemptions. Review one coherent delta, run the fastest reliable checks that can prove its behavior, and add the relevant integration or real-Obsidian journey when the changed boundary requires it. The receipt hook requires two honest reviews of the exact candidate; it does not prescribe one fixed test matrix for every kind of change.
 
-A further honesty check on the value: roughly half of the ~20 findings across the campaign were **design-level** and would have been catchable in the plan. The other half — DST millisecond arithmetic in a calendar-day codebase, annotated-tag object shas, CRLF and malformed stdin, stale ghost-run geometry in an overlay — only fall out of executing concrete code against concrete inputs. The review layers are the right net for that second half. For the first half, the cheaper net is the design-contract preamble, upstream.
+The design-contract preamble remains narrower. Apply it before code that changes concurrency, ordering, or invalidation contracts, where a missed wait or failure-direction decision can become a silent data-correctness defect. The review receipts are universal within the maintainer workflow; this additional design exercise is risk-mapped.
+
+A further honesty check on the value: roughly half of the ~20 findings across the original campaign were **design-level** and would have been catchable in the plan. The other half — DST millisecond arithmetic in a calendar-day codebase, annotated-tag object shas, CRLF and malformed stdin, stale ghost-run geometry in an overlay — only fall out of executing concrete code against concrete inputs. The review layers are the right net for that second half. For the first half, the cheaper net is the design-contract preamble, upstream.
 
 ## Examples
 
@@ -136,7 +139,7 @@ The fix under review was correct on its own terms. An Obsidian vault write canno
 
 > Does this fence-wait run **inside** the single global cascade lane?
 
-It does. A cascade round acquires its write fence from inside the one global lane, so an unbounded fence wait over a hung source parks that lane for **every** source's later cascades. The fix had converted a 10-second-bounded per-gesture stall into an unbounded global starvation. The resolution — a deadline-bounded fence, with a round that misses the deadline resolving as a silent pre-delivery halt so the lane frees — is what `src/bases/dragCascadeLane.ts:10-23` now documents as an invariant rather than an implementation detail.
+It does. A cascade round acquires its write fence from inside the one global lane, so an unbounded fence wait over a hung source parks that lane for **every** source's later cascades. The fix had converted a 10-second-bounded per-gesture stall into an unbounded global starvation. The resolution — a deadline-bounded fence, with a round that misses the deadline resolving as a silent pre-delivery halt so the lane frees — is documented in the module contract of `src/bases/dragCascadeLane.ts` as an invariant rather than an implementation detail.
 
 The point of the example is the timing. That question was formulable **at design time**; it was asked in the post-hoc review brief instead. Written as a design-contract preamble before the code, it reads:
 
