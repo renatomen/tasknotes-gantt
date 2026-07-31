@@ -77,7 +77,7 @@ decision logic is easy and its perception is hard, so an optimisation that buys
 speed by perceiving more is usually a bad trade. Removing it returned the file
 from 383 lines to 188.
 
-The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The script's own header states its modest scope honestly: when the hook is installed and not bypassed, it refuses a pushed tip without both receipts. Repository policy remains responsible for requiring the reviews and ensuring that each review honestly covered its range.
+The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The mechanism has modest scope: when the hook is installed and not bypassed, it refuses a pushed tip without both receipts. Repository policy remains responsible for requiring the reviews and ensuring that each review honestly covered its range.
 
 **The design-contract preamble.** Adopted mid-campaign as a secondary discipline: for any fix touching concurrency, ordering, or invalidation, write — *before code* — (a) which waits and contracts change, (b) the post-change wait/lock graph, and (c) the failure direction of a false positive. This was adopted after a regression that the post-hoc review caught but the design should have (see Examples).
 
