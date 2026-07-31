@@ -38,7 +38,7 @@ Run a **layered pre-push gate with mechanical enforcement**, not a single review
 
 The two layers differ deliberately. Layer 1 asks "is this right *for this repo*"; layer 2 asks "is this right at all, and what breaks it". Neither subsumes the other.
 
-**The fix-forward loop shape.** Fix → commit → run BOTH layers **on the delta** → only a double-clean run records receipts → push. Reviewing the delta rather than the whole branch is what keeps each cycle affordable; recording receipts only on a double-clean run is what makes the gate mean something.
+**The fix-forward loop shape.** Fix → commit → run BOTH layers on the same explicit `review_base..reviewed_sha` range → only a double-clean run records receipts → push. The first base is the last pushed tip; a later fix-forward base may be the exact tip both layers reviewed in the preceding round. Reviewing that explicit range rather than the whole branch is what keeps each cycle affordable; recording receipts only on a double-clean run is what makes the gate mean something.
 
 **Mechanical enforcement.** The gate is not a habit, it's a hook. `.husky/pre-push` is a single line:
 
@@ -124,15 +124,22 @@ Each push is the first read of the delta. Regressions introduced by a fix are re
 ```
 fix -> commit
     -> confirm the working tree is clean
-    -> capture reviewed_sha from HEAD and give that SHA to both layers
-    -> layer 1: ce-code-review on the DELTA (multi-persona, repo-standards-aware)
-    -> layer 2: cross-model peer on the DELTA (different family, independent, independence_verified)
+    -> capture review_base from the last pushed or preceding reviewed tip
+    -> capture reviewed_sha from HEAD
+    -> give review_base..reviewed_sha to both layers
+    -> layer 1: ce-code-review on that RANGE (multi-persona, repo-standards-aware)
+    -> layer 2: cross-model peer on that RANGE (different family, independent, independence_verified)
     -> both clean?  no  -> fix -> commit -> repeat from the clean-tree check
                      yes -> confirm the tree is clean and HEAD still equals reviewed_sha
                          -> node scripts/check-review-receipts.mjs record ce-code-review
                             node scripts/check-review-receipts.mjs record cross-model-peer
     -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
 ```
+
+The first range must start at the last pushed state, and each later range must
+start at the exact tip reviewed in the preceding round. A tip receipt attests
+that contiguous review chain ending at the tip; it cannot replace review of an
+ancestor omitted from the chain.
 
 Findings per cycle (first chain): 8 → 3 → 3 → 2 → 0. Changed lines: 676 → 433 → 111 → 54 → 42. The GitHub reviewer still runs — as the final gate on an already double-clean branch.
 
