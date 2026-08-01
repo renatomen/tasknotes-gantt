@@ -21,7 +21,7 @@
 
 import { bareProperty } from '../datasource/dateFieldMapping';
 import type { TaskNotesFieldMeta } from './cellRenderType';
-import { matchMappedFieldRole, type MappedFieldRole } from './mappedFieldRole';
+import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from './types/field-mapping';
 
 /** The inline editor families a cell can resolve to. */

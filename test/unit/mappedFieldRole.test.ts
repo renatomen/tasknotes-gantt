@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { matchMappedFieldRole, type MappedFieldRole } from '../../src/bases/mappedFieldRole';
+import { matchMappedFieldRole, type MappedFieldRole } from '../../src/datasource/mappedFieldRole';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 
 function mappings(over: Partial<FieldMappings> = {}): FieldMappings {

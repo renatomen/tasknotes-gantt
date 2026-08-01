@@ -51,6 +51,78 @@ async function activeViewType(): Promise<string | null> {
   });
 }
 
+interface EditorConflictState {
+  yearConflicts: number;
+  /** Conflicts per weekday row; the grid lays Mon..Sun out as rows 1..7. */
+  conflictsByRow: Record<number, number>;
+  /** The year the grid is rendering, read from it rather than from the clock. */
+  year: number;
+  /** Total rendered day cells — zero means the grid is absent, not clean. */
+  yearCells: number;
+  text: string;
+  cls: string;
+}
+
+/** The year grid's rows for weekdays, its Mon-first layout being 1-based. */
+const FRIDAY_ROW = 5;
+const SUNDAY_ROW = 7;
+
+/**
+ * How often a weekday falls in a year. Asserting the COUNT per weekday is what
+ * pins recurrence: a set of distinct rows is satisfied by a single cell per row,
+ * so a broken expansion that produced one Friday would pass it.
+ */
+function weekdayOccurrences(year: number, mondayBasedRow: number): number {
+  const jsDay = mondayBasedRow === 7 ? 0 : mondayBasedRow; // grid row 7 is Sunday
+  let count = 0;
+  for (
+    const day = new Date(Date.UTC(year, 0, 1));
+    day.getUTCFullYear() === year;
+    day.setUTCDate(day.getUTCDate() + 1)
+  ) {
+    if (day.getUTCDay() === jsDay) count += 1;
+  }
+  return count;
+}
+
+/**
+ * The year grid's conflict count and the status banner, read from the ACTIVE
+ * editor leaf in one shot — a global selector can match a stale background leaf,
+ * decoupling the banner (one leaf) from the year stripes (another). Scoping to
+ * the active leaf's container keeps them the same instance. The conflict cells
+ * use `.og-year-cell.og-year-conflict` so the legend swatch (also
+ * `.og-year-conflict`, but not a grid cell) is not counted.
+ */
+async function readConflictState(): Promise<EditorConflictState | null> {
+  return browser.executeObsidian(({ app }) => {
+    const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
+      ?.containerEl;
+    if (!root) return null;
+    const banner = root.querySelector(".og-cal-status");
+    const conflicted = Array.from(
+      root.querySelectorAll<HTMLElement>(".og-year-cell.og-year-conflict"),
+    );
+    const byRow: Record<number, number> = {};
+    for (const cell of conflicted) {
+      // Read the style PROPERTY, not the attribute: Svelte compiles an
+      // interpolated style into direct property assignments, so the attribute
+      // can be absent while the value is plainly there.
+      const raw = cell.style.gridRow || cell.style.gridRowStart;
+      const row = Number(/(\d+)/.exec(raw ?? "")?.[1]);
+      if (Number.isFinite(row)) byRow[row] = (byRow[row] ?? 0) + 1;
+    }
+    const label = root.querySelector(".og-year-grid")?.getAttribute("aria-label") ?? "";
+    return {
+      yearConflicts: conflicted.length,
+      yearCells: root.querySelectorAll(".og-year-cell").length,
+      conflictsByRow: byRow,
+      year: Number(/(\d{4})/.exec(label)?.[1] ?? 0),
+      text: banner?.textContent ?? "",
+      cls: banner?.className ?? "",
+    };
+  });
+}
+
 /** Put the calendar marker back, whatever a previous test did to it. */
 async function restoreMarker(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -1020,6 +1092,18 @@ describe("Gantt (OG) calendar editor routing", () => {
       timeoutMsg: "a late-indexed calendar note never re-routed to the editor",
     });
 
+    // Both halves of the claim, and the link between them: it is not enough that
+    // A calendar reached the editor — it must be the one whose marker indexed
+    // late, or a reroute of some other note would satisfy this.
+    expect(openedPath).toMatch(/^Calendars\//);
+    const routed = await browser.executeObsidian(({ app }) => {
+      const state = app.workspace.activeLeaf?.getViewState();
+      const file = state?.state?.["file"];
+      return { type: state?.type ?? null, file: typeof file === "string" ? file : null };
+    });
+    expect(routed.type).toBe(EDITOR_VIEW);
+    expect(routed.file).toBe(openedPath);
+
     await deleteNotes([openedPath]);
   });
 
@@ -1139,30 +1223,16 @@ describe("Gantt (OG) calendar editor routing", () => {
     await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
     await (await $(".og-cal-tab=Year")).click();
 
-    // Read the conflict cells AND the banner from the ACTIVE editor leaf in one
-    // shot — a global selector can match a stale background leaf, decoupling the
-    // banner (one leaf) from the year stripes (another). Scoping to the active
-    // leaf's container keeps them the same instance. The conflict cells use
-    // `.og-year-cell.og-year-conflict` so the legend swatch (also
-    // `.og-year-conflict`, but not a grid cell) is not counted.
+    let seen: EditorConflictState | null = null;
     await browser.waitUntil(
       async () => {
-        const info = await browser.executeObsidian(({ app }) => {
-          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
-            ?.containerEl;
-          if (!root) return null;
-          const banner = root.querySelector(".og-cal-status");
-          return {
-            yearConflicts: root.querySelectorAll(".og-year-cell.og-year-conflict").length,
-            text: banner?.textContent ?? "",
-            cls: banner?.className ?? "",
-          };
-        });
+        seen = await readConflictState();
         return (
-          info !== null &&
-          info.yearConflicts > 0 &&
-          info.text.includes("conflict") &&
-          info.cls.includes("og-cal-status-warn")
+          seen !== null &&
+          seen.yearConflicts > 0 &&
+          seen.year > 0 &&
+          seen.text.includes("conflict") &&
+          seen.cls.includes("og-cal-status-warn")
         );
       },
       {
@@ -1170,6 +1240,18 @@ describe("Gantt (OG) calendar editor routing", () => {
         timeoutMsg: "the active set editor did not surface conflict days and a warning banner",
       },
     );
+
+    // A Mon-Fri member and a Sun-Thu member disagree on Fridays AND Sundays, on
+    // EVERY one of them. The per-weekday counts are the claim: a set of rows is
+    // satisfied by a single cell per row, so a broken expansion producing one
+    // Friday and one Sunday would pass it.
+    const state = seen as unknown as EditorConflictState;
+    expect(state.conflictsByRow).toEqual({
+      [FRIDAY_ROW]: weekdayOccurrences(state.year, FRIDAY_ROW),
+      [SUNDAY_ROW]: weekdayOccurrences(state.year, SUNDAY_ROW),
+    });
+    expect(state.text).toContain("conflict");
+    expect(state.cls).toContain("og-cal-status-warn");
 
     await deleteNotes(["Conflict Set.md", "Sun Thu.md", "Weekdays Cal.md"]);
   });
@@ -1194,17 +1276,23 @@ describe("Gantt (OG) calendar editor routing", () => {
     await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
     await (await $(".og-cal-tab=Year")).click();
 
+    let seen: EditorConflictState | null = null;
     await browser.waitUntil(
       async () => {
-        const conflicts = await browser.executeObsidian(({ app }) => {
-          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
-            ?.containerEl;
-          return root?.querySelectorAll(".og-year-cell.og-year-conflict").length ?? 0;
-        });
-        return conflicts > 0;
+        seen = await readConflictState();
+        return (seen?.yearConflicts ?? 0) > 0;
       },
       { timeout: 15000, timeoutMsg: "the availability-only member produced no conflicts in the union" },
     );
+
+    // Not merely "some conflict", and not merely a plausible count: the two
+    // members disagree on Fridays and ONLY Fridays. A count alone would accept
+    // any single-weekday disagreement — a member misparsed as Tue-Fri differs on
+    // Mondays and lands on the same tally — so the day itself is what pins it.
+    const state = seen as unknown as EditorConflictState;
+    expect(state.conflictsByRow).toEqual({
+      [FRIDAY_ROW]: weekdayOccurrences(state.year, FRIDAY_ROW),
+    });
 
     await deleteNotes(["Avail Set.md", "Avail Mon Thu.md", "Weekdays Cal.md"]);
   });
@@ -1277,24 +1365,16 @@ describe("Gantt (OG) calendar editor routing", () => {
     await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
     await (await $(".og-cal-tab=Year")).click();
 
+    let seen: EditorConflictState | null = null;
     await browser.waitUntil(
       async () => {
-        const info = await browser.executeObsidian(({ app }) => {
-          const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)
-            ?.containerEl;
-          if (!root) return null;
-          const banner = root.querySelector(".og-cal-status");
-          return {
-            yearConflicts: root.querySelectorAll(".og-year-cell.og-year-conflict").length,
-            text: banner?.textContent ?? "",
-            cls: banner?.className ?? "",
-          };
-        });
+        seen = await readConflictState();
         return (
-          info !== null &&
-          info.yearConflicts === 0 && // the counted year has none
-          info.text.includes("conflict") && // but the banner still warns
-          info.cls.includes("og-cal-status-warn")
+          seen !== null &&
+          seen.year > 0 && // the grid actually rendered
+          seen.yearConflicts === 0 && // the counted year has none
+          seen.text.includes("conflict") && // but the banner still warns
+          seen.cls.includes("og-cal-status-warn")
         );
       },
       {
@@ -1302,6 +1382,16 @@ describe("Gantt (OG) calendar editor routing", () => {
         timeoutMsg: "the banner did not warn about a conflict outside the counted year",
       },
     );
+
+    // A grid that never rendered also reports zero conflicts, and the banner
+    // shows on every tab — so "clean" only means anything once the grid is
+    // known to be there.
+    const state = seen as unknown as EditorConflictState;
+    expect(state.year).toBeGreaterThan(0);
+    expect(state.yearCells).toBeGreaterThan(300);
+    expect(state.yearConflicts).toBe(0); // the counted year is clean
+    expect(state.text).toContain("conflict"); // and the banner still warns
+    expect(state.cls).toContain("og-cal-status-warn");
 
     await deleteNotes(["Off Year Set.md", "Past Holiday.md", "Weekdays Cal.md"]);
   });

@@ -86,6 +86,21 @@ export function toNoteProperty(bare: string): string {
 }
 
 /**
+ * The bare frontmatter key of a frontmatter-backed (`note.` / `note:`) mapping
+ * value, or `null` for anything else. Unlike {@link bareProperty} — which
+ * passes an unprefixed name through — this answers whether the property can be
+ * read from a note's frontmatter at all: a `formula.*` / `file.*` / computed
+ * property has no frontmatter key, so live edits to it cannot be observed via
+ * the metadata cache.
+ */
+export function noteFrontmatterKey(property: string | undefined): string | null {
+  if (!property) return null;
+  if (property.startsWith('note.')) return property.slice('note.'.length);
+  if (property.startsWith('note:')) return property.slice('note:'.length);
+  return null;
+}
+
+/**
  * Format a `Date` as a `yyyy-MM-dd` calendar string using its **local**
  * components.
  *

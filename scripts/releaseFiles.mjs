@@ -45,6 +45,40 @@ export function parseVersion(version) {
   };
 }
 
+function compareVersionCore(a, b) {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  if (a.patch !== b.patch) return a.patch - b.patch;
+  return 0;
+}
+
+function comparePrereleaseIdentifier(a, b) {
+  const bothNumeric = /^\d+$/.test(a) && /^\d+$/.test(b);
+  if (bothNumeric) return Number(a) - Number(b);
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+function comparePrereleaseIdentifierLists(aIds, bIds) {
+  for (let index = 0; index < Math.max(aIds.length, bIds.length); index++) {
+    const aId = aIds[index];
+    const bId = bIds[index];
+    if (aId === undefined) return -1;
+    if (bId === undefined) return 1;
+
+    const difference = comparePrereleaseIdentifier(aId, bId);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function comparePrereleases(a, b) {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return comparePrereleaseIdentifierLists(a.split("."), b.split("."));
+}
+
 /**
  * Compare two parsed versions, semver/prerelease-aware. Ascending: returns < 0
  * when `a` precedes `b`. A prerelease precedes its stable release
@@ -55,30 +89,9 @@ export function parseVersion(version) {
  * @returns {number}
  */
 export function compareVersions(a, b) {
-  if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return a.minor - b.minor;
-  if (a.patch !== b.patch) return a.patch - b.patch;
-  // Same x.y.z: a prerelease is lower than the stable release.
-  if (a.prerelease === b.prerelease) return 0;
-  if (a.prerelease === null) return 1; // a is stable, b is prerelease → a is higher
-  if (b.prerelease === null) return -1;
-  const aIds = a.prerelease.split(".");
-  const bIds = b.prerelease.split(".");
-  for (let i = 0; i < Math.max(aIds.length, bIds.length); i++) {
-    const ai = aIds[i];
-    const bi = bIds[i];
-    if (ai === undefined) return -1; // shorter precedes
-    if (bi === undefined) return 1;
-    const aNum = /^\d+$/.test(ai);
-    const bNum = /^\d+$/.test(bi);
-    if (aNum && bNum) {
-      const d = Number(ai) - Number(bi);
-      if (d !== 0) return d;
-    } else if (ai !== bi) {
-      return ai < bi ? -1 : 1;
-    }
-  }
-  return 0;
+  const coreDifference = compareVersionCore(a, b);
+  if (coreDifference !== 0) return coreDifference;
+  return comparePrereleases(a.prerelease, b.prerelease);
 }
 
 /**

@@ -20,6 +20,16 @@ execution: code
 
 ---
 
+## Supersession note (2026-07-30)
+
+The line-count half of R17 and the `max-lines`/legacy-exemption-list half of R19
+are withdrawn. File length is not a quality gate, and the custom size ratchet
+has been removed; references below remain historical execution records, not
+instructions to rebuild it. R17's assertion requirement and R19's global
+cognitive-complexity ceiling of 15 remain. Existing per-file and inline
+bypasses are violations to remove during the maintainability campaign; no new
+bypass may be added.
+
 ## Product Contract
 
 ### Summary

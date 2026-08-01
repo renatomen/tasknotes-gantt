@@ -17,7 +17,7 @@
  */
 
 import type { App, BasesEntry } from 'obsidian';
-import type { FieldMappings } from '../bases/types/field-mapping';
+import type { FieldMappings } from './fieldMappings';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import { checklistProgressPercent } from '../bases/checklistProgress';
 import { bareProperty } from './dateFieldMapping';
