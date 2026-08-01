@@ -112,6 +112,12 @@ export interface RenderInstance {
    * bypassed the policy (e.g. the empty-source path).
    */
   dateStatus: DateStatus;
+  /**
+   * The task's authored Time Estimate in minutes, or `null` when it has none.
+   * Carried so a view that writes a span-derived estimate can also put the
+   * authored one back when the user undoes that write.
+   */
+  estimateMinutes: number | null;
   /** Raw task status string (drives status coloring); `null` when unset. */
   status: string | null;
   /** Raw task priority string (drives priority coloring); `null` when unset. */
@@ -516,6 +522,7 @@ function makeInstance(
     isVirtual,
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
+    estimateMinutes: task.estimate ?? null,
     status: task.status,
     priority: task.priority,
     isFetched: task.isFetched ?? false,

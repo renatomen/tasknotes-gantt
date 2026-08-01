@@ -62,7 +62,8 @@ export function normalizeInferredDragMode(value: unknown): InferredDragMode {
 /**
  * Persist a chosen action as the per-view mode (the "don't ask again" path),
  * swallowing a failing write so a transient Bases `config.set` error can never
- * crash the drag-commit handler. Pure aside from the injected `set` (the Bases
+ * crash the drag-commit handler — the stored mode then simply stays `ask` and
+ * the next gesture prompts again. Pure aside from the injected `set` (the Bases
  * `config.set`); `register`'s `onInferredDragModeChange` wraps it. Mirrors
  * {@link import('./themeResolver').persistThemeMode}.
  *

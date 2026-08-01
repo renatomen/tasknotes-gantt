@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from "@jest/globals";
 import type { App } from "obsidian";
 import { PropertyMappingService } from "../../src/bases/services/PropertyMappingService";
-import type { FieldMappings, SVARTask } from "../../src/bases/types/field-mapping";
+import type { FieldMappings } from "../../src/bases/types/field-mapping";
 import type { BasesEntryLike } from "../../src/bases/types/bases-entry";
 
 describe("PropertyMappingService", () => {
@@ -43,7 +43,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/project-a.md", name: "project-a.md", basename: "project-a" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Project A Task" },
             "note:start": { date: new Date("2024-01-15") },
             "note:due": { date: new Date("2024-01-20") },
@@ -81,7 +81,7 @@ describe("PropertyMappingService", () => {
 
       const mockEntry: BasesEntryLike = {
         file: { path: "notes/meeting.md", name: "meeting.md", basename: "meeting" },
-        getValue: (propertyId: string) => ({
+        getValue: (_propertyId: string) => ({
           date: new Date("2024-02-01"),
         }),
       };
@@ -98,7 +98,7 @@ describe("PropertyMappingService", () => {
       // Arrange
       const mockEntry: BasesEntryLike = {
         file: { path: "backlog/feature-x.md", name: "feature-x.md", basename: "feature-x" },
-        getValue: (propertyId: string) => null,
+        getValue: (_propertyId: string) => null,
       };
 
       // Mock today's date
@@ -128,7 +128,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-b.md", name: "task-b.md", basename: "task-b" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:due": { date: new Date("2024-03-01") },
           };
           return values[propertyId] || null;
@@ -150,7 +150,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-c.md", name: "task-c.md", basename: "task-c" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:start": { date: new Date("2024-03-01") },
           };
           return values[propertyId] || null;
@@ -171,7 +171,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/new-task.md", name: "new-task.md", basename: "new-task" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:start": { date: new Date("2024-04-01") },
             "note:due": { date: new Date("2024-04-10") },
             "note:progress": { data: 0 },
@@ -193,7 +193,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/task-d.md", name: "task-d.md", basename: "task-d" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:start": { date: new Date("2024-05-01") },
             "note:due": { date: new Date("2024-05-10") },
           };
@@ -268,7 +268,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/child.md", name: "child.md", basename: "child" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Child Task" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -299,7 +299,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Orphan Task" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -329,7 +329,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/orphan.md", name: "orphan.md", basename: "orphan" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Orphan Task" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -372,7 +372,7 @@ describe("PropertyMappingService", () => {
       const mockEntry: BasesEntryLike = {
         file: { path: "tasks/multi-parent.md", name: "multi-parent.md", basename: "multi-parent" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Multi-Parent Task" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -435,7 +435,7 @@ describe("PropertyMappingService", () => {
       const entry: BasesEntryLike = {
         file: { path: "u.md", name: "u.md", basename: "u" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:priority": { data: "high" },
             "file.basename": { data: "u" },
           };
@@ -446,9 +446,9 @@ describe("PropertyMappingService", () => {
         "note:priority",
         "file.basename",
       ]);
-      expect((task as any)["note:priority"]).toBe("high");
+      expect((task as unknown as Record<string, unknown>)["note:priority"]).toBe("high");
       // file.basename is a skipped built-in (used for text), not added as a column
-      expect((task as any)["file.basename"]).toBeUndefined();
+      expect((task as unknown as Record<string, unknown>)["file.basename"]).toBeUndefined();
     });
   });
 
@@ -465,7 +465,7 @@ describe("PropertyMappingService", () => {
       return {
         file: { path: "tasks/child.md", name: "child.md", basename: "child" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "Child" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -524,7 +524,7 @@ describe("PropertyMappingService", () => {
       return {
         file: { path: "tasks/t.md", name: "t.md", basename: "t" },
         getValue: (propertyId: string) => {
-          const values: Record<string, any> = {
+          const values: Record<string, unknown> = {
             "note:title": { data: "T" },
             "note:start": { date: new Date("2024-08-01") },
             "note:due": { date: new Date("2024-08-05") },
@@ -537,13 +537,13 @@ describe("PropertyMappingService", () => {
 
     it("adds an unmapped visible property to the task", () => {
       const result = service.transformEntries([scheduledEntry()], mappings, ["note:priority"]);
-      expect((result.tasks[0] as any)["note:priority"]).toBe("high");
+      expect((result.tasks[0] as unknown as Record<string, unknown>)["note:priority"]).toBe("high");
     });
 
     it("does not re-add a visible property already mapped to a gantt field", () => {
       const result = service.transformEntries([scheduledEntry()], mappings, ["note:start"]);
       // note:start is the startProperty → consumed as the bar date, not added as a column key
-      expect((result.tasks[0] as any)["note:start"]).toBeUndefined();
+      expect((result.tasks[0] as unknown as Record<string, unknown>)["note:start"]).toBeUndefined();
       expect(result.tasks[0].start).toBeInstanceOf(Date);
     });
   });

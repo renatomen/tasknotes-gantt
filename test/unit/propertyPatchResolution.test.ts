@@ -113,6 +113,31 @@ describe('resolvePropertyPatch — mapped branches', () => {
     const out = resolvePropertyPatch('note.est', 4320, makeOptions({ timeEstimateProperty: 'note.est' }, { estimateWritable: true }));
     expect(out).toEqual({ estimate: 4320 });
   });
+
+  it('matches a bare-form mapping against a note.-prefixed id (prefix normalized on both sides)', () => {
+    const out = resolvePropertyPatch('note.finish', new Date(2026, 6, 4), makeOptions({ endProperty: 'finish' }));
+    expect(out).toEqual({ end: new Date(2026, 6, 4) });
+  });
+
+  it('routes to start when one key is mapped as both start and end (first mapped match wins)', () => {
+    const out = resolvePropertyPatch(
+      'note.when',
+      new Date(2026, 0, 2),
+      makeOptions({ startProperty: 'note.when', endProperty: 'note.when' }),
+    );
+    expect(out).toEqual({ start: new Date(2026, 0, 2) });
+  });
+
+  it('routes to text when one key is mapped as both text and status (text ranks ahead here)', () => {
+    // The write path ranks text AHEAD of status; the editor resolver ranks it last.
+    // Pinned on both sides so the shared matcher cannot silently unify the orders.
+    const out = resolvePropertyPatch(
+      'note.x',
+      'hello',
+      makeOptions({ textProperty: 'note.x', statusProperty: 'note.x' }),
+    );
+    expect(out).toEqual({ text: 'hello' });
+  });
 });
 
 describe('resolvePropertyPatch — narrower rejections', () => {
@@ -160,6 +185,10 @@ describe('resolvePropertyPatch — property-id refusals', () => {
 
   it('refuses a formula.-prefixed id', () => {
     expect(() => resolvePropertyPatch('formula.total', 'x', makeOptions())).toThrow(TypeError);
+  });
+
+  it('refuses a colon-form file: id', () => {
+    expect(() => resolvePropertyPatch('file:ctime', 'x', makeOptions())).toThrow(TypeError);
   });
 
   it('refuses an unresolvable id', () => {

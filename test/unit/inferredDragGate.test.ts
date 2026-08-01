@@ -38,6 +38,8 @@ describe('persistInferredDragMode', () => {
       throw new Error('config write failed');
     });
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Nothing compensates a failure: the stored mode stays `ask` and the next
+    // gesture's live config read prompts again.
     expect(() => persistInferredDragMode(set, 'estimate-and-dates')).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
@@ -58,6 +60,7 @@ describe('normalizeInferredDragMode', () => {
     expect(normalizeInferredDragMode(42)).toBe('ask');
   });
 });
+
 
 describe('classifyDraggedEdge', () => {
   it('flags an end-only resize', () => {

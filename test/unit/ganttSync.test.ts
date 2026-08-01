@@ -15,6 +15,8 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildSvarTasks,
   buildTreatmentTaskTypes,
+  echoTaskPatch,
+  crossGroupClassPairs,
   planTaskSync,
   planLinkSync,
   planReorder,
@@ -55,6 +57,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isFetched: over.isFetched ?? false,
     isTopLevelPlacement: over.isTopLevelPlacement ?? false,
     ghostRuns: over.ghostRuns,
+    stretchFlagged: over.stretchFlagged,
     interpretationOverridden: over.interpretationOverridden,
   };
 }
@@ -366,6 +369,33 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).not.toContain(`${statusSlug('wip')} ${statusSlug('wip')}`);
   });
 
+  it('registers ids in a stable order (the registration order is a downstream contract)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    const s = statusSlug('wip');
+    const p = prioritySlug('high');
+    expect(ids).toEqual([
+      DATE_STATUS_TYPE,
+      PARENT_ROLE_CLASS,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`,
+      s,
+      `${DATE_STATUS_TYPE} ${s}`,
+      p,
+      `${DATE_STATUS_TYPE} ${p}`,
+      `${PARENT_ROLE_CLASS} ${s}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${s}`,
+      `${PARENT_ROLE_CLASS} ${p}`,
+      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${p}`,
+      `${s} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${s} ${PARENT_ROLE_CLASS}`,
+      `${s} ${p}`,
+      `${DATE_STATUS_TYPE} ${s} ${p}`,
+      `${p} ${PARENT_ROLE_CLASS}`,
+      `${DATE_STATUS_TYPE} ${p} ${PARENT_ROLE_CLASS}`,
+      `${p} ${s}`,
+      `${DATE_STATUS_TYPE} ${p} ${s}`,
+    ]);
+  });
+
   it('never pairs two calendars (only cross-group), so the set stays linear in the calendar count', () => {
     const calendar = Array.from({ length: 10 }, (_, i) => ({ value: `cal-${i}`, color: '#0a0' }));
     const ids = buildTreatmentTaskTypes({ ...palettes, calendar }).map((t) => t.id);
@@ -387,6 +417,37 @@ describe('buildTreatmentTaskTypes', () => {
     // cross-group pairs), so the count is exactly linear: doubling the span of
     // added calendars doubles the growth. A quadratic cross-product would ~4x it.
     expect(count(40) - count(20)).toBe((count(20) - count(10)) * 2);
+  });
+
+  describe('crossGroupClassPairs — the ordered two-class pairing core', () => {
+    it('pairs every class across distinct groups, in both orders, fill-major', () => {
+      expect([...crossGroupClassPairs([['a'], ['x', 'y']])]).toEqual([
+        ['a', 'x'],
+        ['a', 'y'],
+        ['x', 'a'],
+        ['y', 'a'],
+      ]);
+    });
+
+    it('never pairs classes drawn from the same group (including a class with itself)', () => {
+      expect([...crossGroupClassPairs([['a', 'b']])]).toEqual([]);
+    });
+
+    it('spans every distinct group pair when there are more than two groups', () => {
+      const pairs = [...crossGroupClassPairs([['a'], ['b'], ['c']])];
+      expect(pairs).toEqual([
+        ['a', 'b'],
+        ['a', 'c'],
+        ['b', 'a'],
+        ['b', 'c'],
+        ['c', 'a'],
+        ['c', 'b'],
+      ]);
+    });
+
+    it('produces no pairs for empty input', () => {
+      expect([...crossGroupClassPairs([])]).toEqual([]);
+    });
   });
 
   it('covers every composed form a priority + cue bar can produce (whole-string contract)', () => {
@@ -771,6 +832,13 @@ describe('taskStateKey', () => {
     expect(built?.custom.ghostRuns).toEqual(ghostRuns);
   });
 
+  it('threads stretchFlagged onto SvarTask.custom (true when flagged, absent otherwise) so echo and refresh agree', () => {
+    const [flagged] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', stretchFlagged: true })] }));
+    const [plain] = buildSvarTasks(inputs({ instances: [inst({ id: 'b' })] }));
+    expect(flagged?.custom.stretchFlagged).toBe(true);
+    expect(plain?.custom.stretchFlagged).toBeUndefined();
+  });
+
   it('is identical for identical content', () => {
     const [a] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
     const [b] = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }));
@@ -967,5 +1035,74 @@ describe('shouldBulkReseed (#161 U6 — large-diff bulk reseed decision)', () =>
   it('structuralOpCount sums task adds+deletes+moves and link adds+deletes, excluding updates', () => {
     expect(structuralOpCount(plan({}), linkPlan({}))).toBe(0);
     expect(structuralOpCount(plan({ adds: 3, deletes: 2, moves: 1, updates: 99 }), linkPlan({ adds: 4, deletes: 5 }))).toBe(15);
+  });
+});
+
+describe('echoTaskPatch', () => {
+  const geometryPayload = (ghostRuns: Array<{ startDate: string; days: number }>, flagged = false) =>
+    ({
+      kind: 'geometry',
+      geometry: {
+        start: new Date(2026, 0, 5),
+        end: new Date(2026, 0, 9),
+        flagged,
+        ghostRuns,
+      },
+    }) as const;
+
+  const customOf = (over: Partial<RenderInstance> = {}): SvarTask['custom'] =>
+    buildSvarTasks(inputs({ instances: [inst({ id: 'a', ...over })] }))[0]!.custom;
+
+  it('maps a progress echo to a progress-only patch', () => {
+    expect(echoTaskPatch({ kind: 'progress', progress: 40 }, customOf())).toEqual({
+      progress: 40,
+    });
+  });
+
+  it('carries the full geometry: start/end AND custom.ghostRuns, preserving the rest of the custom record', () => {
+    const current = customOf({ ghostRuns: [{ startDate: '2026-01-02', days: 1 }] });
+    const runs = [{ startDate: '2026-01-07', days: 2 }];
+
+    const patch = echoTaskPatch(geometryPayload(runs), current);
+
+    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9) });
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.ghostRuns).toEqual(runs);
+    // Everything else in the row's custom record rides along untouched.
+    expect(custom).toMatchObject({ ...current, ghostRuns: runs });
+  });
+
+  it('clears stale ghost runs: an empty derived run list echoes as undefined, matching buildSvarTasks', () => {
+    const current = customOf({ ghostRuns: [{ startDate: '2026-01-02', days: 1 }] });
+
+    const patch = echoTaskPatch(geometryPayload([]), current);
+
+    expect((patch as { custom: SvarTask['custom'] }).custom.ghostRuns).toBeUndefined();
+  });
+
+  it('stays span-only when the row has no current custom record to advance', () => {
+    expect(echoTaskPatch(geometryPayload([{ startDate: '2026-01-07', days: 2 }]), undefined)).toEqual({
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 9),
+    });
+  });
+
+  it('carries the ceiling-fallback provenance: a flagged geometry echoes custom.stretchFlagged, preserving the rest of the record', () => {
+    const current = customOf();
+
+    const patch = echoTaskPatch(geometryPayload([], true), current);
+
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.stretchFlagged).toBe(true);
+    expect(custom).toMatchObject({ ...current, stretchFlagged: true });
+  });
+
+  it('clears a stale flag: an unflagged geometry echoes stretchFlagged as undefined, matching buildSvarTasks', () => {
+    const current = customOf({ stretchFlagged: true });
+    expect(current.stretchFlagged).toBe(true);
+
+    const patch = echoTaskPatch(geometryPayload([], false), current);
+
+    expect((patch as { custom: SvarTask['custom'] }).custom.stretchFlagged).toBeUndefined();
   });
 });

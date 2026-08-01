@@ -22,7 +22,7 @@ import {
   mapSortPropertyToField,
   extractSortKey,
   positionFetchedAmongMatched,
-} from '../../src/bases/sortKeyMapping';
+} from '../../src/controller/sortKeyMapping';
 
 /** Concise CompanionTask factory (matched/fetched flag + per-field values). */
 function ctask(

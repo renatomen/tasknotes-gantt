@@ -35,6 +35,7 @@ import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
+import type { EchoPayload } from './dragCommitPlan';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -207,6 +208,13 @@ export interface SvarTask {
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
+     * The rendered span came from the derivation authority's ceiling fallback
+     * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
+     * row's custom record stays indistinguishable from a refreshed one — no
+     * renderer reads it yet. Absent when the span is a plain derivation.
+     */
+    stretchFlagged?: boolean;
+    /**
      * The task's effective Estimate meaning when it overrides the view default
      * (R11), read by `BarContent` to draw the corner override dot and its
      * tooltip. Absent = the task follows the view default (no dot). Folded into
@@ -377,6 +385,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
@@ -400,6 +409,39 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   });
 }
 
+/** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
+export type EchoTaskUpdate =
+  | { progress: number }
+  | { start: Date; end: Date; custom?: SvarTask['custom'] };
+
+/**
+ * Shape an executor echo payload into the `update-task` patch for one row. A
+ * geometry echo carries the derivation authority's FULL render geometry, so the
+ * patch advances `custom.ghostRuns` AND `custom.stretchFlagged` alongside
+ * start/end (preserving the rest of the row's custom record) — an echoed split
+ * or ceiling-flagged bar renders exactly as a refreshed one, with `undefined`
+ * for an empty run list or an unflagged span just like {@link buildSvarTasks}.
+ * Without the row's current custom record the patch stays span-only rather than
+ * fabricating a partial record.
+ */
+export function echoTaskPatch(
+  payload: EchoPayload,
+  currentCustom: SvarTask['custom'] | undefined,
+): EchoTaskUpdate {
+  if (payload.kind === 'progress') return { progress: payload.progress };
+  const { geometry } = payload;
+  if (!currentCustom) return { start: geometry.start, end: geometry.end };
+  return {
+    start: geometry.start,
+    end: geometry.end,
+    custom: {
+      ...currentCustom,
+      ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
+      stretchFlagged: geometry.flagged ? true : undefined,
+    },
+  };
+}
+
 /**
  * The stable superset of base task types across ALL fill/strip sources. Registers
  * the date-status flag plus, for every treatment class the palettes can produce
@@ -420,29 +462,45 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
   const groups = treatmentClassGroups(palettes);
   const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const group of groups) {
-    for (const c of group) {
-      ids.add(c);
-      ids.add(`${DATE_STATUS_TYPE} ${c}`);
-    }
+  for (const c of groups.flat()) {
+    ids.add(c);
+    ids.add(`${DATE_STATUS_TYPE} ${c}`);
   }
-  // A two-class bar always draws its Fill class from one source group and its
-  // Strip class from a DIFFERENT one (same-source channels collapse to a single
-  // class), so only cross-group ordered pairs can occur. Pairing within a group
-  // — two calendars, two statuses — is dead weight, and the calendar group makes
-  // that O(N^2) in the calendar count; cross-group pairs keep it O(N).
-  for (const fillGroup of groups) {
-    for (const stripGroup of groups) {
-      if (fillGroup === stripGroup) continue;
-      for (const fillClass of fillGroup) {
-        for (const stripClass of stripGroup) {
-          ids.add(`${fillClass} ${stripClass}`);
-          ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
-        }
-      }
-    }
+  for (const [fillClass, stripClass] of crossGroupClassPairs(groups)) {
+    ids.add(`${fillClass} ${stripClass}`);
+    ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
+}
+
+/**
+ * The ordered (fill, strip) class pairs a two-class bar can compose. A two-class
+ * bar always draws its Fill class from one source group and its Strip class from
+ * a DIFFERENT one (same-source channels collapse to a single class), so only
+ * cross-group ordered pairs can occur. Pairing within a group — two calendars,
+ * two statuses — is dead weight, and the calendar group makes that O(N^2) in the
+ * calendar count; cross-group pairs keep it O(N).
+ */
+export function* crossGroupClassPairs(
+  groups: ReadonlyArray<ReadonlyArray<string>>,
+): Generator<[string, string]> {
+  for (const fillGroup of groups) {
+    for (const stripGroup of groups) {
+      if (stripGroup === fillGroup) continue;
+      yield* orderedClassPairs(fillGroup, stripGroup);
+    }
+  }
+}
+
+function* orderedClassPairs(
+  fills: ReadonlyArray<string>,
+  strips: ReadonlyArray<string>,
+): Generator<[string, string]> {
+  for (const fillClass of fills) {
+    for (const stripClass of strips) {
+      yield [fillClass, stripClass];
+    }
+  }
 }
 
 /**

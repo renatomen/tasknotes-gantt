@@ -10,10 +10,11 @@
  * file — the metadata cache resolves from the vault root); only an
  * undefined source refuses to resolve.
  *
- * Single source of truth: previously duplicated verbatim across the Bases
- * property-mapping and view layers.
+ * Single source of truth, and layer-neutral vault glue: the Bases property
+ * mapping, the view glue, the calendar editor, and the controller's
+ * link-resolution seam all resolve through this one function.
  *
- * @module bases/parentLink
+ * @module datasource/parentLink
  */
 import type { App } from "obsidian";
 

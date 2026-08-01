@@ -139,7 +139,8 @@ function collectGhostRuns(
   return runs;
 }
 
-function localIso(date: Date): string {
+/** A date's local calendar-day ISO key — the day identity every scan compares. */
+export function localIso(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

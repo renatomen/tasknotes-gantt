@@ -99,15 +99,18 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     await browser.execute((selector: string) => {
       document.querySelector(selector)?.classList.remove("wx-split");
     }, STRETCH_BAR);
-    await browser.waitUntil(
-      async () =>
-        browser.execute(
-          (selector: string) =>
-            document.querySelector(selector)?.classList.contains("wx-split") ?? false,
-          STRETCH_BAR,
-        ),
-      { timeout: 5000, timeoutMsg: "wx-split was not re-asserted after the class list was reset" }
-    );
+    const hasSplit = async (): Promise<boolean> =>
+      browser.execute(
+        (selector: string) =>
+          document.querySelector(selector)?.classList.contains("wx-split") ?? false,
+        STRETCH_BAR,
+      );
+    await browser.waitUntil(hasSplit, {
+      timeout: 5000,
+      timeoutMsg: "wx-split was not re-asserted after the class list was reset",
+    });
+
+    expect(await hasSplit()).toBe(true);
   });
 
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {

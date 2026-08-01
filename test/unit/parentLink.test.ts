@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "@jest/globals";
 import type { App } from "obsidian";
-import { resolveParentLink } from "../../src/bases/parentLink";
+import { resolveParentLink } from "../../src/datasource/parentLink";
 
 /** App whose metadata cache echoes the link path back as the resolved file. */
 function echoApp(): App {

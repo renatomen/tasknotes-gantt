@@ -14,6 +14,22 @@ import { SEGMENTS_WITH_FLAG } from './fixtures';
 
 let dump: any = {};
 
+function diagnosticCollectionItems(collection: any): any[] {
+  if (Array.isArray(collection)) return collection;
+  if (collection && typeof collection.map === 'function') {
+    try {
+      return collection.map((item: any) => item);
+    } catch {
+      return [];
+    }
+  }
+  if (collection && typeof collection.byId === 'function') {
+    const task = collection.byId(1);
+    return task ? [task] : [];
+  }
+  return [];
+}
+
 test('DIAG: dump store state for segments+splitTasks', async () => {
   let api: any = null;
   const screen = render(SvarFeatureProbeHost, {
@@ -50,14 +66,7 @@ test('DIAG: dump store state for segments+splitTasks', async () => {
   const taskDumps: any = {};
   for (const key of collections) {
     const coll = state[key];
-    let arr: any[] = [];
-    if (Array.isArray(coll)) arr = coll;
-    else if (coll && typeof coll.map === 'function') {
-      try { arr = coll.map((x: any) => x); } catch { arr = []; }
-    } else if (coll && typeof coll.byId === 'function') {
-      const t = coll.byId(1);
-      if (t) arr = [t];
-    }
+    const arr = diagnosticCollectionItems(coll);
     const t = arr.find((x: any) => x && (x.id === 1 || x.$id === 1));
     if (t) {
       taskDumps[key] = {
@@ -86,7 +95,6 @@ test('DIAG: dump store state for segments+splitTasks', async () => {
     domHasSplitClass: container.querySelector('.wx-split') !== null,
     barCount: container.querySelectorAll('.wx-bar').length,
   };
-  // eslint-disable-next-line no-console
   console.log('[DIAG]', JSON.stringify(dump, null, 2));
   expect(api).not.toBeNull();
 });
@@ -134,7 +142,6 @@ test('DIAG2: mount Gantt DIRECTLY (no host) and read splitTasks state', async ()
     barCount: container.querySelectorAll('.wx-bar').length,
     segmentCount: container.querySelectorAll('.wx-segment').length,
   };
-  // eslint-disable-next-line no-console
   console.log('[DIAG2-direct]', JSON.stringify(dump.direct, null, 2));
   expect(api).not.toBeNull();
 });

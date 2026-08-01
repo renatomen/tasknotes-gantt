@@ -1,8 +1,22 @@
 import {
   needsCalendarSeam,
   estimateMeaningForTask,
-  countWorkingDaysResolver,
-} from '../../src/bases/estimateMeaningResolve';
+  resolveEstimateMeaning,
+} from '../../src/controller/calendar/estimateMeaning';
+
+describe('resolveEstimateMeaning (per-task override)', () => {
+  it('a valid per-task value overrides the view default', () => {
+    expect(resolveEstimateMeaning('calendar-days', 'working-days')).toBe('working-days');
+    expect(resolveEstimateMeaning('working-days', 'calendar-days')).toBe('calendar-days');
+  });
+
+  it('falls back to the view default when the per-task value is unset or junk', () => {
+    expect(resolveEstimateMeaning('working-days', undefined)).toBe('working-days');
+    expect(resolveEstimateMeaning('calendar-days', '')).toBe('calendar-days');
+    expect(resolveEstimateMeaning('working-days', 'nonsense')).toBe('working-days');
+    expect(resolveEstimateMeaning('calendar-days', 42)).toBe('calendar-days');
+  });
+});
 
 describe('needsCalendarSeam', () => {
   it('engages the seam when split rendering is on (even at calendar-days, no override)', () => {
@@ -46,35 +60,5 @@ describe('estimateMeaningForTask', () => {
     );
     expect(resolve('set.md')).toBe('calendar-days');
     expect(resolve('unset.md')).toBe('calendar-days');
-  });
-});
-
-describe('countWorkingDaysResolver', () => {
-  const start = new Date(2026, 0, 1);
-  const end = new Date(2026, 0, 5);
-
-  it('is undefined when no axis engages working-day counting', () => {
-    expect(countWorkingDaysResolver('calendar-days', false, () => 'calendar-days', () => 3)).toBeUndefined();
-  });
-
-  it('counts working days for a working-days task', () => {
-    const resolver = countWorkingDaysResolver('working-days', false, () => 'working-days', () => 4);
-    expect(resolver?.('t.md', start, end)).toBe(4);
-  });
-
-  it('returns null for a calendar-days task so the resize records the flat span', () => {
-    const resolver = countWorkingDaysResolver(
-      'working-days',
-      true,
-      (p) => (p === 'flat.md' ? 'calendar-days' : 'working-days'),
-      () => 4,
-    );
-    expect(resolver?.('flat.md', start, end)).toBeNull();
-    expect(resolver?.('wrench.md', start, end)).toBe(4);
-  });
-
-  it('engages via a mapped override even when the view default is calendar-days', () => {
-    const resolver = countWorkingDaysResolver('calendar-days', true, () => 'working-days', () => 2);
-    expect(resolver?.('t.md', start, end)).toBe(2);
   });
 });

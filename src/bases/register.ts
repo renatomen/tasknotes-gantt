@@ -29,8 +29,6 @@ import {
   GanttController,
   type DatePolicyConfig,
   type DateMappingInfo,
-  type StretchTaskInput,
-  type TaskBlocking,
 } from '../controller/GanttController';
 import type { LinkRewriteMode } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
@@ -86,11 +84,7 @@ import {
   isTimeEstimateWriteEnabled,
 } from './viewOptions';
 import { persistThemeMode, readThemeMode, type ThemeMode } from './themeResolver';
-import {
-  needsCalendarSeam,
-  estimateMeaningForTask,
-  countWorkingDaysResolver,
-} from './estimateMeaningResolve';
+import { needsCalendarSeam, estimateMeaningForTask } from '../controller/calendar/estimateMeaning';
 
 /**
  * Trailing-debounce window (ms) for the Bases `onDataUpdated` storm (#161).
@@ -116,18 +110,15 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { minutesToSpanDays } from '../controller/durationConversion';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
   associationTaskPaths,
   calendarAssociationsFrom,
-  computeTaskBlocking,
-  countWorkingDaysInSpan,
   createShadingCssCache,
-  shadingCacheKey,
   shadingWindow,
 } from './calendarShading';
+import { shadingCacheKey } from '../controller/calendar/derivation';
 import { nextInstanceScopeClass } from './instanceScope';
 import {
   readDisplaySelection,
@@ -145,7 +136,7 @@ import {
   type PluginLifetime,
 } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
-import { resolveParentLink } from './parentLink';
+import { resolveParentLink } from '../datasource/parentLink';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
@@ -640,17 +631,16 @@ class ObsidianGanttBasesView extends BasesView {
       nonWorkingRendering: rendering,
       estimateMeaningForTask: this.buildEstimateMeaningForTask(meaning),
       viewEstimateMeaning: meaning,
-      workingTimeStretch: {
-        blockingForTasks: (tasks) => this.buildTaskBlocking(tasks),
-      },
+      // Engages the stretch axis; the controller's own derivation authority
+      // assembles the blocking facts (the closure inside is a test seam only).
+      workingTimeStretch: {},
     };
   }
 
   /**
    * The register-side wiring for {@link estimateMeaningForTask}: resolves the
    * mapped override property to a frontmatter key and supplies the per-task value
-   * read, threaded through the date-policy config exactly like
-   * {@link buildTaskBlocking}'s per-task calendar read.
+   * read, threaded through the date-policy config.
    */
   private buildEstimateMeaningForTask(
     viewDefault: EstimateMeaning,
@@ -666,75 +656,8 @@ class ObsidianGanttBasesView extends BasesView {
     });
   }
 
-  /**
-   * The register-side wiring for {@link countWorkingDaysResolver}: the write path's
-   * resize→estimate working-day counter, backed by the per-pass blocking lookup.
-   */
-  private buildCountWorkingDays():
-    | ((taskPath: string, start: Date, end: Date) => number | null)
-    | undefined {
-    const viewMeaning = readEstimateMeaning((key) => this.config.get(key));
-    const overrideMapped = (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
-    return countWorkingDaysResolver(
-      viewMeaning,
-      overrideMapped,
-      this.buildEstimateMeaningForTask(viewMeaning),
-      (taskPath, start, end) => {
-        const blocking = this.lastBlockingLookup?.(taskPath);
-        return blocking ? countWorkingDaysInSpan(blocking, start, end) : null;
-      },
-    );
-  }
-
-  /**
-   * Per-pass blocking lookup for working-time stretch, assembled from the same
-   * cache-safe inputs as the shading stylesheet and memoized the same way —
-   * an unrelated refresh reuses the previous lookup without re-walking the
-   * vault. The window headroom covers the scan ceiling (8× the longest
-   * duration in the pass plus authored blocked runs).
-   */
-  private buildTaskBlocking(
-    tasks: readonly StretchTaskInput[],
-  ): (taskPath: string) => TaskBlocking | null {
-    const app = this.app;
-    const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
-    const frontmatterKey = frontmatterSignatureKeys([calendarProperty])[0];
-    if (!frontmatterKey) return () => null;
-    const associations = tasks.flatMap((task) => {
-      const file = app.vault.getAbstractFileByPath(task.path);
-      if (!(file instanceof TFile)) return [];
-      const value = app.metadataCache.getFileCache(file)?.frontmatter?.[frontmatterKey];
-      return value === undefined ? [] : [{ value, taskPath: task.path }];
-    });
-    const defaultDuration = readDatePolicyConfig((key) => this.config.get(key)).defaultDuration;
-    const maxDurationDays = tasks.reduce(
-      (max, task) =>
-        Math.max(max, task.estimateMinutes != null ? minutesToSpanDays(task.estimateMinutes) : defaultDuration),
-      1,
-    );
-    const key = shadingCacheKey({
-      epoch: this.calendarWatch?.epoch() ?? 0,
-      calendarProperty,
-      window: shadingWindow(tasks, 62 + 8 * maxDurationDays + 366),
-      associations,
-    });
-    if (key === this.lastBlockingKey && this.lastBlockingLookup) return this.lastBlockingLookup;
-    const markedNotes = this.collectMarkedCalendarNotes();
-    this.lastBlockingKey = key;
-    this.lastBlockingLookup = computeTaskBlocking({
-      markedNotes,
-      resolveLink: (linkText, fromPath) => resolveParentLink(app, linkText, fromPath),
-      associations,
-      taskSpans: tasks,
-      extraWindowDays: 8 * maxDurationDays + 366,
-    });
-    return this.lastBlockingLookup;
-  }
-
   /** The association task paths of the last shading build (entries + instances). */
   private lastAssociationTaskPaths: string[] | null = null;
-  private lastBlockingKey: string | null = null;
-  private lastBlockingLookup: ((taskPath: string) => TaskBlocking | null) | null = null;
 
   /** Every vault note bearing the calendar/calendar-set marker, cache-safely. */
   private collectMarkedCalendarNotes(): { path: string; basename: string; frontmatter: unknown }[] {
@@ -941,6 +864,13 @@ class ObsidianGanttBasesView extends BasesView {
         // every recompute, so toggling any per-view option applies instantly
         // (onDataUpdated → refreshSource), no manual refresh/remount needed.
         policyConfig: () => this.buildDatePolicyConfig(),
+        // View-owned inputs for the derivation authority's blocking facts —
+        // provider closures like everything above, read fresh per pass.
+        derivationInputs: {
+          effectiveMappings: () => this.getEffectiveMappings(),
+          calendarEpoch: () => this.calendarWatch?.epoch() ?? 0,
+          markedCalendarNotes: () => this.collectMarkedCalendarNotes(),
+        },
         // hideTopLevel is NOT a companion concern anymore — it's a pure view
         // display filter (filter-tasks), so the expanded instance set is identical
         // whether the toggle is on or off (#161: a config toggle can't churn it).
@@ -1261,8 +1191,7 @@ class ObsidianGanttBasesView extends BasesView {
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
       highlightWeekends: this.getHighlightWeekends(),
-      // #161: read the SAME config key as before (UI + .base syntax unchanged), but
-      // it now drives a view-level filter-tasks display filter, not the instance set.
+      // #161: the same config key as before, now a view-level display filter.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
       // #161: the show-undated/show-partial toggles flow through the store like
       // hide-top — a presentation filter over the stable instance set, never a
@@ -1285,7 +1214,7 @@ class ObsidianGanttBasesView extends BasesView {
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
       cascadeMode: this.getCascadeMode(),
-      inferredDragMode: this.getInferredDragMode(),
+      getInferredDragMode: () => this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
       propertyValues,
       cellRenders,
@@ -1300,7 +1229,12 @@ class ObsidianGanttBasesView extends BasesView {
       calendarMarkers: calendarShading.markers,
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
-      countWorkingDays: this.buildCountWorkingDays(),
+      // Span↔estimate answers come from the controller's derivation authority —
+      // the write path asks; it never assembles blocking facts itself.
+      deriveEstimate: controller.buildDeriveEstimate(),
+      deriveSpan: controller.buildDeriveSpan(),
+      refreshGeneration: () => controller.recomputeGeneration(),
+      defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
     };
   }
 
