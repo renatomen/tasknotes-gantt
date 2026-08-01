@@ -13,7 +13,7 @@ import type { App } from "obsidian";
 import type { FieldMappings, SVARTask, MappingValidationError } from "../types/field-mapping";
 import { BasesDataAdapter } from "./BasesDataAdapter";
 import type { BasesEntryLike } from "../types/bases-entry";
-import { resolveParentLink } from "../parentLink";
+import { resolveParentLink } from "../../datasource/parentLink";
 
 /**
  * Result of transforming entries

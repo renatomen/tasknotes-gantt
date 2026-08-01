@@ -15,16 +15,39 @@
 -->
 <script lang="ts">
   /* global HTMLElement, requestAnimationFrame */
-  import { onMount } from 'svelte';
-  import { writable } from 'svelte/store';
+  import { onMount, untrack } from 'svelte';
+  import { get, writable } from 'svelte/store';
   import type { App } from 'obsidian';
   import GanttContainer from '../../../src/bases/GanttContainer.svelte';
+  import type { TaskPatch } from '../../../src/datasource/types';
   import type { GanttData } from '../../../src/bases/types/gantt-view-data';
 
-  const { data }: { data: GanttData } = $props();
+  interface Props {
+    data: GanttData;
+    onMutate?: (instanceId: string, patch: TaskPatch) => Promise<void>;
+    onMutateProperty?: (instanceId: string, propertyId: string, value: unknown) => Promise<void>;
+    onAddDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
+    onRemoveDependency?: (predecessorInstanceId: string, dependentInstanceId: string) => Promise<void>;
+    onBarActivate?: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => void;
+    onGridWidthChange?: (width: number) => void;
+  }
 
-  // A store so a future test can refresh in place; mounted once here.
-  const store = writable(data);
+  let {
+    data,
+    onMutate,
+    onMutateProperty,
+    onAddDependency,
+    onRemoveDependency,
+    onBarActivate,
+    onGridWidthChange,
+  }: Props = $props();
+
+  // A new data object is the refresh signal; the stable store avoids remounting.
+  const store = writable(untrack(() => data));
+  $effect(() => {
+    if (get(store) === data) return;
+    store.set(data);
+  });
   // Minimal `app` stub. `workspace.on`/`offref` are stubbed because
   // GanttContainer subscribes to `active-leaf-change` (to auto-exit maximize when
   // the leaf deactivates); the real workspace always exists in Obsidian, but this
@@ -85,5 +108,15 @@
 </script>
 
 <div class="og-perf-host" bind:this={hostEl}>
-  <GanttContainer data={store} app={appStub} themeMode="light" />
+  <GanttContainer
+    data={store}
+    app={appStub}
+    themeMode="light"
+    {onMutate}
+    {onMutateProperty}
+    {onAddDependency}
+    {onRemoveDependency}
+    {onBarActivate}
+    {onGridWidthChange}
+  />
 </div>

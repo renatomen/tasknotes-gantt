@@ -16,10 +16,68 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
-### P1 — e2e: pointer-drag simulation harness
-The single most-repeated residual. Multiple deferred e2e tests are all blocked on the same missing
-capability: simulating pointer-drag in headless WDIO (drag-to-persist, drag-to-resize, drag-to-link).
-Building it once unblocks all of them.
+### P2 — Existence-only e2e assertions are the next tier down (2026-07-29)
+The assertion gate makes a case with NO assertion impossible; it says nothing about
+weak ones. Eleven `toBeGreaterThan(0)`-shaped checks remain across the calendar and
+field-mapping specs — they assert that something rendered, not that the right thing
+did. Two conflict cases in `gantt-calendar-editor.e2e.ts` were tightened this way
+(count -> the weekday rows the conflicts actually fall on, which fails for a misparse
+a count waves through); the same treatment applies to the rest. Out of scope for the
+gate unit deliberately: that unit's job was cases asserting nothing at all.
+- Source: layer-2 review of the assertion-gate branch; a `grep` for the pattern after
+  fixing the first instance is what surfaced them.
+
+### P1 — Behavior defects preserved during the maintainability campaign (2026-07-30)
+These six nonurgent behaviors were characterized and deliberately left unchanged.
+They are not decomposition work. Once the maintainability closeout lands, promote
+any fix as its own test-first unit. If new evidence makes one urgent before then,
+stop the project and consult the maintainer before changing production behavior.
+
+- The cell-edit path uses reject-at-timeout (`withTimeout`), releasing its gate
+  while the underlying write continues. A late write can therefore overtake a
+  subsequent edit.
+- Two render instances of one source have separate cell-edit gates but share
+  property and render records. Their writes can overlap; if a later write succeeds
+  before an earlier one rejects, the earlier rollback restores its original
+  baseline and temporarily clobbers the later value in the grid.
+- A mixed incremental refresh clears the current grid selection, while identical
+  and width-only refreshes preserve it.
+- Moving an existing task beneath a parent added by the same incremental refresh
+  sends the move before the parent exists. SVAR rejects that command asynchronously
+  while local bookkeeping can advance, leaving the displayed hierarchy stale.
+- If an ephemeral column sort is active and the Base sort descriptor changes
+  without changing its row-order fingerprint, the incremental path clears the sort
+  arrow but skips replaying Base order. The chart can retain the old ephemeral
+  visual order.
+- If a column/editor signature and the Base sort descriptor change in the same
+  refresh while an ephemeral sort is active, the earlier column-reseed path
+  rebaselines the Base descriptor and reasserts the old ephemeral sort.
+- Sources: PR #349 review record; plan
+  `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
+  characterization during #354.
+
+### P2 — Executor residuals from the #349 review chain (documented, deliberate)
+Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
+revisit if any bites in practice:
+- A dequeue landing inside the 500ms Bases refresh debounce can read a pre-write row; fully
+  closing it needs the executor to overlay its own persisted patches.
+- A permanently hung persist parks its source's queue (deduplicated notice shown); recovery is
+  view remount. The fence deadline equals the slow-write notice threshold, so a 10–15s write
+  gets its cascade deferred to the next drag.
+- Remount epoch-0 window: the marked-notes memo survives on the controller while the calendar
+  watch is torn down and recreated at epoch 0; an edit in the unwired gap could serve stale
+  marked notes for one transient build.
+- Settlement-observer failures are swallowed silently (why-comment present); route to the gated
+  debugLog if diagnostics are ever needed.
+- Source: PR #349 review threads + local review artifacts, 2026-07-28.
+
+### P1 — e2e: exercise pointer drags with stock WebdriverIO actions
+The single most-repeated residual. Multiple deferred e2e tests need reliable
+pointer-drag coverage in real Obsidian (drag-to-persist, drag-to-resize,
+drag-to-link). Use WebdriverIO's supported browser/action APIs and existing e2e
+fixtures; do not build a custom drag simulator, runner, or harness. If the stock
+API cannot express a case reliably, prefer an upstream-supported route or
+reassess the test boundary before adding project-specific tooling.
 - Deferred e2es waiting on it: drag→cascade-modal→persist, grid-column resize persistence,
   FS link drag-create, non-FS link drag-create.
 - Sources: `docs/plans/2026-06-17-005-feat-parent-date-cascade-confirmation-plan.md`,
@@ -304,6 +362,18 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   `docs/plans/2026-06-18-001-feat-gantt-grid-bases-columns-plan.md`.
 
 ### P8 — e2e / CI infra
+- The scheduled #161 storm perf case "Show-undated tasks off still bounds evaluation under a noisy
+  Base" fails unchanged before and after the maintainability refactor: `fireToggle` reports the
+  setting and config changed, but the generated vault then has zero visible bars while the test
+  expects at least one. Reproduced against unchanged `main` behavior on 2026-07-30. The
+  maintainability campaign deliberately preserved it; promote diagnosis and any fix as a separate
+  post-campaign unit rather than folding it into the closeout.
+- `vault-as-code verify` does not inspect secret values when a captured TaskNotes `data.json` is
+  malformed: extraction retains the raw bytes, generation writes the same bytes, and verification
+  swallows the JSON parse failure after the round trip matches. This is nonurgent because the tool
+  is manual/local, its private fixture is gitignored, and it is not shipped or CI-invoked. Promote
+  a separate post-campaign unit to make extraction and verification fail closed before any fixture
+  can be treated as redacted. Source: #354 verifier characterization, 2026-07-30.
 - Commit the `vault-as-code` fixture (real frontmatter, secrets redacted) for CI, then wire the #161
   repro in as a gated job. Privacy decision the maintainer flagged as separate. Source:
   `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.

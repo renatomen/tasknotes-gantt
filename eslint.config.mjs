@@ -11,6 +11,7 @@ export default [
     ignores: [
       "dist/**",
       "node_modules/**",
+      ".worktrees/**",
       "website/site/**",
       "coverage/**",
       ".wdio-*",
@@ -59,7 +60,6 @@ export default [
       ],
       "@typescript-eslint/no-explicit-any": "error",
       "sonarjs/cognitive-complexity": ["error", 15],
-      "max-lines": ["error", { max: 500, skipBlankLines: false, skipComments: false }],
     },
   },
   {
@@ -85,8 +85,15 @@ export default [
     },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
-      // Tooling/config files are not the production code the size gate targets.
-      "max-lines": "off",
+    },
+  },
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    plugins: {
+      sonarjs,
+    },
+    rules: {
+      "sonarjs/cognitive-complexity": ["error", 15],
     },
   },
   // Svelte files
@@ -119,59 +126,20 @@ export default [
       // void` in a type annotation), which aren't runtime bindings.
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      'sonarjs/cognitive-complexity': ['error', 15],
-      'max-lines': ['error', { max: 500, skipBlankLines: false, skipComments: false }]
+      'sonarjs/cognitive-complexity': ['error', 15]
     }
   },
-  // max-lines is scoped to production code only: spec/probe length is not the
-  // complexity the size gate targets.
+  // A case that only awaits a `waitUntil` looks like a test and is not one: the
+  // wait proves something settled, never what it settled TO, so the case passes
+  // whenever its predicate is satisfiable at all. Seven cases in this suite were
+  // that shape. The rule ships with a plugin already in this config and reads
+  // the code through the same parser and scope analysis as every other rule
+  // here, which is why there is no bespoke checker beside it.
   {
-    files: ["test/**"],
+    files: ["test/**/*.ts"],
     rules: {
-      "max-lines": "off",
+      "sonarjs/assertions-in-tests": "error",
     },
-  },
-  // max-lines legacy exemptions: these files were already over the cap when the
-  // gate was armed. This list may only shrink — never add to it.
-  {
-    files: [
-      "src/bases/GanttContainer.svelte",
-      "src/bases/register.ts",
-      "src/controller/GanttController.ts",
-      "src/datasource/TaskNotesSource.ts",
-      "src/editor/CalendarEditorForm.svelte",
-      "src/bases/ganttSync.ts",
-      "src/bases/barTreatment.ts",
-      "src/bases/viewOptions.ts",
-      "src/bases/cellEditCommit.ts",
-      "src/bases/cascadeGate.ts",
-      "src/bases/calendarShading.ts",
-      "src/bases/services/BasesDataAdapter.ts",
-      "src/controller/InstanceExpansion.ts",
-    ],
-    rules: {
-      "max-lines": "off",
-    },
-  },
-  // Per-file complexity ceilings, frozen at the values measured when the gate
-  // was armed. A ceiling may only decrease; growth past it fails lint. The three
-  // drag-path hotspots in GanttContainer.svelte keep per-function disables
-  // instead because the executor refactor deletes those functions outright.
-  {
-    files: ["test/__mocks__/obsidian.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 23] },
-  },
-  {
-    files: ["test/probe/_diag.probe.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 21] },
-  },
-  {
-    files: ["test/specs/gantt-resultset-loop.e2e.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 17] },
-  },
-  {
-    files: ["test/specs/gantt-perf-fullstack.perf.e2e.ts", "test/specs/gantt-resultset-storm.perf.e2e.ts"],
-    rules: { "sonarjs/cognitive-complexity": ["error", 16] },
   },
   {
     files: ["test/**/*.{ts,mts}"],

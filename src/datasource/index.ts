@@ -27,6 +27,7 @@ export {
   resolveDateMapping,
   bareProperty,
   toNoteProperty,
+  noteFrontmatterKey,
   type ResolvedDateMapping,
 } from './dateFieldMapping';
 
@@ -44,3 +45,4 @@ export type {
   TaskNotesEventRef,
   TaskNotesEventHandler,
 } from './TaskNotesSource';
+export type { FieldMappings, ProgressMode, TimeEstimateMode } from './fieldMappings';

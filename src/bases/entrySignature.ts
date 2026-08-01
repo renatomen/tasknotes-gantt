@@ -20,6 +20,7 @@
  */
 
 import { checklistCompletionSignature, type ChecklistItemLike } from './checklistProgress';
+import { noteFrontmatterKey } from '../datasource/dateFieldMapping';
 import type { ProgressMode } from './types/field-mapping';
 
 /** Minimal entry shape the signature reads (a subset of a Bases entry). */
@@ -82,12 +83,7 @@ export function frontmatterSignatureKeys(
 ): string[] {
   const keys: string[] = [];
   for (const property of mappingValues) {
-    if (!property) continue;
-    const key = property.startsWith('note.')
-      ? property.slice('note.'.length)
-      : property.startsWith('note:')
-        ? property.slice('note:'.length)
-        : null;
+    const key = noteFrontmatterKey(property);
     if (key !== null && !keys.includes(key)) keys.push(key);
   }
   return keys;

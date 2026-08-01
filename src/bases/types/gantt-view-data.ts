@@ -16,6 +16,8 @@ import type {
   RenderLink,
   LinkRewriteMode,
 } from '../../controller/InstanceExpansion';
+import type { DerivedEstimate, DerivedGeometry } from '../../controller/calendar/derivation';
+import type { RecomputeGeneration } from '../../controller/GanttController';
 import type { ChoiceOption, PriorityColor, StatusColor } from '../../datasource/types';
 import type { BarChannelSource, BarIconSource } from '../barTreatment';
 import type { CascadeMode } from '../cascadeGate';
@@ -81,11 +83,12 @@ export interface GanttData {
   /** Each associated task's calendar identity, keyed by its source path. */
   calendarBySource?: Map<string, string>;
   /**
-   * Working-day counter for the resize write path under working-time stretch:
-   * the estimate persists the WORKING days of the resized span. Absent (or a
-   * null return for a task with no associated calendar) = plain calendar days.
+   * The derivation authority's span→estimate answer for the drag write path:
+   * the working-day count a span records (null = the plain span is the record)
+   * plus the FULL render geometry that record re-derives to — what a planned
+   * echo shows. Absent only when no controller is wired at all.
    */
-  countWorkingDays?: (taskPath: string, start: Date, end: Date) => number | null;
+  deriveEstimate?: (taskPath: string, span: { start: Date; end: Date }) => DerivedEstimate;
   /**
    * The view's default duration (whole days) — what a task with no usable
    * estimate derives its missing edge from. The undo of an inferred-edge write
@@ -95,18 +98,28 @@ export interface GanttData {
    */
   defaultDurationDays?: number;
   /**
-   * The span an estimate will RE-DERIVE from its authored anchor — the write
-   * path's mirror of the read path's working-time derivation (same stretch, same
-   * blocking facts, same ceiling). Null return = no working-day seam for the
-   * task, i.e. the plain span IS the derivation. Consumed by the inferred-edge
-   * cascade so it reasons about the gesture's final geometry.
+   * The FULL render geometry an estimate will RE-DERIVE from its authored
+   * anchor — the write path's mirror of the read path's working-time
+   * derivation (same stretch, same blocking facts, same ceiling); a
+   * calendar-days task answers its plain projection. Consumed by the
+   * inferred-edge commit and cascade so they reason about the gesture's final
+   * geometry. Absent only when no controller is wired at all.
    */
-  projectDerivedSpan?: (
+  deriveSpan?: (
     taskPath: string,
     edge: 'start' | 'end',
     anchor: Date,
     estimateMinutes: number,
-  ) => { start: Date; end: Date } | null;
+  ) => DerivedGeometry;
+  /**
+   * The controller's task-fact re-read counters (started / delivered), the
+   * drag executor's refresh-generation signal: self-writes suppress recompute
+   * and config-only recomputes reuse cached tasks, so a moved counter proves a
+   * GENUINE vault re-read. The executor's settled-facts ledger records
+   * `started` when a write settles and drops its overlay once `delivered`
+   * passes it. Absent only when no controller is wired.
+   */
+  refreshGeneration?: () => RecomputeGeneration;
   /**
    * Per-view "Hide top-level subtasks" toggle (#161). Flows through the reactive
    * data path — NOT the instance derivation — so it's a pure DISPLAY filter: the
