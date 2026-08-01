@@ -49,6 +49,7 @@ export function defaultPattern(): PatternModel {
 /** Parse an RRULE into the model, or null when it is not visually representable. */
 export function parsePattern(rule: string): PatternModel | null {
   const parts = parseParts(rule);
+  if (parts === null) return null;
   const freq = parts.get('FREQ');
   if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY') return null;
 
@@ -112,22 +113,38 @@ function parseMonthly(parts: Map<string, string>, model: PatternModel): PatternM
   if (byDay !== undefined) {
     const match = /^(-?\d+)(MO|TU|WE|TH|FR|SA|SU)$/.exec(byDay);
     if (match === null) return null;
+    const position = Number(match[1]);
+    // The model represents only the 1st–4th and -1 (last); a larger ordinal
+    // (e.g. 5MO, 0MO, -2FR) would violate that invariant, so fall back to raw.
+    if (![1, 2, 3, 4, -1].includes(position)) return null;
     model.monthlyMode = 'nth-weekday';
-    model.nthPosition = Number(match[1]);
+    model.nthPosition = position;
     model.nthWeekday = match[2] as WeekdayCode;
     return model;
   }
   return null;
 }
 
-function parseParts(rule: string): Map<string, string> {
+/**
+ * The RRULE's `KEY=VALUE` segments, or null when any segment is malformed. A
+ * value-less segment (e.g. the `COUNT` in `FREQ=DAILY;COUNT`) is NOT dropped:
+ * dropping it would parse a clean-looking model that a later save rewrites,
+ * silently discarding the clause. An empty segment (a trailing or doubled `;`)
+ * is malformed too — the evaluator's rrule parser rejects it outright — so
+ * matching that keeps the model and evaluator in agreement. Both return null,
+ * forcing the raw fallback so the authored rule survives verbatim rather than
+ * opening an invalid rule in the visual editor.
+ */
+function parseParts(rule: string): Map<string, string> | null {
   const parts = new Map<string, string>();
   for (const segment of rule.split(';')) {
-    const eq = segment.indexOf('=');
-    if (eq === -1) continue;
-    const key = segment.slice(0, eq).trim().toUpperCase();
-    const value = segment.slice(eq + 1).trim();
-    if (key !== '') parts.set(key, value);
+    const trimmed = segment.trim();
+    if (trimmed === '') return null;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) return null;
+    const key = trimmed.slice(0, eq).trim().toUpperCase();
+    if (key === '') return null;
+    parts.set(key, trimmed.slice(eq + 1).trim());
   }
   return parts;
 }

@@ -12,6 +12,7 @@ import {
   calendarSlug,
   resolveTreatmentClass,
   treatmentClassRegistry,
+  treatmentClassGroups,
   buildTreatmentStyle,
   resolveIconSpec,
   isSafeColor,
@@ -154,6 +155,32 @@ describe('treatmentClassRegistry', () => {
       priority: [{ value: 'BadPrio', color: 'blue; } body {' }],
     });
     expect(reg).toEqual([PARENT_ROLE_CLASS]);
+  });
+});
+
+describe('treatmentClassGroups', () => {
+  it('groups slugs by source, keeps the parent role its own group, and drops empty groups', () => {
+    const groups = treatmentClassGroups(palettes);
+    expect(groups[0]).toEqual([PARENT_ROLE_CLASS]);
+    expect(groups.every((group) => group.length > 0)).toBe(true);
+    // No calendar palette here, so there is no calendar group.
+    expect(groups.flat()).toContain(statusSlug('11🟥Active = Now'));
+    expect(groups.flat()).toContain(prioritySlug('high'));
+    // Status and priority slugs live in different groups (so a status+priority
+    // bar registers as a cross-group pair, but two statuses never pair).
+    const statusGroup = groups.find((group) => group.includes(statusSlug('11🟥Active = Now')));
+    const priorityGroup = groups.find((group) => group.includes(prioritySlug('high')));
+    expect(statusGroup).not.toBe(priorityGroup);
+  });
+
+  it('drops a source group whose only colours are unsafe, keeping the parent role', () => {
+    const groups = treatmentClassGroups({
+      status: [{ value: 'Evil', color: 'red; } body {', isCompleted: false }],
+      priority: [{ value: 'BadPrio', color: 'blue; } body {' }],
+    });
+    // Both palette groups are all-unsafe, so they drop out; only the always-on
+    // parent-role group remains (empty groups are never returned).
+    expect(groups).toEqual([[PARENT_ROLE_CLASS]]);
   });
 });
 

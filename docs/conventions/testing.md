@@ -21,7 +21,7 @@ Core testing principles for the plugin. Test-first, behavior-focused, isolated.
 
 WebdriverIO e2e against real Obsidian is central to this project's verification, not an afterthought. The harness is wired and verified on dev machines.
 
-- **One command:** `npm run e2e:local` — builds, installs the plugin into the test vault, and drives a real Obsidian (`scripts/e2e-local.mjs` sets the local-vault default and respects `OBSIDIAN_TEST_VAULT` if exported). Target one spec with WDIO's `--spec` to keep iterations fast.
+- **One command:** `npm run e2e:local` — builds, installs the plugin into the test vault, and drives a real Obsidian (`scripts/e2e-local.mjs` sets the local-vault default and respects `OBSIDIAN_TEST_VAULT` if exported). Arguments after `--` pass straight to WDIO, so keep iterations fast by targeting one spec — `npm run e2e:local -- --spec test/specs/gantt-inferred-drag-write.e2e.ts`, or one case with `-- --mochaOpts.grep "don't ask again"`. **Always go through this wrapper**, even for one spec: invoking WDIO directly skips the build-and-install and drives whatever build was installed last, so it can report green against stale code.
 - **Machine prerequisites** (this Windows dev box): Node 20 via fnm, `NODE_EXTRA_CA_CERTS` pointed at the Norton root CA, a disposable `OBSIDIAN_TEST_VAULT` (never the live Drive vault), and kill any stale `Obsidian.exe` first. See the maintainer's run-config notes.
 - **Two tiers, two tools:**
   - **Fast-fixture + synthetic specs** (`gantt-resultset-loop`, `gantt-column-sort`, the `.perf.e2e.ts` storm/perf specs over generated vaults) — **runnable in WDIO; run them.** When a change touches e2e-observable behavior, run the relevant spec rather than deferring it. Do **not** report e2e as "unrunnable."

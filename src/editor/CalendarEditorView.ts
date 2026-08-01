@@ -18,7 +18,7 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
-import { resolveParentLink } from '../bases/parentLink';
+import { resolveParentLink } from '../datasource/parentLink';
 import { classifyMember, type MemberResolution } from './unionPreview';
 import {
   CALENDAR_EDITOR_VIEW_TYPE,
@@ -40,6 +40,7 @@ interface FormHandle {
   markExternalChange?: () => void;
   hasUnsavedEdits?: () => boolean;
   canSave?: () => boolean;
+  isSaving?: () => boolean;
   save?: () => Promise<void>;
 }
 
@@ -189,7 +190,8 @@ export class CalendarEditorView extends ItemView {
    */
   async confirmClose(proceed: () => void): Promise<void> {
     const canSave = this.form?.canSave?.() ?? false;
-    const choice = await new UnsavedCalendarModal(this.app, canSave).openAndGetChoice();
+    const saving = this.form?.isSaving?.() ?? false;
+    const choice = await new UnsavedCalendarModal(this.app, canSave, saving).openAndGetChoice();
     if (choice === 'cancel') return;
     if (choice === 'save') {
       try {

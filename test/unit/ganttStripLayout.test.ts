@@ -63,7 +63,7 @@ describe('buildGanttStrip', () => {
     expect(strip.markers[0]?.xFraction).toBeLessThanOrEqual(1);
   });
 
-  it('keeps multiple markers that share a date', () => {
+  it('keeps multiple markers that share a date and stacks them by slot', () => {
     const strip = buildGanttStrip(
       base({
         markers: [
@@ -74,6 +74,63 @@ describe('buildGanttStrip', () => {
     );
     expect(strip.markers).toHaveLength(2);
     expect(strip.markers.map((m) => m.name)).toEqual(['Launch', 'Freeze']);
+    // Same x position, distinct stack slots so the labels do not overlap.
+    expect(strip.markers[0]?.xFraction).toBe(strip.markers[1]?.xFraction);
+    expect(strip.markers.map((m) => m.stackIndex)).toEqual([0, 1]);
+  });
+
+  it('reserves label rows only for named same-date markers', () => {
+    const named = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: 'Launch' },
+          { date: '2026-02-16', name: 'Freeze' },
+        ],
+      }),
+    );
+    expect(named.labelStackDepth).toBe(1);
+
+    // Both stack the line but draw no label, so no extra label row is reserved.
+    const unnamed = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: undefined },
+          { date: '2026-02-16', name: undefined },
+        ],
+      }),
+    );
+    expect(unnamed.labelStackDepth).toBe(0);
+
+    const single = buildGanttStrip(base({ markers: [{ date: '2026-02-16', name: 'Launch' }] }));
+    expect(single.labelStackDepth).toBe(0);
+  });
+
+  it('counts a named marker in a later slot even behind an unnamed one', () => {
+    const strip = buildGanttStrip(
+      base({
+        markers: [
+          { date: '2026-02-16', name: undefined },
+          { date: '2026-02-16', name: 'Freeze' },
+        ],
+      }),
+    );
+    // The named marker lands in slot 1, so a label row is needed for that slot.
+    expect(strip.labelStackDepth).toBe(1);
+  });
+
+  it('threads a paintable calendar colour onto its markers', () => {
+    const strip = buildGanttStrip(
+      base({ color: '#2a9d8f', markers: [{ date: '2026-02-16', name: 'Launch' }] }),
+    );
+    expect(strip.markers[0]?.color).toBe('#2a9d8f');
+  });
+
+  it('drops an unpaintable marker colour to undefined (theme-accent fallback), never the raw value', () => {
+    // Untrusted frontmatter must not reach the marker's inline style.
+    const strip = buildGanttStrip(
+      base({ color: 'url(https://attacker.example/x)', markers: [{ date: '2026-02-16', name: 'Launch' }] }),
+    );
+    expect(strip.markers[0]?.color).toBeUndefined();
   });
 
   it('spans the calendar content so a mid-year marker is visible', () => {
@@ -95,17 +152,47 @@ describe('buildGanttStrip', () => {
     expect(strip.cells.some((c) => c.date >= '2026-06-01')).toBe(true);
   });
 
-  it('caps the window so content beyond ~a year is excluded', () => {
+  it('caps the window but anchors on the latest content so recent markers stay visible', () => {
     const strip = buildGanttStrip(
       base({
-        nonWorking: [span('2026-01-05', '2026-01-06', 'Anchor')],
+        nonWorking: [span('2026-01-05', '2026-01-06', 'Old anchor')],
         markers: [{ date: '2030-06-01', name: 'Far future' }],
       }),
     );
-    // Window starts at the earliest content and is capped, so a marker four years
-    // out is not shown.
-    expect(strip.markers).toHaveLength(0);
+    // Content spans four years — wider than the cap. The window stays capped but
+    // anchors on the latest content, so the recent marker is visible and the old
+    // anchor is the end that falls off, not the marker.
     expect(strip.cells.length).toBeLessThanOrEqual(371);
+    expect(strip.markers.map((m) => m.name)).toContain('Far future');
+    expect(strip.cells.some((c) => c.date === '2026-01-05')).toBe(false);
+  });
+
+  it('pins the window to the 4-digit-year ceiling, keeping the last representable day', () => {
+    // Latest content at the ISO ceiling would push the anchored window past
+    // 9999-12-31 into a five-digit year that no longer round-trips. The window
+    // pins to end exactly at the ceiling: every cell stays a valid four-digit
+    // date and the last representable day (9999-12-30) is in view. Only a point
+    // on 9999-12-31 itself is unreachable (its exclusive end is unrepresentable).
+    const strip = buildGanttStrip(
+      base({
+        nonWorking: [span('2026-01-05', '2026-01-06', 'Old anchor')],
+        markers: [{ date: '9999-12-31', name: 'End of days' }],
+      }),
+    );
+    expect(strip.window.endDateExclusive).toBe('9999-12-31');
+    expect(strip.cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date))).toBe(true);
+    expect(strip.cells.some((c) => c.date === '9999-12-30')).toBe(true);
+    expect(strip.cells.length).toBeLessThanOrEqual(371);
+  });
+
+  it('clamps a short window whose only content sits near the ceiling', () => {
+    // A lone marker near the ceiling spans well under the cap, but its minimum
+    // ~14-week window would still overflow year 9999 — the ceiling clamp applies
+    // to the short-content branch too, not only the wide one.
+    const strip = buildGanttStrip(base({ markers: [{ date: '9999-12-30', name: 'Almost the end' }] }));
+    expect(strip.window.endDateExclusive).toBe('9999-12-31');
+    expect(strip.cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date))).toBe(true);
+    expect(strip.markers.map((m) => m.name)).toContain('Almost the end');
   });
 
   it('flags an invalid pattern instead of rendering a strip', () => {

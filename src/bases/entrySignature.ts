@@ -20,6 +20,7 @@
  */
 
 import { checklistCompletionSignature, type ChecklistItemLike } from './checklistProgress';
+import { noteFrontmatterKey } from '../datasource/dateFieldMapping';
 import type { ProgressMode } from './types/field-mapping';
 
 /** Minimal entry shape the signature reads (a subset of a Bases entry). */
@@ -82,12 +83,7 @@ export function frontmatterSignatureKeys(
 ): string[] {
   const keys: string[] = [];
   for (const property of mappingValues) {
-    if (!property) continue;
-    const key = property.startsWith('note.')
-      ? property.slice('note.'.length)
-      : property.startsWith('note:')
-        ? property.slice('note:'.length)
-        : null;
+    const key = noteFrontmatterKey(property);
     if (key !== null && !keys.includes(key)) keys.push(key);
   }
   return keys;
@@ -124,6 +120,11 @@ export function watchedMappingValues(
     estimateReadKey ?? viewMappings.timeEstimateProperty,
     viewMappings.calendarProperty,
     resolvedMappings.calendarProperty,
+    // Per-task Estimate-meaning override property: a live edit to it must re-read
+    // the task (its span re-projects and the override tick flips), so its key is
+    // watched like any other role. Mirrors the view/resolved calendar pair.
+    viewMappings.estimateMeaningProperty,
+    resolvedMappings.estimateMeaningProperty,
   ];
 }
 
@@ -220,6 +221,7 @@ export interface WatchedMappings {
   parentProperty?: string;
   timeEstimateProperty?: string;
   calendarProperty?: string;
+  estimateMeaningProperty?: string;
 }
 
 /**

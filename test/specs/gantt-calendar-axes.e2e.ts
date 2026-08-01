@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
  *   - AE3 `calendar-days` + `shaded`: the same bar stays continuous, the
  *     non-working days living only in the background tint (no segments).
  *   - AE4/AE7 `working-days` default + one `calendar-days` per-task override:
- *     the overridden bar carries the top-edge tick; the defaulted one does not.
+ *     the overridden bar carries the corner dot; the defaulted one does not.
  *
  * AE1 (`working-days` + `split` stretch + ghosts) is covered by
  * `gantt-calendar-stretch.e2e.ts`; AE8 (fully-blocked degrade) is a deterministic
@@ -100,22 +100,51 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     expect(barClass).not.toContain("wx-split");
   });
 
-  it("working-days default + calendar-days override: only the overridden bar carries the tick (AE4/AE7)", async () => {
+  it("working-days default + calendar-days override: only the overridden bar carries the dot (AE4/AE7)", async () => {
     await openBase("CalendarAxesOverride.base");
     await expect($(OVERRIDE_BAR)).toExist();
     await expect($(STRETCH_BAR)).toExist();
     // The overridden task (effective calendar-days ≠ the working-days default)
-    // shows the top-edge tick, hoverable for the interpretation.
+    // shows the corner dot, hoverable for the interpretation.
     await browser.waitUntil(
-      async () => (await $$(`${OVERRIDE_BAR} .og-override-tick`)).length > 0,
-      { timeout: 30000, timeoutMsg: "override tick never rendered on the overridden bar" }
+      async () => (await $$(`${OVERRIDE_BAR} .og-override-dot`)).length > 0,
+      { timeout: 30000, timeoutMsg: "override dot never rendered on the overridden bar" }
     );
-    const tickTitle = await browser.execute((selector: string) => {
-      return document.querySelector(`${selector} .og-override-tick`)?.getAttribute("title") ?? null;
+    const dotTitle = await browser.execute((selector: string) => {
+      return document.querySelector(`${selector} .og-override-dot`)?.getAttribute("title") ?? null;
     }, OVERRIDE_BAR);
-    expect(tickTitle).toContain("calendar days");
-    // A task following the view default carries no tick.
-    const defaultTicks = await $$(`${STRETCH_BAR} .og-override-tick`);
-    expect(defaultTicks.length).toBe(0);
+    expect(dotTitle).toContain("calendar days");
+    // A task following the view default carries no dot.
+    const defaultDots = await $$(`${STRETCH_BAR} .og-override-dot`);
+    expect(defaultDots.length).toBe(0);
+  });
+
+  it("live-refreshes the override dot when the mapped Estimate-meaning property is edited", async () => {
+    await openBase("CalendarAxesOverride.base");
+    await expect($(STRETCH_BAR)).toExist();
+    // Task Stretch follows the working-days default, so it starts without a dot.
+    await browser.waitUntil(
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length === 0,
+      { timeout: 30000, timeoutMsg: "Task Stretch unexpectedly started with an override dot" }
+    );
+    // Edit its mapped `est_meaning` to calendar-days (≠ the view default) while the
+    // Base stays open. Only if that property is in the watched set does the edit
+    // flip the entry signature, re-read the task, and re-render the dot live —
+    // the watch this change adds, exercised through the real onDataUpdated refresh.
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("Task Stretch.md");
+      if (!file) throw new Error("Task Stretch.md missing from the axes fixture vault");
+      await app.fileManager.processFrontMatter(file as never, (fm: Record<string, unknown>) => {
+        fm.est_meaning = "calendar-days";
+      });
+    });
+    await browser.waitUntil(
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length > 0,
+      { timeout: 30000, timeoutMsg: "override dot never appeared after editing est_meaning live" }
+    );
+    const dotTitle = await browser.execute((selector: string) => {
+      return document.querySelector(`${selector} .og-override-dot`)?.getAttribute("title") ?? null;
+    }, STRETCH_BAR);
+    expect(dotTitle).toContain("calendar days");
   });
 });

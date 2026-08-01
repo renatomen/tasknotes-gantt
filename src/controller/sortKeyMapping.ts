@@ -1,5 +1,5 @@
 /**
- * Default-view safe-partial interleave (plan 2026-06-22-002, U6 / R7).
+ * Default-view safe-partial interleave.
  *
  * With **no ephemeral column sort active**, the default Gantt view should show
  * Show-all *fetched* ("context") rows interleaved among their matched siblings
@@ -14,7 +14,7 @@
  * TaskNotes / the view config) mapped — `note.scheduled` for one vault, `note.banana`
  * for another. The map is therefore the **inverse of the resolved `FieldMappings`**.
  *
- * **Critical invariant (KTD5).** Bases sorts matched rows with locale/timezone
+ * **Critical invariant.** Bases sorts matched rows with locale/timezone
  * aware comparators we can't reproduce, and the Base is the ordering authority.
  * So this module **never re-sorts matched rows against each other** — it keeps
  * them in the exact Base-given order and only *positions each fetched row* among
@@ -24,22 +24,39 @@
  *
  * Pure and dependency-free (besides the SourceTask / CompanionTask shapes and the
  * Obsidian `BasesSortConfig` type). The positioned list feeds
- * {@link import('../controller/InstanceExpansion').expandInstances}, which
- * preserves input order per sibling group — so this produces the right INPUT
- * order rather than mutating the expander.
+ * {@link import('./InstanceExpansion').expandInstances}, which preserves input
+ * order per sibling group — so this produces the right INPUT order rather than
+ * mutating the expander. Snapshot ordering is the controller's own concern, so
+ * the interleave (and the scalar comparison convention the grid column sort
+ * shares) lives here in the controller layer.
  *
- * @module bases/sortKeyMapping
+ * @module controller/sortKeyMapping
  */
 import type { BasesSortConfig } from 'obsidian';
 import type { CompanionTask } from '../datasource/companionResolve';
-import type { FieldMappings } from './types/field-mapping';
-import { compareScalars } from './columnSort';
+import type { FieldMappings } from '../datasource';
 
 /** A Gantt field a Base sort property can map onto. */
 export type SortableField = 'start' | 'end' | 'text' | 'status' | 'progress';
 
 /** A comparable sort key extracted from a task field. */
 export type SortKey = Date | number | string | null;
+
+/**
+ * Ascending, type-aware comparison of two raw scalar values: dates compare
+ * chronologically, numbers numerically, booleans false<true, and everything else
+ * by a locale-aware, numeric-aware string form. Shared by the default-view
+ * interleave below and the grid column sort (`bases/columnSort`, which imports
+ * it from here) so the one locale-numeric compare convention can't drift
+ * between them. Empty/null handling is the caller's job — this assumes both
+ * values are present.
+ */
+export function compareScalars(a: unknown, b: unknown): number {
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return (a ? 1 : 0) - (b ? 1 : 0);
+  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base', numeric: true });
+}
 
 /**
  * Map a Bases sort property id to the Gantt field it sorts, by INVERTING the

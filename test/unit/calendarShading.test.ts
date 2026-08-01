@@ -1,13 +1,13 @@
 import {
   buildCalendarShadingCss,
+  associationTaskPaths,
+  calendarAssociationsFrom,
   collectShadedDates,
   computeCalendarShadingCss,
-  computeTaskBlocking,
-  countWorkingDaysInSpan,
   createShadingCssCache,
-  shadingCacheKey,
   shadingWindow,
 } from '../../src/bases/calendarShading';
+import { shadingCacheKey } from '../../src/controller/calendar/derivation';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
 import type { CalendarNoteInput, LinkResolver } from '../../src/controller/calendar/resolveCalendars';
 
@@ -28,6 +28,51 @@ const computeShading = (
   inputs: Omit<Parameters<typeof computeCalendarShadingCss>[0], 'scope'>,
 ): ReturnType<typeof computeCalendarShadingCss> =>
   computeCalendarShadingCss({ ...inputs, scope: '.og-bases-gantt' });
+
+describe('calendarAssociationsFrom', () => {
+  it('dedups task paths and drops notes without a calendar value', () => {
+    const values = new Map<string, unknown>([
+      ['Tasks/a.md', '[[NZ]]'],
+      ['Tasks/b.md', '[[AU]]'],
+    ]);
+    // 'a' appears twice (a Bases entry and a fetched instance), 'none' has no
+    // calendar value — the first collapses to one association, the second drops.
+    const associations = calendarAssociationsFrom(
+      ['Tasks/a.md', 'Tasks/b.md', 'Tasks/a.md', 'Tasks/none.md'],
+      (path) => values.get(path),
+    );
+    expect(associations).toEqual([
+      { value: '[[NZ]]', taskPath: 'Tasks/a.md' },
+      { value: '[[AU]]', taskPath: 'Tasks/b.md' },
+    ]);
+  });
+});
+
+describe('associationTaskPaths', () => {
+  it('includes rendered sources that are not Bases entries (Show-all fetched rows)', () => {
+    // The fetched descendant has no Bases entry, so leaving it out left its bar
+    // with no calendar identity — and the default role colour instead of its own.
+    expect(
+      associationTaskPaths(
+        ['Tasks/matched.md'],
+        [{ sourcePath: 'Tasks/matched.md' }, { sourcePath: 'Tasks/fetched.md' }],
+      ),
+    ).toEqual(['Tasks/matched.md', 'Tasks/fetched.md']);
+  });
+
+  it('keeps entry order first and dedupes across both sources', () => {
+    expect(
+      associationTaskPaths(
+        ['b.md', 'a.md'],
+        [{ sourcePath: 'a.md' }, { sourcePath: 'a.md' }, { sourcePath: 'c.md' }],
+      ),
+    ).toEqual(['b.md', 'a.md', 'c.md']);
+  });
+
+  it('ignores an instance with no source path', () => {
+    expect(associationTaskPaths([], [{}, { sourcePath: 'a.md' }])).toEqual(['a.md']);
+  });
+});
 
 describe('shadingWindow', () => {
   it('returns null with no dated spans', () => {
@@ -170,52 +215,6 @@ describe('buildCalendarShadingCss', () => {
     expect(css).toContain('.og-gantt-test .wx-scale .og-d-2026-04-10');
     expect(css).toContain('.og-gantt-test .wx-gantt-holidays .og-cal-cell');
     expect(css).not.toContain('.og-bases-gantt');
-  });
-});
-
-describe('computeTaskBlocking + countWorkingDaysInSpan', () => {
-  const markedNotes: CalendarNoteInput[] = [
-    {
-      path: 'Calendars/NZ.md',
-      basename: 'NZ',
-      frontmatter: {
-        tngantt: 'calendar',
-        pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
-        non_working: [{ start: '2026-04-15', end: '2026-04-16' }],
-      },
-    },
-  ];
-  const resolveLink: LinkResolver = (linkText) =>
-    linkText.includes('NZ') ? 'Calendars/NZ.md' : null;
-  const taskSpans = [{ start: new Date(2026, 3, 6), end: new Date(2026, 3, 20) }];
-
-  const blockingOf = computeTaskBlocking({
-    markedNotes,
-    resolveLink,
-    associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
-    taskSpans,
-    extraWindowDays: 30,
-  });
-
-  it('blocks pattern-complement days and authored spans; working days pass', () => {
-    const blocking = blockingOf('Tasks/T.md');
-    if (!blocking) throw new Error('expected blocking for the associated task');
-    expect(blocking.isBlocked('2026-04-11')).toBe(true);
-    expect(blocking.isBlocked('2026-04-15')).toBe(true);
-    expect(blocking.isBlocked('2026-04-16')).toBe(true);
-    expect(blocking.isBlocked('2026-04-14')).toBe(false);
-    expect(blocking.maxBlockedRunDays).toBeGreaterThanOrEqual(2);
-  });
-
-  it('returns null for a task with no association', () => {
-    expect(blockingOf('Tasks/Other.md')).toBeNull();
-  });
-
-  it('counts inclusive working days for the resize write path', () => {
-    const blocking = blockingOf('Tasks/T.md');
-    if (!blocking) throw new Error('expected blocking');
-    // Fri 10 .. Tue 14: Fri + Mon + Tue working, Sat + Sun blocked.
-    expect(countWorkingDaysInSpan(blocking, new Date(2026, 3, 10), new Date(2026, 3, 14))).toBe(3);
   });
 });
 

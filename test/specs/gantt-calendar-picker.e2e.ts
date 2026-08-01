@@ -76,6 +76,10 @@ describe("Gantt (OG) calendar picker + union shading", () => {
     const text = await banner.getText();
     expect(text).toContain("Displaying 2 calendars");
     expect(text).toContain("in conflict");
+    // The banner NAMES the disagreeing calendars: a day count alone left the user
+    // to open the picker and compare patterns to find which selection conflicted.
+    expect(text).toContain("NZ Holidays");
+    expect(text).toContain("Sun Thu");
   });
 
   it("paints conflict stripes on a disagreement day (Sunday)", async () => {

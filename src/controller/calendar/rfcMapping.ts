@@ -102,7 +102,12 @@ export function toRfcCalendar(definition: CalendarDefinition): RfcCalendarModel 
   for (const recurring of definition.recurringEvents) {
     events.push({
       transparency: 'TRANSPARENT',
-      dtstart: definition.patternStart ? dateProperty(definition.patternStart) : undefined,
+      // A recurring event carries no anchor of its own, and `pattern_start`
+      // anchors the working availability pattern — a different series. Reusing
+      // it here would re-phase the event set (drop pre-anchor occurrences,
+      // shift INTERVAL/COUNT/UNTIL). Per this module's contract an anchorless
+      // recurring event's DTSTART is completed at export time, not stored.
+      dtstart: undefined,
       dtend: undefined,
       rrule: recurring.rrule,
       summary: recurring.name,

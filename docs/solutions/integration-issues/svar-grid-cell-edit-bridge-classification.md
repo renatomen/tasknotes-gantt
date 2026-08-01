@@ -34,7 +34,7 @@ SVAR's gantt (2.7.0) has no dedicated cell-edit event at the gantt level: the em
 
 ## Solution
 
-Three-part contract in `src/bases/cascadeGate.ts` (`classifyCellEdit`/`classifyUpdateGesture`) and `src/bases/GanttContainer.svelte` (PRs #225/#227):
+Three-part contract across `src/bases/cascadeGate.ts` (`classifyCellEdit`/`classifyUpdateGesture`), `src/bases/cellEditCommit.ts` plus `src/bases/cellEditCoordinator.ts`, and `src/bases/GanttContainer.svelte`:
 
 1. **Value-diff classification**: the edited column is the configured non-name column id whose flat value differs (type-aware) from the row's stored `custom.properties` TypedValue. Zero diffs = no-op (no write). More than one diff = ambiguous — write nothing, reseed the row, notify.
 2. **Systematic flat-key alignment**: every diff-sync `update-task` exec payload (and every reseed seed) re-asserts the current flat value for each editor-attached column, so flat keys never go stale and single-diff attribution stays sound.

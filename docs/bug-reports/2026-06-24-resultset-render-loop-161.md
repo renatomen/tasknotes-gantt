@@ -228,8 +228,8 @@ field mappings (`projects→in`, `taskPropertyName→isActionable`) — with emp
   (every path + frontmatter byte-equal; PASS = indistinguishable except bodies).
 - `node scripts/vault-as-code.mjs generate <fixture.json> <outVault>` — recreate the
   vault from the fixture ALONE (no source access).
-- `scripts/profile-maintest.mjs` — one-time structural profiler used to design the
-  generator (distributions, the parent forest, the matched-set approximation).
+- A one-time structural profiler supplied the distributions, parent forest, and
+  matched-set approximation used to design the generator; it was retired after use.
 
 The fixture (`test/fixtures/maintest.vaultcode.json`) carries real frontmatter and is
 **gitignored** pending a privacy/commit decision; regenerate it locally with `extract`.

@@ -1,12 +1,12 @@
 /**
- * Vitest browser-mode config for the isolated render harness (#161 perf plan,
- * KD1/U3). Runs the real `GanttContainer` Svelte component in headless Chromium
- * so SVAR's Svelte-5 source compiles exactly as in production and DOM-node /
- * timing measurements are real (jsdom cannot measure layout/virtualization).
+ * Vitest browser-mode config for the isolated real-SVAR harness. Runs the real
+ * `GanttContainer` Svelte component in headless Chromium so SVAR's Svelte-5
+ * source compiles exactly as in production and DOM interactions, layout, and
+ * timing measurements are real.
  *
- * Scope: the perf specs under test/perf/isolated (the *.perf.ts files). Jest
- * still owns the unit *.test.ts files in a node env — the globs don't overlap,
- * so the two runners coexist.
+ * Scope: the browser specs under test/perf/isolated (the *.perf.ts files).
+ * Jest still owns the unit *.test.ts files in a node env — the globs don't
+ * overlap, so the two runners coexist.
  */
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
@@ -29,6 +29,8 @@ export default defineConfig({
   test: {
     root: repoRoot,
     include: ['test/perf/isolated/**/*.perf.ts'],
+    // Keep functional browser mounts from contending with wall-clock perf measurements.
+    fileParallelism: false,
     browser: {
       enabled: true,
       provider: playwright(),

@@ -47,7 +47,7 @@ export type ExpandableTask = SourceTask & {
   /**
    * The task's effective Estimate meaning when it OVERRIDES the view default
    * (differs from it); undefined when the task follows the default. Drives the
-   * on-bar override tick and its tooltip (R11).
+   * on-bar override dot and its tooltip (R11).
    */
   interpretationOverridden?: EstimateMeaning;
   /**
@@ -112,6 +112,12 @@ export interface RenderInstance {
    * bypassed the policy (e.g. the empty-source path).
    */
   dateStatus: DateStatus;
+  /**
+   * The task's authored Time Estimate in minutes, or `null` when it has none.
+   * Carried so a view that writes a span-derived estimate can also put the
+   * authored one back when the user undoes that write.
+   */
+  estimateMinutes: number | null;
   /** Raw task status string (drives status coloring); `null` when unset. */
   status: string | null;
   /** Raw task priority string (drives priority coloring); `null` when unset. */
@@ -136,7 +142,7 @@ export interface RenderInstance {
   ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
   /** True when the stretch scan hit its ceiling and fell back to calendar days. */
   stretchFlagged?: boolean;
-  /** Effective Estimate meaning when it overrides the view default; drives the tick (R11). */
+  /** Effective Estimate meaning when it overrides the view default; drives the dot (R11). */
   interpretationOverridden?: EstimateMeaning;
 }
 
@@ -516,6 +522,7 @@ function makeInstance(
     isVirtual,
     isCollapsed: false,
     dateStatus: task.dateStatus ?? 'complete',
+    estimateMinutes: task.estimate ?? null,
     status: task.status,
     priority: task.priority,
     isFetched: task.isFetched ?? false,
