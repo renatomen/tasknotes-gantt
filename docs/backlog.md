@@ -402,6 +402,14 @@ These may already be shipped — confirm against current code before opening an 
 
 ## Parked — revisit only on a trigger
 Low-value or condition-gated; kept here so nothing is lost. Not actionable until the trigger fires.
+- **Validate upgraded release Actions on the next real release** — confirm checkout/setup,
+  provenance attestation, and release publication complete. The pre-upgrade workflow base was
+  `e6a2e742cf58d0243cf8c41607a1993f24f3a84a`; PR validation covers the shared build path but cannot
+  synthesize the tag-triggered publication sequence.
+- **Validate upgraded perf Actions on the next scheduled/manual run** — confirm checkout/setup and
+  performance artifact publication complete. The pre-upgrade workflow base was
+  `e6a2e742cf58d0243cf8c41607a1993f24f3a84a`; PR validation covers the shared Windows build path but
+  does not exercise this production workflow trigger.
 - **manifest `minAppVersion` bump** (1.5.0 → 1.10.0+) vs keeping the runtime Bases version guard — `2026-06-16-001`.
 - **Controller targeted-refresh → full diff-based update** if remount proves too coarse — `2026-06-16-001`.
 - **Per-ancestor selection in extend dialog**; **auto-mode undo notice** — `2026-06-17-005`.
