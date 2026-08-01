@@ -16,10 +16,68 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
-### P1 — e2e: pointer-drag simulation harness
-The single most-repeated residual. Multiple deferred e2e tests are all blocked on the same missing
-capability: simulating pointer-drag in headless WDIO (drag-to-persist, drag-to-resize, drag-to-link).
-Building it once unblocks all of them.
+### P2 — Existence-only e2e assertions are the next tier down (2026-07-29)
+The assertion gate makes a case with NO assertion impossible; it says nothing about
+weak ones. Eleven `toBeGreaterThan(0)`-shaped checks remain across the calendar and
+field-mapping specs — they assert that something rendered, not that the right thing
+did. Two conflict cases in `gantt-calendar-editor.e2e.ts` were tightened this way
+(count -> the weekday rows the conflicts actually fall on, which fails for a misparse
+a count waves through); the same treatment applies to the rest. Out of scope for the
+gate unit deliberately: that unit's job was cases asserting nothing at all.
+- Source: layer-2 review of the assertion-gate branch; a `grep` for the pattern after
+  fixing the first instance is what surfaced them.
+
+### P1 — Behavior defects preserved during the maintainability campaign (2026-07-30)
+These six nonurgent behaviors were characterized and deliberately left unchanged.
+They are not decomposition work. Once the maintainability closeout lands, promote
+any fix as its own test-first unit. If new evidence makes one urgent before then,
+stop the project and consult the maintainer before changing production behavior.
+
+- The cell-edit path uses reject-at-timeout (`withTimeout`), releasing its gate
+  while the underlying write continues. A late write can therefore overtake a
+  subsequent edit.
+- Two render instances of one source have separate cell-edit gates but share
+  property and render records. Their writes can overlap; if a later write succeeds
+  before an earlier one rejects, the earlier rollback restores its original
+  baseline and temporarily clobbers the later value in the grid.
+- A mixed incremental refresh clears the current grid selection, while identical
+  and width-only refreshes preserve it.
+- Moving an existing task beneath a parent added by the same incremental refresh
+  sends the move before the parent exists. SVAR rejects that command asynchronously
+  while local bookkeeping can advance, leaving the displayed hierarchy stale.
+- If an ephemeral column sort is active and the Base sort descriptor changes
+  without changing its row-order fingerprint, the incremental path clears the sort
+  arrow but skips replaying Base order. The chart can retain the old ephemeral
+  visual order.
+- If a column/editor signature and the Base sort descriptor change in the same
+  refresh while an ephemeral sort is active, the earlier column-reseed path
+  rebaselines the Base descriptor and reasserts the old ephemeral sort.
+- Sources: PR #349 review record; plan
+  `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
+  characterization during #354.
+
+### P2 — Executor residuals from the #349 review chain (documented, deliberate)
+Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
+revisit if any bites in practice:
+- A dequeue landing inside the 500ms Bases refresh debounce can read a pre-write row; fully
+  closing it needs the executor to overlay its own persisted patches.
+- A permanently hung persist parks its source's queue (deduplicated notice shown); recovery is
+  view remount. The fence deadline equals the slow-write notice threshold, so a 10–15s write
+  gets its cascade deferred to the next drag.
+- Remount epoch-0 window: the marked-notes memo survives on the controller while the calendar
+  watch is torn down and recreated at epoch 0; an edit in the unwired gap could serve stale
+  marked notes for one transient build.
+- Settlement-observer failures are swallowed silently (why-comment present); route to the gated
+  debugLog if diagnostics are ever needed.
+- Source: PR #349 review threads + local review artifacts, 2026-07-28.
+
+### P1 — e2e: exercise pointer drags with stock WebdriverIO actions
+The single most-repeated residual. Multiple deferred e2e tests need reliable
+pointer-drag coverage in real Obsidian (drag-to-persist, drag-to-resize,
+drag-to-link). Use WebdriverIO's supported browser/action APIs and existing e2e
+fixtures; do not build a custom drag simulator, runner, or harness. If the stock
+API cannot express a case reliably, prefer an upstream-supported route or
+reassess the test boundary before adding project-specific tooling.
 - Deferred e2es waiting on it: drag→cascade-modal→persist, grid-column resize persistence,
   FS link drag-create, non-FS link drag-create.
 - Sources: `docs/plans/2026-06-17-005-feat-parent-date-cascade-confirmation-plan.md`,
@@ -58,7 +116,7 @@ resolved). What remains, in order of user value:
   natural next user-facing step. Start it with a `ce-brainstorm`/`ce-plan` pass.
 - **Hour granularity** — block `hours` are still ignored (sub-day rendering, hourly conflicts, RFC 9253
   working-time lag). Deferred until the Gantt renders hourly — see
-  [[calendar-bundled-keep-extractable-day-granularity]].
+  the bundled, day-granularity calendar decision.
 - **P2b** — runtime-invalid block/pattern RRULEs are silently inert; a bad block contributes nothing rather
   than flagging (shared fail-visible wiring).
 
@@ -75,6 +133,29 @@ picker row. That contradicts the documented fail-visible contract.
 `validatePattern` (`src/controller/calendar/patternWindow.ts`) exists precisely to catch this and is
 currently unused in production. Wiring it into `buildCalendarRegistry` so a runtime-invalid pattern
 lands in `registry.invalid` (banner + disabled picker row with the reason) is the fix.
+
+**Status (2026-07-24):** the *evaluator* half shipped in #323 (freeze/DoS + floating-rule guards, so
+`validatePattern`/`evaluatePattern` reject those before expansion). This registry-propagation half was
+split back out of #323 because an 8-round Codex review surfaced design decisions worth settling on
+purpose rather than round-by-round. Resolve these before implementing:
+
+1. **"Matches no days" policy.** `validatePattern` treats an evaluable rule that matches no day in the
+   4-year probe as invalid ("pattern matches no days"). For a *working* pattern that's the right
+   signal (a schedule working one day per decade isn't a schedule, and the preview already flags it),
+   but a valid sparse recurrence (`FREQ=YEARLY;INTERVAL=10`, first occurrence beyond the probe) should
+   NOT be flagged. Decide: keep "matches no days" for working rules (parity with the preview) and use
+   an evaluable-only check for events, OR relax both (and change the preview to match).
+2. **Working-rule vs display-event granularity** (per the `schema.ts` fail-granularity contract): an
+   invalid working pattern/availability block invalidates the whole calendar; a runtime-invalid
+   *recurring event* is a display entry and must be dropped-with-a-diagnostic, NOT suspend scheduling
+   for every linked task.
+3. **Event-diagnostic surfacing.** No production consumer reads calendar-*definition* diagnostics
+   (only set flags + `registry.invalid` surface in the picker/banner). To make a dropped bad event
+   actually fail-visible, add a registry field/flag the picker or banner renders — otherwise the
+   diagnostic is silent.
+4. **Startup cost.** Probing every calendar at registry build runs a 4-year `between()` per rule; the
+   #323 guards cap the pathological cases, but confirm the aggregate cost is acceptable (or probe
+   lazily / cache).
 
 ### P2c — Calendar: per-calendar colour for column shading (decide after U12/U13)
 Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md`. Maintainer question
@@ -150,11 +231,12 @@ Obsidian). Two defects found in review make the *design* wrong, not the code:
    A future attempt must slice on `area` and re-measure at that scale.
 2. **It silently desyncs from the rows it labels.** Row `$y` moves on expand/collapse, sort, filter
    and hide-top-level — all `api.exec` paths internal to SVAR that never touch the plugin's data
-   store, so no recompute fires and the tint stays put while the bars move. This is the harder
-   problem: SVAR's own collapse UI never notifies the plugin, so correctness needs a reliable
-   row-geometry change signal (a geometry fingerprint checked per tick, or an intercept covering
-   every mutation path). A tint sitting on the wrong row asserts something false about that task's
-   non-working days — worse than no shading at all.
+   store, so no recompute fires and the tint stays put while the bars move. But a reliable signal
+   does exist: `api.getReactiveState()._tasks` is the collapse-aware visible-row set (the plugin
+   already subscribes to it for the row count), and `_tasks[].$y`/`.$h` carry per-row geometry — so
+   a future attempt can key the overlay off that reactive state rather than a bespoke geometry
+   fingerprint or a mutation-path intercept. A tint sitting on the wrong row asserts something false
+   about that task's non-working days — worse than no shading at all.
 
 Two lesser findings to carry over: `buildTaskBlocking`'s single-slot memo thrashes when stretch and
 row shading are both on (two call sites compute different windows and evict each other every pass —
@@ -165,6 +247,16 @@ so at equal stacking it painted *above* the bars rather than below.
 `docs/brainstorms/2026-07-20-date-provenance-and-treatment-channels-requirements.md`. Row shading
 would be a fourth surface encoding calendar identity by colour (after bars, columns and markers);
 whether it earns that channel is a question that redesign should answer first.
+
+## Deferred Codex review threads (2026-07-25 backlog resolution)
+
+Left open deliberately during the Codex-backlog resolution pass — acknowledged, not fixed:
+
+- **Refresh the evaluated-date stylesheet on viewport pan/zoom** (#266, plan-doc thread) — a
+  viewport-driven refresh of the calendar shading sheet; acknowledged deferral.
+
+Also deferred to their own units: fetched-bar calendar colour + its shading refresh (#281, U5d),
+and the P3 timezone-offset DST-staleness recompute (#297).
 
 ### P2g — Calendar editor: availability-block editing
 Source: `docs/plans/2026-07-19-001-feat-multi-calendar-working-time-plan.md` (U15). The editor form
@@ -188,7 +280,7 @@ Fixed: availability blocks now drive working/non-working **at day granularity** 
 top-level `pattern` OR any availability block covers it — and `calendarDayFacts.blockingFacts`,
 `calendarConflicts.dayFacts`, and `calendarShading.collectShadedDates` (the real chart) all read it. So an
 availability-only member now blocks its off-days and conflicts correctly, and the previews match the chart.
-Block **hours** are still ignored (day-granularity only, by decision — see [[calendar-bundled-keep-extractable-day-granularity]]).
+Block **hours** are still ignored (day-granularity only, by decision — see the bundled, day-granularity calendar decision).
 
 Remaining, deferred: the **hour-granularity** work (sub-day rendering, hourly conflicts, RFC 9253 working-time
 lag) waits for Gantt hourly rendering; authoring availability in the form is [[P2g]]; and runtime-invalid
@@ -270,6 +362,18 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   `docs/plans/2026-06-18-001-feat-gantt-grid-bases-columns-plan.md`.
 
 ### P8 — e2e / CI infra
+- The scheduled #161 storm perf case "Show-undated tasks off still bounds evaluation under a noisy
+  Base" fails unchanged before and after the maintainability refactor: `fireToggle` reports the
+  setting and config changed, but the generated vault then has zero visible bars while the test
+  expects at least one. Reproduced against unchanged `main` behavior on 2026-07-30. The
+  maintainability campaign deliberately preserved it; promote diagnosis and any fix as a separate
+  post-campaign unit rather than folding it into the closeout.
+- `vault-as-code verify` does not inspect secret values when a captured TaskNotes `data.json` is
+  malformed: extraction retains the raw bytes, generation writes the same bytes, and verification
+  swallows the JSON parse failure after the round trip matches. This is nonurgent because the tool
+  is manual/local, its private fixture is gitignored, and it is not shipped or CI-invoked. Promote
+  a separate post-campaign unit to make extraction and verification fail closed before any fixture
+  can be treated as redacted. Source: #354 verifier characterization, 2026-07-30.
 - Commit the `vault-as-code` fixture (real frontmatter, secrets redacted) for CI, then wire the #161
   repro in as a gated job. Privacy decision the maintainer flagged as separate. Source:
   `docs/plans/2026-06-28-002-fix-gantt-diff-sync-bulk-reseed-plan.md`.
@@ -321,3 +425,27 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **Update #161 bug report** stale SVAR version refs (2.3.0 → 2.7.0) — `2026-06-25-001` (#161 closed; low value).
 - **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (already recorded as #53 scope wall; long-horizon).
 - **Visual assets — day-scale before/after** (0.1.0-beta.10, #252): a short before/after (wide vs compact day columns) for the "Day opens at its narrowest columns" change; skipped in the release-notes draft as marginal/subtle, capture with the deferred motion-GIF batch (maximized window).
+
+### Whole-bar move of an inferred task silently materialises the derived edge
+Source: the drag-path refactor plan's flow analysis (2026-07-27). Moving the whole
+bar of a task with an inferred edge writes both dates and the estimate without the
+prompt the resize gesture gets — the modal only covers resizes on the matching
+inferred edge. Today's behaviour is pinned by the planner's test table (the refactor
+preserves it); whether a move should route through the prompt gate is a product
+decision. Wants a maintainer call before any behaviour change.
+
+### Inferred-edge undo: authorship vs appearance
+Source: the inferred-edge drag review. Undoing a shrink-cascade after an
+**Estimate and dates** choice restores the pre-drag dates and (now) the pre-drag
+estimate — but the pre-drag end of an inferred-end task was *derived*, so writing
+it back authors a date that was not authored before. A fully faithful undo would
+un-author the edge the choice materialised, which needs a patch path that can
+clear a frontmatter field rather than set one. Deliberately deferred: the
+alternative (dropping the date silently) is equally a guess, so this wants a
+maintainer decision on what "undo" means for a derived edge.
+
+The same applies to the estimate: a task with **no** authored estimate had its edge
+derived from the view default, so the undo writes an explicit estimate equal to what
+was implicit — the appearance is restored exactly, the authorship is not. Restoring
+absence needs a patch path that can *clear* a field (today `applyEstimateWrite`
+only writes numbers, and TaskNotes-field clearing semantics are unverified).

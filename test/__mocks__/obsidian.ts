@@ -10,6 +10,33 @@
  * Add exports here only as units under test require them.
  */
 
+/**
+ * Stub of Obsidian's `Component` lifetime: `registerEvent` collects refs and
+ * `unload` releases them through each ref's own emitter, mirroring how Obsidian
+ * ties a subscription's lifetime to the component that owns it.
+ */
+export class Component {
+  private readonly cleanups: (() => void)[] = [];
+  loaded = false;
+
+  load(): void {
+    this.loaded = true;
+  }
+
+  unload(): void {
+    this.loaded = false;
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
+  }
+
+  register(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
+  }
+
+  registerEvent(ref: { e?: { offref?: (r: unknown) => void } }): void {
+    this.register(() => ref?.e?.offref?.(ref));
+  }
+}
+
 /** Stub of Obsidian's toast; records the message for assertions. */
 export class Notice {
   message: string;
@@ -99,6 +126,28 @@ export class App {
  */
 export class TFile {
   path = '';
+  basename = '';
+}
+
+/**
+ * Stub of Obsidian's `BasesView` base class so the Bases Gantt view can be
+ * constructed in unit tests. The real Bases runtime wires `app`/`config`/`data`
+ * internally; this stand-in reads them off the supplied QueryController-shaped
+ * object so a test can inject its fakes through the factory seam.
+ */
+export class BasesView extends Component {
+  app: App;
+  config: unknown;
+  data: unknown;
+  allProperties: unknown[] = [];
+
+  constructor(controller: unknown) {
+    super();
+    const wired = (controller ?? {}) as { app?: App; config?: unknown; data?: unknown };
+    this.app = wired.app as App;
+    this.config = wired.config ?? null;
+    this.data = wired.data ?? null;
+  }
 }
 
 /**
@@ -310,6 +359,16 @@ interface SearchResultLike {
   matches: SearchMatchPart[];
 }
 
+function appendFrontmatterTags(tags: string[], rawTags: unknown): void {
+  if (Array.isArray(rawTags)) {
+    for (const tag of rawTags) {
+      if (typeof tag === 'string' && tag !== '') tags.push(tag.startsWith('#') ? tag : `#${tag}`);
+    }
+  } else if (typeof rawTags === 'string' && rawTags !== '') {
+    tags.push(rawTags.startsWith('#') ? rawTags : `#${rawTags}`);
+  }
+}
+
 /**
  * Flatten a note's `#`-prefixed tags the way the real `getAllTags` does — from
  * frontmatter `tags` (string or array) plus inline `tags` entries — so the vault
@@ -318,14 +377,7 @@ interface SearchResultLike {
 export function getAllTags(cache: CachedMetadataLike | null | undefined): string[] | null {
   if (!cache) return null;
   const tags: string[] = [];
-  const fmTags = cache.frontmatter?.tags;
-  if (Array.isArray(fmTags)) {
-    for (const tag of fmTags) {
-      if (typeof tag === 'string' && tag !== '') tags.push(tag.startsWith('#') ? tag : `#${tag}`);
-    }
-  } else if (typeof fmTags === 'string' && fmTags !== '') {
-    tags.push(fmTags.startsWith('#') ? fmTags : `#${fmTags}`);
-  }
+  appendFrontmatterTags(tags, cache.frontmatter?.tags);
   if (Array.isArray(cache.tags)) {
     for (const entry of cache.tags) {
       if (entry && typeof entry.tag === 'string') tags.push(entry.tag);

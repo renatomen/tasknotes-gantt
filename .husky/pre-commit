@@ -7,10 +7,10 @@ npm run lint && npm run typecheck || exit 1
 # Bypass (only if truly intentional): git commit --no-verify
 # `|| true`: grep exits non-zero when nothing matches (the common pass case), which
 # would abort the hook under husky's `set -e`.
-volatile=$(git diff --cached -U0 --diff-filter=AM -- src \
+volatile=$(git diff --cached -U0 --diff-filter=AM -- src test \
   | grep -E '^\+' | grep -vE '^\+\+\+' \
   | grep -E '(//|/\*|<!--|^\+[[:space:]]*\*)' \
-  | grep -nE 'KTD[0-9]|(^|[^A-Za-z])AE[0-9]|docs/(plans|brainstorms|solutions|ideation)|\.(ts|tsx|js|mjs|svelte|css):[0-9]+|[Ss]ee [^ ]*\.md' || true)
+  | grep -nE 'KTD[0-9]|(^|[^A-Za-z])(AE|R|U)[0-9]|docs/(plans|brainstorms|solutions|ideation)|\.(ts|tsx|js|mjs|svelte|css):[0-9]+|[Ss]ee [^ ]*\.md' || true)
 
 if [ -n "$volatile" ]; then
   echo "pre-commit: new src/ comments contain volatile references that will rot:" >&2

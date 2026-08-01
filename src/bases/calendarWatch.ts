@@ -24,6 +24,12 @@ import { defaultScheduler, type TimerScheduler } from './scheduler';
 export interface CalendarWatchConfig {
   /** Marker probe (metadata-cache read); called at event time. */
   isCalendarNote(path: string): boolean;
+  /**
+   * The note's current calendar-association value, serialized (metadata-cache
+   * read at event time). Absent = association tracking off. Serialized rather
+   * than raw so equality is one string compare at event time.
+   */
+  readAssociationValue?(path: string): string;
   /** Fires once per settled burst of relevant events. */
   onReResolve(): void;
   scheduler?: TimerScheduler;
@@ -34,6 +40,22 @@ export interface CalendarWatch {
   notifyChanged(path: string): void;
   notifyRenamed(path: string, oldPath: string): void;
   notifyDeleted(path: string): void;
+  /**
+   * Register the calendar notes currently in use so a later DELETE of one is
+   * recognised even if the note was never edited in view. A deletion cannot
+   * probe the marker (the file is gone), so it relies on the known-paths set,
+   * which is otherwise seeded lazily on the first edit and is empty at mount.
+   */
+  syncKnownPaths(paths: Iterable<string>): void;
+  /**
+   * Register the association value each rendered task note carried at the last
+   * shading build. A later edit that CHANGES one of these values is a relevant
+   * event even though the note is no task-entry and no calendar: a fetched
+   * (Show-all) row's bar colour, the auto display union, and the conflict
+   * banner all derive from it, and nothing else re-reads it — the controller
+   * snapshot compares dates/text, not associations, so it stays silent.
+   */
+  syncAssociations(entries: Iterable<readonly [path: string, value: string]>): void;
   /** Monotonic count of relevant events; folds into the entry signature. */
   epoch(): number;
   dispose(): void;
@@ -45,6 +67,7 @@ export function createCalendarWatch(config: CalendarWatchConfig): CalendarWatch 
   const scheduler = config.scheduler ?? defaultScheduler;
   const debounceMs = config.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const knownPaths = new Set<string>();
+  const associationValues = new Map<string, string>();
   let relevantEvents = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -57,7 +80,17 @@ export function createCalendarWatch(config: CalendarWatchConfig): CalendarWatch 
     // delete() is true exactly once for a demoted note: the marker-removal edit
     // still fires the retiring re-resolve, then the path is released so later
     // edits to the now-plain note stop defeating the reuse gate.
-    return knownPaths.delete(path);
+    if (knownPaths.delete(path)) return true;
+    return associationChanged(path);
+  }
+
+  /** Whether an edit moved a tracked task note's calendar association. */
+  function associationChanged(path: string): boolean {
+    if (!config.readAssociationValue || !associationValues.has(path)) return false;
+    const current = config.readAssociationValue(path);
+    if (current === associationValues.get(path)) return false;
+    associationValues.set(path, current);
+    return true;
   }
 
   function bumpAndSchedule(): void {
@@ -80,6 +113,13 @@ export function createCalendarWatch(config: CalendarWatchConfig): CalendarWatch 
     },
     notifyDeleted(path) {
       if (knownPaths.delete(path)) bumpAndSchedule();
+    },
+    syncKnownPaths(paths) {
+      for (const path of paths) knownPaths.add(path);
+    },
+    syncAssociations(entries) {
+      associationValues.clear();
+      for (const [path, value] of entries) associationValues.set(path, value);
     },
     epoch: () => relevantEvents,
     dispose() {
@@ -152,11 +192,13 @@ export function createMountCalendarWatch(options: {
   app: App;
   isConnected(): boolean;
   scheduleRefresh(): void;
+  readAssociationValue?(path: string): string;
   scheduler?: TimerScheduler;
   debounceMs?: number;
 }): MountCalendarWatch {
   const watch = createCalendarWatch({
     isCalendarNote: (path) => isMarkedCalendarNote(options.app, path),
+    readAssociationValue: options.readAssociationValue,
     onReResolve: () => {
       if (!options.isConnected()) return;
       options.scheduleRefresh();

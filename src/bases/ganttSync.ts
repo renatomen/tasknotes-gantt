@@ -24,7 +24,7 @@ import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
   resolveIconSpec,
-  treatmentClassRegistry,
+  treatmentClassGroups,
   type BarChannelSource,
   type BarIconSource,
   type IconSpec,
@@ -34,6 +34,8 @@ import type { TypedValue } from './propertyValues';
 import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
+import type { EstimateMeaning } from './viewOptions';
+import type { EchoPayload } from './dragCommitPlan';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -199,12 +201,26 @@ export interface SvarTask {
      */
     cellRenders?: Record<string, CellRender>;
     /**
-     * Blocked stretches inside a working-time-stretched span, read by the
-     * `BarContent` ghost branch. Absent = solid continuous bar. Folded into
-     * {@link taskStateKey} so a moved holiday re-issues the task even when the
-     * span itself is unchanged.
+     * Blocked-day runs inside a bar's final span (split rendering, any dated
+     * span — not only a re-projected one), read by the `BarContent` ghost branch.
+     * Absent = solid continuous bar. Folded into {@link taskStateKey} so a moved
+     * holiday re-issues the task even when the span itself is unchanged.
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    /**
+     * The rendered span came from the derivation authority's ceiling fallback
+     * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
+     * row's custom record stays indistinguishable from a refreshed one — no
+     * renderer reads it yet. Absent when the span is a plain derivation.
+     */
+    stretchFlagged?: boolean;
+    /**
+     * The task's effective Estimate meaning when it overrides the view default
+     * (R11), read by `BarContent` to draw the corner override dot and its
+     * tooltip. Absent = the task follows the view default (no dot). Folded into
+     * {@link taskStateKey} so a change re-issues the task.
+     */
+    interpretationOverridden?: EstimateMeaning;
     /**
      * The task's incoming dependency edges (it is blocked by these), resolved
      * for display. Read by the tooltip (U3). `[]` when the task has none.
@@ -369,6 +385,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        stretchFlagged: inst.stretchFlagged === true ? true : undefined,
+        interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
         // dependency shows the "has dependencies" indicator (no arrow drawn).
         showHasDeps: arrowMode === 'primary' && hasDeps && !isPrimary,
@@ -391,6 +409,39 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   });
 }
 
+/** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
+export type EchoTaskUpdate =
+  | { progress: number }
+  | { start: Date; end: Date; custom?: SvarTask['custom'] };
+
+/**
+ * Shape an executor echo payload into the `update-task` patch for one row. A
+ * geometry echo carries the derivation authority's FULL render geometry, so the
+ * patch advances `custom.ghostRuns` AND `custom.stretchFlagged` alongside
+ * start/end (preserving the rest of the row's custom record) — an echoed split
+ * or ceiling-flagged bar renders exactly as a refreshed one, with `undefined`
+ * for an empty run list or an unflagged span just like {@link buildSvarTasks}.
+ * Without the row's current custom record the patch stays span-only rather than
+ * fabricating a partial record.
+ */
+export function echoTaskPatch(
+  payload: EchoPayload,
+  currentCustom: SvarTask['custom'] | undefined,
+): EchoTaskUpdate {
+  if (payload.kind === 'progress') return { progress: payload.progress };
+  const { geometry } = payload;
+  if (!currentCustom) return { start: geometry.start, end: geometry.end };
+  return {
+    start: geometry.start,
+    end: geometry.end,
+    custom: {
+      ...currentCustom,
+      ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
+      stretchFlagged: geometry.flagged ? true : undefined,
+    },
+  };
+}
+
 /**
  * The stable superset of base task types across ALL fill/strip sources. Registers
  * the date-status flag plus, for every treatment class the palettes can produce
@@ -409,20 +460,47 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
  * treatment class(es) and a cue.
  */
 export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
-  const classes = treatmentClassRegistry(palettes);
+  const groups = treatmentClassGroups(palettes);
   const ids = new Set<string>([DATE_STATUS_TYPE]);
-  for (const c of classes) {
+  for (const c of groups.flat()) {
     ids.add(c);
     ids.add(`${DATE_STATUS_TYPE} ${c}`);
   }
-  for (const fillClass of classes) {
-    for (const stripClass of classes) {
-      if (fillClass === stripClass) continue;
-      ids.add(`${fillClass} ${stripClass}`);
-      ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
-    }
+  for (const [fillClass, stripClass] of crossGroupClassPairs(groups)) {
+    ids.add(`${fillClass} ${stripClass}`);
+    ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
+}
+
+/**
+ * The ordered (fill, strip) class pairs a two-class bar can compose. A two-class
+ * bar always draws its Fill class from one source group and its Strip class from
+ * a DIFFERENT one (same-source channels collapse to a single class), so only
+ * cross-group ordered pairs can occur. Pairing within a group — two calendars,
+ * two statuses — is dead weight, and the calendar group makes that O(N^2) in the
+ * calendar count; cross-group pairs keep it O(N).
+ */
+export function* crossGroupClassPairs(
+  groups: ReadonlyArray<ReadonlyArray<string>>,
+): Generator<[string, string]> {
+  for (const fillGroup of groups) {
+    for (const stripGroup of groups) {
+      if (stripGroup === fillGroup) continue;
+      yield* orderedClassPairs(fillGroup, stripGroup);
+    }
+  }
+}
+
+function* orderedClassPairs(
+  fills: ReadonlyArray<string>,
+  strips: ReadonlyArray<string>,
+): Generator<[string, string]> {
+  for (const fillClass of fills) {
+    for (const stripClass of strips) {
+      yield [fillClass, stripClass];
+    }
+  }
 }
 
 /**
@@ -468,6 +546,10 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
+    // Override dot: an interpretation-override change alters only the corner dot
+    // and its tooltip within an otherwise-unchanged span — fold it so the
+    // task re-issues instead of the dot going stale (R11).
+    t.custom.interpretationOverridden ?? '',
     // Displayed property values (visible columns only — `properties` is already
     // scoped to them). Fold the *fingerprint-formatted* strings, not the raw
     // values: a raw Date/ISO-string/wrapper serializes non-deterministically and

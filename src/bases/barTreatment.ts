@@ -414,19 +414,34 @@ export function resolveTreatmentClass(input: ResolveTreatmentClassInput): string
   return classes;
 }
 
+/**
+ * Treatment classes grouped by source: parent role, status, priority, calendar
+ * (empty groups dropped). A bar carries two classes only when its Fill and Strip
+ * channels resolve to DIFFERENT groups — same-source channels collapse to one
+ * class — so two slugs from the same group (e.g. two calendars) can never
+ * co-occur on one bar. Registration uses this to pair only across groups.
+ */
+export function treatmentClassGroups(palettes: Palettes): string[][] {
+  const status = new Set<string>();
+  for (const { value, color } of palettes.status) {
+    if (isSafeColor(color)) status.add(statusSlug(value));
+  }
+  const priority = new Set<string>();
+  for (const { value, color } of palettes.priority) {
+    if (isSafeColor(color)) priority.add(prioritySlug(value));
+  }
+  const calendar = new Set<string>();
+  for (const { value, color } of palettes.calendar ?? []) {
+    if (isSafeColor(color)) calendar.add(calendarSlug(value));
+  }
+  return [[PARENT_ROLE_CLASS], [...status], [...priority], [...calendar]].filter(
+    (group) => group.length > 0,
+  );
+}
+
 /** Distinct treatment classes a bar could carry across all palette values, for SVAR registration. */
 export function treatmentClassRegistry(palettes: Palettes): string[] {
-  const ids = new Set<string>([PARENT_ROLE_CLASS]);
-  for (const { value, color } of palettes.status) {
-    if (isSafeColor(color)) ids.add(statusSlug(value));
-  }
-  for (const { value, color } of palettes.priority) {
-    if (isSafeColor(color)) ids.add(prioritySlug(value));
-  }
-  for (const { value, color } of palettes.calendar ?? []) {
-    if (isSafeColor(color)) ids.add(calendarSlug(value));
-  }
-  return [...ids];
+  return treatmentClassGroups(palettes).flat();
 }
 
 /** Inputs to {@link buildTreatmentStyle}, grouped to keep the signature small. */

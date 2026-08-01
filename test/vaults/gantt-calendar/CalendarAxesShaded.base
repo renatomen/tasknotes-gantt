@@ -1,0 +1,19 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'note.start || note.due'
+views:
+  - type: obsidianGantt
+    name: "Axes — calendar-days + shaded"
+    tngantt_startDateProperty: note.start
+    tngantt_endDateProperty: note.due
+    tngantt_calendarProperty: note.calendar
+    tngantt_timeEstimateProperty: note.estimate
+    tngantt_estimateMeaning: calendar-days
+    tngantt_nonWorkingRendering: shaded
+    tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    order:
+      - file.name
+      - note.start
+      - note.due

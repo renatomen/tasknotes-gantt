@@ -3,6 +3,7 @@ import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import sveltePlugin from 'eslint-plugin-svelte';
 import svelteParser from 'svelte-eslint-parser';
+import sonarjs from 'eslint-plugin-sonarjs';
 
 export default [
   // Files/folders to ignore
@@ -10,6 +11,7 @@ export default [
     ignores: [
       "dist/**",
       "node_modules/**",
+      ".worktrees/**",
       "website/site/**",
       "coverage/**",
       ".wdio-*",
@@ -25,7 +27,7 @@ export default [
   js.configs.recommended,
   // TypeScript files
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,mts}"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -46,16 +48,18 @@ export default [
     },
     plugins: {
       "@typescript-eslint": tsPlugin,
+      sonarjs,
     },
     rules: {
       // keep initial rule set minimal; we can tighten later per standards
       "no-empty": ["error", { allowEmptyCatch: true }],
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
+      "sonarjs/cognitive-complexity": ["error", 15],
     },
   },
   {
@@ -83,6 +87,15 @@ export default [
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
     },
   },
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    plugins: {
+      sonarjs,
+    },
+    rules: {
+      "sonarjs/cognitive-complexity": ["error", 15],
+    },
+  },
   // Svelte files
   {
     files: ['**/*.svelte'],
@@ -102,20 +115,34 @@ export default [
     },
     plugins: {
       svelte: sveltePlugin,
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      sonarjs
     },
     rules: {
       ...sveltePlugin.configs.recommended.rules,
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       // Defer to the TS-aware rule (matches the .ts block). Core no-unused-vars
       // misfires on TS function-type parameter names (e.g. `(ev: MouseEvent) =>
       // void` in a type annotation), which aren't runtime bindings.
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'sonarjs/cognitive-complexity': ['error', 15]
     }
   },
+  // A case that only awaits a `waitUntil` looks like a test and is not one: the
+  // wait proves something settled, never what it settled TO, so the case passes
+  // whenever its predicate is satisfiable at all. Seven cases in this suite were
+  // that shape. The rule ships with a plugin already in this config and reads
+  // the code through the same parser and scope analysis as every other rule
+  // here, which is why there is no bespoke checker beside it.
   {
     files: ["test/**/*.ts"],
+    rules: {
+      "sonarjs/assertions-in-tests": "error",
+    },
+  },
+  {
+    files: ["test/**/*.{ts,mts}"],
     languageOptions: {
       globals: {
         describe: "readonly",

@@ -9,7 +9,8 @@ views:
     tngantt_endDateProperty: note.due
     tngantt_calendarProperty: note.calendar
     tngantt_timeEstimateProperty: note.estimate
-    tngantt_calendarMode: stretch
+    tngantt_estimateMeaning: working-days
+    tngantt_nonWorkingRendering: split
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     order:

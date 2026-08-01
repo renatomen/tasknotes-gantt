@@ -12,6 +12,8 @@ import {
   isCss3ColorName,
   isHexColor,
   isValidCalendarColor,
+  paintableColor,
+  sanitizedCalendarColor,
 } from '../../src/bases/css3Colors';
 
 describe('CSS3 colour set', () => {
@@ -73,6 +75,52 @@ describe('isValidCalendarColor', () => {
   it('rejects anything the renderer could not paint', () => {
     expect(isValidCalendarColor('foobar')).toBe(false);
     expect(isValidCalendarColor('var(--color-red)')).toBe(false);
+  });
+});
+
+describe('sanitizedCalendarColor', () => {
+  it('returns the trimmed value for a paintable hex or CSS3 keyword', () => {
+    expect(sanitizedCalendarColor('#2a9d8f')).toBe('#2a9d8f');
+    expect(sanitizedCalendarColor('  cornflowerblue  ')).toBe('cornflowerblue');
+  });
+
+  it('returns undefined for absent, empty, or unpaintable values (caller supplies the fallback)', () => {
+    expect(sanitizedCalendarColor(undefined)).toBeUndefined();
+    expect(sanitizedCalendarColor('')).toBeUndefined();
+    expect(sanitizedCalendarColor('url(https://attacker.example/x)')).toBeUndefined();
+    expect(sanitizedCalendarColor('red;position:fixed')).toBeUndefined();
+  });
+});
+
+describe('paintableColor', () => {
+  it('returns the trimmed value for a hex or CSS3 keyword', () => {
+    expect(paintableColor('#2a9d8f')).toBe('#2a9d8f');
+    expect(paintableColor('  cornflowerblue  ')).toBe('cornflowerblue');
+  });
+
+  it('returns transparent for an empty or whitespace-only value', () => {
+    expect(paintableColor('')).toBe('transparent');
+    expect(paintableColor('   ')).toBe('transparent');
+  });
+
+  // Untrusted calendar frontmatter must never reach an inline style= binding,
+  // so every non-paintable value collapses to 'transparent' — an allowlist, not
+  // a blocklist, so novel injection shapes are rejected by construction.
+  it.each([
+    ['remote fetch', 'url(https://attacker.example/pixel)'],
+    ['nested image-set fetch', 'image-set(url(https://attacker.example/x.png) 1x)'],
+    ['declaration injection', 'red;position:fixed;inset:0;z-index:9999'],
+    ['CSS variable indirection', 'var(--text-normal)'],
+    ['legacy expression', 'expression(alert(1))'],
+    ['function-shaped value', 'rgb(0,0,0)'],
+    ['comment-wrapped', '/* */red'],
+    ['non-colour keyword', 'notacolour'],
+  ])('returns transparent for %s, never the raw value', (_label, hostile) => {
+    const painted = paintableColor(hostile);
+    expect(painted).toBe('transparent');
+    expect(painted).not.toContain('url(');
+    expect(painted).not.toContain(';');
+    expect(painted).not.toContain('(');
   });
 });
 

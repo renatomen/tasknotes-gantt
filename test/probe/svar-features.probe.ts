@@ -85,7 +85,6 @@ function recordVerdict(container: HTMLElement, c: ProbeCase): Verdict {
         ? `no documented hook, but class scan found: ${keywordMatches.join(', ')}`
         : 'no documented hook and no keyword match',
   };
-  // eslint-disable-next-line no-console
   console.log(`[PROBE] ${c.key}: rendered=${rendered} bars=${bars} ${v.note}`);
   verdicts.push(v);
   return v;

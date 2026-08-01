@@ -89,6 +89,30 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(barClass).toContain("wx-split");
   });
 
+  it("re-asserts wx-split after the bar's class list is reset (live Bar Fill regression)", async () => {
+    // Reproduce what SVAR does on an update-task (e.g. a Bar Fill / Strip source
+    // change re-issues the task with a new treatment class): it re-applies the
+    // bar's whole class list from task.type, dropping the imperatively-stamped
+    // wx-split. Without the MutationObserver in BarContent the split stays lost —
+    // the body paints opaque and the 15%-opacity ghost pieces blend over it — until
+    // a remount. The observer must re-assert it so the split survives live.
+    await browser.execute((selector: string) => {
+      document.querySelector(selector)?.classList.remove("wx-split");
+    }, STRETCH_BAR);
+    const hasSplit = async (): Promise<boolean> =>
+      browser.execute(
+        (selector: string) =>
+          document.querySelector(selector)?.classList.contains("wx-split") ?? false,
+        STRETCH_BAR,
+      );
+    await browser.waitUntil(hasSplit, {
+      timeout: 5000,
+      timeoutMsg: "wx-split was not re-asserted after the class list was reset",
+    });
+
+    expect(await hasSplit()).toBe(true);
+  });
+
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
     const segments = await $$(".og-bases-gantt .wx-segment");
     expect(segments.length).toBe(0);
@@ -117,11 +141,18 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
       async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
     );
-    const borderColor = await browser.execute((selector: string) => {
+    const border = await browser.execute((selector: string) => {
       const bar = document.querySelector(selector);
-      return bar ? window.getComputedStyle(bar).borderTopColor : null;
+      if (!bar) return null;
+      const style = window.getComputedStyle(bar);
+      return { color: style.borderTopColor, width: style.borderTopWidth, style: style.borderTopStyle };
     }, STRETCH_BAR);
-    expect(borderColor).not.toBeNull();
-    expect(borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(border).not.toBeNull();
+    expect(border!.color).not.toBe("rgba(0, 0, 0, 0)");
+    // Not just colour: on a ghost host the datestatus fill is gone, so the cue is
+    // the border — it must have real width and style, not a 0px/none border that
+    // only carries a colour (which a colour-only check would wrongly accept).
+    expect(border!.width).not.toBe("0px");
+    expect(border!.style).not.toBe("none");
   });
 });

@@ -6,6 +6,7 @@
  *
  * @module editor/timezoneOffset
  */
+/* global setInterval */
 
 export function formatUtcOffset(zone: string, at: Date = new Date()): string | null {
   let name: string | undefined;
@@ -26,4 +27,25 @@ export function formatUtcOffset(zone: string, at: Date = new Date()): string | n
   if (sign === undefined || hours === undefined) return null;
   const minutes = match[3] ?? '00';
   return `UTC${sign}${hours.padStart(2, '0')}:${minutes}`;
+}
+
+/** The injectable timer surface, so the refresh cadence unit-tests offline. */
+export interface IntervalScheduler {
+  setInterval(callback: () => void, ms: number): ReturnType<typeof setInterval>;
+  clearInterval(id: ReturnType<typeof setInterval>): void;
+}
+
+/**
+ * Invoke `onMinute` once a minute until stopped — the invalidation heartbeat for
+ * a "Currently UTC±HH:MM" hint. Offsets only ever change on whole-minute
+ * boundaries (DST shifts land on exact local times), so a minutely cadence is
+ * exact, not approximate. Returns the stop function; the caller ties it to its
+ * own lifetime (the editor form's effect teardown).
+ */
+export function scheduleMinutelyOffsetRefresh(
+  onMinute: () => void,
+  scheduler: IntervalScheduler = globalThis,
+): () => void {
+  const id = scheduler.setInterval(onMinute, 60_000);
+  return () => scheduler.clearInterval(id);
 }

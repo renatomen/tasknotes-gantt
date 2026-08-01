@@ -46,9 +46,13 @@ export const SEGMENTS_WITH_FLAG: ProbeCase = {
       type: 'task',
       start: d(2),
       end: d(20),
+      // Both documented shapes at once: the docs describe { start, duration }
+      // while the installed store's geometry pass reads a segment's start/end —
+      // carrying both keeps the probe a fair test of either package, so a
+      // malformed fixture can never masquerade as "feature not rendered".
       segments: [
-        { start: d(2), end: d(6) },
-        { start: d(14), end: d(20) },
+        { start: d(2), end: d(6), duration: 4 },
+        { start: d(14), end: d(20), duration: 6 },
       ],
     },
   ],
@@ -67,9 +71,13 @@ export const SEGMENTS_NO_FLAG: ProbeCase = {
       type: 'task',
       start: d(2),
       end: d(20),
+      // Both documented shapes at once: the docs describe { start, duration }
+      // while the installed store's geometry pass reads a segment's start/end —
+      // carrying both keeps the probe a fair test of either package, so a
+      // malformed fixture can never masquerade as "feature not rendered".
       segments: [
-        { start: d(2), end: d(6) },
-        { start: d(14), end: d(20) },
+        { start: d(2), end: d(6), duration: 4 },
+        { start: d(14), end: d(20), duration: 6 },
       ],
     },
   ],

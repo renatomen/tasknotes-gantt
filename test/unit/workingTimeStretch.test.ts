@@ -32,23 +32,20 @@ describe('applyWorkingTimeStretch — forward (inferred end)', () => {
     expect(iso(result.start)).toBe('2026-04-10');
     expect(iso(result.end)).toBe('2026-04-14');
     expect(result.flagged).toBe(false);
-    expect(result.ghostRuns).toEqual([{ startDate: '2026-04-11', days: 2 }]);
   });
 
   it('an all-working span is untouched (display-only default never stretches, AE3)', () => {
     const result = stretch({ isBlocked: () => false });
     if (!result) throw new Error('expected a stretch result');
     expect(iso(result.end)).toBe('2026-04-12');
-    expect(result.ghostRuns).toEqual([]);
   });
 
-  it('a blocked anchor renders as authored, consumes no duration, and ghosts', () => {
-    // Saturday anchor, 2 working days -> Mon+Tue; the Sat+Sun ghost leads.
+  it('a blocked anchor renders as authored and consumes no duration', () => {
+    // Saturday anchor, 2 working days -> Mon+Tue; the Sat+Sun run leads.
     const result = stretch({ start: local(2026, 4, 11), durationDays: 2 });
     if (!result) throw new Error('expected a stretch result');
     expect(iso(result.start)).toBe('2026-04-11');
     expect(iso(result.end)).toBe('2026-04-14');
-    expect(result.ghostRuns).toEqual([{ startDate: '2026-04-11', days: 2 }]);
   });
 
   it('zero/one-day duration stays a single day', () => {
@@ -70,7 +67,6 @@ describe('applyWorkingTimeStretch — forward (inferred end)', () => {
     if (!result) throw new Error('expected a stretch result');
     expect(iso(result.end)).toBe('2027-01-03');
     expect(result.flagged).toBe(false);
-    expect(result.ghostRuns).toEqual([{ startDate: '2026-12-29', days: 5 }]);
   });
 
   it('a fully-blocked calendar falls back to the calendar-day span at the ceiling, flagged', () => {
@@ -79,7 +75,6 @@ describe('applyWorkingTimeStretch — forward (inferred end)', () => {
     expect(iso(result.start)).toBe('2026-04-10');
     expect(iso(result.end)).toBe('2026-04-12');
     expect(result.flagged).toBe(true);
-    expect(result.ghostRuns).toEqual([]);
   });
 });
 
@@ -95,7 +90,6 @@ describe('applyWorkingTimeStretch — backward (inferred start)', () => {
     if (!result) throw new Error('expected a stretch result');
     expect(iso(result.end)).toBe('2026-04-14');
     expect(iso(result.start)).toBe('2026-04-10');
-    expect(result.ghostRuns).toEqual([{ startDate: '2026-04-11', days: 2 }]);
   });
 });
 

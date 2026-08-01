@@ -28,6 +28,24 @@ export function conflictDates(
 }
 
 /**
+ * Conflict days plus the names of the calendars that disagree — the attributed
+ * form of {@link conflictDates}, for callers that hold each calendar name.
+ */
+export function conflictDatesWithSources(
+  calendars: ReadonlyArray<{ path: string; name: string; definition: CalendarDefinition }>,
+  window: EvaluationWindow,
+): { dates: string[]; calendars: string[] } {
+  return conflictsWithSources(
+    calendars.map(({ path, name, definition }) => ({
+      id: path,
+      name,
+      ...dayFacts(definition, window),
+    })),
+    window,
+  );
+}
+
+/**
  * The conflict-classification core over already-computed per-calendar day facts:
  * a day conflicts exactly when one calendar blocks it while another covers it.
  * Callers that already hold each calendar's blocked/covers facts (the set-union
@@ -44,6 +62,44 @@ export function conflictsFromFacts(
     if (blockedBy && coveredBy) conflicts.push(day);
   }
   return conflicts;
+}
+
+/** Per-calendar day facts, identified — the input to conflict attribution. */
+export interface NamedCalendarDayFacts extends CalendarDayFacts {
+  /** Stable identity (the note path); two same-named calendars stay distinct. */
+  id: string;
+  /** Display name for the banner. */
+  name: string;
+}
+
+/**
+ * Conflict days **and the calendars that disagree on them**, so a banner can name
+ * them instead of reporting a bare count the user has to go and investigate.
+ *
+ * A calendar takes part in a conflict on either side of the disagreement: it
+ * blocks a day another one covers, or it covers a day another one blocks. Names
+ * are collected in input order and deduplicated, so the banner reads in the same
+ * order as the picker.
+ */
+export function conflictsWithSources(
+  facts: ReadonlyArray<NamedCalendarDayFacts>,
+  window: EvaluationWindow,
+): { dates: string[]; calendars: string[] } {
+  const dates: string[] = [];
+  // Participation is tracked by ID, not display name: two calendars in different
+  // folders can share a basename, and collapsing them would render a false
+  // self-conflict ("between Work") with a wrong +N count.
+  const disagreeing = new Set<string>();
+  for (let day = window.startDate; day < window.endDateExclusive; day = addDaysIso(day, 1)) {
+    const blockers = facts.filter((fact) => fact.blocked.has(day));
+    const coverers = facts.filter((fact) => fact.covers && !fact.blocked.has(day));
+    if (blockers.length === 0 || coverers.length === 0) continue;
+    dates.push(day);
+    for (const fact of [...blockers, ...coverers]) disagreeing.add(fact.id);
+  }
+  // Input order, one entry per participating calendar (names may repeat).
+  const calendars = facts.filter((fact) => disagreeing.has(fact.id)).map((fact) => fact.name);
+  return { dates, calendars };
 }
 
 function dayFacts(calendar: CalendarDefinition, window: EvaluationWindow): CalendarDayFacts {
@@ -72,6 +128,22 @@ export interface CalendarNoticeFacts {
   conflictYear?: number;
   /** Conflicts the counted window misses but a preview still surfaces. */
   conflictsElsewhere?: boolean;
+  /**
+   * The calendars that disagree, so the banner can say WHICH selection caused the
+   * conflict. Capped when rendered — the point is to identify the culprits, not to
+   * reproduce the picker.
+   */
+  conflictCalendars?: readonly string[];
+}
+
+/** How many disagreeing calendars the banner names before summarising the rest. */
+const MAX_NAMED_CONFLICT_CALENDARS = 3;
+
+/** `NZ Holidays, Sun Thu` — or `A, B, C +2 more` past the cap. */
+function namedCalendars(names: readonly string[]): string {
+  if (names.length <= MAX_NAMED_CONFLICT_CALENDARS) return names.join(', ');
+  const shown = names.slice(0, MAX_NAMED_CONFLICT_CALENDARS).join(', ');
+  return `${shown} +${names.length - MAX_NAMED_CONFLICT_CALENDARS} more`;
 }
 
 /**
@@ -88,8 +160,12 @@ export function buildCalendarNotice(facts: CalendarNoticeFacts): string | null {
   }
   if (facts.conflictCount > 0) {
     const inYear = facts.conflictYear !== undefined ? ` in ${facts.conflictYear}` : '';
+    const between =
+      facts.conflictCalendars && facts.conflictCalendars.length > 0
+        ? ` between ${namedCalendars(facts.conflictCalendars)}`
+        : '';
     parts.push(
-      `${facts.conflictCount} ${plural(facts.conflictCount, 'day', 'days')} in conflict${inYear}`,
+      `${facts.conflictCount} ${plural(facts.conflictCount, 'day', 'days')} in conflict${inYear}${between}`,
     );
   } else if (facts.conflictsElsewhere) {
     parts.push('conflicts exist in other years');

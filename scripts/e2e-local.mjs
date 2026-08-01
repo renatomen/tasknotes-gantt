@@ -44,9 +44,19 @@ const wdioBin = path.join(
   "bin",
   "wdio.js"
 );
+// Everything after `npm run e2e:local --` goes straight to WDIO, so a focused
+// run (`-- --spec test/specs/x.e2e.ts`, `-- --mochaOpts.grep "…"`) still comes
+// through this wrapper. That matters because the wrapper is what guarantees the
+// build-and-install above ran: without a passthrough the only way to target one
+// spec was to invoke WDIO directly, which silently drives whatever build was
+// installed last — a green run against stale code.
+const wdioArgs = process.argv.slice(2);
+if (wdioArgs.length > 0) {
+  console.log(`[local] Forwarding to WDIO: ${wdioArgs.join(" ")}`);
+}
 const e2e = spawnSync(
   process.execPath,
-  [wdioBin, "run", "./test/wdio/wdio.conf.mts"],
+  [wdioBin, "run", "./test/wdio/wdio.conf.mts", ...wdioArgs],
   { stdio: "inherit", env: process.env, cwd: process.cwd() }
 );
 process.exit(e2e.status ?? 1);

@@ -332,6 +332,160 @@ describe('GanttController — recompute race guard (recomputeSeq)', () => {
   });
 });
 
+describe('GanttController — recomputeGeneration (task-fact re-read counters)', () => {
+  function subscribableController(tn: FakeSource): GanttController {
+    tn.enableSubscribe();
+    return makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+  }
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  it('starts at {started: 0, delivered: 0} before any recompute', () => {
+    const controller = subscribableController(new FakeSource({ tasks: [task({ path: 'a.md' })] }));
+
+    expect(controller.recomputeGeneration()).toEqual({ started: 0, delivered: 0 });
+  });
+
+  it('advances delivered for a genuine re-read even when the snapshot is unchanged and notify is skipped', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+    expect(controller.recomputeGeneration()).toEqual({ started: 1, delivered: 1 });
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    // A source change event re-reads the (identical) tasks: no notify, but the
+    // re-read DID deliver — the rows now provably carry current vault truth.
+    tn.fireChange();
+    await flush();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(controller.recomputeGeneration()).toEqual({ started: 2, delivered: 2 });
+  });
+
+  it('advances NEITHER counter for a config-only recompute (reuseTasks over cached tasks)', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+    expect(tn.getTasksCalls).toBe(1);
+
+    await controller.refreshSource({ reuseTasks: true });
+
+    // Nothing was re-read from the vault, so nothing can invalidate a settled-
+    // facts ledger entry: the counters must not move.
+    expect(tn.getTasksCalls).toBe(1);
+    expect(controller.recomputeGeneration()).toEqual({ started: 1, delivered: 1 });
+  });
+
+  it('never ticks delivered for a stale recompute discarded by the latest-wins guard', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // read 2 (older)
+    tn.fireChange(); // read 3 (newer = latest)
+    expect(gates).toHaveLength(2);
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 1 });
+
+    // The NEWER read delivers first…
+    gates[1]!([task({ path: 'new.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+    // …then the older resolves and is discarded: delivered must NOT move (a
+    // regression to 2 would also unwind the newer read's proof).
+    gates[0]!([task({ path: 'old.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+  });
+
+  it('retries a genuine read superseded by a config-only recompute so delivered catches started', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // genuine read, gated in flight
+    await controller.refreshSource({ reuseTasks: true }); // config-only supersedes it
+    expect(controller.recomputeGeneration()).toEqual({ started: 2, delivered: 1 });
+
+    // The superseded read resolves, is discarded, and must schedule a fresh
+    // genuine read — otherwise delivered would trail started forever and
+    // settled-fact overlays would outlive their vault truth.
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush();
+    expect(gates).toHaveLength(2);
+    gates[1]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 3 });
+  });
+
+  it('spends at most one retry per delivery: a re-superseded retry gives up instead of storming', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange(); // genuine read, gated
+    await controller.refreshSource({ reuseTasks: true }); // config-only supersedes
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush(); // discard spawns the single budgeted retry
+    expect(gates).toHaveLength(2);
+
+    await controller.refreshSource({ reuseTasks: true }); // supersedes the retry too
+    gates[1]!([task({ path: 'stale-again.md' })]);
+    await flush();
+
+    // A read slower than the refresh debounce would otherwise self-feed
+    // forever; the spent budget stops the cycle and leaves delivered behind
+    // until the next genuine notify reconverges it.
+    expect(gates).toHaveLength(2);
+    expect(controller.recomputeGeneration()).toEqual({ started: 3, delivered: 1 });
+
+    tn.fireChange(); // the next genuine notify reconverges the counters
+    await flush();
+    expect(gates).toHaveLength(3);
+    gates[2]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 4, delivered: 4 });
+  });
+
+  it('refills the retry budget on each external genuine read: a spent budget does not starve later reads', async () => {
+    const tn = new FakeSource({ write: true, tasks: [task({ path: 'init.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    const gates: Array<(t: SourceTask[]) => void> = [];
+    tn.getTasks = () => new Promise<SourceTask[]>((resolve) => gates.push(resolve));
+    tn.fireChange();
+    await controller.refreshSource({ reuseTasks: true });
+    gates[0]!([task({ path: 'stale.md' })]);
+    await flush(); // retry spawned
+    await controller.refreshSource({ reuseTasks: true });
+    gates[1]!([task({ path: 'stale.md' })]);
+    await flush(); // retry superseded too: budget spent
+    expect(gates).toHaveLength(2);
+
+    // A LATER external genuine read superseded the same way must get its own
+    // retry - the budget refills per external read, never per self-retry.
+    tn.fireChange();
+    await flush();
+    expect(gates).toHaveLength(3);
+    await controller.refreshSource({ reuseTasks: true });
+    gates[2]!([task({ path: 'stale.md' })]);
+    await flush();
+    expect(gates).toHaveLength(4);
+    gates[3]!([task({ path: 'fresh.md' })]);
+    await flush();
+    expect(controller.recomputeGeneration()).toEqual({ started: 5, delivered: 5 });
+  });
+});
+
 describe('GanttController — getInstances expansion', () => {
   it('expands multi-parent source tasks consistently with InstanceExpansion', async () => {
     // child has parents [A, B], both visible → two instances (under A, under B).
@@ -530,6 +684,30 @@ describe('GanttController — onChange refresh + idempotent backstop', () => {
     expect((await controller.getInstances()).map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
   });
 
+  it('notifies when only the estimate changed, moving no date', async () => {
+    // A sub-day estimate edit (90 → 120 minutes) resolves the same dates and the
+    // same status, so the snapshot differs ONLY in the carried estimate. The view
+    // still has to hear about it: the write path reads that value as the pre-drag
+    // estimate an undo restores, and a stale one would overwrite the newer edit.
+    const tn = new FakeSource({ tasks: [task({ path: 'a.md', estimate: 90 })] });
+    tn.enableSubscribe();
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+
+    await controller.init();
+    const listener = jest.fn();
+    controller.onChange(listener);
+
+    tn.tasks = [task({ path: 'a.md', estimate: 120 })];
+    tn.fireChange();
+    await flushAsync();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await controller.getInstances()).map((i) => i.estimateMinutes)).toEqual([120]);
+  });
+
   it('does NOT notify when a change event recomputes a value-equal snapshot (backstop)', async () => {
     const tn = new FakeSource({ tasks: [task({ path: 'a.md' })] });
     tn.enableSubscribe();
@@ -658,10 +836,12 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   // stable by construction, which is exactly what R1 demands.
   const dur1: DatePolicyConfig = { defaultDuration: 1 };
 
-  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE2)', async () => {
+  it('stretches a duration-derived end past blocked days and threads ghostRuns (AE1)', async () => {
     let passes = 0;
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => {
           passes += 1;
@@ -689,6 +869,9 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('never moves an authored complete span even with blocking present (R12)', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      // Working-days interpretation is ON, so this proves a `complete` status
+      // resists re-projection even when the stretch path is fully engaged.
+      estimateMeaningForTask: () => 'working-days',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 5 }),
       },
@@ -708,6 +891,10 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
   it('falls back to the calendar-day span and flags when the scan hits its ceiling', async () => {
     const stretchConfig: DatePolicyConfig = {
       defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      // Split rendering is ON, so this also proves a ceiling-flagged fallback
+      // suppresses ghost runs (a fully-blocked span degrades to one plain bar).
+      nonWorkingRendering: 'split',
       workingTimeStretch: {
         blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 3 }),
       },
@@ -722,6 +909,164 @@ describe('GanttController — date policy + stable instance set (#161 R1)', () =
     // The calendar-day placement (start + duration - 1) is untouched.
     expect(inst?.end?.getDate()).toBe(8);
     expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('splits a concrete authored span without re-projecting it (rendering axis alone, R-axes)', async () => {
+    const splitOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days interpretation: NO re-projection. Split rendering still
+      // reveals the blocked days inside the authored span — the two axes are
+      // independent (this combination was unreachable under the old fused knob).
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(splitOnlyConfig, [
+      task({ path: 'concrete.md', start: new Date(2026, 7, 7), end: new Date(2026, 7, 11) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    // Authored end is untouched (no re-projection under calendar-days).
+    expect(inst?.end?.getDate()).toBe(11);
+    // Yet the inner blocked days surface as a ghost run.
+    expect(inst?.ghostRuns).toEqual([{ startDate: '2026-08-08', days: 2 }]);
+    expect(inst?.stretchFlagged).toBeUndefined();
+  });
+
+  it('suppresses ghost runs on a fully-blocked split span so it degrades to a continuous bar (AE8)', async () => {
+    const fullyBlockedConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      // Calendar-days (no re-projection) + split, with EVERY day blocked: the
+      // span has no working day to contrast against, so it stays continuous.
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'split',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({ isBlocked: () => true, maxBlockedRunDays: 1 }),
+      },
+    };
+    const controller = makeControllerWith(fullyBlockedConfig, [
+      task({ path: 'weekend.md', start: new Date(2026, 7, 8), end: new Date(2026, 7, 8) }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('complete');
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('re-projects under working-days without splitting when rendering is shaded (meaning axis alone)', async () => {
+    const meaningOnlyConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'working-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(meaningOnlyConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    // The derived end still re-projects past the blocked days...
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(11);
+    // ...but shaded rendering attaches no ghost runs (background shading only).
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('leaves a derived edge FLAT under calendar-days even with blocking present (the meaning gate)', async () => {
+    // Same inferred-end task and blocking as the working-days case above, but
+    // calendar-days interpretation must NOT re-project: the derived end stays at
+    // its flat calendar-day placement (08-09), never stretched to 08-11. This is
+    // the one combination `applyWorkingTimeStretch`'s own dateStatus guard cannot
+    // mask — an authored span would return null regardless, so only an inferred
+    // edge proves the `meaning === 'working-days'` gate actually gates.
+    const calendarDaysConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      estimateMeaningForTask: () => 'calendar-days',
+      nonWorkingRendering: 'shaded',
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({
+          isBlocked: (iso) => iso === '2026-08-08' || iso === '2026-08-09',
+          maxBlockedRunDays: 2,
+        }),
+      },
+    };
+    const controller = makeControllerWith(calendarDaysConfig, [
+      task({ path: 'friday.md', start: new Date(2026, 7, 7), estimate: 3 * 1440 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.dateStatus).toBe('inferred-end');
+    expect(inst?.end?.getDate()).toBe(9);
+    expect(inst?.ghostRuns).toBeUndefined();
+  });
+
+  it('marks a task whose effective interpretation differs from the view default (R11)', async () => {
+    const overrideConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      viewEstimateMeaning: 'working-days',
+      estimateMeaningForTask: (path) => (path === 'override.md' ? 'calendar-days' : 'working-days'),
+      // A resolved calendar is required for the indicator (else the bar is flat
+      // regardless and the mark would misrepresent it) — give every task one.
+      workingTimeStretch: {
+        blockingForTasks: () => () => ({ isBlocked: () => false, maxBlockedRunDays: 0 }),
+      },
+    };
+    const controller = makeControllerWith(overrideConfig, [
+      task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
+      task({ path: 'follows.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const insts = await controller.getInstances();
+
+    const overridden = insts.find((i) => i.sourcePath === 'override.md');
+    const follows = insts.find((i) => i.sourcePath === 'follows.md');
+    // The override carries its EFFECTIVE meaning so the view can name it.
+    expect(overridden?.interpretationOverridden).toBe('calendar-days');
+    // A task that matches the view default is not marked.
+    expect(follows?.interpretationOverridden).toBeUndefined();
+  });
+
+  it('suppresses the override indicator when the task has no resolved calendar', async () => {
+    // A working-days override with no calendar can't re-project — the bar renders
+    // flat regardless — so marking it "working days" would claim the opposite of
+    // its actual behaviour. No workingTimeStretch → no blocking → no mark.
+    const noCalendarConfig: DatePolicyConfig = {
+      defaultDuration: 1,
+      viewEstimateMeaning: 'working-days',
+      estimateMeaningForTask: () => 'calendar-days',
+    };
+    const controller = makeControllerWith(noCalendarConfig, [
+      task({ path: 'override.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.interpretationOverridden).toBeUndefined();
+  });
+
+  it('never marks an override when no override resolver is configured', async () => {
+    const controller = makeControllerWith(dur1, [
+      task({ path: 'plain.md', start: new Date(2026, 7, 7), end: AUG17 }),
+    ]);
+    await controller.init();
+    const [inst] = await controller.getInstances();
+
+    expect(inst?.interpretationOverridden).toBeUndefined();
   });
 
   it('resolves a due-only task to its deadline, not today→due', async () => {

@@ -11,7 +11,7 @@ A vault note a user marks as a calendar, declaring its own availability: a recur
 A date on which work is not expected to occur, at whole-day granularity in local calendar dates (iCalendar all-day semantics). Declared by a calendar note — as the complement of its working schedule (working pattern or availability blocks) or as a dated exception.
 
 ### Calendar association
-The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association follows the view's default calendar, which may declare no non-working time at all.
+The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association has no calendar of its own — its availability seam is empty, so no day is blocked for it and a working-time stretch never applies. There is no view-wide default calendar.
 
 ### Calendar mode
 The per-view choice of how calendar availability affects the timeline: shading tints non-working time in the background and never touches dates; stretch additionally extends duration-derived bars across blocked days.
@@ -23,7 +23,32 @@ The extension of a bar whose span is derived from a working-duration estimate: b
 A contiguous run of blocked days inside a stretched bar, rendered as a dimmed piece of the bar so the pause is visible without splitting the task. Ghost runs degrade gracefully: at zoom levels where faithful piece tiling cannot be guaranteed, the bar renders in its continuous form instead.
 
 ### Availability seam
-The internal query boundary that answers "is this date blocked for this task?" for a view, composed from the task's associated calendar and the view's displayed calendars. All consumers — timeline shading, stretching, scheduling decisions later — ask the seam; no consumer inspects a calendar note directly.
+The internal query boundary that answers "is this date blocked?" without a consumer inspecting a calendar note directly. It is not one shared query: task-level blocking (stretching, scheduling decisions later) is answered per task from that task's associated calendar, while background shading is the union of the view's displayed calendars. The two paths derive from the same calendar definitions but are resolved separately, so a day can be shaded in the background without blocking an unassociated task.
+
+## Drag commit
+
+### Echo
+An optimistic correction written to the chart's own store so the bar shows where a gesture will land before — or instead of — the vault agreeing. An echo is display truth, never data: when the write behind it cannot land, the echo is reverted, and reverting one never undoes a write that did land. Echoes carrying geometry are what a queued gesture reads to tell "someone else moved this bar" from "this is my own drag's position"; echoes carrying only progress say nothing about geometry.
+
+### Cascade
+The propagation of a parent's committed move to its subtree, run after the parent's own write settles. A cascade is displacement, not assignment: children shift by the parent's delta rather than adopting its dates. Only pure moves cascade — a resize changes shape and owes the subtree nothing.
+
+### Fence
+A cascade round's claim on the source queues it is about to write, held so no other gesture can persist underneath it mid-round. Acquisition is deadline-bounded and each source is held independently: a round that cannot assemble its whole fence in time abandons rather than waiting, and abandoning releases every source as soon as that source's own prior work settles, so one stuck write cannot park the others.
+
+### Origin stash
+The pre-drag position a halted cascade leaves behind so its unpaid displacement survives to the next attempt. Any pre-delivery halt stashes — capability loss, supersession, exhausted rounds — and a successor inherits the stash and measures from it, so the subtree receives the cumulative shift rather than only the newest one. A delivered cascade settles the account and stashes nothing.
+
+### Settled facts
+The authored values a write is known to have persisted, remembered per source because the plugin suppresses its own recompute and the rows it reads therefore still show pre-write values. A settled fact overlays a stale row only until a vault re-read that began after the write has delivered; a read that merely reuses cached tasks proves nothing and cannot retire it.
+
+## Review gate
+
+### Review receipt
+An attestation that a named review layer ran clean against one exact commit, recorded in the current worktree's resolved Git metadata and never committed. Linked worktrees have separate receipt stores. Within the maintainer and repository-agent workflow, the installed pre-push hook uses receipts to gate each non-deletion ref tip it processes; a tip receipt attests the chain of reviews ending there rather than each commit behind it. The hook is local and can be absent or explicitly bypassed, so it is not remote proof of review. Because a receipt names a commit, any new commit — including the fix for a review finding — starts with none and must earn its own.
+
+### Design-contract preamble
+A short pre-implementation record for a change to concurrency, ordering, or invalidation contracts that names the waits and contracts being changed, the resulting wait or lock graph, and the failure direction of a false positive.
 
 ## Field mapping
 

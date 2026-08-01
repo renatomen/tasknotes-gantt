@@ -23,7 +23,7 @@
 
 import { type App, TFile } from 'obsidian';
 import { checklistProgressPercent } from '../bases/checklistProgress';
-import type { ProgressMode } from '../bases/types/field-mapping';
+import type { ProgressMode } from './fieldMappings';
 
 export function resolveNoteProgress(
   app: App,

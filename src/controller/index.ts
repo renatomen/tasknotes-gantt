@@ -25,4 +25,5 @@ export type {
   GanttControllerDeps,
   BasesInputProvider,
   ChangeListener,
+  DerivationInputs,
 } from './GanttController';

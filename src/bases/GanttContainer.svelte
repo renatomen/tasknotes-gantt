@@ -26,7 +26,7 @@
   import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
   import { resolveClickActivation } from './taskNotesInteractions';
-  import { setContext, tick } from 'svelte';
+  import { onDestroy, setContext, tick } from 'svelte';
   import {
     GRID_APP_CONTEXT_KEY,
     GRID_DATE_LOCALE_CONTEXT_KEY,
@@ -42,63 +42,47 @@
     planLinkSync,
     planReorder,
     baseSortDescriptor,
+    echoTaskPatch,
     shouldBulkReseed,
     structuralOpCount,
     type SvarTask,
     type SvarTaskInputs,
   } from './ganttSync';
   import {
+    applyIncrementalGanttSync,
+    createAppliedGanttSyncState,
+    createGanttSeedSnapshot,
+    ganttOrderFingerprint,
+    replaceAppliedGanttData,
+    type AppliedGanttSyncState,
+    type GanttSyncPlan,
+  } from './ganttSyncCoordinator';
+  import { createSvarGanttAdapter } from './svarGanttAdapter';
+  import {
     classifyUpdateEvent,
     classifyUpdateGesture,
     classifyLinkCreate,
-    computeMoveDelta,
-    computeMoveExtensions,
-    computeSubtreeMove,
-    computeShrinkFit,
-    normalizeCascadeMode,
     type DateRange,
-    type ExtensionNode,
-    type SubtreeShift,
   } from './cascadeGate';
-  import {
-    normalizeInferredDragMode,
-    classifyDraggedEdge,
-    resolveInferredEdge,
-    resolveInferredDragOutcome,
-    buildInferredDragPatch,
-    type InferredDragAction,
-  } from './inferredDragGate';
+  import { type InferredDragAction } from './inferredDragGate';
   import { InferredDragModal } from './InferredDragModal';
+  import { createCellEditCoordinator } from './cellEditCoordinator';
   import {
     choiceEditorOptions,
-    counterpartDate,
     dateRoleColumns,
     editorAttachedColumnIds,
     editorSeedFor,
-    OG_CHIPS_EDITOR_TYPE,
-    OG_TEXT_EDITOR_TYPE,
-    resolveCellEditCommit,
     rowEditorConfig,
     shippedEditorKinds,
     storedFlatValue,
     suggestColumns,
-    violatesDateOrder,
-    withAlignedFlatKeys,
-    type ChipsEditorConfig,
     type SvarEditorConfig,
     type SvarRowLike,
-    type TextEditorConfig,
   } from './cellEditCommit';
-  import { normalizeStoredList } from './taskNotesSuggest';
-  import { createVaultWikilinkFetcher } from './vaultWikilinkSuggest';
-  import type { FileFilterConfig } from './fileFilter';
+  import { wireSvarCellEditorForOpen } from './svarCellEditorWiring';
   import { bareProperty } from '../datasource/dateFieldMapping';
   import { ensureInlineEditorsRegistered } from './inlineEditors';
-  import {
-    classifyTypedValue,
-    EMPTY_TYPED_VALUE,
-    type TypedValue,
-  } from './propertyValues';
+  import type { TypedValue } from './propertyValues';
   import { formatPropertyValue } from './propertyFormat';
   import type { CellRender } from './cellRender';
   import { CascadeConfirmModal } from './CascadeConfirmModal';
@@ -125,7 +109,14 @@
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
   import type { DateStatus } from '../controller/datePolicy';
-  import { spanDaysToMinutes, inclusiveDaySpan } from '../controller/durationConversion';
+  import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
+  import {
+    createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
+    pureMoveBefore, type BarBefore, type CommitGesture, type DerivationMemo, type PlannedPatch,
+    type PlannedWrite, type PlannerDerivation, type SourceEchoes,
+  } from './dragCommitPlanner';
+  import { createDragExecutor, type CascadePhase } from './dragExecutor';
+  import { createDragPromptResolver } from './dragPromptResolver';
   import { dlog } from '../debugLog';
 
   // The toggle handler our floating full-screen button invokes (wired as an
@@ -523,13 +514,13 @@
     }
   }
 
-  // Tags our own programmatic store writes (sibling mirror, revert) so the
-  // update-task intercept ignores them and we never re-persist an echo (the
-  // SVAR-store echo guard — KTD "two echo loops").
+  // Tags our own programmatic store writes (sibling mirror, revert) so the update-task
+  // intercept ignores them and we never re-persist an echo (the SVAR-store echo guard — KTD "two echo loops").
   const OG_ECHO_SOURCE = 'og-self';
-  // A drag/resize write that never settles (TaskNotes hang/disabled mid-write)
-  // still reverts the optimistic move within this window.
+  // A write still unsettled after this window raises ONE slow-save Notice per SOURCE, cleared when that source's own write settles (silent once destroyed) — it never releases the write.
   const MUTATION_TIMEOUT_MS = 10000;
+  const slowSaveNoticed = new Set<string>();
+  const notifySlowSaveOnce = (write: PlannedWrite) => { if (destroyed || slowSaveNoticed.has(write.sourcePath)) return; slowSaveNoticed.add(write.sourcePath); new Notice('Saving is taking longer than expected — the change will apply when it finishes.'); };
 
   // Generated stylesheet applying the per-view treatment: the Fill channel paints
   // the bar body and the Strip channel the left accent, independently (or the
@@ -677,12 +668,11 @@
   );
 
   // ── SVAR store seeding + targeted diff-sync (Bug B) ─────────────────────────
-  // SVAR re-initialises its ENTIRE store (resetting zoom level, scroll, and
-  // selection) whenever the `tasks` / `links` / `taskTypes` / `zoom` props change
-  // reference — its internal `$effect(reinitStore)`. So we seed those props ONCE
-  // from the initial store value and thereafter apply every data change as
-  // targeted `api.exec` actions (the SVAR-sanctioned path; see ganttSync). The
-  // arrays and `svarReadonly` handed to `<Gantt>` below must NEVER be reassigned.
+  // SVAR re-initialises its store whenever the `tasks` / `links` / `taskTypes` /
+  // `zoom` props change reference, disturbing viewport state and making
+  // selection behavior path-dependent. Plain refreshes therefore use targeted
+  // `api.exec` actions. Only explicit column, bulk, and theme reseeds replace
+  // the seed arrays; `svarReadonly` remains fixed for the mount.
 
   /** Project the dynamic render data into the pure SVAR-task builder inputs. */
   function toInputs(d: GanttData): SvarTaskInputs {
@@ -751,20 +741,17 @@
     initialData.gridColumns,
     shippedEditorKinds(initialData.cellEditors),
   );
-  // Plain seed values, used both to seed the `$state` props below and the
-  // applied-state maps further down (referencing the consts, not the $state,
-  // avoids a spurious "state referenced locally" warning). Seeds carry aligned
-  // flat editor keys, like every diff-sync update (see withAlignedFlatKeys).
-  const seedTasks0: SvarTask[] = buildSvarTasks(toInputs(initialData)).map((t) =>
-    withAlignedFlatKeys(t, initialEditorColumnIds),
-  );
-  const seedLinks0: RenderLink[] = initialData.links;
-  // Seed props handed to `<Gantt>`. Reassigned ONLY on a column-config change
-  // (which intentionally re-inits the SVAR store, resetting zoom/scroll); a
-  // plain data refresh leaves them untouched and flows through the targeted
-  // diff-sync below. `$state` so the reassignment reaches `<Gantt>`.
-  let initialTasks: SvarTask[] = $state(seedTasks0);
-  let initialLinks: RenderLink[] = $state(seedLinks0);
+  // The same canonical objects seed both SVAR and the applied-state baseline.
+  const initialSeed = createGanttSeedSnapshot({
+    tasks: buildSvarTasks(toInputs(initialData)),
+    links: initialData.links,
+    cellEditColumnIds: initialEditorColumnIds,
+  });
+  // Seed props handed to `<Gantt>`. Explicit column, bulk, and theme reseeds
+  // intentionally replace them and re-init the SVAR store; a plain data refresh
+  // leaves them untouched and flows through the targeted diff-sync below.
+  let initialTasks: SvarTask[] = $state(initialSeed.tasks);
+  let initialLinks: RenderLink[] = $state(initialSeed.links);
   // SVAR's own `readonly` is fixed at mount: capability is resolved once when the
   // controller selects its source and does not change for the view's lifetime.
   // The reactive `readOnly` above still drives the banner and the persist gate.
@@ -816,44 +803,18 @@
 
   // Last-applied SVAR state, diffed against each incoming GanttData. Seeded from
   // the initial render so the first diff after mount is a no-op.
-  const appliedTasks = new Map<string, SvarTask>();
-  for (const t of seedTasks0) appliedTasks.set(t.id, t);
-  const appliedLinks = new Map<string, RenderLink>();
-  for (const l of seedLinks0) appliedLinks.set(l.id, l);
-
-  // Fingerprint of the rendered row ORDER (parent + id sequence). The
-  // incremental diff is keyed by id and cannot reorder existing rows, so a
-  // pure reorder — e.g. a Base toolbar sort change with the same task set —
-  // leaves SVAR in the prior order. We detect an order change and apply it via
-  // `move-task` (mode `after`) inside the syncing block (zoom/scroll survive;
-  // the syncing guard suppresses the echo/select that would otherwise open the
-  // edit modal). Seeded so the first diff after mount is a no-op.
-  function orderFingerprint(tasks: readonly SvarTask[]): string {
-    return tasks.map((t) => `${t.parent ?? ''}>${t.id}`).join('|');
-  }
-  let appliedOrderKey = orderFingerprint(seedTasks0);
-  // Last-applied Base toolbar sort descriptor (plan 2026-06-22-002, U4/U5, KTD4).
-  // While an ephemeral column sort is active, the sync $effect compares this to
-  // `config.getSort()` to tell a Base re-sort (descriptor changed → clear the
-  // override, R6) from a plain data refresh (unchanged → keep & re-assert, R8).
-  // Tracking the descriptor — not a row-position fingerprint — is the deliberate
-  // fix: adding/removing a row shifts positions without a toolbar-sort change.
-  let appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
+  const appliedSyncState: AppliedGanttSyncState = createAppliedGanttSyncState(
+    initialSeed,
+    // Last-applied Base toolbar sort descriptor. While an ephemeral column sort
+    // is active, this distinguishes a Base re-sort from a plain data refresh.
+    baseSortDescriptor(config?.getSort?.()),
+  );
 
   // True only while we push our own programmatic actions into SVAR, so the
   // update-task persist intercept ignores any echo they trigger (the OG_ECHO_SOURCE
   // tag covers our own writes; this also covers SVAR-internal echoes such as
   // summary-date recomputation fired during an add/move).
   let syncing = false;
-
-  /** Whether a task id currently exists in SVAR's store (guards cascade deletes). */
-  function taskExists(id: string): boolean {
-    try {
-      return !!api?.getTask?.(id);
-    } catch {
-      return false;
-    }
-  }
 
   // Apply each store update as the minimal set of SVAR actions instead of
   // replacing the tasks array — so zoom and scroll survive writes, drags,
@@ -911,184 +872,115 @@
     if (api) applyDisplayFilters();
   });
 
-  function syncToGantt(d: GanttData): void {
-    // A column-config change can't be applied incrementally — SVAR has no
-    // per-column update action, and a new `columns` reference re-inits the whole
-    // store from the seed props. So when the fingerprint changes, reseed columns
-    // AND tasks/links to the current data together (a lone columns reseed would
-    // re-init from the stale frozen task seed, dropping incremental updates),
-    // resync the applied maps, and let the single re-init render it. Zoom/scroll
-    // reset here — accepted, since this only fires on an actual column change.
+  function reseedColumnsIfNeeded(d: GanttData): boolean {
     const editorAttachKey = cellEditColumnIds.join('|');
-    if (d.gridColumnsKey !== appliedColumnsKey || editorAttachKey !== appliedEditorAttachKey) {
-      dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
-      appliedGridWidth = d.gridWidth; // reseed re-asserts the width itself
-      appliedEditorAttachKey = editorAttachKey;
-      reseedForColumnChange(d);
-      return;
-    }
+    const columnsChanged =
+      d.gridColumnsKey !== appliedColumnsKey
+      || editorAttachKey !== appliedEditorAttachKey;
+    if (!columnsChanged) return false;
 
-    // Apply a divider width changed via the settings panel (the "Table width
-    // (px)" option) even when nothing else changed — that refresh otherwise
-    // takes the content-NOOP path below and the new width would not show until
-    // a resize/reseed. Re-assert reads the fresh effective width from the store.
-    if (d.gridWidth !== appliedGridWidth) {
-      appliedGridWidth = d.gridWidth;
-      applyPersistedGridWidth();
-    }
+    dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+    appliedGridWidth = d.gridWidth;
+    appliedEditorAttachKey = editorAttachKey;
+    reseedForColumnChange(d);
+    return true;
+  }
 
+  function applyChangedGridWidth(d: GanttData): void {
+    if (d.gridWidth === appliedGridWidth) return;
+    appliedGridWidth = d.gridWidth;
+    applyPersistedGridWidth();
+  }
+
+  function planGanttSync(d: GanttData): GanttSyncPlan {
     const next = buildSvarTasks(toInputs(d));
-    const taskPlan = planTaskSync(appliedTasks, next);
-    const linkPlan = planLinkSync(appliedLinks, d.links);
-    const orderKey = orderFingerprint(next);
-    // Base toolbar sort descriptor (U4/U5, KTD4). Compared against the last
-    // applied value to drive R6 (Base re-sort clears the ephemeral override) vs
-    // R8 (data-only refresh keeps it).
+    const taskPlan = planTaskSync(appliedSyncState.tasks, next);
+    const linkPlan = planLinkSync(appliedSyncState.links, d.links);
+    const orderKey = ganttOrderFingerprint(next);
     const baseSortKey = baseSortDescriptor(config?.getSort?.());
-    const baseSortChanged = baseSortKey !== appliedBaseSortKey;
+    return {
+      next,
+      taskPlan,
+      linkPlan,
+      orderKey,
+      baseSortKey,
+      baseSortChanged: baseSortKey !== appliedSyncState.baseSortKey,
+    };
+  }
 
-    const contentNoop =
-      !taskPlan.moves.length &&
-      !taskPlan.updates.length &&
-      !taskPlan.deletes.length &&
-      !taskPlan.adds.length &&
-      !linkPlan.deletes.length &&
-      !linkPlan.adds.length;
-    // Nothing changed at all (content, order, or Base sort) → no work. The Base
-    // sort term keeps an R6 clear from being skipped when a toolbar re-sort
-    // happens to leave the row order identical (e.g. a single-row tree).
-    if (contentNoop && orderKey === appliedOrderKey && !baseSortChanged) {
-      dlog('[OGDBG] sync NOOP');
-      return;
-    }
-    // #161 U6: a WHOLESALE set replacement (search clear / filter change re-expands
-    // the whole companion tree → hundreds–thousands of add/delete execs) costs a DOM
-    // mutation storm per swing; a burst of those is the ~25s churn. Above the op
-    // threshold, apply the change as ONE virtualized re-init (reuse the column/theme
-    // reseed path) instead of the per-instance diff. Zoom/scroll reset is the correct
-    // trade-off here — the displayed set changed entirely, so prior view state is
-    // meaningless. Small diffs fall through to the incremental path below, which
-    // preserves zoom/scroll. The decision is the pure, unit-tested shouldBulkReseed.
-    if (shouldBulkReseed(taskPlan, linkPlan)) {
-      dlog(
-        `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
-          ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
-      );
-      syncing = true;
-      try {
-        // R6 (mirror the incremental path): if the user changed the Base toolbar sort
-        // in the same swing, newest explicit sort wins — drop an active ephemeral sort
-        // first so reseedSeedsFromData doesn't re-assert a now-stale override.
-        if (ephemeralSort && baseSortChanged) {
-          ephemeralSort = null;
-          clearSvarSortArrow();
-        }
-        // Re-init tasks/links in one operation (re-syncs applied maps + Base order +
-        // an active ephemeral sort), then re-assert the persisted divider width (a
-        // store re-init can recompute it). Columns are untouched (no column change).
-        reseedSeedsFromData(d);
-        applyPersistedGridWidth();
-      } finally {
-        syncing = false;
-      }
-      // A reinit CLEARS SVAR's filter-tasks state, and SVAR's own reinit effect can
-      // run AFTER the synchronous `$data` display-filter effect — so that effect's
-      // re-apply would be wiped and hidden rows (Hide-top / Show-undated off) flash
-      // back until the next refresh. Re-assert the active row-visibility filter once
-      // the reseed settles (deferred like the ephemeral-sort / grid-width restores).
-      setTimeout(() => applyDisplayFilters(), 0);
-      return;
-    }
+  function isGanttSyncNoop(plan: GanttSyncPlan): boolean {
+    return plan.taskPlan.moves.length === 0
+      && plan.taskPlan.updates.length === 0
+      && plan.taskPlan.deletes.length === 0
+      && plan.taskPlan.adds.length === 0
+      && plan.linkPlan.deletes.length === 0
+      && plan.linkPlan.adds.length === 0
+      && plan.orderKey === appliedSyncState.orderKey
+      && !plan.baseSortChanged;
+  }
 
+  function clearEphemeralSortForBaseChange(baseSortChanged: boolean): void {
+    if (!ephemeralSort || !baseSortChanged) return;
+    ephemeralSort = null;
+    clearSvarSortArrow();
+  }
+
+  function applyBulkReseedIfNeeded(d: GanttData, plan: GanttSyncPlan): boolean {
+    const { taskPlan, linkPlan } = plan;
+    if (!shouldBulkReseed(taskPlan, linkPlan)) return false;
+
+    dlog(
+      `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
+        ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+    );
+    syncing = true;
+    try {
+      // Clear a stale override first so the reseed cannot reassert it.
+      clearEphemeralSortForBaseChange(plan.baseSortChanged);
+      reseedSeedsFromData(d);
+      applyPersistedGridWidth();
+    } finally {
+      syncing = false;
+    }
+    // SVAR clears its display filter during reinit, after Svelte's synchronous
+    // data effect can run, so restore the filter after the reseed settles.
+    setTimeout(() => applyDisplayFilters(), 0);
+    return true;
+  }
+
+  function applyIncrementalSync(plan: GanttSyncPlan): void {
+    const { taskPlan, linkPlan } = plan;
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
         ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
         ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
-        ` orderChanged=${orderKey !== appliedOrderKey} baseSortChanged=${baseSortChanged}`,
+        ` orderChanged=${plan.orderKey !== appliedSyncState.orderKey} baseSortChanged=${plan.baseSortChanged}`,
     );
 
+    const syncPort = createSvarGanttAdapter(api, {
+      echoSource: OG_ECHO_SOURCE,
+      cellEditColumnIds,
+    });
     syncing = true;
-    const tSyncStart = performance.now(); // [OGDBG #161]
+    const tSyncStart = performance.now();
+    let tAfterExec = tSyncStart;
     try {
-      // Order: reparent → field updates → remove links → remove tasks (leaf-first)
-      // → add tasks (parent-first) → add links (endpoints now exist).
-      for (const m of taskPlan.moves) {
-        api.exec('move-task', { id: m.id, target: m.parent, mode: 'child', eventSource: OG_ECHO_SOURCE });
-      }
-      for (const u of taskPlan.updates) {
-        // Re-assert the flat editor keys with every update: SVAR applies the
-        // payload as a shallow spread, so a flat key committed by an earlier
-        // inline edit would otherwise go stale against the refreshed
-        // custom.properties — and a later commit on another column would
-        // misattribute the edit to the stale key and write the old value back.
-        api.exec('update-task', {
-          id: u.id,
-          task: withAlignedFlatKeys(u.task, cellEditColumnIds),
-          eventSource: OG_ECHO_SOURCE,
-        });
-        appliedTasks.set(u.id, u.task);
-      }
-      for (const id of linkPlan.deletes) {
-        api.exec('delete-link', { id, eventSource: OG_ECHO_SOURCE });
-        appliedLinks.delete(id);
-      }
-      for (const id of taskPlan.deletes) {
-        if (taskExists(id)) api.exec('delete-task', { id, eventSource: OG_ECHO_SOURCE });
-        appliedTasks.delete(id);
-      }
-      for (const t of taskPlan.adds) {
-        api.exec('add-task', { task: t, eventSource: OG_ECHO_SOURCE });
-        appliedTasks.set(t.id, t);
-      }
-      for (const l of linkPlan.adds) {
-        api.exec('add-link', { link: l, eventSource: OG_ECHO_SOURCE });
-        appliedLinks.set(l.id, l);
-      }
-      const tAfterExec = performance.now(); // [OGDBG #161]
-      let reorderMoves = 0; // [OGDBG #161]
-      // Reconcile sibling ORDER. Three cases (plan 2026-06-22-002, U4/U5):
-      if (ephemeralSort && !baseSortChanged) {
-        // R8 — an ephemeral column sort is active and the Base toolbar sort is
-        // unchanged (a plain data refresh). Keep the user's sort: re-assert it
-        // over the new row set instead of snapping back to Base order, and SKIP
-        // planReorder. Echo-guarded so it doesn't re-enter the sort-tasks
-        // interceptor (U2). `appliedOrderKey` still advances to the Base order of
-        // `next` below: the display is under ephemeral control, but the later
-        // clear/R6 reorder diffs against this baseline (a stale key would issue
-        // duplicate/missing moves).
-        reassertEphemeralSort();
-      } else {
-        // Default path (no ephemeral sort) OR R6 (the user changed the Base
-        // toolbar sort while a sort was active → newest explicit sort wins: drop
-        // the override and show the new Base order). The id-keyed diff above never
-        // reorders existing rows, so a pure reorder (toolbar sort) or a
-        // position-shifting add needs explicit `move-task` (mode `after`) steps —
-        // these keep each task under its parent so zoom/scroll survive.
-        if (ephemeralSort && baseSortChanged) {
-          ephemeralSort = null;
-          clearSvarSortArrow();
-        }
-        if (orderKey !== appliedOrderKey) {
-          for (const m of planReorder(next)) {
-            reorderMoves += 1;
-            api.exec('move-task', {
-              id: m.id,
-              target: m.after,
-              mode: 'after',
-              eventSource: OG_ECHO_SOURCE,
-            });
-          }
-        }
-      }
-      // Commit the applied order + Base sort descriptor INSIDE the try, after the
-      // moves land. If a move-task exec throws mid-sequence, these are skipped so
-      // the stale keys force the next sync to replay the work (rather than diffing
-      // against state we never finished applying).
-      appliedOrderKey = orderKey;
-      appliedBaseSortKey = baseSortKey;
-      // [OGDBG #161] split timing: exec loop (add/update/delete) vs reorder pass
-      // (planReorder + per-row move-task). A large reorderMoves with a big total
-      // is the O(N²) suspect for the refresh freeze.
+      const { reorderMoves } = applyIncrementalGanttSync({
+        plan,
+        port: syncPort,
+        state: appliedSyncState,
+        ephemeralSort: {
+          isActive: () => ephemeralSort !== null,
+          reassert: reassertEphemeralSort,
+          clear: () => {
+            ephemeralSort = null;
+            clearSvarSortArrow();
+          },
+        },
+        onTaskAndLinkChangesApplied: () => {
+          tAfterExec = performance.now();
+        },
+      });
       const now = performance.now();
       dlog(
         `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
@@ -1098,6 +990,19 @@
     } finally {
       syncing = false;
     }
+  }
+
+  function syncToGantt(d: GanttData): void {
+    if (reseedColumnsIfNeeded(d)) return;
+    applyChangedGridWidth(d);
+
+    const plan = planGanttSync(d);
+    if (isGanttSyncNoop(plan)) {
+      dlog('[OGDBG] sync NOOP');
+      return;
+    }
+    if (applyBulkReseedIfNeeded(d, plan)) return;
+    applyIncrementalSync(plan);
   }
 
   /**
@@ -1146,10 +1051,10 @@
       for (const m of planReorder(next)) {
         api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
       }
-      appliedOrderKey = orderFingerprint(next);
+      appliedSyncState.orderKey = ganttOrderFingerprint(next);
     } catch {
       /* a move-task threw mid-restore (e.g. store torn down); the stale
-         appliedOrderKey forces the next sync to replay the full reorder */
+         applied order key forces the next sync to replay the full reorder */
     } finally {
       syncing = false;
     }
@@ -1193,25 +1098,20 @@
    * seed instead of the current data.
    */
   function reseedSeedsFromData(d: GanttData): void {
-    // Aligned flat editor keys, like the incremental update path — a reseed
-    // must leave every row's flat keys matching its stored values too.
-    const tasks = buildSvarTasks(toInputs(d)).map((t) =>
-      withAlignedFlatKeys(t, cellEditColumnIds),
-    );
-    initialTasks = tasks;
-    initialLinks = d.links;
-
-    appliedTasks.clear();
-    for (const t of tasks) appliedTasks.set(t.id, t);
-    appliedLinks.clear();
-    for (const l of d.links) appliedLinks.set(l.id, l);
+    const seed = createGanttSeedSnapshot({
+      tasks: buildSvarTasks(toInputs(d)),
+      links: d.links,
+      cellEditColumnIds,
+    });
+    initialTasks = seed.tasks;
+    initialLinks = seed.links;
+    replaceAppliedGanttData(appliedSyncState, seed);
     // The reseed re-inits SVAR from `tasks` (already in Base order), so the
     // applied order key tracks it — the next diff won't re-issue reorder moves.
-    // Re-baseline the Base sort descriptor too (symmetry with appliedOrderKey): a
+    // Re-baseline the Base sort descriptor too (symmetry with the order key): a
     // reseed coinciding with a toolbar-sort change must not leave the next sync
     // comparing against a stale descriptor.
-    appliedOrderKey = orderFingerprint(tasks);
-    appliedBaseSortKey = baseSortDescriptor(config?.getSort?.());
+    appliedSyncState.baseSortKey = baseSortDescriptor(config?.getSort?.());
 
     // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
     // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
@@ -1258,12 +1158,17 @@
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
 
-  // Note: SVAR Gantt may generate console warnings:
-  // - Non-passive event listeners for touch/wheel (required for drag functionality)
-  // - Performance violations during chart rendering (expected for complex UI)
-  // CSP violations for external fonts are prevented by fonts={false} and custom icon implementation
-
   let api: GanttAPI = $state();
+
+  // Bumped when the SVAR api re-binds (initGantt) and on teardown. The executor
+  // treats a bump alone as a REMOUNT (post-persist data work continues), so
+  // teardown also sets `destroyed` — `api` stays assigned, alive-looking.
+  let hostGeneration = 0;
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+    hostGeneration += 1;
+  });
 
   // ── Viewport height (plan 003 U2) ───────────────────────────────────────
   // SVAR has no auto-grow-to-content prop: the host must size itself. We mirror
@@ -1499,9 +1404,27 @@
   // same resolved descriptors as the editor kinds.
   const suggestChannelByColumn = $derived(suggestColumns($data.cellEditors));
 
-  // Rows with an in-flight cell-edit write: the editor gate returns null for
-  // them, so a second edit can't race the pending persistence/revert.
-  const pendingCellEdits = new Set<string>();
+  const cellEditCoordinator = createCellEditCoordinator({
+    getPersistence: () => onMutateProperty,
+    storedPropertiesOf,
+    cellRendersOf,
+    rawStoredValueOf,
+    renderText: (value) => formatPropertyValue(value, initialData.dateLocale),
+    refreshFlatCell(instanceId, columnId, value) {
+      api?.exec('update-task', {
+        id: instanceId,
+        task: { [columnId]: value },
+        eventSource: OG_ECHO_SOURCE,
+      });
+    },
+    notify(message) {
+      new Notice(message);
+    },
+    reportPersistenceFailure(error) {
+      console.error('[GanttContainer] cell-edit persist failed:', error);
+    },
+    persistenceTimeoutMs: MUTATION_TIMEOUT_MS,
+  });
 
   // Editable-cell cue (discoverability): PropertyCell combines this live column
   // set with its row's `custom.editable` to add `og-cell-editable`. A getter so
@@ -1515,7 +1438,7 @@
    */
   function resolveRowEditor(row: SvarRowLike | undefined, columnId: string): SvarEditorConfig | null {
     if (readOnly || !onMutateProperty) return null;
-    if (row?.id != null && pendingCellEdits.has(String(row.id))) return null;
+    if (row?.id != null && cellEditCoordinator.isPending(String(row.id))) return null;
     const kind = editorKindByColumn.get(columnId);
     const suggestChannel = suggestChannelByColumn.get(columnId);
     const config = rowEditorConfig(row, kind, {
@@ -1538,58 +1461,23 @@
       clearTimeout(pendingSingleClick);
       pendingSingleClick = null;
     }
-    return withChipsWiring(withTextEditorWiring(config, row), row, columnId);
-  }
-
-  /**
-   * Attach the vault `[[` fetcher to a text editor config per open (parallel to
-   * {@link withSuggestWiring}): the fetcher enumerates the vault relative to the
-   * row's note path, scoped by the field's autosuggest filter when the config
-   * carries one (a single-value suggest field; plain text is unfiltered), so the
-   * component gets a fresh source each open. Non-text configs pass through.
-   */
-  function withTextEditorWiring(
-    config: SvarEditorConfig,
-    row: SvarRowLike | undefined,
-  ): SvarEditorConfig {
-    if (typeof config === 'string' || config.type !== OG_TEXT_EDITOR_TYPE) return config;
     const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
-    const filter = (config.config as TextEditorConfig).autosuggestFilter as
-      | FileFilterConfig
-      | undefined;
-    return {
-      type: OG_TEXT_EDITOR_TYPE,
-      config: { fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter) },
-    };
-  }
-
-  /**
-   * Attach the per-open view callbacks to a chips list editor config: the
-   * add-input's `[[` fetcher (scoped by the field filter when present), the RAW
-   * stored list to seed chips from (verbatim entries — the grid's TypedValues
-   * carry only display forms), and the whole-list direct commit closure over
-   * this row. List commits never ride the bridge.
-   */
-  function withChipsWiring(
-    config: SvarEditorConfig,
-    row: SvarRowLike | undefined,
-    columnId: string,
-  ): SvarEditorConfig {
-    if (typeof config === 'string' || config.type !== OG_CHIPS_EDITOR_TYPE) return config;
     const rowId = row?.id != null ? String(row.id) : null;
-    if (!rowId) return config;
-    const sourcePath = (row?.custom as { sourceTaskId?: string } | undefined)?.sourceTaskId ?? '';
-    const filter = (config.config as ChipsEditorConfig).autosuggestFilter as
-      | FileFilterConfig
-      | undefined;
-    return {
-      type: OG_CHIPS_EDITOR_TYPE,
-      config: {
-        fetchSuggestions: createVaultWikilinkFetcher(app, sourcePath, filter),
-        seed: normalizeStoredList(rawStoredValueOf(rowId, columnId)),
-        commitList: (raw: string[]) => handleChipsCommit(rowId, columnId, raw),
-      },
-    };
+    return wireSvarCellEditorForOpen(config, {
+      app,
+      sourcePath,
+      chips: rowId
+        ? {
+            readRawSeed: () => rawStoredValueOf(rowId, columnId),
+            commitRawList: (raw) =>
+              cellEditCoordinator.commitChips({
+                instanceId: rowId,
+                columnId,
+                raw,
+              }),
+          }
+        : undefined,
+    });
   }
 
   /** Turn config-derived descriptors into SVAR columns (fresh objects). */
@@ -1741,6 +1629,8 @@
 
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
+    // A re-bound api is a new host world: retire in-flight executor work.
+    if (api && api !== ganttApi) hostGeneration += 1;
     api = ganttApi;
     wireColumnResizePersistence(ganttApi);
     wireGridWidthPersistence(ganttApi);
@@ -1909,23 +1799,20 @@
       return true;
     });
 
-    // Unified drag wiring (plan U4). Parents are ordinary (non-summary) tasks,
-    // so dragging one moves only that bar — SVAR fires a single committing
-    // `update-task` (no eventSource) for the dragged task D and no cascade. We:
-    //   - persist D's own move (existing persistReschedule), and
-    //   - on a deferred tick, if D is a parent and the gesture was a *move*,
-    //     shift its descendants by the same delta (and persist them), then offer
-    //     the gated ancestor extend if the moved subtree now exceeds an ancestor.
-    // `inProgress` frames and our own echoes / refreshes are ignored. No
-    // moveSummaryKids/resetSummaryDates fire for non-summary rows, so `action`
-    // events are not expected and are left as a no-op.
+    // Unified drag wiring. Parents are ordinary (non-summary) tasks, so
+    // dragging one moves only that bar — SVAR fires a single committing
+    // `update-task` (no eventSource) and no cascade. The committed gesture is
+    // submitted to the drag executor, which runs the planner's gesture plan
+    // and its deferred cascade pass (subtree shift, shrink-fit, gated ancestor
+    // extend) in one per-source queue slot. `inProgress` frames and our own
+    // echoes / refreshes are ignored; `action` events stay a no-op (no
+    // moveSummaryKids/resetSummaryDates fire for non-summary rows).
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
       // Cell edits fold into the same event stream: the grid's update-cell
       // bridge re-emits a committed inline edit as an untagged `update-task`
-      // whose task copy carries a flat `[columnId]` key. classifyUpdateGesture
-      // tells those apart from drag/resize gestures by diffing the copy's flat
-      // keys against the row's stored values.
+      // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
+      // from drag/resize gestures by diffing flat keys against stored values.
       const gesture = classifyUpdateGesture(ev, {
         echoSource: OG_ECHO_SOURCE,
         syncing,
@@ -1952,17 +1839,12 @@
       if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
         const id = String(ev.id);
         const before = instances.find((i) => i.id === id);
-        // Progress-handle drag (U6): in Property mode, persist the new percentage
-        // on release. TaskNotes mode hides the handle (progressReadonly), so this
-        // only fires in Property mode.
-        //
+        // Progress-handle drag: Property mode persists the new percentage on
+        // release (TaskNotes mode hides the handle via progressReadonly).
         // Identify a progress gesture by the SVAR payload SHAPE, not just a
-        // changed progress value: the progress marker emits `task: { progress }`
-        // with NO start/end, whereas a date drag/resize emits `task: { start, end }`
-        // (and SVAR may echo the task's current `progress: 0` for a blank-progress
-        // task). Keying only on `progress !== before` would then misread a date
-        // drag as a progress write — writing 0 to the property and dropping the
-        // date edit. Requiring progress present AND start/end absent avoids that.
+        // changed progress value: the marker emits `task: { progress }` with NO
+        // start/end, whereas a date drag emits `task: { start, end }` (and may
+        // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
         const t = ev.task ?? {};
         const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
         const newProgress = t.progress;
@@ -1976,17 +1858,11 @@
           setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
           return true;
         }
-        // Capture pre-drag dates synchronously (instances is still the pre-drag
-        // snapshot now) for the subtree-shift delta.
-        activeDrag = {
-          id,
-          name: before?.text ?? 'this task',
-          beforeStart: before?.start ?? null,
-          beforeEnd: before?.end ?? null,
-          beforeDateStatus: before?.dateStatus ?? null,
-        };
-        setTimeout(() => void persistReschedule(id), 0);
-        scheduleSubtreeAndExtend();
+        const beforeFacts = captureBarBefore(id, before);
+        const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
+        const name = before?.text ?? 'this task';
+        // Deferred one tick so the SVAR store holds the committed post-drag span.
+        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
       }
       return true;
     });
@@ -2033,7 +1909,9 @@
       }
       if (readOnly || !onRemoveDependency || ev.id == null) return false;
       const rawId = String(ev.id);
-      const link = appliedLinks.get(rawId.startsWith(':') ? rawId.slice(1) : rawId);
+      const link = appliedSyncState.links.get(
+        rawId.startsWith(':') ? rawId.slice(1) : rawId,
+      );
       if (!link) return false;
       void onRemoveDependency(link.source, link.target).catch((err) => {
         console.error('[GanttContainer] remove-dependency failed:', err);
@@ -2067,45 +1945,152 @@
     }, 200); // Increased delay to ensure DOM is fully ready
   }
 
+  const resolvePrompt = createDragPromptResolver({
+    openInferredDragPrompt: () => new InferredDragModal(app).openAndGetChoice(),
+    openCascadePrompt: (options) =>
+      new CascadeConfirmModal(app, options).openAndGetChoice(),
+    persistInferredDragMode: (action) => onInferredDragModeChange?.(action),
+  });
+
+  // Runs planner-built commit plans with per-source serialization; every
+  // echoed or reverted row goes through echoSourceGeometry (echo-guard source).
+  const dragExecutor = createDragExecutor({
+    canWrite: () => !destroyed && !readOnly && !!onMutate && !!api,
+    isLive: () => !destroyed && !!api,
+    generation: () => hostGeneration,
+    persist: (write) =>
+      onMutate ? onMutate(write.instanceId, plannedPatchToTaskPatch(write.patch)) : Promise.resolve(),
+    echo: echoSourceGeometry,
+    resolvePrompt,
+    persistTimeoutMs: MUTATION_TIMEOUT_MS, onPersistTimeout: notifySlowSaveOnce, onWriteSettled: (write) => { slowSaveNoticed.delete(write.sourcePath); },
+    refreshGeneration: () => $data.refreshGeneration?.() ?? { started: 0, delivered: 0 },
+  });
+
+  const CASCADE_FAILURE_NOTICE: Record<CascadePhase, string> = {
+    subtree: "Couldn't move a child task — check TaskNotes is running.",
+    shrink: "Couldn't adjust the parent date — check TaskNotes is running.",
+    extend: "Couldn't update a parent date — check TaskNotes is running.",
+  };
+
+  /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span turns a
+   *  revert drag into a no-op plan); dateStatus/estimate from the snapshot, rebased over
+   *  the executor's settled-facts ledger (self-writes skip recompute). */
+  function captureBarBefore(id: string, before: (typeof instances)[number] | undefined) {
+    const grabbed = api.getTask?.(id);
+    return dragExecutor.rebaseSettledFacts(before?.sourcePath ?? id, {
+      start: grabbed?.start instanceof Date ? grabbed.start : (before?.start ?? null),
+      end: grabbed?.end instanceof Date ? grabbed.end : (before?.end ?? null),
+      dateStatus: before?.dateStatus ?? null,
+      estimateMinutes: before?.estimateMinutes ?? null,
+    });
+  }
+
   /**
-   * Persist a committed drag/resize for `instanceId` (U8). Reads the
-   * authoritative new dates from the SVAR store (the event payload is
-   * heterogeneous — diff-only on some gestures), resolves the source identity,
-   * optimistically mirrors the dates onto sibling instances of the same source
-   * so multi-parent rows never diverge (AE7), then persists via the controller.
-   * On failure (or timeout) every mirrored row — and the dragged row — reverts
-   * to its pre-drag dates and a Notice is shown.
-   */
+   * Submit a committed bar drag/resize as one planned, executor-run gesture,
+   * cascade included. `after` reads the SVAR store one tick post-commit;
+   * `before` and the echo-seq baseline arrive from intercept time — an echo
+   * landing inside that deferred tick must read as a predecessor's move. */
+  function submitBarGesture(args: { instanceId: string; name: string; before: BarBefore; echoSeqAtCapture: number }): void {
+    const { instanceId, name, before, echoSeqAtCapture } = args;
+    if (!api) return;
+    const moved = api.getState().tasks.byId(instanceId);
+    if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
+    const after: DateRange = { start: moved.start, end: moved.end };
+    // Read at gesture time: a persisted "don't ask again" choice applies from the next drag.
+    const inferredDragMode = $data.getInferredDragMode();
+    const sourcePath = instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId;
+    // Rebases once at dequeue: the span when a predecessor's echo moved the row
+    // (even to exactly `after`); the authored facts always.
+    const rebase = createDequeueBeforeRebase({
+      gestureBefore: before, after,
+      readLive: () => captureBarBefore(instanceId, instances.find((i) => i.id === instanceId)),
+      movedByPredecessor: () => dragExecutor.echoSeqOf(sourcePath) !== echoSeqAtCapture,
+    });
+    const gesture = (): CommitGesture => ({
+      kind: 'bar', instanceId, before: rebase.before(), after,
+      estimateWritable: timeEstimateWriteEnabled && !readOnly, inferredDragMode,
+    });
+    const memo: DerivationMemo = new Map();
+    void dragExecutor.submit({
+      sourcePath,
+      snapshot: () => {
+        rebase.atDequeue();
+        return overlayStoreGeometry(instances, (id) => api?.getTask?.(id), instanceId);
+      },
+      plan: (choice, snapshot) => planGestureCommit(gesture(), snapshot, choice, plannerDerivation(memo)),
+      onFailure: (err) => {
+        console.error('[GanttContainer] reschedule persist failed:', err);
+        new Notice("Couldn't save date change — check TaskNotes is running.");
+      },
+      cascade: {
+        // Pure moves only: a halted resize owes its subtree no displacement.
+        get before() { return pureMoveBefore(rebase.before(), after); },
+        plan: (settlement, answers, snapshot, laneBefore) =>
+          planCascade(
+            { instanceId, name, before: laneBefore ?? rebase.before(), after, settlement },
+            snapshot,
+            { cascadeMode: get(data).cascadeMode, ...answers },
+            plannerDerivation(memo),
+          ),
+        onFailure: (err, phase) => {
+          console.error(`[GanttContainer] ${phase} cascade persist failed:`, err);
+          new Notice(CASCADE_FAILURE_NOTICE[phase]);
+        },
+      },
+    });
+  }
+
+  function plannedPatchToTaskPatch({ start, end, estimate, progress }: PlannedPatch): TaskPatch {
+    return {
+      ...(start !== undefined && { start }),
+      ...(end !== undefined && { end }),
+      ...(estimate !== undefined && { estimate }),
+      ...(progress !== undefined && { progress }),
+    };
+  }
+
+  /** The sole executor echo emitter: rows re-enter SVAR tagged as our own,
+   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end. */
+  function echoSourceGeometry(echoes: SourceEchoes): void {
+    if (!api) return;
+    for (const row of echoes.rows) {
+      const task = echoTaskPatch(row.payload, api.getTask?.(row.instanceId)?.custom);
+      api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
+    }
+  }
+
+  /** The derivation surface plans read — the write-path authority, memoized per gesture. */
+  function plannerDerivation(memo: DerivationMemo): PlannerDerivation {
+    return memoizePlannerDerivation({
+      deriveEstimate: $data.deriveEstimate,
+      deriveSpan: $data.deriveSpan,
+      minutesToSpanDays,
+      spanDaysToMinutes,
+      inclusiveDaySpan,
+      defaultDurationDays: $data.defaultDurationDays,
+    }, memo);
+  }
+
   /**
-   * Persist a Property-mode progress-handle drag (U6). Fires on release only (the
-   * intercept discards `inProgress` frames), so one gesture = one write — no
-   * debounce. On failure, revert the bar's progress to the pre-drag value and
-   * notify. The controller resolves the write target and the source clamps/rounds.
+   * Persist a Property-mode progress-handle drag: one release = one planned,
+   * executor-run write. `beforeProgress` is captured synchronously in the
+   * intercept (pre-drag), so a late data refresh can't skew the revert baseline.
    */
-  async function persistProgress(
+  function persistProgress(
     instanceId: string,
     progress: number,
     beforeProgress: number,
   ): Promise<void> {
-    if (!onMutate || !api) return;
-    // `beforeProgress` is captured synchronously in the intercept (pre-drag),
-    // like persistReschedule's activeDrag capture — so a data refresh landing
-    // before this deferred callback can't skew the revert baseline.
-    // Progress is deliberately NOT mirrored onto multi-parent sibling rows the
-    // way persistReschedule mirrors dates: the source write triggers a refresh
-    // that reconciles every instance, and interim progress divergence is a
-    // transient visual-only effect (dates diverging mid-drag is far more jarring).
-    try {
-      await withTimeout(onMutate(instanceId, { progress }), MUTATION_TIMEOUT_MS);
-    } catch (err) {
-      console.error('[GanttContainer] progress persist failed:', err);
-      api.exec('update-task', {
-        id: instanceId,
-        task: { progress: beforeProgress },
-        eventSource: OG_ECHO_SOURCE,
-      });
-      new Notice("Couldn't save progress — check TaskNotes is running.");
-    }
+    const gesture: CommitGesture = { kind: 'progress', instanceId, progress, beforeProgress };
+    return dragExecutor.submit({
+      sourcePath: instances.find((i) => i.id === instanceId)?.sourcePath ?? instanceId,
+      snapshot: () => instances,
+      plan: (choice, snapshot) => planGestureCommit(gesture, snapshot, choice, plannerDerivation(new Map())),
+      onFailure: (err) => {
+        console.error('[GanttContainer] progress persist failed:', err);
+        new Notice("Couldn't save progress — check TaskNotes is running.");
+      },
+    });
   }
 
   /**
@@ -2138,20 +2123,9 @@
     }
   }
 
-  /**
-   * Handle a committed inline cell edit: cast the bridged value back per the
-   * column's editor kind, then either block the apply (noop/reject, with a
-   * Notice on reject) or let SVAR's optimistic apply stand and persist through
-   * the controller — reverting (+Notice) if the write rejects or times out.
-   * The stored baseline advances synchronously so a quick follow-up edit diffs
-   * against what is being persisted, and rolls back with a failed write.
-   */
   function handleCellEditCommit(instanceId: string, columnId: string, rawValue: unknown): boolean {
-    const persist = onMutateProperty;
     const kind = editorKindByColumn.get(columnId);
-    if (!persist || !kind) return false;
-    const properties = storedPropertiesOf(instanceId);
-    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
+    if (!kind) return false;
     // Choice commits carry the configured value strings so a bridge-coerced
     // numeric-looking pick ("01" arriving as 1) recovers the exact catalog value.
     const choiceValues =
@@ -2160,83 +2134,16 @@
         : kind === 'choice-priority'
           ? ($data.choiceOptions?.priority ?? []).map((o) => o.value)
           : undefined;
-    const outcome = resolveCellEditCommit(kind, rawValue, stored, { choiceValues });
-    if (outcome.action === 'noop') return false;
-    if (outcome.action === 'reject') {
-      new Notice(`Couldn't save — ${outcome.reason}`);
-      return false;
-    }
-    // Cross-field date order: a mapped start (end) commit must not pass the
-    // row's real end (start). Single-edge semantics otherwise — one field
-    // write, no reshuffle of the counterpart, no subtree cascade.
-    const dateRole = outcome.value instanceof Date ? dateRoleByColumn.get(columnId) : undefined;
-    if (dateRole) {
-      const row = instances.find((i) => i.id === instanceId);
-      if (violatesDateOrder(dateRole, outcome.value as Date, counterpartDate(row, dateRole))) {
-        new Notice(
-          dateRole === 'start'
-            ? "Couldn't save — the start date must not be after the end date."
-            : "Couldn't save — the end date must not be before the start date.",
-        );
-        return false;
-      }
-    }
-    applyAndPersistCellEdit(instanceId, columnId, outcome.value);
-    return true;
-  }
-
-  /**
-   * The shared optimistic-apply + persist tail of a cell edit — used by both
-   * the bridge-classified commits above and the suggest editor's direct list
-   * commits. Advances the stored baseline and the rendered cell text
-   * synchronously (rolled back with a failed write), marks the row pending,
-   * and persists through the controller. `refreshRow` additionally re-execs
-   * the row's flat key (echo-tagged) so SVAR re-renders when no store apply
-   * preceded the call — the direct path, which returns `false` to the bridge.
-   */
-  function applyAndPersistCellEdit(
-    instanceId: string,
-    columnId: string,
-    value: unknown,
-    opts: { refreshRow?: boolean } = {},
-  ): void {
-    const persist = onMutateProperty;
-    if (!persist) return;
-    const properties = storedPropertiesOf(instanceId);
-    const stored = properties?.[columnId] ?? EMPTY_TYPED_VALUE;
-    const typed = classifyTypedValue(value);
-    if (properties) properties[columnId] = typed;
-    // Optimistic display: the cell renders custom.cellRenders[columnId].text,
-    // not the flat key SVAR just applied — advance it (text mode; a markdown
-    // descriptor is refreshed by the confirming data pass) so the committed
-    // value shows immediately. Rolled back with the baseline on failure.
-    const renders = cellRendersOf(instanceId);
-    const previousRender = renders?.[columnId];
-    if (renders) {
-      renders[columnId] = { mode: 'text', text: formatPropertyValue(typed, initialData.dateLocale) };
-    }
-    pendingCellEdits.add(instanceId);
-    if (opts.refreshRow) {
-      api?.exec('update-task', {
-        id: instanceId,
-        task: { [columnId]: storedFlatValue(typed) },
-        eventSource: OG_ECHO_SOURCE,
-      });
-    }
-    void persistCellEdit(persist, { instanceId, columnId, value, previous: stored, previousRender });
-  }
-
-  /**
-   * Direct commit for a chips list column: persist the whole edited RAW list once
-   * (compared against the current raw frontmatter so an unchanged session writes
-   * nothing). Reads the raw value at commit time because the grid's TypedValues
-   * carry only display forms — rebuilding from them would strip wikilink brackets.
-   */
-  function handleChipsCommit(instanceId: string, columnId: string, raw: string[]): void {
-    if (pendingCellEdits.has(instanceId)) return;
-    const current = normalizeStoredList(rawStoredValueOf(instanceId, columnId));
-    if (current.length === raw.length && current.every((v, i) => v === raw[i])) return;
-    applyAndPersistCellEdit(instanceId, columnId, raw, { refreshRow: true });
+    const dateRole = dateRoleByColumn.get(columnId);
+    return cellEditCoordinator.commitBridge({
+      instanceId,
+      columnId,
+      kind,
+      rawValue,
+      choiceValues,
+      dateRole,
+      datedRow: dateRole ? instances.find((instance) => instance.id === instanceId) : undefined,
+    });
   }
 
   /** The RAW frontmatter value behind a row's note property (entries verbatim). */
@@ -2247,41 +2154,6 @@
     const file = app.vault.getAbstractFileByPath(sourcePath);
     if (!(file instanceof TFile)) return undefined;
     return app.metadataCache.getFileCache(file)?.frontmatter?.[key];
-  }
-
-  async function persistCellEdit(
-    persist: (instanceId: string, propertyId: string, value: unknown) => Promise<void>,
-    edit: {
-      instanceId: string;
-      columnId: string;
-      value: unknown;
-      previous: TypedValue;
-      previousRender: CellRender | undefined;
-    },
-  ): Promise<void> {
-    try {
-      await withTimeout(persist(edit.instanceId, edit.columnId, edit.value), MUTATION_TIMEOUT_MS);
-    } catch (err) {
-      console.error('[GanttContainer] cell-edit persist failed:', err);
-      const properties = storedPropertiesOf(edit.instanceId);
-      if (properties) properties[edit.columnId] = edit.previous;
-      const renders = cellRendersOf(edit.instanceId);
-      if (renders) {
-        if (edit.previousRender) {
-          renders[edit.columnId] = edit.previousRender;
-        } else {
-          delete renders[edit.columnId];
-        }
-      }
-      api?.exec('update-task', {
-        id: edit.instanceId,
-        task: { [edit.columnId]: storedFlatValue(edit.previous) },
-        eventSource: OG_ECHO_SOURCE,
-      });
-      new Notice("Couldn't save the change — check TaskNotes is running.");
-    } finally {
-      pendingCellEdits.delete(edit.instanceId);
-    }
   }
 
   /**
@@ -2297,343 +2169,6 @@
     }
     if (Object.keys(patch).length > 0) {
       api?.exec('update-task', { id: instanceId, task: patch, eventSource: OG_ECHO_SOURCE });
-    }
-  }
-
-  async function persistReschedule(instanceId: string): Promise<void> {
-    if (!onMutate || !api) return;
-
-    const moved = api.getState().tasks.byId(instanceId);
-    if (!moved || !(moved.start instanceof Date) || !(moved.end instanceof Date)) {
-      return;
-    }
-    const newStart: Date = moved.start;
-    const newEnd: Date = moved.end;
-
-    // Resolve source identity → sibling instances (same source, other rows).
-    const sourcePath =
-      (moved.custom?.sourceTaskId as string | undefined) ??
-      instances.find((i) => i.id === instanceId)?.sourcePath;
-
-    // Capture pre-drag dates for the dragged row + every sibling, for revert.
-    const originals = new Map<string, { start: Date; end: Date }>();
-    for (const inst of instances) {
-      if (inst.sourcePath === sourcePath && inst.start && inst.end) {
-        originals.set(inst.id, { start: inst.start, end: inst.end });
-      }
-    }
-    const revertToOriginals = (): void => {
-      for (const [id, original] of originals) {
-        api.exec("update-task", {
-          id,
-          task: { start: original.start, end: original.end },
-          eventSource: OG_ECHO_SOURCE,
-        });
-      }
-    };
-
-    // Optimistic mirror: move sibling rows immediately (tagged as our own write).
-    for (const inst of instances) {
-      if (inst.sourcePath === sourcePath && inst.id !== instanceId) {
-        api.exec("update-task", {
-          id: inst.id,
-          task: { start: newStart, end: newEnd },
-          eventSource: OG_ECHO_SOURCE,
-        });
-      }
-    }
-
-    // In a write-enabled Time Estimate mode, the new span persists as the estimate
-    // (minutes). Gated by `readOnly` so a standalone timeline never writes. Under
-    // working-time stretch the estimate counts WORKING days of the resized span (a
-    // stretched bar includes blocked days that carry no work), keeping the
-    // read/write round-trip honest; without an associated calendar the count falls
-    // back to plain calendar days.
-    const estimateWritable = timeEstimateWriteEnabled && !readOnly;
-    const estimateMinutes = estimateWritable
-      ? spanDaysToMinutes(
-          (sourcePath ? $data.countWorkingDays?.(sourcePath, newStart, newEnd) : undefined) ??
-            inclusiveDaySpan(newStart, newEnd),
-        )
-      : undefined;
-
-    // Default commit (as today): dates + estimate. The estimate is NOT mirrored
-    // onto sibling rows (it isn't a rendered bar property).
-    let patch: TaskPatch = { start: newStart, end: newEnd };
-    if (estimateMinutes !== undefined) patch.estimate = estimateMinutes;
-
-    // Inferred-edge drag gate: when the dragged edge is inferred from the
-    // estimate (a derived end/start), ask — or auto-apply the per-view mode —
-    // whether to grow the estimate only (leave the date computed) or grow the
-    // estimate AND materialise the dragged edge. `activeDrag` carries the pre-drag
-    // provenance, read synchronously before the modal await (processSubtreeAndExtend
-    // clears it on the next tick). Authored edges and whole-bar moves fall through
-    // to the default commit above.
-    const before = activeDrag;
-    if (
-      before?.id === instanceId &&
-      before.beforeStart &&
-      before.beforeEnd &&
-      estimateMinutes !== undefined
-    ) {
-      const inferredEdge = resolveInferredEdge(
-        classifyDraggedEdge(before.beforeStart, before.beforeEnd, newStart, newEnd),
-        before.beforeDateStatus ?? 'complete',
-      );
-      const outcome = resolveInferredDragOutcome({
-        inferredEdge,
-        mode: normalizeInferredDragMode($data.inferredDragMode),
-        estimateWritable: true,
-      });
-      if (inferredEdge && outcome !== 'write-as-today') {
-        // This gesture's write is ours (prompt / estimate-only / estimate-and-dates).
-        // Stand the subtree/extend cascade down so it can't commit shrink-fit or
-        // ancestor-extend writes against the optimistic pre-decision dates while the
-        // prompt is open — or against a choice the user cancels or downgrades to
-        // estimate-only (which materialises no date). Set before any await so the
-        // paired processSubtreeAndExtend, running next this tick, sees it.
-        inferredPromptEngaged = true;
-        let action: InferredDragAction;
-        if (outcome === 'prompt') {
-          const choice = await new InferredDragModal(app).openAndGetChoice();
-          if (!choice) {
-            // Cancel reverts the bar (+ mirrored siblings) and writes nothing.
-            revertToOriginals();
-            return;
-          }
-          action = choice.action;
-          if (choice.dontAskAgain) onInferredDragModeChange?.(action);
-        } else {
-          action = outcome;
-        }
-        const fields = buildInferredDragPatch({
-          action,
-          inferredEdge,
-          newStart,
-          newEnd,
-          estimateMinutes,
-        });
-        patch = { estimate: fields.estimateMinutes };
-        if (fields.materialise) {
-          if (fields.materialise.edge === 'end') patch.end = fields.materialise.date;
-          else patch.start = fields.materialise.date;
-        }
-      }
-    }
-
-    try {
-      await withTimeout(onMutate(instanceId, patch), MUTATION_TIMEOUT_MS);
-    } catch (err) {
-      console.error('[GanttContainer] reschedule persist failed:', err);
-      // Revert the dragged row and all mirrored siblings to pre-drag dates.
-      revertToOriginals();
-      new Notice("Couldn't save date change — check TaskNotes is running.");
-    }
-  }
-
-  /** Reject after `ms` if `p` has not settled (so a hung write still reverts). */
-  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('write timed out')), ms);
-      p.then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
-  }
-
-  // ── Subtree-move drag + gated ancestor extend (plan U4) ─────────────────────
-  // The drag in flight: the dragged task's id, name, and its pre-drag dates
-  // (captured synchronously so the subtree-shift delta is exact).
-  let activeDrag: {
-    id: string;
-    name: string;
-    beforeStart: Date | null;
-    beforeEnd: Date | null;
-    beforeDateStatus: DateStatus | null;
-  } | null = null;
-  let dragScheduled = false;
-  // Set synchronously by persistReschedule (which runs first) when an inferred-edge
-  // drag routes its write through the gate, so the deferred subtree/extend pass —
-  // which shares this gesture's tick — knows to stand down. Consumed and cleared by
-  // processSubtreeAndExtend; the two are always scheduled as a pair.
-  let inferredPromptEngaged = false;
-
-  /** Schedule the deferred subtree-shift + extend pass once per drag. */
-  function scheduleSubtreeAndExtend(): void {
-    if (dragScheduled) return;
-    dragScheduled = true;
-    setTimeout(() => void processSubtreeAndExtend(), 0);
-  }
-
-  /**
-   * After a drag settles: if the dragged task is a parent and the gesture was a
-   * pure *move* (both edges shifted by the same delta), shift every descendant
-   * by that delta and persist it — children follow the parent, intervals
-   * preserved. Then, if the moved subtree now exceeds an ancestor's window,
-   * offer the gated extend (Ask/Auto/Never). A leaf/resize has no descendant
-   * shift. All writes go through `onMutate` (→ TaskNotes) plus an optimistic
-   * `api.exec` echo for the bar; the follow-up refresh runs under `syncing`.
-   */
-  async function processSubtreeAndExtend(): Promise<void> {
-    dragScheduled = false;
-    const drag = activeDrag;
-    activeDrag = null;
-    // An inferred-edge drag routes its write through persistReschedule's gate, which
-    // owns this note for the gesture. Skip the subtree/extend cascade entirely so it
-    // never races that decision (a leaf inferred task has no descendants/ancestors to
-    // act on anyway; a parent's cascade against unmaterialised dates is unsafe).
-    if (inferredPromptEngaged) {
-      inferredPromptEngaged = false;
-      return;
-    }
-    if (!api || !onMutate || readOnly || !drag) return;
-
-    const moved = api.getState().tasks.byId(drag.id);
-    if (!(moved?.start instanceof Date) || !(moved?.end instanceof Date)) return;
-
-    // Pure move iff both edges shifted by the same whole-day delta (resize moves
-    // one edge only → no subtree shift). Compared at day granularity so the
-    // date-policy end-of-day (23:59:59.999) vs SVAR day-boundary snapping (00:00)
-    // mismatch doesn't misread a move as a resize.
-    const delta = computeMoveDelta(drag.beforeStart, drag.beforeEnd, moved.start, moved.end);
-
-    // The new date window of every moved task, keyed by source note. Seeded with
-    // the dragged task; for a pure move, each descendant is shifted by the same
-    // delta (and persisted). A move that shifts a multi-parent task records that
-    // task's source once — every placement of it (incl. alternate parents) then
-    // counts toward its ancestors' extend check.
-    const movedRanges = new Map<string, DateRange>();
-    const addRange = (src: string, start: Date, end: Date) => {
-      const prev = movedRanges.get(src);
-      if (!prev) movedRanges.set(src, { start, end });
-      else {
-        if (start < prev.start) prev.start = start;
-        if (end > prev.end) prev.end = end;
-      }
-    };
-    const dSource = instances.find((i) => i.id === drag.id)?.sourcePath;
-    if (dSource) addRange(dSource, moved.start, moved.end);
-
-    if (delta !== 0) {
-      // Every instance to shift: the dragged subtree's descendants AND their
-      // multi-parent siblings under other parents (so duplicates stay in sync —
-      // the self-write echo is suppressed, so an un-mirrored sibling would go
-      // stale until a manual refresh and repeated drags would compound the gap).
-      const shifts = computeSubtreeMove(drag.id, delta, instances);
-
-      // Optimistically move every instance now (tagged as our own write).
-      for (const s of shifts) {
-        api.exec('update-task', { id: s.id, task: { start: s.start, end: s.end }, eventSource: OG_ECHO_SOURCE });
-      }
-
-      // Persist once per source note (its instances share one date); time-bounded
-      // so a hung write still settles. Only a successful shift counts toward the
-      // ancestor-extend calc; on failure revert every instance of that source.
-      const bySource = new Map<string, SubtreeShift[]>();
-      for (const s of shifts) {
-        const arr = bySource.get(s.sourcePath) ?? [];
-        arr.push(s);
-        bySource.set(s.sourcePath, arr);
-      }
-      for (const [src, group] of bySource) {
-        const rep = group[0];
-        if (!rep) continue;
-        try {
-          await withTimeout(onMutate(rep.id, { start: rep.start, end: rep.end }), MUTATION_TIMEOUT_MS);
-          addRange(src, rep.start, rep.end);
-        } catch (err) {
-          console.error('[GanttContainer] subtree-move persist failed:', err);
-          for (const s of group) {
-            const orig = instances.find((i) => i.id === s.id);
-            if (orig?.start && orig?.end) {
-              api.exec('update-task', { id: s.id, task: { start: orig.start, end: orig.end }, eventSource: OG_ECHO_SOURCE });
-            }
-          }
-          new Notice("Couldn't move a child task — check TaskNotes is running.");
-        }
-      }
-    } else if (drag.beforeStart && drag.beforeEnd) {
-      // Parent-shrink guard: a *resize* (no subtree shift) that newly leaves D
-      // smaller than its direct children. Offer to adjust D to wrap them, or
-      // undo the resize — per the per-view mode. A pure move (delta !== 0) can't
-      // orphan children (they moved with D), so this only runs for resizes.
-      const childRanges: DateRange[] = instances
-        .filter((i) => i.parent === drag.id && i.start && i.end)
-        .map((i) => ({ start: i.start as Date, end: i.end as Date }));
-      const fit = computeShrinkFit(
-        { start: drag.beforeStart, end: drag.beforeEnd },
-        { start: moved.start, end: moved.end },
-        childRanges,
-      );
-      if (fit) {
-        const mode = normalizeCascadeMode(get(data).cascadeMode);
-        if (mode === 'never') return; // allow the overflow
-        let adjust = true;
-        if (mode === 'ask') {
-          adjust = await new CascadeConfirmModal(app, {
-            title: 'Parent is smaller than its children',
-            body: `Resizing "${drag.name}" leaves it smaller than the tasks inside it. Adjust it to wrap its children, or undo the resize.`,
-            confirmText: 'Adjust to fit',
-            cancelText: 'Undo resize',
-            rows: [{ name: drag.name, oldStart: moved.start, oldEnd: moved.end, newStart: fit.start, newEnd: fit.end }],
-          }).openAndGetChoice();
-        }
-        const target = adjust ? fit : { start: drag.beforeStart, end: drag.beforeEnd };
-        api.exec('update-task', { id: drag.id, task: { start: target.start, end: target.end }, eventSource: OG_ECHO_SOURCE });
-        try {
-          await withTimeout(onMutate(drag.id, { start: target.start, end: target.end }), MUTATION_TIMEOUT_MS);
-        } catch (err) {
-          console.error('[GanttContainer] shrink-fit persist failed:', err);
-          // Revert the bar to the resize persistReschedule already saved.
-          api.exec('update-task', { id: drag.id, task: { start: moved.start, end: moved.end }, eventSource: OG_ECHO_SOURCE });
-          new Notice("Couldn't adjust the parent date — check TaskNotes is running.");
-        }
-        return; // shrink handled; don't also run the extend gate
-      }
-    }
-
-    // Gated ancestor extend: every non-moved ancestor (across the whole tree,
-    // including a moved task's alternate parents) that the moved tasks exceed.
-    const mode = normalizeCascadeMode(get(data).cascadeMode);
-    if (mode === 'never') return;
-
-    const nodes: ExtensionNode[] = instances.map((i) => ({
-      id: i.id,
-      sourcePath: i.sourcePath,
-      name: i.text,
-      parent: i.parent,
-      start: i.start,
-      end: i.end,
-    }));
-    const extensions = computeMoveExtensions(movedRanges, nodes);
-    if (extensions.length === 0) return;
-
-    if (mode === 'ask') {
-      const approved = await new CascadeConfirmModal(app, {
-        title: 'Extend parent dates?',
-        body:
-          `Moving "${drag.name}" carries it outside the planned window of the task(s) below. ` +
-          `Its new dates are already saved — this only extends them to include it, and can't be undone.`,
-        confirmText: 'Extend all',
-        rows: extensions,
-      }).openAndGetChoice();
-      if (!approved) return; // move already persisted; leave the overflow
-    }
-
-    for (const ext of extensions) {
-      try {
-        await withTimeout(onMutate(ext.instanceId, { start: ext.newStart, end: ext.newEnd }), MUTATION_TIMEOUT_MS);
-      } catch (err) {
-        console.error('[GanttContainer] ancestor extend persist failed:', err);
-        new Notice("Couldn't update a parent date — check TaskNotes is running.");
-      }
     }
   }
 
@@ -3451,6 +2986,30 @@
   .og-bases-gantt :global(.wx-bar.wx-split) {
     background-color: transparent !important;
   }
+  /*
+   * A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split) host
+   * the runs fill the content box inset by that border, leaving a 1px halo around
+   * the pieces. Drop the border so the runs meet the bar's edge — but only when
+   * the bar is NOT date-status-flagged: a flagged bar's border IS its provenance
+   * cue (the `datestatus-flagged` rule colours this same border), so zeroing it
+   * would erase the only indicator on an otherwise transparent ghost host. A
+   * non-split strip bar keeps its outline regardless.
+   */
+  .og-bases-gantt :global(.wx-bar.wx-split:not(.datestatus-flagged)) {
+    border: 0 !important;
+  }
+  /*
+   * On a ghost host the datestatus fill (its usual orange cue) is gone — the host
+   * is transparent and the pieces paint their own colour — so the provenance cue
+   * has to be the border. The datestatus rule only sets its COLOUR, and the base
+   * bar has no border width/style, so recreate a visible outline here (the colour
+   * still comes from the datestatus rule). This is the flagged bar's own indicator,
+   * not the strip halo the rule above removes.
+   */
+  .og-bases-gantt :global(.wx-bar.wx-split.datestatus-flagged) {
+    border-width: 1px !important;
+    border-style: solid !important;
+  }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;
   }
@@ -3476,6 +3035,38 @@
   .og-bases-gantt :global(.og-ghost-label) {
     position: relative;
     z-index: 2;
+  }
+
+  /*
+   * Per-task override indicator (R11): a small filled dot in the upper-left
+   * corner of a bar whose effective Estimate meaning differs from the view
+   * default. BarContent appends the `.og-override-dot` element to the host
+   * `.wx-bar` (a real element so it can carry its own hover `title`).
+   *
+   * Colour: the dot can't reliably contrast with the fill, strip, AND timeline
+   * background (all arbitrary), so it doesn't try — a `--background-primary`
+   * halo (box-shadow ring) separates it from whatever is behind it, and the dot
+   * then only has to contrast with that ring. Both colours are theme variables,
+   * so it's correct in light and dark. Direction (working vs calendar) stays in
+   * the tooltip + grid column, never a second on-bar mark.
+   */
+  .og-bases-gantt :global(.wx-bar .og-override-dot) {
+    position: absolute;
+    /* Centre the dot ON the bar's top-left corner: pin to (0,0) then shift up-left
+       by half its own size. Half the dot overhangs the bar, so this relies on the
+       bar not clipping the overhang. */
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1.5px var(--background-primary);
+    /* Hoverable (the `title` tooltip needs pointer events) but its pointerdown is
+       stopped in BarContent so dragging the dot never reaches SVAR's start-resize
+       handler at this corner — hover-to-inspect can't accidentally change dates. */
+    z-index: 3;
   }
 
   /*

@@ -21,6 +21,7 @@
 
 import { bareProperty } from '../datasource/dateFieldMapping';
 import type { TaskNotesFieldMeta } from './cellRenderType';
+import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from './types/field-mapping';
 
 /** The inline editor families a cell can resolve to. */
@@ -89,29 +90,52 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
   const key = bareProperty(propId);
   if (!key) return null;
 
-  const { mappings } = deps;
-  if (key === bareProperty(mappings.startProperty)) {
-    return { kind: 'date', dateRole: 'start' };
-  }
-  if (key === bareProperty(mappings.endProperty)) {
-    return { kind: 'date', dateRole: 'end' };
-  }
-  if (key === bareProperty(mappings.statusProperty)) {
-    return deps.statusWritable ? { kind: 'choice-status' } : null;
-  }
-  if (key === bareProperty(mappings.priorityProperty)) {
-    return deps.priorityWritable ? { kind: 'choice-priority' } : null;
-  }
-  if (key === bareProperty(mappings.progressProperty)) {
-    return deps.progressWritable ? { kind: 'number' } : null;
-  }
-  if (key === bareProperty(mappings.timeEstimateProperty)) {
-    return deps.estimateWritable ? { kind: 'number' } : null;
-  }
-  if (key === bareProperty(mappings.textProperty)) return null;
+  const role = matchMappedFieldRole(key, deps.mappings, EDITOR_ROLE_PRECEDENCE);
+  if (role) return editorForMappedField(role, deps);
 
   const field = deps.taskNotesFieldType(key);
   return field ? editorForUserField(field) : null;
+}
+
+/**
+ * The editor resolver's mapped-field precedence. Text ranks LAST — the write
+ * path ranks it ahead of status, and both orders are pinned by tests.
+ */
+const EDITOR_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
+  'start',
+  'end',
+  'status',
+  'priority',
+  'progress',
+  'estimate',
+  'text',
+];
+
+type MappedFieldWritability = Pick<
+  CellEditorDeps,
+  'statusWritable' | 'priorityWritable' | 'progressWritable' | 'estimateWritable'
+>;
+
+function editorForMappedField(
+  role: MappedFieldRole,
+  writability: MappedFieldWritability,
+): CellEditorDescriptor | null {
+  switch (role) {
+    case 'start':
+      return { kind: 'date', dateRole: 'start' };
+    case 'end':
+      return { kind: 'date', dateRole: 'end' };
+    case 'status':
+      return writability.statusWritable ? { kind: 'choice-status' } : null;
+    case 'priority':
+      return writability.priorityWritable ? { kind: 'choice-priority' } : null;
+    case 'progress':
+      return writability.progressWritable ? { kind: 'number' } : null;
+    case 'estimate':
+      return writability.estimateWritable ? { kind: 'number' } : null;
+    case 'text':
+      return null;
+  }
 }
 
 /** A grid column the editor resolution is applied to. */

@@ -44,15 +44,13 @@ jobs:
         run: npm run typecheck --if-present
       - name: Unit tests
         run: npm test --if-present
-      - name: Install Chromium for the isolated perf gate
-        # The Layer-1 perf gate (Vitest browser mode) renders the real component
-        # in headless Chromium; install just that browser (not all Playwright
-        # browsers) to keep the step fast.
+      - name: Install Chromium for the isolated browser gate
+        # Vitest browser mode renders the real component in headless Chromium;
+        # install just that browser rather than every Playwright browser.
         run: npx playwright install chromium
-      - name: Isolated render perf gate (Layer 1)
-        # Mounts the real GanttContainer at production-scale instance counts and
-        # hard-fails on the mount+settle timing ceiling, the virtualization-window
-        # invariant, and the negative control (#161 perf plan U4). Fast (~10s).
+      - name: Isolated real-SVAR browser gate
+        # Covers production-scale render invariants and incremental sync behavior
+        # against the real GanttContainer and SVAR components.
         run: npm run perf:isolated
       - name: Upload perf trend (isolated)
         if: always()

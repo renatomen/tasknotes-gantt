@@ -15,10 +15,11 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element */
+  /* global Element, MutationObserver, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
+  import type { EstimateMeaning } from './viewOptions';
   import { scaleSnapshot } from '../render/svarContract';
   import {
     canTileSubSpans,
@@ -36,7 +37,11 @@
       text?: string;
       start?: Date;
       end?: Date;
-      custom?: { barIcon?: IconSpec | null; ghostRuns?: readonly GhostRunSpan[] };
+      custom?: {
+        barIcon?: IconSpec | null;
+        ghostRuns?: readonly GhostRunSpan[];
+        interpretationOverridden?: EstimateMeaning;
+      };
     };
     api?: unknown;
     onaction?: (ev: { action: string; data: Record<string, unknown> }) => void;
@@ -44,6 +49,21 @@
   let { data, api }: Props = $props();
 
   const spec = $derived(data?.custom?.barIcon ?? null);
+
+  // The per-task override dot (R11): a tooltip only when this task's effective
+  // Estimate meaning differs from the view default, else null (no dot). It names
+  // both the effective interpretation and the default it overrides — direction
+  // lives in the tooltip, never a second on-bar glyph.
+  const overrideTooltip = $derived.by((): string | null => {
+    switch (data?.custom?.interpretationOverridden) {
+      case 'working-days':
+        return "Estimate meaning: working days — overrides the view's calendar-days default";
+      case 'calendar-days':
+        return "Estimate meaning: calendar days — overrides the view's working-days default";
+      default:
+        return null;
+    }
+  });
 
   const ghostPieces = $derived.by(() => {
     const runs = data?.custom?.ghostRuns;
@@ -66,17 +86,65 @@
    * Stamp SVAR's own `wx-split` class on the host bar so its
    * `.wx-task:not(.wx-split)` fill rule steps aside and its transparent rule
    * applies — no `!important` contest with the library's scoped styles.
+   *
+   * SVAR re-applies a bar's whole class list from its `task.type` on an
+   * `update-task` (e.g. a Bar Fill / Strip source change re-issues the task with
+   * a new treatment class), which drops this imperatively-added class — leaving
+   * the body opaque so the ghost pieces blend over it until a remount. A
+   * MutationObserver re-asserts it whenever it is stripped while the pieces are
+   * mounted, so the split survives a live re-colour without a re-render.
    */
   function markBarSplit(node: Element): (() => void) | undefined {
     const bar = node.parentElement;
     if (!bar?.classList.contains('wx-bar')) return undefined;
     bar.classList.add('wx-split');
-    return () => bar.classList.remove('wx-split');
+    const observer = new MutationObserver(() => {
+      if (!bar.classList.contains('wx-split')) bar.classList.add('wx-split');
+    });
+    observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
+    return () => {
+      observer.disconnect();
+      bar.classList.remove('wx-split');
+    };
+  }
+
+  /**
+   * Attach the upper-left corner override dot to the host bar (R11). Mirrors
+   * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the dot
+   * must anchor to the bar in both the plain and ghost-run branches) and appends
+   * a real dot element carrying its own `title`, so hovering the dot — not the
+   * whole bar — names the interpretation, coexisting with the bar's SVAR tooltip.
+   * A `null` tooltip (task not overridden) is a no-op.
+   */
+  function markBarOverridden(tooltip: string | null) {
+    return (node: Element): (() => void) | undefined => {
+      if (!tooltip) return undefined;
+      const bar = node.closest('.wx-bar');
+      if (!bar) return undefined;
+      const dot = document.createElement('span');
+      dot.className = 'og-override-dot';
+      dot.title = tooltip;
+      // The dot sits on the bar's top-left corner, which is SVAR's start-resize
+      // zone — and SVAR begins a drag from mouse/pointer AND touch events on
+      // `.wx-bars`. Stop every drag-initiating event from bubbling out of the dot
+      // so inspecting the indicator — including a long-press on touch — can't move
+      // the start date; hover and the `title` tooltip still work.
+      const stopDrag = (e: Event): void => e.stopPropagation();
+      for (const evt of ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const) {
+        dot.addEventListener(evt, stopDrag);
+      }
+      bar.appendChild(dot);
+      return () => dot.remove();
+    };
   }
 </script>
 
 {#snippet barContent()}
-  <div class="wx-content" class:og-ghost-label={ghostPieces}>
+  <div
+    class="wx-content"
+    class:og-ghost-label={ghostPieces}
+    {@attach markBarOverridden(overrideTooltip)}
+  >
     {#if spec}
       <span class="og-bar-chip">
         {#if spec.iconName}

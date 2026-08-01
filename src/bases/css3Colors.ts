@@ -195,6 +195,26 @@ export function isValidCalendarColor(value: string): boolean {
 }
 
 /**
+ * The trimmed colour when it is a paintable calendar colour, else `undefined` —
+ * for a caller that supplies its own fallback (e.g. a theme accent) rather than
+ * `transparent`. Calendar colour frontmatter is untrusted, so this is the one
+ * guard every inline-style sink shares; the returned value is safe to inline.
+ */
+export function sanitizedCalendarColor(color: string | undefined): string | undefined {
+  return color !== undefined && isValidCalendarColor(color) ? color.trim() : undefined;
+}
+
+/**
+ * The value safe to drop into an inline `style` colour: the trimmed input when
+ * it is a paintable calendar colour, otherwise `'transparent'`. Without this a
+ * raw value like `url(https://…)` or `red;position:fixed` would become a remote
+ * fetch or an injected declaration when interpolated into a `style=` attribute.
+ */
+export function paintableColor(value: string): string {
+  return sanitizedCalendarColor(value) ?? 'transparent';
+}
+
+/**
  * CSS3 colours matching `query`, prefix matches first then substring matches;
  * an empty query returns the whole set (so opening the picker shows everything).
  */
