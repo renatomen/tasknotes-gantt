@@ -107,6 +107,11 @@ export type CascadeAnswers = Pick<
 /** Which cascade phase a failed write belonged to (a presentation seam only). */
 export type CascadePhase = 'subtree' | 'shrink' | 'extend';
 
+function cascadePhaseOf(plan: Plan, write: PlannedWrite): CascadePhase {
+  if (plan.resume === 'after-subtree') return 'subtree';
+  return write.unmirrored === 'ancestor-extend-refresh-only' ? 'extend' : 'shrink';
+}
+
 /** The deferred cascade pass, run through the global lane once the gesture settles. */
 export interface CascadeExecution<Facts = undefined> {
   /**
@@ -456,11 +461,6 @@ export function createCascadeLane(laneDeps: CascadeLaneDeps): CascadeLane {
       }
     }
     return persisted;
-  }
-
-  function cascadePhaseOf(plan: Plan, write: PlannedWrite): CascadePhase {
-    if (plan.resume === 'after-subtree') return 'subtree';
-    return write.unmirrored === 'ancestor-extend-refresh-only' ? 'extend' : 'shrink';
   }
 
   return { runCascade };
