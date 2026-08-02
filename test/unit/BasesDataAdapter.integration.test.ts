@@ -434,6 +434,7 @@ describe("BasesDataAdapter - Integration Tests", () => {
       };
       expect(() => adapter.convertGroupKeyToString(key)).toThrow(TypeError);
       expect(adapter.convertGroupKeyToString(Symbol("direct"))).toBe("Symbol(direct)");
+      expect(adapter.convertGroupKeyToString(42n)).toBe("42");
     });
 
     it("should return 'Unknown' for a plain object instead of '[object Object]'", () => {

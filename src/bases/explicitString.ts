@@ -1,3 +1,5 @@
+import { stringifyDirectPrimitive } from '../stringifyPrimitive';
+
 type Primitive = null | undefined | string | number | boolean | bigint | symbol;
 
 function isPrimitive(value: unknown): value is Primitive {
@@ -7,9 +9,8 @@ function isPrimitive(value: unknown): value is Primitive {
 function stringifyPrimitive(value: Primitive): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
-  if (typeof value === 'string') return value;
   if (typeof value === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
-  return value.toString();
+  return stringifyDirectPrimitive(value);
 }
 
 function ordinaryStringPrimitive(value: object): Primitive {

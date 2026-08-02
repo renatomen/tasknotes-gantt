@@ -231,11 +231,12 @@ describe('collectFetchedFileMetas', () => {
 });
 
 describe('stringifyScalar', () => {
-  it('stringifies primitives verbatim (including 0 and false)', () => {
+  it('stringifies primitives verbatim (including 0, false, and bigint)', () => {
     expect(stringifyScalar('x')).toBe('x');
     expect(stringifyScalar(7)).toBe('7');
     expect(stringifyScalar(0)).toBe('0');
     expect(stringifyScalar(false)).toBe('false');
+    expect(stringifyScalar(42n)).toBe('42');
   });
 
   it('returns null for null and undefined', () => {
@@ -258,6 +259,12 @@ describe('stringifyScalar', () => {
     expect(stringifyScalar(date)).toBe(String(date));
     expect(stringifyScalar([1, 2])).toBe('1,2');
     expect(stringifyScalar(custom)).toBe('custom value');
+  });
+
+  it('keeps the native string form of a callable value', () => {
+    const callable = () => 'value';
+
+    expect(stringifyScalar(callable)).toBe(String(callable));
   });
 
   it('preserves object-to-string coercion hooks and primitive fallback order', () => {

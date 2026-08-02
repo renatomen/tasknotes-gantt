@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { stringifyObject } from '../../src/bases/explicitString';
+import { stringifyDirectPrimitive } from '../../src/stringifyPrimitive';
 
 type StringOutcome =
   | { kind: 'value'; value: string }
@@ -102,4 +103,13 @@ describe('stringifyObject', () => {
       captureStringOutcome(() => String(nativeValue)),
     );
   });
+});
+
+describe('stringifyDirectPrimitive', () => {
+  it.each(['text', 0, -0, Number.NaN, Number.POSITIVE_INFINITY, true, false, 42n, Symbol('value')])(
+    'matches native String conversion for %p',
+    (value) => {
+      expect(stringifyDirectPrimitive(value)).toBe(String(value));
+    },
+  );
 });

@@ -10,6 +10,7 @@
  */
 
 import type { BasesEntryLike } from "./../types/bases-entry";
+import { stringifyDirectPrimitive } from "../../stringifyPrimitive";
 import { stringifyObject } from "../explicitString";
 
 /**
@@ -133,7 +134,9 @@ function stringifyUnrecognizedGroupValue(value: unknown): string {
     const text = stringifyObject(value);
     return text === "[object Object]" ? "Unknown" : text;
   }
-  if (typeof value === "bigint" || typeof value === "symbol") return value.toString();
+  if (typeof value === "bigint" || typeof value === "symbol") {
+    return stringifyDirectPrimitive(value);
+  }
   return "Unknown";
 }
 
