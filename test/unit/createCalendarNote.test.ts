@@ -17,7 +17,7 @@ import {
  * would release at unload, and `unload()` releases them and reports inactive —
  * standing in for Obsidian, with no state shared between tests.
  */
-function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime & {
+function fakeLifetime(): PluginLifetime & {
   unload(): void;
   openScopes(): number;
 } {
@@ -26,14 +26,14 @@ function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime
   return {
     isActive: () => active,
     scope: () => {
-      const owned: object[] = [];
+      const owned: { ref: object; release: (ref: object) => void }[] = [];
       const deferred: (() => void)[] = [];
       const scope = {
-        own: (ref: unknown) => owned.push(ref as object),
+        own: (ref: object, release: (ref: object) => void) => owned.push({ ref, release }),
         defer: (cleanup: () => void) => deferred.push(cleanup),
         close: () => {
           if (!scopes.delete(scope)) return;
-          for (const ref of owned.splice(0)) release(ref);
+          for (const ownedRef of owned.splice(0)) ownedRef.release(ownedRef.ref);
           for (const cleanup of deferred.splice(0)) cleanup();
         },
       };
@@ -187,7 +187,7 @@ function lateIndexingApp() {
   };
   // Unload releases every subscription the plugin took ownership of, exactly as
   // Obsidian does for registerEvent — that is what makes a leak impossible.
-  const lifetime = fakeLifetime((ref) => listeners.delete(ref));
+  const lifetime = fakeLifetime();
   const fire = (event: string): void => {
     for (const l of [...listeners.values()]) {
       if (l.event === event) l.cb({ path: 'Calendars/New Calendar.md' });
@@ -240,44 +240,37 @@ function lateIndexingApp() {
 }
 
 describe('pluginLifetime', () => {
-  /** A plugin whose child components are recorded, as Obsidian would hold them. */
   function fakePlugin() {
-    const children: { unload(): void }[] = [];
     const cleanups: (() => void)[] = [];
     const plugin = {
-      addChild: <T extends { load?(): void }>(child: T): T => {
-        children.push(child as unknown as { unload(): void });
-        child.load?.();
-        return child;
-      },
-      removeChild: <T>(child: T): T => {
-        const at = children.indexOf(child as unknown as { unload(): void });
-        if (at >= 0) {
-          children.splice(at, 1)[0]!.unload();
-        }
-        return child;
-      },
       register: (cleanup: () => void) => cleanups.push(cleanup),
     };
-    return { plugin, children, unload: () => cleanups.forEach((c) => c()) };
+    return {
+      plugin,
+      registrations: () => cleanups.length,
+      unload: () => cleanups.forEach((cleanup) => cleanup()),
+    };
   }
 
   it('releases the subscriptions a scope owns as soon as it closes', () => {
-    // registerEvent alone cannot un-register, so each create would otherwise leave a
-    // cleanup entry behind for the session. A child component can be removed.
-    const { plugin, children } = fakePlugin();
-    const offref = jest.fn();
+    const { plugin, unload } = fakePlugin();
+    const metadataOffref = jest.fn<(ref: object) => void>();
+    const vaultOffref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
+    const metadataRef = {};
+    const vaultRef = {};
 
     const scope = lifetime.scope();
-    scope.own({ e: { offref } } as never);
-    expect(children).toHaveLength(1);
+    scope.own(metadataRef as never, metadataOffref);
+    scope.own(vaultRef as never, vaultOffref);
 
     scope.close();
-    expect(children).toHaveLength(0); // the child is gone, not just unsubscribed
-    expect(offref).toHaveBeenCalledTimes(1);
+    expect(metadataOffref).toHaveBeenCalledWith(metadataRef);
+    expect(vaultOffref).toHaveBeenCalledWith(vaultRef);
     scope.close(); // idempotent
-    expect(offref).toHaveBeenCalledTimes(1);
+    unload();
+    expect(metadataOffref).toHaveBeenCalledTimes(1);
+    expect(vaultOffref).toHaveBeenCalledTimes(1);
   });
 
   it('runs deferred cleanups when the scope closes, and only once', () => {
@@ -292,21 +285,75 @@ describe('pluginLifetime', () => {
   });
 
   it('releases a scope that never closed when the plugin unloads', () => {
-    const { plugin, children } = fakePlugin();
-    const offref = jest.fn();
+    const { plugin, unload } = fakePlugin();
+    const offref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
-    lifetime.scope().own({ e: { offref } } as never);
+    const ref = {};
+    lifetime.scope().own(ref as never, offref);
 
-    children[0]!.unload(); // what Obsidian does to every child at unload
-    expect(offref).toHaveBeenCalledTimes(1);
+    unload();
+    expect(offref).toHaveBeenCalledWith(ref);
   });
 
-  it('reports inactive once the plugin unloads', () => {
+  it('marks inactive before closing every open scope, and unload is idempotent', () => {
     const fake = fakePlugin();
     const lifetime = pluginLifetime(fake.plugin as never);
+    const activityObservedDuringCleanup: boolean[] = [];
+    const firstCleanup = jest.fn(() => activityObservedDuringCleanup.push(lifetime.isActive()));
+    const secondCleanup = jest.fn(() => activityObservedDuringCleanup.push(lifetime.isActive()));
+    lifetime.scope().defer(firstCleanup);
+    lifetime.scope().defer(secondCleanup);
     expect(lifetime.isActive()).toBe(true);
+
+    fake.unload();
     fake.unload();
     expect(lifetime.isActive()).toBe(false);
+    expect(activityObservedDuringCleanup).toEqual([false, false]);
+    expect(firstCleanup).toHaveBeenCalledTimes(1);
+    expect(secondCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('detaches a scope before running cleanup so reentrant close remains idempotent', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const scope = lifetime.scope();
+    const afterReentry = jest.fn();
+    scope.defer(() => scope.close());
+    scope.defer(afterReentry);
+
+    scope.close();
+    fake.unload();
+    expect(afterReentry).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues releasing a scope when one cleanup fails', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const scope = lifetime.scope();
+    const cleanupError = new Error('cleanup failed');
+    const laterCleanup = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    scope.defer(() => {
+      throw cleanupError;
+    });
+    scope.defer(laterCleanup);
+
+    scope.close();
+
+    expect(laterCleanup).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Gantt] Plugin lifetime cleanup failed',
+      cleanupError,
+    );
+    consoleError.mockRestore();
+  });
+
+  it('registers one plugin cleanup regardless of how many scopes open and close', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    for (let i = 0; i < 3; i += 1) lifetime.scope().close();
+
+    expect(fake.registrations()).toBe(1);
   });
 });
 

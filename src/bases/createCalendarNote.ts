@@ -11,7 +11,6 @@
  */
 /* global clearTimeout */
 import {
-  Component,
   Notice,
   TFile,
   type App,
@@ -40,8 +39,8 @@ const OPEN_WAIT_MS = 2000;
  * something each code path has to remember.
  */
 export interface LifetimeScope {
-  /** Hand an event subscription to this scope. */
-  own(ref: EventRef): void;
+  /** Hand an event subscription and its source-specific release operation to this scope. */
+  own(ref: EventRef, release: (ref: EventRef) => void): void;
   /** Run `cleanup` when this scope closes (or at plugin unload). */
   defer(cleanup: () => void): void;
   /** Release everything this scope owns. Idempotent. */
@@ -67,31 +66,52 @@ export interface PluginLifetime {
 }
 
 /**
- * Adapt an Obsidian plugin to the lifetime this module needs. Each scope is a
- * child `Component`: adding it inherits the plugin's unload, and removing it
- * releases the scope's subscriptions immediately — which `registerEvent` alone
- * cannot do, since its cleanup registrations are append-only and would otherwise
- * accumulate one pair per calendar created.
+ * Adapt an Obsidian plugin to the lifetime this module needs. One plugin cleanup
+ * closes every still-open scope at unload; closing a scope sooner detaches and
+ * runs only that scope's disposers, so repeated calendar creation does not leave
+ * append-only plugin cleanup registrations behind.
  */
 export function pluginLifetime(plugin: Plugin): PluginLifetime {
   let active = true;
+  const scopes = new Set<LifetimeScope>();
   plugin.register(() => {
+    if (!active) return;
     active = false;
+    const openScopes = [...scopes];
+    scopes.clear();
+    for (const scope of openScopes) scope.close();
   });
   return {
     isActive: () => active,
     scope: () => {
-      const child = plugin.addChild(new Component());
-      let closed = false;
-      return {
-        own: (ref) => child.registerEvent(ref),
-        defer: (cleanup) => child.register(cleanup),
+      let open = active;
+      const cleanups: (() => void)[] = [];
+      const addCleanup = (cleanup: () => void): void => {
+        if (open) {
+          cleanups.push(cleanup);
+        } else {
+          cleanup();
+        }
+      };
+      const scope: LifetimeScope = {
+        own: (ref, release) => addCleanup(() => release(ref)),
+        defer: addCleanup,
         close: () => {
-          if (closed) return;
-          closed = true;
-          plugin.removeChild(child);
+          if (!open) return;
+          open = false;
+          scopes.delete(scope);
+          const pending = cleanups.splice(0);
+          for (const cleanup of pending) {
+            try {
+              cleanup();
+            } catch (error) {
+              console.error('[Gantt] Plugin lifetime cleanup failed', error);
+            }
+          }
         },
       };
+      if (open) scopes.add(scope);
+      return scope;
     },
   };
 }
@@ -135,6 +155,7 @@ function watchForMarker(
       scope.close();
       handlers.onIndexed();
     }),
+    (ref) => app.metadataCache.offref(ref),
   );
   scope.own(
     app.vault.on('delete', (deleted) => {
@@ -142,6 +163,7 @@ function watchForMarker(
       scope.close();
       handlers.onGone?.();
     }),
+    (ref) => app.vault.offref(ref),
   );
   if (indexed()) {
     scope.close();

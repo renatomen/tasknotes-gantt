@@ -32,8 +32,8 @@ export default class ObsidianGanttPlugin extends Plugin {
   /** Overridable so tests/e2e don't race the real timer. */
   whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
   private versionCheckTimer: number | null = null;
-  /** Scopes the calendar-note creation flow to this load (see PluginLifetime). */
-  private readonly calendarLifetime: PluginLifetime = pluginLifetime(this);
+  /** Shared by commands and Bases views so this load registers one cleanup boundary. */
+  private readonly pluginLifetime: PluginLifetime = pluginLifetime(this);
   private versionChecked = false;
   /** When set, the registered What's New factory renders this bundle instead of
    *  the baked-in one. Written only by the __tnGanttTest seam below (one-shot). */
@@ -74,7 +74,7 @@ export default class ObsidianGanttPlugin extends Plugin {
 
     // MVP: Register Obsidian Bases custom view "Gantt (OG)" (no chart yet)
     try {
-      this.unregisterBases = registerBasesGantt(this);
+      this.unregisterBases = registerBasesGantt(this, this.pluginLifetime);
     } catch (e) {
       console.warn('[Gantt] Failed to start Bases registration', e);
     }
@@ -149,7 +149,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar',
       name: 'Create calendar',
       callback: () => {
-        createAndOpenCalendarNote(this.app, 'calendar', this.calendarLifetime).catch((e) => {
+        createAndOpenCalendarNote(this.app, 'calendar', this.pluginLifetime).catch((e) => {
           console.warn('[Gantt] Failed to create the calendar note', e);
         });
       },
@@ -158,7 +158,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar-set',
       name: 'Create calendar set',
       callback: () => {
-        createAndOpenCalendarNote(this.app, 'calendar-set', this.calendarLifetime).catch((e) => {
+        createAndOpenCalendarNote(this.app, 'calendar-set', this.pluginLifetime).catch((e) => {
           console.warn('[Gantt] Failed to create the calendar set note', e);
         });
       },
