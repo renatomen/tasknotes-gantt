@@ -189,6 +189,34 @@ describe('Codex-found data-loss cases', () => {
     expect(next).toContain('  - date: "2026-01-01"');
   });
 
+  it('quotes an unsupported nested record value as a defensive scalar', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      non_working: [{ metadata: { source: 'imported' } }],
+    });
+    expect(next).toContain('metadata: "[object Object]"');
+  });
+
+  it.each(['.5', '-.5', '1.', '+1_000.25', '6.02e23', '-1E-3'])(
+    'quotes the YAML numeric spelling %s',
+    (numericText) => {
+      const original = doc('tngantt: calendar');
+      expect(editFrontmatterKeys(original, { description: numericText })).toContain(
+        `description: "${numericText}"`,
+      );
+    },
+  );
+
+  it('preserves YAML escapes for backslash, quote, and control characters', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      description: 'path\\name"line\nreturn\rcell\tend',
+    });
+    expect(next).toContain(
+      'description: "path\\\\name\\"line\\nreturn\\rcell\\tend"',
+    );
+  });
+
   it('keeps a comment that trails the whole frontmatter with the block after it', () => {
     // A comment that belongs to the NEXT key must not be swallowed by the key
     // before it.
