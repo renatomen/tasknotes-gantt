@@ -10,6 +10,7 @@
  */
 
 import type { BasesEntryLike } from "./../types/bases-entry";
+import { stringifyObject } from "../explicitString";
 
 /**
  * Options for number conversion
@@ -127,13 +128,13 @@ function blankToNull(value: unknown): unknown {
   return value;
 }
 
-function explicitObjectString(value: object): string | null {
-  const stringifier = value.toString;
-  const text =
-    typeof stringifier === "function" && stringifier !== Object.prototype.toString
-      ? stringifier.call(value)
-      : Object.prototype.toString.call(value);
-  return text === "[object Object]" ? null : text;
+function stringifyUnrecognizedGroupValue(value: unknown): string {
+  if (value !== null && (typeof value === "object" || typeof value === "function")) {
+    const text = stringifyObject(value);
+    return text === "[object Object]" ? "Unknown" : text;
+  }
+  if (typeof value === "bigint" || typeof value === "symbol") return value.toString();
+  return "Unknown";
 }
 
 /**
@@ -294,17 +295,7 @@ export class BasesDataAdapter {
     if (Array.isArray(actualValue)) {
       return actualValue.length > 0 ? actualValue.join(", ") : "None";
     }
-    if (typeof actualValue === "object") {
-      return explicitObjectString(actualValue) ?? "Unknown";
-    }
-    if (
-      typeof actualValue === "bigint" ||
-      typeof actualValue === "symbol" ||
-      typeof actualValue === "function"
-    ) {
-      return actualValue.toString();
-    }
-    return "Unknown";
+    return stringifyUnrecognizedGroupValue(actualValue);
   }
 
   /**

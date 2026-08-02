@@ -396,8 +396,35 @@ describe("BasesDataAdapter - Integration Tests", () => {
 
     it("should fall back to String() when no recognized shape is present", () => {
       // No .file/.date/.data — uses the key object directly, then String().
-      const key = { hasKey: () => true, toString: () => "raw-key" };
+      const key = {
+        label: "raw-key",
+        hasKey: () => true,
+        toString() {
+          return this.label;
+        },
+      };
       expect(adapter.convertGroupKeyToString(key)).toBe("raw-key");
+    });
+
+    it("should honor Symbol.toPrimitive and valueOf fallback for group keys", () => {
+      const symbolic = {
+        label: "key",
+        hasKey: () => true,
+        [Symbol.toPrimitive](hint: string) {
+          return `${hint}-${this.label}`;
+        },
+      };
+      const fallback = Object.create(null) as {
+        hasKey: () => boolean;
+        toString: () => unknown;
+        valueOf: () => unknown;
+      };
+      fallback.hasKey = () => true;
+      fallback.toString = () => ({});
+      fallback.valueOf = () => 42;
+
+      expect(adapter.convertGroupKeyToString(symbolic)).toBe("string-key");
+      expect(adapter.convertGroupKeyToString(fallback)).toBe("42");
     });
 
     it("should return 'Unknown' for a plain object instead of '[object Object]'", () => {

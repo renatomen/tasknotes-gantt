@@ -249,8 +249,34 @@ describe('stringifyScalar', () => {
 
   it('keeps the string form of an object that has a meaningful one (Date, nested array)', () => {
     const date = new Date('2024-01-02T00:00:00Z');
+    const custom = {
+      label: 'custom value',
+      toString() {
+        return this.label;
+      },
+    };
     expect(stringifyScalar(date)).toBe(String(date));
     expect(stringifyScalar([1, 2])).toBe('1,2');
-    expect(stringifyScalar({ toString: () => 'custom value' })).toBe('custom value');
+    expect(stringifyScalar(custom)).toBe('custom value');
+  });
+
+  it('preserves object-to-string coercion hooks and primitive fallback order', () => {
+    const symbolic = {
+      label: 'value',
+      [Symbol.toPrimitive](hint: string) {
+        return `${hint} ${this.label}`;
+      },
+    };
+    const nullHook = { [Symbol.toPrimitive]: null, toString: () => 'ordinary value' };
+    const fallback = Object.create(null) as {
+      toString: () => unknown;
+      valueOf: () => unknown;
+    };
+    fallback.toString = () => ({});
+    fallback.valueOf = () => 42;
+
+    expect(stringifyScalar(symbolic)).toBe('string value');
+    expect(stringifyScalar(nullHook)).toBe('ordinary value');
+    expect(stringifyScalar(fallback)).toBe('42');
   });
 });

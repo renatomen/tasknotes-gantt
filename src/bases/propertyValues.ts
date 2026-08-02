@@ -19,6 +19,8 @@
  * @module bases/propertyValues
  */
 
+import { stringifyObject } from './explicitString';
+
 /** The display kind a property value is classified into. */
 export type TypedValueKind =
   | 'date'
@@ -58,12 +60,8 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
  */
 export function stringifyScalar(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'object') {
-    const stringifier = raw.toString;
-    const text =
-      typeof stringifier === 'function' && stringifier !== Object.prototype.toString
-        ? stringifier.call(raw)
-        : Object.prototype.toString.call(raw);
+  if (typeof raw === 'object' || typeof raw === 'function') {
+    const text = stringifyObject(raw);
     return text === '[object Object]' ? null : text;
   }
   if (typeof raw === 'string') return raw;
