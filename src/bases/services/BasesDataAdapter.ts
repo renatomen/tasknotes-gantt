@@ -127,6 +127,15 @@ function blankToNull(value: unknown): unknown {
   return value;
 }
 
+function explicitObjectString(value: object): string | null {
+  const stringifier = value.toString;
+  const text =
+    typeof stringifier === "function" && stringifier !== Object.prototype.toString
+      ? stringifier.call(value)
+      : Object.prototype.toString.call(value);
+  return text === "[object Object]" ? null : text;
+}
+
 /**
  * Read a frontmatter property directly from a Bases entry (the `note.` prefix).
  * Falls back to `entry.properties` when `entry.frontmatter` is absent.
@@ -285,8 +294,17 @@ export class BasesDataAdapter {
     if (Array.isArray(actualValue)) {
       return actualValue.length > 0 ? actualValue.join(", ") : "None";
     }
-
-    return String(actualValue);
+    if (typeof actualValue === "object") {
+      return explicitObjectString(actualValue) ?? "Unknown";
+    }
+    if (
+      typeof actualValue === "bigint" ||
+      typeof actualValue === "symbol" ||
+      typeof actualValue === "function"
+    ) {
+      return actualValue.toString();
+    }
+    return "Unknown";
   }
 
   /**

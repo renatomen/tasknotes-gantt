@@ -59,10 +59,15 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
 export function stringifyScalar(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'object') {
-    const s = String(raw);
-    return s === '[object Object]' ? null : s;
+    const stringifier = raw.toString;
+    const text =
+      typeof stringifier === 'function' && stringifier !== Object.prototype.toString
+        ? stringifier.call(raw)
+        : Object.prototype.toString.call(raw);
+    return text === '[object Object]' ? null : text;
   }
-  return String(raw);
+  if (typeof raw === 'string') return raw;
+  return raw.toString();
 }
 
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */

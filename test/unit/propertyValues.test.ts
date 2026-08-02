@@ -251,5 +251,6 @@ describe('stringifyScalar', () => {
     const date = new Date('2024-01-02T00:00:00Z');
     expect(stringifyScalar(date)).toBe(String(date));
     expect(stringifyScalar([1, 2])).toBe('1,2');
+    expect(stringifyScalar({ toString: () => 'custom value' })).toBe('custom value');
   });
 });

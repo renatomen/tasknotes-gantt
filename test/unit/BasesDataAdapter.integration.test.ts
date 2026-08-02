@@ -400,6 +400,10 @@ describe("BasesDataAdapter - Integration Tests", () => {
       expect(adapter.convertGroupKeyToString(key)).toBe("raw-key");
     });
 
+    it("should return 'Unknown' for a plain object instead of '[object Object]'", () => {
+      expect(adapter.convertGroupKeyToString({ hasKey: () => true })).toBe("Unknown");
+    });
+
     it("should treat a bare string key (no hasKey) as its own value", () => {
       // key has no hasKey and no .data/.date/.file -> falls through to actualValue = key
       expect(adapter.convertGroupKeyToString("plain")).toBe("plain");
