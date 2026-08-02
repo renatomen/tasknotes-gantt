@@ -63,12 +63,9 @@ export function stringifyScalar(raw: unknown): string | null {
   switch (typeof raw) {
     case 'undefined':
       return null;
-    case 'object': {
-      if (raw === null) return null;
-      const text = stringifyObject(raw);
-      return text === '[object Object]' ? null : text;
-    }
+    case 'object':
     case 'function': {
+      if (raw === null) return null;
       const text = stringifyObject(raw);
       return text === '[object Object]' ? null : text;
     }
