@@ -160,6 +160,19 @@ describe('resolveTaskCalendar', () => {
   it('flags a non-string association value', () => {
     const resolved = resolveTaskCalendar(registry, 42, 'Tasks/T.md', resolveByBasename);
     expect(resolved.schedulingSuspended).toBe(true);
+    expect(resolved.flags).toEqual(['calendar association is not a link: 42']);
+  });
+
+  it('describes an object-valued association without default object stringification', () => {
+    const resolved = resolveTaskCalendar(
+      registry,
+      { calendar: '[[NZ Holidays]]' },
+      'Tasks/T.md',
+      resolveByBasename,
+    );
+
+    expect(resolved.schedulingSuspended).toBe(true);
+    expect(resolved.flags).toEqual(['calendar association is not a link: object']);
   });
 });
 
