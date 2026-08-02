@@ -110,7 +110,7 @@ test('CONTRACT: scaleSnapshot degrades to null, without throwing, when internals
 test('ORACLE: a segment covering dates D lands where SVAR draws a bar covering D', async () => {
   const { container } = await mount(ORACLE_TASKS);
   const bars = container.querySelectorAll('.wx-bars > .wx-bar');
-  expect(bars.length).toBe(2);
+  expect(bars).toHaveLength(2);
 
   const reference = rect(bars[0]!); // SVAR's own ground truth for Apr 16..22
   const segment = rect(container.querySelector('.wx-segment')!);

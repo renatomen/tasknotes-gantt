@@ -417,7 +417,7 @@ describe("Gantt (OG) calendar editor routing", () => {
     await (await $(".og-cal-form")).waitForExist({ timeout: 20000 });
 
     // The visual builder shows a weekday toggle per day — no raw RRULE.
-    expect((await $$(".og-rrule-day")).length).toBe(7);
+    expect(await $$(".og-rrule-day")).toHaveLength(7);
 
     // Turn Saturday on, then reveal the underlying rule via the escape hatch.
     await (await $(".og-rrule-day=Sat")).click();
@@ -435,7 +435,7 @@ describe("Gantt (OG) calendar editor routing", () => {
     // Collapsed by default: the summary shows; the picker panel does not exist.
     const summary = await $(".og-color-summary");
     await summary.waitForDisplayed({ timeout: 20000, timeoutMsg: "colour field never rendered" });
-    expect((await $$(".og-color-panel")).length).toBe(0);
+    expect(await $$(".og-color-panel")).toHaveLength(0);
 
     // Expand, search, and pick a named colour.
     await summary.click();
@@ -451,7 +451,7 @@ describe("Gantt (OG) calendar editor routing", () => {
       timeout: 10000,
       timeoutMsg: "the summary did not reflect the picked colour",
     });
-    expect((await $$(".og-color-panel")).length).toBe(0);
+    expect(await $$(".og-color-panel")).toHaveLength(0);
 
     // Save writes the CSS3 name straight to frontmatter.
     const save = await $(".og-cal-form button.mod-cta");
@@ -654,7 +654,7 @@ describe("Gantt (OG) calendar editor routing", () => {
     const week = await $(".og-week-grid");
     await week.waitForDisplayed({ timeout: 10000, timeoutMsg: "the week grid did not render" });
     // Seven day columns, Monday through Sunday.
-    expect((await $$(".og-week-col")).length).toBe(7);
+    expect(await $$(".og-week-col")).toHaveLength(7);
   });
 
   it("previews the shading strip on the Gantt strip tab", async () => {
@@ -1156,7 +1156,7 @@ describe("Gantt (OG) calendar editor routing", () => {
       timeout: 10000,
       timeoutMsg: "the union week grid did not render",
     });
-    expect((await $$(".og-week-col")).length).toBe(7);
+    expect(await $$(".og-week-col")).toHaveLength(7);
 
     // Gantt strip: a day cell per day of the content-spanning window.
     await (await $(".og-cal-tab=Gantt strip")).click();
@@ -1531,7 +1531,7 @@ describe("Gantt (OG) calendar editor routing", () => {
     });
     expect(await guidance.getText()).toContain("Add member calendars");
     // No working union grid masquerades as a real calendar.
-    expect((await $$(".og-week-grid")).length).toBe(0);
+    expect(await $$(".og-week-grid")).toHaveLength(0);
 
     await deleteNotes(["Empty Set.md"]);
   });

@@ -66,8 +66,8 @@ const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 test('a split task renders one sub-bar per segment inside a single row', async () => {
   const container = await mount(SPLIT_TASK);
 
-  expect(container.querySelectorAll('.wx-bars > .wx-bar').length).toBe(1);
-  expect(container.querySelectorAll('.wx-segment').length).toBe(2);
+  expect(container.querySelectorAll('.wx-bars > .wx-bar')).toHaveLength(1);
+  expect(container.querySelectorAll('.wx-segment')).toHaveLength(2);
 });
 
 test('segments are index-addressable and visibly spaced', async () => {
@@ -129,7 +129,7 @@ test("SVAR's own whole-bar progress fill is suppressed on a segmented bar", asyn
   expect(visible).toBe(false);
 
   // The per-segment fills must survive.
-  expect(container.querySelectorAll('.wx-segment .wx-progress-percent').length).toBe(2);
+  expect(container.querySelectorAll('.wx-segment .wx-progress-percent')).toHaveLength(2);
 });
 
 test('progress fills the earlier segment before the later one', async () => {
@@ -153,7 +153,7 @@ test('Pro-supplied segment $x/$w are honoured verbatim (drop-in path)', async ()
 test('an unsegmented task is untouched — one ordinary bar, no segments container', async () => {
   const container = await mount(PLAIN_TASK);
 
-  expect(container.querySelectorAll('.wx-bar').length).toBe(1);
+  expect(container.querySelectorAll('.wx-bar')).toHaveLength(1);
   expect(container.querySelector('.wx-segments')).toBeNull();
   expect(container.querySelector('.wx-segment')).toBeNull();
 
@@ -176,7 +176,7 @@ test('a malformed segment is skipped while valid siblings render', async () => {
       ],
     },
   ]);
-  expect(container.querySelectorAll('.wx-segment').length).toBe(1);
+  expect(container.querySelectorAll('.wx-segment')).toHaveLength(1);
 });
 
 test('SCREENSHOT: capture the segmented render for visual judgement', async () => {
@@ -198,5 +198,4 @@ test('SCREENSHOT: capture the segmented render for visual judgement', async () =
   } catch {
     /* best effort */
   }
-  expect(true).toBe(true);
 });

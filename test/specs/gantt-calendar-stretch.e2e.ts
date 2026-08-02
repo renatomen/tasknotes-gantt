@@ -115,13 +115,13 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
 
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
     const segments = await $$(".og-bases-gantt .wx-segment");
-    expect(segments.length).toBe(0);
+    expect(segments).toHaveLength(0);
   });
 
   it("leaves an unassociated task as a plain continuous bar", async () => {
     await expect($(PLAIN_BAR)).toExist();
     const ghosts = await $$(`${PLAIN_BAR} .og-ghost-run`);
-    expect(ghosts.length).toBe(0);
+    expect(ghosts).toHaveLength(0);
     const plainClass = await browser.execute((selector: string) => {
       return document.querySelector(selector)?.className ?? null;
     }, PLAIN_BAR);
