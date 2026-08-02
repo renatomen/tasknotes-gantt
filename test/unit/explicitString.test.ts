@@ -39,6 +39,13 @@ const coercionCases: CoercionCase[] = [
     }),
   },
   {
+    name: 'toString precedence over valueOf',
+    create: () => ({
+      toString: () => 'from-toString',
+      valueOf: () => 'from-valueOf',
+    }),
+  },
+  {
     name: 'Symbol.toPrimitive with string hint and receiver',
     create: () => ({
       label: 'timeline',

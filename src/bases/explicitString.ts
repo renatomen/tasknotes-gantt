@@ -22,7 +22,11 @@ function ordinaryStringPrimitive(value: object): Primitive {
   throw new TypeError('Cannot convert object to primitive value');
 }
 
-/** Explicit equivalent of JavaScript's `String(object)` coercion. */
+/**
+ * Explicit equivalent of JavaScript's `String(object)` coercion.
+ *
+ * @throws {TypeError} When the object has no primitive string form.
+ */
 export function stringifyObject(value: object): string {
   const toPrimitive = (value as { [Symbol.toPrimitive]?: unknown })[Symbol.toPrimitive];
   if (toPrimitive !== undefined && toPrimitive !== null) {
