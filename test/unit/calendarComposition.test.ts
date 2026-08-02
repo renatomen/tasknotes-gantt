@@ -2,6 +2,7 @@ import { expect, it, jest } from '@jest/globals';
 import type { App, Plugin } from 'obsidian';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 import { createCalendarComposition } from '../../src/calendarComposition';
 
@@ -40,12 +41,32 @@ it('shares one plugin lifetime across Bases registration and calendar creation',
 
 it('creates the calendar composition inside each plugin load', () => {
   const mainSource = readFileSync(resolve(process.cwd(), 'src/main.ts'), 'utf8');
-  const onloadIndex = mainSource.indexOf('async onload()');
-  const compositionIndex = mainSource.indexOf(
-    'const calendarComposition = createCalendarComposition(this);',
+  const sourceFile = ts.createSourceFile(
+    'main.ts',
+    mainSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
   );
+  const compositionCalls: boolean[] = [];
+  const visit = (node: ts.Node, insideOnload: boolean): void => {
+    const inOnloadMethod =
+      insideOnload ||
+      (ts.isMethodDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === 'onload');
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'createCalendarComposition' &&
+      node.arguments.length === 1 &&
+      node.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword
+    ) {
+      compositionCalls.push(inOnloadMethod);
+    }
+    ts.forEachChild(node, (child) => visit(child, inOnloadMethod));
+  };
+  visit(sourceFile, false);
 
-  expect(onloadIndex).toBeGreaterThan(-1);
-  expect(compositionIndex).toBeGreaterThan(onloadIndex);
-  expect(mainSource.slice(0, onloadIndex)).not.toContain('createCalendarComposition(this)');
+  expect(compositionCalls).toEqual([true]);
 });
