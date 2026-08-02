@@ -122,6 +122,7 @@ const EDITOR_VIEW_TYPE = 'tngantt-calendar-editor';
 
 function lateIndexingApp() {
   let indexed = false;
+  let subscriptionAttempts = 0;
   const metadataListeners = new Map<
     object,
     { event: string; cb: (changed: { path: string }) => void }
@@ -190,6 +191,7 @@ function lateIndexingApp() {
       },
       // The watch also releases on deletion, so the vault is an event source too.
       on: (event: string, cb: (changed: { path: string }) => void) => {
+        subscriptionAttempts += 1;
         const ref = {};
         vaultListeners.set(ref, { event: `vault:${event}`, cb });
         return ref;
@@ -202,6 +204,7 @@ function lateIndexingApp() {
     metadataCache: {
       getFileCache: () => (indexed ? { frontmatter: { tngantt: 'calendar' } } : null),
       on: (event: string, cb: (changed: { path: string }) => void) => {
+        subscriptionAttempts += 1;
         const ref = {};
         metadataListeners.set(ref, { event, cb });
         return ref;
@@ -229,6 +232,7 @@ function lateIndexingApp() {
     reissued,
     /** How many cache listeners are still registered (0 = nothing watching). */
     liveListeners: () => metadataListeners.size + vaultListeners.size,
+    subscriptionAttempts: () => subscriptionAttempts,
     /** Park `openFile` until `releaseOpenFile()`, to unload inside that await. */
     holdOpenFile: () => {
       state.holdOpen = true;
@@ -622,6 +626,7 @@ describe('createAndOpenCalendarNote', () => {
     late.unload();
     late.releaseCreate();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(0);
     expect(late.liveListeners()).toBe(0);
     expect(late.opened).toHaveLength(0);
   });
@@ -660,10 +665,12 @@ describe('createAndOpenCalendarNote', () => {
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000); // wait gives up, open starts
     expect(late.opened).toHaveLength(1); // parked inside openFile
+    const attemptsBeforeUnload = late.subscriptionAttempts();
 
     late.unload();
     late.releaseOpenFile();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeUnload);
     expect(late.liveListeners()).toBe(0);
 
     late.indexNow();

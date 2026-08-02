@@ -6,6 +6,55 @@ import ts from 'typescript';
 import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 import { createCalendarComposition } from '../../src/calendarComposition';
 
+function isCalendarCompositionCall(node: ts.Node): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'createCalendarComposition' &&
+    node.arguments.length === 1 &&
+    node.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword
+  );
+}
+
+function countDirectOnloadCalls(node: ts.Node): number {
+  if (
+    !ts.isMethodDeclaration(node) ||
+    !ts.isIdentifier(node.name) ||
+    node.name.text !== 'onload'
+  ) {
+    return 0;
+  }
+  const declarations = (node.body?.statements ?? [])
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => [...statement.declarationList.declarations]);
+  return declarations.filter(
+    (declaration) =>
+      declaration.initializer && isCalendarCompositionCall(declaration.initializer),
+  ).length;
+}
+
+function calendarCompositionCallLocations(source: string): {
+  directOnloadStatements: number;
+  total: number;
+} {
+  const sourceFile = ts.createSourceFile(
+    'main.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let total = 0;
+  let directOnloadStatements = 0;
+  const visit = (node: ts.Node): void => {
+    if (isCalendarCompositionCall(node)) total += 1;
+    directOnloadStatements += countDirectOnloadCalls(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return { directOnloadStatements, total };
+}
+
 it('shares one plugin lifetime across Bases registration and calendar creation', async () => {
   const app = {} as App;
   const plugin = { app } as Plugin;
@@ -41,32 +90,25 @@ it('shares one plugin lifetime across Bases registration and calendar creation',
 
 it('creates the calendar composition inside each plugin load', () => {
   const mainSource = readFileSync(resolve(process.cwd(), 'src/main.ts'), 'utf8');
-  const sourceFile = ts.createSourceFile(
-    'main.ts',
-    mainSource,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const compositionCalls: boolean[] = [];
-  const visit = (node: ts.Node, insideOnload: boolean): void => {
-    const inOnloadMethod =
-      insideOnload ||
-      (ts.isMethodDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.name.text === 'onload');
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'createCalendarComposition' &&
-      node.arguments.length === 1 &&
-      node.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword
-    ) {
-      compositionCalls.push(inOnloadMethod);
-    }
-    ts.forEachChild(node, (child) => visit(child, inOnloadMethod));
-  };
-  visit(sourceFile, false);
+  expect(calendarCompositionCallLocations(mainSource)).toEqual({
+    directOnloadStatements: 1,
+    total: 1,
+  });
+});
 
-  expect(compositionCalls).toEqual([true]);
+it('rejects calendar composition creation deferred to an onload callback', () => {
+  const nestedCall = `
+    class Plugin {
+      onload() {
+        this.app.workspace.onLayoutReady(() => {
+          const composition = createCalendarComposition(this);
+        });
+      }
+    }
+  `;
+
+  expect(calendarCompositionCallLocations(nestedCall)).toEqual({
+    directOnloadStatements: 0,
+    total: 1,
+  });
 });
