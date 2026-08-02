@@ -57,7 +57,6 @@
 /* global clearTimeout */
 import type { App, BasesEntry, BasesSortConfig } from 'obsidian';
 import { TFile } from 'obsidian';
-import type { FieldMappings } from '../datasource';
 import {
   BasesSource,
   CompositeSource,
@@ -74,6 +73,7 @@ import {
   type DateWriteTarget,
   type EstimateWriteTarget,
   type FieldConfig,
+  type FieldMappings,
   type MutationContext,
   type PriorityColor,
   type SourceDependency,

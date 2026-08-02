@@ -29,7 +29,7 @@ export function noteBasename(path: string | null): string {
 export function validateNoteName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed === '') return 'Name cannot be empty';
-  if (ILLEGAL_NAME.test(trimmed)) return 'Name cannot contain \\ / : * ? " < > |';
+  if (ILLEGAL_NAME.test(trimmed)) return String.raw`Name cannot contain \ / : * ? " < > |`;
   // "Cal.md" is fine ("Cal"), but ".md" strips to nothing — renaming to that
   // would target a hidden dotfile, so reject it as the empty-name case.
   if (withoutMdExtension(trimmed) === '') return 'Name cannot be empty';
