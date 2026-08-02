@@ -197,6 +197,15 @@ describe('Codex-found data-loss cases', () => {
     expect(next).toContain('metadata: "[object Object]"');
   });
 
+  it('preserves array contents in a pass-through record field', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      events: [{ pattern: 'FREQ=YEARLY', tags: ['holiday', 'public'] }],
+    });
+    expect(next).toContain('tags: "holiday,public"');
+    expect(next).not.toContain('[object Array]');
+  });
+
   it.each(['.5', '-.5', '1.', '+1_000.25', '6.02e23', '-1E-3'])(
     'quotes the YAML numeric spelling %s',
     (numericText) => {
@@ -206,6 +215,25 @@ describe('Codex-found data-loss cases', () => {
       );
     },
   );
+
+  it.each(['e5', '1e', '1e5e5', '1e2_3', '1.2e+'])(
+    'leaves the non-numeric spelling %s as a plain string',
+    (text) => {
+      const original = doc('tngantt: calendar');
+      expect(editFrontmatterKeys(original, { description: text })).toContain(
+        `description: ${text}`,
+      );
+    },
+  );
+
+  it.each([
+    ['carriage return', '\r', '\\r'],
+    ['tab', '\t', '\\t'],
+  ])('quotes and escapes a string containing only a %s', (_name, character, escaped) => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { description: `left${character}right` });
+    expect(next).toContain(`description: "left${escaped}right"`);
+  });
 
   it('preserves YAML escapes for backslash, quote, and control characters', () => {
     const original = doc('tngantt: calendar');

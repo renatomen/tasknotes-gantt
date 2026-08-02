@@ -17,6 +17,7 @@
  */
 
 import { stringifyDirectPrimitive } from '../stringifyPrimitive';
+import { stringifyObject } from '../stringifyObject';
 
 export type FrontmatterValue =
   | string
@@ -196,7 +197,7 @@ function quoteScalar(value: unknown): string {
     case 'string':
       return quoteString(value);
     case 'object':
-      return quoteString(Object.prototype.toString.call(value));
+      return quoteString(stringifyObject(value));
     case 'function':
       return quoteString(Function.prototype.toString.call(value));
     case 'undefined':
@@ -213,7 +214,7 @@ function quoteScalar(value: unknown): string {
 function quoteString(value: string): string {
   const needsQuote =
     value === '' ||
-    /[:#"'\n,]/.test(value) ||
+    /[:#"'\n\r\t,]/.test(value) ||
     /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
     /\s$/.test(value) ||
     YAML_IMPLICIT.test(value) ||
