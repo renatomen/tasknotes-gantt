@@ -229,21 +229,16 @@ describe('parseCalendarFrontmatter — calendars', () => {
 });
 
 describe('parseCalendarFrontmatter — timezone', () => {
-  it('stores a valid zone verbatim', () => {
-    const cal = parseCalendar({ tngantt: 'calendar', timezone: 'Pacific/Auckland' });
-    expect(cal.timezone).toBe('Pacific/Auckland');
-    expect(cal.diagnostics).toEqual([]);
-  });
-
-  it('stores a deprecated-but-valid IANA alias verbatim, never canonicalized', () => {
-    const cal = parseCalendar({ tngantt: 'calendar', timezone: 'Asia/Calcutta' });
-    expect(cal.timezone).toBe('Asia/Calcutta');
-    expect(cal.diagnostics).toEqual([]);
-  });
-
-  it('stores a non-canonically cased zone verbatim', () => {
-    const cal = parseCalendar({ tngantt: 'calendar', timezone: 'pacific/auckland' });
-    expect(cal.timezone).toBe('pacific/auckland');
+  it.each([
+    { caseName: 'stores a valid zone verbatim', timezone: 'Pacific/Auckland' },
+    {
+      caseName: 'stores a deprecated-but-valid IANA alias verbatim, never canonicalized',
+      timezone: 'Asia/Calcutta',
+    },
+    { caseName: 'stores a non-canonically cased zone verbatim', timezone: 'pacific/auckland' },
+  ])('$caseName', ({ timezone }) => {
+    const cal = parseCalendar({ tngantt: 'calendar', timezone });
+    expect(cal.timezone).toBe(timezone);
     expect(cal.diagnostics).toEqual([]);
   });
 
