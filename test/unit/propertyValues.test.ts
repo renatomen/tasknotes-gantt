@@ -287,4 +287,20 @@ describe('stringifyScalar', () => {
     expect(() => stringifyScalar({ toString: () => Symbol('ordinary') })).toThrow(TypeError);
     expect(stringifyScalar(Symbol('direct'))).toBe('Symbol(direct)');
   });
+
+  it('invokes coercion hooks even when their own call property is overridden', () => {
+    function ordinary(this: { label: string }): string {
+      return this.label;
+    }
+    function exotic(this: { label: string }, hint: string): string {
+      return `${hint} ${this.label}`;
+    }
+    Object.defineProperty(ordinary, 'call', { value: () => 'wrong ordinary' });
+    Object.defineProperty(exotic, 'call', { value: () => 'wrong exotic' });
+
+    expect(stringifyScalar({ label: 'ordinary', toString: ordinary })).toBe('ordinary');
+    expect(stringifyScalar({ label: 'exotic', [Symbol.toPrimitive]: exotic })).toBe(
+      'string exotic',
+    );
+  });
 });

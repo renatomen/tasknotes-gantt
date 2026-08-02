@@ -16,7 +16,7 @@ function ordinaryStringPrimitive(value: object): Primitive {
   for (const methodName of ['toString', 'valueOf'] as const) {
     const method = (value as Record<typeof methodName, unknown>)[methodName];
     if (typeof method !== 'function') continue;
-    const result: unknown = method.call(value);
+    const result: unknown = Reflect.apply(method, value, []);
     if (isPrimitive(result)) return result;
   }
   throw new TypeError('Cannot convert object to primitive value');
@@ -29,7 +29,7 @@ export function stringifyObject(value: object): string {
     if (typeof toPrimitive !== 'function') {
       throw new TypeError('Symbol.toPrimitive is not a function');
     }
-    const result: unknown = toPrimitive.call(value, 'string');
+    const result: unknown = Reflect.apply(toPrimitive, value, ['string']);
     if (!isPrimitive(result)) throw new TypeError('Cannot convert object to primitive value');
     return stringifyPrimitive(result);
   }
