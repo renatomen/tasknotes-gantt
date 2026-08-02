@@ -128,7 +128,10 @@ function describeNonLinkAssociation(value: unknown): string {
   if (Array.isArray(value)) return 'list';
   if (typeof value === 'object') return 'object';
   if (typeof value === 'string') return value;
-  return value.toString();
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'symbol') return Symbol.prototype.toString.call(value);
+  if (typeof value === 'function') return 'function';
+  return `${value}`;
 }
 
 export function resolveTaskCalendar(

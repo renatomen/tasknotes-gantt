@@ -174,6 +174,12 @@ describe('resolveTaskCalendar', () => {
     expect(resolved.schedulingSuspended).toBe(true);
     expect(resolved.flags).toEqual(['calendar association is not a link: object']);
   });
+
+  it('describes a function-valued association without embedding its source', () => {
+    const resolved = resolveTaskCalendar(registry, () => 'calendar');
+
+    expect(resolved.flags).toEqual(['calendar association is not a link: function']);
+  });
 });
 
 describe('stripSubpath', () => {

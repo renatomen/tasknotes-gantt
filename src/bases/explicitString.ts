@@ -4,12 +4,20 @@ function isPrimitive(value: unknown): value is Primitive {
   return value === null || (typeof value !== 'object' && typeof value !== 'function');
 }
 
+export function stringifyDirectPrimitive(
+  value: string | number | boolean | bigint | symbol,
+): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'symbol') return Symbol.prototype.toString.call(value);
+  return `${value}`;
+}
+
 function stringifyPrimitive(value: Primitive): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
-  if (typeof value === 'string') return value;
   if (typeof value === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
-  return value.toString();
+  return stringifyDirectPrimitive(value);
 }
 
 function ordinaryStringPrimitive(value: object): Primitive {

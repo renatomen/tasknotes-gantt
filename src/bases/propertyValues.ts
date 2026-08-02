@@ -19,7 +19,7 @@
  * @module bases/propertyValues
  */
 
-import { stringifyObject } from './explicitString';
+import { stringifyDirectPrimitive, stringifyObject } from './explicitString';
 
 /** The display kind a property value is classified into. */
 export type TypedValueKind =
@@ -64,8 +64,16 @@ export function stringifyScalar(raw: unknown): string | null {
     const text = stringifyObject(raw);
     return text === '[object Object]' ? null : text;
   }
-  if (typeof raw === 'string') return raw;
-  return raw.toString();
+  if (
+    typeof raw === 'string' ||
+    typeof raw === 'number' ||
+    typeof raw === 'boolean' ||
+    typeof raw === 'bigint' ||
+    typeof raw === 'symbol'
+  ) {
+    return stringifyDirectPrimitive(raw);
+  }
+  return null;
 }
 
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */
