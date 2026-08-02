@@ -180,6 +180,12 @@ describe('resolveTaskCalendar', () => {
 
     expect(resolved.flags).toEqual(['calendar association is not a link: function']);
   });
+
+  it('describes a symbol-valued association without interpolation errors', () => {
+    const resolved = resolveTaskCalendar(registry, Symbol('calendar'));
+
+    expect(resolved.flags).toEqual(['calendar association is not a link: Symbol(calendar)']);
+  });
 });
 
 describe('stripSubpath', () => {
