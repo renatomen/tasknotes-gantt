@@ -24,6 +24,7 @@ import type {
   DataSourceCapabilities,
   SourceTask,
 } from '../../src/datasource/types';
+import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 
 /** The view-side machinery the harness wires the controller from (private on the view). */
 interface ViewInternals {
@@ -144,7 +145,17 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
       return true;
     },
   } as unknown as Plugin;
-  registerBasesGantt(plugin);
+  const calendarLifetime: PluginLifetime = {
+    isActive: () => true,
+    scope: () => ({
+      own: (source, subscribe) => {
+        subscribe(source);
+      },
+      defer: () => {},
+      close: () => {},
+    }),
+  };
+  registerBasesGantt(plugin, calendarLifetime);
   if (!captured) throw new Error('Bases view factory was not captured');
   const queryController = {
     app,
@@ -157,6 +168,7 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
     queryController,
     parentEl,
   );
+  expect((view as { calendarLifetime: PluginLifetime }).calendarLifetime).toBe(calendarLifetime);
   const internals = view as unknown as ViewInternals;
   const watched = view as unknown as { calendarWatch: { epoch(): number } | null };
   const source = new StubSource(tasks);

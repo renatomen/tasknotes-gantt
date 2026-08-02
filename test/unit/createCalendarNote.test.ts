@@ -5,10 +5,11 @@
  * opened note into the editor is e2e-tested.
  */
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { App, TFile } from 'obsidian';
+import { App, TFile, type EventRef } from 'obsidian';
 import {
   createAndOpenCalendarNote,
   pluginLifetime,
+  type EventRefSource,
   type PluginLifetime,
 } from '../../src/bases/createCalendarNote';
 
@@ -17,7 +18,7 @@ import {
  * would release at unload, and `unload()` releases them and reports inactive —
  * standing in for Obsidian, with no state shared between tests.
  */
-function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime & {
+function fakeLifetime(): PluginLifetime & {
   unload(): void;
   openScopes(): number;
 } {
@@ -26,18 +27,36 @@ function fakeLifetime(release: (ref: object) => void = () => {}): PluginLifetime
   return {
     isActive: () => active,
     scope: () => {
-      const owned: object[] = [];
-      const deferred: (() => void)[] = [];
+      let open = active;
+      const cleanups: (() => void)[] = [];
+      const runCleanup = (cleanup: () => void): void => {
+        try {
+          cleanup();
+        } catch (error) {
+          console.error('[Gantt] Plugin lifetime cleanup failed', error);
+        }
+      };
+      const addCleanup = (cleanup: () => void): void => {
+        if (open) cleanups.push(cleanup);
+        else runCleanup(cleanup);
+      };
       const scope = {
-        own: (ref: unknown) => owned.push(ref as object),
-        defer: (cleanup: () => void) => deferred.push(cleanup),
+        own: <TSource extends EventRefSource>(
+          source: TSource,
+          subscribe: (source: TSource) => EventRef,
+        ) => {
+          const ref = subscribe(source);
+          addCleanup(() => source.offref(ref));
+        },
+        defer: addCleanup,
         close: () => {
-          if (!scopes.delete(scope)) return;
-          for (const ref of owned.splice(0)) release(ref);
-          for (const cleanup of deferred.splice(0)) cleanup();
+          if (!open) return;
+          open = false;
+          scopes.delete(scope);
+          for (const cleanup of cleanups.splice(0).reverse()) runCleanup(cleanup);
         },
       };
-      scopes.add(scope);
+      if (open) scopes.add(scope);
       return scope;
     },
     /** How many scopes are still open — 0 means nothing is subscribed. */
@@ -103,7 +122,15 @@ const EDITOR_VIEW_TYPE = 'tngantt-calendar-editor';
 
 function lateIndexingApp() {
   let indexed = false;
-  const listeners = new Map<object, { event: string; cb: (changed: { path: string }) => void }>();
+  let subscriptionAttempts = 0;
+  const metadataListeners = new Map<
+    object,
+    { event: string; cb: (changed: { path: string }) => void }
+  >();
+  const vaultListeners = new Map<
+    object,
+    { event: string; cb: (changed: { path: string }) => void }
+  >();
   const opened: unknown[] = [];
   const reissued: unknown[] = [];
   const state = {
@@ -164,32 +191,34 @@ function lateIndexingApp() {
       },
       // The watch also releases on deletion, so the vault is an event source too.
       on: (event: string, cb: (changed: { path: string }) => void) => {
+        subscriptionAttempts += 1;
         const ref = {};
-        listeners.set(ref, { event: `vault:${event}`, cb });
+        vaultListeners.set(ref, { event: `vault:${event}`, cb });
         return ref;
       },
       offref: (ref: object) => {
-        listeners.delete(ref);
+        vaultListeners.delete(ref);
       },
     },
     workspace: { getLeaf: () => leaf },
     metadataCache: {
       getFileCache: () => (indexed ? { frontmatter: { tngantt: 'calendar' } } : null),
       on: (event: string, cb: (changed: { path: string }) => void) => {
+        subscriptionAttempts += 1;
         const ref = {};
-        listeners.set(ref, { event, cb });
+        metadataListeners.set(ref, { event, cb });
         return ref;
       },
       offref: (ref: object) => {
-        listeners.delete(ref);
+        metadataListeners.delete(ref);
       },
     },
   };
   // Unload releases every subscription the plugin took ownership of, exactly as
   // Obsidian does for registerEvent — that is what makes a leak impossible.
-  const lifetime = fakeLifetime((ref) => listeners.delete(ref));
+  const lifetime = fakeLifetime();
   const fire = (event: string): void => {
-    for (const l of [...listeners.values()]) {
+    for (const l of [...metadataListeners.values(), ...vaultListeners.values()]) {
       if (l.event === event) l.cb({ path: 'Calendars/New Calendar.md' });
     }
   };
@@ -202,7 +231,8 @@ function lateIndexingApp() {
     opened,
     reissued,
     /** How many cache listeners are still registered (0 = nothing watching). */
-    liveListeners: () => listeners.size,
+    liveListeners: () => metadataListeners.size + vaultListeners.size,
+    subscriptionAttempts: () => subscriptionAttempts,
     /** Park `openFile` until `releaseOpenFile()`, to unload inside that await. */
     holdOpenFile: () => {
       state.holdOpen = true;
@@ -240,44 +270,47 @@ function lateIndexingApp() {
 }
 
 describe('pluginLifetime', () => {
-  /** A plugin whose child components are recorded, as Obsidian would hold them. */
   function fakePlugin() {
-    const children: { unload(): void }[] = [];
     const cleanups: (() => void)[] = [];
     const plugin = {
-      addChild: <T extends { load?(): void }>(child: T): T => {
-        children.push(child as unknown as { unload(): void });
-        child.load?.();
-        return child;
-      },
-      removeChild: <T>(child: T): T => {
-        const at = children.indexOf(child as unknown as { unload(): void });
-        if (at >= 0) {
-          children.splice(at, 1)[0]!.unload();
-        }
-        return child;
-      },
       register: (cleanup: () => void) => cleanups.push(cleanup),
     };
-    return { plugin, children, unload: () => cleanups.forEach((c) => c()) };
+    return {
+      plugin,
+      registrations: () => cleanups.length,
+      unload: () => cleanups.forEach((cleanup) => cleanup()),
+    };
   }
 
   it('releases the subscriptions a scope owns as soon as it closes', () => {
-    // registerEvent alone cannot un-register, so each create would otherwise leave a
-    // cleanup entry behind for the session. A child component can be removed.
-    const { plugin, children } = fakePlugin();
-    const offref = jest.fn();
+    const { plugin, unload } = fakePlugin();
+    const metadataOffref = jest.fn<(ref: object) => void>();
+    const vaultOffref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
+    const metadataRef = { source: 'metadata' };
+    const vaultRef = { source: 'vault' };
+    const metadataSource = { offref: metadataOffref };
+    const vaultSource = { offref: vaultOffref };
 
     const scope = lifetime.scope();
-    scope.own({ e: { offref } } as never);
-    expect(children).toHaveLength(1);
+    scope.own(metadataSource, (source) => {
+      expect(source).toBe(metadataSource);
+      return metadataRef as never;
+    });
+    scope.own(vaultSource, (source) => {
+      expect(source).toBe(vaultSource);
+      return vaultRef as never;
+    });
 
     scope.close();
-    expect(children).toHaveLength(0); // the child is gone, not just unsubscribed
-    expect(offref).toHaveBeenCalledTimes(1);
+    expect(metadataOffref).toHaveBeenCalledWith(metadataRef);
+    expect(vaultOffref).toHaveBeenCalledWith(vaultRef);
+    expect(metadataOffref).not.toHaveBeenCalledWith(vaultRef);
+    expect(vaultOffref).not.toHaveBeenCalledWith(metadataRef);
     scope.close(); // idempotent
-    expect(offref).toHaveBeenCalledTimes(1);
+    unload();
+    expect(metadataOffref).toHaveBeenCalledTimes(1);
+    expect(vaultOffref).toHaveBeenCalledTimes(1);
   });
 
   it('runs deferred cleanups when the scope closes, and only once', () => {
@@ -292,21 +325,135 @@ describe('pluginLifetime', () => {
   });
 
   it('releases a scope that never closed when the plugin unloads', () => {
-    const { plugin, children } = fakePlugin();
-    const offref = jest.fn();
+    const { plugin, unload } = fakePlugin();
+    const offref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
-    lifetime.scope().own({ e: { offref } } as never);
+    const ref = {};
+    lifetime.scope().own({ offref }, () => ref as never);
 
-    children[0]!.unload(); // what Obsidian does to every child at unload
-    expect(offref).toHaveBeenCalledTimes(1);
+    unload();
+    expect(offref).toHaveBeenCalledWith(ref);
   });
 
-  it('reports inactive once the plugin unloads', () => {
+  it('marks inactive before closing every open scope, and unload is idempotent', () => {
     const fake = fakePlugin();
     const lifetime = pluginLifetime(fake.plugin as never);
+    const activityObservedDuringCleanup: boolean[] = [];
+    const firstCleanup = jest.fn(() => activityObservedDuringCleanup.push(lifetime.isActive()));
+    const secondCleanup = jest.fn(() => activityObservedDuringCleanup.push(lifetime.isActive()));
+    lifetime.scope().defer(firstCleanup);
+    lifetime.scope().defer(secondCleanup);
     expect(lifetime.isActive()).toBe(true);
+
+    fake.unload();
     fake.unload();
     expect(lifetime.isActive()).toBe(false);
+    expect(activityObservedDuringCleanup).toEqual([false, false]);
+    expect(firstCleanup).toHaveBeenCalledTimes(1);
+    expect(secondCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('detaches a scope before running cleanup so reentrant close remains idempotent', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const scope = lifetime.scope();
+    const afterReentry = jest.fn();
+    scope.defer(() => scope.close());
+    scope.defer(afterReentry);
+
+    scope.close();
+    fake.unload();
+    expect(afterReentry).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues releasing a scope when one cleanup fails', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const scope = lifetime.scope();
+    const cleanupError = new Error('cleanup failed');
+    const laterCleanup = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    scope.defer(() => {
+      throw cleanupError;
+    });
+    scope.defer(laterCleanup);
+
+    scope.close();
+
+    expect(laterCleanup).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Gantt] Plugin lifetime cleanup failed',
+      cleanupError,
+    );
+    consoleError.mockRestore();
+  });
+
+  it('isolates a cleanup failure when registration happens after unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const cleanupError = new Error('late cleanup failed');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    fake.unload();
+
+    expect(() =>
+      lifetime.scope().defer(() => {
+        throw cleanupError;
+      }),
+    ).not.toThrow();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Gantt] Plugin lifetime cleanup failed',
+      cleanupError,
+    );
+    consoleError.mockRestore();
+  });
+
+  it("runs a scope's cleanups in reverse registration order", () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const order: number[] = [];
+    const scope = lifetime.scope();
+    scope.defer(() => order.push(1));
+    scope.own({ offref: () => order.push(2) }, () => ({}) as never);
+    scope.defer(() => order.push(3));
+
+    scope.close();
+
+    expect(order).toEqual([3, 2, 1]);
+  });
+
+  it('registers one plugin cleanup regardless of how many scopes open and close', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    for (let i = 0; i < 3; i += 1) lifetime.scope().close();
+
+    expect(fake.registrations()).toBe(1);
+  });
+
+  it('releases registrations immediately when a scope is created after unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const offref = jest.fn<(ref: object) => void>();
+    const deferred = jest.fn();
+    const ref = {};
+    fake.unload();
+
+    const scope = lifetime.scope();
+    scope.own({ offref }, () => ref as never);
+    scope.defer(deferred);
+
+    expect(offref).toHaveBeenCalledWith(ref);
+    expect(deferred).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a scope created reentrantly during plugin unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const nestedCleanup = jest.fn();
+    lifetime.scope().defer(() => lifetime.scope().defer(nestedCleanup));
+
+    fake.unload();
+
+    expect(nestedCleanup).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -479,6 +626,7 @@ describe('createAndOpenCalendarNote', () => {
     late.unload();
     late.releaseCreate();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(0);
     expect(late.liveListeners()).toBe(0);
     expect(late.opened).toHaveLength(0);
   });
@@ -491,12 +639,14 @@ describe('createAndOpenCalendarNote', () => {
     const late = lateIndexingApp();
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(500); // still inside the 2s wait
+    const attemptsBeforeUnload = late.subscriptionAttempts();
 
     late.unload();
     expect(late.liveListeners()).toBe(0); // the plugin released them itself
     // Deliberately NO timer advance: unload itself settles the wait, so nothing of
     // the unloaded plugin runs again at the deadline.
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeUnload);
     expect(late.opened).toHaveLength(0); // …and the flow stood down
 
     // And nothing revives afterwards — neither a stray timer nor a late index.
@@ -517,10 +667,12 @@ describe('createAndOpenCalendarNote', () => {
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000); // wait gives up, open starts
     expect(late.opened).toHaveLength(1); // parked inside openFile
+    const attemptsBeforeUnload = late.subscriptionAttempts();
 
     late.unload();
     late.releaseOpenFile();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeUnload);
     expect(late.liveListeners()).toBe(0);
 
     late.indexNow();
@@ -555,10 +707,12 @@ describe('createAndOpenCalendarNote', () => {
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     expect(late.opened).toHaveLength(1); // parked inside openFile
+    const attemptsBeforeDelete = late.subscriptionAttempts();
 
     late.deleteNow();
     late.releaseOpenFile();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeDelete);
     expect(late.liveListeners()).toBe(0);
     expect(late.reissued).toHaveLength(0);
   });

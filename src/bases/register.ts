@@ -132,7 +132,6 @@ import { CalendarPickerModal } from './CalendarPickerModal';
 import { autoDisplayedPathsFrom, calendarLinkFor, type PickerContext } from './calendarPickerModel';
 import {
   createAndOpenCalendarNote,
-  pluginLifetime,
   type PluginLifetime,
 } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
@@ -1409,7 +1408,7 @@ function isTaskNotesPresent(app: Plugin['app']): boolean {
  * @param plugin - The Obsidian plugin instance
  * @returns Cleanup function (no-op since Obsidian handles unregistration)
  */
-export function registerBasesGantt(plugin: Plugin): () => void {
+export function registerBasesGantt(plugin: Plugin, calendarLifetime: PluginLifetime): () => void {
   // Check API version - Bases API requires 1.10.0+
   try {
     const requireApiVersion = (window as { requireApiVersion?: (v: string) => boolean }).requireApiVersion;
@@ -1426,10 +1425,6 @@ export function registerBasesGantt(plugin: Plugin): () => void {
     console.warn('[Gantt] plugin.registerBasesView not available - Bases API not supported');
     return () => {};
   }
-
-  // One lifetime for every view this registration creates: the plugin owns the
-  // create-calendar flow's subscriptions, so they are released when it unloads.
-  const calendarLifetime = pluginLifetime(plugin);
 
   // Register the Gantt chart view type
   const registeredGantt = plugin.registerBasesView(VIEW_TYPE_ID, {
