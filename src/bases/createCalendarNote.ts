@@ -29,6 +29,10 @@ import {
 
 export type CalendarNoteKind = 'calendar' | 'calendar-set';
 
+export interface EventRefSource {
+  offref(ref: EventRef): void;
+}
+
 /** How long to hold the note back from opening while its marker indexes. */
 const OPEN_WAIT_MS = 2000;
 
@@ -39,8 +43,8 @@ const OPEN_WAIT_MS = 2000;
  * something each code path has to remember.
  */
 export interface LifetimeScope {
-  /** Hand an event subscription and its source-specific release operation to this scope. */
-  own(ref: EventRef, release: (ref: EventRef) => void): void;
+  /** Hand an event subscription and its source to this scope. */
+  own(source: EventRefSource, ref: EventRef): void;
   /** Run `cleanup` when this scope closes (or at plugin unload). */
   defer(cleanup: () => void): void;
   /** Release everything this scope owns. Idempotent. */
@@ -94,7 +98,7 @@ export function pluginLifetime(plugin: Plugin): PluginLifetime {
         }
       };
       const scope: LifetimeScope = {
-        own: (ref, release) => addCleanup(() => release(ref)),
+        own: (source, ref) => addCleanup(() => source.offref(ref)),
         defer: addCleanup,
         close: () => {
           if (!open) return;
@@ -150,20 +154,20 @@ function watchForMarker(
     matchesCalendarMarker(app.metadataCache.getFileCache(file)?.frontmatter) !== null;
   const scope = lifetime.scope();
   scope.own(
+    app.metadataCache,
     app.metadataCache.on('changed', (changed) => {
       if (changed.path !== file.path || !indexed()) return;
       scope.close();
       handlers.onIndexed();
     }),
-    (ref) => app.metadataCache.offref(ref),
   );
   scope.own(
+    app.vault,
     app.vault.on('delete', (deleted) => {
       if (deleted.path !== file.path) return;
       scope.close();
       handlers.onGone?.();
     }),
-    (ref) => app.vault.offref(ref),
   );
   if (indexed()) {
     scope.close();

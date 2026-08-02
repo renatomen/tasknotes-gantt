@@ -5,7 +5,7 @@
  * opened note into the editor is e2e-tested.
  */
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { App, TFile } from 'obsidian';
+import { App, TFile, type EventRef } from 'obsidian';
 import {
   createAndOpenCalendarNote,
   pluginLifetime,
@@ -26,14 +26,15 @@ function fakeLifetime(): PluginLifetime & {
   return {
     isActive: () => active,
     scope: () => {
-      const owned: { ref: object; release: (ref: object) => void }[] = [];
+      const owned: { source: { offref(ref: EventRef): void }; ref: EventRef }[] = [];
       const deferred: (() => void)[] = [];
       const scope = {
-        own: (ref: object, release: (ref: object) => void) => owned.push({ ref, release }),
+        own: (source: { offref(ref: EventRef): void }, ref: EventRef) =>
+          owned.push({ source, ref }),
         defer: (cleanup: () => void) => deferred.push(cleanup),
         close: () => {
           if (!scopes.delete(scope)) return;
-          for (const ownedRef of owned.splice(0)) ownedRef.release(ownedRef.ref);
+          for (const ownedRef of owned.splice(0)) ownedRef.source.offref(ownedRef.ref);
           for (const cleanup of deferred.splice(0)) cleanup();
         },
       };
@@ -103,7 +104,14 @@ const EDITOR_VIEW_TYPE = 'tngantt-calendar-editor';
 
 function lateIndexingApp() {
   let indexed = false;
-  const listeners = new Map<object, { event: string; cb: (changed: { path: string }) => void }>();
+  const metadataListeners = new Map<
+    object,
+    { event: string; cb: (changed: { path: string }) => void }
+  >();
+  const vaultListeners = new Map<
+    object,
+    { event: string; cb: (changed: { path: string }) => void }
+  >();
   const opened: unknown[] = [];
   const reissued: unknown[] = [];
   const state = {
@@ -165,11 +173,11 @@ function lateIndexingApp() {
       // The watch also releases on deletion, so the vault is an event source too.
       on: (event: string, cb: (changed: { path: string }) => void) => {
         const ref = {};
-        listeners.set(ref, { event: `vault:${event}`, cb });
+        vaultListeners.set(ref, { event: `vault:${event}`, cb });
         return ref;
       },
       offref: (ref: object) => {
-        listeners.delete(ref);
+        vaultListeners.delete(ref);
       },
     },
     workspace: { getLeaf: () => leaf },
@@ -177,11 +185,11 @@ function lateIndexingApp() {
       getFileCache: () => (indexed ? { frontmatter: { tngantt: 'calendar' } } : null),
       on: (event: string, cb: (changed: { path: string }) => void) => {
         const ref = {};
-        listeners.set(ref, { event, cb });
+        metadataListeners.set(ref, { event, cb });
         return ref;
       },
       offref: (ref: object) => {
-        listeners.delete(ref);
+        metadataListeners.delete(ref);
       },
     },
   };
@@ -189,7 +197,7 @@ function lateIndexingApp() {
   // Obsidian does for registerEvent — that is what makes a leak impossible.
   const lifetime = fakeLifetime();
   const fire = (event: string): void => {
-    for (const l of [...listeners.values()]) {
+    for (const l of [...metadataListeners.values(), ...vaultListeners.values()]) {
       if (l.event === event) l.cb({ path: 'Calendars/New Calendar.md' });
     }
   };
@@ -202,7 +210,7 @@ function lateIndexingApp() {
     opened,
     reissued,
     /** How many cache listeners are still registered (0 = nothing watching). */
-    liveListeners: () => listeners.size,
+    liveListeners: () => metadataListeners.size + vaultListeners.size,
     /** Park `openFile` until `releaseOpenFile()`, to unload inside that await. */
     holdOpenFile: () => {
       state.holdOpen = true;
@@ -257,16 +265,20 @@ describe('pluginLifetime', () => {
     const metadataOffref = jest.fn<(ref: object) => void>();
     const vaultOffref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
-    const metadataRef = {};
-    const vaultRef = {};
+    const metadataRef = { source: 'metadata' };
+    const vaultRef = { source: 'vault' };
+    const metadataSource = { offref: metadataOffref };
+    const vaultSource = { offref: vaultOffref };
 
     const scope = lifetime.scope();
-    scope.own(metadataRef as never, metadataOffref);
-    scope.own(vaultRef as never, vaultOffref);
+    scope.own(metadataSource, metadataRef as never);
+    scope.own(vaultSource, vaultRef as never);
 
     scope.close();
     expect(metadataOffref).toHaveBeenCalledWith(metadataRef);
     expect(vaultOffref).toHaveBeenCalledWith(vaultRef);
+    expect(metadataOffref).not.toHaveBeenCalledWith(vaultRef);
+    expect(vaultOffref).not.toHaveBeenCalledWith(metadataRef);
     scope.close(); // idempotent
     unload();
     expect(metadataOffref).toHaveBeenCalledTimes(1);
@@ -289,7 +301,7 @@ describe('pluginLifetime', () => {
     const offref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
     const ref = {};
-    lifetime.scope().own(ref as never, offref);
+    lifetime.scope().own({ offref }, ref as never);
 
     unload();
     expect(offref).toHaveBeenCalledWith(ref);
@@ -354,6 +366,33 @@ describe('pluginLifetime', () => {
     for (let i = 0; i < 3; i += 1) lifetime.scope().close();
 
     expect(fake.registrations()).toBe(1);
+  });
+
+  it('releases registrations immediately when a scope is created after unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const offref = jest.fn<(ref: object) => void>();
+    const deferred = jest.fn();
+    const ref = {};
+    fake.unload();
+
+    const scope = lifetime.scope();
+    scope.own({ offref }, ref as never);
+    scope.defer(deferred);
+
+    expect(offref).toHaveBeenCalledWith(ref);
+    expect(deferred).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a scope created reentrantly during plugin unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const nestedCleanup = jest.fn();
+    lifetime.scope().defer(() => lifetime.scope().defer(nestedCleanup));
+
+    fake.unload();
+
+    expect(nestedCleanup).toHaveBeenCalledTimes(1);
   });
 });
 
