@@ -261,6 +261,12 @@ describe('stringifyScalar', () => {
     expect(stringifyScalar(custom)).toBe('custom value');
   });
 
+  it('keeps the native string form of a callable value', () => {
+    const callable = () => 'value';
+
+    expect(stringifyScalar(callable)).toBe(String(callable));
+  });
+
   it('preserves object-to-string coercion hooks and primitive fallback order', () => {
     const symbolic = {
       label: 'value',
