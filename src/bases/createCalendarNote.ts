@@ -44,7 +44,10 @@ const OPEN_WAIT_MS = 2000;
  */
 export interface LifetimeScope {
   /** Hand an event subscription and its source to this scope. */
-  own(source: EventRefSource, ref: EventRef): void;
+  own<TSource extends EventRefSource>(
+    source: TSource,
+    subscribe: (source: TSource) => EventRef,
+  ): void;
   /** Run `cleanup` when this scope closes (or at plugin unload). */
   defer(cleanup: () => void): void;
   /** Release everything this scope owns. Idempotent. */
@@ -98,7 +101,13 @@ export function pluginLifetime(plugin: Plugin): PluginLifetime {
         }
       };
       const scope: LifetimeScope = {
-        own: (source, ref) => addCleanup(() => source.offref(ref)),
+        own: <TSource extends EventRefSource>(
+          source: TSource,
+          subscribe: (source: TSource) => EventRef,
+        ) => {
+          const ref = subscribe(source);
+          addCleanup(() => source.offref(ref));
+        },
         defer: addCleanup,
         close: () => {
           if (!open) return;
@@ -155,19 +164,21 @@ function watchForMarker(
   const scope = lifetime.scope();
   scope.own(
     app.metadataCache,
-    app.metadataCache.on('changed', (changed) => {
-      if (changed.path !== file.path || !indexed()) return;
-      scope.close();
-      handlers.onIndexed();
-    }),
+    (metadataCache) =>
+      metadataCache.on('changed', (changed) => {
+        if (changed.path !== file.path || !indexed()) return;
+        scope.close();
+        handlers.onIndexed();
+      }),
   );
   scope.own(
     app.vault,
-    app.vault.on('delete', (deleted) => {
-      if (deleted.path !== file.path) return;
-      scope.close();
-      handlers.onGone?.();
-    }),
+    (vault) =>
+      vault.on('delete', (deleted) => {
+        if (deleted.path !== file.path) return;
+        scope.close();
+        handlers.onGone?.();
+      }),
   );
   if (indexed()) {
     scope.close();

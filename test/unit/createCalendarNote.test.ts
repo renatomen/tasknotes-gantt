@@ -9,6 +9,7 @@ import { App, TFile, type EventRef } from 'obsidian';
 import {
   createAndOpenCalendarNote,
   pluginLifetime,
+  type EventRefSource,
   type PluginLifetime,
 } from '../../src/bases/createCalendarNote';
 
@@ -29,8 +30,10 @@ function fakeLifetime(): PluginLifetime & {
       const owned: { source: { offref(ref: EventRef): void }; ref: EventRef }[] = [];
       const deferred: (() => void)[] = [];
       const scope = {
-        own: (source: { offref(ref: EventRef): void }, ref: EventRef) =>
-          owned.push({ source, ref }),
+        own: <TSource extends EventRefSource>(
+          source: TSource,
+          subscribe: (source: TSource) => EventRef,
+        ) => owned.push({ source, ref: subscribe(source) }),
         defer: (cleanup: () => void) => deferred.push(cleanup),
         close: () => {
           if (!scopes.delete(scope)) return;
@@ -271,8 +274,14 @@ describe('pluginLifetime', () => {
     const vaultSource = { offref: vaultOffref };
 
     const scope = lifetime.scope();
-    scope.own(metadataSource, metadataRef as never);
-    scope.own(vaultSource, vaultRef as never);
+    scope.own(metadataSource, (source) => {
+      expect(source).toBe(metadataSource);
+      return metadataRef as never;
+    });
+    scope.own(vaultSource, (source) => {
+      expect(source).toBe(vaultSource);
+      return vaultRef as never;
+    });
 
     scope.close();
     expect(metadataOffref).toHaveBeenCalledWith(metadataRef);
@@ -301,7 +310,7 @@ describe('pluginLifetime', () => {
     const offref = jest.fn<(ref: object) => void>();
     const lifetime = pluginLifetime(plugin as never);
     const ref = {};
-    lifetime.scope().own({ offref }, ref as never);
+    lifetime.scope().own({ offref }, () => ref as never);
 
     unload();
     expect(offref).toHaveBeenCalledWith(ref);
@@ -377,7 +386,7 @@ describe('pluginLifetime', () => {
     fake.unload();
 
     const scope = lifetime.scope();
-    scope.own({ offref }, ref as never);
+    scope.own({ offref }, () => ref as never);
     scope.defer(deferred);
 
     expect(offref).toHaveBeenCalledWith(ref);
