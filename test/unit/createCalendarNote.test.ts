@@ -369,6 +369,39 @@ describe('pluginLifetime', () => {
     consoleError.mockRestore();
   });
 
+  it('isolates a cleanup failure when registration happens after unload', () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const cleanupError = new Error('late cleanup failed');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    fake.unload();
+
+    expect(() =>
+      lifetime.scope().defer(() => {
+        throw cleanupError;
+      }),
+    ).not.toThrow();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Gantt] Plugin lifetime cleanup failed',
+      cleanupError,
+    );
+    consoleError.mockRestore();
+  });
+
+  it("runs a scope's cleanups in reverse registration order", () => {
+    const fake = fakePlugin();
+    const lifetime = pluginLifetime(fake.plugin as never);
+    const order: number[] = [];
+    const scope = lifetime.scope();
+    scope.defer(() => order.push(1));
+    scope.defer(() => order.push(2));
+    scope.defer(() => order.push(3));
+
+    scope.close();
+
+    expect(order).toEqual([3, 2, 1]);
+  });
+
   it('registers one plugin cleanup regardless of how many scopes open and close', () => {
     const fake = fakePlugin();
     const lifetime = pluginLifetime(fake.plugin as never);

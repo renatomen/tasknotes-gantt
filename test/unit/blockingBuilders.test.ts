@@ -147,7 +147,13 @@ function makeHarness(config: Record<string, unknown> = {}, tasks: SourceTask[] =
   } as unknown as Plugin;
   const calendarLifetime: PluginLifetime = {
     isActive: () => true,
-    scope: () => ({ own: () => {}, defer: () => {}, close: () => {} }),
+    scope: () => ({
+      own: (source, subscribe) => {
+        subscribe(source);
+      },
+      defer: () => {},
+      close: () => {},
+    }),
   };
   registerBasesGantt(plugin, calendarLifetime);
   if (!captured) throw new Error('Bases view factory was not captured');

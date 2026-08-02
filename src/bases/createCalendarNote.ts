@@ -43,7 +43,7 @@ const OPEN_WAIT_MS = 2000;
  * something each code path has to remember.
  */
 export interface LifetimeScope {
-  /** Hand an event subscription and its source to this scope. */
+  /** Subscribe through `source`; the returned ref is released through that same source. */
   own<TSource extends EventRefSource>(
     source: TSource,
     subscribe: (source: TSource) => EventRef,
@@ -93,11 +93,18 @@ export function pluginLifetime(plugin: Plugin): PluginLifetime {
     scope: () => {
       let open = active;
       const cleanups: (() => void)[] = [];
+      const runCleanup = (cleanup: () => void): void => {
+        try {
+          cleanup();
+        } catch (error) {
+          console.error('[Gantt] Plugin lifetime cleanup failed', error);
+        }
+      };
       const addCleanup = (cleanup: () => void): void => {
         if (open) {
           cleanups.push(cleanup);
         } else {
-          cleanup();
+          runCleanup(cleanup);
         }
       };
       const scope: LifetimeScope = {
@@ -113,14 +120,8 @@ export function pluginLifetime(plugin: Plugin): PluginLifetime {
           if (!open) return;
           open = false;
           scopes.delete(scope);
-          const pending = cleanups.splice(0);
-          for (const cleanup of pending) {
-            try {
-              cleanup();
-            } catch (error) {
-              console.error('[Gantt] Plugin lifetime cleanup failed', error);
-            }
-          }
+          const pending = cleanups.splice(0).reverse();
+          for (const cleanup of pending) runCleanup(cleanup);
         },
       };
       if (open) scopes.add(scope);

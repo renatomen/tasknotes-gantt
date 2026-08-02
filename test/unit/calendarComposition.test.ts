@@ -8,7 +8,13 @@ it('shares one plugin lifetime across Bases registration and calendar creation',
   const plugin = { app } as Plugin;
   const lifetime: PluginLifetime = {
     isActive: () => true,
-    scope: () => ({ own: () => {}, defer: () => {}, close: () => {} }),
+    scope: () => ({
+      own: (source, subscribe) => {
+        subscribe(source);
+      },
+      defer: () => {},
+      close: () => {},
+    }),
   };
   const createLifetime = jest.fn(() => lifetime);
   const unregisterBases = jest.fn();

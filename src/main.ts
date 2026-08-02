@@ -15,7 +15,7 @@ import {
 import { GanttSettingTab } from './release/GanttSettingTab';
 import { registerCalendarEditor } from './editor/registerCalendarEditor';
 import { CalendarEditorView } from './editor/CalendarEditorView';
-import { createCalendarComposition, type CalendarComposition } from './calendarComposition';
+import { createCalendarComposition } from './calendarComposition';
 
 /** Delay before the post-update "What's New" check, so the UI is ready first. */
 const WHATS_NEW_AUTO_OPEN_DELAY_MS = 1500;
@@ -27,8 +27,6 @@ export default class ObsidianGanttPlugin extends Plugin {
   /** Overridable so tests/e2e don't race the real timer. */
   whatsNewAutoOpenDelayMs = WHATS_NEW_AUTO_OPEN_DELAY_MS;
   private versionCheckTimer: number | null = null;
-  /** Keeps calendar commands and Bases views on one cleanup boundary per load. */
-  private readonly calendarComposition: CalendarComposition = createCalendarComposition(this);
   private versionChecked = false;
   /** When set, the registered What's New factory renders this bundle instead of
    *  the baked-in one. Written only by the __tnGanttTest seam below (one-shot). */
@@ -64,12 +62,13 @@ export default class ObsidianGanttPlugin extends Plugin {
 
   async onload() {
     console.log('Loading TaskNotes Gantt plugin');
+    const calendarComposition = createCalendarComposition(this);
 
     this.settings = normalizeSettings(await this.loadData());
 
     // MVP: Register Obsidian Bases custom view "Gantt (OG)" (no chart yet)
     try {
-      this.unregisterBases = this.calendarComposition.registerBases();
+      this.unregisterBases = calendarComposition.registerBases();
     } catch (e) {
       console.warn('[Gantt] Failed to start Bases registration', e);
     }
@@ -144,7 +143,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar',
       name: 'Create calendar',
       callback: () => {
-        this.calendarComposition.createNote('calendar').catch((e) => {
+        calendarComposition.createNote('calendar').catch((e) => {
           console.warn('[Gantt] Failed to create the calendar note', e);
         });
       },
@@ -153,7 +152,7 @@ export default class ObsidianGanttPlugin extends Plugin {
       id: 'create-calendar-set',
       name: 'Create calendar set',
       callback: () => {
-        this.calendarComposition.createNote('calendar-set').catch((e) => {
+        calendarComposition.createNote('calendar-set').catch((e) => {
           console.warn('[Gantt] Failed to create the calendar set note', e);
         });
       },
