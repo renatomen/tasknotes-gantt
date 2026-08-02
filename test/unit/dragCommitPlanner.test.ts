@@ -552,7 +552,7 @@ function assertExtendCascade(combo: Combo, flow: Flow): void {
   }
   if (combo.mode === 'ask') expect(flow.cascades[0]?.prompt?.kind).toBe('extend');
   const settled = flow.cascades[combo.mode === 'ask' ? 1 : 0] as Plan;
-  expect(settled.writes.length).toBe(combo.instances);
+  expect(settled.writes).toHaveLength(combo.instances);
   for (const write of settled.writes) {
     expect(write.unmirrored).toBe('ancestor-extend-refresh-only');
   }

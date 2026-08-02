@@ -93,7 +93,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     await openBase("CalendarAxesShaded.base");
     await expect($(CONCRETE_BAR)).toExist();
     const ghosts = await $$(`${CONCRETE_BAR} .og-ghost-run`);
-    expect(ghosts.length).toBe(0);
+    expect(ghosts).toHaveLength(0);
     const barClass = await browser.execute((selector: string) => {
       return document.querySelector(selector)?.className ?? null;
     }, CONCRETE_BAR);
@@ -116,7 +116,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     expect(dotTitle).toContain("calendar days");
     // A task following the view default carries no dot.
     const defaultDots = await $$(`${STRETCH_BAR} .og-override-dot`);
-    expect(defaultDots.length).toBe(0);
+    expect(defaultDots).toHaveLength(0);
   });
 
   it("live-refreshes the override dot when the mapped Estimate-meaning property is edited", async () => {

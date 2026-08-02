@@ -139,7 +139,7 @@ describe('Codex-found data-loss cases', () => {
     const next = editFrontmatterKeys(original, { description: 'New' });
     expect(next.startsWith('---\r\n')).toBe(true);
     expect(next).toContain('description: New\r\n');
-    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+    expect(next.match(/tngantt: calendar/g) ?? []).toHaveLength(1);
     // No second, LF-delimited fence prepended.
     expect(next).not.toContain('---\n');
   });
@@ -151,7 +151,7 @@ describe('Codex-found data-loss cases', () => {
     const next = editFrontmatterKeys(original, { description: 'New' });
     expect(next.startsWith('---\ntngantt: calendar')).toBe(true);
     expect(next).toContain('description: New\n');
-    expect((next.match(/tngantt: calendar/g) ?? []).length).toBe(1);
+    expect(next.match(/tngantt: calendar/g) ?? []).toHaveLength(1);
   });
 
   it('quotes a string YAML would retype as bool/null/number/date so it stays a string', () => {
