@@ -16,6 +16,9 @@
  * @module editor/frontmatterEdit
  */
 
+import { stringifyDirectPrimitive } from '../stringifyPrimitive';
+import { stringifyObject } from '../stringifyObject';
+
 export type FrontmatterValue =
   | string
   | number
@@ -166,8 +169,15 @@ function isoDay(value: Date): string | undefined {
 // number, or date. A string value matching one has to be quoted to survive the
 // round-trip as a string rather than reload as the wrong type (and read empty).
 const YAML_IMPLICIT = /^(?:true|false|yes|no|on|off|y|n|null|~|\.nan|[-+]?\.inf)$/i;
-const YAML_NUMBER = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:[eE][-+]?\d+)?$/;
+const YAML_NUMBER_MANTISSA = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)$/;
+const YAML_NUMBER_EXPONENT = /[eE][-+]?\d+$/;
 const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
+
+function isYamlNumber(value: string): boolean {
+  const exponent = YAML_NUMBER_EXPONENT.exec(value)?.[0];
+  const mantissa = exponent === undefined ? value : value.slice(0, -exponent.length);
+  return YAML_NUMBER_MANTISSA.test(mantissa);
+}
 
 /**
  * Quote a scalar when YAML would otherwise misread it; pass clean values raw.
@@ -181,27 +191,45 @@ function quoteScalar(value: unknown): string {
   // still carry one. Emit it as a quoted ISO day, never a JS Date string.
   if (value instanceof Date) {
     const iso = isoDay(value);
-    return iso !== undefined ? `"${iso}"` : String(value);
+    return iso !== undefined ? `"${iso}"` : Date.prototype.toString.call(value);
   }
-  if (typeof value !== 'string') return String(value);
+  switch (typeof value) {
+    case 'string':
+      return quoteString(value);
+    case 'object':
+      return quoteString(stringifyObject(value));
+    case 'function':
+      return quoteString(Function.prototype.toString.call(value));
+    case 'undefined':
+      return 'undefined';
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+    case 'symbol':
+      return stringifyDirectPrimitive(value);
+  }
+  throw new TypeError('Unsupported scalar type');
+}
+
+function quoteString(value: string): string {
   const needsQuote =
     value === '' ||
-    /[:#"'\n,]/.test(value) ||
+    /[:#"'\n\r\t,]/.test(value) ||
     /^[\s>|@`&*!%[\]{}?-]/.test(value) ||
     /\s$/.test(value) ||
     YAML_IMPLICIT.test(value) ||
-    YAML_NUMBER.test(value) ||
+    isYamlNumber(value) ||
     YAML_DATELIKE.test(value);
   if (!needsQuote) return value;
   // Escape for a YAML double-quoted scalar. Backslash first, so the escapes we
   // add below are not themselves re-escaped. A literal newline inside the quotes
   // would fold to a space on reload; `\n` (and friends) preserve the break.
   const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
+    .replace(/\\/g, String.raw`\\`)
+    .replace(/"/g, String.raw`\"`)
+    .replace(/\n/g, String.raw`\n`)
+    .replace(/\r/g, String.raw`\r`)
+    .replace(/\t/g, String.raw`\t`);
   return `"${escaped}"`;
 }
 
@@ -211,5 +239,5 @@ function dropTrailingBlank(lines: string[]): string[] {
 }
 
 function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }

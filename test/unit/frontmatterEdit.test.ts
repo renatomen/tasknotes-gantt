@@ -189,6 +189,62 @@ describe('Codex-found data-loss cases', () => {
     expect(next).toContain('  - date: "2026-01-01"');
   });
 
+  it('quotes an unsupported nested record value as a defensive scalar', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      non_working: [{ metadata: { source: 'imported' } }],
+    });
+    expect(next).toContain('metadata: "[object Object]"');
+  });
+
+  it('preserves array contents in a pass-through record field', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      events: [{ pattern: 'FREQ=YEARLY', tags: ['holiday', 'public'] }],
+    });
+    expect(next).toContain('tags: "holiday,public"');
+    expect(next).not.toContain('[object Array]');
+  });
+
+  it.each(['.5', '-.5', '1.', '+1_000.25', '6.02e23', '-1E-3'])(
+    'quotes the YAML numeric spelling %s',
+    (numericText) => {
+      const original = doc('tngantt: calendar');
+      expect(editFrontmatterKeys(original, { description: numericText })).toContain(
+        `description: "${numericText}"`,
+      );
+    },
+  );
+
+  it.each(['e5', '1e', '1e5e5', '1e2_3', '1.2e+'])(
+    'leaves the non-numeric spelling %s as a plain string',
+    (text) => {
+      const original = doc('tngantt: calendar');
+      expect(editFrontmatterKeys(original, { description: text })).toContain(
+        `description: ${text}`,
+      );
+    },
+  );
+
+  it.each([
+    ['carriage return', '\r', '\\r'],
+    ['tab', '\t', '\\t'],
+  ])('quotes and escapes a string containing only a %s', (_name, character, escaped) => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, { description: `left${character}right` });
+    expect(next).toContain(`description: "left${escaped}right"`);
+  });
+
+  it('preserves YAML escapes for backslash, quote, and control characters', () => {
+    const original = doc('tngantt: calendar');
+    const next = editFrontmatterKeys(original, {
+      description: 'path\\name"line\nreturn\rcell\tend',
+    });
+    expect(next).toContain(
+      'description: "path\\\\name\\"line\\nreturn\\rcell\\tend"',
+    );
+  });
+
   it('keeps a comment that trails the whole frontmatter with the block after it', () => {
     // A comment that belongs to the NEXT key must not be swallowed by the key
     // before it.
