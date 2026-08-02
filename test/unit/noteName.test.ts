@@ -35,6 +35,10 @@ describe('validateNoteName', () => {
     }
   });
 
+  it('lists the exact forbidden characters in the validation error', () => {
+    expect(validateNoteName('a\\b')).toBe('Name cannot contain \\ / : * ? " < > |');
+  });
+
   it('rejects a name that is only the extension, since it strips to an empty basename', () => {
     // "Cal.md" -> "Cal", but ".md" -> "" — the rename target would be a hidden
     // dotfile (Calendars/.md), so treat it as the empty-name error.
