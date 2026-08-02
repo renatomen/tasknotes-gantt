@@ -174,7 +174,7 @@ const YAML_NUMBER_EXPONENT = /[eE][-+]?\d+$/;
 const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
 
 function isYamlNumber(value: string): boolean {
-  const exponent = value.match(YAML_NUMBER_EXPONENT)?.[0];
+  const exponent = YAML_NUMBER_EXPONENT.exec(value)?.[0];
   const mantissa = exponent === undefined ? value : value.slice(0, -exponent.length);
   return YAML_NUMBER_MANTISSA.test(mantissa);
 }
