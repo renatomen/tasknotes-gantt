@@ -62,15 +62,21 @@ describe('evaluatePattern', () => {
     expect(dates).toEqual(['2026-04-06']);
   });
 
-  it('rejects INTERVAL/COUNT/UNTIL without a pattern_start anchor', () => {
-    const result = evaluatePattern('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO', undefined, TWO_WEEKS);
-    expect(result.kind).toBe('invalid');
-    if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
-  });
-
-  it('rejects an anchorless UNTIL-bounded rule (the sequence is counted from the start)', () => {
-    // interval 1 + BYDAY-pinned, so only UNTIL forces the anchor requirement.
-    const result = evaluatePattern('FREQ=WEEKLY;UNTIL=20260408T000000Z;BYDAY=MO', undefined, TWO_WEEKS);
+  it.each([
+    {
+      caseName: 'rejects INTERVAL/COUNT/UNTIL without a pattern_start anchor',
+      rule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+    },
+    {
+      caseName: 'rejects an anchorless UNTIL-bounded rule (the sequence is counted from the start)',
+      rule: 'FREQ=WEEKLY;UNTIL=20260408T000000Z;BYDAY=MO',
+    },
+    {
+      caseName: 'rejects a bare weekly pattern with no BYDAY and no anchor (phase floats with the window)',
+      rule: 'FREQ=WEEKLY',
+    },
+  ])('$caseName', ({ rule }) => {
+    const result = evaluatePattern(rule, undefined, TWO_WEEKS);
     expect(result.kind).toBe('invalid');
     if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
   });
@@ -104,12 +110,6 @@ describe('evaluatePattern', () => {
   it('anchored evaluation starts no earlier than the anchor even when the window reaches back', () => {
     const dates = okDates('FREQ=DAILY', window('2026-04-06', '2026-04-10'), '2026-04-08');
     expect(dates).toEqual(['2026-04-08', '2026-04-09']);
-  });
-
-  it('rejects a bare weekly pattern with no BYDAY and no anchor (phase floats with the window)', () => {
-    const result = evaluatePattern('FREQ=WEEKLY', undefined, TWO_WEEKS);
-    expect(result.kind).toBe('invalid');
-    if (result.kind === 'invalid') expect(result.reason).toMatch(/pattern_start/);
   });
 
   it('rejects a bare monthly pattern with no BY-part and no anchor', () => {
