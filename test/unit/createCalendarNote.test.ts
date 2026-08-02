@@ -27,21 +27,36 @@ function fakeLifetime(): PluginLifetime & {
   return {
     isActive: () => active,
     scope: () => {
-      const owned: { source: { offref(ref: EventRef): void }; ref: EventRef }[] = [];
-      const deferred: (() => void)[] = [];
+      let open = active;
+      const cleanups: (() => void)[] = [];
+      const runCleanup = (cleanup: () => void): void => {
+        try {
+          cleanup();
+        } catch (error) {
+          console.error('[Gantt] Plugin lifetime cleanup failed', error);
+        }
+      };
+      const addCleanup = (cleanup: () => void): void => {
+        if (open) cleanups.push(cleanup);
+        else runCleanup(cleanup);
+      };
       const scope = {
         own: <TSource extends EventRefSource>(
           source: TSource,
           subscribe: (source: TSource) => EventRef,
-        ) => owned.push({ source, ref: subscribe(source) }),
-        defer: (cleanup: () => void) => deferred.push(cleanup),
+        ) => {
+          const ref = subscribe(source);
+          addCleanup(() => source.offref(ref));
+        },
+        defer: addCleanup,
         close: () => {
-          if (!scopes.delete(scope)) return;
-          for (const ownedRef of owned.splice(0)) ownedRef.source.offref(ownedRef.ref);
-          for (const cleanup of deferred.splice(0)) cleanup();
+          if (!open) return;
+          open = false;
+          scopes.delete(scope);
+          for (const cleanup of cleanups.splice(0).reverse()) runCleanup(cleanup);
         },
       };
-      scopes.add(scope);
+      if (open) scopes.add(scope);
       return scope;
     },
     /** How many scopes are still open — 0 means nothing is subscribed. */
@@ -394,7 +409,7 @@ describe('pluginLifetime', () => {
     const order: number[] = [];
     const scope = lifetime.scope();
     scope.defer(() => order.push(1));
-    scope.defer(() => order.push(2));
+    scope.own({ offref: () => order.push(2) }, () => ({}) as never);
     scope.defer(() => order.push(3));
 
     scope.close();
