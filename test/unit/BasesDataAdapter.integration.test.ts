@@ -427,6 +427,15 @@ describe("BasesDataAdapter - Integration Tests", () => {
       expect(adapter.convertGroupKeyToString(fallback)).toBe("42");
     });
 
+    it("should reject a Symbol produced while coercing an object key", () => {
+      const key = {
+        hasKey: () => true,
+        [Symbol.toPrimitive]: () => Symbol("group"),
+      };
+      expect(() => adapter.convertGroupKeyToString(key)).toThrow(TypeError);
+      expect(adapter.convertGroupKeyToString(Symbol("direct"))).toBe("Symbol(direct)");
+    });
+
     it("should return 'Unknown' for a plain object instead of '[object Object]'", () => {
       expect(adapter.convertGroupKeyToString({ hasKey: () => true })).toBe("Unknown");
     });

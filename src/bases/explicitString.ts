@@ -8,6 +8,7 @@ function stringifyPrimitive(value: Primitive): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (typeof value === 'string') return value;
+  if (typeof value === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
   return value.toString();
 }
 

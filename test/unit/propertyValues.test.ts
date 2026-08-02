@@ -279,4 +279,12 @@ describe('stringifyScalar', () => {
     expect(stringifyScalar(nullHook)).toBe('ordinary value');
     expect(stringifyScalar(fallback)).toBe('42');
   });
+
+  it('rejects a Symbol produced while coercing an object', () => {
+    expect(() => stringifyScalar({ [Symbol.toPrimitive]: () => Symbol('exotic') })).toThrow(
+      TypeError,
+    );
+    expect(() => stringifyScalar({ toString: () => Symbol('ordinary') })).toThrow(TypeError);
+    expect(stringifyScalar(Symbol('direct'))).toBe('Symbol(direct)');
+  });
 });
