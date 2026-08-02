@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { stringifyDirectPrimitive, stringifyObject } from '../../src/bases/explicitString';
+import { stringifyObject } from '../../src/bases/explicitString';
+import { stringifyDirectPrimitive } from '../../src/stringifyPrimitive';
 
 type StringOutcome =
   | { kind: 'value'; value: string }

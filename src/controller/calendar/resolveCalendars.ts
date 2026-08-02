@@ -13,6 +13,7 @@
  */
 
 import type { AvailabilitySource } from '../availability';
+import { stringifyDirectPrimitive } from '../../stringifyPrimitive';
 import {
   parseCalendarFrontmatter,
   type CalendarDefinition,
@@ -123,15 +124,21 @@ function defaultAssociation(): ResolvedAssociation {
 }
 
 function describeNonLinkAssociation(value: unknown): string {
-  if (value === null) return 'null';
-  if (value === undefined) return 'undefined';
-  if (Array.isArray(value)) return 'list';
-  if (typeof value === 'object') return 'object';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'symbol') return Symbol.prototype.toString.call(value);
-  if (typeof value === 'function') return 'function';
-  return `${value}`;
+  switch (typeof value) {
+    case 'undefined':
+      return 'undefined';
+    case 'object':
+      if (value === null) return 'null';
+      return Array.isArray(value) ? 'list' : 'object';
+    case 'function':
+      return 'function';
+    case 'string':
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+    case 'symbol':
+      return stringifyDirectPrimitive(value);
+  }
 }
 
 export function resolveTaskCalendar(

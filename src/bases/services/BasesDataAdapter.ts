@@ -10,7 +10,8 @@
  */
 
 import type { BasesEntryLike } from "./../types/bases-entry";
-import { stringifyDirectPrimitive, stringifyObject } from "../explicitString";
+import { stringifyDirectPrimitive } from "../../stringifyPrimitive";
+import { stringifyObject } from "../explicitString";
 
 /**
  * Options for number conversion

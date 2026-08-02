@@ -19,7 +19,8 @@
  * @module bases/propertyValues
  */
 
-import { stringifyDirectPrimitive, stringifyObject } from './explicitString';
+import { stringifyDirectPrimitive } from '../stringifyPrimitive';
+import { stringifyObject } from './explicitString';
 
 /** The display kind a property value is classified into. */
 export type TypedValueKind =
@@ -59,21 +60,25 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
  * Primitives (string, number, boolean, bigint, symbol) stringify verbatim.
  */
 export function stringifyScalar(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'object' || typeof raw === 'function') {
-    const text = stringifyObject(raw);
-    return text === '[object Object]' ? null : text;
+  switch (typeof raw) {
+    case 'undefined':
+      return null;
+    case 'object': {
+      if (raw === null) return null;
+      const text = stringifyObject(raw);
+      return text === '[object Object]' ? null : text;
+    }
+    case 'function': {
+      const text = stringifyObject(raw);
+      return text === '[object Object]' ? null : text;
+    }
+    case 'string':
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+    case 'symbol':
+      return stringifyDirectPrimitive(raw);
   }
-  if (
-    typeof raw === 'string' ||
-    typeof raw === 'number' ||
-    typeof raw === 'boolean' ||
-    typeof raw === 'bigint' ||
-    typeof raw === 'symbol'
-  ) {
-    return stringifyDirectPrimitive(raw);
-  }
-  return null;
 }
 
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */

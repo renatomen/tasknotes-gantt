@@ -231,11 +231,12 @@ describe('collectFetchedFileMetas', () => {
 });
 
 describe('stringifyScalar', () => {
-  it('stringifies primitives verbatim (including 0 and false)', () => {
+  it('stringifies primitives verbatim (including 0, false, and bigint)', () => {
     expect(stringifyScalar('x')).toBe('x');
     expect(stringifyScalar(7)).toBe('7');
     expect(stringifyScalar(0)).toBe('0');
     expect(stringifyScalar(false)).toBe('false');
+    expect(stringifyScalar(42n)).toBe('42');
   });
 
   it('returns null for null and undefined', () => {
