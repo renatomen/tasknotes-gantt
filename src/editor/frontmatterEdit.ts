@@ -169,7 +169,7 @@ function isoDay(value: Date): string | undefined {
 // number, or date. A string value matching one has to be quoted to survive the
 // round-trip as a string rather than reload as the wrong type (and read empty).
 const YAML_IMPLICIT = /^(?:true|false|yes|no|on|off|y|n|null|~|\.nan|[-+]?\.inf)$/i;
-const YAML_NUMBER_MANTISSA = /^[-+]?(?:\d[\d_]*\.?[\d_]*|\.[\d_]+)$/;
+const YAML_NUMBER_MANTISSA = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)$/;
 const YAML_NUMBER_EXPONENT = /[eE][-+]?\d+$/;
 const YAML_DATELIKE = /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ][\d:.+Zz-]*)?$/;
 
