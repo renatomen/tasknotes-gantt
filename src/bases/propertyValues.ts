@@ -19,6 +19,8 @@
  * @module bases/propertyValues
  */
 
+import { stringifyObject } from './explicitString';
+
 /** The display kind a property value is classified into. */
 export type TypedValueKind =
   | 'date'
@@ -58,11 +60,12 @@ export function listsEqual(a: readonly string[], b: readonly string[]): boolean 
  */
 export function stringifyScalar(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'object') {
-    const s = String(raw);
-    return s === '[object Object]' ? null : s;
+  if (typeof raw === 'object' || typeof raw === 'function') {
+    const text = stringifyObject(raw);
+    return text === '[object Object]' ? null : text;
   }
-  return String(raw);
+  if (typeof raw === 'string') return raw;
+  return raw.toString();
 }
 
 /** Minimal extractor contract — `BasesDataAdapter` satisfies it. */

@@ -249,7 +249,58 @@ describe('stringifyScalar', () => {
 
   it('keeps the string form of an object that has a meaningful one (Date, nested array)', () => {
     const date = new Date('2024-01-02T00:00:00Z');
+    const custom = {
+      label: 'custom value',
+      toString() {
+        return this.label;
+      },
+    };
     expect(stringifyScalar(date)).toBe(String(date));
     expect(stringifyScalar([1, 2])).toBe('1,2');
+    expect(stringifyScalar(custom)).toBe('custom value');
+  });
+
+  it('preserves object-to-string coercion hooks and primitive fallback order', () => {
+    const symbolic = {
+      label: 'value',
+      [Symbol.toPrimitive](hint: string) {
+        return `${hint} ${this.label}`;
+      },
+    };
+    const nullHook = { [Symbol.toPrimitive]: null, toString: () => 'ordinary value' };
+    const fallback = Object.create(null) as {
+      toString: () => unknown;
+      valueOf: () => unknown;
+    };
+    fallback.toString = () => ({});
+    fallback.valueOf = () => 42;
+
+    expect(stringifyScalar(symbolic)).toBe('string value');
+    expect(stringifyScalar(nullHook)).toBe('ordinary value');
+    expect(stringifyScalar(fallback)).toBe('42');
+  });
+
+  it('rejects a Symbol produced while coercing an object', () => {
+    expect(() => stringifyScalar({ [Symbol.toPrimitive]: () => Symbol('exotic') })).toThrow(
+      TypeError,
+    );
+    expect(() => stringifyScalar({ toString: () => Symbol('ordinary') })).toThrow(TypeError);
+    expect(stringifyScalar(Symbol('direct'))).toBe('Symbol(direct)');
+  });
+
+  it('invokes coercion hooks even when their own call property is overridden', () => {
+    function ordinary(this: { label: string }): string {
+      return this.label;
+    }
+    function exotic(this: { label: string }, hint: string): string {
+      return `${hint} ${this.label}`;
+    }
+    Object.defineProperty(ordinary, 'call', { value: () => 'wrong ordinary' });
+    Object.defineProperty(exotic, 'call', { value: () => 'wrong exotic' });
+
+    expect(stringifyScalar({ label: 'ordinary', toString: ordinary })).toBe('ordinary');
+    expect(stringifyScalar({ label: 'exotic', [Symbol.toPrimitive]: exotic })).toBe(
+      'string exotic',
+    );
   });
 });

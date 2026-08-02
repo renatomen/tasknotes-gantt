@@ -10,6 +10,7 @@
  */
 
 import type { BasesEntryLike } from "./../types/bases-entry";
+import { stringifyObject } from "../explicitString";
 
 /**
  * Options for number conversion
@@ -125,6 +126,15 @@ function blankToNull(value: unknown): unknown {
     return null;
   }
   return value;
+}
+
+function stringifyUnrecognizedGroupValue(value: unknown): string {
+  if (value !== null && (typeof value === "object" || typeof value === "function")) {
+    const text = stringifyObject(value);
+    return text === "[object Object]" ? "Unknown" : text;
+  }
+  if (typeof value === "bigint" || typeof value === "symbol") return value.toString();
+  return "Unknown";
 }
 
 /**
@@ -285,8 +295,7 @@ export class BasesDataAdapter {
     if (Array.isArray(actualValue)) {
       return actualValue.length > 0 ? actualValue.join(", ") : "None";
     }
-
-    return String(actualValue);
+    return stringifyUnrecognizedGroupValue(actualValue);
   }
 
   /**

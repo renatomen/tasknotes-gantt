@@ -122,6 +122,15 @@ function defaultAssociation(): ResolvedAssociation {
   return { identity: undefined, calendars: [], flags: [], schedulingSuspended: false };
 }
 
+function describeNonLinkAssociation(value: unknown): string {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (Array.isArray(value)) return 'list';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'string') return value;
+  return value.toString();
+}
+
 export function resolveTaskCalendar(
   registry: CalendarRegistry,
   associationValue: unknown,
@@ -146,7 +155,7 @@ export function resolveTaskCalendar(
   if (typeof value !== 'string' || value.trim() === '') {
     return value === ''
       ? defaultAssociation()
-      : broken(`calendar association is not a link: ${String(value)}`);
+      : broken(`calendar association is not a link: ${describeNonLinkAssociation(value)}`);
   }
 
   const linkText = stripSubpath(value.trim());
