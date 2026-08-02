@@ -639,12 +639,14 @@ describe('createAndOpenCalendarNote', () => {
     const late = lateIndexingApp();
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(500); // still inside the 2s wait
+    const attemptsBeforeUnload = late.subscriptionAttempts();
 
     late.unload();
     expect(late.liveListeners()).toBe(0); // the plugin released them itself
     // Deliberately NO timer advance: unload itself settles the wait, so nothing of
     // the unloaded plugin runs again at the deadline.
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeUnload);
     expect(late.opened).toHaveLength(0); // …and the flow stood down
 
     // And nothing revives afterwards — neither a stray timer nor a late index.
@@ -705,10 +707,12 @@ describe('createAndOpenCalendarNote', () => {
     const promise = createAndOpenCalendarNote(late.app, 'calendar', late.lifetime);
     await jest.advanceTimersByTimeAsync(2000);
     expect(late.opened).toHaveLength(1); // parked inside openFile
+    const attemptsBeforeDelete = late.subscriptionAttempts();
 
     late.deleteNow();
     late.releaseOpenFile();
     await promise;
+    expect(late.subscriptionAttempts()).toBe(attemptsBeforeDelete);
     expect(late.liveListeners()).toBe(0);
     expect(late.reissued).toHaveLength(0);
   });
