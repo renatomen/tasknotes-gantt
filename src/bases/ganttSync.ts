@@ -21,7 +21,8 @@
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { DateStatus } from '../controller/datePolicy';
 import { isoToLocalDate, isoToLocalEndOfDay } from '../controller/calendar/stretch';
-import type { CalendarOccupancy } from '../datasource/calendarItems';
+import type { CalendarItemFamily, CalendarOccupancy } from '../datasource/calendarItems';
+import { RECURRING_SOURCE_KEY } from './sourceSwitcher';
 import type { OccupancyRunSpan } from '../render/segmentLayout';
 import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
@@ -250,6 +251,18 @@ export interface SvarTask {
      */
     occupancyEnvelope?: boolean;
     /**
+     * The event row's calendar-item family, read by the source switcher's
+     * display predicate. Absent on task rows. Not folded into
+     * {@link taskStateKey}: the family is embedded in the row's synthetic id,
+     * so a family change is an add/delete, never an update.
+     */
+    calendarItemFamily?: CalendarItemFamily;
+    /**
+     * True when recurring-instance occupancy renders on this task row, so the
+     * source switcher can hide it under the recurring source. Absent otherwise.
+     */
+    hasRecurringOccupancy?: boolean;
+    /**
      * The rendered span came from the derivation authority's ceiling fallback
      * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
      * row's custom record stays indistinguishable from a refreshed one — no
@@ -445,6 +458,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         ghostRuns: inst.ghostRuns,
         occupancyRuns: occupancy.length > 0 ? occupancy.map(toOccupancyRun) : undefined,
         occupancyEnvelope: envelope ? true : undefined,
+        calendarItemFamily: inst.calendarItem?.family,
+        hasRecurringOccupancy: recurringOccupancyFlag(occupancy),
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
@@ -467,6 +482,11 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
+}
+
+/** `true` only when recurring-instance occupancy renders on the row; else absent. */
+function recurringOccupancyFlag(occupancy: readonly CalendarOccupancy[]): true | undefined {
+  return occupancy.some((entry) => entry.family === RECURRING_SOURCE_KEY) ? true : undefined;
 }
 
 /** The occupancy envelope: earliest occupied day 00:00 → latest day end-of-day. */
@@ -638,6 +658,9 @@ export function taskStateKey(t: SvarTask): string {
     // toggle can leave the span untouched while every piece must redraw.
     occupancyRunsKey(t.custom.occupancyRuns),
     t.custom.occupancyEnvelope === true,
+    // Source-switcher mapping: fold so a family recomposition that leaves the
+    // day runs identical still re-issues the row for the display filter.
+    t.custom.hasRecurringOccupancy === true,
     // Override dot: an interpretation-override change alters only the corner dot
     // and its tooltip within an otherwise-unchanged span — fold it so the
     // task re-issues instead of the dot going stale (R11).

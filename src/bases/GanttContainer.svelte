@@ -113,6 +113,7 @@
   import { propertyColumnSort } from './columnSort';
   import { cycleNext, type EphemeralSort } from './sortCycle';
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
+  import type { SourceSwitcherState, SwitcherRowSource } from './sourceSwitcher';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
   import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
@@ -231,6 +232,15 @@
     /** Open the calendar picker (the banner's click-through). */
     onOpenCalendarPicker?: () => void;
     /**
+     * The view instance's session-scoped hidden-source state (quick source
+     * switcher). The host owns its lifetime — it survives refreshes of the same
+     * view and dies with it. The view folds it into the composed display filter
+     * and re-applies on every change. Absent → no switcher filtering.
+     */
+    sourceSwitcher?: SourceSwitcherState;
+    /** Open the quick source switcher; the toolbar button renders only when provided. */
+    onOpenSourceSwitcher?: () => void;
+    /**
      * Register a callback the host calls to re-assert the persisted divider width
      * when the view is revealed/reattached (Obsidian's `onResize`). SVAR can
      * recompute the grid pane to the column-sum width on reattach WITHOUT a column
@@ -263,6 +273,8 @@
     onInferredDragModeChange,
     onFocusEntryReady,
     onOpenCalendarPicker,
+    sourceSwitcher,
+    onOpenSourceSwitcher,
     onReassertGridWidthReady,
   }: Props = $props();
 
@@ -846,29 +858,52 @@
     syncToGantt(d);
   });
 
+  // The switcher's hidden-source set lives OUTSIDE Svelte state (a per-view
+  // session object owned by the host), so a revision counter bridges its change
+  // notifications into the display-filter effect — the same cheap filter
+  // re-apply path the row-visibility toggles use, never a re-derivation.
+  let switcherRevision = $state(0);
+  $effect(() =>
+    sourceSwitcher?.subscribe(() => {
+      switcherRevision += 1;
+    }),
+  );
+
   /**
-   * Apply ALL row-visibility options (Hide-top ∧ Show-undated ∧ Show-partial) as
-   * ONE composed SVAR `filter-tasks` DISPLAY filter over the stable task array
-   * (#161, U4). The shared {@link shouldHideRow} predicate reads each row's
-   * `custom` (`isTopLevelPlacement` + `dateStatus`). `filter-tasks` recomputes
-   * SVAR's visible set WITHOUT touching the `tasks` array (no add/delete diff) and
-   * preserves scroll/zoom — so a toggle (or a Bases config oscillation) is cheap
-   * and can never churn the chart. When every option is show-everything, clear with
-   * no predicate. `open: false` so it never force-expands collapsed branches.
+   * Apply ALL row-visibility concerns (Hide-top ∧ Show-undated ∧ Show-partial ∧
+   * switcher-hidden sources) as ONE composed SVAR `filter-tasks` DISPLAY filter
+   * over the stable task array (#161). The shared {@link shouldHideRow}
+   * predicate reads each row's `custom` (`isTopLevelPlacement` + `dateStatus` +
+   * the source identity). `filter-tasks` recomputes SVAR's visible set WITHOUT
+   * touching the `tasks` array (no add/delete diff) and preserves scroll/zoom —
+   * so a toggle (or a Bases config oscillation) is cheap and can never churn
+   * the chart. When every option is show-everything, clear with no predicate.
+   * `open: false` so it never force-expands collapsed branches.
    *
    * The predicate is ALWAYS passed as `filter` (a function), never as a
    * `{key, value}` column filter — keeping the clear-path semantics intact (KTD4).
    */
   function applyDisplayFilters(): void {
     if (!api?.exec) return;
-    const flags = { hideTopLevel, showUndated, showPartial };
+    const flags = {
+      hideTopLevel,
+      showUndated,
+      showPartial,
+      hiddenSources: sourceSwitcher?.hiddenSources(),
+    };
     if (anyRowFilterActive(flags)) {
       api.exec('filter-tasks', {
-        filter: (t: { custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } }) =>
+        filter: (t: {
+          custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } & SwitcherRowSource;
+        }) =>
           !shouldHideRow(
             {
               isTopLevelPlacement: !!t?.custom?.isTopLevelPlacement,
               dateStatus: t?.custom?.dateStatus ?? 'complete',
+              source: {
+                calendarItemFamily: t?.custom?.calendarItemFamily,
+                hasRecurringOccupancy: t?.custom?.hasRecurringOccupancy,
+              },
             },
             flags,
           ),
@@ -879,16 +914,17 @@
     }
   }
 
-  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle
-  // AND after any data refresh (so newly-added rows are filtered too). Created AFTER
-  // the sync effect so it runs after the diff lands. A display-only change is a
-  // content-NOOP for the sync (the task set is identical), so this is the path that
-  // actually toggles row visibility.
+  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle,
+  // any switcher change, AND after any data refresh (so newly-added rows are
+  // filtered too). Created AFTER the sync effect so it runs after the diff lands.
+  // A display-only change is a content-NOOP for the sync (the task set is
+  // identical), so this is the path that actually toggles row visibility.
   $effect(() => {
     void $data; // re-run after every store update (post-sync)
     void hideTopLevel; // re-run when any row-visibility toggle flips
     void showUndated;
     void showPartial;
+    void switcherRevision; // re-run when a source is hidden/shown in the switcher
     if (api) applyDisplayFilters();
   });
 
@@ -2357,7 +2393,7 @@
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
   {#if showToolbar}
-    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} />
+    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} {onOpenSourceSwitcher} />
   {/if}
 
   <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
