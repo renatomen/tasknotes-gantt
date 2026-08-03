@@ -1010,6 +1010,10 @@ class ObsidianGanttBasesView extends BasesView {
       // enrichment source is internal to it). Null when TaskNotes is absent:
       // the families then derive nothing, which is their standalone behavior.
       const calendarItemTaskNotes = await TaskNotesSource.create(this.app);
+      // A newer mount may have started while the awaited API resolution above
+      // was in flight; bail before touching the watch fields, or a losing
+      // mount would dispose the winner's live watch and strand a dead one.
+      if (token !== this.mountToken) return;
       const dailyNoteAccess = createDailyNoteAccess(this.app);
       // Daily-note liveness for timeblocks: the same event wiring as the
       // calendar watch (metadata `changed` + vault `rename`/`delete`), with a
