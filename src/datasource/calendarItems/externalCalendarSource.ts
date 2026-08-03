@@ -384,30 +384,30 @@ function toSingleItem(entry: SingleEntry, discriminator: string): CalendarItem {
   };
 }
 
-function idlessSortKey(occurrence: NormalizedOccurrence): string {
+function occurrenceKey(occurrence: NormalizedOccurrence): string {
   const { event, span, startTime } = occurrence;
   return `${span.startDay}#${startTime}#${event.title}#${span.endDay}`;
 }
 
 /**
- * Deterministic stand-in identity for events the service serves without an
- * upstream id: the title alone is not unique, so each feed's id-less events
- * get a stable sorted ordinal — identical twins survive as `…~0` and `…~1`.
+ * Ordinals for TRUE TWINS only — id-less events in one feed sharing the full
+ * occurrence key. A unique id-less event gets none, so inserting or removing
+ * an unrelated event never shifts its id; within a twin group the service
+ * order is the only remaining tiebreak for indistinguishable events.
  */
-function idlessOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
-  const byFeed = new Map<string, SingleEntry[]>();
+function idlessTwinOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
+  const twinGroups = new Map<string, NormalizedOccurrence[]>();
   for (const entry of entries) {
     if (entry.occurrence.event.id !== undefined) continue;
-    const group = byFeed.get(entry.feedKey) ?? [];
-    group.push(entry);
-    byFeed.set(entry.feedKey, group);
+    const key = `${entry.feedKey}\n${occurrenceKey(entry.occurrence)}`;
+    const group = twinGroups.get(key) ?? [];
+    group.push(entry.occurrence);
+    twinGroups.set(key, group);
   }
   const ordinals = new Map<NormalizedOccurrence, number>();
-  for (const group of byFeed.values()) {
-    const sorted = [...group].sort((a, b) =>
-      idlessSortKey(a.occurrence).localeCompare(idlessSortKey(b.occurrence)),
-    );
-    sorted.forEach((entry, index) => ordinals.set(entry.occurrence, index));
+  for (const group of twinGroups.values()) {
+    if (group.length < 2) continue;
+    group.forEach((occurrence, index) => ordinals.set(occurrence, index));
   }
   return ordinals;
 }
@@ -417,7 +417,11 @@ function singleDiscriminator(
   ordinals: ReadonlyMap<NormalizedOccurrence, number>,
 ): string {
   const { event } = occurrence;
-  return event.id ?? `${event.title}~${ordinals.get(occurrence) ?? 0}`;
+  // The prefixes keep explicit ids and generated title stand-ins in disjoint
+  // namespaces: an upstream id literally shaped `Title~0` cannot collide.
+  if (event.id !== undefined) return `i:${event.id}`;
+  const ordinal = ordinals.get(occurrence);
+  return ordinal === undefined ? `t:${event.title}` : `t:${event.title}~${ordinal}`;
 }
 
 function toSeriesItem(
@@ -473,7 +477,7 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
     };
     seriesByFeedAndId.set(groupKey, { ...group, occurrences: [...group.occurrences, occurrence] });
   }
-  const ordinals = idlessOrdinals(singleEntries);
+  const ordinals = idlessTwinOrdinals(singleEntries);
   const singles = singleEntries.map((entry) =>
     toSingleItem(entry, singleDiscriminator(entry.occurrence, ordinals)),
   );
@@ -486,10 +490,12 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
 // --- source ---------------------------------------------------------------
 
 function fingerprintEvent(event: ExternalEvent): string {
-  // The upstream id participates: rendered single ids derive from it, so an
-  // id-only cache reindex must read as a change (epoch bump → re-render).
+  // The upstream id participates only for non-recurring events, whose rendered
+  // ids derive from it (an id-only reindex must read as a change). A recurring
+  // occurrence renders keyed on recurringEventId + dates, so its per-instance
+  // id reindexing as the sync window slides must NOT phantom-bump the epoch.
   return [
-    event.id ?? '',
+    event.recurringEventId === undefined ? (event.id ?? '') : '',
     event.subscriptionId,
     event.recurringEventId ?? '',
     event.start,
