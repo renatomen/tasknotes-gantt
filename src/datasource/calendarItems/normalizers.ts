@@ -40,6 +40,7 @@ export function localDayOfInstant(instant: unknown): LocalDay | null {
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const FLOATING_DATE_TIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+const FLOATING_MIDNIGHT_PATTERN = /^\d{4}-\d{2}-\d{2}T00:00(?::00(?:\.0+)?)?$/;
 
 /** Whether a value is a floating date-only string (`YYYY-MM-DD`). */
 export function isLocalDayString(value: unknown): value is LocalDay {
@@ -86,20 +87,38 @@ export function shiftLocalDay(day: LocalDay, deltaDays: number): LocalDay {
   return formatLocalDay(new Date(year, month - 1, dayOfMonth + deltaDays));
 }
 
+function isObserverLocalMidnight(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (FLOATING_MIDNIGHT_PATTERN.test(trimmed)) return true;
+  const parsed = new Date(trimmed);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getHours() === 0 &&
+    parsed.getMinutes() === 0 &&
+    parsed.getSeconds() === 0 &&
+    parsed.getMilliseconds() === 0
+  );
+}
+
 /**
- * The inclusive observer-local day span a start/end instant pair touches
- * (equal instants collapse to a one-day span), or `null` when either instant
- * is unparseable. A reversed pair normalizes to an ordered span — malformed
- * ordering degrades to a rendered span rather than an error.
+ * The inclusive observer-local day span a timed start/end pair occupies.
+ * Offset-stamped values convert as instants and floating values keep their
+ * wall-clock days. An end exactly at local midnight is exclusive, clamped so
+ * zero-duration and sub-day ranges keep a one-day minimum. A reversed pair
+ * normalizes to an ordered span rather than throwing.
  */
 export function localDaySpanOfInstants(
   startInstant: unknown,
   endInstant: unknown,
 ): LocalDaySpan | null {
-  const startDay = localDayOfInstant(startInstant);
-  const endDay = localDayOfInstant(endInstant);
+  const startDay = localDayOfWallClock(startInstant);
+  const endDay = localDayOfWallClock(endInstant);
   if (startDay === null || endDay === null) return null;
-  return startDay <= endDay
-    ? { startDay, endDay }
-    : { startDay: endDay, endDay: startDay };
+  if (startDay > endDay) return { startDay: endDay, endDay: startDay };
+  const inclusiveEndDay =
+    endDay > startDay && isObserverLocalMidnight(endInstant)
+      ? shiftLocalDay(endDay, -1)
+      : endDay;
+  return { startDay, endDay: inclusiveEndDay };
 }

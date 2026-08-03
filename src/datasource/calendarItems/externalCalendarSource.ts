@@ -27,6 +27,7 @@ import type { CalendarItem, CalendarItemSource, LocalDay } from './types';
 import { asRecord, makeCalendarItemId } from './types';
 import {
   isLocalDayString,
+  localDaySpanOfInstants,
   localDayOfWallClock,
   shiftLocalDay,
   type LocalDaySpan,
@@ -260,12 +261,11 @@ function allDaySpan(event: ExternalEvent): LocalDaySpan | null {
 }
 
 function timedSpan(event: ExternalEvent): LocalDaySpan | null {
-  // localDayOfWallClock covers both timed dialects: offset-stamped ICS values
-  // convert as instants, offset-less Google/Microsoft values stay floating.
-  const startDay = localDayOfWallClock(event.start);
-  const endDay = event.end === undefined ? startDay : localDayOfWallClock(event.end);
-  if (startDay === null || endDay === null) return null;
-  return orderedSpan(startDay, endDay);
+  if (event.end === undefined) {
+    const startDay = localDayOfWallClock(event.start);
+    return startDay === null ? null : { startDay, endDay: startDay };
+  }
+  return localDaySpanOfInstants(event.start, event.end);
 }
 
 function normalizedSpan(event: ExternalEvent): LocalDaySpan | null {
@@ -291,6 +291,7 @@ interface FeedEvent {
 interface SurfaceRead {
   feedEvents: FeedEvent[];
   configuredFeedKeys: string[];
+  completedFeedKeys?: string[];
   /** Set when part of the surface (an individual provider) failed its read. */
   degraded?: true;
 }
@@ -299,6 +300,7 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
   const service = icsService(plugin);
   const getSubscriptions = methodOf(service, 'getSubscriptions');
   const getAllEvents = methodOf(service, 'getAllEvents');
+  const getLastFetched = methodOf(service, 'getLastFetched');
   if (!getSubscriptions || !getAllEvents) return null;
   try {
     const enabledIds = new Set(
@@ -315,6 +317,15 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
     return {
       feedEvents,
       configuredFeedKeys: [...enabledIds].map((id) => externalCalendarFeedKey('ics', id)),
+      completedFeedKeys: [...enabledIds]
+        .filter((id) => {
+          try {
+            return typeof getLastFetched?.(id) === 'string';
+          } catch {
+            return false;
+          }
+        })
+        .map((id) => externalCalendarFeedKey('ics', id)),
     };
   } catch {
     return null;
@@ -690,9 +701,20 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
         .filter((key) => visible.has(key));
       const visibleFeedEvents = feedEvents.filter((feedEvent) => visible.has(feedEvent.feedKey));
       const currentFeedSetKey = feedSetKey(visibleFeedKeys);
+      const completedFeedKeys = new Set(
+        present
+          .flatMap((surface) => surface.completedFeedKeys ?? [])
+          .filter((key) => visible.has(key)),
+      );
       // A warm cache is a completed load — events observed for the visible
-      // set count as the completion signal without waiting for an emission.
-      if (visibleFeedEvents.length > 0) completionSignalFeedSetKey = currentFeedSetKey;
+      // set or per-feed ICS fetch metadata count as a completion signal
+      // without waiting for an emission.
+      if (
+        visibleFeedEvents.length > 0 ||
+        (visibleFeedKeys.length > 0 && visibleFeedKeys.every((key) => completedFeedKeys.has(key)))
+      ) {
+        completionSignalFeedSetKey = currentFeedSetKey;
+      }
       const loading =
         !degraded &&
         visibleFeedKeys.length > 0 &&

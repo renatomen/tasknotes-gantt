@@ -226,6 +226,7 @@ describe('propertyEventSource — title resolution', () => {
 
 describe('propertyEventSource — malformed values', () => {
   it.each([
+    { caseName: 'an impossible calendar day', eventStart: '2026-02-30' },
     { caseName: 'unparseable', eventStart: 'not-a-date' },
     { caseName: 'empty', eventStart: '' },
     { caseName: 'blank', eventStart: '   ' },

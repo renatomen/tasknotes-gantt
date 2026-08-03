@@ -158,6 +158,7 @@ interface PluginFixtureInput {
   subscriptions?: IcsSubscriptionFixture[];
   icsEvents?: IcsEventFixture[];
   providers?: Array<ReturnType<typeof providerFixture>['provider']>;
+  lastFetchedById?: Readonly<Record<string, string>>;
 }
 
 function pluginFixture(input: PluginFixtureInput = {}) {
@@ -169,6 +170,7 @@ function pluginFixture(input: PluginFixtureInput = {}) {
   const icsSubscriptionService = {
     getSubscriptions: jest.fn(() => state.subscriptions),
     getAllEvents: jest.fn(() => state.icsEvents),
+    getLastFetched: jest.fn((id: string) => input.lastFetchedById?.[id]),
     on: emitter.on,
   };
   const calendarProviderRegistry = {
@@ -381,6 +383,23 @@ describe('createExternalCalendarSource — ICS dialect normalization', () => {
     expect(batch.items[0].endDay).toBe('2026-08-04');
   });
 
+  it('excludes the end day when a timed instant event ends exactly at local midnight', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({
+          start: isoAtLocalOffset(new Date(2026, 7, 3, 23, 0, 0)),
+          end: isoAtLocalOffset(new Date(2026, 7, 4, 0, 0, 0)),
+        }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-08-03', endDay: '2026-08-03' });
+  });
+
   it('keeps a one-day all-day event on its own floating day (exclusive DTEND collapses)', async () => {
     const fixture = pluginFixture({
       subscriptions: [icsSubscription()],
@@ -494,6 +513,22 @@ describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect',
     expect(batch.items[0].startDay).toBe('2026-08-14');
     expect(batch.items[0].endDay).toBe('2026-08-16');
     expect(batch.items[0].occupancyDays).toBeUndefined();
+  });
+
+  it('excludes the end day when a floating wall-clock event ends exactly at midnight', async () => {
+    const { plugin } = googlePlugin([
+      icsEvent({
+        id: 'google-cal1-midnight',
+        subscriptionId: 'google-cal1',
+        start: '2026-08-14T23:00:00',
+        end: '2026-08-15T00:00:00',
+      }),
+    ]);
+    const { source } = makeSource(plugin, CAL1_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-08-14', endDay: '2026-08-14' });
   });
 });
 
@@ -1058,11 +1093,13 @@ describe('createExternalCalendarSource — refresh signals', () => {
     // fetch loop. Collect may read it; the tick must not.
     const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [icsEvent()] });
     const { timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+    fixture.icsSubscriptionService.getLastFetched.mockClear();
 
     timers.tick();
     timers.tick();
 
     expect(fixture.icsSubscriptionService.getAllEvents).not.toHaveBeenCalled();
+    expect(fixture.icsSubscriptionService.getLastFetched).not.toHaveBeenCalled();
   });
 
   it('reschedules itself so the fallback keeps ticking', () => {
@@ -1143,6 +1180,21 @@ describe('createExternalCalendarSource — cold cache', () => {
 
     expect(batch.items).toHaveLength(1);
     expect(batch.loading).toBeFalsy();
+  });
+
+  it('does not flag loading when a visible ICS feed has a warm empty cache', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [],
+      lastFetchedById: { 'work-cal': '2026-08-04T10:00:00.000Z' },
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.loading).toBeFalsy();
+    expect(fixture.icsSubscriptionService.getLastFetched).toHaveBeenCalledWith('work-cal');
   });
 
   it('reads neither event surface on collect when no feeds are visible', async () => {

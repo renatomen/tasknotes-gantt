@@ -130,6 +130,17 @@ describe('timeEntrySource — flat event rows from finished entries', () => {
     expect(batch.items[0]).toMatchObject({ startDay: '2026-08-03', endDay: '2026-08-04' });
   });
 
+  it('excludes the end day when a finished entry stops exactly at local midnight', async () => {
+    const entry: TaskNotesTimeEntry = {
+      startTime: isoAtLocalOffset(new Date(2026, 7, 3, 22, 0, 0)),
+      endTime: isoAtLocalOffset(new Date(2026, 7, 4, 0, 0, 0)),
+    };
+
+    const batch = await makeSource([taskWithEntries([entry])]).collect(CONTEXT);
+
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-08-03', endDay: '2026-08-03' });
+  });
+
   it('gives a zero-length entry a one-day span', async () => {
     const nineAm = isoAtLocalOffset(new Date(2026, 7, 3, 9, 0, 0));
     const entry: TaskNotesTimeEntry = { startTime: nineAm, endTime: nineAm };

@@ -30,7 +30,7 @@ import type {
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
-import { localDayOfInstant, type LocalDaySpan } from './normalizers';
+import { localDayOfInstant, localDayOfWallClock, type LocalDaySpan } from './normalizers';
 
 /** The property-event slice of the per-view calendar-item toggles. */
 export interface PropertyEventToggles {
@@ -100,7 +100,10 @@ function normalizeDateValue(raw: unknown): NormalizedDateValue {
   if (typeof raw !== 'string') return { kind: 'invalid' };
   const value = raw.trim();
   if (value === '' || NO_VALUE_PLACEHOLDERS.has(value.toLowerCase())) return { kind: 'absent' };
-  if (DATE_ONLY_PATTERN.test(value)) return { kind: 'day', day: value };
+  if (DATE_ONLY_PATTERN.test(value)) {
+    const day = localDayOfWallClock(value);
+    return day === null ? { kind: 'invalid' } : { kind: 'day', day };
+  }
   const day = localDayOfInstant(value);
   return day === null ? { kind: 'invalid' } : { kind: 'day', day };
 }
