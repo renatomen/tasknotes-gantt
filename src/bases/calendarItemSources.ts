@@ -157,14 +157,14 @@ export function createCalendarItemSourcesProvider(
    * targets), and the visible external feed keys. Compared per provide; a
    * change bumps the config revision folded into every provided epoch.
    */
-  const configTag = (toggles: CalendarItemToggles): string =>
+  const configTag = (toggles: CalendarItemToggles, visibleFeeds: ReadonlySet<string>): string =>
     calendarItemTogglesSignatureTag(toggles) +
     JSON.stringify([
       toggles.propertyEventStart,
       toggles.propertyEventEnd,
       toggles.propertyEventTitle,
     ]) +
-    [...visibleExternalFeeds()].sort((a, b) => a.localeCompare(b)).join(',');
+    [...visibleFeeds].sort((a, b) => a.localeCompare(b)).join(',');
 
   const createRecurring = (): DisposableCalendarItemSource =>
     createRecurringInstanceSource({
@@ -246,7 +246,8 @@ export function createCalendarItemSourcesProvider(
   return {
     provide(): readonly CalendarItemSource[] {
       const toggles = deps.toggles();
-      const tag = configTag(toggles);
+      const visibleFeeds = visibleExternalFeeds();
+      const tag = configTag(toggles, visibleFeeds);
       if (lastConfigTag !== null && tag !== lastConfigTag) {
         configRevision += 1;
       }
@@ -266,7 +267,7 @@ export function createCalendarItemSourcesProvider(
         external === null &&
         deps.getTaskNotesPlugin &&
         deps.scheduler &&
-        visibleExternalFeeds().size > 0
+        visibleFeeds.size > 0
       ) {
         external = createExternal(deps.getTaskNotesPlugin.bind(deps), deps.scheduler);
       }

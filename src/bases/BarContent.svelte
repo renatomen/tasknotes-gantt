@@ -123,9 +123,10 @@
 
   /**
    * Swallow drag-initiating events (pointer, mouse AND touch — SVAR starts a
-   * bar drag from all three) so pressing an occupancy piece can never move the
-   * envelope's dates; click/dblclick still bubble, so selection and the
-   * piece-routed activation keep working. Same rationale as the override dot.
+   * bar drag from all three) so pressing the node — an occupancy piece or the
+   * override dot — can never move the bar's dates; click/dblclick still
+   * bubble, so selection, hover tooltips, and piece-routed activation keep
+   * working.
    */
   function stopDragEvents(node: Element): () => void {
     const stop = (e: Event): void => e.stopPropagation();
@@ -188,17 +189,15 @@
       const dot = document.createElement('span');
       dot.className = 'og-override-dot';
       dot.title = tooltip;
-      // The dot sits on the bar's top-left corner, which is SVAR's start-resize
-      // zone — and SVAR begins a drag from mouse/pointer AND touch events on
-      // `.wx-bars`. Stop every drag-initiating event from bubbling out of the dot
-      // so inspecting the indicator — including a long-press on touch — can't move
-      // the start date; hover and the `title` tooltip still work.
-      const stopDrag = (e: Event): void => e.stopPropagation();
-      for (const evt of ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const) {
-        dot.addEventListener(evt, stopDrag);
-      }
+      // The dot sits on the bar's top-left corner — SVAR's start-resize zone —
+      // so inspecting the indicator (including a long-press on touch) must not
+      // move the start date.
+      const removeDragStops = stopDragEvents(dot);
       bar.appendChild(dot);
-      return () => dot.remove();
+      return () => {
+        removeDragStops();
+        dot.remove();
+      };
     };
   }
 </script>

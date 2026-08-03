@@ -24,7 +24,7 @@
 
 import type { TimerScheduler } from '../../bases/scheduler';
 import type { CalendarItem, CalendarItemSource, LocalDay } from './types';
-import { makeCalendarItemId } from './types';
+import { asRecord, makeCalendarItemId } from './types';
 import {
   isLocalDayString,
   localDayOfWallClock,
@@ -82,12 +82,6 @@ export function externalCalendarFeedKey(kind: ExternalCalendarProviderKind, id: 
   return `${kind}:${id}`;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -100,6 +94,14 @@ function methodOf(
   return typeof candidate === 'function'
     ? (candidate as (...args: unknown[]) => unknown).bind(owner)
     : undefined;
+}
+
+function icsService(plugin: unknown): Record<string, unknown> | undefined {
+  return asRecord(asRecord(plugin)?.icsSubscriptionService);
+}
+
+function providerRegistry(plugin: unknown): Record<string, unknown> | undefined {
+  return asRecord(asRecord(plugin)?.calendarProviderRegistry);
 }
 
 /** The ICSEvent slice this source consumes (TaskNotes service shape). */
@@ -194,7 +196,7 @@ function guardedProviders(raw: unknown): GuardedProvider[] {
 
 /** Current ICS subscriptions via the guarded service surface; absence → empty. */
 export function readExternalIcsSubscriptions(plugin: unknown): readonly ExternalIcsSubscription[] {
-  const getSubscriptions = methodOf(asRecord(asRecord(plugin)?.icsSubscriptionService), 'getSubscriptions');
+  const getSubscriptions = methodOf(icsService(plugin), 'getSubscriptions');
   if (!getSubscriptions) return [];
   try {
     return toIcsSubscriptions(getSubscriptions());
@@ -205,7 +207,7 @@ export function readExternalIcsSubscriptions(plugin: unknown): readonly External
 
 /** Current provider calendars via the guarded registry surface; absence → empty. */
 export function readExternalProviderCalendars(plugin: unknown): readonly ExternalProviderCalendar[] {
-  const getAllProviders = methodOf(asRecord(asRecord(plugin)?.calendarProviderRegistry), 'getAllProviders');
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (!getAllProviders) return [];
   try {
     return guardedProviders(getAllProviders()).flatMap((provider) => provider.calendars);
@@ -273,7 +275,7 @@ interface SurfaceRead {
 }
 
 function readIcsSurface(plugin: unknown): SurfaceRead | null {
-  const service = asRecord(asRecord(plugin)?.icsSubscriptionService);
+  const service = icsService(plugin);
   const getSubscriptions = methodOf(service, 'getSubscriptions');
   const getAllEvents = methodOf(service, 'getAllEvents');
   if (!getSubscriptions || !getAllEvents) return null;
@@ -299,7 +301,7 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
 }
 
 function readProviderSurface(plugin: unknown): SurfaceRead | null {
-  const getAllProviders = methodOf(asRecord(asRecord(plugin)?.calendarProviderRegistry), 'getAllProviders');
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (!getAllProviders) return null;
   try {
     const feedEvents: FeedEvent[] = [];
@@ -420,7 +422,7 @@ function fetchFreeFingerprint(plugin: unknown): string {
       `ics|${subscription.id}|${subscription.name}|${subscription.color ?? ''}|${subscription.enabled}`,
     );
   }
-  const getAllProviders = methodOf(asRecord(asRecord(plugin)?.calendarProviderRegistry), 'getAllProviders');
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (getAllProviders) {
     try {
       for (const provider of guardedProviders(getAllProviders())) {
@@ -496,7 +498,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
 
   const attachIcsEmitter = (plugin: Record<string, unknown> | undefined): void => {
     if (icsUnsubscribe) return;
-    const on = methodOf(asRecord(plugin?.icsSubscriptionService), 'on');
+    const on = methodOf(icsService(plugin), 'on');
     if (!on) return;
     try {
       icsUnsubscribe = asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged));
@@ -506,7 +508,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   };
 
   const attachProviderEmitters = (plugin: Record<string, unknown> | undefined): void => {
-    const getAllProviders = methodOf(asRecord(plugin?.calendarProviderRegistry), 'getAllProviders');
+    const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
     if (!getAllProviders) return;
     try {
       for (const entry of asArray(getAllProviders())) {

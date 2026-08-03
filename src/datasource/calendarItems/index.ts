@@ -5,6 +5,7 @@
  */
 
 export {
+  asRecord,
   CALENDAR_ITEM_ID_PREFIX,
   EXTERNAL_OCCUPANCY_STATE,
   isCalendarItemId,

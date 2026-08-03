@@ -1788,15 +1788,10 @@
     // Our own ordering moves are echo-tagged and pass through. The keyboard
     // actions and the newer semantic aliases are blocked too so a SVAR bump
     // can't silently re-enable reordering.
-    const blockUserReorder = (ev?: { eventSource?: string; id?: string | number }): boolean => {
+    const blockUserReorder = (ev?: { eventSource?: string }): boolean =>
       // Echoes must keep passing even for event rows: planReorder's ordering
       // moves are the only way appended event rows stay positioned.
-      if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
-      // Read-only calendar-item rows refuse reorder ahead of the blanket task
-      // block, so a future re-enable of task reordering cannot include them.
-      if (!allowsRowMutation(ev?.id)) return false;
-      return false;
-    };
+      syncing || ev?.eventSource === OG_ECHO_SOURCE;
     for (const reorderAction of [
       "move-task",
       "move-task:up",

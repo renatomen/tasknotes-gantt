@@ -23,6 +23,7 @@
  */
 
 import { TFile, type App } from 'obsidian';
+import { asRecord } from '../datasource/calendarItems';
 import type {
   CalendarDerivationWindow,
   DailyNoteTimeblocks,
@@ -40,12 +41,6 @@ export interface DailyNotesConfig {
 export const DEFAULT_DAILY_NOTE_FORMAT = 'YYYY-MM-DD';
 
 const DAILY_NOTES_PLUGIN_ID = 'daily-notes';
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
 
 /**
  * The enabled daily-notes core plugin's folder/format, or `null` when the

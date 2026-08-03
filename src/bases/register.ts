@@ -256,8 +256,8 @@ function wasExternalCalendarDegradedThisSession(): boolean {
 
 /**
  * The raw TaskNotes plugin handle (NOT its api) for the external-calendar
- * family's structurally-guarded service reads; `null` when absent. Mirrors
- * the {@link isTaskNotesPresent} resolution path.
+ * family's structurally-guarded service reads; `null` when absent.
+ * {@link isTaskNotesPresent} derives its presence check from this lookup.
  */
 function getTaskNotesPluginHandle(app: Plugin['app']): unknown {
   try {
@@ -1707,14 +1707,8 @@ class ObsidianGanttBasesView extends BasesView {
  * are shown only when this is true.
  */
 function isTaskNotesPresent(app: Plugin['app']): boolean {
-  try {
-    const plugins = (app as unknown as {
-      plugins?: { getPlugin(id: string): { api?: unknown } | null | undefined };
-    }).plugins;
-    return Boolean(plugins?.getPlugin('tasknotes')?.api);
-  } catch {
-    return false;
-  }
+  const handle = getTaskNotesPluginHandle(app) as { api?: unknown } | null;
+  return Boolean(handle?.api);
 }
 
 /**

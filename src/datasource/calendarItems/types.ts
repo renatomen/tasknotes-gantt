@@ -24,6 +24,18 @@
 import type { BasesEntry } from 'obsidian';
 import type { SourceTask } from '../types';
 
+/**
+ * The calendar-item layer's structural guard for unknown external surfaces:
+ * any non-null object — arrays included, deliberately looser than record
+ * guards that exclude them — read as a string-keyed record; anything else is
+ * `undefined`.
+ */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /** The calendar-item families the Gantt can render. */
 export type CalendarItemFamily =
   | 'task-date-event'
