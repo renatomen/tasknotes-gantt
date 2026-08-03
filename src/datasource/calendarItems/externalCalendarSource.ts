@@ -51,6 +51,13 @@ export interface ExternalProviderCalendar {
   name: string;
 }
 
+/** Guarded catalog read used by the options panel. */
+export interface ExternalCalendarDiscovery {
+  icsSubscriptions: readonly ExternalIcsSubscription[];
+  providerCalendars: readonly ExternalProviderCalendar[];
+  degraded: boolean;
+}
+
 /** Dependencies of the external-calendar source, injected by the wiring. */
 export interface ExternalCalendarSourceDeps {
   /** Opaque TaskNotes plugin handle; every access is structurally guarded here. */
@@ -234,6 +241,43 @@ export function readExternalProviderCalendars(plugin: unknown): readonly Externa
   } catch {
     return [];
   }
+}
+
+/**
+ * Read both external-calendar catalogs once while retaining whether either
+ * discovery surface was unavailable. An empty catalog is healthy only when
+ * both service methods exist and return successfully.
+ */
+export function readExternalCalendarDiscovery(plugin: unknown): ExternalCalendarDiscovery {
+  let degraded = false;
+  let icsSubscriptions: readonly ExternalIcsSubscription[] = [];
+  let providerCalendars: readonly ExternalProviderCalendar[] = [];
+
+  const getSubscriptions = methodOf(icsService(plugin), 'getSubscriptions');
+  if (!getSubscriptions) {
+    degraded = true;
+  } else {
+    try {
+      icsSubscriptions = toIcsSubscriptions(getSubscriptions());
+    } catch {
+      degraded = true;
+    }
+  }
+
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
+  if (!getAllProviders) {
+    degraded = true;
+  } else {
+    try {
+      const guarded = guardedProviders(getAllProviders());
+      providerCalendars = guarded.providers.flatMap((provider) => provider.calendars);
+      degraded ||= guarded.degraded;
+    } catch {
+      degraded = true;
+    }
+  }
+
+  return { icsSubscriptions, providerCalendars, degraded };
 }
 
 // --- dialect normalization ------------------------------------------------

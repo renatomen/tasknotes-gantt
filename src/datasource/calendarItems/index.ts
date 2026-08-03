@@ -47,12 +47,14 @@ export {
   DEFAULT_EXTERNAL_CALENDAR_POLL_MS,
   createExternalCalendarSource,
   externalCalendarFeedKey,
+  readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
 } from './externalCalendarSource';
 
 export type {
   ExternalCalendarProviderKind,
+  ExternalCalendarDiscovery,
   ExternalCalendarSource,
   ExternalCalendarSourceDeps,
   ExternalIcsSubscription,

@@ -42,6 +42,7 @@ import {
   type ExternalBatchFlags,
 } from './calendarItemSources';
 import {
+  readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
   type TimeblockWatch,
@@ -1754,10 +1755,12 @@ export function registerBasesGantt(plugin: Plugin, calendarLifetime: PluginLifet
       // states it (Bases toggles carry no disabled/tooltip shape).
       const taskNotesHandle = getTaskNotesPluginHandle(plugin.app);
       if (isTaskNotesPresent(plugin.app) && taskNotesHandle !== null) {
+        const discovery = readExternalCalendarDiscovery(taskNotesHandle);
+        sessionExternalCalendarDegradeSignal.observeCollect({ degraded: discovery.degraded });
         calendarItems.items.push(
           ...externalCalendarOptionEntries(
-            readExternalIcsSubscriptions(taskNotesHandle),
-            readExternalProviderCalendars(taskNotesHandle),
+            discovery.icsSubscriptions,
+            discovery.providerCalendars,
           ),
         );
         if (sessionExternalCalendarDegradeSignal.wasDegradedThisSession()) {

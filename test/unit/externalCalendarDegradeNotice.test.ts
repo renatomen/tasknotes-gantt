@@ -18,7 +18,10 @@ import {
 import { registerBasesGantt, wireExternalBatchFlags } from '../../src/bases/register';
 import { createCalendarItemSourcesProvider } from '../../src/bases/calendarItemSources';
 import { readCalendarItemToggles } from '../../src/bases/calendarItemOptions';
-import { externalCalendarFeedKey } from '../../src/datasource/calendarItems/externalCalendarSource';
+import {
+  externalCalendarFeedKey,
+  readExternalCalendarDiscovery,
+} from '../../src/datasource/calendarItems/externalCalendarSource';
 import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
 import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 
@@ -66,12 +69,7 @@ describe('createExternalCalendarDegradeSignal', () => {
 });
 
 /** Capture the REAL registration's options builder over a TaskNotes-present app. */
-function captureOptionsBuilder(): (config: BasesViewConfig) => BasesAllOptions[] {
-  const taskNotesHandle = {
-    api: {},
-    icsSubscriptionService: { getSubscriptions: () => [], getAllEvents: () => [] },
-    calendarProviderRegistry: { getAllProviders: () => [] },
-  };
+function captureOptionsBuilder(taskNotesHandle: Record<string, unknown>): (config: BasesViewConfig) => BasesAllOptions[] {
   const app = {
     plugins: { getPlugin: (id: string) => (id === 'tasknotes' ? taskNotesHandle : null) },
   };
@@ -103,6 +101,14 @@ function captureOptionsBuilder(): (config: BasesViewConfig) => BasesAllOptions[]
   return options;
 }
 
+function healthyEmptyTaskNotesHandle(): Record<string, unknown> {
+  return {
+    api: {},
+    icsSubscriptionService: { getSubscriptions: () => [], getAllEvents: () => [] },
+    calendarProviderRegistry: { getAllProviders: () => [] },
+  };
+}
+
 function hasDegradedEntry(groups: BasesAllOptions[]): boolean {
   const calendarItems = groups.find(
     (group) => (group as { displayName?: string }).displayName === 'Calendar items',
@@ -113,11 +119,49 @@ function hasDegradedEntry(groups: BasesAllOptions[]): boolean {
 }
 
 describe('register wiring: degraded collect → session Notice → options degrade line', () => {
-  it('a degraded external collect through the wired batch-flags path fires the Notice and appends the options line', async () => {
-    const options = captureOptionsBuilder();
+  it('healthy empty discovery stays healthy and shows no degradation', () => {
+    const options = captureOptionsBuilder(healthyEmptyTaskNotesHandle());
     const config = { get: () => undefined } as unknown as BasesViewConfig;
+
     expect(hasDegradedEntry(options(config))).toBe(false);
     expect(Notice.created).toHaveLength(0);
+    expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
+  });
+
+  it('missing discovery surfaces with zero feeds degrade through the real options path exactly once', () => {
+    const options = captureOptionsBuilder({ api: {} });
+    const config = { get: () => undefined } as unknown as BasesViewConfig;
+
+    expect(hasDegradedEntry(options(config))).toBe(true);
+    expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(true);
+    expect(Notice.created.map((notice) => notice.message)).toEqual([
+      EXTERNAL_CALENDAR_DEGRADED_NOTICE,
+    ]);
+
+    expect(hasDegradedEntry(options(config))).toBe(true);
+    expect(Notice.created).toHaveLength(1);
+  });
+
+  it('throwing discovery surfaces report degradation while retaining successful empty catalog data', () => {
+    const discovery = readExternalCalendarDiscovery({
+      icsSubscriptionService: {
+        getSubscriptions: () => {
+          throw new Error('unavailable');
+        },
+      },
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    });
+
+    expect(discovery).toEqual({
+      icsSubscriptions: [],
+      providerCalendars: [],
+      degraded: true,
+    });
+  });
+
+  it('a degraded collect through the wired batch-flags path fires the session Notice', async () => {
+    const options = captureOptionsBuilder(healthyEmptyTaskNotesHandle());
+    const config = { get: () => undefined } as unknown as BasesViewConfig;
 
     const loadingStates: boolean[] = [];
     // The provider assembled exactly as the mount does: the same observer
@@ -148,9 +192,7 @@ describe('register wiring: degraded collect → session Notice → options degra
 
     expect(batch.degraded).toBe(true);
     expect(loadingStates).toEqual([false]);
-    expect(Notice.created.map((notice) => notice.message)).toEqual([
-      EXTERNAL_CALENDAR_DEGRADED_NOTICE,
-    ]);
+    expect(Notice.created).toHaveLength(1);
     expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(true);
     expect(hasDegradedEntry(options(config))).toBe(true);
   });
