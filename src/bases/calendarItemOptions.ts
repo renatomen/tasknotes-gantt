@@ -9,12 +9,20 @@
  * calendar's own defaults (completed/skipped instances shown).
  *
  * Kept out of `viewOptions.ts` deliberately (size budget); follows its
- * group/reader shapes from outside. Per-subscription external-calendar toggles
- * arrive in a later slice and will extend this group.
+ * group/reader shapes from outside. Per-feed external-calendar toggles are
+ * dynamic entries ({@link externalCalendarOptionEntries}) built from the
+ * CURRENT subscription/calendar lists, so a deleted feed's orphaned config
+ * key is inert — no current feed ever consults it.
  *
  * @module bases/calendarItemOptions
  */
 import type { BasesOptionGroup, BasesOptions, BasesPropertyId } from 'obsidian';
+import {
+  externalCalendarFeedKey,
+  type ExternalCalendarProviderKind,
+  type ExternalIcsSubscription,
+  type ExternalProviderCalendar,
+} from '../datasource/calendarItems/externalCalendarSource';
 
 /** Canonical `tngantt_`-prefixed config keys for the calendar-item options. */
 export const CALENDAR_ITEM_OPTION_KEYS = {
@@ -140,6 +148,132 @@ export function calendarItemOptionsGroup(): BasesOptionGroup<BasesOptions> {
       ),
     ],
   };
+}
+
+const EXTERNAL_TOGGLE_KEY_PREFIXES: Record<ExternalCalendarProviderKind, string> = {
+  ics: 'tngantt_showICS_',
+  google: 'tngantt_showGoogleCalendar_',
+  microsoft: 'tngantt_showMicrosoftCalendar_',
+};
+
+/** Canonical per-feed visibility config key (`tngantt_show<Provider>_<id>`). */
+export function externalCalendarToggleKey(kind: ExternalCalendarProviderKind, id: string): string {
+  return `${EXTERNAL_TOGGLE_KEY_PREFIXES[kind]}${id}`;
+}
+
+interface ExternalProviderSection {
+  displayName: string;
+  windowNote: string;
+}
+
+/**
+ * What each provider's sync layer actually caches — shown so a user knows why
+ * events outside these windows never appear, regardless of the Gantt window.
+ */
+const EXTERNAL_PROVIDER_SECTIONS: Record<ExternalCalendarProviderKind, ExternalProviderSection> = {
+  ics: {
+    displayName: 'ICS calendars',
+    windowNote: "Events from each event's start to ~1 year ahead",
+  },
+  google: {
+    displayName: 'Google calendars',
+    windowNote: '~6 months back / 3 ahead (initial sync; incremental sync may add more)',
+  },
+  microsoft: {
+    displayName: 'Microsoft calendars',
+    windowNote: '~1 month back / 3 ahead (initial sync; incremental sync may add more)',
+  },
+};
+
+interface ExternalFeedEntry {
+  kind: ExternalCalendarProviderKind;
+  id: string;
+  name: string;
+}
+
+const EXTERNAL_PROVIDER_ORDER: readonly ExternalCalendarProviderKind[] = [
+  'ics',
+  'google',
+  'microsoft',
+];
+
+function externalFeedsByKind(
+  subscriptions: readonly ExternalIcsSubscription[],
+  calendars: readonly ExternalProviderCalendar[],
+): Map<ExternalCalendarProviderKind, ExternalFeedEntry[]> {
+  const byKind = new Map<ExternalCalendarProviderKind, ExternalFeedEntry[]>();
+  const add = (feed: ExternalFeedEntry): void => {
+    byKind.set(feed.kind, [...(byKind.get(feed.kind) ?? []), feed]);
+  };
+  for (const subscription of subscriptions) {
+    add({ kind: 'ics', id: subscription.id, name: subscription.name });
+  }
+  for (const calendar of calendars) {
+    add({ kind: calendar.provider, id: calendar.id, name: calendar.name });
+  }
+  return byKind;
+}
+
+/**
+ * Dynamic per-feed entries for the "Calendar items" group: for each provider
+ * with at least one feed, a static description line stating that provider's
+ * sync window, then one toggle per feed. Every toggle defaults OFF — this
+ * Gantt's opt-in rule overrides the TaskNotes calendar's shown-by-default.
+ */
+export function externalCalendarOptionEntries(
+  subscriptions: readonly ExternalIcsSubscription[],
+  calendars: readonly ExternalProviderCalendar[],
+): BasesOptions[] {
+  const byKind = externalFeedsByKind(subscriptions, calendars);
+  const entries: BasesOptions[] = [];
+  for (const kind of EXTERNAL_PROVIDER_ORDER) {
+    const feeds = byKind.get(kind);
+    if (feeds === undefined || feeds.length === 0) continue;
+    const section = EXTERNAL_PROVIDER_SECTIONS[kind];
+    // Bases has no static-label option type; an empty text input renders its
+    // placeholder as gray descriptive text (the viewOptions idiom) and its
+    // key is never read, so the entry is purely informational.
+    entries.push({
+      type: 'text',
+      displayName: section.displayName,
+      key: `tngantt_externalCalendarWindow_${kind}`,
+      default: '',
+      placeholder: section.windowNote,
+    });
+    for (const feed of feeds) {
+      entries.push({
+        type: 'toggle',
+        displayName: feed.name,
+        key: externalCalendarToggleKey(feed.kind, feed.id),
+        default: false,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
+ * The visible external feed keys ({@link externalCalendarFeedKey}) for the
+ * CURRENT subscription/calendar lists. Only current feeds are consulted, so a
+ * deleted feed's orphaned toggle key is ignored; a feed is visible only for
+ * an explicit boolean `true` (default OFF).
+ *
+ * @param get - reads a per-view option value by key (the Bases `config.get`).
+ */
+export function readVisibleExternalCalendarFeeds(
+  get: (key: string) => unknown,
+  subscriptions: readonly ExternalIcsSubscription[],
+  calendars: readonly ExternalProviderCalendar[],
+): ReadonlySet<string> {
+  const visible = new Set<string>();
+  for (const feeds of externalFeedsByKind(subscriptions, calendars).values()) {
+    for (const feed of feeds) {
+      if (get(externalCalendarToggleKey(feed.kind, feed.id)) === true) {
+        visible.add(externalCalendarFeedKey(feed.kind, feed.id));
+      }
+    }
+  }
+  return visible;
 }
 
 /**

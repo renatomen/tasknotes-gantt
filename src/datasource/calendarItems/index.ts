@@ -22,9 +22,31 @@ export type {
   LocalDay,
 } from './types';
 
-export { localDayOfInstant, localDaySpanOfInstants } from './normalizers';
+export {
+  isLocalDayString,
+  localDayOfInstant,
+  localDayOfWallClock,
+  localDaySpanOfInstants,
+  shiftLocalDay,
+} from './normalizers';
 
 export type { LocalDaySpan } from './normalizers';
+
+export {
+  DEFAULT_EXTERNAL_CALENDAR_POLL_MS,
+  createExternalCalendarSource,
+  externalCalendarFeedKey,
+  readExternalIcsSubscriptions,
+  readExternalProviderCalendars,
+} from './externalCalendarSource';
+
+export type {
+  ExternalCalendarProviderKind,
+  ExternalCalendarSource,
+  ExternalCalendarSourceDeps,
+  ExternalIcsSubscription,
+  ExternalProviderCalendar,
+} from './externalCalendarSource';
 
 export { createRecurringInstanceSource, expandRecurringOccupancy } from './recurringSource';
 

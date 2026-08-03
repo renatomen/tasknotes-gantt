@@ -7,15 +7,21 @@
  * Property pickers are property-agnostic: empty defaults, no hardcoded names.
  */
 
-import type { BasesOptions, BasesPropertyOption } from 'obsidian';
+import type { BasesOptions, BasesPropertyOption, BasesTextOption, BasesToggleOption } from 'obsidian';
 import {
   CALENDAR_ITEM_OPTION_KEYS,
   calendarItemOptionsGroup,
   calendarItemTogglesSignatureTag,
   calendarItemWatchedProperties,
+  externalCalendarOptionEntries,
   readCalendarItemToggles,
+  readVisibleExternalCalendarFeeds,
   type CalendarItemToggles,
 } from '../../src/bases/calendarItemOptions';
+import type {
+  ExternalIcsSubscription,
+  ExternalProviderCalendar,
+} from '../../src/datasource/calendarItems/externalCalendarSource';
 
 const getFrom =
   (values: Record<string, unknown>) =>
@@ -223,5 +229,116 @@ describe('calendarItemTogglesSignatureTag', () => {
     );
 
     expect(timeEntries).not.toBe(timeblocks);
+  });
+});
+
+const WORK_SUBSCRIPTION: ExternalIcsSubscription = {
+  id: 'work-cal',
+  name: 'Work calendar',
+  color: '#FF0000',
+  enabled: true,
+};
+
+const HOME_GOOGLE_CALENDAR: ExternalProviderCalendar = {
+  provider: 'google',
+  id: 'cal1',
+  name: 'Home',
+};
+
+const OUTLOOK_MICROSOFT_CALENDAR: ExternalProviderCalendar = {
+  provider: 'microsoft',
+  id: 'calA',
+  name: 'Outlook',
+};
+
+describe('externalCalendarOptionEntries', () => {
+  const allEntries = (): BasesOptions[] =>
+    externalCalendarOptionEntries(
+      [WORK_SUBSCRIPTION],
+      [HOME_GOOGLE_CALENDAR, OUTLOOK_MICROSOFT_CALENDAR],
+    );
+
+  const toggleByKey = (key: string): BasesToggleOption => {
+    const entry = allEntries().find((item) => item.key === key);
+    if (!entry || entry.type !== 'toggle') throw new Error(`toggle ${key} missing`);
+    return entry;
+  };
+
+  it('declares one per-feed toggle per subscription and provider calendar, all defaulting OFF', () => {
+    for (const [key, displayName] of [
+      ['tngantt_showICS_work-cal', 'Work calendar'],
+      ['tngantt_showGoogleCalendar_cal1', 'Home'],
+      ['tngantt_showMicrosoftCalendar_calA', 'Outlook'],
+    ]) {
+      const toggle = toggleByKey(key);
+      // Opt-in rule: this Gantt defaults every external feed OFF even though
+      // the TaskNotes calendar shows enabled subscriptions by default.
+      expect(toggle.default).toBe(false);
+      expect(toggle.displayName).toBe(displayName);
+    }
+  });
+
+  it('states each provider sync window as a static description line before its toggles', () => {
+    const entries = allEntries();
+    const notes = entries.filter((entry): entry is BasesTextOption => entry.type === 'text');
+
+    expect(notes.map((note) => note.placeholder)).toEqual([
+      "Events from each event's start to ~1 year ahead",
+      '~6 months back / 3 ahead (initial sync; incremental sync may add more)',
+      '~1 month back / 3 ahead (initial sync; incremental sync may add more)',
+    ]);
+    const icsNoteIndex = entries.findIndex((entry) => entry.type === 'text');
+    const icsToggleIndex = entries.findIndex((entry) => entry.key === 'tngantt_showICS_work-cal');
+    expect(icsNoteIndex).toBeGreaterThanOrEqual(0);
+    expect(icsToggleIndex).toBe(icsNoteIndex + 1);
+  });
+
+  it('omits a provider section entirely when it has no feeds', () => {
+    const entries = externalCalendarOptionEntries([], [HOME_GOOGLE_CALENDAR]);
+
+    expect(entries.some((entry) => entry.key.startsWith('tngantt_showICS_'))).toBe(false);
+    expect(entries.some((entry) => entry.key.startsWith('tngantt_showMicrosoftCalendar_'))).toBe(false);
+    expect(entries.some((entry) => entry.key === 'tngantt_showGoogleCalendar_cal1')).toBe(true);
+  });
+
+  it('produces no entries at all when no external feeds exist', () => {
+    expect(externalCalendarOptionEntries([], [])).toEqual([]);
+  });
+});
+
+describe('readVisibleExternalCalendarFeeds', () => {
+  const readWith = (values: Record<string, unknown>): ReadonlySet<string> =>
+    readVisibleExternalCalendarFeeds(
+      getFrom(values),
+      [WORK_SUBSCRIPTION],
+      [HOME_GOOGLE_CALENDAR, OUTLOOK_MICROSOFT_CALENDAR],
+    );
+
+  it('defaults every feed to hidden when its key is absent', () => {
+    expect(readWith({}).size).toBe(0);
+  });
+
+  it('makes a feed visible only for an explicit boolean true (junk stays hidden)', () => {
+    expect(readWith({ 'tngantt_showICS_work-cal': true })).toEqual(new Set(['ics:work-cal']));
+    expect(readWith({ 'tngantt_showICS_work-cal': 'true' }).size).toBe(0);
+    expect(readWith({ 'tngantt_showGoogleCalendar_cal1': 1 }).size).toBe(0);
+  });
+
+  it('keys provider calendars by their unprefixed calendar id', () => {
+    const visible = readWith({
+      'tngantt_showGoogleCalendar_cal1': true,
+      'tngantt_showMicrosoftCalendar_calA': true,
+    });
+
+    expect(visible).toEqual(new Set(['google:cal1', 'microsoft:calA']));
+  });
+
+  it('ignores an orphaned toggle key whose subscription no longer exists', () => {
+    const visible = readWith({
+      'tngantt_showICS_deleted-cal': true,
+      'tngantt_showICS_work-cal': true,
+    });
+
+    expect(visible).toEqual(new Set(['ics:work-cal']));
   });
 });
