@@ -15,9 +15,11 @@
  *    instances and materialized occurrences with the family toggle off — the
  *    TaskNotes calendar's semantics — so a fresh default view must collect it
  *    for dataset parity. Event-emitting families (time entries, timeblocks,
- *    property events, external calendars) emit nothing while off, so they are
- *    created lazily on the first toggle-on (visible feed, for external) and
- *    stay provided after opt-out. Identity stays stable because the
+ *    property events) emit nothing while off, so they are created lazily on
+ *    the first toggle-on and stay provided after opt-out. External calendars
+ *    instead retire when their plugin handle or visible-feed set disappears,
+ *    because no live source remains to publish loading-state completion.
+ *    Identity stays stable while each source remains active because the
  *    controller's batch cache keys on the source object.
  * 2. **Config flips ride the epoch.** The controller reuses a source's cached
  *    batch while its epoch is unchanged, and the sources' own epochs track
@@ -356,6 +358,7 @@ export function createCalendarItemSourcesProvider(
     } catch {
       // Released as far as the retired plugin services allow.
     }
+    deps.onExternalBatchFlags?.({ degraded: false, loading: false });
   };
 
   return {
@@ -385,15 +388,14 @@ export function createCalendarItemSourcesProvider(
         propertyEvents ??= createPropertyEvents();
       }
       const taskNotesPlugin = deps.getTaskNotesPlugin?.();
-      if (external !== null && taskNotesPlugin !== externalTaskNotesPlugin) {
+      const canProvideExternal = taskNotesPlugin != null && visibleFeeds.size > 0;
+      if (
+        external !== null &&
+        (!canProvideExternal || taskNotesPlugin !== externalTaskNotesPlugin)
+      ) {
         retireExternal();
       }
-      if (
-        external === null &&
-        deps.getTaskNotesPlugin &&
-        deps.scheduler &&
-        visibleFeeds.size > 0
-      ) {
+      if (external === null && canProvideExternal && deps.scheduler) {
         external = createExternal(taskNotesPlugin, deps.scheduler);
         externalTaskNotesPlugin = taskNotesPlugin;
       }

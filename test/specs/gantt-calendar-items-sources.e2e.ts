@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
  *
  * SELECTOR NOTES:
  *  - event rows: `.wx-bar.og-event` with `data-id` carrying the synthetic
- *    calendar-item id (`og-calendar://<family>/<series>[@<qualifier>]`), so
+ *    calendar-item id (`og-calendar://<family>/<encoded-series>[@<encoded-qualifier>]`), so
  *    family and backing note are both read off `data-id`.
  *  - switcher modal: `.modal .og-source-switcher-row` (label text in
  *    `.og-source-switcher-name`, native checkbox input).

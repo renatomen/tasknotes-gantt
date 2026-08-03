@@ -205,13 +205,18 @@ interface GuardedProvidersRead {
 }
 
 function guardedProviders(raw: unknown): GuardedProvidersRead {
+  if (!Array.isArray(raw)) return { providers: [], degraded: true };
   const providers: GuardedProvider[] = [];
   let degraded = false;
-  for (const entry of asArray(raw)) {
+  for (const entry of raw) {
     const provider = asRecord(entry);
     const kind = providerKindOf(provider?.providerId);
     const getAllEvents = methodOf(provider, 'getAllEvents');
-    if (!provider || !kind || !getAllEvents) continue;
+    const getAvailableCalendars = methodOf(provider, 'getAvailableCalendars');
+    if (!provider || !kind || !getAllEvents || !getAvailableCalendars) {
+      degraded = true;
+      continue;
+    }
     // Guard each provider on its own: one throwing provider loses only its own
     // events while healthy siblings keep rendering.
     try {
@@ -220,8 +225,7 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
         const event = toExternalEvent(rawEvent);
         if (event) events.push(event);
       }
-      const getAvailableCalendars = methodOf(provider, 'getAvailableCalendars');
-      const calendars = toProviderCalendars(kind, getAvailableCalendars?.());
+      const calendars = toProviderCalendars(kind, getAvailableCalendars());
       providers.push({
         kind,
         events,
@@ -313,7 +317,9 @@ function isAllDayShaped(event: ExternalEvent): boolean {
 function allDaySpan(event: ExternalEvent): LocalDaySpan | null {
   const startDay = localDayOfWallClock(event.start);
   if (startDay === null) return null;
-  let endDay = event.end === undefined ? startDay : (localDayOfWallClock(event.end) ?? startDay);
+  if (event.end === undefined) return { startDay, endDay: startDay };
+  let endDay = localDayOfWallClock(event.end);
+  if (endDay === null) return null;
   // iCalendar DTEND for VALUE=DATE is exclusive and TaskNotes passes it
   // verbatim, so the last occupied day is the day before.
   if (isLocalDayString(event.end) && endDay > startDay) endDay = shiftLocalDay(endDay, -1);
@@ -356,6 +362,20 @@ interface SurfaceRead {
   degraded?: true;
 }
 
+type GuardedMethod = (...args: unknown[]) => unknown;
+
+function hasIcsCompletionEvidence(
+  getLastFetched: GuardedMethod | undefined,
+  subscriptionId: string,
+): boolean {
+  if (!getLastFetched) return false;
+  try {
+    return typeof getLastFetched(subscriptionId) === 'string';
+  } catch {
+    return false;
+  }
+}
+
 function readIcsSurface(plugin: unknown): SurfaceRead | null {
   const service = icsService(plugin);
   const getSubscriptions = methodOf(service, 'getSubscriptions');
@@ -384,18 +404,50 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
       feedEvents,
       configuredFeedKeys: [...enabledIds].map((id) => externalCalendarFeedKey('ics', id)),
       completedFeedKeys: [...enabledIds]
-        .filter((id) => {
-          try {
-            return typeof getLastFetched?.(id) === 'string';
-          } catch {
-            return false;
-          }
-        })
+        .filter((id) => hasIcsCompletionEvidence(getLastFetched, id))
         .map((id) => externalCalendarFeedKey('ics', id)),
     };
   } catch {
     return null;
   }
+}
+
+function fetchFreeCompletedIcsFeedKeys(plugin: unknown): string[] {
+  const service = icsService(plugin);
+  const getSubscriptions = methodOf(service, 'getSubscriptions');
+  const getLastFetched = methodOf(service, 'getLastFetched');
+  if (!getSubscriptions) return [];
+  try {
+    return toIcsSubscriptions(getSubscriptions())
+      .filter(
+        (subscription) =>
+          subscription.enabled && hasIcsCompletionEvidence(getLastFetched, subscription.id),
+      )
+      .map((subscription) => externalCalendarFeedKey('ics', subscription.id));
+  } catch {
+    return [];
+  }
+}
+
+function fetchFreeCompletedProviderFeedKeys(plugin: unknown): string[] {
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
+  if (!getAllProviders) return [];
+  try {
+    return guardedProviders(getAllProviders()).providers.flatMap((provider) =>
+      provider.completedCalendarIds.map((calendarId) =>
+        externalCalendarFeedKey(provider.kind, calendarId),
+      ),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function fetchFreeCompletedFeedKeys(plugin: unknown): string[] {
+  return [
+    ...fetchFreeCompletedIcsFeedKeys(plugin),
+    ...fetchFreeCompletedProviderFeedKeys(plugin),
+  ];
 }
 
 function readProviderSurface(plugin: unknown): SurfaceRead | null {
@@ -635,26 +687,6 @@ function fetchFreeFingerprint(plugin: unknown): string {
   return parts.join('\n');
 }
 
-/** Canonical identity of a feed set: deduped, sorted, joined. */
-function feedSetKey(keys: readonly string[]): string {
-  return [...new Set(keys)].sort((a, b) => a.localeCompare(b)).join(',');
-}
-
-/**
- * Configured feed keys via the fetch-free surfaces only (subscription configs
- * and the providers' calendar caches) — safe outside `collect`, where
- * `ICSSubscriptionService.getAllEvents` must never be touched.
- */
-function fetchFreeConfiguredFeedKeys(plugin: unknown): string[] {
-  const keys = readExternalIcsSubscriptions(plugin)
-    .filter((subscription) => subscription.enabled)
-    .map((subscription) => externalCalendarFeedKey('ics', subscription.id));
-  for (const calendar of readExternalProviderCalendars(plugin)) {
-    keys.push(externalCalendarFeedKey(calendar.provider, calendar.id));
-  }
-  return keys;
-}
-
 /** Build the external-calendar {@link CalendarItemSource} over injected deps. */
 export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): ExternalCalendarSource {
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_EXTERNAL_CALENDAR_POLL_MS;
@@ -665,18 +697,23 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   const providerUnsubscribes = new Map<string, () => void>();
   let lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
 
-  // Loading is a first-signal lifecycle, never an emptiness inference: the
-  // visible-configured feed set counts as loading until the first completion
-  // signal (a data-changed emission, a changed-fingerprint tick, or a collect
-  // observing a warm cache) is recorded FOR that set — an empty result then
-  // clears it, and a feed-set change re-arms it exactly once.
-  let completionSignalFeedSetKey: string | null = null;
+  // Loading is a per-feed first-signal lifecycle, never an emptiness
+  // inference: each configured feed stays loading until its own event or
+  // service completion metadata has been observed.
+  const completedFeedKeys = new Set<string>();
 
-  const recordCompletionSignal = (): void => {
-    const visible = deps.visibleFeeds();
-    completionSignalFeedSetKey = feedSetKey(
-      fetchFreeConfiguredFeedKeys(deps.getTaskNotesPlugin()).filter((key) => visible.has(key)),
-    );
+  const recordCompletedFeedKeys = (feedKeys: readonly string[]): boolean => {
+    let changed = false;
+    for (const feedKey of feedKeys) {
+      if (completedFeedKeys.has(feedKey)) continue;
+      completedFeedKeys.add(feedKey);
+      changed = true;
+    }
+    return changed;
+  };
+
+  const recordFetchFreeCompletionEvidence = (): boolean => {
+    return recordCompletedFeedKeys(fetchFreeCompletedFeedKeys(deps.getTaskNotesPlugin()));
   };
 
   const bumpOnDataChanged = (): void => {
@@ -686,7 +723,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     // Refresh the fingerprint too, so the next fallback tick stays quiet
     // instead of double-bumping for the same change.
     lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
-    recordCompletionSignal();
+    recordFetchFreeCompletionEvidence();
     epoch += 1;
     deps.onEpochBump?.();
   };
@@ -741,9 +778,9 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     if (disposed) return;
     attachEmitters();
     const fingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
-    if (fingerprint !== lastFingerprint) {
+    const completionChanged = recordFetchFreeCompletionEvidence();
+    if (fingerprint !== lastFingerprint || completionChanged) {
       lastFingerprint = fingerprint;
-      recordCompletionSignal();
       epoch += 1;
       deps.onEpochBump?.();
     }
@@ -775,25 +812,15 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
         .flatMap((surface) => surface.configuredFeedKeys)
         .filter((key) => visible.has(key));
       const visibleFeedEvents = feedEvents.filter((feedEvent) => visible.has(feedEvent.feedKey));
-      const currentFeedSetKey = feedSetKey(visibleFeedKeys);
-      const completedFeedKeys = new Set(
-        present
-          .flatMap((surface) => surface.completedFeedKeys ?? [])
-          .filter((key) => visible.has(key)),
-      );
+      recordCompletedFeedKeys(present.flatMap((surface) => surface.completedFeedKeys ?? []));
+      recordCompletedFeedKeys(visibleFeedEvents.map((feedEvent) => feedEvent.feedKey));
       // A warm cache is a completed load — events observed for the visible
       // set or per-feed service completion metadata count as a signal
       // without waiting for an emission.
-      if (
-        visibleFeedEvents.length > 0 ||
-        (visibleFeedKeys.length > 0 && visibleFeedKeys.every((key) => completedFeedKeys.has(key)))
-      ) {
-        completionSignalFeedSetKey = currentFeedSetKey;
-      }
       const loading =
         !degraded &&
         visibleFeedKeys.length > 0 &&
-        completionSignalFeedSetKey !== currentFeedSetKey;
+        visibleFeedKeys.some((feedKey) => !completedFeedKeys.has(feedKey));
       const items = buildItems(visibleFeedEvents);
       return {
         items,

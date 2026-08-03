@@ -56,16 +56,18 @@ export type LocalDay = string;
 
 /**
  * Compose a synthetic calendar-item id: the namespace prefix, the family, a
- * stable series id (typically the backing note path or an external UID), and —
- * for dated instances of a series — the instance's local day.
+ * URI-component-encoded stable series id (typically the backing note path or
+ * an external UID), and an optional encoded instance qualifier. Encoding each
+ * component keeps the composition injective even when its data contains `@`,
+ * `/`, `%`, or another separator.
  */
 export function makeCalendarItemId(
   family: CalendarItemFamily,
   seriesId: string,
-  day?: LocalDay,
+  qualifier?: string,
 ): string {
-  const dayQualifier = day === undefined ? '' : `@${day}`;
-  return `${CALENDAR_ITEM_ID_PREFIX}${family}/${seriesId}${dayQualifier}`;
+  const encodedQualifier = qualifier === undefined ? '' : `@${encodeURIComponent(qualifier)}`;
+  return `${CALENDAR_ITEM_ID_PREFIX}${family}/${encodeURIComponent(seriesId)}${encodedQualifier}`;
 }
 
 /** Whether an id in a `path`-shaped field is a synthetic calendar-item id. */

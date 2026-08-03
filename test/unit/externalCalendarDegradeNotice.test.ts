@@ -169,9 +169,9 @@ describe('register wiring: degraded collect → session Notice → options degra
     const provider = createCalendarItemSourcesProvider({
       toggles: () => readCalendarItemToggles(() => undefined),
       listTasks: () => [],
-      // The TaskNotes handle is gone by collect time, so the guarded surface
-      // reads degrade instead of throwing.
-      getTaskNotesPlugin: () => undefined,
+      // The plugin is present but its external-calendar service surface is
+      // unavailable, so the guarded reads degrade instead of throwing.
+      getTaskNotesPlugin: () => ({ api: {} }),
       visibleExternalFeeds: () => new Set([externalCalendarFeedKey('ics', 'work-cal')]),
       scheduler: {
         setTimeout: () => 0 as unknown as ReturnType<typeof setTimeout>,

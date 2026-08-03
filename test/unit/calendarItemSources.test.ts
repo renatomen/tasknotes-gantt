@@ -589,17 +589,47 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(batch.items[0]!.startDay).toBe('2026-03-10');
     });
 
-    it('keeps providing the retained source after every feed is hidden again', () => {
+    it('retires the source and clears loading after every feed is hidden', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+        icsEvents: [],
       });
-      const harness = makeHarness([], { taskNotesPlugin: fixture.plugin });
+      const onExternalBatchFlags = jest.fn();
+      const harness = makeHarness([], {
+        taskNotesPlugin: fixture.plugin,
+        onExternalBatchFlags,
+      });
       visibleWorkFeed(harness);
-      provideSources(harness);
+      const source = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      await collectOne(source);
+      expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: true });
 
       harness.visibleFeeds.clear();
 
-      expect(families(provideSources(harness))).toContain('external-event');
+      expect(families(provideSources(harness))).not.toContain('external-event');
+      expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: false });
+    });
+
+    it('retires the source and clears loading when the TaskNotes handle disappears', async () => {
+      const fixture = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+        icsEvents: [],
+      });
+      let taskNotesPlugin: unknown = fixture.plugin;
+      const onExternalBatchFlags = jest.fn();
+      const harness = makeHarness([], {
+        getTaskNotesPlugin: () => taskNotesPlugin,
+        onExternalBatchFlags,
+      });
+      visibleWorkFeed(harness);
+      const source = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      await collectOne(source);
+      expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: true });
+
+      taskNotesPlugin = undefined;
+
+      expect(families(provideSources(harness))).not.toContain('external-event');
+      expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: false });
     });
 
     it('bumps the provided epoch when the visible feed set changes', () => {

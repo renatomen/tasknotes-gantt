@@ -20,15 +20,22 @@
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
-import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
+import {
+  makeCalendarItemId,
+  type CalendarItemQueryContext,
+} from '../../src/datasource/calendarItems';
 import {
   createExternalCalendarSource,
   externalCalendarFeedKey,
+  readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
   type ExternalCalendarSourceDeps,
 } from '../../src/datasource/calendarItems/externalCalendarSource';
 import type { TimerScheduler } from '../../src/bases/scheduler';
+
+const externalItemId = (seriesId: string, qualifier: string): string =>
+  makeCalendarItemId('external-event', seriesId, qualifier);
 
 function pad(value: number, width = 2): string {
   return String(value).padStart(width, '0');
@@ -168,11 +175,12 @@ function pluginFixture(input: PluginFixtureInput = {}) {
   const state = {
     subscriptions: input.subscriptions ?? [],
     icsEvents: input.icsEvents ?? [],
+    lastFetchedById: { ...(input.lastFetchedById ?? {}) } as Record<string, string>,
   };
   const icsSubscriptionService = {
     getSubscriptions: jest.fn(() => state.subscriptions),
     getAllEvents: jest.fn(() => state.icsEvents),
-    getLastFetched: jest.fn((id: string) => input.lastFetchedById?.[id]),
+    getLastFetched: jest.fn((id: string) => state.lastFetchedById[id]),
     on: emitter.on,
   };
   const calendarProviderRegistry = {
@@ -312,6 +320,27 @@ describe('createExternalCalendarSource — guarded service absence', () => {
     expect(batch.degraded).toBe(true);
   });
 
+  it('marks malformed provider entries and missing required provider surfaces as degraded', async () => {
+    const malformedProviders = [
+      null,
+      { getAllEvents: () => [], getAvailableCalendars: () => [] },
+      { providerId: 'google', getAvailableCalendars: () => [] },
+      { providerId: 'microsoft', getAllEvents: () => [] },
+    ];
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const plugin = {
+      ...fixture.plugin,
+      calendarProviderRegistry: { getAllProviders: () => malformedProviders },
+    };
+    const { source } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.degraded).toBe(true);
+    expect(readExternalCalendarDiscovery(plugin).degraded).toBe(true);
+  });
+
   it('attaches a later provider\'s data-changed listener when an earlier provider\'s on() throws', () => {
     const broken = providerFixture({ providerId: 'google', calendars: [] });
     broken.provider.on = () => {
@@ -443,6 +472,30 @@ describe('createExternalCalendarSource — ICS dialect normalization', () => {
     expect(batch.items[0].occupancyDays).toBeUndefined();
   });
 
+  it('drops an all-day event whose present end is not a real calendar day', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start: '2026-08-10', end: '2026-02-30', allDay: true })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+  });
+
+  it('keeps an all-day event with no end as a one-day event', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start: '2026-08-10', end: undefined, allDay: true })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-08-10', endDay: '2026-08-10' });
+  });
+
   it('collapses a zero-duration event to a one-day span', async () => {
     const nineAm = isoAtLocalOffset(new Date(2026, 7, 5, 9, 0, 0));
     const fixture = pluginFixture({
@@ -568,8 +621,12 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(2);
-    expect(batch.items[0].id).toBe('og-calendar://external-event/ics:work-cal@2026-08-10#09:00#i:work-cal-uid-1');
-    expect(batch.items[1].id).toBe('og-calendar://external-event/ics:work-cal@2026-08-10#17:00#i:work-cal-uid-2');
+    expect(batch.items[0].id).toBe(
+      externalItemId('ics:work-cal', '2026-08-10#09:00#i:work-cal-uid-1'),
+    );
+    expect(batch.items[1].id).toBe(
+      externalItemId('ics:work-cal', '2026-08-10#17:00#i:work-cal-uid-2'),
+    );
   });
 
   it('keeps two same-day all-day singles in one feed as distinct rows', async () => {
@@ -590,8 +647,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
       'Holiday',
     ]);
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#i:work-cal-uid-1',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#i:work-cal-uid-2',
+      externalItemId('ics:work-cal', '2026-08-10#00:00#i:work-cal-uid-1'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#i:work-cal-uid-2'),
     ]);
   });
 
@@ -627,8 +684,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
 
     expect(batch.items).toHaveLength(2);
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/google:cal1@2026-08-10#09:00#i:uid-1',
-      'og-calendar://external-event/ics:google-cal1@2026-08-10#09:00#i:uid-1',
+      externalItemId('google:cal1', '2026-08-10#09:00#i:uid-1'),
+      externalItemId('ics:google-cal1', '2026-08-10#09:00#i:uid-1'),
     ]);
   });
 
@@ -650,8 +707,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
 
     expect(batch.items).toHaveLength(2);
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~1'),
     ]);
   });
 
@@ -669,8 +726,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
     const before = (await source.collect(CONTEXT)).items.map((item) => item.id);
     expect(before.sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-11#00:00#t:Alpha~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-12#00:00#t:Beta~0',
+      externalItemId('ics:work-cal', '2026-08-11#00:00#t:Alpha~0'),
+      externalItemId('ics:work-cal', '2026-08-12#00:00#t:Beta~0'),
     ]);
 
     fixture.state.icsEvents = [
@@ -700,9 +757,9 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#i:Busy~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+      externalItemId('ics:work-cal', '2026-08-10#00:00#i:Busy~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~1'),
     ]);
   });
 
@@ -724,8 +781,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
 
     expect(batch.items).toHaveLength(2);
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~1'),
     ]);
     expect(batch.items.map((item) => item.endDay).sort((a, b) => a.localeCompare(b))).toEqual([
       '2026-08-10',
@@ -776,9 +833,9 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0~0',
-      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~0~0'),
+      externalItemId('ics:work-cal', '2026-08-10#00:00#t:Busy~1'),
     ]);
   });
 
@@ -826,10 +883,14 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const byTitle = new Map(batch.items.map((item) => [item.title, item]));
     const googleRow = byTitle.get('Google standup');
     const outlookRow = byTitle.get('Outlook standup');
-    expect(googleRow?.id).toBe('og-calendar://external-event/google:cal1/shared-series@2026-08-10#09:00');
+    expect(googleRow?.id).toBe(
+      externalItemId('google:cal1/shared-series', '2026-08-10#09:00'),
+    );
     expect(googleRow?.startDay).toBe('2026-08-10');
     expect(googleRow?.endDay).toBe('2026-08-10');
-    expect(outlookRow?.id).toBe('og-calendar://external-event/microsoft:calA/shared-series@2026-08-12#09:00');
+    expect(outlookRow?.id).toBe(
+      externalItemId('microsoft:calA/shared-series', '2026-08-12#09:00'),
+    );
     expect(outlookRow?.startDay).toBe('2026-08-12');
     expect(outlookRow?.endDay).toBe('2026-08-12');
   });
@@ -862,7 +923,9 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
 
     expect(batch.items).toHaveLength(1);
     const series = batch.items[0];
-    expect(series.id).toBe('og-calendar://external-event/google:cal1/google-cal1-master1@2026-08-10#09:00');
+    expect(series.id).toBe(
+      externalItemId('google:cal1/google-cal1-master1', '2026-08-10#09:00'),
+    );
     expect(series.title).toBe('Twice daily');
     expect(series.startDay).toBe('2026-08-10');
     expect(series.endDay).toBe('2026-08-12');
@@ -916,7 +979,9 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(1);
-    expect(batch.items[0].id).toBe('og-calendar://external-event/ics:work-cal/work-cal-master9@2026-08-20#09:00');
+    expect(batch.items[0].id).toBe(
+      externalItemId('ics:work-cal/work-cal-master9', '2026-08-20#09:00'),
+    );
     expect(batch.items[0].occupancyDays).toBeUndefined();
   });
 });
@@ -1113,7 +1178,7 @@ describe('createExternalCalendarSource — refresh signals', () => {
     timers.tick();
 
     expect(fixture.icsSubscriptionService.getAllEvents).not.toHaveBeenCalled();
-    expect(fixture.icsSubscriptionService.getLastFetched).not.toHaveBeenCalled();
+    expect(fixture.icsSubscriptionService.getLastFetched).toHaveBeenCalledTimes(2);
   });
 
   it('reschedules itself so the fallback keeps ticking', () => {
@@ -1196,6 +1261,26 @@ describe('createExternalCalendarSource — cold cache', () => {
     expect(batch.loading).toBeFalsy();
   });
 
+  it('keeps loading while a visible sibling feed has no event or completion evidence', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [
+        icsSubscription(),
+        icsSubscription({ id: 'home-cal', name: 'Home calendar' }),
+      ],
+      icsEvents: [icsEvent()],
+    });
+    const visible = new Set([
+      externalCalendarFeedKey('ics', 'work-cal'),
+      externalCalendarFeedKey('ics', 'home-cal'),
+    ]);
+    const { source } = makeSource(fixture.plugin, visible);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.loading).toBe(true);
+  });
+
   it('does not flag loading when a visible ICS feed has a warm empty cache', async () => {
     const fixture = pluginFixture({
       subscriptions: [icsSubscription()],
@@ -1270,11 +1355,36 @@ describe('createExternalCalendarSource — cold cache', () => {
     const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
     expect((await source.collect(CONTEXT)).loading).toBe(true);
 
+    fixture.state.lastFetchedById['work-cal'] = '2026-08-04T10:00:00.000Z';
     fixture.emitter.emit('data-changed');
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toEqual([]);
     expect(batch.loading).toBeFalsy();
+  });
+
+  it('a global data-changed emission completes only feeds with per-feed evidence', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [
+        icsSubscription(),
+        icsSubscription({ id: 'home-cal', name: 'Home calendar' }),
+      ],
+      icsEvents: [],
+    });
+    const visible = new Set([
+      externalCalendarFeedKey('ics', 'work-cal'),
+      externalCalendarFeedKey('ics', 'home-cal'),
+    ]);
+    const { source } = makeSource(fixture.plugin, visible);
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+
+    fixture.state.lastFetchedById['work-cal'] = '2026-08-04T10:00:00.000Z';
+    fixture.emitter.emit('data-changed');
+
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+    fixture.state.lastFetchedById['home-cal'] = '2026-08-04T10:01:00.000Z';
+    fixture.emitter.emit('data-changed');
+    expect((await source.collect(CONTEXT)).loading).toBeFalsy();
   });
 
   it('a changed-fingerprint fallback tick counts as the completion signal', async () => {
@@ -1283,6 +1393,7 @@ describe('createExternalCalendarSource — cold cache', () => {
     expect((await source.collect(CONTEXT)).loading).toBe(true);
 
     fixture.state.subscriptions = [icsSubscription({ name: 'Renamed work calendar' })];
+    fixture.state.lastFetchedById['work-cal'] = '2026-08-04T10:00:00.000Z';
     timers.tick();
 
     expect((await source.collect(CONTEXT)).loading).toBeFalsy();
@@ -1307,6 +1418,7 @@ describe('createExternalCalendarSource — cold cache', () => {
     const { source } = makeSource(fixture.plugin, new Set(), { visibleFeeds: () => visible });
 
     expect((await source.collect(CONTEXT)).loading).toBe(true);
+    fixture.state.lastFetchedById['work-cal'] = '2026-08-04T10:00:00.000Z';
     fixture.emitter.emit('data-changed');
     expect((await source.collect(CONTEXT)).loading).toBeFalsy();
 
@@ -1315,6 +1427,7 @@ describe('createExternalCalendarSource — cold cache', () => {
     // Still armed on a repeat collect — the change re-arms once, not per collect.
     expect((await source.collect(CONTEXT)).loading).toBe(true);
 
+    fixture.state.lastFetchedById['home-cal'] = '2026-08-04T10:01:00.000Z';
     fixture.emitter.emit('data-changed');
     expect((await source.collect(CONTEXT)).loading).toBeFalsy();
   });

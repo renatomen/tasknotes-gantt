@@ -30,13 +30,22 @@ describe('calendar-item synthetic ID namespace', () => {
   it('composes a namespaced id from family and series id', () => {
     const id = makeCalendarItemId('timeblock', 'Daily/2026-01-10.md#tb-1');
 
-    expect(id).toBe(`${CALENDAR_ITEM_ID_PREFIX}timeblock/Daily/2026-01-10.md#tb-1`);
+    expect(id).toBe(`${CALENDAR_ITEM_ID_PREFIX}timeblock/Daily%2F2026-01-10.md%23tb-1`);
   });
 
   it('appends the day qualifier for dated instances', () => {
     const id = makeCalendarItemId('recurring-instance', 'Tasks/standup.md', '2026-01-12');
 
-    expect(id).toBe(`${CALENDAR_ITEM_ID_PREFIX}recurring-instance/Tasks/standup.md@2026-01-12`);
+    expect(id).toBe(
+      `${CALENDAR_ITEM_ID_PREFIX}recurring-instance/Tasks%2Fstandup.md@2026-01-12`,
+    );
+  });
+
+  it('keeps series and qualifier composition injective when either contains separators', () => {
+    const qualifierContainsDelimiter = makeCalendarItemId('timeblock', 'a.md', 'b.md@c');
+    const seriesContainsDelimiter = makeCalendarItemId('timeblock', 'a.md@b.md', 'c');
+
+    expect(qualifierContainsDelimiter).not.toBe(seriesContainsDelimiter);
   });
 
   it('recognizes its own ids', () => {

@@ -35,12 +35,18 @@ export function calendarDerivationWindow(
   startAnchors: readonly LocalDay[] = [],
 ): CalendarDerivationWindow {
   const spanWindow = spanEvaluationWindow(spans);
-  if (spanWindow === null) {
-    const todayWindow = spanEvaluationWindow([{ start: today, end: today }])!;
-    return { ...todayWindow, startDate: earliestDay(todayWindow.startDate, startAnchors) };
-  }
   const todayDay = localIso(today);
   const annualHorizon = localDayNextYear(today);
+  if (spanWindow === null) {
+    const todayWindow = spanEvaluationWindow([{ start: today, end: today }])!;
+    return {
+      startDate: earliestDay(todayWindow.startDate, startAnchors),
+      endDateExclusive:
+        todayWindow.endDateExclusive > annualHorizon
+          ? todayWindow.endDateExclusive
+          : annualHorizon,
+    };
+  }
   return {
     startDate: earliestDay(
       spanWindow.startDate < todayDay ? spanWindow.startDate : todayDay,

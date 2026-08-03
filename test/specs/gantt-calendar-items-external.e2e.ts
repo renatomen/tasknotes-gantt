@@ -50,8 +50,8 @@ const FEED_TOGGLE_KEY = `tngantt_showICS_${SUBSCRIPTION_ID}`;
 const UPSTREAM_EVENT_COUNT = 5;
 /** 2 single rows + the series collapsed to ONE row. */
 const EXPECTED_EXTERNAL_ROWS = 3;
-const SERIES_ID_FRAGMENT = "daily-sync@e2e";
-const ALL_DAY_SINGLE_FRAGMENT = `external-event/ics:${SUBSCRIPTION_ID}@2026-03-12`;
+const SERIES_ID_FRAGMENT = "daily-sync%40e2e";
+const ALL_DAY_SINGLE_FRAGMENT = `external-event/ics%3A${SUBSCRIPTION_ID}@2026-03-12`;
 
 const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-external-e2e");
 

@@ -669,7 +669,7 @@ describe('instance cues (U6)', () => {
   });
 
   it('stamps a calendar-item row with og-event and the composed type round-trips through registration', () => {
-    const eventId = 'og-calendar://timeblock/Calendar/blocks.md@2026-08-03';
+    const eventId = 'og-calendar://timeblock/Calendar%2Fblocks.md@2026-08-03';
     const tasks = buildSvarTasks(
       inputs({
         instances: [

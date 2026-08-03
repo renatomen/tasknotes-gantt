@@ -293,6 +293,21 @@ describe('recurringSource — DTSTART quirk parity', () => {
       '2026-01-27',
     ]);
   });
+
+  it('keeps yearly expansion reaching the active horizon when another source widens the start', async () => {
+    const batch = await makeSource([
+      weeklyTask({
+        recurrence: 'DTSTART:20260302T000000Z;FREQ=YEARLY',
+        scheduled: '2026-03-02',
+      }),
+    ]).collect(
+      queryContext({ startDate: '2020-01-01', endDateExclusive: '2027-03-01' }),
+    );
+
+    expect(batch.occupancyByTaskPath.get(STANDUP_PATH)?.map((entry) => entry.day)).toEqual([
+      '2026-03-02',
+    ]);
+  });
 });
 
 describe('recurringSource — field-mapper resolution', () => {

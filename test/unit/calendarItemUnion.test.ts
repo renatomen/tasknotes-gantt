@@ -160,7 +160,7 @@ describe('calendar-item union — derivation window', () => {
     expect(window.endDateExclusive).toBe('2025-02-28');
   });
 
-  it('retains the today-centered margin when every task is undated', () => {
+  it('retains the today-centered start margin and annual horizon when every task is undated', () => {
     const window = calendarDerivationWindow(
       [{ start: null, end: null }],
       new Date(2026, 0, 15),
@@ -168,7 +168,7 @@ describe('calendar-item union — derivation window', () => {
 
     expect(window).toEqual({
       startDate: '2025-11-14',
-      endDateExclusive: '2026-03-19',
+      endDateExclusive: '2027-01-15',
     });
   });
 
@@ -181,7 +181,7 @@ describe('calendar-item union — derivation window', () => {
 
     expect(source.lastContext?.window).toEqual({
       startDate: '2024-02-03',
-      endDateExclusive: '2026-03-19',
+      endDateExclusive: '2027-01-15',
     });
   });
 });

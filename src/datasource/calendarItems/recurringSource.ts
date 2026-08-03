@@ -69,10 +69,9 @@ export interface RecurringExpansionInput {
 }
 
 /**
- * Calendar quirk, reproduced verbatim: yearly rules expand over a fixed
- * ~2.2-year look-ahead from the window start (instead of the window end), so
- * short windows still find an occurrence — and windows longer than the
- * look-ahead miss the ones beyond it, exactly as the calendar does.
+ * Calendar quirk: yearly rules need at least the calendar's fixed ~2.2-year
+ * look-ahead, while a source-widened shared window must still reach its active
+ * current/future horizon.
  */
 const YEARLY_LOOKAHEAD_DAYS = 800;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -127,7 +126,12 @@ function patternDays(
 ): LocalDay[] {
   const windowStart = utcDayStart(window.startDate);
   const searchEnd = task.recurrence.includes('FREQ=YEARLY')
-    ? new Date(windowStart.getTime() + YEARLY_LOOKAHEAD_DAYS * MILLISECONDS_PER_DAY)
+    ? new Date(
+        Math.max(
+          windowStart.getTime() + YEARLY_LOOKAHEAD_DAYS * MILLISECONDS_PER_DAY,
+          utcDayStart(window.endDateExclusive).getTime(),
+        ),
+      )
     : utcDayStart(window.endDateExclusive);
   const scheduled = task.scheduled instanceof Date ? toLocalDay(task.scheduled) : task.scheduled;
   const occurrences = generateRecurringInstances(
