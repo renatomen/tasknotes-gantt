@@ -114,7 +114,7 @@ export function expandTimeEntryItems(input: TimeEntryExpansionInput): CalendarIt
   const items: CalendarItem[] = [];
   for (const task of input.tasks) {
     const candidates = (task.timeEntries ?? [])
-      .map(toCandidate)
+      .map((entry, index) => toCandidate(entry, index))
       .filter((candidate): candidate is TimeEntryCandidate => candidate !== null);
     const ordinals = twinOrdinals(candidates);
     for (const candidate of candidates) {
