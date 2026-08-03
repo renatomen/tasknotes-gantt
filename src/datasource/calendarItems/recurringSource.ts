@@ -76,6 +76,7 @@ export interface RecurringExpansionInput {
  */
 const YEARLY_LOOKAHEAD_DAYS = 800;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const MAX_OCCUPANCY_DAYS_PER_SERIES = 1_000;
 
 const NO_MATERIALIZED: ReadonlyMap<LocalDay, string> = new Map();
 
@@ -242,6 +243,17 @@ function collectInstanceStates(
   return scope.states;
 }
 
+function capInstanceStates(
+  states: ReadonlyMap<LocalDay, RecurringInstanceState>,
+): ReadonlyMap<LocalDay, RecurringInstanceState> {
+  if (states.size <= MAX_OCCUPANCY_DAYS_PER_SERIES) return states;
+  return new Map(
+    [...states.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-MAX_OCCUPANCY_DAYS_PER_SERIES),
+  );
+}
+
 function toOccupancy(
   taskPath: string,
   states: ReadonlyMap<LocalDay, RecurringInstanceState>,
@@ -278,12 +290,14 @@ export function expandRecurringOccupancy(input: RecurringExpansionInput): Calend
 
       const materializedDays =
         materializedIndex.get(normalizeTaskReference(task.path)) ?? NO_MATERIALIZED;
-      const states = collectInstanceStates(
-        { ...task, recurrence },
-        scheduledDay,
-        window,
-        toggles,
-        materializedDays,
+      const states = capInstanceStates(
+        collectInstanceStates(
+          { ...task, recurrence },
+          scheduledDay,
+          window,
+          toggles,
+          materializedDays,
+        ),
       );
       if (states.size > 0) {
         occupancyByTaskPath.set(task.path, toOccupancy(task.path, states, materializedDays));

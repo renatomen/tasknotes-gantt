@@ -31,6 +31,7 @@ import type {
   CalendarItemQueryContext,
   CalendarItemSource,
   DailyNoteTimeblocks,
+  LocalDay,
 } from '../../src/datasource/calendarItems';
 import { externalCalendarFeedKey } from '../../src/datasource/calendarItems';
 import type { TaskNotesTaskInfo } from '../../src/datasource/TaskNotesSource';
@@ -83,6 +84,7 @@ interface Harness {
 interface HarnessOptions {
   dailyNotes?: readonly DailyNoteTimeblocks[];
   onListDailyNotes?: (window: { startDate: string; endDateExclusive: string }) => void;
+  earliestDailyNoteDay?: () => LocalDay | null;
   timeblockEpoch?: () => number;
   dailyNotesConfigTag?: () => string;
   taskNotesIdentity?: () => unknown;
@@ -127,6 +129,7 @@ function makeHarness(tasks: readonly TaskNotesTaskInfo[], options: HarnessOption
         }
       : {}),
     ...(options.timeblockEpoch ? { timeblockEpoch: options.timeblockEpoch } : {}),
+    earliestDailyNoteDay: options.earliestDailyNoteDay ?? (() => null),
     ...(options.dailyNotesConfigTag
       ? { dailyNotesConfigTag: options.dailyNotesConfigTag }
       : {}),
@@ -524,6 +527,18 @@ describe('createCalendarItemSourcesProvider', () => {
 
       watchEpoch += 1;
       expect(source.epoch()).toBe(initialEpoch + 1);
+    });
+
+    it('forwards the earliest Daily Note as the source window-start anchor', () => {
+      const harness = makeHarness([], {
+        dailyNotes: [dailyNote],
+        earliestDailyNoteDay: () => '2024-02-03',
+      });
+      harness.toggles.showTimeblocks = true;
+
+      const source = provideSources(harness).find((entry) => entry.family === 'timeblock')!;
+
+      expect(source.windowStartAnchor?.()).toBe('2024-02-03');
     });
 
     it('bumps the provided epoch when Daily Notes configuration changes without a file event', () => {

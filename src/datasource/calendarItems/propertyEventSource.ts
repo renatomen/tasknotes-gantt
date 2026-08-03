@@ -27,6 +27,7 @@ import type {
   CalendarItem,
   CalendarItemBatch,
   CalendarItemSource,
+  CalendarDerivationWindow,
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
@@ -58,6 +59,7 @@ export interface PropertyEventSource extends CalendarItemSource {
 export interface PropertyEventExpansionInput {
   entries: readonly BasesEntryLike[];
   toggles: PropertyEventToggles;
+  window: CalendarDerivationWindow;
 }
 
 /** The bare frontmatter keys behind the configured pickers. */
@@ -150,6 +152,10 @@ function toPropertyEvent(
   };
 }
 
+function intersectsWindow(item: CalendarItem, window: CalendarDerivationWindow): boolean {
+  return item.endDay >= window.startDate && item.startDay < window.endDateExclusive;
+}
+
 /** Pure expansion: mapped note properties → flat day-attributed event rows. */
 export function expandPropertyEventItems(input: PropertyEventExpansionInput): CalendarItemBatch {
   const occupancyByTaskPath = new Map<string, never[]>();
@@ -159,7 +165,7 @@ export function expandPropertyEventItems(input: PropertyEventExpansionInput): Ca
   const items: CalendarItem[] = [];
   for (const entry of input.entries) {
     const item = toPropertyEvent(entry, configured);
-    if (item !== null) items.push(item);
+    if (item !== null && intersectsWindow(item, input.window)) items.push(item);
   }
   return { items, occupancyByTaskPath };
 }
@@ -177,6 +183,7 @@ export function createPropertyEventSource(deps: PropertyEventSourceDeps): Proper
       expandPropertyEventItems({
         entries: context.basesEntries(),
         toggles: deps.toggles(),
+        window: context.window,
       }),
     dispose: () => {
       unsubscribe?.();

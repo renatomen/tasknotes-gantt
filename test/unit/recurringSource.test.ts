@@ -13,7 +13,11 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import { DEFAULT_FIELD_MAPPING, mapTaskFromFrontmatter, type FieldMapping } from '@tasknotes/model';
-import { makeCalendarItemId, type CalendarItemQueryContext } from '../../src/datasource/calendarItems';
+import {
+  makeCalendarItemId,
+  type CalendarDerivationWindow,
+  type CalendarItemQueryContext,
+} from '../../src/datasource/calendarItems';
 import {
   createRecurringInstanceSource,
   type RecurringInstanceToggles,
@@ -47,7 +51,7 @@ function weeklyTask(partial: Partial<TaskNotesTaskInfo> = {}): TaskNotesTaskInfo
   };
 }
 
-function queryContext(window: typeof WINDOW = WINDOW): CalendarItemQueryContext {
+function queryContext(window: CalendarDerivationWindow = WINDOW): CalendarItemQueryContext {
   return { window, tasks: () => [], basesEntries: () => [] };
 }
 
@@ -255,6 +259,19 @@ describe('recurringSource — guards', () => {
 
     expect(batch.occupancyByTaskPath.size).toBe(0);
     expect(batch.plainBarSuppressedTaskPaths?.size ?? 0).toBe(0);
+  });
+
+  it('caps one series before constructing occupancy for a long-lived daily recurrence', async () => {
+    const batch = await makeSource([
+      weeklyTask({ recurrence: 'FREQ=DAILY', scheduled: '2000-01-01' }),
+    ]).collect(
+      queryContext({ startDate: '2000-01-01', endDateExclusive: '2030-01-01' }),
+    );
+
+    const occupancy = batch.occupancyByTaskPath.get(STANDUP_PATH) ?? [];
+    expect(occupancy).toHaveLength(1_000);
+    expect(occupancy[0]?.day).toBe('2027-04-07');
+    expect(occupancy.at(-1)?.day).toBe('2029-12-31');
   });
 });
 

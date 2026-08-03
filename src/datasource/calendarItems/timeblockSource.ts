@@ -43,6 +43,8 @@ export interface TimeblockSourceDeps {
   listDailyNotes(
     window: CalendarDerivationWindow,
   ): Promise<readonly DailyNoteTimeblocks[]> | readonly DailyNoteTimeblocks[];
+  /** Earliest configured Daily Note, used to widen the shared window start. */
+  earliestDailyNoteDay?(): LocalDay | null;
   /** Per-view timeblock toggle, read fresh on every collect. */
   toggles(): TimeblockToggles;
   /** Liveness signal, typically the timeblock watch's epoch; absent = constant. */
@@ -101,6 +103,12 @@ export function expandTimeblockItems(input: TimeblockExpansionInput): CalendarIt
 export function createTimeblockSource(deps: TimeblockSourceDeps): CalendarItemSource {
   return {
     family: 'timeblock',
+    ...(deps.earliestDailyNoteDay
+      ? {
+          windowStartAnchor: () =>
+            deps.toggles().showTimeblocks ? deps.earliestDailyNoteDay!() : null,
+        }
+      : {}),
     epoch: () => deps.epoch?.() ?? 0,
     collect: async (context) =>
       expandTimeblockItems({

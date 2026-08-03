@@ -63,6 +63,7 @@ function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
     barFillSource: 'default',
     showDateIndicators: over.showDateIndicators ?? true,
     arrowMode: 'primary',
+    hiddenSources: over.hiddenSources,
   };
 }
 
@@ -197,6 +198,40 @@ describe('buildSvarTasks — family off, recorded pieces (plain bar retained)', 
       ['2026-01-15', 'completed'],
       ['2026-01-16', 'skipped'],
     ]);
+  });
+});
+
+describe('buildSvarTasks — quick switcher recurring visibility', () => {
+  it('removes recurring geometry while retaining the ancestor row and its authored span', () => {
+    const authoredStart = new Date(2026, 0, 5);
+    const authoredEnd = new Date(2026, 0, 8, 23, 59, 59, 999);
+    const tasks = buildSvarTasks(
+      inputs({
+        hiddenSources: new Set(['recurring-instance']),
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            start: authoredStart,
+            end: authoredEnd,
+            occupancy: [occ('2026-01-06', 'completed'), occ('2026-01-15', 'projected')],
+            plainBarSuppressed: true,
+          }),
+          inst({ id: 'child.md', parent: STANDUP_PATH }),
+        ],
+      }),
+    );
+    const task = tasks.find((candidate) => candidate.id === STANDUP_PATH);
+
+    expect(task).toBeDefined();
+    expect(task!.start).toEqual(authoredStart);
+    expect(task!.end).toEqual(authoredEnd);
+    expect(task!.custom.occupancyRuns).toBeUndefined();
+    expect(task!.custom.occupancyEnvelope).toBeUndefined();
+    expect(task!.type).not.toContain(RECURRING_TYPE);
+    // Keep the source marker so SVAR may hide the row, or retain it solely as
+    // tree context when a descendant matches, without restoring its geometry.
+    expect(task!.custom.hasRecurringOccupancy).toBe(true);
+    expect(tasks.find((candidate) => candidate.id === 'child.md')?.parent).toBe(STANDUP_PATH);
   });
 });
 

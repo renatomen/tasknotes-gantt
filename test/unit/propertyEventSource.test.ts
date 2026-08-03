@@ -70,9 +70,15 @@ function noteEntry(path: string, frontmatter: Record<string, unknown>): BasesEnt
 }
 
 /** A query context whose Bases-rows accessor returns exactly these entries. */
-function contextOver(entries: readonly BasesEntryLike[]): CalendarItemQueryContext {
+function contextOver(
+  entries: readonly BasesEntryLike[],
+  window: CalendarItemQueryContext['window'] = {
+    startDate: '2026-08-01',
+    endDateExclusive: '2026-09-01',
+  },
+): CalendarItemQueryContext {
   return {
-    window: { startDate: '2026-08-01', endDateExclusive: '2026-09-01' },
+    window,
     tasks: () => [],
     basesEntries: () => entries as unknown as readonly BasesEntry[],
   };
@@ -162,6 +168,28 @@ describe('propertyEventSource — event bars from mapped properties', () => {
     const batch = await makeSource().collect(contextOver([entry]));
 
     expect(batch.items[0]).toMatchObject({ startDay: '2026-08-03', endDay: '2026-08-05' });
+  });
+
+  it('emits only spans intersecting the derivation window', async () => {
+    const entries = [
+      noteEntry('events/before.md', { eventStart: '2026-07-20', eventEnd: '2026-07-31' }),
+      noteEntry('events/touches-start.md', {
+        eventStart: '2026-07-31',
+        eventEnd: '2026-08-01',
+      }),
+      noteEntry('events/crosses-end.md', {
+        eventStart: '2026-08-31',
+        eventEnd: '2026-09-02',
+      }),
+      noteEntry('events/at-exclusive-end.md', { eventStart: '2026-09-01' }),
+    ];
+
+    const batch = await makeSource().collect(contextOver(entries));
+
+    expect(batch.items.map((item) => item.notePath)).toEqual([
+      'events/touches-start.md',
+      'events/crosses-end.md',
+    ]);
   });
 });
 

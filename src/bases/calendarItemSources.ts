@@ -40,6 +40,7 @@ import {
   type CalendarItemQueryContext,
   type CalendarItemSource,
   type DailyNoteTimeblocks,
+  type LocalDay,
   type TaskReferenceResolver,
 } from '../datasource/calendarItems';
 import type { TaskNotesTaskInfo } from '../datasource/TaskNotesSource';
@@ -86,6 +87,8 @@ export interface CalendarItemSourceDeps {
   listDailyNotes?(
     window: CalendarDerivationWindow,
   ): Promise<readonly DailyNoteTimeblocks[]> | readonly DailyNoteTimeblocks[];
+  /** Earliest configured Daily Note, independent of the current window. */
+  earliestDailyNoteDay?(): LocalDay | null;
   /** The timeblock watch's epoch (daily-note liveness); absent → constant. */
   timeblockEpoch?(): number;
   /** Live Daily Notes enabled/folder/format fingerprint. */
@@ -230,6 +233,9 @@ export function createCalendarItemSourcesProvider(
     }
     const wrapper: CalendarItemSource = {
       family: source.family,
+      ...(source.windowStartAnchor
+        ? { windowStartAnchor: () => source.windowStartAnchor!() }
+        : {}),
       epoch: () => source.epoch() + configRevision,
       collect: (context: CalendarItemQueryContext) => source.collect(context),
     };
@@ -285,6 +291,9 @@ export function createCalendarItemSourcesProvider(
     const source = createTimeblockSource({
       listDailyNotes,
       toggles: () => ({ showTimeblocks: deps.toggles().showTimeblocks }),
+      ...(deps.earliestDailyNoteDay
+        ? { earliestDailyNoteDay: deps.earliestDailyNoteDay }
+        : {}),
       ...(deps.timeblockEpoch ? { epoch: deps.timeblockEpoch } : {}),
     });
     // The timeblock watch (the epoch's owner) is disposed by the view wiring;

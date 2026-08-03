@@ -136,6 +136,7 @@ interface ProviderFixtureInput {
   providerId: 'google' | 'microsoft';
   calendars?: Array<{ id: string; summary: string; backgroundColor?: string; primary?: boolean }>;
   events?: IcsEventFixture[];
+  syncTokensByCalendarId?: Readonly<Record<string, string>>;
 }
 
 function providerFixture(input: ProviderFixtureInput) {
@@ -149,6 +150,7 @@ function providerFixture(input: ProviderFixtureInput) {
       providerName: input.providerId === 'google' ? 'Google Calendar' : 'Microsoft Calendar',
       getAllEvents: jest.fn(() => state.events),
       getAvailableCalendars: jest.fn(() => input.calendars ?? []),
+      getSyncToken: jest.fn((calendarId: string) => input.syncTokensByCalendarId?.[calendarId]),
       on: emitter.on,
     },
   };
@@ -1208,6 +1210,27 @@ describe('createExternalCalendarSource — cold cache', () => {
     expect(batch.loading).toBeFalsy();
     expect(fixture.icsSubscriptionService.getLastFetched).toHaveBeenCalledWith('work-cal');
   });
+
+  it.each(['google', 'microsoft'] as const)(
+    'does not flag loading when a visible %s feed has a warm empty cache',
+    async (providerId) => {
+      const provider = providerFixture({
+        providerId,
+        calendars: [{ id: 'cal1', summary: 'Home' }],
+        events: [],
+        syncTokensByCalendarId: { cal1: 'completed-sync-token' },
+      });
+      const fixture = pluginFixture({ providers: [provider.provider] });
+      const visible = new Set([externalCalendarFeedKey(providerId, 'cal1')]);
+      const { source } = makeSource(fixture.plugin, visible);
+
+      const batch = await source.collect(CONTEXT);
+
+      expect(batch.items).toEqual([]);
+      expect(batch.loading).toBeFalsy();
+      expect(provider.provider.getSyncToken).toHaveBeenCalledWith('cal1');
+    },
+  );
 
   it('reads neither event surface on collect when no feeds are visible', async () => {
     const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });

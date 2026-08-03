@@ -240,6 +240,13 @@ const WORK_SUBSCRIPTION: ExternalIcsSubscription = {
   enabled: true,
 };
 
+const DISABLED_SUBSCRIPTION: ExternalIcsSubscription = {
+  id: 'disabled-cal',
+  name: 'Disabled calendar',
+  color: '#999999',
+  enabled: false,
+};
+
 const HOME_GOOGLE_CALENDAR: ExternalProviderCalendar = {
   provider: 'google',
   id: 'cal1',
@@ -302,6 +309,16 @@ describe('externalCalendarOptionEntries', () => {
     expect(entries.some((entry) => entry.key === 'tngantt_showGoogleCalendar_cal1')).toBe(true);
   });
 
+  it('omits disabled ICS subscriptions from the selectable feed catalog', () => {
+    const entries = externalCalendarOptionEntries(
+      [WORK_SUBSCRIPTION, DISABLED_SUBSCRIPTION],
+      [],
+    );
+
+    expect(entries.some((entry) => entry.key === 'tngantt_showICS_work-cal')).toBe(true);
+    expect(entries.some((entry) => entry.key === 'tngantt_showICS_disabled-cal')).toBe(false);
+  });
+
   it('produces no entries at all when no external feeds exist', () => {
     expect(externalCalendarOptionEntries([], [])).toEqual([]);
   });
@@ -354,5 +371,15 @@ describe('readVisibleExternalCalendarFeeds', () => {
     });
 
     expect(visible).toEqual(new Set(['ics:work-cal']));
+  });
+
+  it('ignores a true toggle for a disabled ICS subscription', () => {
+    const visible = readVisibleExternalCalendarFeeds(
+      getFrom({ 'tngantt_showICS_disabled-cal': true }),
+      [DISABLED_SUBSCRIPTION],
+      [],
+    );
+
+    expect(visible).toEqual(new Set());
   });
 });

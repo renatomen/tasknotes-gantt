@@ -1758,7 +1758,11 @@ export class GanttController {
     if (sources.length === 0) {
       return [];
     }
-    const window = calendarDerivationWindow(resolvedTasks, this.now());
+    const startAnchors = sources.flatMap((source) => {
+      const anchor = source.windowStartAnchor?.();
+      return anchor === null || anchor === undefined ? [] : [anchor];
+    });
+    const window = calendarDerivationWindow(resolvedTasks, this.now(), startAnchors);
     const windowKey = `${window.startDate}/${window.endDateExclusive}`;
     const context: CalendarItemQueryContext = {
       window,
@@ -2335,8 +2339,16 @@ function calendarItemsValueEqual(a?: CalendarItem, b?: CalendarItem): boolean {
     a.endDay === b.endDay &&
     a.stateClass === b.stateClass &&
     a.notePath === b.notePath &&
-    a.color === b.color
+    a.color === b.color &&
+    localDaysEqual(a.occupancyDays, b.occupancyDays)
   );
+}
+
+/** Element-wise equality over an item's optional occupied-day sequence. */
+function localDaysEqual(a?: readonly string[], b?: readonly string[]): boolean {
+  if (!a || !b) return a === b;
+  if (a.length !== b.length) return false;
+  return a.every((day, index) => day === b[index]);
 }
 
 /** Element-wise value equality over optional occupancy attachments. */

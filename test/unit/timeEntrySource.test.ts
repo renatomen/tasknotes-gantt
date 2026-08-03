@@ -49,6 +49,15 @@ function isoAtLocalOffset(instant: Date): string {
 
 const REPORT_PATH = 'work/report.md';
 
+function expectedTimeEntryId(entry: TaskNotesTimeEntry, ordinal = 1): string {
+  const startDay = entry.startTime.slice(0, 10);
+  return makeCalendarItemId(
+    'time-entry',
+    REPORT_PATH,
+    `${startDay}#${entry.startTime}#${entry.endTime}#${ordinal}`,
+  );
+}
+
 function taskWithEntries(entries: readonly TaskNotesTimeEntry[]): TaskNotesTaskInfo {
   return { path: REPORT_PATH, title: 'Write report', timeEntries: entries };
 }
@@ -88,7 +97,7 @@ describe('timeEntrySource — flat event rows from finished entries', () => {
 
     expect(batch.items).toEqual([
       {
-        id: makeCalendarItemId('time-entry', REPORT_PATH, `2026-08-03#${entry.startTime}`),
+        id: expectedTimeEntryId(entry),
         family: 'time-entry',
         title: 'Write report',
         startDay: '2026-08-03',
@@ -115,7 +124,11 @@ describe('timeEntrySource — flat event rows from finished entries', () => {
     expect(batch.items).toHaveLength(1);
     expect(batch.items[0]).toMatchObject({ startDay: '2026-08-04', endDay: '2026-08-04' });
     expect(batch.items[0]?.id).toBe(
-      makeCalendarItemId('time-entry', REPORT_PATH, `2026-08-04#${entry.startTime}`),
+      makeCalendarItemId(
+        'time-entry',
+        REPORT_PATH,
+        `2026-08-04#${entry.startTime}#${entry.endTime}#1`,
+      ),
     );
   });
 
@@ -172,7 +185,7 @@ describe('timeEntrySource — exclusions', () => {
 
     expect(batch.items).toHaveLength(1);
     expect(batch.items[0]?.id).toBe(
-      makeCalendarItemId('time-entry', REPORT_PATH, `2026-08-03#${good.startTime}`),
+      expectedTimeEntryId(good),
     );
   });
 
@@ -206,6 +219,32 @@ describe('timeEntrySource — id stability', () => {
     const firstIds = first.items.map((item) => item.id);
     expect(new Set(firstIds).size).toBe(2);
     expect(second.items.map((item) => item.id)).toEqual(firstIds);
+  });
+
+  it('disambiguates entries sharing a start timestamp by end time and deterministic twin ordinal', async () => {
+    const startTime = isoAtLocalOffset(new Date(2026, 7, 3, 9, 0, 0));
+    const first: TaskNotesTimeEntry = {
+      startTime,
+      endTime: isoAtLocalOffset(new Date(2026, 7, 3, 9, 30, 0)),
+      description: 'First',
+    };
+    const second: TaskNotesTimeEntry = {
+      startTime,
+      endTime: isoAtLocalOffset(new Date(2026, 7, 3, 10, 0, 0)),
+      description: 'Second',
+    };
+    const twin: TaskNotesTimeEntry = { ...second, description: 'Third' };
+    const source = makeSource([taskWithEntries([twin, first, second])]);
+
+    const firstCollect = await source.collect(CONTEXT);
+    const secondCollect = await source.collect(CONTEXT);
+
+    const ids = firstCollect.items.map((item) => item.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).toContain(expectedTimeEntryId(first));
+    expect(ids).toContain(expectedTimeEntryId(second, 1));
+    expect(ids).toContain(expectedTimeEntryId(twin, 2));
+    expect(secondCollect.items.map((item) => item.id)).toEqual(ids);
   });
 });
 

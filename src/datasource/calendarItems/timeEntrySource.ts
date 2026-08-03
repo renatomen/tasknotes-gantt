@@ -13,7 +13,12 @@
  */
 
 import type { TaskNotesTaskInfo, TaskNotesTimeEntry } from '../TaskNotesSource';
-import type { CalendarItem, CalendarItemBatch, CalendarItemSource } from './types';
+import type {
+  CalendarItem,
+  CalendarItemBatch,
+  CalendarItemSource,
+  LocalDay,
+} from './types';
 import { makeCalendarItemId } from './types';
 import { localDaySpanOfInstants } from './normalizers';
 
@@ -43,19 +48,60 @@ export interface TimeEntryExpansionInput {
   toggles: TimeEntryToggles;
 }
 
-function toCalendarItem(task: TaskNotesTaskInfo, entry: TaskNotesTimeEntry): CalendarItem | null {
-  // No endTime = still running; the calendar renders finished entries only.
+interface TimeEntryCandidate {
+  entry: TaskNotesTimeEntry & { endTime: string };
+  sourceIndex: number;
+  startDay: LocalDay;
+  endDay: LocalDay;
+}
+
+function toCandidate(entry: TaskNotesTimeEntry, sourceIndex: number): TimeEntryCandidate | null {
   if (entry.endTime === undefined) return null;
   const span = localDaySpanOfInstants(entry.startTime, entry.endTime);
   if (span === null) return null;
+  return { entry: { ...entry, endTime: entry.endTime }, sourceIndex, ...span };
+}
+
+function compareTwinCandidates(a: TimeEntryCandidate, b: TimeEntryCandidate): number {
+  const durationOrder = String(a.entry.duration ?? '').localeCompare(String(b.entry.duration ?? ''));
+  if (durationOrder !== 0) return durationOrder;
+  const descriptionOrder = (a.entry.description ?? '').localeCompare(b.entry.description ?? '');
+  return descriptionOrder !== 0 ? descriptionOrder : a.sourceIndex - b.sourceIndex;
+}
+
+function twinOrdinals(candidates: readonly TimeEntryCandidate[]): ReadonlyMap<number, number> {
+  const groups = new Map<string, TimeEntryCandidate[]>();
+  for (const candidate of candidates) {
+    const key = `${candidate.entry.startTime}\u0000${candidate.entry.endTime}`;
+    const group = groups.get(key) ?? [];
+    group.push(candidate);
+    groups.set(key, group);
+  }
+  const ordinals = new Map<number, number>();
+  for (const group of groups.values()) {
+    group
+      .sort(compareTwinCandidates)
+      .forEach((candidate, index) => ordinals.set(candidate.sourceIndex, index + 1));
+  }
+  return ordinals;
+}
+
+function toCalendarItem(
+  task: TaskNotesTaskInfo,
+  candidate: TimeEntryCandidate,
+  twinOrdinal: number,
+): CalendarItem {
+  const { entry, startDay, endDay } = candidate;
   return {
-    // The start timestamp discriminates multiple entries on one local day;
-    // it is data, so the id survives refreshes unchanged.
-    id: makeCalendarItemId('time-entry', task.path, `${span.startDay}#${entry.startTime}`),
+    id: makeCalendarItemId(
+      'time-entry',
+      task.path,
+      `${startDay}#${entry.startTime}#${entry.endTime}#${twinOrdinal}`,
+    ),
     family: 'time-entry',
     title: task.title ?? '',
-    startDay: span.startDay,
-    endDay: span.endDay,
+    startDay,
+    endDay,
     notePath: task.path,
   };
 }
@@ -67,9 +113,12 @@ export function expandTimeEntryItems(input: TimeEntryExpansionInput): CalendarIt
 
   const items: CalendarItem[] = [];
   for (const task of input.tasks) {
-    for (const entry of task.timeEntries ?? []) {
-      const item = toCalendarItem(task, entry);
-      if (item !== null) items.push(item);
+    const candidates = (task.timeEntries ?? [])
+      .map(toCandidate)
+      .filter((candidate): candidate is TimeEntryCandidate => candidate !== null);
+    const ordinals = twinOrdinals(candidates);
+    for (const candidate of candidates) {
+      items.push(toCalendarItem(task, candidate, ordinals.get(candidate.sourceIndex) ?? 1));
     }
   }
   return { items, occupancyByTaskPath };

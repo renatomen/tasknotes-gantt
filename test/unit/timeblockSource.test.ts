@@ -83,6 +83,26 @@ describe('timeblockSource — flat event rows from daily-note timeblocks', () =>
     expect(listDailyNotes).toHaveBeenCalledWith(CONTEXT.window);
   });
 
+  it('exposes the earliest Daily Note as its derivation-window start anchor', () => {
+    const source = makeSource(
+      [],
+      { showTimeblocks: true },
+      { earliestDailyNoteDay: () => '2024-02-03' },
+    );
+
+    expect(source.windowStartAnchor?.()).toBe('2024-02-03');
+  });
+
+  it('does not contribute a Daily Note anchor while timeblocks are disabled', () => {
+    const source = makeSource(
+      [],
+      { showTimeblocks: false },
+      { earliestDailyNoteDay: () => '2024-02-03' },
+    );
+
+    expect(source.windowStartAnchor?.()).toBeNull();
+  });
+
   it('tolerates TaskNotes extras (attachments, description) without threading them', async () => {
     const block = deepWorkBlock({ attachments: ['[[ref]]'], description: 'notes' });
 

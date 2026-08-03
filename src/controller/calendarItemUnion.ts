@@ -16,6 +16,7 @@ import {
   type CalendarItem,
   type CalendarItemBatch,
   type CalendarOccupancy,
+  type LocalDay,
 } from '../datasource/calendarItems';
 import type { RenderInstance } from './InstanceExpansion';
 import { spanEvaluationWindow } from './calendar/derivation';
@@ -24,26 +25,39 @@ import { isoToLocalDate, isoToLocalEndOfDay, localIso } from './calendar/stretch
 /**
  * The derivation window calendar-item sources derive against: the same
  * evaluation window the blocking-facts derivation uses over the pass's task
- * spans, extended to cover today through the same local day next year. An
- * all-undated task set retains the existing today-centered margin.
+ * spans, extended to cover today through the same local day next year and
+ * widened backward for source-owned anchors such as historical Daily Notes.
+ * An all-undated task set retains the existing today-centered margin.
  */
 export function calendarDerivationWindow(
   spans: ReadonlyArray<{ start: Date | null; end: Date | null }>,
   today: Date,
+  startAnchors: readonly LocalDay[] = [],
 ): CalendarDerivationWindow {
   const spanWindow = spanEvaluationWindow(spans);
   if (spanWindow === null) {
-    return spanEvaluationWindow([{ start: today, end: today }])!;
+    const todayWindow = spanEvaluationWindow([{ start: today, end: today }])!;
+    return { ...todayWindow, startDate: earliestDay(todayWindow.startDate, startAnchors) };
   }
   const todayDay = localIso(today);
   const annualHorizon = localDayNextYear(today);
   return {
-    startDate: spanWindow.startDate < todayDay ? spanWindow.startDate : todayDay,
+    startDate: earliestDay(
+      spanWindow.startDate < todayDay ? spanWindow.startDate : todayDay,
+      startAnchors,
+    ),
     endDateExclusive:
       spanWindow.endDateExclusive > annualHorizon
         ? spanWindow.endDateExclusive
         : annualHorizon,
   };
+}
+
+function earliestDay(fallback: LocalDay, candidates: readonly LocalDay[]): LocalDay {
+  return candidates.reduce(
+    (earliest, candidate) => (candidate < earliest ? candidate : earliest),
+    fallback,
+  );
 }
 
 /** The same local calendar day next year, clamped for leap day. */

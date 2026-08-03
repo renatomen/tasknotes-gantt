@@ -156,9 +156,23 @@ export function listDailyNoteTimeblocks(
   return notes;
 }
 
+/** Earliest note matching the enabled Daily Notes folder and filename format. */
+export function earliestDailyNoteDay(deps: DailyNoteListingDeps): LocalDay | null {
+  const config = deps.config;
+  if (config === null) return null;
+  let earliest: LocalDay | null = null;
+  for (const file of deps.listMarkdownFiles()) {
+    const day = dailyNoteDayOfPath(file.path, config.folder, deps.parseDay);
+    if (day !== null && (earliest === null || day < earliest)) earliest = day;
+  }
+  return earliest;
+}
+
 /** The live accessor the timeblock family wiring holds per mount. */
 export interface DailyNoteAccess {
   listDailyNotes(window: CalendarDerivationWindow): DailyNoteTimeblocks[];
+  /** Earliest configured Daily Note, independent of the current derivation window. */
+  earliestDailyNoteDay(): LocalDay | null;
   /** Daily-note relevance probe for the timeblock watch (config-fresh). */
   isDailyNote(path: string): boolean;
   /** Config-fresh invalidation tag (enabled/disabled, folder, and format). */
@@ -180,6 +194,15 @@ export function createDailyNoteAccess(app: App): DailyNoteAccess {
     createDayParser(config.format, resolveMoment());
   return {
     configTag: () => dailyNotesConfigTag(readDailyNotesConfig(app)),
+    earliestDailyNoteDay: () => {
+      const config = readDailyNotesConfig(app);
+      return earliestDailyNoteDay({
+        config,
+        listMarkdownFiles: () => app.vault.getMarkdownFiles(),
+        frontmatterOf: () => null,
+        parseDay: config === null ? () => null : currentParser(config),
+      });
+    },
     listDailyNotes: (window) => {
       const config = readDailyNotesConfig(app);
       return listDailyNoteTimeblocks(

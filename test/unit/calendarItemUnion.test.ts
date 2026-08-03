@@ -82,12 +82,16 @@ class FakeCalendarSource implements CalendarItemSource {
   public epochValue = 1;
   public collectCalls = 0;
   public lastContext: CalendarItemQueryContext | null = null;
+  public windowStartAnchorValue: CalendarItemQueryContext['window']['startDate'] | null = null;
   constructor(
     public readonly family: CalendarItemFamily,
     public batch: CalendarItemBatch,
   ) {}
   epoch(): number {
     return this.epochValue;
+  }
+  windowStartAnchor(): CalendarItemQueryContext['window']['startDate'] | null {
+    return this.windowStartAnchorValue;
   }
   async collect(context: CalendarItemQueryContext): Promise<CalendarItemBatch> {
     this.collectCalls += 1;
@@ -164,6 +168,19 @@ describe('calendar-item union — derivation window', () => {
 
     expect(window).toEqual({
       startDate: '2025-11-14',
+      endDateExclusive: '2026-03-19',
+    });
+  });
+
+  it('includes an older Daily Note anchor when collecting timeblocks without tasks', async () => {
+    const source = new FakeCalendarSource('timeblock', itemsBatch([]));
+    source.windowStartAnchorValue = '2024-02-03';
+    const controller = makeController({ tasks: [], calendarSources: [source] });
+
+    await controller.init();
+
+    expect(source.lastContext?.window).toEqual({
+      startDate: '2024-02-03',
       endDateExclusive: '2026-03-19',
     });
   });
@@ -389,6 +406,45 @@ describe('calendar-item union — epoch staleness signal', () => {
     expect(notifications).toBe(1);
     const instances = await controller.getInstances();
     expect(instances.map((i) => i.sourcePath)).toEqual(['a.md', addedId]);
+  });
+
+  it('notifies when only a calendar item occupancyDays value changes', async () => {
+    const seriesId = makeCalendarItemId('external-event', 'work/standup');
+    const source = new FakeCalendarSource(
+      'external-event',
+      itemsBatch([
+        calendarItem({
+          id: seriesId,
+          family: 'external-event',
+          startDay: '2026-01-10',
+          endDay: '2026-01-14',
+          occupancyDays: ['2026-01-11'],
+        }),
+      ]),
+    );
+    const controller = makeController({ tasks: [], calendarSources: [source] });
+    await controller.init();
+    let notifications = 0;
+    controller.onChange(() => {
+      notifications += 1;
+    });
+
+    source.batch = itemsBatch([
+      calendarItem({
+        id: seriesId,
+        family: 'external-event',
+        startDay: '2026-01-10',
+        endDay: '2026-01-14',
+        occupancyDays: ['2026-01-12'],
+      }),
+    ]);
+    source.epochValue += 1;
+    await controller.refreshSource();
+
+    expect(notifications).toBe(1);
+    expect((await controller.getInstances())[0]!.calendarItem?.occupancyDays).toEqual([
+      '2026-01-12',
+    ]);
   });
 });
 

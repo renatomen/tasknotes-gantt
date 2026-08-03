@@ -163,6 +163,7 @@ interface GuardedProvider {
   kind: Exclude<ExternalCalendarProviderKind, 'ics'>;
   events: ExternalEvent[];
   calendars: ExternalProviderCalendar[];
+  completedCalendarIds: string[];
 }
 
 function providerKindOf(value: unknown): GuardedProvider['kind'] | undefined {
@@ -186,6 +187,17 @@ function toProviderCalendars(
   return calendars;
 }
 
+function hasProviderSyncToken(provider: Record<string, unknown>, calendarId: string): boolean {
+  const getSyncToken = methodOf(provider, 'getSyncToken');
+  if (!getSyncToken) return false;
+  try {
+    const token = getSyncToken(calendarId);
+    return typeof token === 'string' && token !== '';
+  } catch {
+    return false;
+  }
+}
+
 interface GuardedProvidersRead {
   providers: GuardedProvider[];
   /** Whether any individual provider's guarded read threw (its data is missing). */
@@ -199,7 +211,7 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
     const provider = asRecord(entry);
     const kind = providerKindOf(provider?.providerId);
     const getAllEvents = methodOf(provider, 'getAllEvents');
-    if (!kind || !getAllEvents) continue;
+    if (!provider || !kind || !getAllEvents) continue;
     // Guard each provider on its own: one throwing provider loses only its own
     // events while healthy siblings keep rendering.
     try {
@@ -209,10 +221,14 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
         if (event) events.push(event);
       }
       const getAvailableCalendars = methodOf(provider, 'getAvailableCalendars');
+      const calendars = toProviderCalendars(kind, getAvailableCalendars?.());
       providers.push({
         kind,
         events,
-        calendars: toProviderCalendars(kind, getAvailableCalendars?.()),
+        calendars,
+        completedCalendarIds: calendars
+          .filter((calendar) => hasProviderSyncToken(provider, calendar.id))
+          .map((calendar) => calendar.id),
       });
     } catch {
       degraded = true;
@@ -388,10 +404,14 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
   try {
     const feedEvents: FeedEvent[] = [];
     const configuredFeedKeys: string[] = [];
+    const completedFeedKeys: string[] = [];
     const { providers, degraded } = guardedProviders(getAllProviders());
     for (const provider of providers) {
+      const completedCalendarIds = new Set(provider.completedCalendarIds);
       for (const calendar of provider.calendars) {
-        configuredFeedKeys.push(externalCalendarFeedKey(provider.kind, calendar.id));
+        const feedKey = externalCalendarFeedKey(provider.kind, calendar.id);
+        configuredFeedKeys.push(feedKey);
+        if (completedCalendarIds.has(calendar.id)) completedFeedKeys.push(feedKey);
       }
       const prefix = `${provider.kind}-`;
       for (const event of provider.events) {
@@ -400,7 +420,12 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
         feedEvents.push({ feedKey: externalCalendarFeedKey(provider.kind, calendarId), event });
       }
     }
-    return { feedEvents, configuredFeedKeys, ...(degraded ? { degraded: true } : {}) };
+    return {
+      feedEvents,
+      configuredFeedKeys,
+      completedFeedKeys,
+      ...(degraded ? { degraded: true } : {}),
+    };
   } catch {
     return null;
   }
@@ -757,7 +782,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
           .filter((key) => visible.has(key)),
       );
       // A warm cache is a completed load — events observed for the visible
-      // set or per-feed ICS fetch metadata count as a completion signal
+      // set or per-feed service completion metadata count as a signal
       // without waiting for an emission.
       if (
         visibleFeedEvents.length > 0 ||

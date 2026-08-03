@@ -736,6 +736,7 @@
       propertyValues: d.propertyValues,
       cellRenders: d.cellRenders,
       managedPaths: d.managedPaths,
+      hiddenSources: sourceSwitcher?.hiddenSources(),
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.
       collapsedIds,
@@ -856,26 +857,27 @@
   // summary-date recomputation fired during an add/move).
   let syncing = false;
 
-  // Apply each store update as the minimal set of SVAR actions instead of
-  // replacing the tasks array — so zoom and scroll survive writes, drags,
-  // external TaskNotes edits, and Bases filter changes. Re-runs on every
-  // `store.set` (register.ts) and once `api` is ready.
-  $effect(() => {
-    const d = $data; // reactive dependency: re-run on every store update
-    if (!api) return;
-    syncToGantt(d);
-  });
-
   // The switcher's hidden-source set lives OUTSIDE Svelte state (a per-view
   // session object owned by the host), so a revision counter bridges its change
-  // notifications into the display-filter effect — the same cheap filter
-  // re-apply path the row-visibility toggles use, never a re-derivation.
+  // notifications into both task shaping and the display-filter effect.
   let switcherRevision = $state(0);
   $effect(() =>
     sourceSwitcher?.subscribe(() => {
       switcherRevision += 1;
     }),
   );
+
+  // Apply each store or switcher update as the minimal set of SVAR actions instead of
+  // replacing the tasks array — so zoom and scroll survive writes, drags,
+  // external TaskNotes edits, and Bases filter changes. A recurring-source
+  // switch reshapes only its occupancy geometry; the stable instance set is
+  // unchanged. Re-runs on every `store.set` (register.ts) and once `api` is ready.
+  $effect(() => {
+    const d = $data; // reactive dependency: re-run on every store update
+    void switcherRevision; // re-shape recurring geometry when its source is hidden/shown
+    if (!api) return;
+    syncToGantt(d);
+  });
 
   /**
    * Apply ALL row-visibility concerns (Hide-top ∧ Show-undated ∧ Show-partial ∧

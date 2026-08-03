@@ -12,6 +12,7 @@ import {
   createDayParser,
   dailyNotesConfigTag,
   dailyNoteDayOfPath,
+  earliestDailyNoteDay,
   listDailyNoteTimeblocks,
   readDailyNotesConfig,
   type MomentDayFactory,
@@ -182,5 +183,16 @@ describe('listDailyNoteTimeblocks', () => {
   it('returns empty without a daily-notes config', () => {
     const deps = { ...listingDeps(['2026-03-06.md']), config: null };
     expect(listDailyNoteTimeblocks(deps, window)).toEqual([]);
+  });
+
+  it('finds the earliest configured Daily Note independently of the derivation window', () => {
+    const deps = listingDeps([
+      '2026-03-06.md',
+      '2024-02-03.md',
+      'Tasks/2020-01-01.md',
+      'notes.md',
+    ]);
+
+    expect(earliestDailyNoteDay(deps)).toBe('2024-02-03');
   });
 });

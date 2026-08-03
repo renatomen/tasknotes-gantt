@@ -1079,6 +1079,7 @@ class ObsidianGanttBasesView extends BasesView {
         // watch by the liveness assembly so a later deletion of a rendered
         // daily note is recognised (a deletion cannot probe the gone file).
         listDailyNotes: (window) => timeblockLiveness.listDailyNotes(window),
+        earliestDailyNoteDay: dailyNoteAccess.earliestDailyNoteDay,
         timeblockEpoch: () => timeblockLiveness.watch.epoch(),
         dailyNotesConfigTag: dailyNoteAccess.configTag,
         // External calendars: guarded reads off the raw TaskNotes plugin

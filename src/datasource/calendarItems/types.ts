@@ -208,6 +208,8 @@ export interface CalendarItemQueryContext {
 export interface CalendarItemSource {
   /** The single family this source derives. */
   readonly family: CalendarItemFamily;
+  /** Earliest source-owned day the shared derivation window must include. */
+  windowStartAnchor?(): LocalDay | null;
   /**
    * Staleness signal: a monotonic epoch the source bumps whenever its
    * underlying facts change. While it is unchanged the controller reuses the

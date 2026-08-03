@@ -173,6 +173,8 @@ export interface SvarTaskInputs {
    * test contexts) — render read-only.
    */
   managedPaths?: ReadonlySet<string>;
+  /** Session-hidden source families that alter presentation-only geometry. */
+  hiddenSources?: ReadonlySet<CalendarItemFamily>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -332,6 +334,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     managedPaths,
     calendarPalette = [],
     calendarBySource,
+    hiddenSources,
   } = input;
   const palettes: Palettes = {
     status: statusColors,
@@ -437,15 +440,18 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isReplicated) classes.push(REPLICATED_TYPE);
     if (isContext) classes.push(CONTEXT_TYPE);
     const occupancy = inst.occupancy ?? [];
+    const displayedOccupancy = hiddenSources?.has('recurring-instance')
+      ? occupancy.filter((entry) => entry.family !== 'recurring-instance')
+      : occupancy;
     // The recurring cue marks occupancy-rendered TASK rows only; an event
     // row's occupancy (external series pieces) renders under its og-event cue.
-    if (occupancy.length > 0 && !inst.calendarItem) classes.push(RECURRING_TYPE);
+    if (displayedOccupancy.length > 0 && !inst.calendarItem) classes.push(RECURRING_TYPE);
     // Read-only calendar-item event row: the og-event cue drives the read-only
     // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
     if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
-    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, occupancy);
+    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, displayedOccupancy);
 
     const task: SvarTask = {
       id: inst.id,

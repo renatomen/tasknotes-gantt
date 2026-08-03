@@ -3,9 +3,10 @@
  *
  * Hiding is a DISPLAY concern only: the hidden-source set feeds the composed
  * row-visibility predicate (see `bases/rowVisibility`), so the derived
- * instance set never changes when a source is hidden — a toggle is a cheap
- * filter re-apply, never a re-derivation, and can never churn the chart the
- * way a data-layer add/remove would.
+ * instance set never changes when a source is hidden. Recurring occupancy is
+ * additionally removed while shaping SVAR tasks so a hidden ancestor retained
+ * as tree context cannot leak its occurrence geometry. Both paths are
+ * presentation-only updates, never controller re-derivation.
  *
  * The set lives in per-view-instance SESSION state: the host owns one state
  * object for the view instance's lifetime, so it survives refreshes of the

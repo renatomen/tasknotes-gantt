@@ -206,6 +206,7 @@ function externalFeedsByKind(
     byKind.set(feed.kind, [...(byKind.get(feed.kind) ?? []), feed]);
   };
   for (const subscription of subscriptions) {
+    if (!subscription.enabled) continue;
     add({ kind: 'ics', id: subscription.id, name: subscription.name });
   }
   for (const calendar of calendars) {
