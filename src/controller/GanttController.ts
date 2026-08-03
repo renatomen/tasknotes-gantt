@@ -81,6 +81,15 @@ import {
   type StatusColor,
   type TaskPatch,
 } from '../datasource';
+import {
+  resolveActivationNotePath,
+  type CalendarItem,
+  type CalendarItemBatch,
+  type CalendarItemQueryContext,
+  type CalendarItemSource,
+  type CalendarOccupancy,
+} from '../datasource/calendarItems';
+import { calendarDerivationWindow, unionCalendarBatches } from './calendarItemUnion';
 import { resolveNoteProgress } from '../datasource/noteProgress';
 import { resolveNoteEstimate } from '../datasource/noteEstimate';
 import {
@@ -251,6 +260,13 @@ export interface GanttControllerDeps {
     enrichment: DataSource | null,
     options?: { writable?: boolean },
   ) => DataSource;
+  /**
+   * Independent read-only calendar-item sources — one per enabled family, each
+   * emitting flat event rows plus per-task occupancy that the controller
+   * unions into the snapshot alongside the task pipeline. Defaults to none:
+   * the union is inert and the snapshot matches the task-only pipeline.
+   */
+  createCalendarItemSources?: () => readonly CalendarItemSource[];
 }
 
 /**
@@ -371,6 +387,13 @@ export interface DateMappingInfo {
 interface Snapshot {
   /** Expansion result (instances + identity maps). */
   expansion: ExpansionResult;
+  /**
+   * The render rows surfaces consume: the expansion's task instances (with
+   * calendar occupancy attached where a family occupies a task) followed by
+   * the calendar-item event rows. With no calendar sources this IS
+   * `expansion.instances` (same reference), so the union seam is inert.
+   */
+  unionInstances: readonly RenderInstance[];
   /** Source-level dependency links gathered across all tasks. */
   sourceLinks: SourceLink[];
   /**
@@ -538,6 +561,18 @@ export class GanttController {
     enrichment: DataSource | null,
     options?: { writable?: boolean },
   ) => DataSource;
+  /** Injected calendar-item sources (default none — the union stays inert). */
+  private readonly calendarItemSources: () => readonly CalendarItemSource[];
+  /**
+   * Cached two-channel batch per calendar-item source, keyed by the epoch it
+   * was derived at. While a source's epoch is unchanged its batch is reused
+   * (no re-derivation); an epoch bump re-collects, which is what invalidates
+   * the cached snapshot for that family.
+   */
+  private readonly calendarBatchCache = new Map<
+    CalendarItemSource,
+    { epoch: number; batch: CalendarItemBatch }
+  >();
 
   /** The currently selected source. `null` until {@link init}. */
   private activeSource: DataSource | null = null;
@@ -655,6 +690,7 @@ export class GanttController {
     this.createCompositeSource =
       options.deps?.createCompositeSource ??
       ((base, enrichment, opts) => new CompositeSource(base, enrichment, opts));
+    this.calendarItemSources = options.deps?.createCalendarItemSources ?? (() => []);
   }
 
   /**
@@ -766,7 +802,7 @@ export class GanttController {
    */
   public async getInstances(): Promise<RenderInstance[]> {
     const snap = await this.ensureSnapshot();
-    return [...snap.expansion.instances];
+    return [...snap.unionInstances];
   }
 
   /**
@@ -1711,8 +1747,65 @@ export class GanttController {
     }
 
     const sourceLinks = buildSourceLinks(tasks, depsByTask);
+    const calendarBatches = await this.collectCalendarBatches(rawTasks, tasks);
+    const unionInstances = unionCalendarBatches(expansion.instances, calendarBatches);
 
-    return { expansion, sourceLinks, matchedEdgesResolved };
+    return { expansion, unionInstances, sourceLinks, matchedEdgesResolved };
+  }
+
+  /**
+   * Collect each injected calendar-item source's two-channel batch, reusing
+   * the cached batch while the source's epoch is unchanged — the staleness
+   * signal that keeps plain refreshes from re-deriving families. Inert (no
+   * context build, no reads) when no sources are injected.
+   */
+  private async collectCalendarBatches(
+    rawTasks: readonly SourceTask[],
+    resolvedTasks: readonly ExpandableTask[],
+  ): Promise<CalendarItemBatch[]> {
+    const sources = this.calendarItemSources();
+    if (sources.length === 0) {
+      return [];
+    }
+    const context: CalendarItemQueryContext = {
+      window: calendarDerivationWindow(resolvedTasks, this.now()),
+      tasks: () => rawTasks,
+      basesEntries: () => this.basesInput().entries,
+    };
+    const batches: CalendarItemBatch[] = [];
+    for (const source of sources) {
+      const epoch = source.epoch();
+      const cached = this.calendarBatchCache.get(source);
+      if (cached?.epoch === epoch) {
+        batches.push(cached.batch);
+        continue;
+      }
+      const batch = await source.collect(context);
+      this.calendarBatchCache.set(source, { epoch, batch });
+      batches.push(batch);
+    }
+    return batches;
+  }
+
+  /**
+   * What a bar activation should open for a render row's source path: task
+   * rows pass through unchanged; a calendar-item row resolves to its backing
+   * note, or `null` (activation no-op) when the item has none — a synthetic id
+   * is never treated as a vault path.
+   */
+  public resolveBarActivationPath(sourcePath: string): string | null {
+    return resolveActivationNotePath(sourcePath, (id) => this.findCalendarItemById(id));
+  }
+
+  /** Look a calendar item up by synthetic id across the cached batches. */
+  private findCalendarItemById(id: string): CalendarItem | undefined {
+    for (const { batch } of this.calendarBatchCache.values()) {
+      const found = batch.items.find((item) => item.id === id);
+      if (found) {
+        return found;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -2014,7 +2107,13 @@ export class GanttController {
 
 /** An empty snapshot (no active source / empty source). */
 function emptySnapshot(): Snapshot {
-  return { expansion: expandInstances([]), sourceLinks: [], matchedEdgesResolved: false };
+  const expansion = expandInstances([]);
+  return {
+    expansion,
+    unionInstances: expansion.instances,
+    sourceLinks: [],
+    matchedEdgesResolved: false,
+  };
 }
 
 /**
@@ -2168,7 +2267,7 @@ export function computeRecomputeReason(
  */
 function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
   return (
-    instancesEqual(a.expansion.instances, b.expansion.instances) &&
+    instancesEqual(a.unionInstances, b.unionInstances) &&
     sourceLinksEqual(a.sourceLinks, b.sourceLinks)
   );
 }
@@ -2205,8 +2304,60 @@ function instancesEqual(
       // an undo would overwrite the newer estimate.
       x.estimateMinutes !== y.estimateMinutes ||
       !datesEqual(x.start, y.start) ||
-      !datesEqual(x.end, y.end)
+      !datesEqual(x.end, y.end) ||
+      !calendarDecorationsEqual(x, y)
     ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Value equality over the calendar decorations a union build attaches: the
+ * event row's item and a task row's occupancy attachments. Part of snapshot
+ * identity so an item/occupancy change notifies even when the task fields are
+ * untouched.
+ */
+function calendarDecorationsEqual(a: RenderInstance, b: RenderInstance): boolean {
+  return (
+    calendarItemsValueEqual(a.calendarItem, b.calendarItem) &&
+    occupancyEqual(a.occupancy, b.occupancy)
+  );
+}
+
+/** Null-safe value equality over two optional calendar items. */
+function calendarItemsValueEqual(a?: CalendarItem, b?: CalendarItem): boolean {
+  if (!a || !b) {
+    return a === b;
+  }
+  return (
+    a.id === b.id &&
+    a.family === b.family &&
+    a.title === b.title &&
+    a.startDay === b.startDay &&
+    a.endDay === b.endDay &&
+    a.stateClass === b.stateClass &&
+    a.notePath === b.notePath &&
+    a.color === b.color
+  );
+}
+
+/** Element-wise value equality over optional occupancy attachments. */
+function occupancyEqual(
+  a?: readonly CalendarOccupancy[],
+  b?: readonly CalendarOccupancy[],
+): boolean {
+  if (!a || !b) {
+    return a === b;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.family !== y.family || x.itemId !== y.itemId || x.day !== y.day || x.minutes !== y.minutes) {
       return false;
     }
   }

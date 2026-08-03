@@ -1004,9 +1004,14 @@ class ObsidianGanttBasesView extends BasesView {
             controller.removeDependency(predecessorInstanceId, dependentInstanceId),
           // Native edit interaction (plan 004): a bar's left/double-click and
           // right-click delegate to TaskNotes (open note / native edit modal /
-          // task menu) via the interaction service — no custom modal.
-          onBarActivate: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) =>
-            interactions.handleActivate(path, opts),
+          // task menu) via the interaction service — no custom modal. The
+          // controller first resolves what to open: task rows pass through; a
+          // calendar-item row resolves to its backing note or, without one,
+          // to null — activation then no-ops (a synthetic id is never a path).
+          onBarActivate: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => {
+            const target = controller.resolveBarActivationPath(path);
+            if (target !== null) void interactions.handleActivate(target, opts);
+          },
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
           // Focus-on-task command wiring (R2): the view publishes its opener on

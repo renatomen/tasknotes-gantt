@@ -17,6 +17,7 @@
  */
 
 import type { SourceTask, DependencyRelType } from '../datasource/types';
+import type { CalendarItem, CalendarOccupancy } from '../datasource/calendarItems';
 import type { DateStatus } from './datePolicy';
 import { isoDurationToDays } from './dateGap';
 
@@ -144,6 +145,18 @@ export interface RenderInstance {
   stretchFlagged?: boolean;
   /** Effective Estimate meaning when it overrides the view default; drives the dot (R11). */
   interpretationOverridden?: EstimateMeaning;
+  /**
+   * Present only on a calendar-item union row (a read-only, non-task event row
+   * from a calendar-item source): the item this row renders. Its synthetic id
+   * doubles as `id`/`sourcePath`; the item carries the family, backing note
+   * path (the bar-activate target) and display color.
+   */
+  calendarItem?: CalendarItem;
+  /**
+   * Per-task occupancy attachments merged from the calendar-item sources'
+   * occupancy channel; absent when no family occupies this task.
+   */
+  occupancy?: readonly CalendarOccupancy[];
 }
 
 /** A source-level dependency link between two note paths. */

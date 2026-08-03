@@ -31,6 +31,23 @@ export {
   type ResolvedDateMapping,
 } from './dateFieldMapping';
 
+export {
+  CALENDAR_ITEM_ID_PREFIX,
+  isCalendarItemId,
+  makeCalendarItemId,
+  resolveActivationNotePath,
+} from './calendarItems';
+export type {
+  CalendarDerivationWindow,
+  CalendarItem,
+  CalendarItemBatch,
+  CalendarItemFamily,
+  CalendarItemQueryContext,
+  CalendarItemSource,
+  CalendarOccupancy,
+  LocalDay,
+} from './calendarItems';
+
 export { BasesSource } from './BasesSource';
 export { CompositeSource } from './CompositeSource';
 export {
