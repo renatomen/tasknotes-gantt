@@ -177,6 +177,11 @@ interface FakeElementInfo {
   type?: string;
 }
 
+/** A recorded listener; the event carries whatever extras `trigger` supplies. */
+type FakeEventListener = (
+  event: { target: FakeElement; preventDefault: () => void } & Record<string, unknown>,
+) => void;
+
 /**
  * Recording stand-in for Obsidian's `createEl`-augmented elements, so modal
  * DOM wiring can be exercised (and traversed by tests) in the node test env.
@@ -187,7 +192,7 @@ export class FakeElement {
   text: string;
   attrs: Record<string, unknown> = {};
   children: FakeElement[] = [];
-  listeners: Record<string, ((event: { target: FakeElement }) => void)[]> = {};
+  listeners: Record<string, FakeEventListener[]> = {};
   checked = false;
   indeterminate = false;
   disabled = false;
@@ -220,7 +225,7 @@ export class FakeElement {
     this.text = text;
   }
 
-  addEventListener(type: string, listener: (event: { target: FakeElement }) => void): void {
+  addEventListener(type: string, listener: FakeEventListener): void {
     (this.listeners[type] ??= []).push(listener);
   }
 
@@ -228,9 +233,12 @@ export class FakeElement {
     this.focused = true;
   }
 
-  /** Test helper: fire listeners of a type as the browser would. */
-  trigger(type: string): void {
-    for (const listener of this.listeners[type] ?? []) listener({ target: this });
+  /** Test helper: fire listeners of a type as the browser would; `init` adds
+   *  event fields (e.g. `key` for keyboard events). */
+  trigger(type: string, init: Record<string, unknown> = {}): void {
+    for (const listener of this.listeners[type] ?? []) {
+      listener({ target: this, preventDefault: () => {}, ...init });
+    }
   }
 
   /** Test helper: depth-first search of the rendered tree. */
