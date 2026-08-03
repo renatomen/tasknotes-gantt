@@ -359,16 +359,21 @@ interface NormalizedOccurrence {
   startTime: string;
 }
 
-function toSingleItem(occurrence: NormalizedOccurrence): CalendarItem {
-  const { event, span, startTime } = occurrence;
-  // Two singles in one feed can share a day and start minute (all-day events
-  // always do), so the qualifier folds in the upstream event id — falling back
-  // to the title when the service omits one — to keep their rows distinct.
-  const discriminator = event.id ?? event.title;
+/** One non-recurring event held with the feed it arrived through. */
+interface SingleEntry {
+  feedKey: string;
+  occurrence: NormalizedOccurrence;
+}
+
+function toSingleItem(entry: SingleEntry, discriminator: string): CalendarItem {
+  const { event, span, startTime } = entry.occurrence;
+  // Single ids are feed-scoped exactly like series ids: two surfaces (an ICS
+  // subscription named like a provider's prefixed feed) can otherwise reuse
+  // one subscriptionId + event id and collide.
   return {
     id: makeCalendarItemId(
       'external-event',
-      event.subscriptionId,
+      entry.feedKey,
       `${span.startDay}#${startTime}#${discriminator}`,
     ),
     family: 'external-event',
@@ -377,6 +382,42 @@ function toSingleItem(occurrence: NormalizedOccurrence): CalendarItem {
     endDay: span.endDay,
     ...(event.color === undefined ? {} : { color: event.color }),
   };
+}
+
+function idlessSortKey(occurrence: NormalizedOccurrence): string {
+  const { event, span, startTime } = occurrence;
+  return `${span.startDay}#${startTime}#${event.title}#${span.endDay}`;
+}
+
+/**
+ * Deterministic stand-in identity for events the service serves without an
+ * upstream id: the title alone is not unique, so each feed's id-less events
+ * get a stable sorted ordinal — identical twins survive as `…~0` and `…~1`.
+ */
+function idlessOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
+  const byFeed = new Map<string, SingleEntry[]>();
+  for (const entry of entries) {
+    if (entry.occurrence.event.id !== undefined) continue;
+    const group = byFeed.get(entry.feedKey) ?? [];
+    group.push(entry);
+    byFeed.set(entry.feedKey, group);
+  }
+  const ordinals = new Map<NormalizedOccurrence, number>();
+  for (const group of byFeed.values()) {
+    const sorted = [...group].sort((a, b) =>
+      idlessSortKey(a.occurrence).localeCompare(idlessSortKey(b.occurrence)),
+    );
+    sorted.forEach((entry, index) => ordinals.set(entry.occurrence, index));
+  }
+  return ordinals;
+}
+
+function singleDiscriminator(
+  occurrence: NormalizedOccurrence,
+  ordinals: ReadonlyMap<NormalizedOccurrence, number>,
+): string {
+  const { event } = occurrence;
+  return event.id ?? `${event.title}~${ordinals.get(occurrence) ?? 0}`;
 }
 
 function toSeriesItem(
@@ -412,7 +453,7 @@ interface SeriesGroup {
 }
 
 function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
-  const singles: CalendarItem[] = [];
+  const singleEntries: SingleEntry[] = [];
   // Series group per feed AND series id: feed-local series ids are only unique
   // within their own feed, so two feeds reusing one id stay separate rows.
   const seriesByFeedAndId = new Map<string, SeriesGroup>();
@@ -421,7 +462,7 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
     if (span === null) continue;
     const occurrence: NormalizedOccurrence = { event, span, startTime: localStartTime(event) };
     if (event.recurringEventId === undefined) {
-      singles.push(toSingleItem(occurrence));
+      singleEntries.push({ feedKey, occurrence });
       continue;
     }
     const groupKey = `${feedKey}\n${event.recurringEventId}`;
@@ -432,6 +473,10 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
     };
     seriesByFeedAndId.set(groupKey, { ...group, occurrences: [...group.occurrences, occurrence] });
   }
+  const ordinals = idlessOrdinals(singleEntries);
+  const singles = singleEntries.map((entry) =>
+    toSingleItem(entry, singleDiscriminator(entry.occurrence, ordinals)),
+  );
   const series = [...seriesByFeedAndId.values()]
     .map((group) => toSeriesItem(group.feedKey, group.seriesId, group.occurrences))
     .filter((item): item is CalendarItem => item !== null);
@@ -441,7 +486,10 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
 // --- source ---------------------------------------------------------------
 
 function fingerprintEvent(event: ExternalEvent): string {
+  // The upstream id participates: rendered single ids derive from it, so an
+  // id-only cache reindex must read as a change (epoch bump → re-render).
   return [
+    event.id ?? '',
     event.subscriptionId,
     event.recurringEventId ?? '',
     event.start,

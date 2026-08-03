@@ -70,7 +70,7 @@ interface IcsSubscriptionFixture {
 }
 
 interface IcsEventFixture {
-  id: string;
+  id?: string;
   subscriptionId: string;
   title: string;
   description?: string;
@@ -519,8 +519,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(2);
-    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal@2026-08-10#09:00#work-cal-uid-1');
-    expect(batch.items[1].id).toBe('og-calendar://external-event/work-cal@2026-08-10#17:00#work-cal-uid-2');
+    expect(batch.items[0].id).toBe('og-calendar://external-event/ics:work-cal@2026-08-10#09:00#work-cal-uid-1');
+    expect(batch.items[1].id).toBe('og-calendar://external-event/ics:work-cal@2026-08-10#17:00#work-cal-uid-2');
   });
 
   it('keeps two same-day all-day singles in one feed as distinct rows', async () => {
@@ -541,8 +541,68 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
       'Holiday',
     ]);
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/work-cal@2026-08-10#00:00#work-cal-uid-1',
-      'og-calendar://external-event/work-cal@2026-08-10#00:00#work-cal-uid-2',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#work-cal-uid-1',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#work-cal-uid-2',
+    ]);
+  });
+
+  it('keeps an ICS single and a provider single sharing subscriptionId and event id as distinct feed-scoped rows', async () => {
+    // An ICS subscription literally named like the provider's prefixed feed id:
+    // both surfaces then serve an event with the SAME subscriptionId + id.
+    const sharedShape: Partial<IcsEventFixture> = {
+      id: 'uid-1',
+      subscriptionId: 'google-cal1',
+      title: 'Same slot',
+      start: '2026-08-10T09:00:00',
+      end: '2026-08-10T09:30:00',
+    };
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent(sharedShape)],
+    });
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription({ id: 'google-cal1' })],
+      icsEvents: [icsEvent(sharedShape)],
+      providers: [google.provider],
+    });
+    const { source } = makeSource(
+      fixture.plugin,
+      new Set([
+        externalCalendarFeedKey('ics', 'google-cal1'),
+        externalCalendarFeedKey('google', 'cal1'),
+      ]),
+    );
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
+      'og-calendar://external-event/google:cal1@2026-08-10#09:00#uid-1',
+      'og-calendar://external-event/ics:google-cal1@2026-08-10#09:00#uid-1',
+    ]);
+  });
+
+  it('keeps two id-less singles with identical title, day and start as distinct rows (deterministic per-feed ordinal)', async () => {
+    const idlessTwin = (): IcsEventFixture => ({
+      subscriptionId: 'work-cal',
+      title: 'Busy',
+      start: '2026-08-10',
+      end: '2026-08-11',
+      allDay: true,
+    });
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [idlessTwin(), idlessTwin()],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#Busy~0',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#Busy~1',
     ]);
   });
 
@@ -784,6 +844,23 @@ describe('createExternalCalendarSource — refresh signals', () => {
     google.state.events = [
       icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
     ];
+    timers.tick();
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('bumps the epoch on a timer tick when only provider event ids changed (a cache reindex)', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, new Set());
+
+    // Same event content, new upstream id: rendered ids derive from the id,
+    // so a silent reindex must still count as a change.
+    google.state.events = [icsEvent({ id: 'google-cal1-e9', subscriptionId: 'google-cal1' })];
     timers.tick();
 
     expect(source.epoch()).toBe(1);

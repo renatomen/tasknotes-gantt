@@ -2,18 +2,24 @@
  * Session degrade signal for the external-calendar family: a degraded collect
  * fires ONE dismissible Notice per Obsidian session, and the options panel
  * appends its gray-text degrade description only after the session flag
- * flips. The options-panel gate is driven through the REAL registration seam
- * (captured `options` builder), mirroring the blocking-builders harness.
+ * flips. The wiring test drives the REAL production path: a provider built
+ * with the exact batch-flags observer the mount wires, whose degraded collect
+ * must reach the session Notice and the captured `options` builder's gate.
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
+import { Notice } from 'obsidian';
 import type { BasesAllOptions, BasesViewConfig, Plugin } from 'obsidian';
 import {
   createExternalCalendarDegradeSignal,
   sessionExternalCalendarDegradeSignal,
   EXTERNAL_CALENDAR_DEGRADED_NOTICE,
 } from '../../src/bases/externalCalendarDegradeNotice';
-import { registerBasesGantt } from '../../src/bases/register';
+import { registerBasesGantt, wireExternalBatchFlags } from '../../src/bases/register';
+import { createCalendarItemSourcesProvider } from '../../src/bases/calendarItemSources';
+import { readCalendarItemToggles } from '../../src/bases/calendarItemOptions';
+import { externalCalendarFeedKey } from '../../src/datasource/calendarItems/externalCalendarSource';
+import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
 import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 
 describe('createExternalCalendarDegradeSignal', () => {
@@ -106,17 +112,46 @@ function hasDegradedEntry(groups: BasesAllOptions[]): boolean {
   );
 }
 
-describe('register options panel degrade gate (real registration seam)', () => {
-  it('appends the degrade description line only after a degraded collect this session', () => {
+describe('register wiring: degraded collect → session Notice → options degrade line', () => {
+  it('a degraded external collect through the wired batch-flags path fires the Notice and appends the options line', async () => {
     const options = captureOptionsBuilder();
     const config = { get: () => undefined } as unknown as BasesViewConfig;
-
     expect(hasDegradedEntry(options(config))).toBe(false);
+    expect(Notice.created).toHaveLength(0);
 
-    // The degraded collect path: the view's batch-flags hook feeds this
-    // session-wide signal.
-    sessionExternalCalendarDegradeSignal.observeCollect({ degraded: true });
+    const loadingStates: boolean[] = [];
+    // The provider assembled exactly as the mount does: the same observer
+    // (register's wiring seam) between collect flags and the session signal.
+    const provider = createCalendarItemSourcesProvider({
+      toggles: () => readCalendarItemToggles(() => undefined),
+      listTasks: () => [],
+      // The TaskNotes handle is gone by collect time, so the guarded surface
+      // reads degrade instead of throwing.
+      getTaskNotesPlugin: () => undefined,
+      visibleExternalFeeds: () => new Set([externalCalendarFeedKey('ics', 'work-cal')]),
+      scheduler: {
+        setTimeout: () => 0 as unknown as ReturnType<typeof setTimeout>,
+        clearTimeout: () => {},
+      },
+      onExternalBatchFlags: wireExternalBatchFlags((loading) => loadingStates.push(loading)),
+    });
+    const external = provider.provide().find((source) => source.family === 'external-event');
+    if (!external) throw new Error('external-calendar source was not provided');
 
+    const context: CalendarItemQueryContext = {
+      window: { startDate: '2026-08-01', endDateExclusive: '2026-10-01' },
+      tasks: () => [],
+      basesEntries: () => [],
+    };
+    const batch = await external.collect(context);
+    provider.dispose();
+
+    expect(batch.degraded).toBe(true);
+    expect(loadingStates).toEqual([false]);
+    expect(Notice.created.map((notice) => notice.message)).toEqual([
+      EXTERNAL_CALENDAR_DEGRADED_NOTICE,
+    ]);
+    expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(true);
     expect(hasDegradedEntry(options(config))).toBe(true);
   });
 });

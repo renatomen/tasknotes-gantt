@@ -248,6 +248,21 @@ function getTaskNotesPluginHandle(app: Plugin['app']): unknown {
   }
 }
 
+/**
+ * The external batch-flags observer exactly as the mount wires it: the loading
+ * flag feeds the view's indicator state, and every collect's degrade flag
+ * feeds the session-wide Notice/options-panel signal. Exported so tests can
+ * drive the production collect→signal path through the same composition.
+ */
+export function wireExternalBatchFlags(
+  setExternalEventsLoading: (loading: boolean) => void,
+): (flags: ExternalBatchFlags) => void {
+  return (flags) => {
+    setExternalEventsLoading(flags.loading);
+    sessionExternalCalendarDegradeSignal.observeCollect(flags);
+  };
+}
+
 class ObsidianGanttBasesView extends BasesView {
   /** This view's mount container, used as the focus-entry registry key. */
   private focusEntryKey: HTMLElement | null = null;
@@ -1075,10 +1090,9 @@ class ObsidianGanttBasesView extends BasesView {
         onExternalEpochBump: () => {
           if (this.containerEl?.isConnected) this.refreshCoalescer?.schedule();
         },
-        onExternalBatchFlags: (flags: ExternalBatchFlags) => {
-          this.externalEventsLoading = flags.loading;
-          sessionExternalCalendarDegradeSignal.observeCollect(flags);
-        },
+        onExternalBatchFlags: wireExternalBatchFlags((loading) => {
+          this.externalEventsLoading = loading;
+        }),
       });
       // The controller reads the live Bases query at (re-)selection time, so the
       // provider closes over `this` rather than a captured snapshot.

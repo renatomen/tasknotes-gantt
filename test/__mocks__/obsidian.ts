@@ -37,11 +37,16 @@ export class Component {
   }
 }
 
-/** Stub of Obsidian's toast; records the message for assertions. */
+/** Stub of Obsidian's toast; records constructions for assertions. */
 export class Notice {
+  /** Every Notice constructed in this test file's module registry, in order. */
+  static created: Notice[] = [];
   message: string;
-  constructor(message = '') {
+  duration: number | undefined;
+  constructor(message = '', duration?: number) {
     this.message = message;
+    this.duration = duration;
+    Notice.created.push(this);
   }
 }
 
