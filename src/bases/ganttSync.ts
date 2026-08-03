@@ -63,6 +63,14 @@ export const REPLICATED_TYPE = 'og-replicated';
 export const CONTEXT_TYPE = 'og-context';
 
 /**
+ * Custom SVAR task type marking a read-only calendar-item event row (calendar-view
+ * union). Emitted as a bare class (`.wx-bar.og-event`) that drives the read-only
+ * affordance CSS (hidden link handles / progress marker, honest cursor); the
+ * behavioral refusal lives in the intercept guards (`eventRowGuards`).
+ */
+export const EVENT_TYPE = 'og-event';
+
+/**
  * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to
  * a bar's `type` string (replicated before context). SVAR matches the *whole*
  * type string against the registered task-type ids (see `taskTypeCss` in SVAR's
@@ -74,6 +82,10 @@ const INSTANCE_CUE_SUFFIXES: readonly string[] = [
   REPLICATED_TYPE,
   CONTEXT_TYPE,
   `${REPLICATED_TYPE} ${CONTEXT_TYPE}`,
+  // Event rows carry the og-event cue alone: a calendar item's synthetic
+  // sourcePath is unique (never replicated) and never Show-all-fetched, so no
+  // replicated/context composition with it can occur.
+  EVENT_TYPE,
 ];
 
 /** The render-data inputs the SVAR-task shaping reads (subset of GanttData). */
@@ -365,6 +377,9 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
     if (isReplicated) classes.push(REPLICATED_TYPE);
     if (isContext) classes.push(CONTEXT_TYPE);
+    // Read-only calendar-item event row: the og-event cue drives the read-only
+    // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
+    if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
     const task: SvarTask = {

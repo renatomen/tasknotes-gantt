@@ -29,6 +29,7 @@ import {
   buildInstanceCueTaskTypes,
   REPLICATED_TYPE,
   CONTEXT_TYPE,
+  EVENT_TYPE,
   type SvarTask,
   type SvarTaskInputs,
   type TaskSyncPlan,
@@ -59,6 +60,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     ghostRuns: over.ghostRuns,
     stretchFlagged: over.stretchFlagged,
     interpretationOverridden: over.interpretationOverridden,
+    calendarItem: over.calendarItem,
   };
 }
 
@@ -651,6 +653,40 @@ describe('instance cues (U6)', () => {
     // Crossed with each base id.
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE}`);
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
+  });
+
+  // Calendar-view union U3: the read-only event-row cue joins the registered
+  // superset — an unregistered composite `type` silently collapses to plain
+  // `task` in SVAR, dropping the row's read-only styling.
+  it('registers the og-event cue and its base-crossed forms', () => {
+    const ids = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
+    expect(ids).toContain(EVENT_TYPE);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${EVENT_TYPE}`);
+  });
+
+  it('stamps a calendar-item row with og-event and the composed type round-trips through registration', () => {
+    const eventId = 'og-calendar://timeblock/Calendar/blocks.md@2026-08-03';
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'timeblock',
+              title: 'Deep work',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              notePath: 'Calendar/blocks.md',
+            },
+          }),
+        ],
+      }),
+    );
+    expect(tasks[0]!.type).toBe(EVENT_TYPE);
+    const registered = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
+    expect(registered).toContain(tasks[0]!.type);
   });
 });
 

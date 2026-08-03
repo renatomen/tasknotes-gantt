@@ -35,6 +35,12 @@
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
+    allowsLinkEndpoints,
+    allowsRowMutation,
+    refusesUserRowMutation,
+    resolveShowEditorRoute,
+  } from './eventRowGuards';
+  import {
     buildSvarTasks,
     buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
@@ -1716,8 +1722,15 @@
     // Our own ordering moves are echo-tagged and pass through. The keyboard
     // actions and the newer semantic aliases are blocked too so a SVAR bump
     // can't silently re-enable reordering.
-    const blockUserReorder = (ev?: { eventSource?: string }): boolean =>
-      syncing || ev?.eventSource === OG_ECHO_SOURCE;
+    const blockUserReorder = (ev?: { eventSource?: string; id?: string | number }): boolean => {
+      // Echoes must keep passing even for event rows: planReorder's ordering
+      // moves are the only way appended event rows stay positioned.
+      if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
+      // Read-only calendar-item rows refuse reorder ahead of the blanket task
+      // block, so a future re-enable of task reordering cannot include them.
+      if (!allowsRowMutation(ev?.id)) return false;
+      return false;
+    };
     for (const reorderAction of [
       "move-task",
       "move-task:up",
@@ -1739,6 +1752,18 @@
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
       }
+      // A calendar-item row never opens a task editor: with a backing note the
+      // double-click opens that note (activateBar's synthetic id resolves to it
+      // downstream), without one it is a no-op.
+      const route = resolveShowEditorRoute(
+        id,
+        (rowId) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
+      );
+      if (route.kind === 'open-note') {
+        activateBar(String(id), 'double', lastCtrlMeta);
+        return false;
+      }
+      if (route.kind === 'none') return false;
       // Double-click runs the configured action regardless of selection (R5).
       if (id && resolveClickActivation({ kind: 'double' }) === 'activateDouble') {
         activateBar(String(id), 'double', lastCtrlMeta);
@@ -1807,8 +1832,16 @@
     // extend) in one per-source queue slot. `inProgress` frames and our own
     // echoes / refreshes are ignored; `action` events stay a no-op (no
     // moveSummaryKids/resetSummaryDates fire for non-summary rows).
+    // Read-only calendar-item rows (R9): refusing `drag-task` makes SVAR abort
+    // the move/resize gesture natively at the first frame — the bar never moves.
+    api.intercept("drag-task", (ev: { id?: string | number }) => allowsRowMutation(ev?.id));
+
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
+      // Read-only calendar-item rows: refuse any user change (cell edit,
+      // progress, dates) before gesture classification; our echoes and
+      // programmatic refreshes keep passing so the diff-sync applies.
+      if (refusesUserRowMutation(ev, { syncing, echoSource: OG_ECHO_SOURCE })) return false;
       // Cell edits fold into the same event stream: the grid's update-cell
       // bridge re-emits a committed inline edit as an untagged `update-task`
       // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
@@ -1880,6 +1913,8 @@
         return true;
       }
       if (readOnly || !onAddDependency || !ev.link) return false;
+      // Dependencies never touch a read-only calendar-item row on either end.
+      if (!allowsLinkEndpoints(ev.link.source, ev.link.target)) return false;
       const roles = classifyLinkCreate({
         source: String(ev.link.source ?? ''),
         target: String(ev.link.target ?? ''),
@@ -1913,6 +1948,8 @@
         rawId.startsWith(':') ? rawId.slice(1) : rawId,
       );
       if (!link) return false;
+      // A resolved edge touching a read-only calendar-item row is never removable.
+      if (!allowsLinkEndpoints(link.source, link.target)) return false;
       void onRemoveDependency(link.source, link.target).catch((err) => {
         console.error('[GanttContainer] remove-dependency failed:', err);
         new Notice("Couldn't remove the dependency — check TaskNotes is running.");
@@ -2960,6 +2997,25 @@
 
   .og-bases-gantt.og-progress-readonly :global(.wx-progress-wrapper) {
     pointer-events: none;
+  }
+
+  /*
+   * Read-only calendar-item event rows (R9). SVAR emits the registered
+   * `og-event` task type as a bare class on the bar, so hide the mutating
+   * affordances the intercepts refuse anyway — link handles and the progress
+   * drag handle — and keep the cursor honest: SVAR writes `cursor` inline on
+   * hover, so only !important outranks it.
+   */
+  .og-bases-gantt :global(.wx-bar.og-event .wx-link) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event .wx-progress-marker) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event) {
+    cursor: default !important;
   }
 
   /*
