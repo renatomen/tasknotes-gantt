@@ -90,6 +90,14 @@ export interface CalendarItem {
   notePath?: string;
   /** Fixed display color (CSS color string), or absent for the family default. */
   color?: string;
+  /**
+   * The local days a multi-occurrence series actually occupies inside its
+   * span, ascending. Present only when the item stands for a recurring series
+   * touching more than one day — the renderer pieces the bar per occupied day
+   * (the way recurring-task occupancy renders) instead of drawing the span
+   * solid. Absent = solid span.
+   */
+  occupancyDays?: readonly LocalDay[];
 }
 
 /**
@@ -131,6 +139,18 @@ export interface CalendarItemBatch {
    * Absent/empty when the batch suppresses nothing.
    */
   plainBarSuppressedTaskPaths?: ReadonlySet<string>;
+  /**
+   * A backing service surface failed its structural guard, so part (or all)
+   * of this family degraded to empty. The orchestrator surfaces the Notice;
+   * the batch itself stays usable. Absent = every surface answered.
+   */
+  degraded?: boolean;
+  /**
+   * The services answered but their event caches are still cold (feeds are
+   * configured yet zero events are cached) — a transient first-collect state,
+   * distinct from {@link degraded}. Absent once events exist.
+   */
+  loading?: boolean;
 }
 
 /**

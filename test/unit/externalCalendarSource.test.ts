@@ -1,0 +1,796 @@
+/**
+ * External-calendar calendar-item source unit tests.
+ *
+ * Fixtures are shaped like the ACTUAL TaskNotes services (transcribed from the
+ * sibling checkout): `icsSubscriptionService.getSubscriptions()` returns
+ * `{id,name,url,type,color,enabled,refreshInterval}` records,
+ * `getAllEvents()` returns ICSEvent `{id,subscriptionId,title,start,end,
+ * allDay,rrule?,recurringEventId?,color?}`, and `calendarProviderRegistry`
+ * exposes providers (EventEmitter-shaped `on` returning an unsubscribe)
+ * whose `getAllEvents()` return the same ICSEvent shape with `subscriptionId`
+ * prefixed `google-`/`microsoft-`.
+ *
+ * The works-but-does-nothing failure mode is a named defect class here, so
+ * happy paths assert REAL items with exact days/ids, never just "no throw".
+ *
+ * The observer zone cannot be pinned under Jest, so instant-dialect fixtures
+ * are built dynamically from machine-local wall times (foreign-offset stamped
+ * where the conversion is the behavior under test, with a sanity assertion).
+ * Wall-clock-dialect expectations are zone-independent by definition.
+ */
+
+import { describe, it, expect, jest } from '@jest/globals';
+import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
+import {
+  createExternalCalendarSource,
+  externalCalendarFeedKey,
+  readExternalIcsSubscriptions,
+  readExternalProviderCalendars,
+  type ExternalCalendarSourceDeps,
+} from '../../src/datasource/calendarItems/externalCalendarSource';
+import type { TimerScheduler } from '../../src/bases/scheduler';
+
+function pad(value: number, width = 2): string {
+  return String(value).padStart(width, '0');
+}
+
+/** Express an absolute instant as an ISO string at the given UTC offset. */
+function isoAtOffset(instant: Date, offsetMinutes: number): string {
+  const wall = new Date(instant.getTime() + offsetMinutes * 60_000);
+  const sign = offsetMinutes < 0 ? '-' : '+';
+  const abs = Math.abs(offsetMinutes);
+  return (
+    `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())}` +
+    `T${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}:${pad(wall.getUTCSeconds())}` +
+    `${sign}${pad(Math.trunc(abs / 60))}:${pad(abs % 60)}`
+  );
+}
+
+/** Express an absolute instant as an ISO string at the observer's own offset. */
+function isoAtLocalOffset(instant: Date): string {
+  return isoAtOffset(instant, -instant.getTimezoneOffset());
+}
+
+/** An offset one hour behind the observer's (foreign wall date differs at local midnight). */
+function foreignOffsetBehindLocal(instant: Date): number {
+  return -instant.getTimezoneOffset() - 60;
+}
+
+// --- service-shaped fixtures (transcribed from the TaskNotes sibling checkout) ---
+
+interface IcsSubscriptionFixture {
+  id: string;
+  name: string;
+  url?: string;
+  filePath?: string;
+  type: 'remote' | 'local';
+  color: string;
+  enabled: boolean;
+  refreshInterval: number;
+}
+
+interface IcsEventFixture {
+  id: string;
+  subscriptionId: string;
+  title: string;
+  description?: string;
+  start: string;
+  end?: string;
+  allDay: boolean;
+  location?: string;
+  url?: string;
+  rrule?: string;
+  recurringEventId?: string;
+  color?: string;
+}
+
+function icsSubscription(overrides: Partial<IcsSubscriptionFixture> = {}): IcsSubscriptionFixture {
+  return {
+    id: 'work-cal',
+    name: 'Work calendar',
+    url: 'https://example.com/work.ics',
+    type: 'remote',
+    color: '#FF0000',
+    enabled: true,
+    refreshInterval: 60,
+    ...overrides,
+  };
+}
+
+function icsEvent(overrides: Partial<IcsEventFixture> = {}): IcsEventFixture {
+  return {
+    id: 'work-cal-uid-1',
+    subscriptionId: 'work-cal',
+    title: 'Team sync',
+    start: '2026-08-10T12:00:00Z',
+    end: '2026-08-10T13:00:00Z',
+    allDay: false,
+    ...overrides,
+  };
+}
+
+/** Records listeners the way the TaskNotes EventEmitter does (on → unsubscribe). */
+function emitterStub() {
+  const listeners = new Map<string, Array<() => void>>();
+  const unsubscribeCalls: string[] = [];
+  return {
+    on: (event: string, listener: () => void): (() => void) => {
+      const existing = listeners.get(event) ?? [];
+      listeners.set(event, [...existing, listener]);
+      return () => {
+        unsubscribeCalls.push(event);
+        listeners.set(
+          event,
+          (listeners.get(event) ?? []).filter((l) => l !== listener),
+        );
+      };
+    },
+    emit: (event: string) => {
+      for (const listener of listeners.get(event) ?? []) listener();
+    },
+    unsubscribeCalls,
+  };
+}
+
+interface ProviderFixtureInput {
+  providerId: 'google' | 'microsoft';
+  calendars?: Array<{ id: string; summary: string; backgroundColor?: string; primary?: boolean }>;
+  events?: IcsEventFixture[];
+}
+
+function providerFixture(input: ProviderFixtureInput) {
+  const emitter = emitterStub();
+  const state = { events: input.events ?? [] };
+  return {
+    state,
+    emitter,
+    provider: {
+      providerId: input.providerId,
+      providerName: input.providerId === 'google' ? 'Google Calendar' : 'Microsoft Calendar',
+      getAllEvents: jest.fn(() => state.events),
+      getAvailableCalendars: jest.fn(() => input.calendars ?? []),
+      on: emitter.on,
+    },
+  };
+}
+
+interface PluginFixtureInput {
+  subscriptions?: IcsSubscriptionFixture[];
+  icsEvents?: IcsEventFixture[];
+  providers?: Array<ReturnType<typeof providerFixture>['provider']>;
+}
+
+function pluginFixture(input: PluginFixtureInput = {}) {
+  const emitter = emitterStub();
+  const state = {
+    subscriptions: input.subscriptions ?? [],
+    icsEvents: input.icsEvents ?? [],
+  };
+  const icsSubscriptionService = {
+    getSubscriptions: jest.fn(() => state.subscriptions),
+    getAllEvents: jest.fn(() => state.icsEvents),
+    on: emitter.on,
+  };
+  const calendarProviderRegistry = {
+    getAllProviders: jest.fn(() => input.providers ?? []),
+  };
+  return {
+    state,
+    emitter,
+    icsSubscriptionService,
+    plugin: { icsSubscriptionService, calendarProviderRegistry },
+  };
+}
+
+function manualScheduler() {
+  let nextHandle = 1;
+  const pending = new Map<number, () => void>();
+  const scheduler: TimerScheduler = {
+    setTimeout: (callback: () => void) => {
+      const handle = nextHandle++;
+      pending.set(handle, callback);
+      return handle as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (timer) => {
+      pending.delete(timer as unknown as number);
+    },
+  };
+  return {
+    scheduler,
+    tick: () => {
+      const [handle, callback] = pending.entries().next().value ?? [];
+      if (handle === undefined || callback === undefined) return false;
+      pending.delete(handle);
+      callback();
+      return true;
+    },
+    pendingCount: () => pending.size,
+  };
+}
+
+const CONTEXT: CalendarItemQueryContext = {
+  window: { startDate: '2026-08-01', endDateExclusive: '2026-10-01' },
+  tasks: () => [],
+  basesEntries: () => [],
+};
+
+function makeSource(
+  plugin: unknown,
+  visibleFeeds: ReadonlySet<string>,
+  overrides: Partial<ExternalCalendarSourceDeps> = {},
+) {
+  const timers = manualScheduler();
+  const source = createExternalCalendarSource({
+    getTaskNotesPlugin: () => plugin,
+    visibleFeeds: () => visibleFeeds,
+    scheduler: timers.scheduler,
+    ...overrides,
+  });
+  return { source, timers };
+}
+
+const ALL_WORK_VISIBLE = new Set([externalCalendarFeedKey('ics', 'work-cal')]);
+
+describe('createExternalCalendarSource — guarded service absence', () => {
+  it('degrades to an empty batch without throwing when TaskNotes is absent', async () => {
+    const { source } = makeSource(undefined, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.degraded).toBe(true);
+    expect(batch.loading).toBeFalsy();
+  });
+
+  it('degrades when the plugin exposes malformed service surfaces', async () => {
+    const malformed = { icsSubscriptionService: {}, calendarProviderRegistry: { getAllProviders: 7 } };
+    const { source } = makeSource(malformed, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.degraded).toBe(true);
+  });
+
+  it('keeps provider items and flags degraded when only the ICS surface is malformed', async () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [
+        icsEvent({
+          id: 'google-cal1-e1',
+          subscriptionId: 'google-cal1',
+          title: 'Dentist',
+          start: '2026-08-12T10:00:00',
+          end: '2026-08-12T10:30:00',
+        }),
+      ],
+    });
+    const plugin = {
+      icsSubscriptionService: { getSubscriptions: () => [] },
+      calendarProviderRegistry: { getAllProviders: () => [google.provider] },
+    };
+    const { source } = makeSource(plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.degraded).toBe(true);
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].title).toBe('Dentist');
+  });
+
+  it('degrades the throwing surface instead of rejecting when a guarded getter throws', async () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    fixture.icsSubscriptionService.getAllEvents.mockImplementation(() => {
+      throw new Error('cache exploded');
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.degraded).toBe(true);
+  });
+});
+
+describe('createExternalCalendarSource — ICS dialect normalization', () => {
+  it('converts foreign-offset UTC-instant events to observer-local day spans (real items, not empties)', async () => {
+    // 2026-08-04 00:30 local, stamped at an offset one hour behind: the wall
+    // date reads the PREVIOUS day, so naive date-part reading would misfile it.
+    const pastMidnight = new Date(2026, 7, 4, 0, 30, 0);
+    const start = isoAtOffset(pastMidnight, foreignOffsetBehindLocal(pastMidnight));
+    expect(start.startsWith('2026-08-03T23:30:00')).toBe(true);
+    const end = isoAtOffset(new Date(2026, 7, 4, 1, 0, 0), foreignOffsetBehindLocal(pastMidnight));
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start, end, title: 'Standup', color: '#00FF00' })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    const item = batch.items[0];
+    expect(item.family).toBe('external-event');
+    expect(item.title).toBe('Standup');
+    expect(item.color).toBe('#00FF00');
+    expect(item.startDay).toBe('2026-08-04');
+    expect(item.endDay).toBe('2026-08-04');
+    expect(item.notePath).toBeUndefined();
+  });
+
+  it('spans both local days when a timed instant event crosses local midnight', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({
+          start: isoAtLocalOffset(new Date(2026, 7, 3, 23, 0, 0)),
+          end: isoAtLocalOffset(new Date(2026, 7, 4, 1, 0, 0)),
+        }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-03');
+    expect(batch.items[0].endDay).toBe('2026-08-04');
+  });
+
+  it('keeps a one-day all-day event on its own floating day (exclusive DTEND collapses)', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start: '2026-08-10', end: '2026-08-11', allDay: true })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-10');
+  });
+
+  it('renders a multi-day all-day event through its last occupied day (exclusive DTEND minus one)', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start: '2026-08-10', end: '2026-08-13', allDay: true })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-12');
+    expect(batch.items[0].occupancyDays).toBeUndefined();
+  });
+
+  it('collapses a zero-duration event to a one-day span', async () => {
+    const nineAm = isoAtLocalOffset(new Date(2026, 7, 5, 9, 0, 0));
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent({ start: nineAm, end: nineAm })],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-05');
+    expect(batch.items[0].endDay).toBe('2026-08-05');
+  });
+});
+
+describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect', () => {
+  function googlePlugin(events: IcsEventFixture[]) {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events,
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    return { plugin: fixture.plugin, google };
+  }
+  const CAL1_VISIBLE = new Set([externalCalendarFeedKey('google', 'cal1')]);
+
+  it('keeps a late-evening local-wall event on its own floating day (23:30 never zone-shifts)', async () => {
+    const { plugin } = googlePlugin([
+      icsEvent({
+        id: 'google-cal1-e1',
+        subscriptionId: 'google-cal1',
+        start: '2026-03-10T23:30:00',
+        end: '2026-03-10T23:45:00',
+      }),
+    ]);
+    const { source } = makeSource(plugin, CAL1_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-03-10');
+    expect(batch.items[0].endDay).toBe('2026-03-10');
+  });
+
+  it('keeps an early-morning local-wall event on its own floating day (00:30 never zone-shifts)', async () => {
+    // The 23:30 case catches a treat-as-UTC defect in zones ahead of UTC; this
+    // 00:30 companion catches it in zones behind — together every nonzero
+    // offset exposes the mutant.
+    const { plugin } = googlePlugin([
+      icsEvent({
+        id: 'google-cal1-e2',
+        subscriptionId: 'google-cal1',
+        start: '2026-03-10T00:30:00',
+        end: '2026-03-10T01:00:00',
+      }),
+    ]);
+    const { source } = makeSource(plugin, CAL1_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-03-10');
+    expect(batch.items[0].endDay).toBe('2026-03-10');
+  });
+
+  it('renders a multi-day non-recurring wall-clock event as one solid span without occupancyDays', async () => {
+    const { plugin } = googlePlugin([
+      icsEvent({
+        id: 'google-cal1-e3',
+        subscriptionId: 'google-cal1',
+        start: '2026-08-14T22:00:00',
+        end: '2026-08-16T10:00:00',
+      }),
+    ]);
+    const { source } = makeSource(plugin, CAL1_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-14');
+    expect(batch.items[0].endDay).toBe('2026-08-16');
+    expect(batch.items[0].occupancyDays).toBeUndefined();
+  });
+});
+
+describe('createExternalCalendarSource — identity and recurring series', () => {
+  it('gives two same-day events at different start times distinct, data-derived ids', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({
+          id: 'work-cal-uid-1',
+          start: isoAtLocalOffset(new Date(2026, 7, 10, 9, 0, 0)),
+          end: isoAtLocalOffset(new Date(2026, 7, 10, 9, 30, 0)),
+        }),
+        icsEvent({
+          id: 'work-cal-uid-2',
+          start: isoAtLocalOffset(new Date(2026, 7, 10, 17, 0, 0)),
+          end: isoAtLocalOffset(new Date(2026, 7, 10, 17, 30, 0)),
+        }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal@2026-08-10#09:00');
+    expect(batch.items[1].id).toBe('og-calendar://external-event/work-cal@2026-08-10#17:00');
+  });
+
+  it('collapses a twice-daily series to ONE item keyed on the series with occupancyDays per occupied day', async () => {
+    const occurrences = [
+      ['google-cal1-master1-0', '2026-08-10T09:00:00', '2026-08-10T09:45:00'],
+      ['google-cal1-master1-1', '2026-08-10T17:00:00', '2026-08-10T17:30:00'],
+      ['google-cal1-master1-2', '2026-08-11T09:00:00', '2026-08-11T09:45:00'],
+      ['google-cal1-master1-3', '2026-08-12T17:00:00', '2026-08-12T17:30:00'],
+    ].map(([id, start, end]) =>
+      icsEvent({
+        id,
+        subscriptionId: 'google-cal1',
+        recurringEventId: 'google-cal1-master1',
+        title: 'Twice daily',
+        start,
+        end,
+      }),
+    );
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: occurrences,
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source } = makeSource(fixture.plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    const series = batch.items[0];
+    expect(series.id).toBe('og-calendar://external-event/google-cal1-master1@2026-08-10#09:00');
+    expect(series.title).toBe('Twice daily');
+    expect(series.startDay).toBe('2026-08-10');
+    expect(series.endDay).toBe('2026-08-12');
+    expect(series.occupancyDays).toEqual(['2026-08-10', '2026-08-11', '2026-08-12']);
+  });
+
+  it('keeps the series id refresh-stable when upstream re-indexes and appends occurrences', async () => {
+    const occurrenceAt = (id: string, day: string) =>
+      icsEvent({
+        id,
+        subscriptionId: 'google-cal1',
+        recurringEventId: 'google-cal1-master1',
+        start: `${day}T09:00:00`,
+        end: `${day}T09:45:00`,
+      });
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [occurrenceAt('google-cal1-master1-0', '2026-08-10')],
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source } = makeSource(fixture.plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
+    const before = await source.collect(CONTEXT);
+
+    // Upstream refresh: index-suffixed instance ids renumber AND a new day appears.
+    google.state.events = [
+      occurrenceAt('google-cal1-master1-7', '2026-08-10'),
+      occurrenceAt('google-cal1-master1-8', '2026-08-11'),
+    ];
+    const after = await source.collect(CONTEXT);
+
+    expect(before.items).toHaveLength(1);
+    expect(after.items).toHaveLength(1);
+    expect(after.items[0].id).toBe(before.items[0].id);
+    expect(after.items[0].occupancyDays).toEqual(['2026-08-10', '2026-08-11']);
+  });
+
+  it('renders a single-occurrence series as a plain span item without occupancyDays', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({
+          recurringEventId: 'work-cal-master9',
+          start: isoAtLocalOffset(new Date(2026, 7, 20, 9, 0, 0)),
+          end: isoAtLocalOffset(new Date(2026, 7, 20, 10, 0, 0)),
+        }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal-master9@2026-08-20#09:00');
+    expect(batch.items[0].occupancyDays).toBeUndefined();
+  });
+});
+
+describe('createExternalCalendarSource — subscription and toggle filtering', () => {
+  it('excludes events of a disabled subscription even when the service still returns them', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [
+        icsSubscription({ id: 'work-cal', enabled: true }),
+        icsSubscription({ id: 'old-cal', name: 'Old calendar', enabled: false }),
+      ],
+      icsEvents: [
+        icsEvent({ title: 'Kept' }),
+        icsEvent({ id: 'old-cal-uid-1', subscriptionId: 'old-cal', title: 'Dropped' }),
+      ],
+    });
+    const visible = new Set([
+      externalCalendarFeedKey('ics', 'work-cal'),
+      externalCalendarFeedKey('ics', 'old-cal'),
+    ]);
+    const { source } = makeSource(fixture.plugin, visible);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].title).toBe('Kept');
+  });
+
+  it('excludes exactly the subscription whose per-view toggle is off', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [
+        icsSubscription({ id: 'work-cal' }),
+        icsSubscription({ id: 'home-cal', name: 'Home calendar' }),
+      ],
+      icsEvents: [
+        icsEvent({ title: 'Work event' }),
+        icsEvent({ id: 'home-cal-uid-1', subscriptionId: 'home-cal', title: 'Home event' }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, new Set([externalCalendarFeedKey('ics', 'home-cal')]));
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].title).toBe('Home event');
+  });
+});
+
+describe('createExternalCalendarSource — refresh signals', () => {
+  it('starts at epoch 0 and does not bump on collect alone', async () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [icsEvent()] });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    expect(source.epoch()).toBe(0);
+    await source.collect(CONTEXT);
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('bumps the epoch when the ICS service emits data-changed', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    fixture.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('bumps the epoch when a provider emits data-changed', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source } = makeSource(fixture.plugin, new Set());
+
+    google.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('does not bump the epoch on a timer tick when the cached facts are unchanged', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
+    });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    expect(timers.tick()).toBe(true);
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('bumps the epoch on a timer tick when provider cached events changed', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, new Set());
+
+    google.state.events = [
+      icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
+    ];
+    timers.tick();
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('bumps the epoch on a timer tick when an ICS subscription flips enabled', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription({ enabled: true })] });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    fixture.state.subscriptions = [icsSubscription({ enabled: false })];
+    timers.tick();
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('never calls the fetch-triggering ICS getAllEvents from the timer tick', () => {
+    // ICSSubscriptionService.getAllEvents kicks off network fetches for cold or
+    // expired caches — polling through it would turn the fallback timer into a
+    // fetch loop. Collect may read it; the tick must not.
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [icsEvent()] });
+    const { timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    timers.tick();
+    timers.tick();
+
+    expect(fixture.icsSubscriptionService.getAllEvents).not.toHaveBeenCalled();
+  });
+
+  it('reschedules itself so the fallback keeps ticking', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const { timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    expect(timers.pendingCount()).toBe(1);
+    timers.tick();
+    expect(timers.pendingCount()).toBe(1);
+  });
+
+  it('dispose releases the emitter subscriptions and stops the timer', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [] });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    source.dispose();
+
+    expect(fixture.emitter.unsubscribeCalls).toContain('data-changed');
+    expect(google.emitter.unsubscribeCalls).toContain('data-changed');
+    expect(timers.pendingCount()).toBe(0);
+    fixture.emitter.emit('data-changed');
+    expect(source.epoch()).toBe(0);
+  });
+});
+
+describe('createExternalCalendarSource — cold cache', () => {
+  it('flags loading (not degraded) when services are present but caches are still empty', async () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.loading).toBe(true);
+    expect(batch.degraded).toBeFalsy();
+  });
+
+  it('clears the loading flag once cached events exist', async () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [icsEvent()] });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.loading).toBeFalsy();
+  });
+
+  it('does not flag loading when no feeds are configured at all (a true empty)', async () => {
+    const fixture = pluginFixture({ subscriptions: [], icsEvents: [] });
+    const { source } = makeSource(fixture.plugin, new Set());
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.loading).toBeFalsy();
+    expect(batch.degraded).toBeFalsy();
+  });
+});
+
+describe('guarded feed listing for the options layer', () => {
+  it('lists ICS subscriptions with their id, name, color and enabled state', () => {
+    const fixture = pluginFixture({
+      subscriptions: [
+        icsSubscription(),
+        icsSubscription({ id: 'home-cal', name: 'Home calendar', color: '#0000FF', enabled: false }),
+      ],
+    });
+
+    const listed = readExternalIcsSubscriptions(fixture.plugin);
+
+    expect(listed).toEqual([
+      { id: 'work-cal', name: 'Work calendar', color: '#FF0000', enabled: true },
+      { id: 'home-cal', name: 'Home calendar', color: '#0000FF', enabled: false },
+    ]);
+  });
+
+  it('lists provider calendars keyed by provider kind and calendar id', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home', backgroundColor: '#4285F4' }],
+    });
+    const microsoft = providerFixture({
+      providerId: 'microsoft',
+      calendars: [{ id: 'calA', summary: 'Outlook' }],
+    });
+    const fixture = pluginFixture({ providers: [google.provider, microsoft.provider] });
+
+    const listed = readExternalProviderCalendars(fixture.plugin);
+
+    expect(listed).toEqual([
+      { provider: 'google', id: 'cal1', name: 'Home' },
+      { provider: 'microsoft', id: 'calA', name: 'Outlook' },
+    ]);
+  });
+
+  it('returns empty lists instead of throwing when the services are absent', () => {
+    expect(readExternalIcsSubscriptions(undefined)).toEqual([]);
+    expect(readExternalProviderCalendars({})).toEqual([]);
+  });
+});

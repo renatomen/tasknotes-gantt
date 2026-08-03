@@ -14,8 +14,11 @@
 
 import { describe, it, expect } from '@jest/globals';
 import {
+  isLocalDayString,
   localDayOfInstant,
+  localDayOfWallClock,
   localDaySpanOfInstants,
+  shiftLocalDay,
 } from '../../src/datasource/calendarItems/normalizers';
 
 function pad(value: number, width = 2): string {
@@ -151,5 +154,56 @@ describe('localDaySpanOfInstants — inclusive local-day span of an instant rang
     { caseName: 'the end is missing', start: '2026-08-03T10:00:00Z', end: undefined },
   ])('returns null when $caseName', ({ start, end }) => {
     expect(localDaySpanOfInstants(start, end)).toBeNull();
+  });
+});
+
+describe('localDayOfWallClock — floating (zone-less) day attribution', () => {
+  it('reads a date-only string verbatim, never through a UTC bare-date parse', () => {
+    expect(localDayOfWallClock('2026-08-10')).toBe('2026-08-10');
+  });
+
+  it('reads an offset-less datetime as its own floating date part', () => {
+    // 23:30 catches a treat-as-UTC defect in zones ahead of UTC; 00:30
+    // catches it in zones behind — together every nonzero offset exposes it.
+    expect(localDayOfWallClock('2026-03-10T23:30:00')).toBe('2026-03-10');
+    expect(localDayOfWallClock('2026-03-10T00:30:00')).toBe('2026-03-10');
+  });
+
+  it('still converts an offset-stamped stray as an absolute instant', () => {
+    const pastMidnight = new Date(2026, 7, 4, 0, 30, 0);
+    const foreignOffset = -pastMidnight.getTimezoneOffset() - 60;
+    const stamped = isoAtOffset(pastMidnight, foreignOffset);
+    expect(stamped.startsWith('2026-08-03T23:30:00')).toBe(true);
+
+    expect(localDayOfWallClock(stamped)).toBe('2026-08-04');
+  });
+
+  it.each([
+    { caseName: 'an impossible calendar date', value: '2026-02-30' },
+    { caseName: 'an unparseable string', value: 'not-a-date' },
+    { caseName: 'undefined', value: undefined },
+    { caseName: 'a number', value: 20260810 },
+  ])('returns null for $caseName', ({ value }) => {
+    expect(localDayOfWallClock(value)).toBeNull();
+  });
+});
+
+describe('isLocalDayString', () => {
+  it('accepts only the date-only shape', () => {
+    expect(isLocalDayString('2026-08-10')).toBe(true);
+    expect(isLocalDayString('2026-08-10T00:00:00')).toBe(false);
+    expect(isLocalDayString(undefined)).toBe(false);
+  });
+});
+
+describe('shiftLocalDay — calendar day arithmetic', () => {
+  it('shifts forward and backward across month boundaries', () => {
+    expect(shiftLocalDay('2026-08-31', 1)).toBe('2026-09-01');
+    expect(shiftLocalDay('2026-09-01', -1)).toBe('2026-08-31');
+  });
+
+  it('shifts across a leap-February boundary', () => {
+    expect(shiftLocalDay('2028-02-28', 1)).toBe('2028-02-29');
+    expect(shiftLocalDay('2028-03-01', -1)).toBe('2028-02-29');
   });
 });
