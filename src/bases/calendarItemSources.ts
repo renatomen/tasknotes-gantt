@@ -251,14 +251,12 @@ export function createCalendarItemSourcesProvider(
    * change bumps the config revision folded into every provided epoch.
    */
   const configTag = (toggles: CalendarItemToggles, visibleFeeds: ReadonlySet<string>): string =>
-    calendarItemTogglesSignatureTag(toggles) +
     JSON.stringify([
-      toggles.propertyEventStart,
-      toggles.propertyEventEnd,
-      toggles.propertyEventTitle,
-    ]) +
-    [...visibleFeeds].sort((a, b) => a.localeCompare(b)).join(',') +
-    (deps.dailyNotesConfigTag?.() ?? '');
+      calendarItemTogglesSignatureTag(toggles),
+      [toggles.propertyEventStart, toggles.propertyEventEnd, toggles.propertyEventTitle],
+      [...visibleFeeds].sort((a, b) => a.localeCompare(b)),
+      deps.dailyNotesConfigTag?.() ?? '',
+    ]);
 
   const createRecurring = (): DisposableCalendarItemSource =>
     createRecurringInstanceSource({

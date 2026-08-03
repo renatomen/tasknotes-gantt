@@ -597,6 +597,23 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(bumpedEpoch).toBe(initialEpoch + 1);
     });
 
+    it('distinguishes feed sets whose comma-joined forms collide', () => {
+      const fixture = taskNotesPluginFixture({ subscriptions: [] });
+      const harness = makeHarness([], { taskNotesPlugin: fixture.plugin });
+      harness.visibleFeeds.add(externalCalendarFeedKey('ics', 'a,ics:b'));
+      const source = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      const initialEpoch = source.epoch();
+
+      harness.visibleFeeds.clear();
+      harness.visibleFeeds.add(externalCalendarFeedKey('ics', 'a'));
+      harness.visibleFeeds.add(externalCalendarFeedKey('ics', 'b'));
+      const bumpedEpoch = provideSources(harness)
+        .find((entry) => entry.family === 'external-event')!
+        .epoch();
+
+      expect(bumpedEpoch).toBe(initialEpoch + 1);
+    });
+
     it('reports a degraded collect through the batch-flags hook', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
