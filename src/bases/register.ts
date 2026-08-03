@@ -10,7 +10,6 @@
 /* global MouseEvent */
 import {
   BasesView,
-  Notice,
   TFile,
   type Plugin,
   type BasesViewConfig,
@@ -42,12 +41,13 @@ import {
   type ExternalBatchFlags,
 } from './calendarItemSources';
 import {
-  createTimeblockWatch,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
   type TimeblockWatch,
 } from '../datasource/calendarItems';
 import { createDailyNoteAccess } from './dailyNoteAccess';
+import { sessionExternalCalendarDegradeSignal } from './externalCalendarDegradeNotice';
+import { createTimeblockLiveness } from './timeblockLiveness';
 import { defaultScheduler } from './scheduler';
 import { SourceSwitcherModal } from './SourceSwitcherModal';
 import {
@@ -230,28 +230,6 @@ export function getActiveGanttCalendarPickerEntry(
   activeContainer?: HTMLElement | null,
 ): (() => void) | null {
   return pickActiveFocusEntry(livePickerEntries, activeContainer);
-}
-
-/**
- * Calendar-item families whose degraded-service Notice already showed this
- * Obsidian session — the degrade signal is one dismissible Notice per session
- * per family (only the external family can degrade today). The options panel
- * also reads it to append the degrade description line, since Bases toggle
- * options carry no disabled/tooltip shape.
- */
-const degradeNoticedFamilies = new Set<string>();
-
-function notifyExternalCalendarDegradedOnce(): void {
-  if (degradeNoticedFamilies.has('external-event')) return;
-  degradeNoticedFamilies.add('external-event');
-  new Notice(
-    'TaskNotes Gantt: some external-calendar services are unavailable — their events are not shown.',
-    0,
-  );
-}
-
-function wasExternalCalendarDegradedThisSession(): boolean {
-  return degradeNoticedFamilies.has('external-event');
 }
 
 /**
@@ -1033,6 +1011,33 @@ class ObsidianGanttBasesView extends BasesView {
       // the families then derive nothing, which is their standalone behavior.
       const calendarItemTaskNotes = await TaskNotesSource.create(this.app);
       const dailyNoteAccess = createDailyNoteAccess(this.app);
+      // Daily-note liveness for timeblocks: the same event wiring as the
+      // calendar watch (metadata `changed` + vault `rename`/`delete`), with a
+      // daily-note relevance probe. Each settled burst bumps the epoch (the
+      // timeblock source's staleness signal, folded into the entry signature)
+      // and schedules the same coalesced refresh. Created BEFORE the
+      // controller below so the init-time collect's daily-note listing seeds
+      // the LIVE watch — a deleted note is only recognised via seeded paths.
+      this.unwireTimeblockWatch?.();
+      const timeblockLiveness = createTimeblockLiveness({
+        dailyNotes: dailyNoteAccess,
+        onEpochBump: () => {
+          if (this.containerEl?.isConnected) this.refreshCoalescer?.schedule();
+        },
+      });
+      // Register the disposer BEFORE wiring events (created-then-throw
+      // window): if the wiring throws, the watch still dies with the view.
+      this.timeblockWatch = timeblockLiveness.watch;
+      this.unwireTimeblockWatch = () => timeblockLiveness.watch.dispose();
+      const unwireTimeblockEvents = wireCalendarWatch(
+        { metadataCache: this.app.metadataCache, vault: this.app.vault },
+        timeblockLiveness.watch,
+      );
+      const unwireTimeblockThisMount = (): void => {
+        unwireTimeblockEvents();
+        timeblockLiveness.watch.dispose();
+      };
+      this.unwireTimeblockWatch = unwireTimeblockThisMount;
       const calendarItemSources = createCalendarItemSourcesProvider({
         toggles: () => this.getCalendarItemToggles(),
         listTasks: () => calendarItemTaskNotes?.listTaskInfos() ?? [],
@@ -1052,15 +1057,11 @@ class ObsidianGanttBasesView extends BasesView {
             this.basesDataHandlers.delete(handler);
           };
         },
-        // Timeblocks: the daily-note walk, synced into the timeblock watch's
-        // known-paths set so a later deletion of a rendered daily note is
-        // recognised (a deletion cannot probe the file once it is gone).
-        listDailyNotes: (window) => {
-          const notes = dailyNoteAccess.listDailyNotes(window);
-          this.timeblockWatch?.syncKnownPaths(notes.map((note) => note.path));
-          return notes;
-        },
-        timeblockEpoch: () => this.timeblockWatch?.epoch() ?? 0,
+        // Timeblocks: the daily-note walk, seeded into THIS mount's live
+        // watch by the liveness assembly so a later deletion of a rendered
+        // daily note is recognised (a deletion cannot probe the gone file).
+        listDailyNotes: (window) => timeblockLiveness.listDailyNotes(window),
+        timeblockEpoch: () => timeblockLiveness.watch.epoch(),
         // External calendars: guarded reads off the raw TaskNotes plugin
         // handle, per-feed visibility from the live view config, and a bump
         // hook so a service's data-changed emitter schedules a refresh.
@@ -1072,7 +1073,7 @@ class ObsidianGanttBasesView extends BasesView {
         },
         onExternalBatchFlags: (flags: ExternalBatchFlags) => {
           this.externalEventsLoading = flags.loading;
-          if (flags.degraded) notifyExternalCalendarDegradedOnce();
+          sessionExternalCalendarDegradeSignal.observeCollect(flags);
         },
       });
       // The controller reads the live Bases query at (re-)selection time, so the
@@ -1125,6 +1126,9 @@ class ObsidianGanttBasesView extends BasesView {
       const disposeMountResources = (): void => {
         controller.dispose();
         calendarItemSources.dispose();
+        // This mount's own watch (never `this.unwireTimeblockWatch`, which a
+        // newer racing mount may already have replaced with its own).
+        unwireTimeblockThisMount();
       };
 
       try {
@@ -1192,31 +1196,6 @@ class ObsidianGanttBasesView extends BasesView {
       });
       this.calendarWatch = mountWatch.watch;
       this.unwireCalendarWatch = mountWatch.unwire;
-
-      // Daily-note liveness for timeblocks: the same event wiring as the
-      // calendar watch (metadata `changed` + vault `rename`/`delete`), with a
-      // daily-note relevance probe. Each settled burst bumps the epoch (the
-      // timeblock source's staleness signal, folded into the entry signature)
-      // and schedules the same coalesced refresh.
-      this.unwireTimeblockWatch?.();
-      const timeblockWatch = createTimeblockWatch({
-        isDailyNote: (path) => dailyNoteAccess.isDailyNote(path),
-        onEpochBump: () => {
-          if (this.containerEl?.isConnected) this.refreshCoalescer?.schedule();
-        },
-      });
-      // Register the disposer BEFORE wiring events (created-then-throw
-      // window): if the wiring throws, the watch still dies with the view.
-      this.timeblockWatch = timeblockWatch;
-      this.unwireTimeblockWatch = () => timeblockWatch.dispose();
-      const unwireTimeblockEvents = wireCalendarWatch(
-        { metadataCache: this.app.metadataCache, vault: this.app.vault },
-        timeblockWatch,
-      );
-      this.unwireTimeblockWatch = () => {
-        unwireTimeblockEvents();
-        timeblockWatch.dispose();
-      };
 
       const interactions = new TaskNotesInteractions(this.app);
 
@@ -1764,7 +1743,7 @@ export function registerBasesGantt(plugin: Plugin, calendarLifetime: PluginLifet
             readExternalProviderCalendars(taskNotesHandle),
           ),
         );
-        if (wasExternalCalendarDegradedThisSession()) {
+        if (sessionExternalCalendarDegradeSignal.wasDegradedThisSession()) {
           calendarItems.items.push(externalCalendarDegradedEntry());
         }
       }

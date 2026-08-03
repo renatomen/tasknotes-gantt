@@ -37,6 +37,7 @@
   import {
     allowsLinkEndpoints,
     allowsRowMutation,
+    allowsTaskContextMenu,
     hasDerivedBarGeometry,
     refusesUserRowMutation,
     resolveShowEditorRoute,
@@ -671,9 +672,10 @@
       // strip it to recover our raw instance id. No-op for un-prefixed ids.
       const id = rawId.startsWith(':') ? rawId.slice(1) : rawId;
       const path = idToSourcePath.get(id);
-      // Only act on a known task row; unknown ids / empty space / header fall
-      // through to the default menu.
-      if (!path || !onBarContextMenu) return;
+      // Only act on a known task row; unknown ids / empty space / header /
+      // calendar-item event rows fall through to the default menu (an event
+      // row's sourcePath is a synthetic id no task menu could act on).
+      if (!path || !onBarContextMenu || !allowsTaskContextMenu(path)) return;
       // Suppress Obsidian's default editor context menu (the grid renders inside
       // editor content) and show the native TaskNotes task menu instead.
       e.preventDefault();
@@ -1893,7 +1895,7 @@
     // extend) in one per-source queue slot. `inProgress` frames and our own
     // echoes / refreshes are ignored; `action` events stay a no-op (no
     // moveSummaryKids/resetSummaryDates fire for non-summary rows).
-    // Read-only calendar-item rows (R9): refusing `drag-task` makes SVAR abort
+    // Read-only calendar-item rows: refusing `drag-task` makes SVAR abort
     // the move/resize gesture natively at the first frame — the bar never moves.
     // Occupancy rows refuse the same way: their bar is a DERIVED envelope of
     // instances, so a drag (even on a bare gap stretch between pieces) would
@@ -3118,7 +3120,7 @@
   }
 
   /*
-   * Read-only calendar-item event rows (R9). SVAR emits the registered
+   * Read-only calendar-item event rows. SVAR emits the registered
    * `og-event` task type as a bare class on the bar, so hide the mutating
    * affordances the intercepts refuse anyway — link handles and the progress
    * drag handle — and keep the cursor honest: SVAR writes `cursor` inline on

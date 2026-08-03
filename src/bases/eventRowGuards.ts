@@ -2,7 +2,7 @@
  * Read-only enforcement for calendar-item event rows (calendar-view union).
  *
  * Calendar items render as rows in the same SVAR store as tasks, but they are
- * derived facts — no mutating gesture may reach them (R9). SVAR has no per-task
+ * derived facts — no mutating gesture may reach them. SVAR has no per-task
  * readonly flag, so `GanttContainer`'s `api.intercept` handlers consult these
  * pure predicates and refuse the gesture per-row; refusing `drag-task` at the
  * first frame makes SVAR abort the whole gesture natively.
@@ -49,6 +49,16 @@ export function refusesUserRowMutation(
  */
 export function allowsLinkEndpoints(source: unknown, target: unknown): boolean {
   return allowsRowMutation(source) && allowsRowMutation(target);
+}
+
+/**
+ * Per-row veto for the right-click task menu: `false` means fall through to
+ * the host's default menu. A calendar-item row's resolved sourcePath is a
+ * synthetic id no TaskNotes task menu could act on, so suppressing the
+ * default menu there would leave right-click dead on event rows.
+ */
+export function allowsTaskContextMenu(sourcePath: unknown): boolean {
+  return !isCalendarItemRow(sourcePath);
 }
 
 /** The slice of a row's `custom` payload that marks derived bar geometry. */

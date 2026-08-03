@@ -285,17 +285,25 @@ export function createCalendarItemSourcesProvider(
       return external?.epoch() ?? 0;
     },
     dispose(): void {
-      recurring?.dispose();
-      timeEntries?.dispose();
-      timeblocks?.dispose();
-      propertyEvents?.dispose();
-      external?.dispose();
-      recurring = null;
-      timeEntries = null;
-      timeblocks = null;
-      propertyEvents = null;
-      external = null;
-      wrappers.clear();
+      const created = [recurring, timeEntries, timeblocks, propertyEvents, external];
+      try {
+        for (const source of created) {
+          // Each family releases in isolation: one throwing dispose must not
+          // suppress sibling cleanup or the idempotency bookkeeping below.
+          try {
+            source?.dispose();
+          } catch {
+            // Released as far as that family allows.
+          }
+        }
+      } finally {
+        recurring = null;
+        timeEntries = null;
+        timeblocks = null;
+        propertyEvents = null;
+        external = null;
+        wrappers.clear();
+      }
     },
   };
 }

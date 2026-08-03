@@ -1,5 +1,6 @@
 /**
- * eventRowGuards unit tests (calendar-view union U3).
+ * eventRowGuards unit tests — whole-row read-only enforcement for calendar-item
+ * event rows.
  *
  * Whole-row read-only enforcement for calendar-item event rows: every mutating
  * SVAR gesture is refused per-row via these pure predicates, while task rows
@@ -13,6 +14,7 @@ import {
   isCalendarItemRow,
   allowsRowMutation,
   allowsLinkEndpoints,
+  allowsTaskContextMenu,
   hasDerivedBarGeometry,
   refusesUserRowMutation,
   resolveShowEditorRoute,
@@ -112,6 +114,21 @@ describe('allowsLinkEndpoints (add-link / delete-link intercepts)', () => {
   it('is total: unknown endpoints are allowed as tasks, never a throw', () => {
     expect(allowsLinkEndpoints(undefined, undefined)).toBe(true);
     expect(allowsLinkEndpoints(null, 3)).toBe(true);
+  });
+});
+
+describe('allowsTaskContextMenu (right-click task-menu routing)', () => {
+  it('refuses a calendar-item row so the right-click falls through to the default menu', () => {
+    expect(allowsTaskContextMenu(eventRowId)).toBe(false);
+  });
+
+  it('allows a task row (vault path) its TaskNotes task menu', () => {
+    expect(allowsTaskContextMenu(taskPath)).toBe(true);
+  });
+
+  it('is total: unknown ids route as task rows, never a throw', () => {
+    expect(allowsTaskContextMenu(undefined)).toBe(true);
+    expect(allowsTaskContextMenu('')).toBe(true);
   });
 });
 

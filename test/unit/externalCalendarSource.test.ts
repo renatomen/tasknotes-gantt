@@ -279,6 +279,49 @@ describe('createExternalCalendarSource — guarded service absence', () => {
     expect(batch.items[0].title).toBe('Dentist');
   });
 
+  it('keeps a healthy provider\'s events and flags degraded when a sibling provider throws', async () => {
+    const broken = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    broken.provider.getAllEvents.mockImplementation(() => {
+      throw new Error('provider exploded');
+    });
+    const microsoft = providerFixture({
+      providerId: 'microsoft',
+      calendars: [{ id: 'calA', summary: 'Outlook' }],
+      events: [
+        icsEvent({
+          id: 'microsoft-calA-e1',
+          subscriptionId: 'microsoft-calA',
+          title: 'Design review',
+          start: '2026-08-12T14:00:00',
+          end: '2026-08-12T15:00:00',
+        }),
+      ],
+    });
+    const fixture = pluginFixture({ providers: [broken.provider, microsoft.provider] });
+    const { source } = makeSource(fixture.plugin, new Set([externalCalendarFeedKey('microsoft', 'calA')]));
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].title).toBe('Design review');
+    expect(batch.items[0].startDay).toBe('2026-08-12');
+    expect(batch.degraded).toBe(true);
+  });
+
+  it('attaches a later provider\'s data-changed listener when an earlier provider\'s on() throws', () => {
+    const broken = providerFixture({ providerId: 'google', calendars: [] });
+    broken.provider.on = () => {
+      throw new Error('emitter unavailable');
+    };
+    const microsoft = providerFixture({ providerId: 'microsoft', calendars: [{ id: 'calA', summary: 'Outlook' }] });
+    const fixture = pluginFixture({ providers: [broken.provider, microsoft.provider] });
+    const { source } = makeSource(fixture.plugin, new Set());
+
+    microsoft.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(1);
+  });
+
   it('degrades the throwing surface instead of rejecting when a guarded getter throws', async () => {
     const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
     fixture.icsSubscriptionService.getAllEvents.mockImplementation(() => {
@@ -476,8 +519,83 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(2);
-    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal@2026-08-10#09:00');
-    expect(batch.items[1].id).toBe('og-calendar://external-event/work-cal@2026-08-10#17:00');
+    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal@2026-08-10#09:00#work-cal-uid-1');
+    expect(batch.items[1].id).toBe('og-calendar://external-event/work-cal@2026-08-10#17:00#work-cal-uid-2');
+  });
+
+  it('keeps two same-day all-day singles in one feed as distinct rows', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({ id: 'work-cal-uid-1', title: 'Holiday', start: '2026-08-10', end: '2026-08-11', allDay: true }),
+        icsEvent({ id: 'work-cal-uid-2', title: 'Birthday', start: '2026-08-10', end: '2026-08-11', allDay: true }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items.map((item) => item.title).sort((a, b) => a.localeCompare(b))).toEqual([
+      'Birthday',
+      'Holiday',
+    ]);
+    expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
+      'og-calendar://external-event/work-cal@2026-08-10#00:00#work-cal-uid-1',
+      'og-calendar://external-event/work-cal@2026-08-10#00:00#work-cal-uid-2',
+    ]);
+  });
+
+  it('keeps identical feed-local series ids from two feeds as separate rows', async () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [
+        icsEvent({
+          id: 'google-cal1-shared-0',
+          subscriptionId: 'google-cal1',
+          recurringEventId: 'shared-series',
+          title: 'Google standup',
+          start: '2026-08-10T09:00:00',
+          end: '2026-08-10T09:30:00',
+        }),
+      ],
+    });
+    const microsoft = providerFixture({
+      providerId: 'microsoft',
+      calendars: [{ id: 'calA', summary: 'Outlook' }],
+      events: [
+        icsEvent({
+          id: 'microsoft-calA-shared-0',
+          subscriptionId: 'microsoft-calA',
+          recurringEventId: 'shared-series',
+          title: 'Outlook standup',
+          start: '2026-08-12T09:00:00',
+          end: '2026-08-12T09:30:00',
+        }),
+      ],
+    });
+    const fixture = pluginFixture({ providers: [google.provider, microsoft.provider] });
+    const { source } = makeSource(
+      fixture.plugin,
+      new Set([
+        externalCalendarFeedKey('google', 'cal1'),
+        externalCalendarFeedKey('microsoft', 'calA'),
+      ]),
+    );
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    const byTitle = new Map(batch.items.map((item) => [item.title, item]));
+    const googleRow = byTitle.get('Google standup');
+    const outlookRow = byTitle.get('Outlook standup');
+    expect(googleRow?.id).toBe('og-calendar://external-event/google:cal1/shared-series@2026-08-10#09:00');
+    expect(googleRow?.startDay).toBe('2026-08-10');
+    expect(googleRow?.endDay).toBe('2026-08-10');
+    expect(outlookRow?.id).toBe('og-calendar://external-event/microsoft:calA/shared-series@2026-08-12#09:00');
+    expect(outlookRow?.startDay).toBe('2026-08-12');
+    expect(outlookRow?.endDay).toBe('2026-08-12');
   });
 
   it('collapses a twice-daily series to ONE item keyed on the series with occupancyDays per occupied day', async () => {
@@ -508,7 +626,7 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
 
     expect(batch.items).toHaveLength(1);
     const series = batch.items[0];
-    expect(series.id).toBe('og-calendar://external-event/google-cal1-master1@2026-08-10#09:00');
+    expect(series.id).toBe('og-calendar://external-event/google:cal1/google-cal1-master1@2026-08-10#09:00');
     expect(series.title).toBe('Twice daily');
     expect(series.startDay).toBe('2026-08-10');
     expect(series.endDay).toBe('2026-08-12');
@@ -562,7 +680,7 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(1);
-    expect(batch.items[0].id).toBe('og-calendar://external-event/work-cal-master9@2026-08-20#09:00');
+    expect(batch.items[0].id).toBe('og-calendar://external-event/ics:work-cal/work-cal-master9@2026-08-20#09:00');
     expect(batch.items[0].occupancyDays).toBeUndefined();
   });
 });
@@ -748,6 +866,39 @@ describe('createExternalCalendarSource — refresh signals', () => {
     fixture.emitter.emit('data-changed');
     expect(source.epoch()).toBe(0);
   });
+
+  it('releases the provider listeners even when the ICS unsubscribe throws', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [] });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    fixture.icsSubscriptionService.on = () => () => {
+      throw new Error('unsubscribe exploded');
+    };
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    source.dispose();
+
+    expect(google.emitter.unsubscribeCalls).toContain('data-changed');
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('a data-changed reaching a leaked listener after dispose does not bump', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const realOn = fixture.emitter.on;
+    // A service whose unsubscribe silently fails to detach: the source's own
+    // disposed guard, not the emitter, must keep it quiet.
+    fixture.icsSubscriptionService.on = (event: string, listener: () => void) => {
+      realOn(event, listener);
+      return () => {};
+    };
+    const onEpochBump = jest.fn();
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE, { onEpochBump });
+
+    source.dispose();
+    fixture.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(0);
+    expect(onEpochBump).not.toHaveBeenCalled();
+  });
 });
 
 describe('createExternalCalendarSource — cold cache', () => {
@@ -771,6 +922,27 @@ describe('createExternalCalendarSource — cold cache', () => {
 
     expect(batch.items).toHaveLength(1);
     expect(batch.loading).toBeFalsy();
+  });
+
+  it('reads neither event surface on collect when no feeds are visible', async () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [icsEvent()],
+      providers: [google.provider],
+    });
+    const { source } = makeSource(fixture.plugin, new Set());
+    // Construction reads the fetch-free provider cache for the fingerprint;
+    // only reads made BY collect are under test.
+    google.provider.getAllEvents.mockClear();
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.degraded).toBeFalsy();
+    expect(batch.loading).toBeFalsy();
+    expect(fixture.icsSubscriptionService.getAllEvents).not.toHaveBeenCalled();
+    expect(google.provider.getAllEvents).not.toHaveBeenCalled();
   });
 
   it('does not flag loading when no feeds are configured at all (a true empty)', async () => {

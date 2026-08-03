@@ -14,7 +14,6 @@ import {
   buildInstanceCueTaskTypes,
   buildTreatmentTaskTypes,
   planTaskSync,
-  resolveOccupancyActivationPath,
   taskStateKey,
   DATE_STATUS_TYPE,
   EVENT_TYPE,
@@ -359,32 +358,6 @@ describe('union + ganttSync pipeline — external series event rows (occupancyDa
     expect(after.start).toEqual(before.start);
     expect(after.end).toEqual(before.end);
     expect(taskStateKey(after)).not.toBe(taskStateKey(before));
-  });
-});
-
-describe('resolveOccupancyActivationPath — piece click routing', () => {
-  it('routes a materialized piece to its backing note', () => {
-    expect(
-      resolveOccupancyActivationPath(
-        { stateClass: 'materialized', notePath: 'routines/standup 2026-01-13.md' },
-        STANDUP_PATH,
-      ),
-    ).toBe('routines/standup 2026-01-13.md');
-  });
-
-  it('routes every other piece to the parent recurring task', () => {
-    expect(resolveOccupancyActivationPath({ stateClass: 'projected' }, STANDUP_PATH)).toBe(
-      STANDUP_PATH,
-    );
-    expect(resolveOccupancyActivationPath({ stateClass: 'completed' }, STANDUP_PATH)).toBe(
-      STANDUP_PATH,
-    );
-  });
-
-  it('falls back to the parent when a materialized piece lost its note path', () => {
-    expect(resolveOccupancyActivationPath({ stateClass: 'materialized' }, STANDUP_PATH)).toBe(
-      STANDUP_PATH,
-    );
   });
 });
 

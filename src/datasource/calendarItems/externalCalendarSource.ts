@@ -17,7 +17,7 @@
  * ONE row spanning its first..last occurrence day, carrying `occupancyDays`
  * so the renderer pieces the occupied days; upstream per-instance ids are
  * index-suffixed and shift as the sync window slides, so ids key on
- * series + first day + start time instead.
+ * feed + series + first day + start time instead.
  *
  * @module datasource/calendarItems/externalCalendarSource
  */
@@ -106,6 +106,7 @@ function providerRegistry(plugin: unknown): Record<string, unknown> | undefined 
 
 /** The ICSEvent slice this source consumes (TaskNotes service shape). */
 interface ExternalEvent {
+  id?: string;
   subscriptionId: string;
   title: string;
   start: string;
@@ -125,6 +126,7 @@ function toExternalEvent(raw: unknown): ExternalEvent | null {
   return {
     subscriptionId,
     start,
+    id: typeof record.id === 'string' && record.id !== '' ? record.id : undefined,
     title: typeof record.title === 'string' ? record.title : '',
     end: typeof record.end === 'string' ? record.end : undefined,
     allDay: record.allDay === true,
@@ -176,22 +178,39 @@ function toProviderCalendars(
   return calendars;
 }
 
-function guardedProviders(raw: unknown): GuardedProvider[] {
+interface GuardedProvidersRead {
+  providers: GuardedProvider[];
+  /** Whether any individual provider's guarded read threw (its data is missing). */
+  degraded: boolean;
+}
+
+function guardedProviders(raw: unknown): GuardedProvidersRead {
   const providers: GuardedProvider[] = [];
+  let degraded = false;
   for (const entry of asArray(raw)) {
     const provider = asRecord(entry);
     const kind = providerKindOf(provider?.providerId);
     const getAllEvents = methodOf(provider, 'getAllEvents');
     if (!kind || !getAllEvents) continue;
-    const events: ExternalEvent[] = [];
-    for (const rawEvent of asArray(getAllEvents())) {
-      const event = toExternalEvent(rawEvent);
-      if (event) events.push(event);
+    // Guard each provider on its own: one throwing provider loses only its own
+    // events while healthy siblings keep rendering.
+    try {
+      const events: ExternalEvent[] = [];
+      for (const rawEvent of asArray(getAllEvents())) {
+        const event = toExternalEvent(rawEvent);
+        if (event) events.push(event);
+      }
+      const getAvailableCalendars = methodOf(provider, 'getAvailableCalendars');
+      providers.push({
+        kind,
+        events,
+        calendars: toProviderCalendars(kind, getAvailableCalendars?.()),
+      });
+    } catch {
+      degraded = true;
     }
-    const getAvailableCalendars = methodOf(provider, 'getAvailableCalendars');
-    providers.push({ kind, events, calendars: toProviderCalendars(kind, getAvailableCalendars?.()) });
   }
-  return providers;
+  return { providers, degraded };
 }
 
 /** Current ICS subscriptions via the guarded service surface; absence → empty. */
@@ -210,7 +229,7 @@ export function readExternalProviderCalendars(plugin: unknown): readonly Externa
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (!getAllProviders) return [];
   try {
-    return guardedProviders(getAllProviders()).flatMap((provider) => provider.calendars);
+    return guardedProviders(getAllProviders()).providers.flatMap((provider) => provider.calendars);
   } catch {
     return [];
   }
@@ -272,6 +291,8 @@ interface FeedEvent {
 interface SurfaceRead {
   feedEvents: FeedEvent[];
   configuredFeedKeys: string[];
+  /** Set when part of the surface (an individual provider) failed its read. */
+  degraded?: true;
 }
 
 function readIcsSurface(plugin: unknown): SurfaceRead | null {
@@ -306,7 +327,8 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
   try {
     const feedEvents: FeedEvent[] = [];
     const configuredFeedKeys: string[] = [];
-    for (const provider of guardedProviders(getAllProviders())) {
+    const { providers, degraded } = guardedProviders(getAllProviders());
+    for (const provider of providers) {
       for (const calendar of provider.calendars) {
         configuredFeedKeys.push(externalCalendarFeedKey(provider.kind, calendar.id));
       }
@@ -317,7 +339,7 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
         feedEvents.push({ feedKey: externalCalendarFeedKey(provider.kind, calendarId), event });
       }
     }
-    return { feedEvents, configuredFeedKeys };
+    return { feedEvents, configuredFeedKeys, ...(degraded ? { degraded: true } : {}) };
   } catch {
     return null;
   }
@@ -339,11 +361,15 @@ interface NormalizedOccurrence {
 
 function toSingleItem(occurrence: NormalizedOccurrence): CalendarItem {
   const { event, span, startTime } = occurrence;
+  // Two singles in one feed can share a day and start minute (all-day events
+  // always do), so the qualifier folds in the upstream event id — falling back
+  // to the title when the service omits one — to keep their rows distinct.
+  const discriminator = event.id ?? event.title;
   return {
     id: makeCalendarItemId(
       'external-event',
-      event.recurringEventId ?? event.subscriptionId,
-      `${span.startDay}#${startTime}`,
+      event.subscriptionId,
+      `${span.startDay}#${startTime}#${discriminator}`,
     ),
     family: 'external-event',
     title: event.title,
@@ -353,7 +379,11 @@ function toSingleItem(occurrence: NormalizedOccurrence): CalendarItem {
   };
 }
 
-function toSeriesItem(seriesId: string, occurrences: NormalizedOccurrence[]): CalendarItem | null {
+function toSeriesItem(
+  feedKey: string,
+  seriesId: string,
+  occurrences: NormalizedOccurrence[],
+): CalendarItem | null {
   const sorted = [...occurrences].sort((a, b) =>
     `${a.span.startDay}#${a.startTime}`.localeCompare(`${b.span.startDay}#${b.startTime}`),
   );
@@ -365,7 +395,7 @@ function toSeriesItem(seriesId: string, occurrences: NormalizedOccurrence[]): Ca
   const firstDay = occupiedDays[0] ?? first.span.startDay;
   const lastDay = occupiedDays[occupiedDays.length - 1] ?? first.span.endDay;
   return {
-    id: makeCalendarItemId('external-event', seriesId, `${firstDay}#${first.startTime}`),
+    id: makeCalendarItemId('external-event', `${feedKey}/${seriesId}`, `${firstDay}#${first.startTime}`),
     family: 'external-event',
     title: first.event.title,
     startDay: firstDay,
@@ -375,10 +405,18 @@ function toSeriesItem(seriesId: string, occurrences: NormalizedOccurrence[]): Ca
   };
 }
 
+interface SeriesGroup {
+  feedKey: string;
+  seriesId: string;
+  occurrences: NormalizedOccurrence[];
+}
+
 function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
   const singles: CalendarItem[] = [];
-  const seriesById = new Map<string, NormalizedOccurrence[]>();
-  for (const { event } of feedEvents) {
+  // Series group per feed AND series id: feed-local series ids are only unique
+  // within their own feed, so two feeds reusing one id stay separate rows.
+  const seriesByFeedAndId = new Map<string, SeriesGroup>();
+  for (const { feedKey, event } of feedEvents) {
     const span = normalizedSpan(event);
     if (span === null) continue;
     const occurrence: NormalizedOccurrence = { event, span, startTime: localStartTime(event) };
@@ -386,11 +424,16 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
       singles.push(toSingleItem(occurrence));
       continue;
     }
-    const existing = seriesById.get(event.recurringEventId) ?? [];
-    seriesById.set(event.recurringEventId, [...existing, occurrence]);
+    const groupKey = `${feedKey}\n${event.recurringEventId}`;
+    const group = seriesByFeedAndId.get(groupKey) ?? {
+      feedKey,
+      seriesId: event.recurringEventId,
+      occurrences: [],
+    };
+    seriesByFeedAndId.set(groupKey, { ...group, occurrences: [...group.occurrences, occurrence] });
   }
-  const series = [...seriesById.entries()]
-    .map(([seriesId, occurrences]) => toSeriesItem(seriesId, occurrences))
+  const series = [...seriesByFeedAndId.values()]
+    .map((group) => toSeriesItem(group.feedKey, group.seriesId, group.occurrences))
     .filter((item): item is CalendarItem => item !== null);
   return [...singles, ...series];
 }
@@ -425,7 +468,7 @@ function fetchFreeFingerprint(plugin: unknown): string {
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (getAllProviders) {
     try {
-      for (const provider of guardedProviders(getAllProviders())) {
+      for (const provider of guardedProviders(getAllProviders()).providers) {
         for (const calendar of provider.calendars) {
           parts.push(`${provider.kind}|cal|${calendar.id}|${calendar.name}`);
         }
@@ -485,6 +528,9 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   };
 
   const bumpOnDataChanged = (): void => {
+    // A listener can outlive dispose when a service's unsubscribe misbehaves;
+    // the guard keeps a disposed source from bumping or re-reading services.
+    if (disposed) return;
     // Refresh the fingerprint too, so the next fallback tick stays quiet
     // instead of double-bumping for the same change.
     lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
@@ -510,17 +556,26 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   const attachProviderEmitters = (plugin: Record<string, unknown> | undefined): void => {
     const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
     if (!getAllProviders) return;
+    let entries: unknown[];
     try {
-      for (const entry of asArray(getAllProviders())) {
-        const provider = asRecord(entry);
-        const providerId = typeof provider?.providerId === 'string' ? provider.providerId : undefined;
-        if (providerId === undefined || providerUnsubscribes.has(providerId)) continue;
-        const on = methodOf(provider, 'on');
-        if (!on) continue;
-        providerUnsubscribes.set(providerId, asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged)));
-      }
+      entries = asArray(getAllProviders());
     } catch {
       // A degraded registry read is retried on the next tick.
+      return;
+    }
+    for (const entry of entries) {
+      const provider = asRecord(entry);
+      const providerId = typeof provider?.providerId === 'string' ? provider.providerId : undefined;
+      if (providerId === undefined || providerUnsubscribes.has(providerId)) continue;
+      const on = methodOf(provider, 'on');
+      if (!on) continue;
+      // Per-provider guard: one throwing subscription is retried next tick
+      // while every later provider still gets its listener attached now.
+      try {
+        providerUnsubscribes.set(providerId, asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged)));
+      } catch {
+        // Retried on the next tick.
+      }
     }
   };
 
@@ -550,11 +605,19 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     family: 'external-event',
     epoch: () => epoch,
     collect: async () => {
-      const plugin = deps.getTaskNotesPlugin();
       const visible = deps.visibleFeeds();
+      // Zero visible feeds is a full opt-out: return a plain empty batch
+      // without touching either event surface — `ICSSubscriptionService.
+      // getAllEvents` starts network fetches for cold/expired caches, and an
+      // opted-out view must never initiate one.
+      if (visible.size === 0) {
+        return { items: [], occupancyByTaskPath: new Map() };
+      }
+      const plugin = deps.getTaskNotesPlugin();
       const surfaces = [readIcsSurface(plugin), readProviderSurface(plugin)];
       const present = surfaces.filter((surface): surface is SurfaceRead => surface !== null);
-      const degraded = present.length < surfaces.length;
+      const degraded =
+        present.length < surfaces.length || present.some((surface) => surface.degraded === true);
       const feedEvents = present.flatMap((surface) => surface.feedEvents);
       const visibleFeedKeys = present
         .flatMap((surface) => surface.configuredFeedKeys)
@@ -579,10 +642,28 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     dispose: () => {
       disposed = true;
       if (timer !== undefined) deps.scheduler.clearTimeout(timer);
-      icsUnsubscribe?.();
-      icsUnsubscribe = undefined;
-      for (const unsubscribe of providerUnsubscribes.values()) unsubscribe();
-      providerUnsubscribes.clear();
+      timer = undefined;
+      // Best-effort teardown: each unsubscribe is guarded on its own so one
+      // throwing service can never leak the remaining listeners, and the
+      // bookkeeping is cleared in finally so dispose stays idempotent.
+      try {
+        icsUnsubscribe?.();
+      } catch {
+        // Released as far as the service allows.
+      } finally {
+        icsUnsubscribe = undefined;
+      }
+      try {
+        for (const unsubscribe of providerUnsubscribes.values()) {
+          try {
+            unsubscribe();
+          } catch {
+            // Released as far as the provider allows.
+          }
+        }
+      } finally {
+        providerUnsubscribes.clear();
+      }
     },
   };
 }

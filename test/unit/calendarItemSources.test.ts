@@ -581,6 +581,47 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(harness.basesDataUnsubscribeCount()).toBe(1);
     });
 
+    it('one family\'s throwing dispose does not suppress sibling cleanup', () => {
+      const timers = manualScheduler();
+      const fixture = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+      });
+      let subscribeCalls = 0;
+      const releasedSubscriptions: number[] = [];
+      const deps: CalendarItemSourceDeps = {
+        toggles: () => ({ ...allOffToggles(), showRecurring: true, showTimeEntries: true }),
+        listTasks: () => [recurringTask, trackedTask],
+        subscribe: () => {
+          const ordinal = ++subscribeCalls;
+          // The first subscriber (the recurring family) gets an unsubscribe
+          // that throws on release; later families must still release.
+          if (ordinal === 1) {
+            return () => {
+              throw new Error('release exploded');
+            };
+          }
+          return () => {
+            releasedSubscriptions.push(ordinal);
+          };
+        },
+        getTaskNotesPlugin: () => fixture.plugin,
+        visibleExternalFeeds: () => new Set([externalCalendarFeedKey('ics', 'work-cal')]),
+        scheduler: timers.scheduler,
+      };
+      const provider = createCalendarItemSourcesProvider(deps);
+      provider.provide();
+      expect(timers.pendingCount()).toBe(1);
+
+      provider.dispose();
+
+      expect(releasedSubscriptions).toEqual([2]);
+      expect(timers.pendingCount()).toBe(0);
+      // The idempotency bookkeeping survived the throw: a second dispose
+      // releases nothing again.
+      provider.dispose();
+      expect(releasedSubscriptions).toEqual([2]);
+    });
+
     it('dispose is idempotent: a mount-bail dispose racing unload releases nothing twice', () => {
       // The mount path may dispose the provider on a stale-mount bail or an
       // init failure while unload disposes it again — the second call must be

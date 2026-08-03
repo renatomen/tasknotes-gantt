@@ -659,9 +659,9 @@ describe('instance cues (U6)', () => {
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
   });
 
-  // Calendar-view union U3: the read-only event-row cue joins the registered
-  // superset — an unregistered composite `type` silently collapses to plain
-  // `task` in SVAR, dropping the row's read-only styling.
+  // The read-only event-row cue joins the registered superset — an
+  // unregistered composite `type` silently collapses to plain `task` in SVAR,
+  // dropping the row's read-only styling.
   it('registers the og-event cue and its base-crossed forms', () => {
     const ids = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
     expect(ids).toContain(EVENT_TYPE);

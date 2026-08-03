@@ -37,7 +37,7 @@
     type OccupancyPiece,
     type OccupancyRunSpan,
   } from '../render/segmentLayout';
-  import { resolveOccupancyActivationPath } from './ganttSync';
+  import { resolveOccupancyActivationPath } from './occupancyDisplay';
 
   // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
   // three so the assignment typechecks. Fields are optional/loose so SVAR's
