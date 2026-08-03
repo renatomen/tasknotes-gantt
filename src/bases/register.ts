@@ -26,6 +26,13 @@ import type { GanttData } from './types/gantt-view-data';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
+  calendarItemOptionsGroup,
+  calendarItemTogglesSignatureTag,
+  calendarItemWatchedProperties,
+  readCalendarItemToggles,
+  type CalendarItemToggles,
+} from './calendarItemOptions';
+import {
   GanttController,
   type DatePolicyConfig,
   type DateMappingInfo,
@@ -454,8 +461,18 @@ class ObsidianGanttBasesView extends BasesView {
    * NEVER `entry.getValue` (the extraction that re-pokes the #161 storm). `file.*`
    * fields need no value read — a rename changes the path, already in the signature.
    */
+  /**
+   * The calendar-item family toggles, read fresh from the live view config on
+   * every call — a provider-closure-style read, so a toggle change is seen by
+   * the very next recompute with no remount.
+   */
+  private getCalendarItemToggles(): CalendarItemToggles {
+    return readCalendarItemToggles((key) => this.config.get(key));
+  }
+
   private computeEntrySignature(): string {
     const app = this.app;
+    const calendarItemToggles = this.getCalendarItemToggles();
     return composeEntrySignature({
       entries: (this.data?.data ?? []) as ReadonlyArray<SignatureEntry>,
       // The LIVE view config: this runs BEFORE the refresh re-selects the source, so
@@ -474,6 +491,11 @@ class ObsidianGanttBasesView extends BasesView {
       // Calendar-note edits change no task entry; the watch epoch flips the
       // signature so the refresh re-reads instead of reusing stale calendar state.
       calendarStateTag: `cal:${this.calendarWatch?.epoch() ?? 0}|`,
+      // Calendar-item family toggles: flipping one repaints (tag change); a
+      // family switched on adds its consumed properties to the watched set,
+      // switched off removes them.
+      calendarItemsTag: calendarItemTogglesSignatureTag(calendarItemToggles),
+      calendarItemProperties: calendarItemWatchedProperties(calendarItemToggles),
     });
   }
 
@@ -1446,7 +1468,10 @@ export function registerBasesGantt(plugin: Plugin, calendarLifetime: PluginLifet
     options: (config: BasesViewConfig): BasesAllOptions[] => {
       const hasProgressProperty =
         (readFieldMappings((key) => config.get(key)).progressProperty ?? '').trim() !== '';
-      return ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty);
+      return [
+        ...ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty),
+        calendarItemOptionsGroup(),
+      ];
     },
   });
 
