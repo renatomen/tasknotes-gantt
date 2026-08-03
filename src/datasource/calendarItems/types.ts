@@ -101,6 +101,15 @@ export interface CalendarItem {
 }
 
 /**
+ * The occupancy state class of one occurrence of a multi-occurrence series
+ * ({@link CalendarItem.occupancyDays}). External occurrences are plain
+ * calendar facts with a single shared state — distinct from the recurring
+ * family's per-instance states, so their pieces paint like the event bar
+ * rather than like task instances.
+ */
+export const EXTERNAL_OCCUPANCY_STATE = 'external';
+
+/**
  * One day-attributed occupancy fact a family attaches to an owning task —
  * the second channel. Merged onto the task's render instance, never a row.
  */
@@ -116,7 +125,9 @@ export interface CalendarOccupancy {
   /**
    * Family-specific state classification of this occupied day (e.g. a
    * recurring instance's `next`/`projected`/`completed`/`skipped`/
-   * `materialized`), or absent when the family has a single state.
+   * `materialized`, or an external series occurrence's
+   * {@link EXTERNAL_OCCUPANCY_STATE}), or absent when the family has a
+   * single state.
    */
   stateClass?: string;
   /**

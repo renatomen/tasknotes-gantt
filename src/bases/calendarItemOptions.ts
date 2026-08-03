@@ -253,6 +253,24 @@ export function externalCalendarOptionEntries(
 }
 
 /**
+ * The degrade description line for the options panel: Bases toggle options
+ * carry no disabled/tooltip shape, so when an external-calendar service
+ * surface failed its structural guard this session, the panel states it with
+ * the same gray-text idiom the sync-window notes use (the session Notice is
+ * the primary signal). Purely informational — the key is never read.
+ */
+export function externalCalendarDegradedEntry(): BasesOptions {
+  return {
+    type: 'text',
+    displayName: 'External calendars',
+    key: 'tngantt_externalCalendarDegraded',
+    default: '',
+    placeholder:
+      'Some external-calendar services are unavailable — feed toggles may be incomplete and their events are not shown.',
+  };
+}
+
+/**
  * The visible external feed keys ({@link externalCalendarFeedKey}) for the
  * CURRENT subscription/calendar lists. Only current feeds are consulted, so a
  * deleted feed's orphaned toggle key is ignored; a feed is visible only for

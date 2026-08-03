@@ -27,9 +27,14 @@
      * supplies the opener.
      */
     onOpenSourceSwitcher?: () => void;
+    /**
+     * External-calendar caches are still cold (fetches in flight upstream).
+     * Renders a muted transient indicator; absent/false renders nothing.
+     */
+    externalEventsLoading?: boolean;
   }
 
-  let { mode, onModeChange, onOpenSourceSwitcher }: Props = $props();
+  let { mode, onModeChange, onOpenSourceSwitcher, externalEventsLoading = false }: Props = $props();
 
   const choices: ReadonlyArray<{ value: ThemeMode; label: string }> = [
     { value: 'auto', label: 'Auto' },
@@ -72,6 +77,11 @@
       >
         Sources
       </button>
+    </div>
+  {/if}
+  {#if externalEventsLoading}
+    <div class="og-toolbar-group" role="status" aria-live="polite">
+      <span class="og-toolbar-loading">Fetching external events…</span>
     </div>
   {/if}
 </div>
@@ -150,5 +160,10 @@
 
   .og-toolbar-button:hover {
     background: var(--background-modifier-hover);
+  }
+
+  .og-toolbar-loading {
+    color: var(--text-muted);
+    font-style: italic;
   }
 </style>

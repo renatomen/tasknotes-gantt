@@ -13,6 +13,7 @@ import {
   calendarItemOptionsGroup,
   calendarItemTogglesSignatureTag,
   calendarItemWatchedProperties,
+  externalCalendarDegradedEntry,
   externalCalendarOptionEntries,
   readCalendarItemToggles,
   readVisibleExternalCalendarFeeds,
@@ -303,6 +304,19 @@ describe('externalCalendarOptionEntries', () => {
 
   it('produces no entries at all when no external feeds exist', () => {
     expect(externalCalendarOptionEntries([], [])).toEqual([]);
+  });
+});
+
+describe('externalCalendarDegradedEntry', () => {
+  it('is a purely informational gray-text line naming the degraded external family', () => {
+    // Bases toggle options carry no disabled/tooltip shape, so the degrade
+    // signal in the options panel is this description-line idiom (an empty
+    // text input rendering its placeholder), alongside the session Notice.
+    const entry = externalCalendarDegradedEntry();
+    expect(entry.type).toBe('text');
+    expect(entry.default).toBe('');
+    expect(entry.displayName).toBe('External calendars');
+    expect(entry.placeholder).toContain('unavailable');
   });
 });
 

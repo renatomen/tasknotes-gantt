@@ -119,20 +119,58 @@ export function activeSwitcherSources(
     .map((entry) => ({ family: entry.family, label: SWITCHER_SOURCE_LABELS[entry.family] }));
 }
 
+/** The per-instance source identity slice the row census reads. */
+export interface CountableInstance {
+  /** The event row's calendar item (family-bearing), when it is one. */
+  calendarItem?: { family: CalendarItemFamily };
+  /** The task row's occupancy attachments, when any family occupies it. */
+  occupancy?: ReadonlyArray<{ family: CalendarItemFamily }>;
+}
+
 /**
- * Bridge the per-view family toggles and current rendered-row counts into the
- * census the active-source list derives from. Families without a per-view
- * toggle yet are omitted — they cannot be enabled, so they can never be active.
+ * Rows each family currently contributes: an event row counts under its own
+ * family; a task row rendered through recurring-instance occupancy counts
+ * under the recurring key (it IS that source's rendering — the same identity
+ * rule as {@link isRowHiddenBySwitcher}). Plain task rows count nowhere.
+ */
+export function switcherCountsFromInstances(
+  instances: ReadonlyArray<CountableInstance>,
+): Map<CalendarItemFamily, number> {
+  const counts = new Map<CalendarItemFamily, number>();
+  const bump = (family: CalendarItemFamily): void => {
+    counts.set(family, (counts.get(family) ?? 0) + 1);
+  };
+  for (const instance of instances) {
+    if (instance.calendarItem !== undefined) {
+      bump(instance.calendarItem.family);
+      continue;
+    }
+    if (instance.occupancy?.some((entry) => entry.family === RECURRING_SOURCE_KEY)) {
+      bump(RECURRING_SOURCE_KEY);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Bridge the per-view enablement state and current rendered-row counts into
+ * the census the active-source list derives from. Most families enable via
+ * their single family toggle; external calendars have no such toggle — their
+ * per-feed visibility toggles play that role, so the family counts as enabled
+ * when at least one feed is visible. Families with no enablement input are
+ * omitted — they cannot be enabled, so they can never be active.
  */
 export function switcherSourceCensus(
   toggles: CalendarItemToggles,
   countByFamily: ReadonlyMap<CalendarItemFamily, number>,
+  hasVisibleExternalFeed: boolean,
 ): SwitcherSourceCensusEntry[] {
   const toggleByFamily: ReadonlyArray<[CalendarItemFamily, boolean]> = [
     [RECURRING_SOURCE_KEY, toggles.showRecurring],
     ['time-entry', toggles.showTimeEntries],
     ['timeblock', toggles.showTimeblocks],
     ['property-event', toggles.showPropertyBasedEvents],
+    ['external-event', hasVisibleExternalFeed],
   ];
   return toggleByFamily.map(([family, enabled]) => ({
     family,

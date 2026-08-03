@@ -100,8 +100,10 @@ const INSTANCE_CUE_SUFFIXES: readonly string[] = [
   `${CONTEXT_TYPE} ${RECURRING_TYPE}`,
   `${REPLICATED_TYPE} ${CONTEXT_TYPE} ${RECURRING_TYPE}`,
   // Event rows carry the og-event cue alone: a calendar item's synthetic
-  // sourcePath is unique (never replicated), never Show-all-fetched, and never
-  // carries occupancy, so no composition with the other cues can occur.
+  // sourcePath is unique (never replicated) and never Show-all-fetched. A
+  // multi-occurrence series row DOES carry occupancy (pieced per occupied
+  // day), but the recurring cue stays a task-row cue — og-event already
+  // drives the read-only affordances — so no composition can occur.
   EVENT_TYPE,
 ];
 
@@ -424,7 +426,9 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isReplicated) classes.push(REPLICATED_TYPE);
     if (isContext) classes.push(CONTEXT_TYPE);
     const occupancy = inst.occupancy ?? [];
-    if (occupancy.length > 0) classes.push(RECURRING_TYPE);
+    // The recurring cue marks occupancy-rendered TASK rows only; an event
+    // row's occupancy (external series pieces) renders under its og-event cue.
+    if (occupancy.length > 0 && !inst.calendarItem) classes.push(RECURRING_TYPE);
     // Read-only calendar-item event row: the og-event cue drives the read-only
     // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
     if (inst.calendarItem) classes.push(EVENT_TYPE);
@@ -453,7 +457,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         occupancyRuns,
         occupancyEnvelope: envelope ? true : undefined,
         calendarItemFamily: inst.calendarItem?.family,
-        hasRecurringOccupancy: recurringOccupancyFlag(occupancy),
+        hasRecurringOccupancy: recurringOccupancyFlag(inst, occupancy),
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
@@ -533,9 +537,17 @@ function resolveOccupancyDisplay(
   };
 }
 
-/** `true` only when occupancy renders on the row (per-task occupancy is the recurring family's channel); else absent. */
-function recurringOccupancyFlag(occupancy: readonly CalendarOccupancy[]): true | undefined {
-  return occupancy.length > 0 ? true : undefined;
+/**
+ * `true` only when occupancy renders on a TASK row (per-task occupancy is the
+ * recurring family's channel); else absent. An event row's occupancy belongs
+ * to its own family — flagging it would let the switcher's recurring key
+ * wrongly hide external series rows.
+ */
+function recurringOccupancyFlag(
+  inst: RenderInstance,
+  occupancy: readonly CalendarOccupancy[],
+): true | undefined {
+  return occupancy.length > 0 && !inst.calendarItem ? true : undefined;
 }
 
 /** Earliest and latest occupied day (local-day ISO keys order chronologically). */

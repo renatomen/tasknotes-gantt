@@ -454,6 +454,10 @@
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
 
+  // External-calendar fetching indicator, store-driven like showToolbar so the
+  // transient loading state appears/clears live without a remount.
+  const externalEventsLoading = $derived($data.externalEventsLoading ?? false);
+
   // "Highlight weekends", store-driven like showToolbar so the toggle is LIVE.
   // Only the og-weekends-off root class reacts — the highlightTime seed prop
   // stays fixed (SVAR reads it into store state at init; swapping it would
@@ -2447,7 +2451,12 @@
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
   {#if showToolbar}
-    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} {onOpenSourceSwitcher} />
+    <GanttToolbar
+      mode={mode}
+      onModeChange={handleThemeModeChange}
+      {onOpenSourceSwitcher}
+      {externalEventsLoading}
+    />
   {/if}
 
   <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
@@ -3280,6 +3289,15 @@
    * --og-ghost-fill exactly as on the ghost pieces.
    */
   .og-bases-gantt :global(.og-instance-plain) {
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+  }
+  /*
+   * External: one occurrence of a multi-occurrence series event row — a plain
+   * calendar fact, not a task state, so the piece paints exactly like the
+   * event bar itself: whatever colours the bar threads via --og-ghost-fill
+   * (the ghost-piece convention), defaulting to the task colour.
+   */
+  .og-bases-gantt :global(.og-instance-external) {
     background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
   }
   /*

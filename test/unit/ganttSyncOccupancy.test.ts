@@ -17,15 +17,18 @@ import {
   resolveOccupancyActivationPath,
   taskStateKey,
   DATE_STATUS_TYPE,
+  EVENT_TYPE,
   RECURRING_TYPE,
   type SvarTaskInputs,
 } from '../../src/bases/ganttSync';
 import { unionCalendarBatches } from '../../src/controller/calendarItemUnion';
 import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 import {
+  EXTERNAL_OCCUPANCY_STATE,
   makeCalendarItemId,
   type CalendarItemBatch,
   type CalendarOccupancy,
+  type LocalDay,
 } from '../../src/datasource/calendarItems';
 
 const STANDUP_PATH = 'routines/standup.md';
@@ -293,6 +296,69 @@ describe('union + ganttSync pipeline — materialized dual representation', () =
     });
     expect(parentTask.start).toEqual(new Date(2026, 0, 6));
     expect(parentTask.end).toEqual(new Date(2026, 0, 13, 23, 59, 59, 999));
+  });
+});
+
+describe('union + ganttSync pipeline — external series event rows (occupancyDays)', () => {
+  const SERIES_ID = makeCalendarItemId('external-event', 'daily-sync@e2e', '2026-01-10#09:00');
+
+  /** The external series row shaped through union + sync, occupying `days`. */
+  function buildSeriesRow(days: readonly LocalDay[]) {
+    const batch: CalendarItemBatch = {
+      items: [
+        {
+          id: SERIES_ID,
+          family: 'external-event',
+          title: 'Daily sync',
+          startDay: days[0]!,
+          endDay: days[days.length - 1]!,
+          occupancyDays: days,
+        },
+      ],
+      occupancyByTaskPath: new Map(),
+    };
+    return buildSvarTasks(inputs({ instances: [...unionCalendarBatches([], [batch])] }))[0]!;
+  }
+
+  it('renders the series through the suppressed-envelope path: one external run per occupied day', () => {
+    const row = buildSeriesRow(['2026-01-10', '2026-01-12', '2026-01-14']);
+
+    expect(row.custom.occupancyRuns).toEqual([
+      { startDate: '2026-01-10', days: 1, stateClass: EXTERNAL_OCCUPANCY_STATE, notePath: undefined },
+      { startDate: '2026-01-12', days: 1, stateClass: EXTERNAL_OCCUPANCY_STATE, notePath: undefined },
+      { startDate: '2026-01-14', days: 1, stateClass: EXTERNAL_OCCUPANCY_STATE, notePath: undefined },
+    ]);
+    // The span IS the envelope (first..last occupied day, end-of-day), the
+    // host bar splits, and only the pieces paint — no synthetic plain run.
+    expect(row.custom.occupancyEnvelope).toBe(true);
+    expect(row.start).toEqual(new Date(2026, 0, 10));
+    expect(row.end).toEqual(new Date(2026, 0, 14, 23, 59, 59, 999));
+  });
+
+  it('keeps the og-event cue alone — the recurring cue stays a task-row cue', () => {
+    const row = buildSeriesRow(['2026-01-10', '2026-01-11', '2026-01-12']);
+
+    // `og-recurring og-event` is not a registered composition, so composing
+    // both would silently collapse the type to plain `task` in SVAR and drop
+    // the read-only affordances. The event cue must survive registration.
+    expect(row.type).toBe(EVENT_TYPE);
+    const registered = buildInstanceCueTaskTypes(
+      buildTreatmentTaskTypes({ status: [], priority: [], calendar: [] }).map((t) => t.id),
+    ).map((t) => t.id);
+    expect(registered).toContain(row.type);
+    // The switcher must hide this row under external-event, never recurring.
+    expect(row.custom.calendarItemFamily).toBe('external-event');
+    expect(row.custom.hasRecurringOccupancy).toBeUndefined();
+  });
+
+  it('folds the occupied days into taskStateKey so a moved occurrence re-issues the row', () => {
+    const before = buildSeriesRow(['2026-01-10', '2026-01-11', '2026-01-14']);
+    const after = buildSeriesRow(['2026-01-10', '2026-01-12', '2026-01-14']);
+
+    // Same envelope span — only the middle occupied day moved.
+    expect(after.start).toEqual(before.start);
+    expect(after.end).toEqual(before.end);
+    expect(taskStateKey(after)).not.toBe(taskStateKey(before));
   });
 });
 

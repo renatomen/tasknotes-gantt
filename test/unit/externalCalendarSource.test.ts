@@ -681,6 +681,38 @@ describe('createExternalCalendarSource — refresh signals', () => {
     expect(source.epoch()).toBe(1);
   });
 
+  it('fires onEpochBump when the ICS service emits data-changed', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const onEpochBump = jest.fn();
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE, { onEpochBump });
+
+    fixture.emitter.emit('data-changed');
+
+    expect(onEpochBump).toHaveBeenCalledTimes(1);
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('fires onEpochBump when a fallback tick observes changed cached facts', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription({ enabled: true })] });
+    const onEpochBump = jest.fn();
+    const { timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE, { onEpochBump });
+
+    fixture.state.subscriptions = [icsSubscription({ enabled: false })];
+    timers.tick();
+
+    expect(onEpochBump).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire onEpochBump on a quiet fallback tick', () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()] });
+    const onEpochBump = jest.fn();
+    const { timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE, { onEpochBump });
+
+    timers.tick();
+
+    expect(onEpochBump).not.toHaveBeenCalled();
+  });
+
   it('never calls the fetch-triggering ICS getAllEvents from the timer tick', () => {
     // ICSSubscriptionService.getAllEvents kicks off network fetches for cold or
     // expired caches — polling through it would turn the fallback timer into a
@@ -750,6 +782,61 @@ describe('createExternalCalendarSource — cold cache', () => {
     expect(batch.items).toEqual([]);
     expect(batch.loading).toBeFalsy();
     expect(batch.degraded).toBeFalsy();
+  });
+
+  it('clears loading on the first data-changed even when zero events came back', async () => {
+    // An empty-but-healthy calendar: the fetch completed and reported nothing.
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [] });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+
+    fixture.emitter.emit('data-changed');
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+    expect(batch.loading).toBeFalsy();
+  });
+
+  it('a changed-fingerprint fallback tick counts as the completion signal', async () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [] });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+
+    fixture.state.subscriptions = [icsSubscription({ name: 'Renamed work calendar' })];
+    timers.tick();
+
+    expect((await source.collect(CONTEXT)).loading).toBeFalsy();
+  });
+
+  it('does not flag loading when the only configured feeds are invisible in this view', async () => {
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [] });
+    const { source } = makeSource(fixture.plugin, new Set());
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.loading).toBeFalsy();
+    expect(batch.degraded).toBeFalsy();
+  });
+
+  it('a visible-feed-set change re-arms loading once until the next completion signal', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription(), icsSubscription({ id: 'home-cal', name: 'Home' })],
+      icsEvents: [],
+    });
+    let visible: ReadonlySet<string> = new Set([externalCalendarFeedKey('ics', 'work-cal')]);
+    const { source } = makeSource(fixture.plugin, new Set(), { visibleFeeds: () => visible });
+
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+    fixture.emitter.emit('data-changed');
+    expect((await source.collect(CONTEXT)).loading).toBeFalsy();
+
+    visible = new Set([...visible, externalCalendarFeedKey('ics', 'home-cal')]);
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+    // Still armed on a repeat collect — the change re-arms once, not per collect.
+    expect((await source.collect(CONTEXT)).loading).toBe(true);
+
+    fixture.emitter.emit('data-changed');
+    expect((await source.collect(CONTEXT)).loading).toBeFalsy();
   });
 });
 

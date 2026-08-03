@@ -26,6 +26,7 @@ import type {
   SourceTask,
 } from '../../src/datasource/types';
 import {
+  EXTERNAL_OCCUPANCY_STATE,
   makeCalendarItemId,
   type CalendarItem,
   type CalendarItemBatch,
@@ -206,6 +207,67 @@ describe('calendar-item union — occupancy attachments', () => {
     expect(instances.map((i) => i.sourcePath)).toEqual(['a.md', 'b.md']);
     expect(instances[0]!.occupancy).toEqual([occupancy]);
     expect(instances[1]!.occupancy).toBeUndefined();
+  });
+});
+
+describe('calendar-item union — multi-occurrence series rows (occupancyDays)', () => {
+  it('threads occupancyDays into per-day external-state occupancy in envelope mode', () => {
+    const seriesId = makeCalendarItemId('external-event', 'daily-sync@e2e', '2026-01-10#09:00');
+    const series = calendarItem({
+      id: seriesId,
+      family: 'external-event',
+      title: 'Daily sync',
+      startDay: '2026-01-10',
+      endDay: '2026-01-14',
+      occupancyDays: ['2026-01-10', '2026-01-12', '2026-01-14'],
+    });
+
+    const [row] = unionCalendarBatches([], [itemsBatch([series])]);
+
+    // One occupancy entry per occupied day, carrying the dedicated external
+    // state class; no backing note (an occurrence has none of its own).
+    expect(row!.occupancy).toEqual([
+      {
+        family: 'external-event',
+        itemId: seriesId,
+        day: '2026-01-10',
+        minutes: null,
+        stateClass: EXTERNAL_OCCUPANCY_STATE,
+      },
+      {
+        family: 'external-event',
+        itemId: seriesId,
+        day: '2026-01-12',
+        minutes: null,
+        stateClass: EXTERNAL_OCCUPANCY_STATE,
+      },
+      {
+        family: 'external-event',
+        itemId: seriesId,
+        day: '2026-01-14',
+        minutes: null,
+        stateClass: EXTERNAL_OCCUPANCY_STATE,
+      },
+    ]);
+    // Envelope mode: the item's span IS the occupancy envelope, so the sync
+    // layer takes the suppressed-plain-bar path (pieces only, gaps unrendered).
+    expect(row!.plainBarSuppressed).toBe(true);
+    expect(row!.calendarItem).toBe(series);
+  });
+
+  it('keeps a single-span item a solid event row: no occupancy, no envelope flag', () => {
+    const singleId = makeCalendarItemId('external-event', 'ics:feed', '2026-01-12');
+    const single = calendarItem({
+      id: singleId,
+      family: 'external-event',
+      startDay: '2026-01-12',
+      endDay: '2026-01-12',
+    });
+
+    const [row] = unionCalendarBatches([], [itemsBatch([single])]);
+
+    expect(row!.occupancy).toBeUndefined();
+    expect(row!.plainBarSuppressed).toBeUndefined();
   });
 });
 

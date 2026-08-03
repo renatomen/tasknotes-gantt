@@ -60,6 +60,12 @@ export interface ExternalCalendarSourceDeps {
   scheduler: TimerScheduler;
   /** Fallback poll interval; defaults to {@link DEFAULT_EXTERNAL_CALENDAR_POLL_MS}. */
   pollIntervalMs?: number;
+  /**
+   * Fires after each epoch bump (emitter `data-changed` or a fallback tick
+   * that observed changed cached facts) so the host can schedule a refresh —
+   * the epoch alone only classifies a refresh someone else triggers.
+   */
+  onEpochBump?(): void;
 }
 
 /** The external-calendar source; `dispose` releases emitters and the timer. */
@@ -263,7 +269,7 @@ interface FeedEvent {
 
 interface SurfaceRead {
   feedEvents: FeedEvent[];
-  configuredFeedCount: number;
+  configuredFeedKeys: string[];
 }
 
 function readIcsSurface(plugin: unknown): SurfaceRead | null {
@@ -283,7 +289,10 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
       if (!event || !enabledIds.has(event.subscriptionId)) continue;
       feedEvents.push({ feedKey: externalCalendarFeedKey('ics', event.subscriptionId), event });
     }
-    return { feedEvents, configuredFeedCount: enabledIds.size };
+    return {
+      feedEvents,
+      configuredFeedKeys: [...enabledIds].map((id) => externalCalendarFeedKey('ics', id)),
+    };
   } catch {
     return null;
   }
@@ -294,9 +303,11 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
   if (!getAllProviders) return null;
   try {
     const feedEvents: FeedEvent[] = [];
-    let configuredFeedCount = 0;
+    const configuredFeedKeys: string[] = [];
     for (const provider of guardedProviders(getAllProviders())) {
-      configuredFeedCount += provider.calendars.length;
+      for (const calendar of provider.calendars) {
+        configuredFeedKeys.push(externalCalendarFeedKey(provider.kind, calendar.id));
+      }
       const prefix = `${provider.kind}-`;
       for (const event of provider.events) {
         if (!event.subscriptionId.startsWith(prefix)) continue;
@@ -304,7 +315,7 @@ function readProviderSurface(plugin: unknown): SurfaceRead | null {
         feedEvents.push({ feedKey: externalCalendarFeedKey(provider.kind, calendarId), event });
       }
     }
-    return { feedEvents, configuredFeedCount };
+    return { feedEvents, configuredFeedKeys };
   } catch {
     return null;
   }
@@ -427,6 +438,26 @@ function fetchFreeFingerprint(plugin: unknown): string {
   return parts.join('\n');
 }
 
+/** Canonical identity of a feed set: deduped, sorted, joined. */
+function feedSetKey(keys: readonly string[]): string {
+  return [...new Set(keys)].sort((a, b) => a.localeCompare(b)).join(',');
+}
+
+/**
+ * Configured feed keys via the fetch-free surfaces only (subscription configs
+ * and the providers' calendar caches) — safe outside `collect`, where
+ * `ICSSubscriptionService.getAllEvents` must never be touched.
+ */
+function fetchFreeConfiguredFeedKeys(plugin: unknown): string[] {
+  const keys = readExternalIcsSubscriptions(plugin)
+    .filter((subscription) => subscription.enabled)
+    .map((subscription) => externalCalendarFeedKey('ics', subscription.id));
+  for (const calendar of readExternalProviderCalendars(plugin)) {
+    keys.push(externalCalendarFeedKey(calendar.provider, calendar.id));
+  }
+  return keys;
+}
+
 /** Build the external-calendar {@link CalendarItemSource} over injected deps. */
 export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): ExternalCalendarSource {
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_EXTERNAL_CALENDAR_POLL_MS;
@@ -437,11 +468,27 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   const providerUnsubscribes = new Map<string, () => void>();
   let lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
 
+  // Loading is a first-signal lifecycle, never an emptiness inference: the
+  // visible-configured feed set counts as loading until the first completion
+  // signal (a data-changed emission, a changed-fingerprint tick, or a collect
+  // observing a warm cache) is recorded FOR that set — an empty result then
+  // clears it, and a feed-set change re-arms it exactly once.
+  let completionSignalFeedSetKey: string | null = null;
+
+  const recordCompletionSignal = (): void => {
+    const visible = deps.visibleFeeds();
+    completionSignalFeedSetKey = feedSetKey(
+      fetchFreeConfiguredFeedKeys(deps.getTaskNotesPlugin()).filter((key) => visible.has(key)),
+    );
+  };
+
   const bumpOnDataChanged = (): void => {
     // Refresh the fingerprint too, so the next fallback tick stays quiet
     // instead of double-bumping for the same change.
     lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
+    recordCompletionSignal();
     epoch += 1;
+    deps.onEpochBump?.();
   };
 
   const asUnsubscribe = (value: unknown): (() => void) =>
@@ -487,7 +534,9 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     const fingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
     if (fingerprint !== lastFingerprint) {
       lastFingerprint = fingerprint;
+      recordCompletionSignal();
       epoch += 1;
+      deps.onEpochBump?.();
     }
     timer = deps.scheduler.setTimeout(tick, pollIntervalMs);
   };
@@ -505,12 +554,19 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
       const present = surfaces.filter((surface): surface is SurfaceRead => surface !== null);
       const degraded = present.length < surfaces.length;
       const feedEvents = present.flatMap((surface) => surface.feedEvents);
-      const configuredFeedCount = present.reduce(
-        (count, surface) => count + surface.configuredFeedCount,
-        0,
-      );
-      const loading = !degraded && configuredFeedCount > 0 && feedEvents.length === 0;
-      const items = buildItems(feedEvents.filter((feedEvent) => visible.has(feedEvent.feedKey)));
+      const visibleFeedKeys = present
+        .flatMap((surface) => surface.configuredFeedKeys)
+        .filter((key) => visible.has(key));
+      const visibleFeedEvents = feedEvents.filter((feedEvent) => visible.has(feedEvent.feedKey));
+      const currentFeedSetKey = feedSetKey(visibleFeedKeys);
+      // A warm cache is a completed load — events observed for the visible
+      // set count as the completion signal without waiting for an emission.
+      if (visibleFeedEvents.length > 0) completionSignalFeedSetKey = currentFeedSetKey;
+      const loading =
+        !degraded &&
+        visibleFeedKeys.length > 0 &&
+        completionSignalFeedSetKey !== currentFeedSetKey;
+      const items = buildItems(visibleFeedEvents);
       return {
         items,
         occupancyByTaskPath: new Map(),

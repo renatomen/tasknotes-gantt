@@ -6,6 +6,7 @@
 
 export {
   CALENDAR_ITEM_ID_PREFIX,
+  EXTERNAL_OCCUPANCY_STATE,
   isCalendarItemId,
   makeCalendarItemId,
   resolveActivationNotePath,

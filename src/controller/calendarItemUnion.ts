@@ -10,11 +10,12 @@
  * @module controller/calendarItemUnion
  */
 
-import type {
-  CalendarDerivationWindow,
-  CalendarItem,
-  CalendarItemBatch,
-  CalendarOccupancy,
+import {
+  EXTERNAL_OCCUPANCY_STATE,
+  type CalendarDerivationWindow,
+  type CalendarItem,
+  type CalendarItemBatch,
+  type CalendarOccupancy,
 } from '../datasource/calendarItems';
 import type { RenderInstance } from './InstanceExpansion';
 import { spanEvaluationWindow } from './calendar/derivation';
@@ -119,10 +120,13 @@ function attachOccupancy(
  * A calendar item as a read-only render row. The synthetic id flows through
  * `sourcePath` (the same field task identity uses); the item itself rides
  * along so path-consuming surfaces can branch on the namespace and resolve
- * the backing note.
+ * the backing note. A multi-occurrence series item additionally carries its
+ * occupied days as occupancy, so the row renders through the same
+ * suppressed-envelope substrate as recurring tasks: the item's span IS the
+ * envelope, one piece paints per occupied day, gaps stay unrendered.
  */
 function toEventRow(item: CalendarItem): RenderInstance {
-  return {
+  const row: RenderInstance = {
     id: item.id,
     sourcePath: item.id,
     text: item.title,
@@ -139,4 +143,24 @@ function toEventRow(item: CalendarItem): RenderInstance {
     isTopLevelPlacement: false,
     calendarItem: item,
   };
+  const occupancy = seriesOccupancy(item);
+  return occupancy ? { ...row, occupancy, plainBarSuppressed: true } : row;
+}
+
+/**
+ * One external-state occupancy entry per occupied day of a multi-occurrence
+ * series, or `undefined` for a single-span item (which stays a solid bar).
+ * Occurrences carry no backing note of their own, so piece activation routes
+ * to the row — resolved through the item's namespace like the bar itself.
+ */
+function seriesOccupancy(item: CalendarItem): CalendarOccupancy[] | undefined {
+  const days = item.occupancyDays;
+  if (!days || days.length <= 1) return undefined;
+  return days.map((day) => ({
+    family: item.family,
+    itemId: item.id,
+    day,
+    minutes: null,
+    stateClass: EXTERNAL_OCCUPANCY_STATE,
+  }));
 }

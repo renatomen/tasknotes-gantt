@@ -1,6 +1,7 @@
 filters:
   and:
     - 'file.ext == "md"'
+    - 'file.name != "Excluded Event"'
 views:
   - type: obsidianGantt
     name: "Gantt Calendar Items"

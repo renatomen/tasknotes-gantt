@@ -13,6 +13,7 @@ import {
   isRowHiddenBySwitcher,
   registerSourceSwitcherCommand,
   registerSourceSwitcherEntry,
+  switcherCountsFromInstances,
   switcherSourceCensus,
   RECURRING_SOURCE_KEY,
   type SourceSwitcherCommandHost,
@@ -106,6 +107,15 @@ describe('composition through shouldHideRow', () => {
     expect(shouldHideRow(eventRow('timeblock'), flags)).toBe(false);
   });
 
+  it('toggling external events hidden hides its rows via the display predicate', () => {
+    const state = createSourceSwitcherState();
+    state.toggle('external-event');
+    const flags: RowVisibilityFlags = { ...SHOW_ALL, hiddenSources: state.hiddenSources() };
+    expect(shouldHideRow(eventRow('external-event'), flags)).toBe(true);
+    expect(shouldHideRow(eventRow('time-entry'), flags)).toBe(false);
+    expect(shouldHideRow(taskRow(), flags)).toBe(false);
+  });
+
   it('a non-empty hidden set alone keeps the composed filter active (clear-path gate)', () => {
     expect(anyRowFilterActive({ ...SHOW_ALL, hiddenSources: new Set(['time-entry']) })).toBe(true);
   });
@@ -186,13 +196,48 @@ describe('active sources', () => {
         ['recurring-instance', 3],
         ['timeblock', 5],
       ]),
+      false,
     );
     expect(census).toEqual([
       { family: 'recurring-instance', enabled: true, count: 3 },
       { family: 'time-entry', enabled: true, count: 0 },
       { family: 'timeblock', enabled: false, count: 5 },
       { family: 'property-event', enabled: true, count: 0 },
+      { family: 'external-event', enabled: false, count: 0 },
     ]);
+  });
+
+  it('offers external events when a visible feed exists and rows render', () => {
+    const census = switcherSourceCensus(
+      ALL_ON,
+      new Map<CalendarItemFamily, number>([['external-event', 2]]),
+      true,
+    );
+    expect(census).toContainEqual({ family: 'external-event', enabled: true, count: 2 });
+    expect(activeSwitcherSources(census)).toContainEqual({
+      family: 'external-event',
+      label: 'External events',
+    });
+  });
+
+  it('external stays inactive without a visible feed even when rows rendered', () => {
+    const census = switcherSourceCensus(
+      ALL_ON,
+      new Map<CalendarItemFamily, number>([['external-event', 2]]),
+      false,
+    );
+    expect(census).toContainEqual({ family: 'external-event', enabled: false, count: 2 });
+    expect(activeSwitcherSources(census).map((source) => source.family)).not.toContain(
+      'external-event',
+    );
+  });
+
+  it('external with a visible feed but no rendered rows is not active', () => {
+    const census = switcherSourceCensus(ALL_ON, new Map<CalendarItemFamily, number>(), true);
+    expect(census).toContainEqual({ family: 'external-event', enabled: true, count: 0 });
+    expect(activeSwitcherSources(census).map((source) => source.family)).not.toContain(
+      'external-event',
+    );
   });
 
   it('active sources are exactly the enabled AND non-empty families, labelled for display', () => {
@@ -206,6 +251,23 @@ describe('active sources', () => {
       { family: 'recurring-instance', label: 'Recurring tasks' },
       { family: 'property-event', label: 'Property-based events' },
     ]);
+  });
+
+  it('counts rendered rows per family: event rows by their family, recurring by occupancy', () => {
+    const counts = switcherCountsFromInstances([
+      { calendarItem: { family: 'time-entry' } },
+      { calendarItem: { family: 'time-entry' } },
+      { calendarItem: { family: 'timeblock' } },
+      { occupancy: [{ family: 'recurring-instance' }] },
+      // A plain task row contributes to no family.
+      {},
+      // Occupancy of a non-recurring family never counts under the recurring key.
+      { occupancy: [{ family: 'time-entry' }] },
+    ]);
+    expect(counts.get('time-entry')).toBe(2);
+    expect(counts.get('timeblock')).toBe(1);
+    expect(counts.get('recurring-instance')).toBe(1);
+    expect(counts.get('property-event')).toBeUndefined();
   });
 });
 

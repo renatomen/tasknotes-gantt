@@ -69,6 +69,14 @@ export interface GanttData {
    */
   calendarNotice?: string | null;
   /**
+   * Transient external-calendar fetching state: the TaskNotes services
+   * answered but their event caches are still cold (feeds configured, zero
+   * events cached). Flows through the reactive data path into the toolbar's
+   * fetching indicator; cleared by the refresh the services' data-changed
+   * emitters trigger once events land. Absent/false = nothing fetching.
+   */
+  externalEventsLoading?: boolean;
+  /**
    * Flagged calendar events for the marker overlay. Markers render as
    * date-anchored vertical lines (never column shading), so they stay visible
    * at zoom levels where SVAR creates no per-column cells.
