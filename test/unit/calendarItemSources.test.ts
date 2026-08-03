@@ -20,6 +20,7 @@
 
 import { jest } from '@jest/globals';
 import {
+  createTaskNotesCalendarBinding,
   createCalendarItemSourcesProvider,
   type CalendarItemSourceDeps,
   type CalendarItemSourcesProvider,
@@ -83,6 +84,8 @@ interface HarnessOptions {
   dailyNotes?: readonly DailyNoteTimeblocks[];
   onListDailyNotes?: (window: { startDate: string; endDateExclusive: string }) => void;
   timeblockEpoch?: () => number;
+  dailyNotesConfigTag?: () => string;
+  taskNotesIdentity?: () => unknown;
   taskNotesPlugin?: unknown;
   scheduler?: TimerScheduler;
   onExternalEpochBump?: () => void;
@@ -120,6 +123,10 @@ function makeHarness(tasks: readonly TaskNotesTaskInfo[], options: HarnessOption
         }
       : {}),
     ...(options.timeblockEpoch ? { timeblockEpoch: options.timeblockEpoch } : {}),
+    ...(options.dailyNotesConfigTag
+      ? { dailyNotesConfigTag: options.dailyNotesConfigTag }
+      : {}),
+    ...(options.taskNotesIdentity ? { taskNotesIdentity: options.taskNotesIdentity } : {}),
     ...(options.taskNotesPlugin !== undefined
       ? {
           getTaskNotesPlugin: () => options.taskNotesPlugin,
@@ -204,6 +211,61 @@ const families = (sources: readonly CalendarItemSource[]): string[] =>
 const collectOne = async (source: CalendarItemSource): Promise<CalendarItemBatch> =>
   source.collect(context());
 
+describe('createTaskNotesCalendarBinding', () => {
+  it('replaces a retired TaskNotes source by API identity and rewires its subscription', async () => {
+    let apiIdentity: object = { generation: 1 };
+    let createIndex = 0;
+    const handlers: Array<((eventName: string) => void) | null> = [null, null];
+    const unsubscribes = [jest.fn(), jest.fn()];
+    const taskSets: readonly TaskNotesTaskInfo[][] = [[recurringTask], [trackedTask]];
+    const binding = createTaskNotesCalendarBinding({
+      identity: () => apiIdentity,
+      createSource: async () => {
+        const index = createIndex++;
+        return {
+          listTaskInfos: () => taskSets[index] ?? [],
+          subscribe: (handler: (eventName: string) => void) => {
+            handlers[index] = handler;
+            return unsubscribes[index]!;
+          },
+        };
+      },
+    });
+    const observed: string[] = [];
+    const unsubscribe = binding.subscribe((eventName) => observed.push(eventName));
+
+    expect(await binding.listTasks()).toEqual([recurringTask]);
+    handlers[0]?.('task.updated');
+    expect(observed).toEqual(['task.updated']);
+
+    apiIdentity = { generation: 2 };
+    expect(await binding.listTasks()).toEqual([trackedTask]);
+    expect(unsubscribes[0]).toHaveBeenCalledTimes(1);
+    handlers[1]?.('task.created');
+    expect(observed).toEqual(['task.updated', 'task.created']);
+
+    unsubscribe();
+    expect(unsubscribes[1]).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the current source while API identity is unchanged', async () => {
+    const apiIdentity = { generation: 1 };
+    const createSource = jest.fn(async () => ({
+      listTaskInfos: () => [recurringTask],
+      subscribe: () => () => {},
+    }));
+    const binding = createTaskNotesCalendarBinding({
+      identity: () => apiIdentity,
+      createSource,
+    });
+
+    await binding.listTasks();
+    await binding.listTasks();
+
+    expect(createSource).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('createCalendarItemSourcesProvider', () => {
   it('provides the recurring source with every family toggle off, emitting recorded-only occupancy', async () => {
     // Dataset parity: the TaskNotes calendar renders recorded (completed/
@@ -224,6 +286,21 @@ describe('createCalendarItemSourcesProvider', () => {
     // task with no recorded history contributes nothing.
     expect(batch.items).toEqual([]);
     expect(batch.occupancyByTaskPath.has(trackedTask.path)).toBe(false);
+  });
+
+  it('bumps the provided epoch when the TaskNotes API identity changes', () => {
+    let apiIdentity: object = { generation: 1 };
+    const harness = makeHarness([recurringTask], {
+      taskNotesIdentity: () => apiIdentity,
+    });
+    const source = provideSources(harness)[0]!;
+    const initialEpoch = source.epoch();
+
+    apiIdentity = { generation: 2 };
+    const sameSource = provideSources(harness)[0]!;
+
+    expect(sameSource).toBe(source);
+    expect(sameSource.epoch()).toBe(initialEpoch + 1);
   });
 
   it('provides the recurring source once showRecurring is on, collecting occupancy from the task list', async () => {
@@ -440,6 +517,23 @@ describe('createCalendarItemSourcesProvider', () => {
 
       watchEpoch += 1;
       expect(source.epoch()).toBe(initialEpoch + 1);
+    });
+
+    it('bumps the provided epoch when Daily Notes configuration changes without a file event', () => {
+      let configTag = 'enabled|Daily|YYYY-MM-DD';
+      const harness = makeHarness([], {
+        dailyNotes: [dailyNote],
+        dailyNotesConfigTag: () => configTag,
+      });
+      harness.toggles.showTimeblocks = true;
+      const source = provideSources(harness).find((entry) => entry.family === 'timeblock')!;
+      const initialEpoch = source.epoch();
+
+      configTag = 'enabled|Journal|DD.MM.YYYY';
+      const sameSource = provideSources(harness).find((entry) => entry.family === 'timeblock')!;
+
+      expect(sameSource).toBe(source);
+      expect(sameSource.epoch()).toBe(initialEpoch + 1);
     });
   });
 

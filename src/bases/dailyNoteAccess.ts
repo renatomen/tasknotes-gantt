@@ -42,6 +42,11 @@ export const DEFAULT_DAILY_NOTE_FORMAT = 'YYYY-MM-DD';
 
 const DAILY_NOTES_PLUGIN_ID = 'daily-notes';
 
+/** Stable fingerprint of the Daily Notes enablement and path dialect. */
+export function dailyNotesConfigTag(config: DailyNotesConfig | null): string {
+  return JSON.stringify(config === null ? null : [config.folder, config.format]);
+}
+
 /**
  * The enabled daily-notes core plugin's folder/format, or `null` when the
  * plugin is absent or disabled (→ no daily notes exist for this vault).
@@ -156,6 +161,8 @@ export interface DailyNoteAccess {
   listDailyNotes(window: CalendarDerivationWindow): DailyNoteTimeblocks[];
   /** Daily-note relevance probe for the timeblock watch (config-fresh). */
   isDailyNote(path: string): boolean;
+  /** Config-fresh invalidation tag (enabled/disabled, folder, and format). */
+  configTag(): string;
 }
 
 function resolveMoment(): MomentDayFactory | undefined {
@@ -172,6 +179,7 @@ export function createDailyNoteAccess(app: App): DailyNoteAccess {
   const currentParser = (config: DailyNotesConfig): DayParser =>
     createDayParser(config.format, resolveMoment());
   return {
+    configTag: () => dailyNotesConfigTag(readDailyNotesConfig(app)),
     listDailyNotes: (window) => {
       const config = readDailyNotesConfig(app);
       return listDailyNoteTimeblocks(

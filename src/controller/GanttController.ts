@@ -1335,14 +1335,7 @@ export class GanttController {
    * `any`); guarded so a missing registry resolves to `undefined`.
    */
   private probeTaskNotesAvailability(): unknown {
-    try {
-      const plugins = (this.app as unknown as {
-        plugins?: { getPlugin(id: string): { api?: unknown } | undefined | null };
-      }).plugins;
-      return plugins?.getPlugin('tasknotes')?.api ?? undefined;
-    } catch {
-      return undefined;
-    }
+    return TaskNotesSource.apiIdentity(this.app);
   }
 
   /**

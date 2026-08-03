@@ -10,6 +10,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   DEFAULT_DAILY_NOTE_FORMAT,
   createDayParser,
+  dailyNotesConfigTag,
   dailyNoteDayOfPath,
   listDailyNoteTimeblocks,
   readDailyNotesConfig,
@@ -73,6 +74,20 @@ describe('readDailyNotesConfig', () => {
 
   it('returns null for an app without the internal-plugins surface', () => {
     expect(readDailyNotesConfig({})).toBeNull();
+  });
+});
+
+describe('dailyNotesConfigTag', () => {
+  it('distinguishes disabled, folder, and format changes', () => {
+    expect(dailyNotesConfigTag(null)).not.toBe(
+      dailyNotesConfigTag({ folder: '', format: DEFAULT_DAILY_NOTE_FORMAT }),
+    );
+    expect(dailyNotesConfigTag({ folder: 'Daily', format: DEFAULT_DAILY_NOTE_FORMAT })).not.toBe(
+      dailyNotesConfigTag({ folder: 'Journal', format: DEFAULT_DAILY_NOTE_FORMAT }),
+    );
+    expect(dailyNotesConfigTag({ folder: 'Daily', format: DEFAULT_DAILY_NOTE_FORMAT })).not.toBe(
+      dailyNotesConfigTag({ folder: 'Daily', format: 'DD.MM.YYYY' }),
+    );
   });
 });
 

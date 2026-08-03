@@ -426,6 +426,11 @@ export class TaskNotesSource implements DataSource {
     return new TaskNotesSource(app, api);
   }
 
+  /** Current TaskNotes API object identity, or `undefined` when unavailable. */
+  public static apiIdentity(app: App): unknown {
+    return TaskNotesSource.resolveApi(app) ?? undefined;
+  }
+
   /**
    * Resolve the TaskNotes api object via the plugin registry, guarded.
    *

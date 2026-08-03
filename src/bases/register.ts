@@ -37,6 +37,7 @@ import {
 } from './calendarItemOptions';
 import {
   createCalendarItemSourcesProvider,
+  createTaskNotesCalendarBinding,
   type CalendarItemSourcesProvider,
   type ExternalBatchFlags,
 } from './calendarItemSources';
@@ -1024,11 +1025,10 @@ class ObsidianGanttBasesView extends BasesView {
       // get their own TaskNotesSource seam here (the controller's memoized
       // enrichment source is internal to it). Null when TaskNotes is absent:
       // the families then derive nothing, which is their standalone behavior.
-      const calendarItemTaskNotes = await TaskNotesSource.create(this.app);
-      // A newer mount may have started while the awaited API resolution above
-      // was in flight; bail before touching the watch fields, or a losing
-      // mount would dispose the winner's live watch and strand a dead one.
-      if (token !== this.mountToken) return;
+      const calendarItemTaskNotes = createTaskNotesCalendarBinding({
+        identity: () => TaskNotesSource.apiIdentity(this.app),
+        createSource: () => TaskNotesSource.create(this.app),
+      });
       const dailyNoteAccess = createDailyNoteAccess(this.app);
       // Daily-note liveness for timeblocks: the same event wiring as the
       // calendar watch (metadata `changed` + vault `rename`/`delete`), with a
@@ -1059,11 +1059,9 @@ class ObsidianGanttBasesView extends BasesView {
       this.unwireTimeblockWatch = unwireTimeblockThisMount;
       const calendarItemSources = createCalendarItemSourcesProvider({
         toggles: () => this.getCalendarItemToggles(),
-        listTasks: () => calendarItemTaskNotes?.listTaskInfos() ?? [],
-        ...(calendarItemTaskNotes
-          ? { subscribe: (handler: (eventName: string, payload?: unknown) => void) =>
-              calendarItemTaskNotes.subscribe(handler) }
-          : {}),
+        listTasks: calendarItemTaskNotes.listTasks,
+        subscribe: calendarItemTaskNotes.subscribe,
+        taskNotesIdentity: calendarItemTaskNotes.identity,
         resolveTaskReference: (linkPath, fromPath) =>
           resolveParentLink(this.app, linkPath, fromPath),
         // Property events derive from the view's Bases entries; the coalescer
@@ -1081,6 +1079,7 @@ class ObsidianGanttBasesView extends BasesView {
         // daily note is recognised (a deletion cannot probe the gone file).
         listDailyNotes: (window) => timeblockLiveness.listDailyNotes(window),
         timeblockEpoch: () => timeblockLiveness.watch.epoch(),
+        dailyNotesConfigTag: dailyNoteAccess.configTag,
         // External calendars: guarded reads off the raw TaskNotes plugin
         // handle, per-feed visibility from the live view config, and a bump
         // hook so a service's data-changed emitter schedules a refresh.

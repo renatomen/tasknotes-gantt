@@ -68,6 +68,8 @@ export interface CalendarItemSourceDeps {
   listTasks(): Promise<readonly TaskNotesTaskInfo[]> | readonly TaskNotesTaskInfo[];
   /** TaskNotes change-event seam driving the sources' epochs; absent when TaskNotes is. */
   subscribe?(handler: (eventName: string, payload?: unknown) => void): () => void;
+  /** Live TaskNotes API identity; a replacement invalidates cached family batches. */
+  taskNotesIdentity?(): unknown;
   /** Resolves `recurrence_parent` references to vault note paths. */
   resolveTaskReference?: TaskReferenceResolver;
   /**
@@ -86,6 +88,8 @@ export interface CalendarItemSourceDeps {
   ): Promise<readonly DailyNoteTimeblocks[]> | readonly DailyNoteTimeblocks[];
   /** The timeblock watch's epoch (daily-note liveness); absent → constant. */
   timeblockEpoch?(): number;
+  /** Live Daily Notes enabled/folder/format fingerprint. */
+  dailyNotesConfigTag?(): string;
   /**
    * Opaque TaskNotes plugin handle for the external-calendar family's guarded
    * service reads. Absent → the family cannot derive and is never created.
@@ -114,6 +118,93 @@ export interface CalendarItemSourcesProvider {
   dispose(): void;
 }
 
+/** The TaskNotes source slice calendar-item families consume. */
+export interface TaskNotesCalendarReadSource {
+  listTaskInfos(): Promise<readonly TaskNotesTaskInfo[]> | readonly TaskNotesTaskInfo[];
+  subscribe(handler: (eventName: string, payload?: unknown) => void): () => void;
+}
+
+/** Dependencies for a live TaskNotes calendar-source binding. */
+export interface TaskNotesCalendarBindingDeps {
+  identity(): unknown;
+  createSource(): Promise<TaskNotesCalendarReadSource | null>;
+}
+
+/**
+ * Keep calendar-item reads and change subscriptions bound to the current
+ * TaskNotes API object. Source replacement is observed lazily by the next
+ * collect, while the provider's identity epoch makes that collect unavoidable.
+ */
+export function createTaskNotesCalendarBinding(deps: TaskNotesCalendarBindingDeps): {
+  identity(): unknown;
+  listTasks(): Promise<readonly TaskNotesTaskInfo[]>;
+  subscribe(handler: (eventName: string, payload?: unknown) => void): () => void;
+} {
+  const handlers = new Set<(eventName: string, payload?: unknown) => void>();
+  let source: TaskNotesCalendarReadSource | null = null;
+  let resolvedIdentity: unknown;
+  let resolved = false;
+  let sourceUnsubscribe: (() => void) | undefined;
+  let resolving: Promise<void> | null = null;
+
+  const forward = (eventName: string, payload?: unknown): void => {
+    for (const handler of handlers) handler(eventName, payload);
+  };
+
+  const wireCurrentSource = (): void => {
+    if (source === null || handlers.size === 0 || sourceUnsubscribe) return;
+    sourceUnsubscribe = source.subscribe(forward);
+  };
+
+  const replaceSource = (next: TaskNotesCalendarReadSource | null, identity: unknown): void => {
+    sourceUnsubscribe?.();
+    sourceUnsubscribe = undefined;
+    source = next;
+    resolvedIdentity = identity;
+    resolved = true;
+    wireCurrentSource();
+  };
+
+  const resolveCurrentSource = async (): Promise<void> => {
+    const identity = deps.identity();
+    if (resolved && identity === resolvedIdentity) return;
+    if (resolving) {
+      await resolving;
+      if (deps.identity() !== resolvedIdentity) await resolveCurrentSource();
+      return;
+    }
+    resolving = (async () => {
+      const next = await deps.createSource();
+      if (deps.identity() === identity) replaceSource(next, identity);
+    })();
+    try {
+      await resolving;
+    } finally {
+      resolving = null;
+    }
+    if (!resolved || deps.identity() !== resolvedIdentity) await resolveCurrentSource();
+  };
+
+  return {
+    identity: deps.identity,
+    listTasks: async () => {
+      await resolveCurrentSource();
+      return source ? await source.listTaskInfos() : [];
+    },
+    subscribe: (handler) => {
+      handlers.add(handler);
+      wireCurrentSource();
+      return () => {
+        handlers.delete(handler);
+        if (handlers.size === 0) {
+          sourceUnsubscribe?.();
+          sourceUnsubscribe = undefined;
+        }
+      };
+    },
+  };
+}
+
 /** Build the per-mount calendar-item sources provider over injected seams. */
 export function createCalendarItemSourcesProvider(
   deps: CalendarItemSourceDeps,
@@ -125,6 +216,8 @@ export function createCalendarItemSourcesProvider(
   let external: DisposableCalendarItemSource | null = null;
   let configRevision = 0;
   let lastConfigTag: string | null = null;
+  let lastTaskNotesIdentity: unknown;
+  let taskNotesIdentityObserved = false;
   const wrappers = new Map<DisposableCalendarItemSource, CalendarItemSource>();
 
   // Stable wrapper identity per source: the controller's batch cache keys on
@@ -164,7 +257,8 @@ export function createCalendarItemSourcesProvider(
       toggles.propertyEventEnd,
       toggles.propertyEventTitle,
     ]) +
-    [...visibleFeeds].sort((a, b) => a.localeCompare(b)).join(',');
+    [...visibleFeeds].sort((a, b) => a.localeCompare(b)).join(',') +
+    (deps.dailyNotesConfigTag?.() ?? '');
 
   const createRecurring = (): DisposableCalendarItemSource =>
     createRecurringInstanceSource({
@@ -248,10 +342,16 @@ export function createCalendarItemSourcesProvider(
       const toggles = deps.toggles();
       const visibleFeeds = visibleExternalFeeds();
       const tag = configTag(toggles, visibleFeeds);
-      if (lastConfigTag !== null && tag !== lastConfigTag) {
+      const taskNotesIdentity = deps.taskNotesIdentity?.();
+      const configChanged = lastConfigTag !== null && tag !== lastConfigTag;
+      const taskNotesChanged =
+        taskNotesIdentityObserved && taskNotesIdentity !== lastTaskNotesIdentity;
+      if (configChanged || taskNotesChanged) {
         configRevision += 1;
       }
       lastConfigTag = tag;
+      lastTaskNotesIdentity = taskNotesIdentity;
+      taskNotesIdentityObserved = true;
 
       recurring ??= createRecurring();
       if (toggles.showTimeEntries) {
