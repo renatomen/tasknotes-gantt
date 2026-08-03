@@ -78,6 +78,10 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.recurrence.changed',
   'recurring.instance.completed',
   'recurring.instance.skipped',
+  // Time-tracking starts/stops re-derive the time-entry calendar-item family
+  // (an entry gaining its endTime is what makes it render).
+  'time.started',
+  'time.stopped',
 ] as const;
 
 /** Handler invoked when a subscribed TaskNotes change event fires. */
@@ -102,6 +106,19 @@ export type TaskNotesEventHandler = (eventName: string, payload?: unknown) => vo
 export type TaskNotesBlockedByEntry =
   | string
   | { uid?: string | null; reltype?: string | null; gap?: string | null };
+
+/**
+ * One tracked work session on a task, as TaskNotes stores it. `startTime`/
+ * `endTime` are ISO timestamps carrying the recorder's UTC offset (absolute
+ * instants, unlike the naive date fields); a running session has no `endTime`.
+ */
+export interface TaskNotesTimeEntry {
+  startTime: string;
+  endTime?: string;
+  /** Duration in minutes. */
+  duration?: number;
+  description?: string;
+}
 
 /** A TaskNotes task record (only the fields this source reads). */
 export interface TaskNotesTaskInfo {
@@ -137,6 +154,8 @@ export interface TaskNotesTaskInfo {
   occurrence_date?: string | null;
   /** Time estimate in minutes. */
   timeEstimate?: number | null;
+  /** Tracked work sessions (finished and running). */
+  timeEntries?: ReadonlyArray<TaskNotesTimeEntry> | null;
 }
 
 /** A TaskNotes custom-status definition (the slice consumed for bar coloring). */

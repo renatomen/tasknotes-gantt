@@ -22,6 +22,10 @@ export type {
   LocalDay,
 } from './types';
 
+export { localDayOfInstant, localDaySpanOfInstants } from './normalizers';
+
+export type { LocalDaySpan } from './normalizers';
+
 export { createRecurringInstanceSource, expandRecurringOccupancy } from './recurringSource';
 
 export type {
@@ -32,3 +36,12 @@ export type {
   RecurringSourceDeps,
   TaskReferenceResolver,
 } from './recurringSource';
+
+export { createTimeEntrySource, expandTimeEntryItems } from './timeEntrySource';
+
+export type {
+  TimeEntryExpansionInput,
+  TimeEntrySource,
+  TimeEntrySourceDeps,
+  TimeEntryToggles,
+} from './timeEntrySource';
