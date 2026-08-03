@@ -26,6 +26,15 @@ export { localDayOfInstant, localDaySpanOfInstants } from './normalizers';
 
 export type { LocalDaySpan } from './normalizers';
 
+export { createPropertyEventSource, expandPropertyEventItems } from './propertyEventSource';
+
+export type {
+  PropertyEventExpansionInput,
+  PropertyEventSource,
+  PropertyEventSourceDeps,
+  PropertyEventToggles,
+} from './propertyEventSource';
+
 export { createRecurringInstanceSource, expandRecurringOccupancy } from './recurringSource';
 
 export type {
