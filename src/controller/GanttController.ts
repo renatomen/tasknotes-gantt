@@ -564,14 +564,13 @@ export class GanttController {
   /** Injected calendar-item sources (default none — the union stays inert). */
   private readonly calendarItemSources: () => readonly CalendarItemSource[];
   /**
-   * Cached two-channel batch per calendar-item source, keyed by the epoch it
-   * was derived at. While a source's epoch is unchanged its batch is reused
-   * (no re-derivation); an epoch bump re-collects, which is what invalidates
-   * the cached snapshot for that family.
+   * Cached two-channel batch per calendar-item source, keyed by its epoch and
+   * derivation window. While both are unchanged its batch is reused; either
+   * axis changing re-collects the family.
    */
   private readonly calendarBatchCache = new Map<
     CalendarItemSource,
-    { epoch: number; batch: CalendarItemBatch }
+    { epoch: number; windowKey: string; batch: CalendarItemBatch }
   >();
 
   /** The currently selected source. `null` until {@link init}. */
@@ -1755,9 +1754,8 @@ export class GanttController {
 
   /**
    * Collect each injected calendar-item source's two-channel batch, reusing
-   * the cached batch while the source's epoch is unchanged — the staleness
-   * signal that keeps plain refreshes from re-deriving families. Inert (no
-   * context build, no reads) when no sources are injected.
+   * the cached batch while the source's epoch and derivation window are
+   * unchanged. Inert (no context build, no reads) when no sources are injected.
    */
   private async collectCalendarBatches(
     rawTasks: readonly SourceTask[],
@@ -1767,8 +1765,10 @@ export class GanttController {
     if (sources.length === 0) {
       return [];
     }
+    const window = calendarDerivationWindow(resolvedTasks, this.now());
+    const windowKey = `${window.startDate}/${window.endDateExclusive}`;
     const context: CalendarItemQueryContext = {
-      window: calendarDerivationWindow(resolvedTasks, this.now()),
+      window,
       tasks: () => rawTasks,
       basesEntries: () => this.basesInput().entries,
     };
@@ -1776,12 +1776,12 @@ export class GanttController {
     for (const source of sources) {
       const epoch = source.epoch();
       const cached = this.calendarBatchCache.get(source);
-      if (cached?.epoch === epoch) {
+      if (cached?.epoch === epoch && cached.windowKey === windowKey) {
         batches.push(cached.batch);
         continue;
       }
       const batch = await source.collect(context);
-      this.calendarBatchCache.set(source, { epoch, batch });
+      this.calendarBatchCache.set(source, { epoch, windowKey, batch });
       batches.push(batch);
     }
     return batches;

@@ -19,21 +19,39 @@ import {
 } from '../datasource/calendarItems';
 import type { RenderInstance } from './InstanceExpansion';
 import { spanEvaluationWindow } from './calendar/derivation';
-import { isoToLocalDate, isoToLocalEndOfDay } from './calendar/stretch';
+import { isoToLocalDate, isoToLocalEndOfDay, localIso } from './calendar/stretch';
 
 /**
  * The derivation window calendar-item sources derive against: the same
  * evaluation window the blocking-facts derivation uses over the pass's task
- * spans, so every calendar consumer windows itself identically. An all-undated
- * task set anchors the window at `today` with the same margin.
+ * spans, extended to cover today through the same local day next year. An
+ * all-undated task set retains the existing today-centered margin.
  */
 export function calendarDerivationWindow(
   spans: ReadonlyArray<{ start: Date | null; end: Date | null }>,
   today: Date,
 ): CalendarDerivationWindow {
-  return (
-    spanEvaluationWindow(spans) ?? spanEvaluationWindow([{ start: today, end: today }])!
-  );
+  const spanWindow = spanEvaluationWindow(spans);
+  if (spanWindow === null) {
+    return spanEvaluationWindow([{ start: today, end: today }])!;
+  }
+  const todayDay = localIso(today);
+  const annualHorizon = localDayNextYear(today);
+  return {
+    startDate: spanWindow.startDate < todayDay ? spanWindow.startDate : todayDay,
+    endDateExclusive:
+      spanWindow.endDateExclusive > annualHorizon
+        ? spanWindow.endDateExclusive
+        : annualHorizon,
+  };
+}
+
+/** The same local calendar day next year, clamped for leap day. */
+function localDayNextYear(date: Date): string {
+  const year = date.getFullYear() + 1;
+  const month = date.getMonth();
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  return localIso(new Date(year, month, Math.min(date.getDate(), lastDayOfMonth)));
 }
 
 /**

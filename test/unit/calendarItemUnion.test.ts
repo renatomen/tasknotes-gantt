@@ -17,7 +17,10 @@
 import { describe, it, expect } from '@jest/globals';
 import type { App } from 'obsidian';
 import { GanttController } from '../../src/controller/GanttController';
-import { unionCalendarBatches } from '../../src/controller/calendarItemUnion';
+import {
+  calendarDerivationWindow,
+  unionCalendarBatches,
+} from '../../src/controller/calendarItemUnion';
 import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 import type {
   DataSource,
@@ -118,6 +121,53 @@ function makeController(opts: {
     },
   });
 }
+
+describe('calendar-item union — derivation window', () => {
+  it('extends dated spans from the existing margin through one year after today', () => {
+    const window = calendarDerivationWindow(
+      [{ start: new Date(2026, 0, 10), end: new Date(2026, 0, 12) }],
+      new Date(2026, 0, 15),
+    );
+
+    expect(window).toEqual({
+      startDate: '2025-11-09',
+      endDateExclusive: '2027-01-15',
+    });
+  });
+
+  it('anchors a future-only span at today across the local year boundary', () => {
+    const window = calendarDerivationWindow(
+      [{ start: new Date(2027, 5, 1), end: new Date(2027, 5, 2) }],
+      new Date(2026, 11, 31, 23, 30),
+    );
+
+    expect(window).toEqual({
+      startDate: '2026-12-31',
+      endDateExclusive: '2027-12-31',
+    });
+  });
+
+  it('clamps a leap-day annual horizon to the last valid local day', () => {
+    const window = calendarDerivationWindow(
+      [{ start: new Date(2024, 1, 29), end: new Date(2024, 1, 29) }],
+      new Date(2024, 1, 29, 12),
+    );
+
+    expect(window.endDateExclusive).toBe('2025-02-28');
+  });
+
+  it('retains the today-centered margin when every task is undated', () => {
+    const window = calendarDerivationWindow(
+      [{ start: null, end: null }],
+      new Date(2026, 0, 15),
+    );
+
+    expect(window).toEqual({
+      startDate: '2025-11-14',
+      endDateExclusive: '2026-03-19',
+    });
+  });
+});
 
 describe('calendar-item union — flat rows', () => {
   it('unions items from two sources as rows ordered after every task row', async () => {
@@ -272,7 +322,7 @@ describe('calendar-item union — multi-occurrence series rows (occupancyDays)',
 });
 
 describe('calendar-item union — epoch staleness signal', () => {
-  it('reuses the cached batch across refreshes while the epoch is unchanged', async () => {
+  it('reuses the cached batch while both the derivation window and epoch are unchanged', async () => {
     const source = new FakeCalendarSource(
       'timeblock',
       itemsBatch([
@@ -296,6 +346,24 @@ describe('calendar-item union — epoch staleness signal', () => {
 
     expect(source.collectCalls).toBe(1);
     expect(notifications).toBe(0);
+  });
+
+  it('re-collects when a task widens the derivation window at an unchanged epoch', async () => {
+    const tasks = [task({ path: 'a.md' })];
+    const source = new FakeCalendarSource('timeblock', itemsBatch([]));
+    const controller = makeController({ tasks, calendarSources: [source] });
+    await controller.init();
+    const initialWindow = source.lastContext!.window;
+
+    tasks[0]!.end = new Date(2028, 1, 1);
+    await controller.refreshSource();
+
+    expect(source.epochValue).toBe(1);
+    expect(source.collectCalls).toBe(2);
+    expect(source.lastContext!.window.startDate).toBe(initialWindow.startDate);
+    expect(source.lastContext!.window.endDateExclusive).not.toBe(
+      initialWindow.endDateExclusive,
+    );
   });
 
   it('re-collects on an epoch bump and notifies with the new items', async () => {
