@@ -188,7 +188,7 @@ describe('active sources', () => {
     propertyEventTitle: '',
   };
 
-  it('the census follows the family toggles for enabled and the provided counts', () => {
+  it('the census enables configured or currently contributing internal families', () => {
     const toggles: CalendarItemToggles = { ...ALL_ON, showTimeblocks: false };
     const census = switcherSourceCensus(
       toggles,
@@ -201,7 +201,7 @@ describe('active sources', () => {
     expect(census).toEqual([
       { family: 'recurring-instance', enabled: true, count: 3 },
       { family: 'time-entry', enabled: true, count: 0 },
-      { family: 'timeblock', enabled: false, count: 5 },
+      { family: 'timeblock', enabled: true, count: 5 },
       { family: 'property-event', enabled: true, count: 0 },
       { family: 'external-event', enabled: false, count: 0 },
     ]);
@@ -218,6 +218,43 @@ describe('active sources', () => {
       family: 'external-event',
       label: 'External events',
     });
+  });
+
+  it('keeps rendered recurring rows available to re-show after the family toggle turns off', () => {
+    const state = createSourceSwitcherState();
+    const counts = switcherCountsFromInstances([
+      { occupancy: [{ family: RECURRING_SOURCE_KEY }] },
+    ]);
+    const enabledCensus = switcherSourceCensus(ALL_ON, counts, false);
+    expect(activeSwitcherSources(enabledCensus)).toContainEqual({
+      family: RECURRING_SOURCE_KEY,
+      label: 'Recurring tasks',
+    });
+
+    state.toggle(RECURRING_SOURCE_KEY);
+    expect(isRowHiddenBySwitcher({ hasRecurringOccupancy: true }, state.hiddenSources())).toBe(
+      true,
+    );
+
+    const disabledCensus = switcherSourceCensus(
+      { ...ALL_ON, showRecurring: false },
+      counts,
+      false,
+    );
+    expect(disabledCensus).toContainEqual({
+      family: RECURRING_SOURCE_KEY,
+      enabled: true,
+      count: 1,
+    });
+    expect(activeSwitcherSources(disabledCensus)).toContainEqual({
+      family: RECURRING_SOURCE_KEY,
+      label: 'Recurring tasks',
+    });
+
+    state.toggle(RECURRING_SOURCE_KEY);
+    expect(isRowHiddenBySwitcher({ hasRecurringOccupancy: true }, state.hiddenSources())).toBe(
+      false,
+    );
   });
 
   it('external stays inactive without a visible feed even when rows rendered', () => {

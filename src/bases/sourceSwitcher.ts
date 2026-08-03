@@ -88,7 +88,7 @@ export function createSourceSwitcherState(): SourceSwitcherState {
 /** One family's standing in the current view: toggle state + rendered-row count. */
 export interface SwitcherSourceCensusEntry {
   family: CalendarItemFamily;
-  /** The family's per-view toggle is on. */
+  /** The family is configured on or still contributes rows that must remain recoverable. */
   enabled: boolean;
   /** Rows the family currently contributes (event rows; occupancy-rendered task rows for recurring). */
   count: number;
@@ -154,11 +154,11 @@ export function switcherCountsFromInstances(
 
 /**
  * Bridge the per-view enablement state and current rendered-row counts into
- * the census the active-source list derives from. Most families enable via
- * their single family toggle; external calendars have no such toggle — their
- * per-feed visibility toggles play that role, so the family counts as enabled
- * when at least one feed is visible. Families with no enablement input are
- * omitted — they cannot be enabled, so they can never be active.
+ * the census the active-source list derives from. Toggle-backed families stay
+ * enabled while they still contribute rows, so a hidden source remains
+ * available to re-show during derivation transitions and parity exceptions.
+ * External calendars have no family toggle — their per-feed visibility alone
+ * determines enablement. Families with no enablement input are omitted.
  */
 export function switcherSourceCensus(
   toggles: CalendarItemToggles,
@@ -172,11 +172,12 @@ export function switcherSourceCensus(
     ['property-event', toggles.showPropertyBasedEvents],
     ['external-event', hasVisibleExternalFeed],
   ];
-  return toggleByFamily.map(([family, enabled]) => ({
-    family,
-    enabled,
-    count: countByFamily.get(family) ?? 0,
-  }));
+  return toggleByFamily.map(([family, configuredEnabled]) => {
+    const count = countByFamily.get(family) ?? 0;
+    const enabled =
+      family === 'external-event' ? configuredEnabled : configuredEnabled || count > 0;
+    return { family, enabled, count };
+  });
 }
 
 /**
