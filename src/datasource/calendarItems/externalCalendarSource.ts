@@ -384,30 +384,41 @@ function toSingleItem(entry: SingleEntry, discriminator: string): CalendarItem {
   };
 }
 
-function qualifierVisibleKey(occurrence: NormalizedOccurrence): string {
-  const { event, span, startTime } = occurrence;
-  // Only what the rendered qualifier can see (day, time, title): grouping on
-  // anything else (endDay) would split id-indistinguishable events into
-  // separate groups whose members then render identical ids.
-  return `${span.startDay}#${startTime}#${event.title}`;
+function canonicalNearTwinRank(occurrence: NormalizedOccurrence): string {
+  const { event, span } = occurrence;
+  // Ranks group members by their stable distinguishers (day, time and title
+  // are already equal within a group), so a near-twin keeps its ordinal even
+  // when the service reorders the batch between ticks.
+  return `${span.endDay}#${String(event.allDay)}#${event.color ?? ''}`;
 }
 
 /**
- * Ordinals for id-less events, grouped per feed by the qualifier-visible key.
- * Distinct events (different title, day, or time) each sit alone at `~0`, so
- * inserting or removing an unrelated event never shifts their ids; within a
- * group the service order is the only remaining tiebreak for events the id
- * cannot tell apart.
+ * Ordinals for id-less events, grouped per feed by exactly what the rendered
+ * qualifier can see (start day, start time, title) — grouping on anything the
+ * id cannot see would split indistinguishable events into groups rendering
+ * identical ids. Distinct events each sit alone at `~0`, so inserting or
+ * removing an unrelated event never shifts their ids; within a group the
+ * canonical rank orders near-twins, and service order remains the last
+ * tiebreak only for byte-identical records.
  */
 function idlessOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
-  const groups = new Map<string, number>();
-  const ordinals = new Map<NormalizedOccurrence, number>();
+  const groups = new Map<string, NormalizedOccurrence[]>();
   for (const entry of entries) {
-    if (entry.occurrence.event.id !== undefined) continue;
-    const key = `${entry.feedKey}\n${qualifierVisibleKey(entry.occurrence)}`;
-    const ordinal = groups.get(key) ?? 0;
-    groups.set(key, ordinal + 1);
-    ordinals.set(entry.occurrence, ordinal);
+    const { event, span, startTime } = entry.occurrence;
+    if (event.id !== undefined) continue;
+    // A structured key: a delimiter smuggled into one component can never
+    // alias another feed's group.
+    const key = JSON.stringify([entry.feedKey, span.startDay, startTime, event.title]);
+    const group = groups.get(key) ?? [];
+    group.push(entry.occurrence);
+    groups.set(key, group);
+  }
+  const ordinals = new Map<NormalizedOccurrence, number>();
+  for (const group of groups.values()) {
+    const ranked = [...group].sort((a, b) =>
+      canonicalNearTwinRank(a).localeCompare(canonicalNearTwinRank(b)),
+    );
+    ranked.forEach((occurrence, index) => ordinals.set(occurrence, index));
   }
   return ordinals;
 }

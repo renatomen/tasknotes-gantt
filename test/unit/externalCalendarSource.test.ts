@@ -684,6 +684,33 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     ]);
   });
 
+  it('keeps each different-endDay near-twin at the same id when the service reverses delivery order', async () => {
+    const idlessSpanning = (end: string): IcsEventFixture => ({
+      subscriptionId: 'work-cal',
+      title: 'Busy',
+      start: '2026-08-10',
+      end,
+      allDay: true,
+    });
+    const shortEvent = idlessSpanning('2026-08-11');
+    const longEvent = idlessSpanning('2026-08-13');
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [shortEvent, longEvent],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+    const idByEndDay = (items: readonly { id: string; endDay: string }[]) =>
+      new Map(items.map((item) => [item.endDay, item.id]));
+    const before = idByEndDay((await source.collect(CONTEXT)).items);
+
+    fixture.state.icsEvents = [longEvent, shortEvent];
+    const after = idByEndDay((await source.collect(CONTEXT)).items);
+
+    expect(after.size).toBe(2);
+    expect(after.get('2026-08-10')).toBe(before.get('2026-08-10'));
+    expect(after.get('2026-08-12')).toBe(before.get('2026-08-12'));
+  });
+
   it('keeps an id-less title literally shaped like a twin discriminator distinct from id-less twins', async () => {
     const idless = (title: string): IcsEventFixture => ({
       subscriptionId: 'work-cal',
