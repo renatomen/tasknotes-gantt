@@ -147,13 +147,23 @@ export interface WatchFileLike {
 }
 
 /**
+ * The path-notification subset of {@link CalendarWatch} the event wiring
+ * needs, so other watches built on the same core (the timeblock watch) reuse
+ * the wiring — and its pinned subscription targets — instead of cloning it.
+ */
+export type WatchPathNotifications = Pick<
+  CalendarWatch,
+  'notifyChanged' | 'notifyRenamed' | 'notifyDeleted'
+>;
+
+/**
  * Subscribe the watch to its event sources. Content edits: metadata cache
  * `changed` (fires when the cache — frontmatter included — updates). Renames
  * and deletions: vault `rename`/`delete`.
  */
 export function wireCalendarWatch(
   sources: { metadataCache: WatchEventSource; vault: WatchEventSource },
-  watch: CalendarWatch,
+  watch: WatchPathNotifications,
 ): () => void {
   const changedRef = sources.metadataCache.on('changed', (file: WatchFileLike) => {
     watch.notifyChanged(file.path);

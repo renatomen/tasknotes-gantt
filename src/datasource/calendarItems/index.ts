@@ -45,3 +45,20 @@ export type {
   TimeEntrySourceDeps,
   TimeEntryToggles,
 } from './timeEntrySource';
+
+export {
+  createTimeblockSource,
+  expandTimeblockItems,
+  UNTITLED_TIMEBLOCK_TITLE,
+} from './timeblockSource';
+
+export type {
+  DailyNoteTimeblocks,
+  TimeblockExpansionInput,
+  TimeblockSourceDeps,
+  TimeblockToggles,
+} from './timeblockSource';
+
+export { createTimeblockWatch } from './timeblockWatch';
+
+export type { TimeblockWatch, TimeblockWatchConfig } from './timeblockWatch';
