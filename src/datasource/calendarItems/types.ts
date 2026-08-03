@@ -105,6 +105,12 @@ export interface CalendarOccupancy {
   day: LocalDay;
   /** Occupied minutes within the day, or `null` for day-granular families. */
   minutes: number | null;
+  /**
+   * Family-specific state classification of this occupied day (e.g. a
+   * recurring instance's `next`/`projected`/`completed`/`skipped`/
+   * `materialized`), or absent when the family has a single state.
+   */
+  stateClass?: string;
 }
 
 /** The two-channel output of one source derivation. */
@@ -113,6 +119,12 @@ export interface CalendarItemBatch {
   items: readonly CalendarItem[];
   /** Per-task occupancy attachments keyed by owning task path. */
   occupancyByTaskPath: ReadonlyMap<string, readonly CalendarOccupancy[]>;
+  /**
+   * Task paths whose plain scheduled→due bar this batch replaces with its
+   * occupancy rendering (the recurring family while it is enabled).
+   * Absent/empty when the batch suppresses nothing.
+   */
+  plainBarSuppressedTaskPaths?: ReadonlySet<string>;
 }
 
 /**

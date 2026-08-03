@@ -66,6 +66,7 @@
   },
   "dependencies": {
     "@svar-ui/svelte-gantt": "^2.7.0",
+    "@tasknotes/model": "0.2.1",
     "rrule": "^2.8.1"
   },
   "overrides": {

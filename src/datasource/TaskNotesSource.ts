@@ -73,6 +73,11 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.projects.changed',
   'task.created',
   'task.deleted',
+  // Recurrence-state changes re-derive the recurring calendar-item family
+  // (instance days, recorded completed/skipped sets, materialized index).
+  'task.recurrence.changed',
+  'recurring.instance.completed',
+  'recurring.instance.skipped',
 ] as const;
 
 /** Handler invoked when a subscribed TaskNotes change event fires. */
@@ -114,6 +119,24 @@ export interface TaskNotesTaskInfo {
   due?: Date | string | null;
   /** Raw dependency edges (predecessors), verbatim. */
   blockedBy?: ReadonlyArray<TaskNotesBlockedByEntry> | null;
+  // Recurrence slice. All canonical TaskInfo field names: TaskNotes' own
+  // field mapper resolves user-remapped frontmatter property names to these
+  // before they reach the api surface, so consuming them here is the
+  // property-agnostic read path (never a hardcoded frontmatter name).
+  /** RRULE recurrence string (may embed a `DTSTART:` prefix). */
+  recurrence?: string | null;
+  /** Recurrence anchor mode (`scheduled` | `completion`). */
+  recurrence_anchor?: string | null;
+  /** Recorded completed instance dates (`yyyy-MM-dd`), possibly off-pattern. */
+  complete_instances?: readonly string[] | null;
+  /** Recorded skipped instance dates (`yyyy-MM-dd`), possibly off-pattern. */
+  skipped_instances?: readonly string[] | null;
+  /** Link/path reference to the recurring parent (materialized occurrences). */
+  recurrence_parent?: string | null;
+  /** The materialized occurrence's date (`yyyy-MM-dd`). */
+  occurrence_date?: string | null;
+  /** Time estimate in minutes. */
+  timeEstimate?: number | null;
 }
 
 /** A TaskNotes custom-status definition (the slice consumed for bar coloring). */

@@ -21,3 +21,14 @@ export type {
   CalendarOccupancy,
   LocalDay,
 } from './types';
+
+export { createRecurringInstanceSource, expandRecurringOccupancy } from './recurringSource';
+
+export type {
+  RecurringExpansionInput,
+  RecurringInstanceSource,
+  RecurringInstanceState,
+  RecurringInstanceToggles,
+  RecurringSourceDeps,
+  TaskReferenceResolver,
+} from './recurringSource';
