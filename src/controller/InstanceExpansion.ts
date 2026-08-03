@@ -157,6 +157,13 @@ export interface RenderInstance {
    * occupancy channel; absent when no family occupies this task.
    */
   occupancy?: readonly CalendarOccupancy[];
+  /**
+   * `true` when a calendar-item batch replaces this task's plain scheduled→due
+   * bar with its occupancy rendering (the recurring family while enabled). Set
+   * only alongside {@link occupancy} — with nothing to render in its place the
+   * plain bar always stays.
+   */
+  plainBarSuppressed?: boolean;
 }
 
 /** A source-level dependency link between two note paths. */

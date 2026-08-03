@@ -20,6 +20,9 @@
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { DateStatus } from '../controller/datePolicy';
+import { isoToLocalDate, isoToLocalEndOfDay } from '../controller/calendar/stretch';
+import type { CalendarOccupancy } from '../datasource/calendarItems';
+import type { OccupancyRunSpan } from '../render/segmentLayout';
 import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
@@ -71,20 +74,34 @@ export const CONTEXT_TYPE = 'og-context';
 export const EVENT_TYPE = 'og-event';
 
 /**
+ * Custom SVAR task type marking a task row rendered through its per-instance
+ * occupancy (calendar-view union — the recurring family's envelope/pieces).
+ * Emitted as a bare class (`.wx-bar.og-recurring`) hooking the occupancy CSS.
+ */
+export const RECURRING_TYPE = 'og-recurring';
+
+/**
  * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to
- * a bar's `type` string (replicated before context). SVAR matches the *whole*
- * type string against the registered task-type ids (see `taskTypeCss` in SVAR's
- * `Bars.svelte`), so {@link buildInstanceCueTaskTypes} must register every
- * composed form using this same order — the push order here and the registration
- * order there are a single coupled contract (pinned by a unit test).
+ * a bar's `type` string (replicated before context before recurring). SVAR
+ * matches the *whole* type string against the registered task-type ids (see
+ * `taskTypeCss` in SVAR's `Bars.svelte`), so {@link buildInstanceCueTaskTypes}
+ * must register every composed form using this same order — the push order here
+ * and the registration order there are a single coupled contract (pinned by a
+ * unit test).
  */
 const INSTANCE_CUE_SUFFIXES: readonly string[] = [
   REPLICATED_TYPE,
   CONTEXT_TYPE,
   `${REPLICATED_TYPE} ${CONTEXT_TYPE}`,
+  // A recurring (occupancy-carrying) task row can also be replicated and/or
+  // Show-all-fetched, so its cue composes with both.
+  RECURRING_TYPE,
+  `${REPLICATED_TYPE} ${RECURRING_TYPE}`,
+  `${CONTEXT_TYPE} ${RECURRING_TYPE}`,
+  `${REPLICATED_TYPE} ${CONTEXT_TYPE} ${RECURRING_TYPE}`,
   // Event rows carry the og-event cue alone: a calendar item's synthetic
-  // sourcePath is unique (never replicated) and never Show-all-fetched, so no
-  // replicated/context composition with it can occur.
+  // sourcePath is unique (never replicated), never Show-all-fetched, and never
+  // carries occupancy, so no composition with the other cues can occur.
   EVENT_TYPE,
 ];
 
@@ -219,6 +236,19 @@ export interface SvarTask {
      * holiday re-issues the task even when the span itself is unchanged.
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
+    /**
+     * The row's per-instance occupancy as whole-day runs with state classes
+     * (calendar-view union), read by the `BarContent` occupancy branch. Absent
+     * = no family occupies this task. Folded into {@link taskStateKey} so a
+     * state flip on an unchanged span re-issues the task.
+     */
+    occupancyRuns?: readonly OccupancyRunSpan[];
+    /**
+     * The row's span IS the occupancy envelope (the plain scheduled→due bar is
+     * suppressed): the host bar goes transparent and only the pieces paint.
+     * Absent when the plain bar stays and any occupancy pieces overlay it.
+     */
+    occupancyEnvelope?: boolean;
     /**
      * The rendered span came from the derivation authority's ceiling fallback
      * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
@@ -372,23 +402,36 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       palettes,
     });
     classes.push(...treatmentClasses);
-    // Instance cues come AFTER the state classes, replicated before context. This
-    // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
-    // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
+    // Instance cues come AFTER the state classes, replicated before context
+    // before recurring. This order must match INSTANCE_CUE_SUFFIXES so the
+    // composed `type` is one of the ids buildInstanceCueTaskTypes registers
+    // (SVAR whole-string-matches `type`).
     if (isReplicated) classes.push(REPLICATED_TYPE);
     if (isContext) classes.push(CONTEXT_TYPE);
+    const occupancy = inst.occupancy ?? [];
+    if (occupancy.length > 0) classes.push(RECURRING_TYPE);
     // Read-only calendar-item event row: the og-event cue drives the read-only
     // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
     if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
+
+    // While the family suppresses the plain scheduled→due bar, the row's
+    // span becomes the occupancy envelope: earliest occupied day 00:00 to the
+    // latest occupied day's END-of-day (a midnight end draws one column short).
+    // With the family off, the plain span stays and the recorded pieces overlay
+    // it; a suppressed task with NO occupancy keeps its plain bar untouched.
+    const envelope =
+      occupancy.length > 0 && inst.plainBarSuppressed === true
+        ? occupancyEnvelope(occupancy)
+        : null;
 
     const task: SvarTask = {
       id: inst.id,
       text: inst.text,
       // The date policy resolves concrete dates; `null` (genuinely unscheduled)
       // maps to SVAR's `undefined` so the bar is treated as unscheduled.
-      start: inst.start ?? undefined,
-      end: inst.end ?? undefined,
+      start: envelope?.start ?? inst.start ?? undefined,
+      end: envelope?.end ?? inst.end ?? undefined,
       progress: inst.progress ?? 0,
       type,
       custom: {
@@ -400,6 +443,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        occupancyRuns: occupancy.length > 0 ? occupancy.map(toOccupancyRun) : undefined,
+        occupancyEnvelope: envelope ? true : undefined,
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
@@ -422,6 +467,34 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
+}
+
+/** The occupancy envelope: earliest occupied day 00:00 → latest day end-of-day. */
+function occupancyEnvelope(occupancy: readonly CalendarOccupancy[]): { start: Date; end: Date } {
+  let first = occupancy[0]!.day;
+  let last = first;
+  for (const entry of occupancy) {
+    if (entry.day < first) first = entry.day;
+    if (entry.day > last) last = entry.day;
+  }
+  return { start: isoToLocalDate(first), end: isoToLocalEndOfDay(last) };
+}
+
+/** One occupancy fact as a whole-day run (day granularity: whole-day pieces). */
+function toOccupancyRun(entry: CalendarOccupancy): OccupancyRunSpan {
+  return { startDate: entry.day, days: 1, stateClass: entry.stateClass, notePath: entry.notePath };
+}
+
+/**
+ * Where a click on an occupancy piece routes: a materialized piece
+ * opens its backing note; every other piece — and a materialized one whose
+ * note is unresolved — routes to the owning recurring task.
+ */
+export function resolveOccupancyActivationPath(
+  piece: { stateClass?: string; notePath?: string },
+  taskSourcePath: string,
+): string {
+  return piece.stateClass === 'materialized' && piece.notePath ? piece.notePath : taskSourcePath;
 }
 
 /** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
@@ -561,6 +634,10 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
+    // Occupancy: an instance-state flip (projected→completed) or a suppression
+    // toggle can leave the span untouched while every piece must redraw.
+    occupancyRunsKey(t.custom.occupancyRuns),
+    t.custom.occupancyEnvelope === true,
     // Override dot: an interpretation-override change alters only the corner dot
     // and its tooltip within an otherwise-unchanged span — fold it so the
     // task re-issues instead of the dot going stale (R11).
@@ -604,6 +681,14 @@ function barIconKey(icon: IconSpec | null): string {
 function ghostRunsKey(runs: ReadonlyArray<{ startDate: string; days: number }> | undefined): string {
   if (!runs?.length) return '';
   return runs.map((run) => `${run.startDate}~${run.days}`).join('|');
+}
+
+/** Deterministic fingerprint of a bar's occupancy runs (order-preserving). */
+function occupancyRunsKey(runs: readonly OccupancyRunSpan[] | undefined): string {
+  if (!runs?.length) return '';
+  return runs
+    .map((run) => `${run.startDate}~${run.days}~${run.stateClass ?? ''}~${run.notePath ?? ''}`)
+    .join('|');
 }
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */

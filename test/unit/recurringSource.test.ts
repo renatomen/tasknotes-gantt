@@ -186,6 +186,18 @@ describe('recurringSource — materialized occurrences', () => {
     ]);
   });
 
+  it('threads the materialized note path onto its occupancy entry (piece-click target)', async () => {
+    const batch = await makeSource([weeklyTask(), materializedNote], {}, { resolveTaskReference }).collect(
+      queryContext(),
+    );
+
+    const entry = (batch.occupancyByTaskPath.get(STANDUP_PATH) ?? []).find(
+      (o) => o.day === '2026-01-13',
+    );
+    expect(entry?.stateClass).toBe('materialized');
+    expect(entry?.notePath).toBe(materializedNote.path);
+  });
+
   it('gives the materialized note no recurring occupancy of its own', async () => {
     const batch = await makeSource([weeklyTask(), materializedNote], {}, { resolveTaskReference }).collect(
       queryContext(),

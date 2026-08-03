@@ -1,0 +1,284 @@
+/**
+ * Recurring-row occupancy rendering at the ganttSync seam (calendar-view
+ * union): the envelope span that replaces a suppressed plain bar, the
+ * whole-day occupancy runs with per-instance state classes, the recurring
+ * type cue, plain-bar suppression semantics, the materialized dual
+ * representation, and piece-level click routing.
+ *
+ * Following testing-standards.md: Jest, pure fixtures, AAA.
+ */
+
+import { describe, it, expect } from '@jest/globals';
+import {
+  buildSvarTasks,
+  buildInstanceCueTaskTypes,
+  buildTreatmentTaskTypes,
+  resolveOccupancyActivationPath,
+  taskStateKey,
+  DATE_STATUS_TYPE,
+  RECURRING_TYPE,
+  type SvarTaskInputs,
+} from '../../src/bases/ganttSync';
+import { unionCalendarBatches } from '../../src/controller/calendarItemUnion';
+import type { RenderInstance } from '../../src/controller/InstanceExpansion';
+import {
+  makeCalendarItemId,
+  type CalendarItemBatch,
+  type CalendarOccupancy,
+} from '../../src/datasource/calendarItems';
+
+const STANDUP_PATH = 'routines/standup.md';
+
+/** Minimal RenderInstance factory with sane defaults. */
+function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
+  return {
+    id: over.id,
+    sourcePath: over.sourcePath ?? over.id,
+    text: over.text ?? over.id,
+    start: over.start ?? new Date(2026, 0, 6),
+    end: over.end ?? new Date(2026, 0, 6, 23, 59, 59, 999),
+    progress: over.progress ?? 0,
+    parent: over.parent,
+    isVirtual: false,
+    isCollapsed: false,
+    dateStatus: over.dateStatus ?? 'complete',
+    estimateMinutes: null,
+    status: null,
+    priority: null,
+    isFetched: false,
+    isTopLevelPlacement: false,
+    occupancy: over.occupancy,
+    plainBarSuppressed: over.plainBarSuppressed,
+  };
+}
+
+function inputs(over: Partial<SvarTaskInputs>): SvarTaskInputs {
+  return {
+    instances: over.instances ?? [],
+    links: [],
+    statusColors: [],
+    barFillSource: 'default',
+    showDateIndicators: over.showDateIndicators ?? true,
+    arrowMode: 'primary',
+  };
+}
+
+/** One recurring-instance occupancy entry for a day. */
+function occ(day: string, stateClass: string, notePath?: string): CalendarOccupancy {
+  return {
+    family: 'recurring-instance',
+    itemId: makeCalendarItemId('recurring-instance', STANDUP_PATH, day),
+    day,
+    minutes: null,
+    stateClass,
+    ...(notePath === undefined ? {} : { notePath }),
+  };
+}
+
+describe('buildSvarTasks — occupancy envelope (family on, plain bar suppressed)', () => {
+  it('replaces a suppressed row\'s plain span with the envelope, ending at end-of-day', () => {
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            start: new Date(2026, 0, 6),
+            end: new Date(2026, 0, 6, 23, 59, 59, 999),
+            occupancy: [occ('2026-01-06', 'next'), occ('2026-01-13', 'projected'), occ('2026-01-20', 'projected')],
+            plainBarSuppressed: true,
+          }),
+        ],
+      }),
+    );
+
+    expect(task!.start).toEqual(new Date(2026, 0, 6));
+    // The envelope's end lands on the last occupied day's end-of-day — a
+    // midnight end would render the bar one column short.
+    expect(task!.end).toEqual(new Date(2026, 0, 20, 23, 59, 59, 999));
+    expect(task!.custom.occupancyEnvelope).toBe(true);
+  });
+
+  it('attaches whole-day occupancy runs preserving each instance state', () => {
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            occupancy: [
+              occ('2026-01-06', 'next'),
+              occ('2026-01-13', 'projected'),
+              occ('2026-01-14', 'completed'),
+              occ('2026-01-15', 'skipped'),
+              occ('2026-01-20', 'materialized', 'routines/standup 2026-01-20.md'),
+            ],
+            plainBarSuppressed: true,
+          }),
+        ],
+      }),
+    );
+
+    expect(task!.custom.occupancyRuns).toEqual([
+      { startDate: '2026-01-06', days: 1, stateClass: 'next', notePath: undefined },
+      { startDate: '2026-01-13', days: 1, stateClass: 'projected', notePath: undefined },
+      { startDate: '2026-01-14', days: 1, stateClass: 'completed', notePath: undefined },
+      { startDate: '2026-01-15', days: 1, stateClass: 'skipped', notePath: undefined },
+      {
+        startDate: '2026-01-20',
+        days: 1,
+        stateClass: 'materialized',
+        notePath: 'routines/standup 2026-01-20.md',
+      },
+    ]);
+  });
+
+  it('stamps the recurring cue and the composed type round-trips through registration', () => {
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            dateStatus: 'inferred-end',
+            occupancy: [occ('2026-01-06', 'next')],
+            plainBarSuppressed: true,
+          }),
+        ],
+      }),
+    );
+
+    const expected = `${DATE_STATUS_TYPE} ${RECURRING_TYPE}`;
+    expect(task!.type).toBe(expected);
+    // The coupling contract: the whole composed string must be registered, or
+    // SVAR's whole-string match silently drops the cue back to plain `task`.
+    const registered = buildInstanceCueTaskTypes(
+      buildTreatmentTaskTypes({ status: [], priority: [], calendar: [] }).map((t) => t.id),
+    ).map((t) => t.id);
+    expect(registered).toContain(expected);
+  });
+
+  it('keeps the plain bar for a suppressed task with no occupancy (families filtered out)', () => {
+    const start = new Date(2026, 0, 6);
+    const end = new Date(2026, 0, 8, 23, 59, 59, 999);
+    const [task] = buildSvarTasks(
+      inputs({ instances: [inst({ id: STANDUP_PATH, start, end, plainBarSuppressed: true })] }),
+    );
+
+    expect(task!.start).toEqual(start);
+    expect(task!.end).toEqual(end);
+    expect(task!.custom.occupancyRuns).toBeUndefined();
+    expect(task!.custom.occupancyEnvelope).toBeUndefined();
+    expect(task!.type).not.toContain(RECURRING_TYPE);
+  });
+});
+
+describe('buildSvarTasks — family off, recorded pieces (plain bar retained)', () => {
+  it('retains the plain span and overlays the recorded occupancy pieces', () => {
+    const start = new Date(2026, 0, 5);
+    const end = new Date(2026, 0, 30, 23, 59, 59, 999);
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            start,
+            end,
+            occupancy: [occ('2026-01-15', 'completed'), occ('2026-01-16', 'skipped')],
+          }),
+        ],
+      }),
+    );
+
+    expect(task!.start).toEqual(start);
+    expect(task!.end).toEqual(end);
+    expect(task!.custom.occupancyEnvelope).toBeUndefined();
+    expect(task!.custom.occupancyRuns?.map((r) => [r.startDate, r.stateClass])).toEqual([
+      ['2026-01-15', 'completed'],
+      ['2026-01-16', 'skipped'],
+    ]);
+  });
+});
+
+describe('union + ganttSync pipeline — materialized dual representation', () => {
+  it('renders a materialized occurrence as its own row AND as the marked piece on the parent', () => {
+    const materializedPath = 'routines/standup 2026-01-13.md';
+    const parent = inst({ id: STANDUP_PATH });
+    const child = inst({
+      id: materializedPath,
+      start: new Date(2026, 0, 13),
+      end: new Date(2026, 0, 13, 23, 59, 59, 999),
+    });
+    const batch: CalendarItemBatch = {
+      items: [],
+      occupancyByTaskPath: new Map([
+        [
+          STANDUP_PATH,
+          [occ('2026-01-06', 'next'), occ('2026-01-13', 'materialized', materializedPath)],
+        ],
+      ]),
+      plainBarSuppressedTaskPaths: new Set([STANDUP_PATH]),
+    };
+
+    const unioned = unionCalendarBatches([parent, child], [batch]);
+    const tasks = buildSvarTasks(inputs({ instances: [...unioned] }));
+
+    // Its own task row survives the union untouched…
+    const childTask = tasks.find((t) => t.id === materializedPath);
+    expect(childTask).toBeDefined();
+    expect(childTask!.custom.occupancyRuns).toBeUndefined();
+    // …and the parent's envelope carries the marked materialized piece.
+    const parentTask = tasks.find((t) => t.id === STANDUP_PATH)!;
+    expect(parentTask.custom.occupancyEnvelope).toBe(true);
+    expect(parentTask.custom.occupancyRuns).toContainEqual({
+      startDate: '2026-01-13',
+      days: 1,
+      stateClass: 'materialized',
+      notePath: materializedPath,
+    });
+    expect(parentTask.start).toEqual(new Date(2026, 0, 6));
+    expect(parentTask.end).toEqual(new Date(2026, 0, 13, 23, 59, 59, 999));
+  });
+});
+
+describe('resolveOccupancyActivationPath — piece click routing', () => {
+  it('routes a materialized piece to its backing note', () => {
+    expect(
+      resolveOccupancyActivationPath(
+        { stateClass: 'materialized', notePath: 'routines/standup 2026-01-13.md' },
+        STANDUP_PATH,
+      ),
+    ).toBe('routines/standup 2026-01-13.md');
+  });
+
+  it('routes every other piece to the parent recurring task', () => {
+    expect(resolveOccupancyActivationPath({ stateClass: 'projected' }, STANDUP_PATH)).toBe(
+      STANDUP_PATH,
+    );
+    expect(resolveOccupancyActivationPath({ stateClass: 'completed' }, STANDUP_PATH)).toBe(
+      STANDUP_PATH,
+    );
+  });
+
+  it('falls back to the parent when a materialized piece lost its note path', () => {
+    expect(resolveOccupancyActivationPath({ stateClass: 'materialized' }, STANDUP_PATH)).toBe(
+      STANDUP_PATH,
+    );
+  });
+});
+
+describe('taskStateKey — occupancy folds into the diff fingerprint', () => {
+  it('re-issues the task when an instance state flips on an unchanged span', () => {
+    const build = (stateClass: string) =>
+      buildSvarTasks(
+        inputs({
+          instances: [
+            inst({
+              id: STANDUP_PATH,
+              occupancy: [occ('2026-01-13', stateClass)],
+              plainBarSuppressed: true,
+            }),
+          ],
+        }),
+      )[0]!;
+
+    expect(taskStateKey(build('projected'))).not.toBe(taskStateKey(build('completed')));
+  });
+});

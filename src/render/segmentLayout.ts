@@ -61,7 +61,9 @@ export interface SegmentPiece {
  * itself is identical to Pro whenever the data is Pro-shaped, and correct when
  * it is not.
  */
-export function connectorRun(pieces: readonly SegmentPiece[]): { left: number; width: number } {
+export function connectorRun(
+  pieces: ReadonlyArray<Pick<SegmentPiece, 'left' | 'width'>>,
+): { left: number; width: number } {
   if (!pieces.length) return { left: 0, width: 0 };
   const left = Math.min(...pieces.map((p) => p.left));
   const right = Math.max(...pieces.map((p) => p.left + p.width));
@@ -124,28 +126,136 @@ export function ghostRunSegments(
     }
   }
 
-  const runs: Array<SegmentSpan & { blocked: boolean }> = [];
+  return dayValueRuns(taskStart, taskEnd, (day) => blocked.has(day)).map((run) => ({
+    start: isoToLocalDate(run.startIso),
+    duration: run.days,
+    blocked: run.value,
+  }));
+}
+
+/** A maximal stretch of consecutive days that classified to the same value. */
+interface DayRun<T> {
+  startIso: string;
+  days: number;
+  value: T;
+}
+
+/**
+ * The one day-by-day walk over a bar's span: classify each local day and merge
+ * consecutive days whose classification is identical (`===`). Ghost runs merge
+ * booleans into alternating stretches; occupancy classifies to per-day objects
+ * so nothing merges and every instance stays its own piece.
+ */
+function dayValueRuns<T>(taskStart: Date, taskEnd: Date, classify: (day: string) => T): Array<DayRun<T>> {
+  const runs: Array<DayRun<T>> = [];
   const endIso = localDayIso(taskEnd);
-  let runStartIso: string | null = null;
-  let runBlocked = false;
-  let runDays = 0;
+  let current: DayRun<T> | null = null;
   for (let day = localDayIso(taskStart); day <= endIso; day = nextDayIso(day)) {
-    const isBlocked = blocked.has(day);
-    if (runStartIso !== null && isBlocked === runBlocked) {
-      runDays += 1;
+    const value = classify(day);
+    if (current !== null && value === current.value) {
+      current.days += 1;
       continue;
     }
-    if (runStartIso !== null) {
-      runs.push({ start: isoToLocalDate(runStartIso), duration: runDays, blocked: runBlocked });
-    }
-    runStartIso = day;
-    runBlocked = isBlocked;
-    runDays = 1;
+    if (current !== null) runs.push(current);
+    current = { startIso: day, days: 1, value };
   }
-  if (runStartIso !== null) {
-    runs.push({ start: isoToLocalDate(runStartIso), duration: runDays, blocked: runBlocked });
-  }
+  if (current !== null) runs.push(current);
   return runs;
+}
+
+/** An occupied-day run inside a bar's span, with the instance's state. */
+export interface OccupancyRunSpan extends GhostRunSpan {
+  /** Family state of these occupied days (e.g. next/projected/completed/skipped/materialized). */
+  stateClass?: string;
+  /** Backing note of a materialized instance; piece clicks open it. */
+  notePath?: string;
+}
+
+/** One occupied whole-day segment; `day` is the piece's local day. */
+export type OccupancySegment = SegmentSpan & {
+  day: string;
+  stateClass?: string;
+  notePath?: string;
+};
+
+/**
+ * Decompose a bar's span into ONLY its occupied whole-day segments — the gaps
+ * stay unrendered so the calendar shading reads through them. Days outside the
+ * bar's span are clipped (a fraction of the bar cannot place them). Each
+ * occupied day yields its own one-day segment even next to a same-state
+ * neighbour, so every instance keeps its own hover title and click target.
+ */
+export function occupancySegments(
+  runs: readonly OccupancyRunSpan[],
+  taskStart: Date,
+  taskEnd: Date,
+): OccupancySegment[] {
+  const byDay = new Map<string, { stateClass?: string; notePath?: string }>();
+  for (const run of runs) {
+    let day = run.startDate;
+    for (let i = 0; i < run.days; i += 1) {
+      byDay.set(day, { stateClass: run.stateClass, notePath: run.notePath });
+      day = nextDayIso(day);
+    }
+  }
+
+  const segments: OccupancySegment[] = [];
+  for (const run of dayValueRuns(taskStart, taskEnd, (day) => byDay.get(day) ?? null)) {
+    if (run.value === null) continue;
+    segments.push({
+      start: isoToLocalDate(run.startIso),
+      duration: run.days,
+      day: run.startIso,
+      stateClass: run.value.stateClass,
+      notePath: run.value.notePath,
+    });
+  }
+  return segments;
+}
+
+/** One occupancy piece's render box plus its instance identity. */
+export interface OccupancyPiece {
+  left: number;
+  width: number;
+  day: string;
+  stateClass?: string;
+  notePath?: string;
+}
+
+/**
+ * What a bar's occupancy renders as: tiled per-instance pieces at the linear
+ * day/hour zooms, or a dashed series spine spanning first→last instance at
+ * coarser zooms — never a solid bar claiming continuous occupancy.
+ */
+export type OccupancyRender =
+  | { kind: 'pieces'; pieces: OccupancyPiece[] }
+  | { kind: 'spine'; left: number; width: number };
+
+export function occupancyRender(
+  runs: readonly OccupancyRunSpan[],
+  taskStart: Date,
+  taskEnd: Date,
+  snapshot: ScaleSnapshot,
+): OccupancyRender | null {
+  const segments = occupancySegments(runs, taskStart, taskEnd);
+  if (segments.length === 0) return null;
+  const boxes = segmentPieces(segments, taskStart, taskEnd, 0, snapshot);
+  if (canTileSubSpans(snapshot)) {
+    return {
+      kind: 'pieces',
+      pieces: boxes.map((box, index) => ({
+        left: box.left,
+        width: box.width,
+        day: segments[index]!.day,
+        stateClass: segments[index]!.stateClass,
+        notePath: segments[index]!.notePath,
+      })),
+    };
+  }
+  // Coarse units can misplace INTERNAL piece edges (see canTileSubSpans), but
+  // the spine is an indicative dashed extent, not a tiling claim — measuring
+  // the pieces keeps it ending at the last instance instead of the bar end.
+  return { kind: 'spine', ...connectorRun(boxes) };
 }
 
 function localDayIso(date: Date): string {

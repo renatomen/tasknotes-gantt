@@ -2322,7 +2322,10 @@ function instancesEqual(
 function calendarDecorationsEqual(a: RenderInstance, b: RenderInstance): boolean {
   return (
     calendarItemsValueEqual(a.calendarItem, b.calendarItem) &&
-    occupancyEqual(a.occupancy, b.occupancy)
+    occupancyEqual(a.occupancy, b.occupancy) &&
+    // A family toggle can flip suppression while a recorded-only task's
+    // occupancy stays identical — the envelope-vs-plain-bar choice must notify.
+    (a.plainBarSuppressed === true) === (b.plainBarSuppressed === true)
   );
 }
 
@@ -2358,6 +2361,11 @@ function occupancyEqual(
     const x = a[i]!;
     const y = b[i]!;
     if (x.family !== y.family || x.itemId !== y.itemId || x.day !== y.day || x.minutes !== y.minutes) {
+      return false;
+    }
+    // A day can flip state (projected→completed) or gain a materialized note
+    // under an unchanged id — both redraw the day's piece, so both notify.
+    if (x.stateClass !== y.stateClass || x.notePath !== y.notePath) {
       return false;
     }
   }

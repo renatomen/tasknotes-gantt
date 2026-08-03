@@ -51,11 +51,25 @@ export function unionCalendarBatches(
   if (occupancyByTask.size === 0 && eventRows.length === 0) {
     return taskInstances;
   }
+  const suppressedPaths = mergeSuppressedPaths(batches);
   const withOccupancy =
     occupancyByTask.size === 0
       ? taskInstances
-      : taskInstances.map((instance) => attachOccupancy(instance, occupancyByTask));
+      : taskInstances.map((instance) =>
+          attachOccupancy(instance, occupancyByTask, suppressedPaths),
+        );
   return [...withOccupancy, ...eventRows];
+}
+
+/** Union of every batch's plain-bar-suppressed task paths. */
+function mergeSuppressedPaths(batches: readonly CalendarItemBatch[]): ReadonlySet<string> {
+  const merged = new Set<string>();
+  for (const batch of batches) {
+    for (const path of batch.plainBarSuppressedTaskPaths ?? []) {
+      merged.add(path);
+    }
+  }
+  return merged;
 }
 
 /**
@@ -83,13 +97,22 @@ function mergeOccupancyByTask(
   return merged;
 }
 
-/** Attach a task's merged occupancy to its instance; untouched tasks pass through. */
+/**
+ * Attach a task's merged occupancy — and, with it, whether a batch suppresses
+ * the task's plain bar — to its instance; untouched tasks pass through.
+ * Suppression rides only alongside occupancy: with nothing to render in the
+ * plain bar's place, the view must keep the plain bar regardless.
+ */
 function attachOccupancy(
   instance: RenderInstance,
   occupancyByTask: ReadonlyMap<string, readonly CalendarOccupancy[]>,
+  suppressedPaths: ReadonlySet<string>,
 ): RenderInstance {
   const occupancy = occupancyByTask.get(instance.sourcePath);
-  return occupancy ? { ...instance, occupancy } : instance;
+  if (!occupancy) return instance;
+  return suppressedPaths.has(instance.sourcePath)
+    ? { ...instance, occupancy, plainBarSuppressed: true }
+    : { ...instance, occupancy };
 }
 
 /**

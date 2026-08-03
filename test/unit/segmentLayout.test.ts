@@ -7,7 +7,13 @@ import {
   type DiffFn,
   type ScaleSnapshot,
 } from '../../src/render/segmentLayout';
-import { canTileSubSpans, ghostRunSegments } from '../../src/render/segmentLayout';
+import {
+  canTileSubSpans,
+  ghostRunSegments,
+  occupancyRender,
+  occupancySegments,
+  type OccupancyRunSpan,
+} from '../../src/render/segmentLayout';
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -106,6 +112,113 @@ describe('ghostRunSegments — stretched-bar decomposition', () => {
     expect(canTileSubSpans(snap('week'))).toBe(false);
     expect(canTileSubSpans(snap('month'))).toBe(false);
     expect(canTileSubSpans(snap('quarter'))).toBe(false);
+  });
+});
+
+describe('occupancySegments — occupied days only', () => {
+  const local = (month: number, day: number): Date => new Date(2026, month - 1, day);
+  const endOfDay = (month: number, day: number): Date =>
+    new Date(2026, month - 1, day, 23, 59, 59, 999);
+
+  it('emits one whole-day segment per occupied day and nothing for the gaps', () => {
+    const segments = occupancySegments(
+      [
+        { startDate: '2026-04-03', days: 1, stateClass: 'next' },
+        { startDate: '2026-04-07', days: 1, stateClass: 'projected' },
+      ],
+      local(4, 2),
+      endOfDay(4, 10),
+    );
+    expect(segments.map((s) => [s.day, s.duration, s.stateClass])).toEqual([
+      ['2026-04-03', 1, 'next'],
+      ['2026-04-07', 1, 'projected'],
+    ]);
+  });
+
+  it('keeps adjacent occupied days as separate whole-day segments (per-instance identity)', () => {
+    const segments = occupancySegments(
+      [{ startDate: '2026-04-03', days: 2, stateClass: 'projected' }],
+      local(4, 2),
+      endOfDay(4, 6),
+    );
+    expect(segments.map((s) => [s.day, s.duration])).toEqual([
+      ['2026-04-03', 1],
+      ['2026-04-04', 1],
+    ]);
+  });
+
+  it('clips occupied days outside the bar span', () => {
+    const segments = occupancySegments(
+      [
+        { startDate: '2026-03-28', days: 1, stateClass: 'completed' },
+        { startDate: '2026-04-04', days: 1, stateClass: 'completed' },
+      ],
+      local(4, 2),
+      endOfDay(4, 6),
+    );
+    expect(segments.map((s) => s.day)).toEqual(['2026-04-04']);
+  });
+
+  it('carries the materialized note path onto its segment', () => {
+    const segments = occupancySegments(
+      [{ startDate: '2026-04-04', days: 1, stateClass: 'materialized', notePath: 'routines/x.md' }],
+      local(4, 2),
+      endOfDay(4, 6),
+    );
+    expect(segments).toHaveLength(1);
+    expect(segments[0]!.notePath).toBe('routines/x.md');
+  });
+});
+
+describe('occupancyRender — tiling vs spine', () => {
+  const local = (month: number, day: number): Date => new Date(2026, month - 1, day);
+  const endOfDay = (month: number, day: number): Date =>
+    new Date(2026, month - 1, day, 23, 59, 59, 999);
+  const runs: OccupancyRunSpan[] = [
+    { startDate: '2026-04-02', days: 1, stateClass: 'next' },
+    { startDate: '2026-04-09', days: 1, stateClass: 'projected' },
+  ];
+  // Bar: Apr 2 00:00 → Apr 11 end-of-day = 10 inclusive days under plainDiff.
+  const barStart = local(4, 2);
+  const barEnd = endOfDay(4, 11);
+
+  it('tiles per-day pieces at day zoom with hand-computed fractions', () => {
+    const render = occupancyRender(runs, barStart, barEnd, snap(plainDiff));
+
+    expect(render?.kind).toBe('pieces');
+    if (render?.kind !== 'pieces') return;
+    expect(render.pieces).toHaveLength(2);
+    const [first, second] = render.pieces;
+    expect(first!.left).toBeCloseTo(0);
+    expect(first!.width).toBeCloseTo(0.1);
+    expect(first!.day).toBe('2026-04-02');
+    expect(first!.stateClass).toBe('next');
+    expect(second!.left).toBeCloseTo(0.7);
+    expect(second!.width).toBeCloseTo(0.1);
+    expect(second!.stateClass).toBe('projected');
+  });
+
+  it('degrades to a dashed-spine descriptor spanning first→last instance at coarser zooms', () => {
+    const weekSnap: ScaleSnapshot = { diff: plainDiff, lengthUnit: 'week', durationUnit: 'day' };
+
+    const render = occupancyRender(runs, barStart, barEnd, weekSnap);
+
+    expect(render?.kind).toBe('spine');
+    if (render?.kind !== 'spine') return;
+    expect(render.left).toBeCloseTo(0);
+    // Ends at the last instance's right edge, NOT the bar end — never a solid
+    // claim of continuous occupancy across the whole span.
+    expect(render.left + render.width).toBeCloseTo(0.8);
+  });
+
+  it('yields nothing when no occupied day falls inside the bar span', () => {
+    const render = occupancyRender(
+      [{ startDate: '2026-05-01', days: 1, stateClass: 'projected' }],
+      barStart,
+      barEnd,
+      snap(plainDiff),
+    );
+    expect(render).toBeNull();
   });
 });
 

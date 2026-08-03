@@ -111,6 +111,12 @@ export interface CalendarOccupancy {
    * `materialized`), or absent when the family has a single state.
    */
   stateClass?: string;
+  /**
+   * The vault note backing this occupied day when it has its own (a
+   * materialized occurrence's note). A click on the day's piece opens it;
+   * pieces without one route to the owning task.
+   */
+  notePath?: string;
 }
 
 /** The two-channel output of one source derivation. */

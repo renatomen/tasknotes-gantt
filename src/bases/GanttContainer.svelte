@@ -607,6 +607,20 @@
       // chevron click on `click` (after mouseup) and the keyboard hotkey with no
       // pointer at all. So the open-task intercept vetoes only while this is set.
       pointerButtonDown = true;
+      // Piece-level click routing on recurring rows: remember which occupancy
+      // piece (if any) this pointer went down on, paired with its bar's id so a
+      // later activation of a DIFFERENT row can never borrow it. Captured here
+      // because the activation paths (select-task / show-editor intercepts)
+      // carry no DOM target. Every press elsewhere clears it.
+      const piece =
+        e.target instanceof Element ? e.target.closest('[data-og-activate-path]') : null;
+      const rawBarId = piece?.closest('[data-id]')?.getAttribute('data-id') ?? null;
+      const activatePath = piece?.getAttribute('data-og-activate-path') ?? null;
+      lastPieceActivation =
+        rawBarId !== null && activatePath !== null
+          ? // SVAR 2.6+ encodes string ids with a leading ":" (setID); strip it.
+            { barId: rawBarId.startsWith(':') ? rawBarId.slice(1) : rawBarId, path: activatePath }
+          : null;
     };
     const onPointerUp = () => {
       pointerButtonDown = false;
@@ -1340,10 +1354,20 @@
   // select-first interceptor skips scheduling activation — Focus highlights the
   // target without opening it, even when it was already selected (R9).
   let suppressSelectActivation = false;
+  // The occupancy piece the most recent pointer press landed on (piece-level
+  // click routing): its owning bar id plus the resolved activation path (a
+  // materialized piece's note, else the recurring task). Null when the press
+  // was anywhere else; set on the chart root's capture-phase mousedown.
+  let lastPieceActivation: { barId: string; path: string } | null = null;
 
-  /** Resolve a bar id → source path and invoke the native-activate callback. */
+  /**
+   * Resolve a bar id → source path and invoke the native-activate callback.
+   * A click that went down on an occupancy piece of THIS bar routes to the
+   * piece's own path instead (a materialized instance opens its backing note).
+   */
   function activateBar(id: string, kind: 'single' | 'double', ctrlOrMeta: boolean): void {
-    const path = idToSourcePath.get(id);
+    const path =
+      lastPieceActivation?.barId === id ? lastPieceActivation.path : idToSourcePath.get(id);
     if (path) onBarActivate?.(path, { kind, ctrlOrMeta });
   }
 
@@ -3091,6 +3115,70 @@
   .og-bases-gantt :global(.og-ghost-label) {
     position: relative;
     z-index: 2;
+  }
+
+  /*
+   * Recurring-instance occupancy pieces (calendar-view union): one whole-day
+   * piece per instance inside the row's envelope; the gaps stay unpainted so
+   * the non-working shading reads through. Colours are theme variables
+   * (accent + backgrounds), so every state reads in light and dark. The base
+   * fill follows the bar's treatment (--og-ghost-fill) like the ghost pieces.
+   */
+  .og-bases-gantt :global(.og-instance) {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: var(--wx-gantt-bar-border-radius, 2px);
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    z-index: 1;
+  }
+  /* Next: the one upcoming instance — solid accent, the row's anchor. */
+  .og-bases-gantt :global(.og-instance-next) {
+    background-color: var(--interactive-accent);
+  }
+  /* Projected: future pattern instances — hollow dashed outline, no claim. */
+  .og-bases-gantt :global(.og-instance-projected) {
+    background-color: transparent;
+    border: 1px dashed var(--interactive-accent);
+    opacity: 0.7;
+  }
+  /* Completed: dimmed with a horizontal strike through the piece. */
+  .og-bases-gantt :global(.og-instance-completed) {
+    opacity: 0.35;
+    background-image: linear-gradient(
+      to bottom,
+      transparent 45%,
+      var(--background-primary) 45%,
+      var(--background-primary) 55%,
+      transparent 55%
+    );
+  }
+  /* Skipped: muted hatching — was on the pattern, deliberately not done. */
+  .og-bases-gantt :global(.og-instance-skipped) {
+    opacity: 0.3;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      var(--background-primary) 3px 5px
+    );
+  }
+  /* Materialized: its own note exists — outlined, and clickable to open it. */
+  .og-bases-gantt :global(.og-instance-materialized) {
+    background-color: transparent;
+    border: 1.5px solid var(--interactive-accent);
+    cursor: pointer;
+  }
+  /*
+   * Coarse-zoom fallback: a dashed series spine spanning first→last
+   * instance — explicitly not a solid bar claiming continuous occupancy.
+   */
+  .og-bases-gantt :global(.og-series-spine) {
+    position: absolute;
+    top: calc(50% - 1px);
+    height: 0;
+    border-top: 2px dashed var(--interactive-accent);
+    z-index: 1;
   }
 
   /*

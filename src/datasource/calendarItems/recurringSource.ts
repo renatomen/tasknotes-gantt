@@ -80,7 +80,7 @@ export interface RecurringExpansionInput {
 const YEARLY_LOOKAHEAD_DAYS = 800;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
-const NO_DAYS: ReadonlySet<LocalDay> = new Set();
+const NO_MATERIALIZED: ReadonlyMap<LocalDay, string> = new Map();
 
 function utcDayStart(day: LocalDay): Date {
   return new Date(`${day}T00:00:00Z`);
@@ -96,12 +96,12 @@ function stringList(values: readonly string[] | null | undefined): readonly stri
   return Array.isArray(values) ? values.filter((v): v is string => typeof v === 'string') : [];
 }
 
-/** Materialized dates per parent, keyed by normalized task reference. */
+/** Materialized dates per parent (day → occurrence note path), keyed by normalized task reference. */
 function buildMaterializedIndex(
   tasks: readonly TaskNotesTaskInfo[],
   resolveTaskReference: TaskReferenceResolver | undefined,
-): Map<string, Set<LocalDay>> {
-  const index = new Map<string, Set<LocalDay>>();
+): Map<string, Map<LocalDay, string>> {
+  const index = new Map<string, Map<LocalDay, string>>();
   for (const task of tasks) {
     if (!task.recurrence_parent || !task.occurrence_date) continue;
     try {
@@ -112,8 +112,8 @@ function buildMaterializedIndex(
       const parentKey = normalizeTaskReference(resolvedPath ?? task.recurrence_parent);
       const day = getDatePart(task.occurrence_date);
       if (parentKey === '' || day === '') continue;
-      const days = index.get(parentKey) ?? new Set<LocalDay>();
-      days.add(day);
+      const days = index.get(parentKey) ?? new Map<LocalDay, string>();
+      days.set(day, task.path);
       index.set(parentKey, days);
     } catch {
       // An unparseable occurrence date drops this entry, not the derivation.
@@ -156,7 +156,8 @@ interface InstanceExpansionScope {
   scheduledDay: LocalDay;
   window: CalendarDerivationWindow;
   toggles: RecurringInstanceToggles;
-  materializedDays: ReadonlySet<LocalDay>;
+  /** Materialized day → the occurrence note's path. */
+  materializedDays: ReadonlyMap<LocalDay, string>;
   rules: InstanceDayRules;
   states: Map<LocalDay, RecurringInstanceState>;
 }
@@ -222,7 +223,7 @@ function collectInstanceStates(
   scheduledDay: LocalDay,
   window: CalendarDerivationWindow,
   toggles: RecurringInstanceToggles,
-  materializedDays: ReadonlySet<LocalDay>,
+  materializedDays: ReadonlyMap<LocalDay, string>,
 ): Map<LocalDay, RecurringInstanceState> {
   const complete = stringList(task.complete_instances);
   const skipped = stringList(task.skipped_instances);
@@ -238,7 +239,7 @@ function collectInstanceStates(
 
   if (toggles.showRecurring) addVirtualInstances(scope);
   addRecordedInstances(scope, complete, skipped);
-  for (const day of materializedDays) {
+  for (const day of materializedDays.keys()) {
     if (scope.rules.inWindow(day)) scope.states.set(day, 'materialized');
   }
   return scope.states;
@@ -247,16 +248,21 @@ function collectInstanceStates(
 function toOccupancy(
   taskPath: string,
   states: ReadonlyMap<LocalDay, RecurringInstanceState>,
+  materializedDays: ReadonlyMap<LocalDay, string>,
 ): readonly CalendarOccupancy[] {
   return [...states.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([day, state]) => ({
-      family: 'recurring-instance' as const,
-      itemId: makeCalendarItemId('recurring-instance', taskPath, day),
-      day,
-      minutes: null,
-      stateClass: state,
-    }));
+    .map(([day, state]) => {
+      const notePath = state === 'materialized' ? materializedDays.get(day) : undefined;
+      return {
+        family: 'recurring-instance' as const,
+        itemId: makeCalendarItemId('recurring-instance', taskPath, day),
+        day,
+        minutes: null,
+        stateClass: state,
+        ...(notePath === undefined ? {} : { notePath }),
+      };
+    });
 }
 
 /** Pure parity expansion: recurring frontmatter state → per-day occupancy. */
@@ -273,7 +279,8 @@ export function expandRecurringOccupancy(input: RecurringExpansionInput): Calend
       const scheduledDay = toLocalDay(task.scheduled);
       if (scheduledDay === '') continue;
 
-      const materializedDays = materializedIndex.get(normalizeTaskReference(task.path)) ?? NO_DAYS;
+      const materializedDays =
+        materializedIndex.get(normalizeTaskReference(task.path)) ?? NO_MATERIALIZED;
       const states = collectInstanceStates(
         { ...task, recurrence },
         scheduledDay,
@@ -281,7 +288,9 @@ export function expandRecurringOccupancy(input: RecurringExpansionInput): Calend
         toggles,
         materializedDays,
       );
-      if (states.size > 0) occupancyByTaskPath.set(task.path, toOccupancy(task.path, states));
+      if (states.size > 0) {
+        occupancyByTaskPath.set(task.path, toOccupancy(task.path, states, materializedDays));
+      }
       if (toggles.showRecurring) plainBarSuppressedTaskPaths.add(task.path);
     } catch {
       // A task with unparseable recurrence state degrades to no instances
