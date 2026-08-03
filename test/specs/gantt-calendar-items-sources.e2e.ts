@@ -79,20 +79,19 @@ async function activateBaseLeaf(): Promise<void> {
       setActiveLeaf: (l: unknown, opts?: { focus?: boolean }) => void;
       revealLeaf: (l: unknown) => void;
     };
+    let baseLeaf = ws.getLeavesOfType("bases")[0];
+    if (!baseLeaf) {
+      const file = app.vault.getAbstractFileByPath(basePath);
+      if (!file) return;
+      const leaf = ws.getLeaf(false);
+      await leaf.openFile(file as never);
+      baseLeaf = leaf;
+    }
     const markdownLeaves: Array<{ detach?: () => void }> = [];
     ws.iterateAllLeaves((l) => {
       if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
     });
     markdownLeaves.forEach((l) => l.detach?.());
-
-    let baseLeaf = ws.getLeavesOfType("bases")[0];
-    if (!baseLeaf) {
-      const file = app.vault.getAbstractFileByPath(basePath);
-      if (!file) return;
-      const leaf = ws.getLeaf(true);
-      await leaf.openFile(file as never);
-      baseLeaf = leaf;
-    }
     ws.setActiveLeaf(baseLeaf, { focus: true });
     ws.revealLeaf(baseLeaf);
   }, DAY_BASE);

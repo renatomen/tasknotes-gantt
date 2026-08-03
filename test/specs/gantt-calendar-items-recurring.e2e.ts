@@ -28,9 +28,11 @@ import { fileURLToPath } from "node:url";
  *  3. recurring OFF   → the union envelope is RETAINED: the plain-span piece
  *                       (`og-instance-plain`) joins the recorded pieces;
  *                       projected/next pieces are gone;
- *  4. time entries ON → read-only `og-event` rows; a drag gesture on one leaves
+ *  4. overlay editing → with recorded pieces inside the authored task span and
+ *                       recurring OFF, resizing the task writes its due date;
+ *  5. time entries ON → read-only `og-event` rows; a drag gesture on one leaves
  *                       its geometry unchanged and its mutating affordances hidden;
- *  5. month scale     → the recurring row shows the dashed series spine, no
+ *  6. month scale     → the recurring row shows the dashed series spine, no
  *                       per-day pieces (separate base pinned at month zoom).
  *
  * SELECTOR NOTES (owned by this plugin unless stated):
@@ -74,20 +76,19 @@ async function activateBaseLeaf(): Promise<void> {
       setActiveLeaf: (l: unknown, opts?: { focus?: boolean }) => void;
       revealLeaf: (l: unknown) => void;
     };
+    let baseLeaf = ws.getLeavesOfType("bases")[0];
+    if (!baseLeaf) {
+      const file = app.vault.getAbstractFileByPath(basePath);
+      if (!file) return;
+      const leaf = ws.getLeaf(false);
+      await leaf.openFile(file as never);
+      baseLeaf = leaf;
+    }
     const markdownLeaves: Array<{ detach?: () => void }> = [];
     ws.iterateAllLeaves((l) => {
       if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
     });
     markdownLeaves.forEach((l) => l.detach?.());
-
-    let baseLeaf = ws.getLeavesOfType("bases")[0];
-    if (!baseLeaf) {
-      const file = app.vault.getAbstractFileByPath(basePath);
-      if (!file) return;
-      const leaf = ws.getLeaf(true);
-      await leaf.openFile(file as never);
-      baseLeaf = leaf;
-    }
     ws.setActiveLeaf(baseLeaf, { focus: true });
     ws.revealLeaf(baseLeaf);
   }, currentBase);
@@ -226,6 +227,60 @@ async function calendarItemFootprint(): Promise<{ pieces: number; events: number
       spines: root?.querySelectorAll(".og-series-spine").length ?? 0,
     };
   });
+}
+
+/** Make every recorded occurrence fall inside the task's authored span. */
+async function setRecurringDue(due: string): Promise<void> {
+  await browser.executeObsidian(async ({ app }, args) => {
+    const file = app.vault.getAbstractFileByPath(args.notePath);
+    if (!file) throw new Error(`${args.notePath} missing`);
+    await app.fileManager.processFrontMatter(file as never, (frontmatter: Record<string, unknown>) => {
+      frontmatter.due = args.due;
+    });
+  }, { notePath: RECURRING_NOTE, due });
+}
+
+/** Read the persisted due value from the note cache. */
+async function recurringDue(): Promise<string | null> {
+  return browser.executeObsidian(({ app }, notePath) => {
+    const file = app.vault.getAbstractFileByPath(notePath);
+    if (!file) return null;
+    const cache = app.metadataCache.getFileCache(file as never);
+    const value = cache?.frontmatter?.due;
+    return typeof value === "string" ? value : null;
+  }, RECURRING_NOTE);
+}
+
+/** Resize the recurring task's authored end edge through SVAR's real mouse path. */
+async function resizeRecurringEnd(days: number): Promise<{ pxPerDay: number; beforeWidth: number }> {
+  return browser.execute((args) => {
+    const root = document.querySelector(".og-bases-gantt");
+    const bar = (Array.from(root?.querySelectorAll(".wx-bar") ?? []) as HTMLElement[]).find((candidate) =>
+      (candidate.getAttribute("data-id") ?? "").endsWith(args.notePath),
+    );
+    if (!bar) throw new Error(`no bar for ${args.notePath}`);
+    const bars = bar.closest(".wx-bars") as HTMLElement | null;
+    if (!bars) throw new Error("recurring bar is not inside .wx-bars");
+    const scaleRows = root?.querySelectorAll(".wx-scale .wx-row") ?? [];
+    const dayCell = scaleRows[scaleRows.length - 1]?.querySelector(".wx-cell") as HTMLElement | null;
+    const pxPerDay = dayCell?.getBoundingClientRect().width ?? 0;
+    if (pxPerDay <= 0) throw new Error("could not measure a day column");
+
+    const rect = bar.getBoundingClientRect();
+    const startX = rect.right - 2;
+    const y = rect.top + rect.height / 2;
+    const dx = args.days * pxPerDay;
+    const send = (target: EventTarget, type: string, clientX: number): void => {
+      target.dispatchEvent(
+        new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: y }),
+      );
+    };
+    send(bar, "mousedown", startX);
+    send(bars, "mousemove", startX + Math.sign(dx) * Math.max(Math.abs(dx), 21));
+    send(bars, "mousemove", startX + dx);
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return { pxPerDay, beforeWidth: rect.width };
+  }, { notePath: RECURRING_NOTE, days });
 }
 
 describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", () => {
@@ -447,6 +502,49 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     expect(row.pieceStates).toContain("og-instance-materialized");
     expect(row.pieceStates).not.toContain("og-instance-next");
     expect(row.pieceStates).not.toContain("og-instance-projected");
+  });
+
+  it("keeps an authored recurring overlay row editable while the family is disabled", async () => {
+    // Put every recorded occurrence inside the authored scheduled→due span.
+    // The pieces must become overlays on the ordinary task bar: no derived
+    // envelope, but occupancyRuns still present — the exact regression case.
+    await setRecurringDue("2026-03-24");
+    let row: RecurringRowState = { found: false, hasRecurringCue: false, hasEnvelope: true, pieceStates: [], spineCount: 0 };
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        row = await recurringRowState();
+        return (
+          row.found
+          && !row.hasEnvelope
+          && row.pieceStates.includes("og-instance-completed")
+          && row.pieceStates.includes("og-instance-skipped")
+          && row.pieceStates.includes("og-instance-materialized")
+        );
+      },
+      {
+        timeout: 20000,
+        timeoutMsg: () => `recorded pieces never became authored-span overlays; last: ${JSON.stringify(row)}`,
+      },
+    );
+    expect(await recurringDue()).toBe("2026-03-24");
+
+    const drag = await resizeRecurringEnd(2);
+    expect(drag.pxPerDay).toBeGreaterThan(0);
+    expect(drag.beforeWidth).toBeGreaterThan(0);
+    let due: string | null = null;
+    await browser.waitUntil(
+      async () => {
+        due = await recurringDue();
+        return due === "2026-03-26";
+      },
+      {
+        timeout: 15000,
+        interval: 300,
+        timeoutMsg: () => `authored overlay resize did not persist: due=${JSON.stringify(due)}`,
+      },
+    );
+    expect(due).toBe("2026-03-26");
   });
 
   it("renders read-only time-entry event rows that refuse a drag", async () => {
