@@ -3135,10 +3135,16 @@
   }
 
   .og-bases-gantt :global(.wx-bar.og-event) {
-    /* Missing --og-event-color invalidates only this declaration, preserving
-       the configured bar treatment for event families without a source color. */
-    background-color: var(--og-event-color) !important;
+    background-color: var(
+      --og-event-color,
+      var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6))
+    ) !important;
     cursor: default !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event[data-og-source-colored]) {
+    color: var(--text-on-accent, #fff) !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   }
 
   /*

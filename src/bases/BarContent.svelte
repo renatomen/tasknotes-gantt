@@ -138,6 +138,11 @@
     };
   }
 
+  function stopDragEventsWhen(enabled: boolean) {
+    return (node: Element): (() => void) | undefined =>
+      enabled ? stopDragEvents(node) : undefined;
+  }
+
   /**
    * Stamp SVAR's own `wx-split` class on the host bar so its
    * `.wx-task:not(.wx-split)` fill rule steps aside and its transparent rule
@@ -174,7 +179,6 @@
       enabled ? markBarSplit(node) : undefined;
   }
 
-  /** Thread a source-native event color through SVAR's supported bar variables. */
   function colorCalendarItemBar(color: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!color) return undefined;
@@ -182,8 +186,10 @@
       if (!(bar instanceof HTMLElement)) return undefined;
       const eventColor = bar.style.getPropertyValue('--og-event-color');
       const ghostFill = bar.style.getPropertyValue('--og-ghost-fill');
+      const wasSourceColored = bar.hasAttribute('data-og-source-colored');
       bar.style.setProperty('--og-event-color', color);
       bar.style.setProperty('--og-ghost-fill', color);
+      bar.setAttribute('data-og-source-colored', '');
       return () => {
         eventColor
           ? bar.style.setProperty('--og-event-color', eventColor)
@@ -191,6 +197,7 @@
         ghostFill
           ? bar.style.setProperty('--og-ghost-fill', ghostFill)
           : bar.style.removeProperty('--og-ghost-fill');
+        if (!wasSourceColored) bar.removeAttribute('data-og-source-colored');
       };
     };
   }
@@ -262,7 +269,7 @@
           data-og-instance={piece.day}
           data-og-activate-path={pieceActivatePath(piece)}
           style="left:{pct(piece.left)};width:{pct(piece.width)};"
-          {@attach stopDragEvents}
+          {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
         ></div>
       {/each}
     {:else}

@@ -399,15 +399,22 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
       ) as HTMLElement[]).find((b) => (b.getAttribute("data-id") ?? "").includes("external-event/"));
       if (!bar) return null;
       const link = bar.querySelector(".wx-link") as HTMLElement | null;
+      const label = bar.querySelector(".wx-content") as HTMLElement | null;
+      const style = window.getComputedStyle(bar);
+      const labelStyle = label ? window.getComputedStyle(label) : style;
       return {
-        cursor: window.getComputedStyle(bar).cursor,
-        backgroundColor: window.getComputedStyle(bar).backgroundColor,
+        cursor: style.cursor,
+        backgroundColor: style.backgroundColor,
+        color: labelStyle.color,
+        textShadow: labelStyle.textShadow,
         linkDisplay: link ? window.getComputedStyle(link).display : "<no handle rendered>",
       };
     });
     expect(affordances).not.toBeNull();
     expect(affordances!.cursor).toBe("default");
     expect(affordances!.backgroundColor).toBe("rgb(192, 57, 43)");
+    expect(affordances!.color).toBe("rgb(255, 255, 255)");
+    expect(affordances!.textShadow).toContain("rgba(0, 0, 0, 0.5)");
     expect(["none", "<no handle rendered>"]).toContain(affordances!.linkDisplay);
   });
 

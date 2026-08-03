@@ -214,6 +214,7 @@ export function createCalendarItemSourcesProvider(
   let timeblocks: DisposableCalendarItemSource | null = null;
   let propertyEvents: DisposableCalendarItemSource | null = null;
   let external: DisposableCalendarItemSource | null = null;
+  let externalTaskNotesPlugin: unknown;
   let configRevision = 0;
   let lastConfigTag: string | null = null;
   let lastTaskNotesIdentity: unknown;
@@ -311,11 +312,11 @@ export function createCalendarItemSourcesProvider(
     });
 
   const createExternal = (
-    getTaskNotesPlugin: NonNullable<CalendarItemSourceDeps['getTaskNotesPlugin']>,
+    taskNotesPlugin: unknown,
     scheduler: TimerScheduler,
   ): DisposableCalendarItemSource => {
     const source = createExternalCalendarSource({
-      getTaskNotesPlugin,
+      getTaskNotesPlugin: () => taskNotesPlugin,
       visibleFeeds: visibleExternalFeeds,
       scheduler,
       ...(deps.onExternalEpochBump ? { onEpochBump: deps.onExternalEpochBump } : {}),
@@ -333,6 +334,19 @@ export function createCalendarItemSourcesProvider(
       },
       dispose: source.dispose,
     };
+  };
+
+  const retireExternal = (): void => {
+    const retiredExternal = external;
+    if (retiredExternal === null) return;
+    external = null;
+    externalTaskNotesPlugin = undefined;
+    wrappers.delete(retiredExternal);
+    try {
+      retiredExternal.dispose();
+    } catch {
+      // Released as far as the retired plugin services allow.
+    }
   };
 
   return {
@@ -361,13 +375,18 @@ export function createCalendarItemSourcesProvider(
       if (toggles.showPropertyBasedEvents) {
         propertyEvents ??= createPropertyEvents();
       }
+      const taskNotesPlugin = deps.getTaskNotesPlugin?.();
+      if (external !== null && taskNotesPlugin !== externalTaskNotesPlugin) {
+        retireExternal();
+      }
       if (
         external === null &&
         deps.getTaskNotesPlugin &&
         deps.scheduler &&
         visibleFeeds.size > 0
       ) {
-        external = createExternal(deps.getTaskNotesPlugin.bind(deps), deps.scheduler);
+        external = createExternal(taskNotesPlugin, deps.scheduler);
+        externalTaskNotesPlugin = taskNotesPlugin;
       }
 
       const created = [recurring, timeEntries, timeblocks, propertyEvents, external];
@@ -400,6 +419,7 @@ export function createCalendarItemSourcesProvider(
         timeblocks = null;
         propertyEvents = null;
         external = null;
+        externalTaskNotesPlugin = undefined;
         wrappers.clear();
       }
     },

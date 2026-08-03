@@ -269,13 +269,15 @@ async function resizeRecurringEnd(days: number): Promise<{ pxPerDay: number; bef
     const rect = bar.getBoundingClientRect();
     const startX = rect.right - 2;
     const y = rect.top + rect.height / 2;
+    const occupancyTarget = bar.querySelector(".og-instance") as HTMLElement | null;
+    if (!occupancyTarget) throw new Error("recurring bar has no occupancy overlay target");
     const dx = args.days * pxPerDay;
     const send = (target: EventTarget, type: string, clientX: number): void => {
       target.dispatchEvent(
         new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: y }),
       );
     };
-    send(bar, "mousedown", startX);
+    send(occupancyTarget, "mousedown", startX);
     send(bars, "mousemove", startX + Math.sign(dx) * Math.max(Math.abs(dx), 21));
     send(bars, "mousemove", startX + dx);
     window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
@@ -570,13 +572,18 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
       const bar = document.querySelector(".og-bases-gantt .wx-bar.og-event") as HTMLElement | null;
       if (!bar) return null;
       const link = bar.querySelector(".wx-link") as HTMLElement | null;
+      const style = window.getComputedStyle(bar);
       return {
-        cursor: window.getComputedStyle(bar).cursor,
+        cursor: style.cursor,
+        backgroundColor: style.backgroundColor,
+        sourceColor: bar.style.getPropertyValue("--og-event-color"),
         linkDisplay: link ? window.getComputedStyle(link).display : "<no handle rendered>",
       };
     });
     expect(affordances).not.toBeNull();
     expect(affordances!.cursor).toBe("default");
+    expect(affordances!.sourceColor).toBe("");
+    expect(affordances!.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     expect(["none", "<no handle rendered>"]).toContain(affordances!.linkDisplay);
 
     // Drive a real move gesture (the events SVAR's Bars.svelte binds) on the

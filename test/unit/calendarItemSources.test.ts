@@ -87,6 +87,7 @@ interface HarnessOptions {
   dailyNotesConfigTag?: () => string;
   taskNotesIdentity?: () => unknown;
   taskNotesPlugin?: unknown;
+  getTaskNotesPlugin?: () => unknown;
   scheduler?: TimerScheduler;
   onExternalEpochBump?: () => void;
   onExternalBatchFlags?: (flags: { degraded: boolean; loading: boolean }) => void;
@@ -99,6 +100,9 @@ function makeHarness(tasks: readonly TaskNotesTaskInfo[], options: HarnessOption
   let unsubscribed = 0;
   let basesDataUnsubscribed = 0;
   const visibleFeeds = new Set<string>();
+  const getTaskNotesPlugin =
+    options.getTaskNotesPlugin ??
+    (options.taskNotesPlugin !== undefined ? () => options.taskNotesPlugin : undefined);
   const deps: CalendarItemSourceDeps = {
     toggles: () => ({ ...toggles }),
     listTasks: () => tasks,
@@ -127,9 +131,9 @@ function makeHarness(tasks: readonly TaskNotesTaskInfo[], options: HarnessOption
       ? { dailyNotesConfigTag: options.dailyNotesConfigTag }
       : {}),
     ...(options.taskNotesIdentity ? { taskNotesIdentity: options.taskNotesIdentity } : {}),
-    ...(options.taskNotesPlugin !== undefined
+    ...(getTaskNotesPlugin
       ? {
-          getTaskNotesPlugin: () => options.taskNotesPlugin,
+          getTaskNotesPlugin,
           visibleExternalFeeds: () => visibleFeeds,
           scheduler: options.scheduler ?? manualScheduler().scheduler,
         }
@@ -184,13 +188,15 @@ function taskNotesPluginFixture(input: {
   icsEvents?: Array<Record<string, unknown>>;
   withProviderRegistry?: boolean;
 }) {
-  const listeners = new Map<string, Array<() => void>>();
+  const listeners = new Map<string, Set<() => void>>();
   const icsSubscriptionService = {
     getSubscriptions: () => input.subscriptions ?? [],
     getAllEvents: () => input.icsEvents ?? [],
     on: (event: string, listener: () => void) => {
-      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
-      return () => {};
+      const eventListeners = listeners.get(event) ?? new Set<() => void>();
+      eventListeners.add(listener);
+      listeners.set(event, eventListeners);
+      return () => eventListeners.delete(listener);
     },
   };
   const plugin: Record<string, unknown> = { icsSubscriptionService };
@@ -202,6 +208,7 @@ function taskNotesPluginFixture(input: {
     emit: (event: string) => {
       for (const listener of listeners.get(event) ?? []) listener();
     },
+    listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
   };
 }
 
@@ -667,6 +674,40 @@ describe('createCalendarItemSourcesProvider', () => {
       provideSources(harness);
       fixture.emit('data-changed');
 
+      expect(onExternalEpochBump).toHaveBeenCalledTimes(1);
+      expect(harness.provider.externalEpoch()).toBe(1);
+    });
+
+    it('rebinds external listeners when the raw TaskNotes plugin handle changes', () => {
+      const retired = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+      });
+      const replacement = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+      });
+      let taskNotesPlugin: unknown = retired.plugin;
+      const onExternalEpochBump = jest.fn();
+      const harness = makeHarness([], {
+        getTaskNotesPlugin: () => taskNotesPlugin,
+        onExternalEpochBump,
+      });
+      visibleWorkFeed(harness);
+      const retiredSource = provideSources(harness).find(
+        (entry) => entry.family === 'external-event',
+      )!;
+      expect(retired.listenerCount('data-changed')).toBe(1);
+
+      taskNotesPlugin = replacement.plugin;
+      const replacementSource = provideSources(harness).find(
+        (entry) => entry.family === 'external-event',
+      )!;
+
+      expect(replacementSource).not.toBe(retiredSource);
+      expect(retired.listenerCount('data-changed')).toBe(0);
+      expect(replacement.listenerCount('data-changed')).toBe(1);
+      retired.emit('data-changed');
+      expect(onExternalEpochBump).not.toHaveBeenCalled();
+      replacement.emit('data-changed');
       expect(onExternalEpochBump).toHaveBeenCalledTimes(1);
       expect(harness.provider.externalEpoch()).toBe(1);
     });
