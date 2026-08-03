@@ -620,8 +620,8 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
     const before = (await source.collect(CONTEXT)).items.map((item) => item.id);
     expect(before.sort((a, b) => a.localeCompare(b))).toEqual([
-      'og-calendar://external-event/ics:work-cal@2026-08-11#00:00#t:Alpha',
-      'og-calendar://external-event/ics:work-cal@2026-08-12#00:00#t:Beta',
+      'og-calendar://external-event/ics:work-cal@2026-08-11#00:00#t:Alpha~0',
+      'og-calendar://external-event/ics:work-cal@2026-08-12#00:00#t:Beta~0',
     ]);
 
     fixture.state.icsEvents = [
@@ -653,6 +653,55 @@ describe('createExternalCalendarSource — identity and recurring series', () =>
     expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
       'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#i:Busy~0',
       'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+    ]);
+  });
+
+  it('keeps id-less events sharing title, day and start but differing in endDay as distinct rows', async () => {
+    const idlessSpanning = (end: string): IcsEventFixture => ({
+      subscriptionId: 'work-cal',
+      title: 'Busy',
+      start: '2026-08-10',
+      end,
+      allDay: true,
+    });
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [idlessSpanning('2026-08-11'), idlessSpanning('2026-08-13')],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
+    ]);
+    expect(batch.items.map((item) => item.endDay).sort((a, b) => a.localeCompare(b))).toEqual([
+      '2026-08-10',
+      '2026-08-12',
+    ]);
+  });
+
+  it('keeps an id-less title literally shaped like a twin discriminator distinct from id-less twins', async () => {
+    const idless = (title: string): IcsEventFixture => ({
+      subscriptionId: 'work-cal',
+      title,
+      start: '2026-08-10',
+      allDay: true,
+    });
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [idless('Busy~0'), idless('Busy'), idless('Busy')],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.id).sort((a, b) => a.localeCompare(b))).toEqual([
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0',
+      'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~0~0',
       'og-calendar://external-event/ics:work-cal@2026-08-10#00:00#t:Busy~1',
     ]);
   });

@@ -384,30 +384,30 @@ function toSingleItem(entry: SingleEntry, discriminator: string): CalendarItem {
   };
 }
 
-function occurrenceKey(occurrence: NormalizedOccurrence): string {
+function qualifierVisibleKey(occurrence: NormalizedOccurrence): string {
   const { event, span, startTime } = occurrence;
-  return `${span.startDay}#${startTime}#${event.title}#${span.endDay}`;
+  // Only what the rendered qualifier can see (day, time, title): grouping on
+  // anything else (endDay) would split id-indistinguishable events into
+  // separate groups whose members then render identical ids.
+  return `${span.startDay}#${startTime}#${event.title}`;
 }
 
 /**
- * Ordinals for TRUE TWINS only — id-less events in one feed sharing the full
- * occurrence key. A unique id-less event gets none, so inserting or removing
- * an unrelated event never shifts its id; within a twin group the service
- * order is the only remaining tiebreak for indistinguishable events.
+ * Ordinals for id-less events, grouped per feed by the qualifier-visible key.
+ * Distinct events (different title, day, or time) each sit alone at `~0`, so
+ * inserting or removing an unrelated event never shifts their ids; within a
+ * group the service order is the only remaining tiebreak for events the id
+ * cannot tell apart.
  */
-function idlessTwinOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
-  const twinGroups = new Map<string, NormalizedOccurrence[]>();
+function idlessOrdinals(entries: readonly SingleEntry[]): Map<NormalizedOccurrence, number> {
+  const groups = new Map<string, number>();
+  const ordinals = new Map<NormalizedOccurrence, number>();
   for (const entry of entries) {
     if (entry.occurrence.event.id !== undefined) continue;
-    const key = `${entry.feedKey}\n${occurrenceKey(entry.occurrence)}`;
-    const group = twinGroups.get(key) ?? [];
-    group.push(entry.occurrence);
-    twinGroups.set(key, group);
-  }
-  const ordinals = new Map<NormalizedOccurrence, number>();
-  for (const group of twinGroups.values()) {
-    if (group.length < 2) continue;
-    group.forEach((occurrence, index) => ordinals.set(occurrence, index));
+    const key = `${entry.feedKey}\n${qualifierVisibleKey(entry.occurrence)}`;
+    const ordinal = groups.get(key) ?? 0;
+    groups.set(key, ordinal + 1);
+    ordinals.set(entry.occurrence, ordinal);
   }
   return ordinals;
 }
@@ -418,10 +418,11 @@ function singleDiscriminator(
 ): string {
   const { event } = occurrence;
   // The prefixes keep explicit ids and generated title stand-ins in disjoint
-  // namespaces: an upstream id literally shaped `Title~0` cannot collide.
+  // namespaces, and the ordinal is ALWAYS generated for id-less events, so a
+  // literal title `Busy~0` yields `t:Busy~0~0` — never colliding with the
+  // first twin of `Busy` (`t:Busy~0`) or with any explicit id (`i:…`).
   if (event.id !== undefined) return `i:${event.id}`;
-  const ordinal = ordinals.get(occurrence);
-  return ordinal === undefined ? `t:${event.title}` : `t:${event.title}~${ordinal}`;
+  return `t:${event.title}~${ordinals.get(occurrence) ?? 0}`;
 }
 
 function toSeriesItem(
@@ -477,7 +478,7 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
     };
     seriesByFeedAndId.set(groupKey, { ...group, occurrences: [...group.occurrences, occurrence] });
   }
-  const ordinals = idlessTwinOrdinals(singleEntries);
+  const ordinals = idlessOrdinals(singleEntries);
   const singles = singleEntries.map((entry) =>
     toSingleItem(entry, singleDiscriminator(entry.occurrence, ordinals)),
   );
