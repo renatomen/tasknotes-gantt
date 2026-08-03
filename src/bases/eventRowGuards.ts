@@ -63,26 +63,22 @@ export function allowsTaskContextMenu(sourcePath: unknown): boolean {
 
 /** The slice of a row's `custom` payload that marks derived bar geometry. */
 interface DerivedGeometryCustomSlice {
-  occupancyRuns?: unknown;
   occupancyEnvelope?: unknown;
 }
 
 /**
- * Whether a row's bar geometry is DERIVED from its occupancy (the recurring
- * family's envelope, or overlay pieces on a kept plain bar). Such a bar's span
- * is a computed fact — the envelope of its instances — so a drag/resize would
- * commit envelope dates into scheduled/due and a link would anchor to them;
- * the same intercepts that veto calendar-item ids refuse these rows. Total
- * over `unknown` customs: anything unrecognized degrades to plain-task
- * behavior (allow), never a throw.
+ * Whether a row's bar span is a DERIVED occupancy envelope. Overlay pieces can
+ * also exist on a kept plain bar, but that row's span remains the task's
+ * authored scheduled/due dates and therefore stays editable. An envelope span
+ * is a computed fact, so a drag/resize would commit instance-derived dates into
+ * scheduled/due and a link would anchor to them; the same intercepts that veto
+ * calendar-item ids refuse these rows. Total over `unknown` customs: anything
+ * unrecognized degrades to plain-task behavior (allow), never a throw.
  */
 export function hasDerivedBarGeometry(custom: unknown): boolean {
   if (typeof custom !== 'object' || custom === null) return false;
   const slice = custom as DerivedGeometryCustomSlice;
-  return (
-    (Array.isArray(slice.occupancyRuns) && slice.occupancyRuns.length > 0) ||
-    slice.occupancyEnvelope === true
-  );
+  return slice.occupancyEnvelope === true;
 }
 
 /** Where a double-click (SVAR `show-editor`) on a row should go. */

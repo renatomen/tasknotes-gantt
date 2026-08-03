@@ -134,14 +134,19 @@ describe('allowsTaskContextMenu (right-click task-menu routing)', () => {
 
 describe('hasDerivedBarGeometry (occupancy rows: drag/resize/link refusal)', () => {
   const run = { startDate: '2026-01-06', days: 1, stateClass: 'next' };
+  const derivedGeometryMutatingGestures = ['drag', 'resize', 'add-link', 'delete-link'] as const;
 
-  it('refuses a family-on envelope row (occupancyRuns + occupancyEnvelope) despite its vault-path id', () => {
+  it.each(derivedGeometryMutatingGestures)(
+    '%s: refuses an occupancy-envelope row despite its vault-path id',
+    () => {
+      expect(allowsRowMutation(taskPath)).toBe(true);
+      expect(hasDerivedBarGeometry({ occupancyRuns: [run], occupancyEnvelope: true })).toBe(true);
+    },
+  );
+
+  it('allows a family-off overlay row whose dates remain the authored task span', () => {
     expect(allowsRowMutation(taskPath)).toBe(true);
-    expect(hasDerivedBarGeometry({ occupancyRuns: [run], occupancyEnvelope: true })).toBe(true);
-  });
-
-  it('refuses a family-off overlay row (occupancyRuns without an envelope)', () => {
-    expect(hasDerivedBarGeometry({ occupancyRuns: [run] })).toBe(true);
+    expect(hasDerivedBarGeometry({ occupancyRuns: [run] })).toBe(false);
   });
 
   it('refuses an envelope-marked row even without runs (defense in depth)', () => {
