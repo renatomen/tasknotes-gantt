@@ -61,6 +61,7 @@ nav:
     - Colors, icons & weekends: features/appearance.md
     - Editing tasks: features/editing.md
     - Find & focus: features/find-focus.md
+    - Calendar items: features/calendar-items.md
   - Settings & View Options:
     - Overview: settings/index.md
     - Fields: settings/fields.md
@@ -68,6 +69,7 @@ nav:
     - Relationships: settings/relationships.md
     - Timeline: settings/timeline.md
     - Appearance: settings/appearance.md
+    - Calendar items: settings/calendar-items.md
   - Troubleshooting: troubleshooting.md
   - About:
     - Vision & Philosophy: vision-and-philosophy.md

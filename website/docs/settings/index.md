@@ -15,6 +15,7 @@ that view. The menu is organized into the same collapsible groups used here.
 | [Relationships](relationships.md) | How related tasks pulled in for context are shown. **Companion only.** |
 | [Timeline](timeline.md) | Scale, duration, weekend shading, dependency arrows, parent-date cascade, and missing-date handling. |
 | [Appearance](appearance.md) | Bar colors and icons, date indicators, toolbar, and layout sizing. |
+| [Calendar items](calendar-items.md) | Recurring instances, time entries, timeblocks, property-based events, and external calendars as read-only bars. |
 
 ## Companion vs. standalone
 
