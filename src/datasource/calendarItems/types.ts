@@ -38,7 +38,6 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 /** The calendar-item families the Gantt can render. */
 export type CalendarItemFamily =
-  | 'task-date-event'
   | 'recurring-instance'
   | 'time-entry'
   | 'timeblock'

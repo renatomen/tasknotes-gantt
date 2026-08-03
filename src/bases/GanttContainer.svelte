@@ -3135,6 +3135,9 @@
   }
 
   .og-bases-gantt :global(.wx-bar.og-event) {
+    /* Missing --og-event-color invalidates only this declaration, preserving
+       the configured bar treatment for event families without a source color. */
+    background-color: var(--og-event-color) !important;
     cursor: default !important;
   }
 

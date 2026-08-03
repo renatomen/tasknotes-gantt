@@ -31,6 +31,7 @@ import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
   resolveIconSpec,
+  isSafeColor,
   treatmentClassGroups,
   type BarChannelSource,
   type BarIconSource,
@@ -266,6 +267,12 @@ export interface SvarTask {
      */
     calendarItemFamily?: CalendarItemFamily;
     /**
+     * A validated source-native color for a calendar-item event row. The bar
+     * template threads it through SVAR's task-color custom property so plain
+     * bars and split occupancy pieces share the same paint.
+     */
+    calendarItemColor?: string;
+    /**
      * True when recurring-instance occupancy renders on this task row, so the
      * source switcher can hide it under the recurring source. Absent otherwise.
      */
@@ -461,6 +468,9 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         occupancyRuns,
         occupancyEnvelope: envelope ? true : undefined,
         calendarItemFamily: inst.calendarItem?.family,
+        calendarItemColor: isSafeColor(inst.calendarItem?.color)
+          ? inst.calendarItem?.color
+          : undefined,
         hasRecurringOccupancy: recurringOccupancyFlag(inst, occupancy),
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
@@ -642,6 +652,9 @@ export function taskStateKey(t: SvarTask): string {
     // Source-switcher mapping: fold so a family recomposition that leaves the
     // day runs identical still re-issues the row for the display filter.
     t.custom.hasRecurringOccupancy === true,
+    // Calendar feed/timeblock colors can change without altering the row span
+    // or title; fold the paint token so the live diff re-issues the task.
+    t.custom.calendarItemColor ?? '',
     // Override dot: an interpretation-override change alters only the corner dot
     // and its tooltip within an otherwise-unchanged span — fold it so the
     // task re-issues instead of the dot going stale (R11).

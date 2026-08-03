@@ -22,7 +22,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element, MutationObserver, Event */
+  /* global Element, HTMLElement, MutationObserver, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -54,6 +54,7 @@
         ghostRuns?: readonly GhostRunSpan[];
         occupancyRuns?: readonly OccupancyRunSpan[];
         occupancyEnvelope?: boolean;
+        calendarItemColor?: string;
         interpretationOverridden?: EstimateMeaning;
       };
     };
@@ -173,6 +174,27 @@
       enabled ? markBarSplit(node) : undefined;
   }
 
+  /** Thread a source-native event color through SVAR's supported bar variables. */
+  function colorCalendarItemBar(color: string | undefined) {
+    return (node: Element): (() => void) | undefined => {
+      if (!color) return undefined;
+      const bar = node.closest('.wx-bar');
+      if (!(bar instanceof HTMLElement)) return undefined;
+      const eventColor = bar.style.getPropertyValue('--og-event-color');
+      const ghostFill = bar.style.getPropertyValue('--og-ghost-fill');
+      bar.style.setProperty('--og-event-color', color);
+      bar.style.setProperty('--og-ghost-fill', color);
+      return () => {
+        eventColor
+          ? bar.style.setProperty('--og-event-color', eventColor)
+          : bar.style.removeProperty('--og-event-color');
+        ghostFill
+          ? bar.style.setProperty('--og-ghost-fill', ghostFill)
+          : bar.style.removeProperty('--og-ghost-fill');
+      };
+    };
+  }
+
   /**
    * Attach the upper-left corner override dot to the host bar (R11). Mirrors
    * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the dot
@@ -206,6 +228,7 @@
   <div
     class="wx-content"
     class:og-ghost-label={Boolean(ghostPieces) || Boolean(occupancyView)}
+    {@attach colorCalendarItemBar(data?.custom?.calendarItemColor)}
     {@attach markBarOverridden(overrideTooltip)}
   >
     {#if spec}

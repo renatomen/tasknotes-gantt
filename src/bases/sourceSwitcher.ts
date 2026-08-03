@@ -102,7 +102,6 @@ export interface ActiveSwitcherSource {
 }
 
 const SWITCHER_SOURCE_LABELS: Record<CalendarItemFamily, string> = {
-  'task-date-event': 'Task date events',
   'recurring-instance': 'Recurring tasks',
   'time-entry': 'Time entries',
   timeblock: 'Timeblocks',

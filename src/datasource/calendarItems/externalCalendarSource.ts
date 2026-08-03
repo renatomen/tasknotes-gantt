@@ -303,16 +303,22 @@ function readIcsSurface(plugin: unknown): SurfaceRead | null {
   const getLastFetched = methodOf(service, 'getLastFetched');
   if (!getSubscriptions || !getAllEvents) return null;
   try {
-    const enabledIds = new Set(
-      toIcsSubscriptions(getSubscriptions())
-        .filter((subscription) => subscription.enabled)
-        .map((subscription) => subscription.id),
+    const enabledSubscriptions = toIcsSubscriptions(getSubscriptions()).filter(
+      (subscription) => subscription.enabled,
+    );
+    const enabledIds = new Set(enabledSubscriptions.map((subscription) => subscription.id));
+    const feedColors = new Map(
+      enabledSubscriptions.map((subscription) => [subscription.id, subscription.color]),
     );
     const feedEvents: FeedEvent[] = [];
     for (const raw of asArray(getAllEvents())) {
       const event = toExternalEvent(raw);
       if (!event || !enabledIds.has(event.subscriptionId)) continue;
-      feedEvents.push({ feedKey: externalCalendarFeedKey('ics', event.subscriptionId), event });
+      const feedColor = feedColors.get(event.subscriptionId);
+      feedEvents.push({
+        feedKey: externalCalendarFeedKey('ics', event.subscriptionId),
+        event: event.color === undefined && feedColor !== undefined ? { ...event, color: feedColor } : event,
+      });
     }
     return {
       feedEvents,

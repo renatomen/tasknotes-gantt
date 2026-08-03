@@ -692,6 +692,81 @@ describe('instance cues (U6)', () => {
     const registered = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
     expect(registered).toContain(tasks[0]!.type);
   });
+
+  it('threads a safe calendar-item source color into the bar payload', () => {
+    const eventId = makeCalendarItemId('external-event', 'ics:work@2026-08-03');
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'external-event',
+              title: 'Team sync',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              color: '#c0392b',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(task?.custom.calendarItemColor).toBe('#c0392b');
+  });
+
+  it('drops an unsafe calendar-item source color from the bar payload', () => {
+    const eventId = makeCalendarItemId('external-event', 'ics:work@2026-08-03');
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'external-event',
+              title: 'Team sync',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              color: 'red; background: url(bad)',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(task?.custom.calendarItemColor).toBeUndefined();
+  });
+
+  it('re-syncs a calendar-item row when only its source color changes', () => {
+    const eventId = makeCalendarItemId('timeblock', 'daily@block');
+    const taskWithColor = (color: string) =>
+      buildSvarTasks(
+        inputs({
+          instances: [
+            inst({
+              id: eventId,
+              sourcePath: eventId,
+              calendarItem: {
+                id: eventId,
+                family: 'timeblock',
+                title: 'Focus',
+                startDay: '2026-08-03',
+                endDay: '2026-08-03',
+                color,
+              },
+            }),
+          ],
+        }),
+      )[0]!;
+
+    expect(taskStateKey(taskWithColor('#c0392b'))).not.toBe(
+      taskStateKey(taskWithColor('#2980b9')),
+    );
+  });
 });
 
 describe('planTaskSync', () => {

@@ -339,6 +339,18 @@ describe('createExternalCalendarSource — guarded service absence', () => {
 });
 
 describe('createExternalCalendarSource — ICS dialect normalization', () => {
+  it('uses the subscription color when an ICS event has no event-level color', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription({ color: '#c0392b' })],
+      icsEvents: [icsEvent()],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items[0].color).toBe('#c0392b');
+  });
+
   it('converts foreign-offset UTC-instant events to observer-local day spans (real items, not empties)', async () => {
     // 2026-08-04 00:30 local, stamped at an offset one hour behind: the wall
     // date reads the PREVIOUS day, so naive date-part reading would misfile it.
