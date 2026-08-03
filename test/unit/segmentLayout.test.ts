@@ -12,6 +12,7 @@ import {
   ghostRunSegments,
   occupancyRender,
   occupancySegments,
+  PLAIN_OCCUPANCY_STATE,
   type OccupancyRunSpan,
 } from '../../src/render/segmentLayout';
 
@@ -32,7 +33,12 @@ const plainDiff: DiffFn = (a, b, unit) => {
 const inclusivePlusOneDiff: DiffFn = (a, b, unit, inclusive) =>
   plainDiff(a, b, unit) + (inclusive ? 1 : 0);
 
-const snap = (diff: DiffFn): ScaleSnapshot => ({ diff, lengthUnit: 'day', durationUnit: 'day' });
+const snap = (diff: DiffFn): ScaleSnapshot => ({
+  diff,
+  lengthUnit: 'day',
+  minUnit: 'day',
+  durationUnit: 'day',
+});
 
 const d = (day: number): Date => new Date(2026, 3, day); // April 2026
 
@@ -101,17 +107,24 @@ describe('ghostRunSegments — stretched-bar decomposition', () => {
     expect(runs[0]?.duration).toBe(3);
   });
 
-  it('sub-span tiling is gated to the linear day/hour length units', () => {
-    const snap = (lengthUnit: string) => ({
+  it('sub-span tiling is gated on the RENDERED cell unit, not the config length unit', () => {
+    // Shapes transcribed from the live SVAR store: the config-level lengthUnit
+    // stays 'day' at every zoom whose min unit can be measured in days (SVAR's
+    // isCorrectLengthUnit), so only `minUnit` tracks the visible scale.
+    const snap = (minUnit: string, lengthUnit: string) => ({
       diff: () => 0,
       lengthUnit,
+      minUnit,
       durationUnit: 'day' as const,
     });
-    expect(canTileSubSpans(snap('day'))).toBe(true);
-    expect(canTileSubSpans(snap('hour'))).toBe(true);
-    expect(canTileSubSpans(snap('week'))).toBe(false);
-    expect(canTileSubSpans(snap('month'))).toBe(false);
-    expect(canTileSubSpans(snap('quarter'))).toBe(false);
+    expect(canTileSubSpans(snap('day', 'day'))).toBe(true);
+    expect(canTileSubSpans(snap('hour', 'hour'))).toBe(true);
+    // The month-zoom live-store shape: minUnit 'month', lengthUnit STILL 'day'.
+    expect(canTileSubSpans(snap('month', 'day'))).toBe(false);
+    expect(canTileSubSpans(snap('week', 'day'))).toBe(false);
+    expect(canTileSubSpans(snap('quarter', 'day'))).toBe(false);
+    // A non-linear measurement unit refuses tiling even over day cells.
+    expect(canTileSubSpans(snap('day', 'week'))).toBe(false);
   });
 });
 
@@ -135,15 +148,45 @@ describe('occupancySegments — occupied days only', () => {
     ]);
   });
 
-  it('keeps adjacent occupied days as separate whole-day segments (per-instance identity)', () => {
+  it('keeps adjacent same-state days from different runs as separate segments (per-instance identity)', () => {
     const segments = occupancySegments(
-      [{ startDate: '2026-04-03', days: 2, stateClass: 'projected' }],
+      [
+        { startDate: '2026-04-03', days: 1, stateClass: 'projected' },
+        { startDate: '2026-04-04', days: 1, stateClass: 'projected' },
+      ],
       local(4, 2),
       endOfDay(4, 6),
     );
     expect(segments.map((s) => [s.day, s.duration])).toEqual([
       ['2026-04-03', 1],
       ['2026-04-04', 1],
+    ]);
+  });
+
+  it('merges the consecutive days of one run into a single segment (per-run identity)', () => {
+    const segments = occupancySegments(
+      [{ startDate: '2026-04-03', days: 3, stateClass: 'plain' }],
+      local(4, 2),
+      endOfDay(4, 10),
+    );
+    expect(segments.map((s) => [s.day, s.duration, s.stateClass])).toEqual([
+      ['2026-04-03', 3, 'plain'],
+    ]);
+  });
+
+  it('splits an earlier run around a day a later run claims (last write wins)', () => {
+    const segments = occupancySegments(
+      [
+        { startDate: '2026-04-03', days: 4, stateClass: 'plain' },
+        { startDate: '2026-04-04', days: 1, stateClass: 'completed' },
+      ],
+      local(4, 2),
+      endOfDay(4, 10),
+    );
+    expect(segments.map((s) => [s.day, s.duration, s.stateClass])).toEqual([
+      ['2026-04-03', 1, 'plain'],
+      ['2026-04-04', 1, 'completed'],
+      ['2026-04-05', 2, 'plain'],
     ]);
   });
 
@@ -181,6 +224,13 @@ describe('occupancyRender — tiling vs spine', () => {
   // Bar: Apr 2 00:00 → Apr 11 end-of-day = 10 inclusive days under plainDiff.
   const barStart = local(4, 2);
   const barEnd = endOfDay(4, 11);
+  // Week-zoom live-store shape: cell unit 'week', config lengthUnit still 'day'.
+  const weekSnap: ScaleSnapshot = {
+    diff: plainDiff,
+    lengthUnit: 'day',
+    minUnit: 'week',
+    durationUnit: 'day',
+  };
 
   it('tiles per-day pieces at day zoom with hand-computed fractions', () => {
     const render = occupancyRender(runs, barStart, barEnd, snap(plainDiff));
@@ -199,8 +249,6 @@ describe('occupancyRender — tiling vs spine', () => {
   });
 
   it('degrades to a dashed-spine descriptor spanning first→last instance at coarser zooms', () => {
-    const weekSnap: ScaleSnapshot = { diff: plainDiff, lengthUnit: 'week', durationUnit: 'day' };
-
     const render = occupancyRender(runs, barStart, barEnd, weekSnap);
 
     expect(render?.kind).toBe('spine');
@@ -209,6 +257,49 @@ describe('occupancyRender — tiling vs spine', () => {
     // Ends at the last instance's right edge, NOT the bar end — never a solid
     // claim of continuous occupancy across the whole span.
     expect(render.left + render.width).toBeCloseTo(0.8);
+  });
+
+  it('renders the spine, never tiled pieces, under the month-zoom live-store shape', () => {
+    // The exact state the live store reports at month zoom: the rendered cell
+    // unit is 'month' while the config lengthUnit remains 'day' (SVAR keeps a
+    // length unit measurable within the min unit).
+    const monthSnap: ScaleSnapshot = {
+      diff: plainDiff,
+      lengthUnit: 'day',
+      minUnit: 'month',
+      durationUnit: 'day',
+    };
+
+    const render = occupancyRender(runs, barStart, barEnd, monthSnap);
+
+    expect(render?.kind).toBe('spine');
+  });
+
+  it('carries the plain run extent as one solid indicative piece under the spine (union rows)', () => {
+    // A family-off union row: the synthetic plain run (the kept scheduled→due
+    // bar) rides FIRST among the per-instance runs.
+    const unionRuns: OccupancyRunSpan[] = [
+      { startDate: '2026-04-02', days: 4, stateClass: PLAIN_OCCUPANCY_STATE },
+      { startDate: '2026-04-02', days: 1, stateClass: 'completed' },
+      { startDate: '2026-04-09', days: 1, stateClass: 'projected' },
+    ];
+
+    const render = occupancyRender(unionRuns, barStart, barEnd, weekSnap);
+
+    expect(render?.kind).toBe('spine');
+    if (render?.kind !== 'spine') return;
+    // The plain span Apr 2–5 covers 4 of the bar's 10 inclusive days from the
+    // left edge — the FULL kept bar, not just the days no instance claimed.
+    expect(render.plain?.left).toBeCloseTo(0);
+    expect(render.plain?.width).toBeCloseTo(0.4);
+  });
+
+  it('emits no plain piece for a spine without a plain run (suppressed envelope)', () => {
+    const render = occupancyRender(runs, barStart, barEnd, weekSnap);
+
+    expect(render?.kind).toBe('spine');
+    if (render?.kind !== 'spine') return;
+    expect(render.plain).toBeNull();
   });
 
   it('yields nothing when no occupied day falls inside the bar span', () => {
@@ -247,7 +338,12 @@ describe('segmentPieces — geometry', () => {
   it('sizes a segment by its own span, not its raw duration number', () => {
     // durationUnit day, chart scaled in hours: a 1-day segment must occupy
     // 24 hour-units of a 48-hour span = half the bar.
-    const hourSnap: ScaleSnapshot = { diff: plainDiff, lengthUnit: 'hour', durationUnit: 'day' };
+    const hourSnap: ScaleSnapshot = {
+      diff: plainDiff,
+      lengthUnit: 'hour',
+      minUnit: 'hour',
+      durationUnit: 'day',
+    };
     const [piece] = segmentPieces(
       [{ start: d(2), duration: 1 }],
       d(2),

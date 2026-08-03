@@ -3,9 +3,12 @@
  * consumes public `ITask` fields and public Gantt props.
  *
  * Borrowed surface, in full:
- *   - `getState()._scales.diff` + `._scales.lengthUnit` — SVAR's own calendar
- *     arithmetic, so segment fractions use exactly the units the chart is drawn
- *     in (`_`-prefixed = not public API, though it is present in IData's types).
+ *   - `getState()._scales.diff` + `._scales.lengthUnit` + `._scales.minUnit` —
+ *     SVAR's own calendar arithmetic plus the rendered minor cell unit, so
+ *     segment fractions use exactly the units the chart is drawn in and the
+ *     tiling gate tracks the unit the cells actually render at (`lengthUnit`
+ *     is the config-level measurement unit and stays `day` at coarse zooms)
+ *     (`_`-prefixed = not public API, though it is present in IData's types).
  *   - `getState()._scales.start` + `._scales.end` — the drawn chart's date span,
  *     for overlays positioned against the whole chart area rather than against
  *     one bar. Read through a separate snapshot so an overlay-only breakage can
@@ -36,12 +39,13 @@ export function scaleSnapshot(api: IApi): ScaleSnapshot | null {
   const scales = state._scales;
   const diff = scales?.diff;
   const lengthUnit = scales?.lengthUnit;
+  const minUnit = scales?.minUnit;
 
-  if (typeof diff !== 'function' || typeof lengthUnit !== 'string') {
+  if (typeof diff !== 'function' || typeof lengthUnit !== 'string' || typeof minUnit !== 'string') {
     if (!warned) {
       warned = true;
       console.warn(
-        '[segments] SVAR internals moved (_scales.diff / _scales.lengthUnit); split-task rendering disabled, bars fall back to their continuous form.',
+        '[segments] SVAR internals moved (_scales.diff / _scales.lengthUnit / _scales.minUnit); split-task rendering disabled, bars fall back to their continuous form.',
       );
     }
     return null;
@@ -50,6 +54,7 @@ export function scaleSnapshot(api: IApi): ScaleSnapshot | null {
   return {
     diff,
     lengthUnit,
+    minUnit,
     durationUnit: state.durationUnit === 'hour' ? 'hour' : 'day',
   };
 }

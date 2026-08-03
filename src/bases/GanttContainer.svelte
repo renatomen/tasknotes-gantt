@@ -37,6 +37,7 @@
   import {
     allowsLinkEndpoints,
     allowsRowMutation,
+    hasDerivedBarGeometry,
     refusesUserRowMutation,
     resolveShowEditorRoute,
   } from './eventRowGuards';
@@ -55,6 +56,7 @@
     type SvarTaskInputs,
   } from './ganttSync';
   import {
+    applyEchoToBaseline,
     applyIncrementalGanttSync,
     createAppliedGanttSyncState,
     createGanttSeedSnapshot,
@@ -1858,7 +1860,14 @@
     // moveSummaryKids/resetSummaryDates fire for non-summary rows).
     // Read-only calendar-item rows (R9): refusing `drag-task` makes SVAR abort
     // the move/resize gesture natively at the first frame — the bar never moves.
-    api.intercept("drag-task", (ev: { id?: string | number }) => allowsRowMutation(ev?.id));
+    // Occupancy rows refuse the same way: their bar is a DERIVED envelope of
+    // instances, so a drag (even on a bare gap stretch between pieces) would
+    // commit absolute envelope dates into scheduled/due.
+    api.intercept(
+      "drag-task",
+      (ev: { id?: string | number }) =>
+        allowsRowMutation(ev?.id) && !rowHasDerivedGeometry(ev?.id),
+    );
 
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
@@ -1892,34 +1901,8 @@
         new Notice("Couldn't save — the row changed externally; try again.");
         return false;
       }
-      const cls = gesture.kind;
-      if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
-        const id = String(ev.id);
-        const before = instances.find((i) => i.id === id);
-        // Progress-handle drag: Property mode persists the new percentage on
-        // release (TaskNotes mode hides the handle via progressReadonly).
-        // Identify a progress gesture by the SVAR payload SHAPE, not just a
-        // changed progress value: the marker emits `task: { progress }` with NO
-        // start/end, whereas a date drag emits `task: { start, end }` (and may
-        // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
-        const t = ev.task ?? {};
-        const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
-        const newProgress = t.progress;
-        if (
-          !progressReadonly &&
-          isProgressGesture &&
-          typeof newProgress === 'number' &&
-          newProgress !== (before?.progress ?? undefined)
-        ) {
-          const beforeProgress = before?.progress ?? 0;
-          setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
-          return true;
-        }
-        const beforeFacts = captureBarBefore(id, before);
-        const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
-        const name = before?.text ?? 'this task';
-        // Deferred one tick so the SVAR store holds the committed post-drag span.
-        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
+      if (gesture.kind === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
+        return handleUserBarGesture(ev, String(ev.id));
       }
       return true;
     });
@@ -1937,8 +1920,10 @@
         return true;
       }
       if (readOnly || !onAddDependency || !ev.link) return false;
-      // Dependencies never touch a read-only calendar-item row on either end.
+      // Dependencies never touch a read-only calendar-item row on either end,
+      // nor an occupancy row — an edge would anchor to its derived envelope.
       if (!allowsLinkEndpoints(ev.link.source, ev.link.target)) return false;
+      if (linkTouchesDerivedGeometry(ev.link.source, ev.link.target)) return false;
       const roles = classifyLinkCreate({
         source: String(ev.link.source ?? ''),
         target: String(ev.link.target ?? ''),
@@ -1972,8 +1957,10 @@
         rawId.startsWith(':') ? rawId.slice(1) : rawId,
       );
       if (!link) return false;
-      // A resolved edge touching a read-only calendar-item row is never removable.
+      // A resolved edge touching a read-only calendar-item row is never
+      // removable; same for an occupancy (derived-geometry) row.
       if (!allowsLinkEndpoints(link.source, link.target)) return false;
+      if (linkTouchesDerivedGeometry(link.source, link.target)) return false;
       void onRemoveDependency(link.source, link.target).catch((err) => {
         console.error('[GanttContainer] remove-dependency failed:', err);
         new Notice("Couldn't remove the dependency — check TaskNotes is running.");
@@ -2032,6 +2019,47 @@
     shrink: "Couldn't adjust the parent date — check TaskNotes is running.",
     extend: "Couldn't update a parent date — check TaskNotes is running.",
   };
+
+  /**
+   * A committed user gesture on a task row (`update-task`, classified
+   * user-gesture): route a progress-handle release to the progress writer,
+   * refuse derived-geometry (occupancy) rows, submit everything else to the
+   * drag executor. Returns the intercept verdict.
+   */
+  function handleUserBarGesture(ev: UpdateTaskEvent, id: string): boolean {
+    const before = instances.find((i) => i.id === id);
+    // Progress-handle drag: Property mode persists the new percentage on
+    // release (TaskNotes mode hides the handle via progressReadonly).
+    // Identify a progress gesture by the SVAR payload SHAPE, not just a
+    // changed progress value: the marker emits `task: { progress }` with NO
+    // start/end, whereas a date drag emits `task: { start, end }` (and may
+    // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
+    const t = ev.task ?? {};
+    const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
+    const newProgress = t.progress;
+    if (
+      !progressReadonly &&
+      isProgressGesture &&
+      typeof newProgress === 'number' &&
+      newProgress !== (before?.progress ?? undefined)
+    ) {
+      const beforeProgress = before?.progress ?? 0;
+      setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
+      return true;
+    }
+    // Derived-geometry (occupancy) row: refuse the date gesture before it
+    // reaches the drag planner — committing it would write absolute envelope
+    // dates into scheduled/due. Cell edits and progress (above) stay
+    // untouched. Belt to drag-task's braces: that intercept already aborts
+    // pointer gestures at the first frame.
+    if (rowHasDerivedGeometry(id)) return false;
+    const beforeFacts = captureBarBefore(id, before);
+    const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
+    const name = before?.text ?? 'this task';
+    // Deferred one tick so the SVAR store holds the committed post-drag span.
+    setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
+    return true;
+  }
 
   /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span turns a
    *  revert drag into a no-op plan); dateStatus/estimate from the snapshot, rebased over
@@ -2111,12 +2139,16 @@
   }
 
   /** The sole executor echo emitter: rows re-enter SVAR tagged as our own,
-   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end. */
+   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end — and
+   *  every patch mirrors into the diff baseline: the baseline must see what
+   *  the store sees, or the next refresh diffs the authoritative rebuild
+   *  against pre-echo state and skips the re-issue that repaints it. */
   function echoSourceGeometry(echoes: SourceEchoes): void {
     if (!api) return;
     for (const row of echoes.rows) {
       const task = echoTaskPatch(row.payload, api.getTask?.(row.instanceId)?.custom);
       api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
+      applyEchoToBaseline(appliedSyncState, row.instanceId, task);
     }
   }
 
@@ -2169,6 +2201,28 @@
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Whether a row's bar geometry is derived from its occupancy (envelope or
+   * overlay), resolved from the live SVAR task like {@link storedPropertiesOf}.
+   * The mutating intercepts refuse such rows: a drag/resize would commit
+   * envelope dates into scheduled/due.
+   */
+  function rowHasDerivedGeometry(id: string | number | undefined): boolean {
+    if (id == null) return false;
+    try {
+      return hasDerivedBarGeometry(api?.getTask?.(String(id))?.custom);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Per-link {@link rowHasDerivedGeometry}: an edge may not touch such a row on either end. */
+  function linkTouchesDerivedGeometry(source: unknown, target: unknown): boolean {
+    const asId = (v: unknown): string | number | undefined =>
+      typeof v === 'string' || typeof v === 'number' ? v : undefined;
+    return rowHasDerivedGeometry(asId(source)) || rowHasDerivedGeometry(asId(target));
   }
 
   /**
@@ -3043,6 +3097,20 @@
   }
 
   /*
+   * Occupancy (recurring) rows render DERIVED bar geometry — the envelope of
+   * their instances — so the intercepts refuse drag/resize and link gestures.
+   * Hide the link handles and keep the cursor honest, exactly like og-event
+   * above; the progress marker stays (progress is not geometry).
+   */
+  .og-bases-gantt :global(.wx-bar.og-recurring .wx-link) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-recurring) {
+    cursor: default !important;
+  }
+
+  /*
    * Weekend shading off-state. The highlightTime seed fn always classifies
    * (swapping it would re-init SVAR's store); this class-gate suppresses the
    * visuals instead, so the toggle is live with zoom/scroll intact. SVAR's
@@ -3168,6 +3236,15 @@
     background-color: transparent;
     border: 1.5px solid var(--interactive-accent);
     cursor: pointer;
+  }
+  /*
+   * Plain: the task's own scheduled→due span, kept beside out-of-span recorded
+   * pieces (the host under wx-split is transparent, so this piece IS the bar).
+   * Painted like a normal task bar — the fill treatment threads via
+   * --og-ghost-fill exactly as on the ghost pieces.
+   */
+  .og-bases-gantt :global(.og-instance-plain) {
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
   }
   /*
    * Coarse-zoom fallback: a dashed series spine spanning first→last

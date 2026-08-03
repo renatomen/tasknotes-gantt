@@ -474,6 +474,25 @@ export class TaskNotesSource implements DataSource {
   }
 
   /**
+   * The raw TaskNotes TaskInfo records, verbatim from `api.tasks.list()` — the
+   * canonical, field-mapper-resolved read the calendar-item families derive
+   * from (recurrence state, time entries), which {@link getTasks}' SourceTask
+   * projection drops. Read-only; `[]` on any failure (same tolerance as
+   * {@link getTasks}).
+   */
+  public async listTaskInfos(): Promise<readonly TaskNotesTaskInfo[]> {
+    try {
+      if (!this.api.tasks || typeof this.api.tasks.list !== 'function') {
+        return [];
+      }
+      const tasks = await this.api.tasks.list();
+      return Array.isArray(tasks) ? tasks : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * The note paths TaskNotes identifies as tasks. Identification is
    * user-configurable (task tag OR a chosen property+value) and computed by
    * TaskNotes — this consumes `api.tasks.list()` verbatim, never inferring

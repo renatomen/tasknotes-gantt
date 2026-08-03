@@ -3,7 +3,8 @@
  * does not promise, pinned so an upgrade fails loudly instead of silently.
  *
  * The borrowed surface is deliberately tiny (see svarContract.ts):
- *   1. `getState()._scales.diff` / `.lengthUnit` — validated here and at runtime.
+ *   1. `getState()._scales.diff` / `.lengthUnit` / `.minUnit` — validated here
+ *      and at runtime.
  *   2. Our template rendering as a DIRECT child of `.wx-bar` — the structural
  *      assumption behind every `:has(> .wx-segments)` rule in segments.css.
  *   3. SVAR still emitting the whole-bar progress wrapper we suppress.
@@ -92,13 +93,17 @@ async function mount(
 
 const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 
-test('CONTRACT: scaleSnapshot finds diff and lengthUnit on the real store', async () => {
+test('CONTRACT: scaleSnapshot finds diff, lengthUnit and minUnit on the real store', async () => {
   const { api } = await mount(ORACLE_TASKS);
   const snap = scaleSnapshot(api);
 
   expect(snap, 'scaleSnapshot returned null against the real SVAR store').not.toBeNull();
   expect(typeof snap!.diff).toBe('function');
   expect(typeof snap!.diff(d(10), d(4), snap!.lengthUnit)).toBe('number');
+  // The probe host renders day cells, so the rendered minor unit is 'day' —
+  // the value the tiling gate reads (month cells report 'month' here while
+  // lengthUnit stays 'day').
+  expect(snap!.minUnit).toBe('day');
 });
 
 test('CONTRACT: scaleSnapshot degrades to null, without throwing, when internals move', () => {

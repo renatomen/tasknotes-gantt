@@ -36,6 +36,8 @@ import {
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
+import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
+import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource/calendarItems';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
@@ -61,6 +63,8 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     stretchFlagged: over.stretchFlagged,
     interpretationOverridden: over.interpretationOverridden,
     calendarItem: over.calendarItem,
+    occupancy: over.occupancy,
+    plainBarSuppressed: over.plainBarSuppressed,
   };
 }
 
@@ -1140,5 +1144,44 @@ describe('echoTaskPatch', () => {
     const patch = echoTaskPatch(geometryPayload([], false), current);
 
     expect((patch as { custom: SvarTask['custom'] }).custom.stretchFlagged).toBeUndefined();
+  });
+
+  const occupiedDays = (...days: string[]): CalendarOccupancy[] =>
+    days.map((d) => ({
+      family: 'recurring-instance',
+      itemId: makeCalendarItemId('recurring-instance', 'a.md', d),
+      day: d,
+      minutes: null,
+      stateClass: 'completed',
+    }));
+
+  it('drops the derived-occupancy marks on a geometry echo: the echoed span is executor-owned, never the envelope', () => {
+    const current = customOf({
+      occupancy: occupiedDays('2026-01-02', '2026-01-10'),
+      plainBarSuppressed: true,
+    });
+    expect(hasDerivedBarGeometry(current)).toBe(true);
+
+    const patch = echoTaskPatch(geometryPayload([]), current);
+
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.occupancyRuns).toBeUndefined();
+    expect(custom.occupancyEnvelope).toBeUndefined();
+    // The strip removes exactly what the derived-geometry guard keys on, so
+    // the cascade snapshot overlay trusts the echoed span on a stacked move.
+    expect(hasDerivedBarGeometry(custom)).toBe(false);
+    // Everything else in the row's custom record rides along untouched.
+    expect(custom).toMatchObject({ ...current, occupancyRuns: undefined, occupancyEnvelope: undefined });
+  });
+
+  it('keeps the derived-occupancy marks on a progress echo: only a geometry write disowns the envelope', () => {
+    const current = customOf({ occupancy: occupiedDays('2026-01-02'), plainBarSuppressed: true });
+
+    const patch = echoTaskPatch({ kind: 'progress', progress: 40 }, current);
+
+    // A progress-only patch carries no custom record, so the store's — marks
+    // included — stays exactly as it was.
+    expect(patch).toEqual({ progress: 40 });
+    expect(hasDerivedBarGeometry(current)).toBe(true);
   });
 });

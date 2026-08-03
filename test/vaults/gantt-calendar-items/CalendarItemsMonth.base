@@ -1,0 +1,14 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt Calendar Items Month"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_defaultScale: month
+    tngantt_showRecurring: true
+    order:
+      - file.name
+      - note.scheduled
+      - note.due

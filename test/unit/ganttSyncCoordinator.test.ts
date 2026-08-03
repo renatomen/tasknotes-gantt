@@ -2,6 +2,7 @@ import type { RenderLink } from '../../src/controller/InstanceExpansion';
 import type { SvarTask } from '../../src/bases/ganttSync';
 import type { GanttSyncPort } from '../../src/bases/ganttSyncPort';
 import {
+  applyEchoToBaseline,
   applyIncrementalGanttSync,
   createAppliedGanttSyncState,
   createGanttSeedSnapshot,
@@ -193,6 +194,68 @@ describe('Gantt reseed state', () => {
     expect(ganttOrderFingerprint([task('first'), task('second', 'first')])).toBe(
       '>first|first>second',
     );
+  });
+});
+
+describe('applyEchoToBaseline', () => {
+  it('mirrors a geometry echo onto the baseline row: span and custom advance, every other field survives', () => {
+    const original = task('echoed');
+    const state = appliedState([original]);
+    const echoedCustom = {
+      ...original.custom,
+      ghostRuns: [{ startDate: '2026-01-05', days: 2 }],
+    };
+
+    applyEchoToBaseline(state, 'echoed', {
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 7),
+      custom: echoedCustom,
+    });
+
+    const mirrored = state.tasks.get('echoed');
+    expect(mirrored?.start).toEqual(new Date(2026, 0, 5));
+    expect(mirrored?.end).toEqual(new Date(2026, 0, 7));
+    expect(mirrored?.custom).toBe(echoedCustom);
+    expect(mirrored?.progress).toBe(original.progress);
+    expect(mirrored?.text).toBe(original.text);
+    expect(mirrored?.parent).toBe(original.parent);
+  });
+
+  it('keeps the baseline custom when a span-only geometry echo carries none', () => {
+    const original = task('echoed');
+    const state = appliedState([original]);
+
+    applyEchoToBaseline(state, 'echoed', {
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 7),
+    });
+
+    const mirrored = state.tasks.get('echoed');
+    expect(mirrored?.start).toEqual(new Date(2026, 0, 5));
+    expect(mirrored?.end).toEqual(new Date(2026, 0, 7));
+    expect(mirrored?.custom).toBe(original.custom);
+  });
+
+  it('mirrors a progress echo without touching the row geometry', () => {
+    const original = task('echoed');
+    const state = appliedState([original]);
+
+    applyEchoToBaseline(state, 'echoed', { progress: 40 });
+
+    const mirrored = state.tasks.get('echoed');
+    expect(mirrored?.progress).toBe(40);
+    expect(mirrored?.start).toEqual(original.start);
+    expect(mirrored?.end).toEqual(original.end);
+    expect(mirrored?.custom).toBe(original.custom);
+  });
+
+  it('never fabricates a baseline row for an id the baseline does not hold', () => {
+    const state = appliedState([task('present')]);
+
+    applyEchoToBaseline(state, 'absent', { progress: 40 });
+
+    expect(state.tasks.has('absent')).toBe(false);
+    expect(state.tasks.size).toBe(1);
   });
 });
 

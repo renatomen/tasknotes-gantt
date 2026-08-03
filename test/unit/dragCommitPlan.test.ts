@@ -9,15 +9,33 @@ import {
   overlayStoreGeometry,
   pureMoveBefore,
   type BarBefore,
+  type LiveGeometryTask,
   type PlannerInstance,
+  type SourceEchoes,
 } from '../../src/bases/dragCommitPlan';
 import { createDequeueBeforeRebase } from '../../src/bases/dragDequeueRebase';
 import { planCascade, planGestureCommit, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
+import {
+  applyEchoToBaseline,
+  createAppliedGanttSyncState,
+  type AppliedGanttSyncState,
+} from '../../src/bases/ganttSyncCoordinator';
 import {
   inclusiveDaySpan,
   minutesToSpanDays,
   spanDaysToMinutes,
 } from '../../src/controller/durationConversion';
+import {
+  buildSvarTasks,
+  echoTaskPatch,
+  planTaskSync,
+  taskStateKey,
+  type SvarTask,
+  type SvarTaskInputs,
+} from '../../src/bases/ganttSync';
+import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
+import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource/calendarItems';
+import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 
 const day = (iso: string): Date => new Date(`${iso}T00:00:00`);
 const dayEnd = (iso: string): Date => new Date(`${iso}T23:59:59.999`);
@@ -44,6 +62,134 @@ const row = (id: string, startIso: string, endIso: string, parent?: string): Ove
   dateStatus: 'inferred-end',
   estimateMinutes: 480,
 });
+
+/** A store row whose bar is the derived occupancy envelope, not authored dates. */
+const envelopeStoreRow = (): LiveGeometryTask => ({
+  start: day('2026-02-01'),
+  end: dayEnd('2026-04-30'),
+  custom: {
+    occupancyRuns: [{ startDate: '2026-02-01', days: 3, stateClass: 'done' }],
+    occupancyEnvelope: true,
+  },
+});
+
+const plannerDerivation = (): PlannerDerivation => ({
+  minutesToSpanDays,
+  spanDaysToMinutes,
+  inclusiveDaySpan,
+  defaultDurationDays: 2,
+});
+
+/** One recurring-instance occupancy fact for a day. */
+const occupiedDay = (sourcePath: string, dayIso: string): CalendarOccupancy => ({
+  family: 'recurring-instance',
+  itemId: makeCalendarItemId('recurring-instance', sourcePath, dayIso),
+  day: dayIso,
+  minutes: null,
+  stateClass: 'completed',
+});
+
+/** The live store task of an occupancy row, exactly as buildSvarTasks issues it. */
+function occupancyStoreTask(
+  sourcePath: string,
+  startIso: string,
+  endIso: string,
+  occupiedIsos: readonly string[],
+): SvarTask {
+  const instance: RenderInstance = {
+    id: sourcePath,
+    sourcePath,
+    text: sourcePath,
+    start: day(startIso),
+    end: dayEnd(endIso),
+    progress: 0,
+    isVirtual: false,
+    isCollapsed: false,
+    dateStatus: 'complete',
+    estimateMinutes: null,
+    status: null,
+    priority: null,
+    isFetched: false,
+    isTopLevelPlacement: false,
+    occupancy: occupiedIsos.map((iso) => occupiedDay(sourcePath, iso)),
+    plainBarSuppressed: true,
+  };
+  const taskInputs: SvarTaskInputs = {
+    instances: [instance],
+    links: [],
+    statusColors: [],
+    barFillSource: 'default',
+    showDateIndicators: false,
+    arrowMode: 'primary',
+  };
+  return buildSvarTasks(taskInputs)[0]!;
+}
+
+/** The live store task of a plain (occupancy-free) row, exactly as buildSvarTasks issues it. */
+function plainStoreTask(sourcePath: string, startIso: string, endIso: string): SvarTask {
+  const instance: RenderInstance = {
+    id: sourcePath,
+    sourcePath,
+    text: sourcePath,
+    start: day(startIso),
+    end: dayEnd(endIso),
+    progress: 0,
+    isVirtual: false,
+    isCollapsed: false,
+    dateStatus: 'complete',
+    estimateMinutes: null,
+    status: null,
+    priority: null,
+    isFetched: false,
+    isTopLevelPlacement: false,
+  };
+  return buildSvarTasks({
+    instances: [instance],
+    links: [],
+    statusColors: [],
+    barFillSource: 'default',
+    showDateIndicators: false,
+    arrowMode: 'primary',
+  })[0]!;
+}
+
+/** Minimal SVAR store surface: id -> live row, advanced only by echoes. */
+type EchoStore = Map<string, { start: Date; end: Date; custom?: SvarTask['custom'] }>;
+
+/** The production diff baseline, seeded from built tasks like the mount seed. */
+function baselineOf(...tasks: SvarTask[]): AppliedGanttSyncState {
+  return createAppliedGanttSyncState({ tasks, links: [] }, 'base-sort');
+}
+
+function storeRowOf(...tasks: SvarTask[]): EchoStore {
+  return new Map(
+    tasks.map((task) => [
+      task.id,
+      { start: task.start as Date, end: task.end as Date, custom: task.custom },
+    ]),
+  );
+}
+
+/** GanttContainer.echoSourceGeometry verbatim: each echoed row patches the live
+ *  store over its current custom AND mirrors the same patch into the baseline. */
+function emitEchoes(
+  store: EchoStore,
+  baseline: AppliedGanttSyncState,
+  echoes: ReadonlyArray<SourceEchoes>,
+): void {
+  for (const source of echoes) {
+    for (const echoRow of source.rows) {
+      const patch = echoTaskPatch(echoRow.payload, store.get(echoRow.instanceId)?.custom);
+      applyEchoToBaseline(baseline, echoRow.instanceId, patch);
+      if (!('start' in patch)) continue;
+      store.set(echoRow.instanceId, {
+        start: patch.start,
+        end: patch.end,
+        ...(patch.custom !== undefined ? { custom: patch.custom } : {}),
+      });
+    }
+  }
+}
 
 describe('overlayStoreGeometry', () => {
   it('uses the store span when the store answers with real Dates; a custom-less live row leaves every other field with the controller row', () => {
@@ -116,6 +262,87 @@ describe('overlayStoreGeometry', () => {
     expect(overlaid[1]?.start).toEqual(postDrag.start);
   });
 
+  it('leaves a derived-bar-geometry row at its authored span (the store span is the occupancy envelope) while still overlaying plain rows', () => {
+    const controller = [
+      row('recurring.md', '2026-02-10', '2026-02-14'),
+      row('plain.md', '2026-08-03', '2026-08-04'),
+    ];
+    const store: Record<string, LiveGeometryTask | undefined> = {
+      'recurring.md': envelopeStoreRow(),
+      'plain.md': { start: day('2026-08-10'), end: dayEnd('2026-08-11') },
+    };
+
+    const overlaid = overlayStoreGeometry(controller, (id) => store[id]);
+
+    expect(overlaid[0]).toBe(controller[0]); // authored scheduled/due kept, envelope refused
+    expect(overlaid[1]?.start).toEqual(day('2026-08-10'));
+    expect(overlaid[1]?.end).toEqual(dayEnd('2026-08-11'));
+  });
+
+  it('a pure parent move cascades a recurring child by its AUTHORED dates + delta, never the shifted envelope', () => {
+    const controller: PlannerInstance[] = [
+      row('P.md', '2026-01-01', '2026-05-31'),
+      row('C.md', '2026-02-10', '2026-02-14', 'P.md'),
+    ];
+    // Production wiring: the child's store row answers the derived occupancy
+    // envelope (Feb 1 – Apr 30), far wider than its authored scheduled/due.
+    const snapshot = overlayStoreGeometry(
+      controller,
+      (id) => (id === 'C.md' ? envelopeStoreRow() : undefined),
+      'P.md',
+    );
+
+    // The parent moves +2d.
+    const plan = planCascade(
+      {
+        instanceId: 'P.md',
+        name: 'P',
+        before: { start: day('2026-01-01'), end: dayEnd('2026-05-31'), estimateMinutes: null },
+        after: { start: day('2026-01-03'), end: dayEnd('2026-06-02') },
+        settlement: { kind: 'plain' },
+      },
+      snapshot,
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+
+    // Authored Feb 10 – Feb 14 shifted +2d — not the envelope's Feb 3 / May 2.
+    const patch = plan.writes.find((w) => w.sourcePath === 'C.md')?.patch;
+    expect(patch?.start).toEqual(day('2026-02-12'));
+    expect(patch?.end).toEqual(dayEnd('2026-02-16'));
+  });
+
+  it("a parent shrink fits to the recurring child's AUTHORED range, never its occupancy envelope", () => {
+    const controller: PlannerInstance[] = [
+      row('P.md', '2026-01-01', '2026-05-31'),
+      row('C.md', '2026-02-10', '2026-03-20', 'P.md'),
+    ];
+    const snapshot = overlayStoreGeometry(
+      controller,
+      (id) => (id === 'C.md' ? envelopeStoreRow() : undefined),
+      'P.md',
+    );
+
+    // The parent's end resizes May 31 → Mar 15, into the child.
+    const plan = planCascade(
+      {
+        instanceId: 'P.md',
+        name: 'P',
+        before: { start: day('2026-01-01'), end: dayEnd('2026-05-31'), estimateMinutes: null },
+        after: { start: day('2026-01-01'), end: dayEnd('2026-03-15') },
+        settlement: { kind: 'plain' },
+      },
+      snapshot,
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+
+    // Fit wraps the authored child end (Mar 20) — not the envelope's Apr 30.
+    const patch = plan.writes.find((w) => w.sourcePath === 'P.md')?.patch;
+    expect(patch?.start).toEqual(day('2026-01-01'));
+    expect(patch?.end).toEqual(dayEnd('2026-03-20'));
+  });
+
   it('stacked parent moves: the second cascade shifts the subtree from the FIRST move\'s echoed child spans, one delta only', () => {
     // Controller rows still hold pre-first-drag geometry (self-write events
     // skip recomputation); the store carries the first move's +7d echoes.
@@ -159,6 +386,223 @@ describe('overlayStoreGeometry', () => {
     expect(patchOf('C1.md')?.end).toEqual(dayEnd('2026-08-14'));
     expect(patchOf('C2.md')?.start).toEqual(day('2026-08-15'));
     expect(patchOf('C2.md')?.end).toEqual(dayEnd('2026-08-16'));
+  });
+});
+
+describe('cascade echoes over an occupancy child (production echo wiring)', () => {
+  it("stacked parent moves: the second cascade compounds the occupancy child from the first move's echoed span, exactly like its plain sibling", () => {
+    // Controller rows lag at pre-first-drag geometry (self-write events skip
+    // recomputation); the store carries the first move's +7d echoes, produced
+    // through the REAL echo path over each row's live custom record.
+    const controller: PlannerInstance[] = [
+      row('T.md', '2026-08-03', '2026-08-06'),
+      row('C1.md', '2026-08-03', '2026-08-04', 'T.md'),
+      row('R.md', '2026-08-03', '2026-08-04', 'T.md'),
+    ];
+    const preEchoCustom = occupancyStoreTask('R.md', '2026-08-03', '2026-08-04', ['2026-08-03']).custom;
+    const storeOf = (id: string): LiveGeometryTask | undefined => {
+      const stale = controller.find((i) => i.id === id);
+      if (!stale) return undefined;
+      const geometry = {
+        start: addDays(stale.start as Date, 7),
+        end: addDays(stale.end as Date, 7),
+        flagged: false,
+        ghostRuns: [],
+      };
+      const patch = echoTaskPatch(
+        { kind: 'geometry', geometry },
+        id === 'R.md' ? preEchoCustom : undefined,
+      );
+      if (!('start' in patch)) throw new Error('geometry echo expected');
+      return { start: patch.start, end: patch.end, custom: patch.custom };
+    };
+    const snapshot = overlayStoreGeometry(controller, storeOf, 'T.md');
+
+    // The second gesture moves the parent a further +3d off its echoed span.
+    const plan = planCascade(
+      {
+        instanceId: 'T.md',
+        name: 'T',
+        before: { start: day('2026-08-10'), end: dayEnd('2026-08-13'), estimateMinutes: null },
+        after: { start: day('2026-08-13'), end: dayEnd('2026-08-16') },
+        settlement: { kind: 'plain' },
+      },
+      snapshot,
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+
+    // Both children compound identically: +7d echo then +3d = +10d off the
+    // stale controller rows. The occupancy child's vault frontmatter already
+    // holds the +7d write, so seeding it from the stale authored span would
+    // write it BACKWARD.
+    const patchOf = (source: string) => plan.writes.find((w) => w.sourcePath === source)?.patch;
+    expect(patchOf('C1.md')?.start).toEqual(day('2026-08-13'));
+    expect(patchOf('C1.md')?.end).toEqual(dayEnd('2026-08-14'));
+    expect(patchOf('R.md')?.start).toEqual(day('2026-08-13'));
+    expect(patchOf('R.md')?.end).toEqual(dayEnd('2026-08-14'));
+  });
+
+  it('an aborted cascade reverts the occupancy child to its snapshot span, and the next genuine refresh re-issues its envelope and marks', () => {
+    const controller: PlannerInstance[] = [
+      row('T.md', '2026-08-03', '2026-08-06'),
+      row('R.md', '2026-08-03', '2026-08-04', 'T.md'),
+    ];
+    const storeTask = occupancyStoreTask('R.md', '2026-08-03', '2026-08-04', ['2026-08-03', '2026-08-20']);
+    const baseline = baselineOf(storeTask);
+    const store = storeRowOf(storeTask);
+    const snapshot = overlayStoreGeometry(controller, (id) => store.get(id), 'T.md');
+    const plan = planCascade(
+      {
+        instanceId: 'T.md',
+        name: 'T',
+        before: { start: day('2026-08-03'), end: dayEnd('2026-08-06'), estimateMinutes: null },
+        after: { start: day('2026-08-10'), end: dayEnd('2026-08-13') },
+        settlement: { kind: 'plain' },
+      },
+      snapshot,
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+
+    // Forward echo (emitted before the write): the row shows the executor-owned
+    // span as a plain bar — the derived marks do not survive a geometry echo.
+    emitEchoes(store, baseline, plan.echoes);
+    const echoed = store.get('R.md')!;
+    expect(echoed.start).toEqual(day('2026-08-10'));
+    expect(echoed.end).toEqual(dayEnd('2026-08-11'));
+    expect(hasDerivedBarGeometry(echoed.custom)).toBe(false);
+
+    // The write fails → the revert restores the snapshot's authored span; the
+    // span the revert writes is still echo-owned, so it renders plain too.
+    emitEchoes(store, baseline, plan.reverts);
+    const reverted = store.get('R.md')!;
+    expect(reverted.start).toEqual(day('2026-08-03'));
+    expect(reverted.end).toEqual(dayEnd('2026-08-04'));
+    expect(hasDerivedBarGeometry(reverted.custom)).toBe(false);
+
+    // The failed write never changed the vault, so the refresh rebuilds the
+    // IDENTICAL task — only the echo-mirrored baseline can trigger the diff
+    // update that re-issues the envelope span, its marks, and the drag veto.
+    const refreshed = occupancyStoreTask('R.md', '2026-08-03', '2026-08-04', ['2026-08-03', '2026-08-20']);
+    expect(taskStateKey(refreshed)).toBe(taskStateKey(storeTask));
+    const sync = planTaskSync(baseline.tasks, [refreshed]);
+    const update = sync.updates.find((u) => u.id === 'R.md');
+    expect(update?.task.custom.occupancyEnvelope).toBe(true);
+    expect(update?.task.custom.occupancyRuns).toHaveLength(2);
+    expect(update?.task.start).toEqual(day('2026-08-03'));
+    expect(update?.task.end).toEqual(dayEnd('2026-08-20'));
+    expect(hasDerivedBarGeometry(update?.task.custom)).toBe(true);
+  });
+
+  it('a successful cascade over write-invariant occupancy (recorded days) still gets its envelope re-issued by the next refresh', () => {
+    const controller: PlannerInstance[] = [
+      row('T.md', '2026-08-03', '2026-08-06'),
+      row('R.md', '2026-08-03', '2026-08-04', 'T.md'),
+    ];
+    // Recorded completions on Aug 10 + Aug 20: days that do NOT move with the
+    // authored scheduled/due write.
+    const storeTask = occupancyStoreTask('R.md', '2026-08-03', '2026-08-04', ['2026-08-10', '2026-08-20']);
+    const baseline = baselineOf(storeTask);
+    const store = storeRowOf(storeTask);
+    const snapshot = overlayStoreGeometry(controller, (id) => store.get(id), 'T.md');
+    const plan = planCascade(
+      {
+        instanceId: 'T.md',
+        name: 'T',
+        before: { start: day('2026-08-03'), end: dayEnd('2026-08-06'), estimateMinutes: null },
+        after: { start: day('2026-08-10'), end: dayEnd('2026-08-13') },
+        settlement: { kind: 'plain' },
+      },
+      snapshot,
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+    const write = plan.writes.find((w) => w.sourcePath === 'R.md');
+    expect(write?.patch.start).toEqual(day('2026-08-10'));
+    expect(write?.patch.end).toEqual(dayEnd('2026-08-11'));
+    emitEchoes(store, baseline, plan.echoes); // the write SUCCEEDS: no reverts
+
+    // The write moved only authored dates; the occupied days are recorded
+    // facts, so the refreshed row is state-key-IDENTICAL to the pre-drag
+    // baseline — only the echo-mirrored baseline can trigger the re-issue.
+    const refreshed = occupancyStoreTask('R.md', '2026-08-10', '2026-08-11', ['2026-08-10', '2026-08-20']);
+    expect(taskStateKey(refreshed)).toBe(taskStateKey(storeTask));
+    const sync = planTaskSync(baseline.tasks, [refreshed]);
+    const update = sync.updates.find((u) => u.id === 'R.md');
+    expect(update?.task.custom.occupancyEnvelope).toBe(true);
+    expect(update?.task.start).toEqual(day('2026-08-10'));
+    expect(update?.task.end).toEqual(dayEnd('2026-08-20'));
+    expect(hasDerivedBarGeometry(update?.task.custom)).toBe(true);
+  });
+});
+
+describe('plain-row echoes and the diff baseline (production echo wiring)', () => {
+  const cascadePlusSevenDays = (store: EchoStore) => {
+    const controller: PlannerInstance[] = [
+      row('T.md', '2026-08-03', '2026-08-06'),
+      row('C1.md', '2026-08-03', '2026-08-04', 'T.md'),
+    ];
+    return planCascade(
+      {
+        instanceId: 'T.md',
+        name: 'T',
+        before: { start: day('2026-08-03'), end: dayEnd('2026-08-06'), estimateMinutes: null },
+        after: { start: day('2026-08-10'), end: dayEnd('2026-08-13') },
+        settlement: { kind: 'plain' },
+      },
+      overlayStoreGeometry(controller, (id) => store.get(id), 'T.md'),
+      { cascadeMode: 'auto' },
+      plannerDerivation(),
+    );
+  };
+
+  it('a successful write needs no re-issue: the refresh derives exactly the echoed geometry and the mirrored baseline already agrees', () => {
+    const storeTask = plainStoreTask('C1.md', '2026-08-03', '2026-08-04');
+    const baseline = baselineOf(storeTask);
+    const store = storeRowOf(storeTask);
+
+    emitEchoes(store, baseline, cascadePlusSevenDays(store).echoes);
+    expect(baseline.tasks.get('C1.md')?.start).toEqual(day('2026-08-10'));
+    expect(baseline.tasks.get('C1.md')?.end).toEqual(dayEnd('2026-08-11'));
+
+    const refreshed = plainStoreTask('C1.md', '2026-08-10', '2026-08-11');
+    const sync = planTaskSync(baseline.tasks, [refreshed]);
+    expect(sync.updates).toHaveLength(0);
+    expect(sync.adds).toHaveLength(0);
+    expect(sync.deletes).toHaveLength(0);
+    expect(sync.moves).toHaveLength(0);
+  });
+
+  it('a dangling echo against an unchanged vault is repainted: the refresh re-issues the row back to its authored span', () => {
+    const storeTask = plainStoreTask('C1.md', '2026-08-03', '2026-08-04');
+    const baseline = baselineOf(storeTask);
+    const store = storeRowOf(storeTask);
+
+    emitEchoes(store, baseline, cascadePlusSevenDays(store).echoes);
+
+    const refreshed = plainStoreTask('C1.md', '2026-08-03', '2026-08-04');
+    expect(taskStateKey(refreshed)).toBe(taskStateKey(storeTask));
+    const sync = planTaskSync(baseline.tasks, [refreshed]);
+    const update = sync.updates.find((u) => u.id === 'C1.md');
+    expect(update?.task.start).toEqual(day('2026-08-03'));
+    expect(update?.task.end).toEqual(dayEnd('2026-08-04'));
+  });
+
+  it('a failed write round-trips: the revert mirrors the authored span back, so the unchanged-vault refresh is a no-op', () => {
+    const storeTask = plainStoreTask('C1.md', '2026-08-03', '2026-08-04');
+    const baseline = baselineOf(storeTask);
+    const store = storeRowOf(storeTask);
+    const plan = cascadePlusSevenDays(store);
+
+    emitEchoes(store, baseline, plan.echoes);
+    emitEchoes(store, baseline, plan.reverts);
+    expect(baseline.tasks.get('C1.md')?.start).toEqual(day('2026-08-03'));
+    expect(baseline.tasks.get('C1.md')?.end).toEqual(dayEnd('2026-08-04'));
+
+    const refreshed = plainStoreTask('C1.md', '2026-08-03', '2026-08-04');
+    const sync = planTaskSync(baseline.tasks, [refreshed]);
+    expect(sync.updates).toHaveLength(0);
   });
 });
 

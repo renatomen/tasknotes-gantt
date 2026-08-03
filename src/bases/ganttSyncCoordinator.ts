@@ -1,6 +1,7 @@
 import type { RenderLink } from '../controller/InstanceExpansion';
 import {
   planReorder,
+  type EchoTaskUpdate,
   type LinkSyncPlan,
   type SvarTask,
   type TaskSyncPlan,
@@ -83,6 +84,28 @@ export function createAppliedGanttSyncState(
   };
   replaceAppliedGanttData(state, seed);
   return state;
+}
+
+/**
+ * Mirror one executor echo into the diff baseline. An echo writes
+ * executor-owned display truth into the SVAR store; the baseline must see
+ * exactly what the store sees, or the next refresh diffs the authoritative
+ * rebuild against pre-echo state and skips the re-issue that restores derived
+ * geometry (and its drag veto) or repaints a dangling echo.
+ */
+export function applyEchoToBaseline(
+  state: AppliedGanttSyncState,
+  id: string,
+  patch: EchoTaskUpdate,
+): void {
+  const current = state.tasks.get(id);
+  if (!current) return;
+  if ('progress' in patch) {
+    state.tasks.set(id, { ...current, progress: patch.progress });
+    return;
+  }
+  const { start, end, custom } = patch;
+  state.tasks.set(id, { ...current, start, end, custom: custom ?? current.custom });
 }
 
 interface EphemeralSortPort {

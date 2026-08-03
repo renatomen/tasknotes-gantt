@@ -13,6 +13,7 @@ import {
   buildSvarTasks,
   buildInstanceCueTaskTypes,
   buildTreatmentTaskTypes,
+  planTaskSync,
   resolveOccupancyActivationPath,
   taskStateKey,
   DATE_STATUS_TYPE,
@@ -197,6 +198,63 @@ describe('buildSvarTasks — family off, recorded pieces (plain bar retained)', 
   });
 });
 
+describe('buildSvarTasks — family off, recorded outside the plain span (union envelope)', () => {
+  it('switches to the union envelope and injects a plain-state run over the scheduled→due days', () => {
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            start: new Date(2026, 0, 5),
+            end: new Date(2026, 0, 8, 23, 59, 59, 999),
+            occupancy: [occ('2026-01-06', 'completed'), occ('2026-01-15', 'skipped')],
+          }),
+        ],
+      }),
+    );
+
+    // The span covers the union of the plain scheduled→due days and every
+    // occupied day, ending end-of-day so the last column renders full width.
+    expect(task!.start).toEqual(new Date(2026, 0, 5));
+    expect(task!.end).toEqual(new Date(2026, 0, 15, 23, 59, 59, 999));
+    // Split like the suppressed case: the host bar goes transparent and only
+    // the pieces paint — the plain run stands in for the plain bar.
+    expect(task!.custom.occupancyEnvelope).toBe(true);
+    // The plain run covers the FULL scheduled→due span and comes FIRST: the
+    // piece layer resolves days last-write-wins, so the recorded day inside
+    // the span (Jan 6) keeps its recorded state and the plain piece paints
+    // only the unclaimed days.
+    expect(task!.custom.occupancyRuns).toEqual([
+      { startDate: '2026-01-05', days: 4, stateClass: 'plain' },
+      { startDate: '2026-01-06', days: 1, stateClass: 'completed', notePath: undefined },
+      { startDate: '2026-01-15', days: 1, stateClass: 'skipped', notePath: undefined },
+    ]);
+  });
+
+  it('extends the envelope backwards for a recorded day before the plain start', () => {
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: STANDUP_PATH,
+            start: new Date(2026, 0, 5),
+            end: new Date(2026, 0, 8, 23, 59, 59, 999),
+            occupancy: [occ('2026-01-02', 'completed')],
+          }),
+        ],
+      }),
+    );
+
+    expect(task!.start).toEqual(new Date(2026, 0, 2));
+    expect(task!.end).toEqual(new Date(2026, 0, 8, 23, 59, 59, 999));
+    expect(task!.custom.occupancyEnvelope).toBe(true);
+    expect(task!.custom.occupancyRuns).toEqual([
+      { startDate: '2026-01-05', days: 4, stateClass: 'plain' },
+      { startDate: '2026-01-02', days: 1, stateClass: 'completed', notePath: undefined },
+    ]);
+  });
+});
+
 describe('union + ganttSync pipeline — materialized dual representation', () => {
   it('renders a materialized occurrence as its own row AND as the marked piece on the parent', () => {
     const materializedPath = 'routines/standup 2026-01-13.md';
@@ -261,6 +319,67 @@ describe('resolveOccupancyActivationPath — piece click routing', () => {
     expect(resolveOccupancyActivationPath({ stateClass: 'materialized' }, STANDUP_PATH)).toBe(
       STANDUP_PATH,
     );
+  });
+});
+
+describe('planTaskSync — occupancy attaching to an existing row stays in-place', () => {
+  it('plans the plain→union-envelope flip as one update: zero adds, deletes, moves', () => {
+    // The enrichment moment: the first render pass shaped the row WITHOUT
+    // occupancy (TaskNotes facts not served yet); the next pass attaches the
+    // recorded occupancy and the span becomes the union envelope. SVAR keys
+    // bar elements by task id, so only a delete+add would unmount the bar —
+    // this pins the flip to the in-place `update-task` path.
+    const base = {
+      id: STANDUP_PATH,
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 8, 23, 59, 59, 999),
+    };
+    const before = buildSvarTasks(inputs({ instances: [inst(base)] }));
+    const after = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            ...base,
+            occupancy: [occ('2026-01-06', 'completed'), occ('2026-01-15', 'skipped')],
+          }),
+        ],
+      }),
+    );
+
+    const plan = planTaskSync(new Map(before.map((t) => [t.id, t])), after);
+
+    expect(plan.updates.map((u) => u.id)).toEqual([STANDUP_PATH]);
+    expect(plan.updates[0]!.task.custom.occupancyEnvelope).toBe(true);
+    expect(plan.adds).toEqual([]);
+    expect(plan.deletes).toEqual([]);
+    expect(plan.moves).toEqual([]);
+  });
+
+  it('plans the envelope release (family toggled off, no recorded days) the same way', () => {
+    const base = {
+      id: STANDUP_PATH,
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 8, 23, 59, 59, 999),
+    };
+    const enveloped = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            ...base,
+            occupancy: [occ('2026-01-06', 'next'), occ('2026-01-13', 'projected')],
+            plainBarSuppressed: true,
+          }),
+        ],
+      }),
+    );
+    const plain = buildSvarTasks(inputs({ instances: [inst(base)] }));
+
+    const plan = planTaskSync(new Map(enveloped.map((t) => [t.id, t])), plain);
+
+    expect(plan.updates.map((u) => u.id)).toEqual([STANDUP_PATH]);
+    expect(plan.adds).toEqual([]);
+    expect(plan.deletes).toEqual([]);
+    expect(plan.moves).toEqual([]);
   });
 });
 

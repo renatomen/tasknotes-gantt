@@ -24,7 +24,10 @@ export type DiffFn = (a: Date, b: Date, unit: string, inclusive?: boolean) => nu
 /** The slice of SVAR state the geometry needs, captured per render. */
 export interface ScaleSnapshot {
   diff: DiffFn;
+  /** The unit bar/segment lengths are measured in (SVAR's config-level unit). */
   lengthUnit: string;
+  /** The rendered minor scale's unit — the cells the chart actually draws. */
+  minUnit: string;
   durationUnit: DurationUnit;
 }
 
@@ -93,16 +96,24 @@ export interface GhostRunSpan {
 }
 
 /**
- * Whether contiguous sub-span pieces tile faithfully under this scale. Only
- * the linear day/hour length units cancel piece-for-piece; SVAR's coarser
- * units snap to unit starts and normalize by variable divisors, which breaks
+ * Whether contiguous sub-span pieces tile faithfully under this scale. Both
+ * units must be linear: with a coarse RENDERED cell unit the chart's date→pixel
+ * mapping snaps to unit starts and normalizes by variable divisors, and a
+ * coarse MEASUREMENT unit does the same to the piece fractions — either breaks
  * the widths-sum-to-the-bar guarantee for internal pieces (a full-span piece
- * is exactly 1 under any semantics — sub-spans are not). Callers degrade to
- * the continuous bar when this is false — graceful feature-off, never
- * silently wrong.
+ * is exactly 1 under any semantics — sub-spans are not). The cell unit is the
+ * gate that actually tracks zoom: SVAR keeps the config-level `lengthUnit` at
+ * `day` for every zoom whose cells can be measured in days, so month cells
+ * still report a `day` length unit. Callers degrade to the continuous bar (or
+ * the series spine) when this is false — graceful feature-off, never silently
+ * wrong.
  */
 export function canTileSubSpans(snapshot: ScaleSnapshot): boolean {
-  return snapshot.lengthUnit === 'day' || snapshot.lengthUnit === 'hour';
+  return isLinearUnit(snapshot.minUnit) && isLinearUnit(snapshot.lengthUnit);
+}
+
+function isLinearUnit(unit: string): boolean {
+  return unit === 'day' || unit === 'hour';
 }
 
 /**
@@ -143,8 +154,8 @@ interface DayRun<T> {
 /**
  * The one day-by-day walk over a bar's span: classify each local day and merge
  * consecutive days whose classification is identical (`===`). Ghost runs merge
- * booleans into alternating stretches; occupancy classifies to per-day objects
- * so nothing merges and every instance stays its own piece.
+ * booleans into alternating stretches; occupancy classifies to per-RUN objects
+ * so days of one run merge while distinct runs stay separate pieces.
  */
 function dayValueRuns<T>(taskStart: Date, taskEnd: Date, classify: (day: string) => T): Array<DayRun<T>> {
   const runs: Array<DayRun<T>> = [];
@@ -163,6 +174,14 @@ function dayValueRuns<T>(taskStart: Date, taskEnd: Date, classify: (day: string)
   return runs;
 }
 
+/**
+ * State class of the synthetic run standing in for a KEPT plain scheduled→due
+ * bar inside a union envelope (attached by the sync layer). Renders through
+ * the same piece path as the instance states (class `og-instance-plain`),
+ * painted like a normal bar.
+ */
+export const PLAIN_OCCUPANCY_STATE = 'plain';
+
 /** An occupied-day run inside a bar's span, with the instance's state. */
 export interface OccupancyRunSpan extends GhostRunSpan {
   /** Family state of these occupied days (e.g. next/projected/completed/skipped/materialized). */
@@ -171,7 +190,7 @@ export interface OccupancyRunSpan extends GhostRunSpan {
   notePath?: string;
 }
 
-/** One occupied whole-day segment; `day` is the piece's local day. */
+/** One occupied whole-day segment; `day` is the piece's first local day. */
 export type OccupancySegment = SegmentSpan & {
   day: string;
   stateClass?: string;
@@ -179,11 +198,13 @@ export type OccupancySegment = SegmentSpan & {
 };
 
 /**
- * Decompose a bar's span into ONLY its occupied whole-day segments — the gaps
- * stay unrendered so the calendar shading reads through them. Days outside the
- * bar's span are clipped (a fraction of the bar cannot place them). Each
- * occupied day yields its own one-day segment even next to a same-state
- * neighbour, so every instance keeps its own hover title and click target.
+ * Decompose a bar's span into ONLY its occupied segments — the gaps stay
+ * unrendered so the calendar shading reads through them. Days outside the
+ * bar's span are clipped (a fraction of the bar cannot place them). Identity
+ * is per RUN: instance runs arrive one day each, so every instance keeps its
+ * own hover title and click target even next to a same-state neighbour, while
+ * a multi-day run (the synthetic plain-bar run) merges into one continuous
+ * piece per stretch not claimed by a later run — later runs win each day.
  */
 export function occupancySegments(
   runs: readonly OccupancyRunSpan[],
@@ -192,9 +213,13 @@ export function occupancySegments(
 ): OccupancySegment[] {
   const byDay = new Map<string, { stateClass?: string; notePath?: string }>();
   for (const run of runs) {
+    // One shared identity object per run: consecutive days of the SAME run
+    // merge downstream (`===` in dayValueRuns); a day overwritten by a later
+    // run breaks the stretch apart.
+    const identity = { stateClass: run.stateClass, notePath: run.notePath };
     let day = run.startDate;
     for (let i = 0; i < run.days; i += 1) {
-      byDay.set(day, { stateClass: run.stateClass, notePath: run.notePath });
+      byDay.set(day, identity);
       day = nextDayIso(day);
     }
   }
@@ -225,11 +250,13 @@ export interface OccupancyPiece {
 /**
  * What a bar's occupancy renders as: tiled per-instance pieces at the linear
  * day/hour zooms, or a dashed series spine spanning first→last instance at
- * coarser zooms — never a solid bar claiming continuous occupancy.
+ * coarser zooms — never a solid bar claiming continuous occupancy. A union
+ * row's spine additionally carries `plain`: the kept scheduled→due bar's
+ * extent, so the legitimate plain bar survives coarse zoom as one solid piece.
  */
 export type OccupancyRender =
   | { kind: 'pieces'; pieces: OccupancyPiece[] }
-  | { kind: 'spine'; left: number; width: number };
+  | { kind: 'spine'; left: number; width: number; plain: { left: number; width: number } | null };
 
 export function occupancyRender(
   runs: readonly OccupancyRunSpan[],
@@ -255,7 +282,30 @@ export function occupancyRender(
   // Coarse units can misplace INTERNAL piece edges (see canTileSubSpans), but
   // the spine is an indicative dashed extent, not a tiling claim — measuring
   // the pieces keeps it ending at the last instance instead of the bar end.
-  return { kind: 'spine', ...connectorRun(boxes) };
+  return {
+    kind: 'spine',
+    ...connectorRun(boxes),
+    plain: plainRunExtent(runs, taskStart, taskEnd, snapshot),
+  };
+}
+
+/**
+ * Extent of the synthetic plain run under the same fraction math as the spine:
+ * the FULL kept scheduled→due span (not just the days no instance claimed),
+ * since it stands in for the plain bar. Null when no plain run exists (the
+ * suppressed, family-on envelope).
+ */
+function plainRunExtent(
+  runs: readonly OccupancyRunSpan[],
+  taskStart: Date,
+  taskEnd: Date,
+  snapshot: ScaleSnapshot,
+): { left: number; width: number } | null {
+  const plainSegments = runs
+    .filter((run) => run.stateClass === PLAIN_OCCUPANCY_STATE)
+    .map((run) => ({ start: isoToLocalDate(run.startDate), duration: run.days }));
+  if (plainSegments.length === 0) return null;
+  return connectorRun(segmentPieces(plainSegments, taskStart, taskEnd, 0, snapshot));
 }
 
 function localDayIso(date: Date): string {

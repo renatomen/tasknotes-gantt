@@ -244,6 +244,13 @@
         ></div>
       {/each}
     {:else}
+      {#if occupancyView.plain}
+        <!-- The kept plain scheduled→due bar at coarse zoom: indicative precision, exactly like the spine. -->
+        <div
+          class="og-instance og-instance-plain og-indicative"
+          style="left:{pct(occupancyView.plain.left)};width:{pct(occupancyView.plain.width)};"
+        ></div>
+      {/if}
       <div
         class="og-series-spine"
         style="left:{pct(occupancyView.left)};width:{pct(occupancyView.width)};"

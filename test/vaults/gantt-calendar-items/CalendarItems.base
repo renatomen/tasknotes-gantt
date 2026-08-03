@@ -1,0 +1,13 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+views:
+  - type: obsidianGantt
+    name: "Gantt Calendar Items"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_defaultScale: day
+    order:
+      - file.name
+      - note.scheduled
+      - note.due

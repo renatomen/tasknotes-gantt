@@ -33,6 +33,10 @@ import {
   type CalendarItemToggles,
 } from './calendarItemOptions';
 import {
+  createCalendarItemSourcesProvider,
+  type CalendarItemSourcesProvider,
+} from './calendarItemSources';
+import {
   GanttController,
   type DatePolicyConfig,
   type DateMappingInfo,
@@ -54,7 +58,7 @@ import { resolveUserFieldTypes } from './taskNotesFieldTypes';
 import { resolveGridCellEditors } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
-import type { TaskPatch } from '../datasource';
+import { TaskNotesSource, type TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
 import { createMountCalendarWatch, type CalendarWatch } from './calendarWatch';
 import {
@@ -259,6 +263,14 @@ class ObsidianGanttBasesView extends BasesView {
 
   /** The action layer / source of truth (U6). Recreated per mount. */
   private ganttController: GanttController | null = null;
+
+  /**
+   * Per-mount provider of the calendar-item family sources (recurring
+   * instances, time entries), handed to the controller as its
+   * `createCalendarItemSources` dep. Recreated per mount; disposed on
+   * unload/remount so the sources' TaskNotes subscriptions never outlive it.
+   */
+  private calendarItemSourcesProvider: CalendarItemSourcesProvider | null = null;
 
   /**
    * Calendar-note liveness (edits/renames/deletions of marked notes refresh the
@@ -869,6 +881,22 @@ class ObsidianGanttBasesView extends BasesView {
   private async mountGantt(): Promise<void> {
     const token = ++this.mountToken;
     try {
+      // Calendar-item families read the RAW TaskNotes task list (recurrence
+      // state, time entries) — richer than the SourceTask projection — so they
+      // get their own TaskNotesSource seam here (the controller's memoized
+      // enrichment source is internal to it). Null when TaskNotes is absent:
+      // the families then derive nothing, which is their standalone behavior.
+      const calendarItemTaskNotes = await TaskNotesSource.create(this.app);
+      const calendarItemSources = createCalendarItemSourcesProvider({
+        toggles: () => this.getCalendarItemToggles(),
+        listTasks: () => calendarItemTaskNotes?.listTaskInfos() ?? [],
+        ...(calendarItemTaskNotes
+          ? { subscribe: (handler: (eventName: string, payload?: unknown) => void) =>
+              calendarItemTaskNotes.subscribe(handler) }
+          : {}),
+        resolveTaskReference: (linkPath, fromPath) =>
+          resolveParentLink(this.app, linkPath, fromPath),
+      });
       // The controller reads the live Bases query at (re-)selection time, so the
       // provider closes over `this` rather than a captured snapshot.
       const controller = new GanttController({
@@ -904,6 +932,10 @@ class ObsidianGanttBasesView extends BasesView {
         // recompute (provider closure) so a toolbar-sort change reflows without a
         // remount. getSort() returns [] when no sort is configured → fallback.
         sortConfig: () => this.getBaseSort(),
+        // Calendar-item family sources (recurring instances, time entries):
+        // the provider re-reads the family toggles on every provide, so an
+        // opted-in family joins the very next recompute without a remount.
+        deps: { createCalendarItemSources: () => calendarItemSources.provide() },
       });
 
       await controller.init();
@@ -911,10 +943,12 @@ class ObsidianGanttBasesView extends BasesView {
       // A newer mount or an unmount happened while we awaited init() — discard.
       if (token !== this.mountToken) {
         controller.dispose();
+        calendarItemSources.dispose();
         return;
       }
 
       this.ganttController = controller;
+      this.calendarItemSourcesProvider = calendarItemSources;
       // Trailing-debounce for onDataUpdated (#161): closes over this mount's
       // controller; re-checks isConnected at fire time so a refresh queued just
       // before teardown is dropped. Recreated per mount, cancelled on unload.
@@ -971,6 +1005,7 @@ class ObsidianGanttBasesView extends BasesView {
       // Re-check after the second await window.
       if (token !== this.mountToken) {
         controller.dispose();
+        calendarItemSources.dispose();
         return;
       }
 
@@ -1405,6 +1440,15 @@ class ObsidianGanttBasesView extends BasesView {
         console.warn('[Gantt] Error disposing controller:', error);
       }
       this.ganttController = null;
+    }
+
+    if (this.calendarItemSourcesProvider) {
+      try {
+        this.calendarItemSourcesProvider.dispose();
+      } catch (error) {
+        console.warn('[Gantt] Error disposing calendar-item sources:', error);
+      }
+      this.calendarItemSourcesProvider = null;
     }
 
     this.dataStore = null;

@@ -20,9 +20,9 @@
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { DateStatus } from '../controller/datePolicy';
-import { isoToLocalDate, isoToLocalEndOfDay } from '../controller/calendar/stretch';
+import { isoToLocalDate, isoToLocalEndOfDay, localIso } from '../controller/calendar/stretch';
 import type { CalendarOccupancy } from '../datasource/calendarItems';
-import type { OccupancyRunSpan } from '../render/segmentLayout';
+import { PLAIN_OCCUPANCY_STATE, type OccupancyRunSpan } from '../render/segmentLayout';
 import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
@@ -244,9 +244,12 @@ export interface SvarTask {
      */
     occupancyRuns?: readonly OccupancyRunSpan[];
     /**
-     * The row's span IS the occupancy envelope (the plain scheduled→due bar is
-     * suppressed): the host bar goes transparent and only the pieces paint.
-     * Absent when the plain bar stays and any occupancy pieces overlay it.
+     * The row's span IS an occupancy envelope: the host bar goes transparent
+     * and only the pieces paint. Set when the plain scheduled→due bar is
+     * suppressed (family on), and when the kept plain bar is joined by
+     * occupied days OUTSIDE its span — then a synthetic `plain`-state run
+     * stands in for the bar among the pieces. Absent when the plain bar stays
+     * and any occupancy pieces simply overlay it.
      */
     occupancyEnvelope?: boolean;
     /**
@@ -415,15 +418,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
-    // While the family suppresses the plain scheduled→due bar, the row's
-    // span becomes the occupancy envelope: earliest occupied day 00:00 to the
-    // latest occupied day's END-of-day (a midnight end draws one column short).
-    // With the family off, the plain span stays and the recorded pieces overlay
-    // it; a suppressed task with NO occupancy keeps its plain bar untouched.
-    const envelope =
-      occupancy.length > 0 && inst.plainBarSuppressed === true
-        ? occupancyEnvelope(occupancy)
-        : null;
+    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, occupancy);
 
     const task: SvarTask = {
       id: inst.id,
@@ -443,7 +438,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
-        occupancyRuns: occupancy.length > 0 ? occupancy.map(toOccupancyRun) : undefined,
+        occupancyRuns,
         occupancyEnvelope: envelope ? true : undefined,
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
@@ -469,15 +464,89 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
   });
 }
 
-/** The occupancy envelope: earliest occupied day 00:00 → latest day end-of-day. */
-function occupancyEnvelope(occupancy: readonly CalendarOccupancy[]): { start: Date; end: Date } {
+export { PLAIN_OCCUPANCY_STATE };
+
+/** How one row renders its occupancy: an envelope span (or null) plus the runs. */
+interface OccupancyDisplay {
+  envelope: { start: Date; end: Date } | null;
+  occupancyRuns: readonly OccupancyRunSpan[] | undefined;
+}
+
+/**
+ * Resolve a row's occupancy display. While the family suppresses the plain
+ * scheduled→due bar, the row's span becomes the occupancy envelope: earliest
+ * occupied day 00:00 to the latest occupied day's END-of-day (a midnight end
+ * draws one column short); a suppressed task with NO occupancy keeps its plain
+ * bar untouched. With the family off, the plain span stays and the recorded
+ * pieces overlay it — but a piece can only be placed as a fraction of its host
+ * bar, so an occupied day OUTSIDE the plain span would be clipped to nothing.
+ * That row switches to the UNION envelope (plain span + every occupied day)
+ * and the plain bar rides along as a synthetic full-span `plain` run. The
+ * plain run comes FIRST: the piece layer resolves days last-write-wins, so a
+ * day claimed by an instance state keeps that state and the plain piece paints
+ * only the unclaimed days.
+ */
+function resolveOccupancyDisplay(
+  inst: RenderInstance,
+  occupancy: readonly CalendarOccupancy[],
+): OccupancyDisplay {
+  if (occupancy.length === 0) return { envelope: null, occupancyRuns: undefined };
+  const runs = occupancy.map(toOccupancyRun);
+  if (inst.plainBarSuppressed === true) {
+    return { envelope: occupancyEnvelope(occupancy), occupancyRuns: runs };
+  }
+  if (!(inst.start instanceof Date) || !(inst.end instanceof Date)) {
+    return { envelope: null, occupancyRuns: runs };
+  }
+  const plainStart = localIso(inst.start);
+  const plainEnd = localIso(inst.end);
+  const occupied = occupancyDayBounds(occupancy);
+  if (occupied.first >= plainStart && occupied.last <= plainEnd) {
+    return { envelope: null, occupancyRuns: runs };
+  }
+  const firstDay = occupied.first < plainStart ? occupied.first : plainStart;
+  const lastDay = occupied.last > plainEnd ? occupied.last : plainEnd;
+  return {
+    envelope: { start: isoToLocalDate(firstDay), end: isoToLocalEndOfDay(lastDay) },
+    occupancyRuns: [
+      {
+        startDate: plainStart,
+        days: inclusiveDayCount(plainStart, plainEnd),
+        stateClass: PLAIN_OCCUPANCY_STATE,
+      },
+      ...runs,
+    ],
+  };
+}
+
+/** Earliest and latest occupied day (local-day ISO keys order chronologically). */
+function occupancyDayBounds(occupancy: readonly CalendarOccupancy[]): {
+  first: string;
+  last: string;
+} {
   let first = occupancy[0]!.day;
   let last = first;
   for (const entry of occupancy) {
     if (entry.day < first) first = entry.day;
     if (entry.day > last) last = entry.day;
   }
+  return { first, last };
+}
+
+/** The occupancy envelope: earliest occupied day 00:00 → latest day end-of-day. */
+function occupancyEnvelope(occupancy: readonly CalendarOccupancy[]): { start: Date; end: Date } {
+  const { first, last } = occupancyDayBounds(occupancy);
   return { start: isoToLocalDate(first), end: isoToLocalEndOfDay(last) };
+}
+
+/** Whole days from `startIso` to `endIso` inclusive (UTC math — no DST drift). */
+function inclusiveDayCount(startIso: string, endIso: string): number {
+  return Math.round((isoDayUtcMs(endIso) - isoDayUtcMs(startIso)) / 86_400_000) + 1;
+}
+
+function isoDayUtcMs(iso: string): number {
+  const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
+  return Date.UTC(year, month - 1, day);
 }
 
 /** One occupancy fact as a whole-day run (day granularity: whole-day pieces). */
@@ -511,6 +580,16 @@ export type EchoTaskUpdate =
  * for an empty run list or an unflagged span just like {@link buildSvarTasks}.
  * Without the row's current custom record the patch stays span-only rather than
  * fabricating a partial record.
+ *
+ * A geometry echo also DROPS the derived-occupancy marks (`occupancyRuns` —
+ * synthetic plain-run claim included — and `occupancyEnvelope`): a span an echo
+ * writes is executor-owned display truth, by definition not the derived
+ * envelope. Keeping the marks would make the cascade snapshot overlay refuse
+ * the echoed span and seed a stacked cascade from the stale controller row,
+ * writing the child backward. The accepted display consequence: after a
+ * cascade write, a recurring row renders its echoed authored span as a plain
+ * bar until the next genuine refresh re-derives its occupancy — display truth
+ * follows the write, exactly as plain rows behave between echo and refresh.
  */
 export function echoTaskPatch(
   payload: EchoPayload,
@@ -526,6 +605,8 @@ export function echoTaskPatch(
       ...currentCustom,
       ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
       stretchFlagged: geometry.flagged ? true : undefined,
+      occupancyRuns: undefined,
+      occupancyEnvelope: undefined,
     },
   };
 }

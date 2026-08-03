@@ -13,6 +13,7 @@ import {
   isCalendarItemRow,
   allowsRowMutation,
   allowsLinkEndpoints,
+  hasDerivedBarGeometry,
   refusesUserRowMutation,
   resolveShowEditorRoute,
 } from '../../src/bases/eventRowGuards';
@@ -111,6 +112,39 @@ describe('allowsLinkEndpoints (add-link / delete-link intercepts)', () => {
   it('is total: unknown endpoints are allowed as tasks, never a throw', () => {
     expect(allowsLinkEndpoints(undefined, undefined)).toBe(true);
     expect(allowsLinkEndpoints(null, 3)).toBe(true);
+  });
+});
+
+describe('hasDerivedBarGeometry (occupancy rows: drag/resize/link refusal)', () => {
+  const run = { startDate: '2026-01-06', days: 1, stateClass: 'next' };
+
+  it('refuses a family-on envelope row (occupancyRuns + occupancyEnvelope) despite its vault-path id', () => {
+    expect(allowsRowMutation(taskPath)).toBe(true);
+    expect(hasDerivedBarGeometry({ occupancyRuns: [run], occupancyEnvelope: true })).toBe(true);
+  });
+
+  it('refuses a family-off overlay row (occupancyRuns without an envelope)', () => {
+    expect(hasDerivedBarGeometry({ occupancyRuns: [run] })).toBe(true);
+  });
+
+  it('refuses an envelope-marked row even without runs (defense in depth)', () => {
+    expect(hasDerivedBarGeometry({ occupancyEnvelope: true })).toBe(true);
+  });
+
+  it('allows a plain task custom (no occupancy fields)', () => {
+    expect(hasDerivedBarGeometry({ sourceTaskId: taskPath, editable: true })).toBe(false);
+  });
+
+  it('allows an empty occupancyRuns array (no occupancy recorded)', () => {
+    expect(hasDerivedBarGeometry({ occupancyRuns: [] })).toBe(false);
+  });
+
+  it('is total: missing/malformed customs allow as plain tasks, never a throw', () => {
+    expect(hasDerivedBarGeometry(undefined)).toBe(false);
+    expect(hasDerivedBarGeometry(null)).toBe(false);
+    expect(hasDerivedBarGeometry({})).toBe(false);
+    expect(hasDerivedBarGeometry('occupancyRuns')).toBe(false);
+    expect(hasDerivedBarGeometry({ occupancyRuns: 'yes', occupancyEnvelope: 'yes' })).toBe(false);
   });
 });
 
