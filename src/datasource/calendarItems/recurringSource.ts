@@ -15,13 +15,10 @@
  * @module datasource/calendarItems/recurringSource
  */
 
-import {
-  formatDateForStorage,
-  generateRecurringInstances,
-  getDatePart,
-  normalizeTaskReference,
-  parseLinkToPath,
-} from '@tasknotes/model';
+import { formatDateForStorage, getDatePart } from '@tasknotes/model/date';
+import { generateRecurringInstances } from '@tasknotes/model/recurrence';
+import { normalizeTaskReference } from '@tasknotes/model/operations';
+import { parseLinkToPath } from '@tasknotes/model/mapping';
 import type { TaskNotesTaskInfo } from '../TaskNotesSource';
 import type {
   CalendarDerivationWindow,
