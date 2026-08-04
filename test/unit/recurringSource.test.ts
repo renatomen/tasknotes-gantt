@@ -139,6 +139,22 @@ describe('recurringSource — recorded instances', () => {
     expect(days).not.toContain('2026-02-03');
     expect(states).toContainEqual(['2026-01-05', 'skipped']);
   });
+
+  it('drops an impossible recorded day instead of rolling it into the next month', async () => {
+    // 2026-01-32 is inside the window lexically but not a real day; Date
+    // construction would roll it to Feb 1, so it must be dropped entirely.
+    const states = await collectStates([weeklyTask({ complete_instances: ['2026-01-32'] })]);
+
+    const days = states.map(([day]) => day);
+    expect(days).not.toContain('2026-01-32');
+    expect(days).not.toContain('2026-02-01');
+  });
+
+  it('drops an impossible skipped day as well as a completed one', async () => {
+    const states = await collectStates([weeklyTask({ skipped_instances: ['2026-01-32'] })]);
+
+    expect(states.map(([day]) => day)).not.toContain('2026-01-32');
+  });
 });
 
 describe('recurringSource — completed/skipped sub-toggles', () => {
@@ -188,6 +204,21 @@ describe('recurringSource — materialized occurrences', () => {
       ['2026-01-20', 'projected'],
       ['2026-01-27', 'projected'],
     ]);
+  });
+
+  it('ignores a materialized occurrence carrying an impossible date', async () => {
+    const badNote: TaskNotesTaskInfo = {
+      path: 'routines/standup bad.md',
+      title: 'Standup bad',
+      recurrence_parent: '[[standup]]',
+      occurrence_date: '2026-01-32',
+    };
+    const states = await collectStates([weeklyTask(), badNote], {}, { resolveTaskReference });
+
+    expect(states.map(([, state]) => state)).not.toContain('materialized');
+    const days = states.map(([day]) => day);
+    expect(days).not.toContain('2026-01-32');
+    expect(days).not.toContain('2026-02-01');
   });
 
   it('threads the materialized note path onto its occupancy entry (piece-click target)', async () => {
@@ -252,6 +283,12 @@ describe('recurringSource — guards', () => {
 
     expect(batch.occupancyByTaskPath.size).toBe(0);
     expect(batch.plainBarSuppressedTaskPaths?.has(STANDUP_PATH)).toBe(false);
+  });
+
+  it('emits nothing for an impossible scheduled day', async () => {
+    const batch = await makeSource([weeklyTask({ scheduled: '2026-02-30' })]).collect(queryContext());
+
+    expect(batch.occupancyByTaskPath.has(STANDUP_PATH)).toBe(false);
   });
 
   it('yields nothing for a task without a recurrence', async () => {

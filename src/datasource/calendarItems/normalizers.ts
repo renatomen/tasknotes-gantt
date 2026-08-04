@@ -39,7 +39,8 @@ export function localDayOfInstant(instant: unknown): LocalDay | null {
 }
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const FLOATING_DATE_TIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+const FLOATING_DATE_TIME_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
 const FLOATING_MIDNIGHT_PATTERN = /^\d{4}-\d{2}-\d{2}T00:00(?::00(?:\.0+)?)?$/;
 
 /** Whether a value is a floating date-only string (`YYYY-MM-DD`). */
@@ -47,16 +48,40 @@ export function isLocalDayString(value: unknown): value is LocalDay {
   return typeof value === 'string' && DATE_ONLY_PATTERN.test(value);
 }
 
-// Round-trip through local Date parts: engines ROLL OVER impossible calendar
-// dates (2026-02-30 → Mar 2) instead of failing, so a parse-NaN check can't
-// reject them.
-function isRealCalendarDay(day: LocalDay): boolean {
-  const [year = 0, month = 0, dayOfMonth = 0] = day.split('-').map(Number);
-  const parsed = new Date(year, month - 1, dayOfMonth);
+const CALENDAR_DAY_PATTERN = /^(\d{1,4})-(\d{2})-(\d{2})$/;
+
+// Pure arithmetic, no Date construction: engines ROLL OVER impossible dates
+// (2026-02-30 → Mar 2) rather than failing, and a Date round-trip drags in the
+// observer's zone (rejecting real dates a zone skips, e.g. 2011-12-30 in
+// Pacific/Apia) plus the 0–99 year remap. The shape gate rejects a trailing
+// suffix while allowing the unpadded early years formatDateForStorage can emit.
+export function isRealCalendarDay(day: LocalDay): boolean {
+  const match = CALENDAR_DAY_PATTERN.exec(day);
+  if (match === null) return false;
+  const [, yearText = '', monthText = '', dayText = ''] = match;
+  const month = Number(monthText);
+  const dayOfMonth = Number(dayText);
+  if (month < 1 || month > 12 || dayOfMonth < 1) return false;
+  return dayOfMonth <= daysInMonth(Number(yearText), month);
+}
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+function daysInMonth(year: number, month: number): number {
+  const lengths = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return lengths[month - 1] ?? 0;
+}
+
+// The date-only check can't see an impossible wall clock (T99:99), so validate
+// the clock parts too. They are two-digit, hence non-negative; seconds allow 60
+// for a positive leap second (RFC 5545 time-second).
+function isRealWallClockTime(hour?: string, minute?: string, second?: string): boolean {
   return (
-    parsed.getFullYear() === year &&
-    parsed.getMonth() === month - 1 &&
-    parsed.getDate() === dayOfMonth
+    Number(hour) <= 23 &&
+    Number(minute) <= 59 &&
+    (second === undefined || Number(second) <= 60)
   );
 }
 
@@ -74,9 +99,13 @@ export function localDayOfWallClock(value: unknown): LocalDay | null {
   if (DATE_ONLY_PATTERN.test(trimmed)) {
     return isRealCalendarDay(trimmed) ? trimmed : null;
   }
-  const floatingDay = FLOATING_DATE_TIME_PATTERN.exec(trimmed)?.[1];
-  if (floatingDay !== undefined) {
-    return isRealCalendarDay(floatingDay) ? floatingDay : null;
+  const floating = FLOATING_DATE_TIME_PATTERN.exec(trimmed);
+  if (floating !== null) {
+    const [, floatingDay = '', hour, minute, second] = floating;
+    if (!isRealCalendarDay(floatingDay) || !isRealWallClockTime(hour, minute, second)) {
+      return null;
+    }
+    return floatingDay;
   }
   return localDayOfInstant(trimmed);
 }

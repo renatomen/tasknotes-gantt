@@ -15,6 +15,7 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   isLocalDayString,
+  isRealCalendarDay,
   localDayOfInstant,
   localDayOfWallClock,
   localDaySpanOfInstants,
@@ -180,11 +181,41 @@ describe('localDayOfWallClock — floating (zone-less) day attribution', () => {
 
   it.each([
     { caseName: 'an impossible calendar date', value: '2026-02-30' },
+    { caseName: 'an impossible hour and minute', value: '2026-08-10T99:99' },
+    { caseName: 'an out-of-range hour', value: '2026-08-10T24:00' },
+    { caseName: 'an out-of-range minute', value: '2026-08-10T12:60' },
+    { caseName: 'a second past the leap-second bound', value: '2026-08-10T23:59:61' },
     { caseName: 'an unparseable string', value: 'not-a-date' },
     { caseName: 'undefined', value: undefined },
     { caseName: 'a number', value: 20260810 },
   ])('returns null for $caseName', ({ value }) => {
     expect(localDayOfWallClock(value)).toBeNull();
+  });
+
+  it('accepts a leap-second and a boundary wall clock', () => {
+    expect(localDayOfWallClock('2026-08-10T23:59:60')).toBe('2026-08-10');
+    expect(localDayOfWallClock('2026-08-10T23:59:59')).toBe('2026-08-10');
+    // A datetime without a seconds field exercises the seconds-less accept arm.
+    expect(localDayOfWallClock('2026-08-10T12:30')).toBe('2026-08-10');
+  });
+});
+
+describe('isRealCalendarDay', () => {
+  it('accepts a real day, a leap day, and early/unpadded years (zone-independent)', () => {
+    expect(isRealCalendarDay('2026-02-28')).toBe(true);
+    expect(isRealCalendarDay('2024-02-29')).toBe(true); // leap year
+    expect(isRealCalendarDay('0000-02-29')).toBe(true); // year 0 is a leap year
+    expect(isRealCalendarDay('0050-01-01')).toBe(true);
+    expect(isRealCalendarDay('50-01-01')).toBe(true); // formatDateForStorage's unpadded early year
+    expect(isRealCalendarDay('2011-12-30')).toBe(true); // real day Pacific/Apia skipped
+  });
+
+  it('rejects an impossible day, a non-leap Feb 29, a trailing suffix, and a bad shape', () => {
+    expect(isRealCalendarDay('2026-02-30')).toBe(false);
+    expect(isRealCalendarDay('2026-02-29')).toBe(false); // 2026 is not a leap year
+    expect(isRealCalendarDay('2026-13-01')).toBe(false);
+    expect(isRealCalendarDay('2026-01-15-extra')).toBe(false);
+    expect(isRealCalendarDay('2026-1-5')).toBe(false);
   });
 });
 

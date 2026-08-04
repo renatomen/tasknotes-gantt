@@ -29,6 +29,7 @@ import type {
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
+import { isRealCalendarDay } from './normalizers';
 
 /** Per-day state of one recurring instance (drives the per-instance piece classes). */
 export type RecurringInstanceState = 'next' | 'projected' | 'completed' | 'skipped' | 'materialized';
@@ -89,8 +90,13 @@ function toLocalDay(value: Date | string | null | undefined): string {
   return value instanceof Date ? formatDateForStorage(value) : getDatePart(value);
 }
 
-function stringList(values: readonly string[] | null | undefined): readonly string[] {
-  return Array.isArray(values) ? values.filter((v): v is string => typeof v === 'string') : [];
+// Recorded instance days become occupancy keys and Date-construction inputs, so
+// an impossible day (2026-02-30) would roll over into the next month rather than
+// be dropped. Keep only strings that are real calendar days.
+function recordedDayList(values: readonly string[] | null | undefined): readonly string[] {
+  return Array.isArray(values)
+    ? values.filter((v): v is string => typeof v === 'string' && isRealCalendarDay(v))
+    : [];
 }
 
 /** Materialized dates per parent (day → occurrence note path), keyed by normalized task reference. */
@@ -108,7 +114,7 @@ function buildMaterializedIndex(
       );
       const parentKey = normalizeTaskReference(resolvedPath ?? task.recurrence_parent);
       const day = getDatePart(task.occurrence_date);
-      if (parentKey === '' || day === '') continue;
+      if (parentKey === '' || day === '' || !isRealCalendarDay(day)) continue;
       const days = index.get(parentKey) ?? new Map<LocalDay, string>();
       days.set(day, task.path);
       index.set(parentKey, days);
@@ -227,8 +233,8 @@ function collectInstanceStates(
   toggles: RecurringInstanceToggles,
   materializedDays: ReadonlyMap<LocalDay, string>,
 ): Map<LocalDay, RecurringInstanceState> {
-  const complete = stringList(task.complete_instances);
-  const skipped = stringList(task.skipped_instances);
+  const complete = recordedDayList(task.complete_instances);
+  const skipped = recordedDayList(task.skipped_instances);
   const scope: InstanceExpansionScope = {
     task,
     scheduledDay,
@@ -290,7 +296,8 @@ export function expandRecurringOccupancy(input: RecurringExpansionInput): Calend
       const recurrence = task.recurrence;
       if (typeof recurrence !== 'string' || recurrence === '') continue;
       const scheduledDay = toLocalDay(task.scheduled);
-      if (scheduledDay === '') continue;
+      // An impossible anchor (2026-02-30) would roll into March at render; drop it.
+      if (scheduledDay === '' || !isRealCalendarDay(scheduledDay)) continue;
 
       const materializedDays =
         materializedIndex.get(normalizeTaskReference(task.path)) ?? NO_MATERIALIZED;
