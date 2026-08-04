@@ -3258,11 +3258,12 @@
   .og-bases-gantt :global(.og-instance-next) {
     background-color: var(--interactive-accent);
   }
-  /* Projected: future pattern instances — hollow dashed outline, no claim. */
+  /* Projected: future pattern instances — hollow dashed outline, no claim. The
+     dashed pattern alone reads as tentative, so it stays at full strength (no
+     dimming) for contrast; border-box keeps the 2px stroke inside the cell. */
   .og-bases-gantt :global(.og-instance-projected) {
     background-color: transparent;
-    border: 1px dashed var(--interactive-accent);
-    opacity: 0.7;
+    border: 2px dashed var(--interactive-accent);
   }
   /* Completed: dimmed with a horizontal strike through the piece. */
   .og-bases-gantt :global(.og-instance-completed) {
