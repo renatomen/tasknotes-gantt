@@ -205,6 +205,69 @@ describe('timeEntrySource — exclusions', () => {
   });
 });
 
+describe('timeEntrySource — malformed collections', () => {
+  it('skips a task whose timeEntries is not an array instead of throwing', async () => {
+    const malformed = {
+      path: REPORT_PATH,
+      title: 'Bad',
+      timeEntries: 'oops',
+    } as unknown as TaskNotesTaskInfo;
+
+    const batch = await makeSource([malformed]).collect(CONTEXT);
+
+    expect(batch.items).toEqual([]);
+  });
+
+  it('skips a null or non-object entry while keeping the valid ones', async () => {
+    const entries = [null, morningEntry(), 42] as unknown as readonly TaskNotesTimeEntry[];
+
+    const batch = await makeSource([taskWithEntries(entries)]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    // The surviving row is the valid morning entry, not a coerced malformed one.
+    expect(batch.items[0]?.startDay).toBe('2026-08-03');
+  });
+
+  it('skips an entry with a throwing property accessor without aborting siblings', async () => {
+    const throwing = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('boom');
+        },
+      },
+    ) as unknown as TaskNotesTimeEntry;
+
+    const batch = await makeSource([taskWithEntries([throwing, morningEntry()])]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+  });
+
+  it('skips a task whose path throws in id encoding without aborting siblings', async () => {
+    // A lone UTF-16 surrogate in the path makes encodeURIComponent throw.
+    const badPath = {
+      path: String.fromCodePoint(0xd800),
+      title: 'bad',
+      timeEntries: [morningEntry()],
+    } as unknown as TaskNotesTaskInfo;
+
+    const batch = await makeSource([badPath, taskWithEntries([morningEntry()])]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+  });
+
+  it('does not throw sorting twins with a non-coercible description', async () => {
+    // String({ toString: null }) throws; the safe sort key must dodge it.
+    const base = morningEntry();
+    const twinA = { ...base, description: { toString: null } } as unknown as TaskNotesTimeEntry;
+    const twinB = { ...base, description: 'ok' };
+
+    const batch = await makeSource([taskWithEntries([twinA, twinB])]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(2);
+  });
+});
+
 describe('timeEntrySource — id stability', () => {
   it('gives two same-day entries distinct ids that are stable across refreshes', async () => {
     const afternoon: TaskNotesTimeEntry = {

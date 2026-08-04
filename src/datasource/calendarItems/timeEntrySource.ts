@@ -21,6 +21,7 @@ import type {
 } from './types';
 import { makeCalendarItemId } from './types';
 import { localDaySpanOfInstants } from './normalizers';
+import { dlog } from '../../debugLog';
 
 /** The time-entry slice of the per-view calendar-item toggles. */
 export interface TimeEntryToggles {
@@ -55,17 +56,28 @@ interface TimeEntryCandidate {
   endDay: LocalDay;
 }
 
-function toCandidate(entry: TaskNotesTimeEntry, sourceIndex: number): TimeEntryCandidate | null {
-  if (entry.endTime === undefined) return null;
-  const span = localDaySpanOfInstants(entry.startTime, entry.endTime);
+function toCandidate(entry: unknown, sourceIndex: number): TimeEntryCandidate | null {
+  // Raw frontmatter / API drift can hand us a null or non-object entry; skip it
+  // rather than dereferencing (one malformed fact must not fail the whole build).
+  if (typeof entry !== 'object' || entry === null) return null;
+  const candidate = entry as TaskNotesTimeEntry;
+  if (candidate.endTime === undefined) return null;
+  const span = localDaySpanOfInstants(candidate.startTime, candidate.endTime);
   if (span === null) return null;
-  return { entry: { ...entry, endTime: entry.endTime }, sourceIndex, ...span };
+  return { entry: { ...candidate, endTime: candidate.endTime }, sourceIndex, ...span };
+}
+
+// A sort key that never throws: String() on an adversarial object (e.g.
+// `{ toString: null }`) can throw, so only strings and numbers are coerced.
+function sortKey(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return typeof value === 'number' ? String(value) : '';
 }
 
 function compareTwinCandidates(a: TimeEntryCandidate, b: TimeEntryCandidate): number {
-  const durationOrder = String(a.entry.duration ?? '').localeCompare(String(b.entry.duration ?? ''));
+  const durationOrder = sortKey(a.entry.duration).localeCompare(sortKey(b.entry.duration));
   if (durationOrder !== 0) return durationOrder;
-  const descriptionOrder = (a.entry.description ?? '').localeCompare(b.entry.description ?? '');
+  const descriptionOrder = sortKey(a.entry.description).localeCompare(sortKey(b.entry.description));
   return descriptionOrder !== 0 ? descriptionOrder : a.sourceIndex - b.sourceIndex;
 }
 
@@ -113,12 +125,30 @@ export function expandTimeEntryItems(input: TimeEntryExpansionInput): CalendarIt
 
   const items: CalendarItem[] = [];
   for (const task of input.tasks) {
-    const candidates = (task.timeEntries ?? [])
-      .map((entry, index) => toCandidate(entry, index))
-      .filter((candidate): candidate is TimeEntryCandidate => candidate !== null);
+    // A non-array timeEntries (malformed frontmatter / API drift) yields nothing
+    // rather than throwing on .map.
+    const rawEntries = Array.isArray(task.timeEntries) ? task.timeEntries : [];
+    const candidates: TimeEntryCandidate[] = [];
+    rawEntries.forEach((entry, index) => {
+      try {
+        const candidate = toCandidate(entry, index);
+        if (candidate !== null) candidates.push(candidate);
+      } catch (error) {
+        // A throwing accessor/Proxy on the raw entry skips just this fact.
+        dlog('[calendar] skipped a malformed time entry', error);
+      }
+    });
     const ordinals = twinOrdinals(candidates);
     for (const candidate of candidates) {
-      items.push(toCalendarItem(task, candidate, ordinals.get(candidate.sourceIndex) ?? 1));
+      try {
+        items.push(toCalendarItem(task, candidate, ordinals.get(candidate.sourceIndex) ?? 1));
+      } catch (error) {
+        // Last-resort ingestion boundary: a pathological value (e.g. a lone
+        // surrogate reaching encodeURIComponent) skips this one fact rather
+        // than aborting the whole snapshot build. Debug-gated so a dropped fact
+        // leaves a breadcrumb without any production noise.
+        dlog('[calendar] skipped a malformed time entry', error);
+      }
     }
   }
   return { items, occupancyByTaskPath };

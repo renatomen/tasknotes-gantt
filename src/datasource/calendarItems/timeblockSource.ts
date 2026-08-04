@@ -22,6 +22,7 @@ import type {
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
+import { dlog } from '../../debugLog';
 
 /** The timeblock slice of the per-view calendar-item toggles. */
 export interface TimeblockToggles {
@@ -61,18 +62,39 @@ export interface TimeblockExpansionInput {
 export const UNTITLED_TIMEBLOCK_TITLE = '(untitled block)';
 
 const CLOCK_TIME_PATTERN = /^([01]?\d|2[0-3]):[0-5]\d$/;
+/** NUL twin separator: impossible in a real frontmatter id, so a suffixed
+ *  twin never collides with a raw id; encodeURIComponent renders it %00. */
+const TWIN_SEPARATOR = String.fromCodePoint(0);
 
 function isClockTime(value: unknown): boolean {
   return typeof value === 'string' && CLOCK_TIME_PATTERN.test(value);
 }
 
-function toCalendarItem(note: DailyNoteTimeblocks, block: unknown): CalendarItem | null {
+/** Whether an id is a usable timeblock key: a non-empty string with no NUL (the
+ *  twin separator), so a raw id can never collide with a suffixed twin. */
+function isUsableId(id: unknown): id is string {
+  return typeof id === 'string' && id !== '' && !id.includes(TWIN_SEPARATOR);
+}
+
+/** The block's own `id` when it is a usable timeblock, else null. */
+function validTimeblockId(block: unknown): string | null {
+  if (typeof block !== 'object' || block === null) return null;
+  const { id, startTime, endTime } = block as Record<string, unknown>;
+  if (!isUsableId(id)) return null;
+  if (!isClockTime(startTime) || !isClockTime(endTime)) return null;
+  return id;
+}
+
+// A daily note can hold two blocks with the same id; both would key the same
+// synthetic row and one would overwrite the other. A per-note occurrence suffix
+// keeps twins distinct while leaving a unique id's row identity stable.
+function toCalendarItem(note: DailyNoteTimeblocks, block: unknown, twinSuffix: string): CalendarItem | null {
   if (typeof block !== 'object' || block === null) return null;
   const { id, title, startTime, endTime, color } = block as Record<string, unknown>;
-  if (typeof id !== 'string' || id === '') return null;
+  if (!isUsableId(id)) return null;
   if (!isClockTime(startTime) || !isClockTime(endTime)) return null;
   const item: CalendarItem = {
-    id: makeCalendarItemId('timeblock', note.path, id),
+    id: makeCalendarItemId('timeblock', note.path, `${id}${twinSuffix}`),
     family: 'timeblock',
     title: typeof title === 'string' && title.trim() !== '' ? title : UNTITLED_TIMEBLOCK_TITLE,
     startDay: note.date,
@@ -91,10 +113,36 @@ export function expandTimeblockItems(input: TimeblockExpansionInput): CalendarIt
   const items: CalendarItem[] = [];
   for (const note of input.dailyNotes) {
     if (!Array.isArray(note.timeblocks)) continue;
-    for (const block of note.timeblocks) {
-      const item = toCalendarItem(note, block);
-      if (item !== null) items.push(item);
-    }
+    // Wrap validation too: a throwing accessor/Proxy on a block must skip that
+    // block, not abort the note's whole expansion.
+    const ids = note.timeblocks.map((block) => {
+      try {
+        return validTimeblockId(block);
+      } catch {
+        return null;
+      }
+    });
+    const idCounts = new Map<string, number>();
+    for (const id of ids) if (id !== null) idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    note.timeblocks.forEach((block, index) => {
+      const id = ids[index];
+      let twinSuffix = '';
+      if (typeof id === 'string' && (idCounts.get(id) ?? 0) > 1) {
+        const ordinal = (seen.get(id) ?? 0) + 1;
+        seen.set(id, ordinal);
+        twinSuffix = `${TWIN_SEPARATOR}${ordinal}`;
+      }
+      try {
+        const item = toCalendarItem(note, block, twinSuffix);
+        if (item !== null) items.push(item);
+      } catch (error) {
+        // Last-resort ingestion boundary: a pathological id (e.g. a lone
+        // surrogate reaching encodeURIComponent) skips this one block rather
+        // than aborting the whole snapshot build. Debug-gated breadcrumb only.
+        dlog('[calendar] skipped a malformed timeblock', error);
+      }
+    });
   }
   return { items, occupancyByTaskPath };
 }

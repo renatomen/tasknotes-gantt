@@ -31,6 +31,8 @@ import type { TimerScheduler } from '../../src/bases/scheduler';
 
 const DAILY_PATH = 'Daily/2026-08-03.md';
 const DAILY_DAY = '2026-08-03';
+/** The NUL twin separator the source appends to duplicate timeblock ids. */
+const TWIN_SEP = String.fromCodePoint(0);
 
 const CONTEXT: CalendarItemQueryContext = {
   window: { startDate: '2026-08-01', endDateExclusive: '2026-09-01' },
@@ -224,6 +226,86 @@ describe('timeblockSource — titles, colors, and ids', () => {
     expect(batch.items.map((item) => item.id)).toEqual([
       makeCalendarItemId('timeblock', DAILY_PATH, 'block-1'),
       makeCalendarItemId('timeblock', DAILY_PATH, 'block-2'),
+    ]);
+  });
+
+  it('disambiguates two blocks that share an id so neither aliases the other', async () => {
+    const first = deepWorkBlock({ id: 'dup', title: 'Morning' });
+    const second = deepWorkBlock({ id: 'dup', title: 'Afternoon' });
+
+    const batch = await makeSource([dailyNote([first, second])]).collect(CONTEXT);
+
+    const ids = batch.items.map((item) => item.id);
+    expect(ids).toEqual([
+      makeCalendarItemId('timeblock', DAILY_PATH, `dup${TWIN_SEP}1`),
+      makeCalendarItemId('timeblock', DAILY_PATH, `dup${TWIN_SEP}2`),
+    ]);
+    // The suffix must not collide with a distinct block whose raw id ends "#N".
+    expect(ids).not.toContain(makeCalendarItemId('timeblock', DAILY_PATH, 'dup#1'));
+    expect(new Set(ids).size).toBe(2);
+    expect(batch.items).toHaveLength(2);
+  });
+
+  it('keeps a twin pair distinct from a sibling whose raw id ends in "#N"', async () => {
+    const first = deepWorkBlock({ id: 'dup', title: 'A' });
+    const second = deepWorkBlock({ id: 'dup', title: 'B' });
+    const collider = deepWorkBlock({ id: 'dup#1', title: 'C' });
+
+    const batch = await makeSource([dailyNote([first, second, collider])]).collect(CONTEXT);
+
+    const ids = batch.items.map((item) => item.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(batch.items).toHaveLength(3);
+  });
+
+  it('rejects an id containing the NUL twin separator so it cannot alias a twin', async () => {
+    const bad = deepWorkBlock({ id: `x${TWIN_SEP}1` });
+
+    const batch = await makeSource([dailyNote([bad, deepWorkBlock()])]).collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.id)).toEqual([
+      makeCalendarItemId('timeblock', DAILY_PATH, 'block-1'),
+    ]);
+  });
+
+  it('skips a block with a throwing property accessor without aborting siblings', async () => {
+    const throwing = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('boom');
+        },
+      },
+    );
+
+    const batch = await makeSource([dailyNote([throwing, deepWorkBlock()])]).collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.id)).toEqual([
+      makeCalendarItemId('timeblock', DAILY_PATH, 'block-1'),
+    ]);
+  });
+
+  it('skips a block whose id throws during id encoding without aborting the batch', async () => {
+    // A lone UTF-16 surrogate makes encodeURIComponent throw inside makeCalendarItemId.
+    const bad = deepWorkBlock({ id: String.fromCodePoint(0xd800) });
+
+    const batch = await makeSource([dailyNote([bad, deepWorkBlock()])]).collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.id)).toEqual([
+      makeCalendarItemId('timeblock', DAILY_PATH, 'block-1'),
+    ]);
+  });
+
+  it('assigns twin ordinals over valid blocks only, ignoring an invalid block between twins', async () => {
+    const first = deepWorkBlock({ id: 'dup', title: 'Morning' });
+    const invalid = deepWorkBlock({ id: '', title: 'dropped' });
+    const second = deepWorkBlock({ id: 'dup', title: 'Evening' });
+
+    const batch = await makeSource([dailyNote([first, invalid, second])]).collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.id)).toEqual([
+      makeCalendarItemId('timeblock', DAILY_PATH, `dup${TWIN_SEP}1`),
+      makeCalendarItemId('timeblock', DAILY_PATH, `dup${TWIN_SEP}2`),
     ]);
   });
 });
