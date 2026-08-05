@@ -526,6 +526,25 @@ describe('createExternalCalendarSource — ICS dialect normalization', () => {
     expect(batch.items[0].endDay).toBe('2026-08-10');
   });
 
+  it('collapses an all-day event whose exclusive end is a midnight datetime, not a bare date', async () => {
+    // Google/Microsoft style: allDay true but the end arrives as `…T00:00:00`.
+    // The midnight datetime is the same exclusive whole-day boundary as a bare
+    // date, so the event occupies only 2026-08-10 (not through 08-11).
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({ start: '2026-08-10T00:00:00', end: '2026-08-11T00:00:00', allDay: true }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-10');
+  });
+
   it('renders a multi-day all-day event through its last occupied day (exclusive DTEND minus one)', async () => {
     const fixture = pluginFixture({
       subscriptions: [icsSubscription()],

@@ -48,6 +48,7 @@ export {
   createExternalCalendarSource,
   externalCalendarFeedKey,
   hasExternalCalendarProviders,
+  isIcsServiceFailing,
   readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,

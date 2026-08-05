@@ -69,6 +69,15 @@ const FLOATING_DATE_TIME_PATTERN =
   /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
 const FLOATING_MIDNIGHT_PATTERN = /^\d{4}-\d{2}-\d{2}T00:00(?::00(?:\.0+)?)?$/;
 
+/**
+ * Whether a value is a floating (zone-less) datetime at exactly midnight
+ * (`YYYY-MM-DDT00:00[:00[.0…]]`). An all-day DTEND that arrives as a midnight
+ * datetime rather than a bare date is still an exclusive whole-day boundary.
+ */
+export function isFloatingMidnight(value: unknown): boolean {
+  return typeof value === 'string' && FLOATING_MIDNIGHT_PATTERN.test(value.trim());
+}
+
 /** Whether a value is a floating date-only string (`YYYY-MM-DD`). */
 export function isLocalDayString(value: unknown): value is LocalDay {
   return typeof value === 'string' && DATE_ONLY_PATTERN.test(value);

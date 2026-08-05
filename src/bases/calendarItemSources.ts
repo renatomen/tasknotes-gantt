@@ -39,6 +39,7 @@ import {
   createTimeblockSource,
   createTimeEntrySource,
   hasExternalCalendarProviders,
+  isIcsServiceFailing,
   type CalendarDerivationWindow,
   type CalendarItemQueryContext,
   type CalendarItemSource,
@@ -419,7 +420,9 @@ export function createCalendarItemSourcesProvider(
       // watcher must exist to observe its return instead of waiting for an
       // unrelated Bases refresh. Kept alive across later empties once created.
       const canCreateExternal =
-        visibleFeeds.size > 0 || hasExternalCalendarProviders(taskNotesPlugin);
+        visibleFeeds.size > 0 ||
+        hasExternalCalendarProviders(taskNotesPlugin) ||
+        isIcsServiceFailing(taskNotesPlugin);
       if (external === null && hasPlugin && canCreateExternal && deps.scheduler) {
         external = createExternal(taskNotesPlugin, deps.scheduler);
         externalTaskNotesPlugin = taskNotesPlugin;

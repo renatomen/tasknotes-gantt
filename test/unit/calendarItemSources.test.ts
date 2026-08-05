@@ -644,6 +644,26 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(families(provideSources(harness))).toContain('external-event');
     });
 
+    it('creates the watcher for an ICS-only view when getSubscriptions throws', () => {
+      // The ICS service is present but momentarily failing (getSubscriptions
+      // throws), so a selected subscription can't be enumerated — the watcher
+      // must exist to observe the service recovering. No provider is connected.
+      const plugin = {
+        icsSubscriptionService: {
+          getSubscriptions: () => {
+            throw new Error('subscriptions cold');
+          },
+          getAllEvents: () => [],
+          on: () => () => {},
+        },
+        calendarProviderRegistry: { getAllProviders: () => [] },
+      };
+      const harness = makeHarness([], { taskNotesPlugin: plugin });
+
+      expect(harness.visibleFeeds.size).toBe(0);
+      expect(families(provideSources(harness))).toContain('external-event');
+    });
+
     it('keeps the source alive as a fetch-free watcher when every feed is hidden, clearing loading on collect', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],

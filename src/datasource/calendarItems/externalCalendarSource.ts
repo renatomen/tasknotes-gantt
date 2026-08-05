@@ -33,6 +33,7 @@ import { asRecord, makeCalendarItemId } from './types';
 import { dlog } from '../../debugLog';
 import {
   intersectsWindow,
+  isFloatingMidnight,
   isLocalDayString,
   localDaySpanOfInstants,
   localDayOfWallClock,
@@ -300,6 +301,25 @@ export function hasExternalCalendarProviders(plugin: unknown): boolean {
   }
 }
 
+/**
+ * Whether the ICS subscription service is present but its getSubscriptions read
+ * currently THROWS — a transient failure worth creating the discovery watcher
+ * for, so a selected subscription's return is observed once the service
+ * recovers. A service that reads successfully (even to an empty list) is NOT
+ * failing: a genuinely empty subscription set must not spin up a watcher on
+ * every view, since the ICS service itself is always present. Total over unknown.
+ */
+export function isIcsServiceFailing(plugin: unknown): boolean {
+  const getSubscriptions = methodOf(icsService(plugin), 'getSubscriptions');
+  if (!getSubscriptions) return false;
+  try {
+    getSubscriptions();
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /** Current provider calendars via the guarded registry surface; absence → empty. */
 export function readExternalProviderCalendars(plugin: unknown): readonly ExternalProviderCalendar[] {
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
@@ -368,9 +388,13 @@ function allDaySpan(event: ExternalEvent): LocalDaySpan | null {
   if (event.end === undefined) return { startDay, endDay: startDay };
   let endDay = localDayOfWallClock(event.end);
   if (endDay === null) return null;
-  // iCalendar DTEND for VALUE=DATE is exclusive and TaskNotes passes it
-  // verbatim, so the last occupied day is the day before.
-  if (isLocalDayString(event.end) && endDay > startDay) endDay = shiftLocalDay(endDay, -1);
+  // iCalendar DTEND for an all-day event is exclusive and TaskNotes passes it
+  // verbatim, so the last occupied day is the day before. The end can arrive as
+  // a bare date (VALUE=DATE) OR as a midnight datetime (Google/Microsoft style
+  // `…T00:00:00`); both are the same exclusive whole-day boundary, so key the
+  // adjustment on all-day midnight semantics, not only the date-only shape.
+  const endsOnWholeDayBoundary = isLocalDayString(event.end) || isFloatingMidnight(event.end);
+  if (endsOnWholeDayBoundary && endDay > startDay) endDay = shiftLocalDay(endDay, -1);
   return orderedSpan(startDay, endDay);
 }
 
