@@ -382,6 +382,39 @@ describe('createExternalCalendarSource — ICS dialect normalization', () => {
     expect(batch.items[0].color).toBe('#c0392b');
   });
 
+  it('skips an ICS event with a malformed id without aborting the whole collect', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        // A lone UTF-16 surrogate id makes encodeURIComponent throw in the id build.
+        icsEvent({ id: String.fromCodePoint(0xd800), title: 'Broken' }),
+        icsEvent({ id: 'work-cal-uid-ok', title: 'Good' }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].title).toBe('Good');
+  });
+
+  it('keeps surrounding events in order when a middle event id is malformed', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({ id: 'e-a', title: 'A', start: '2026-08-10T09:00:00Z', end: '2026-08-10T10:00:00Z' }),
+        icsEvent({ id: String.fromCodePoint(0xd800), title: 'Bad' }),
+        icsEvent({ id: 'e-c', title: 'C', start: '2026-08-11T09:00:00Z', end: '2026-08-11T10:00:00Z' }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.title)).toEqual(['A', 'C']);
+  });
+
   it('converts foreign-offset UTC-instant events to observer-local day spans (real items, not empties)', async () => {
     // 2026-08-04 00:30 local, stamped at an offset one hour behind: the wall
     // date reads the PREVIOUS day, so naive date-part reading would misfile it.

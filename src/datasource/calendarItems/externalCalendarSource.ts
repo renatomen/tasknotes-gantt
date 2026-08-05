@@ -25,6 +25,7 @@
 import type { TimerScheduler } from '../../bases/scheduler';
 import type { CalendarItem, CalendarItemSource, LocalDay } from './types';
 import { asRecord, makeCalendarItemId } from './types';
+import { dlog } from '../../debugLog';
 import {
   isLocalDayString,
   localDaySpanOfInstants,
@@ -628,12 +629,26 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
     seriesByFeedAndId.set(groupKey, { ...group, occurrences: [...group.occurrences, occurrence] });
   }
   const ordinals = idlessOrdinals(singleEntries);
-  const singles = singleEntries.map((entry) =>
-    toSingleItem(entry, singleDiscriminator(entry.occurrence, ordinals)),
-  );
-  const series = [...seriesByFeedAndId.values()]
-    .map((group) => toSeriesItem(group.feedKey, group.seriesId, group.occurrences))
-    .filter((item): item is CalendarItem => item !== null);
+  // Per-fact ingestion boundary: a malformed external id (e.g. a lone-surrogate
+  // UID reaching encodeURIComponent in makeCalendarItemId) skips just that one
+  // feed entry rather than aborting the whole external collect.
+  const singles: CalendarItem[] = [];
+  for (const entry of singleEntries) {
+    try {
+      singles.push(toSingleItem(entry, singleDiscriminator(entry.occurrence, ordinals)));
+    } catch (error) {
+      dlog('[calendar] skipped a malformed external event', error);
+    }
+  }
+  const series: CalendarItem[] = [];
+  for (const group of seriesByFeedAndId.values()) {
+    try {
+      const item = toSeriesItem(group.feedKey, group.seriesId, group.occurrences);
+      if (item !== null) series.push(item);
+    } catch (error) {
+      dlog('[calendar] skipped a malformed external series', error);
+    }
+  }
   return [...singles, ...series];
 }
 

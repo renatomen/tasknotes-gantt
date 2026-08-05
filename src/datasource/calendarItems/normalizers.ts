@@ -26,6 +26,12 @@ function formatLocalDay(date: Date): LocalDay {
   return `${year}-${month}-${day}`;
 }
 
+// An ISO datetime with an optional zone (Z or ±HH:MM). Captures the date and
+// clock parts so an impossible one (2026-02-30T12:00Z, T24:00) is rejected
+// BEFORE `Date` silently rolls it into the next month/day.
+const ISO_INSTANT_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
 /**
  * The observer-local calendar day an absolute instant falls on, or `null`
  * when the value is not a parseable timestamp string. Accepts `unknown` so
@@ -33,7 +39,15 @@ function formatLocalDay(date: Date): LocalDay {
  */
 export function localDayOfInstant(instant: unknown): LocalDay | null {
   if (typeof instant !== 'string' || instant.trim() === '') return null;
-  const parsed = new Date(instant);
+  const trimmed = instant.trim();
+  // Validate ISO-shaped components first; a non-ISO but Date-parseable string
+  // keeps its prior behavior, so no valid format regresses.
+  const iso = ISO_INSTANT_PATTERN.exec(trimmed);
+  if (iso !== null) {
+    const [, day = '', hour, minute, second] = iso;
+    if (!isRealCalendarDay(day) || !isRealWallClockTime(hour, minute, second)) return null;
+  }
+  const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return null;
   return formatLocalDay(parsed);
 }

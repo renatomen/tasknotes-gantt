@@ -220,6 +220,19 @@ describe('propertyEventSource — emission gating', () => {
       expect(batch.items).toEqual([]);
     },
   );
+
+  it('drops an event whose start is a shape-valid but impossible floating datetime', async () => {
+    // 2026-02-30T12:00 would roll to Mar 2 under Date; it must be rejected.
+    const bad = noteEntry('events/bad.md', {
+      eventStart: '2026-02-30T12:00',
+      eventEnd: '2026-08-05',
+      eventTitle: 'Impossible',
+    });
+
+    const batch = await makeSource().collect(contextOver([bad]));
+
+    expect(batch.items).toEqual([]);
+  });
 });
 
 describe('propertyEventSource — title resolution', () => {

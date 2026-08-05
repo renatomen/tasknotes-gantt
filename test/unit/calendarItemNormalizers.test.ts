@@ -100,6 +100,9 @@ describe('localDayOfInstant — offset-aware local-day attribution', () => {
     { caseName: 'undefined', value: undefined },
     { caseName: 'null', value: null },
     { caseName: 'a number', value: 1754200000000 },
+    { caseName: 'an impossible offset-stamped date', value: '2026-02-30T12:00:00Z' },
+    { caseName: 'an out-of-range offset-stamped hour', value: '2026-08-10T24:00:00Z' },
+    { caseName: 'an out-of-range minute with a numeric offset', value: '2026-08-10T12:60:00+05:00' },
   ])('returns null for $caseName', ({ value }) => {
     expect(localDayOfInstant(value)).toBeNull();
   });
