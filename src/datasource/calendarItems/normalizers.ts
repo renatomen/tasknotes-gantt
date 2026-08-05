@@ -67,15 +67,33 @@ export function localDayOfInstant(instant: unknown): LocalDay | null {
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const FLOATING_DATE_TIME_PATTERN =
   /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+const ISO_DATE_PREFIX_PATTERN = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/;
 const FLOATING_MIDNIGHT_PATTERN = /^\d{4}-\d{2}-\d{2}T00:00(?::00(?:\.0+)?)?$/;
+// A whole-day (midnight) boundary for an all-day event: a bare date, OR a
+// datetime at exactly midnight in ANY zone (floating, `Z`, or ±HH:MM). Google/
+// Microsoft serialize all-day DTSTART/DTEND this way; every such boundary is the
+// same exclusive whole-day edge regardless of the (irrelevant) zone.
+const ALL_DAY_MIDNIGHT_PATTERN =
+  /^\d{4}-\d{2}-\d{2}(?:T00:00(?::00(?:\.0+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/** Whether a value is an all-day whole-day (midnight) boundary in any zone. */
+export function isAllDayMidnightBoundary(value: unknown): boolean {
+  return typeof value === 'string' && ALL_DAY_MIDNIGHT_PATTERN.test(value.trim());
+}
 
 /**
- * Whether a value is a floating (zone-less) datetime at exactly midnight
- * (`YYYY-MM-DDT00:00[:00[.0…]]`). An all-day DTEND that arrives as a midnight
- * datetime rather than a bare date is still an exclusive whole-day boundary.
+ * The floating calendar day an all-day boundary names — its date part read
+ * VERBATIM, never zone-converted. An all-day event means "this date wherever the
+ * observer is", so an offset-stamped midnight (`…T00:00:00Z`) must not shift to
+ * the previous local day the way an absolute instant would. `null` when the
+ * value is not a date-prefixed string or names an impossible day.
  */
-export function isFloatingMidnight(value: unknown): boolean {
-  return typeof value === 'string' && FLOATING_MIDNIGHT_PATTERN.test(value.trim());
+export function floatingDayOf(value: unknown): LocalDay | null {
+  if (typeof value !== 'string') return null;
+  const match = ISO_DATE_PREFIX_PATTERN.exec(value.trim());
+  if (match === null) return null;
+  const day = match[1] ?? '';
+  return isRealCalendarDay(day) ? day : null;
 }
 
 /** Whether a value is a floating date-only string (`YYYY-MM-DD`). */

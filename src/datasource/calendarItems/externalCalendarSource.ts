@@ -32,8 +32,9 @@ import type {
 import { asRecord, makeCalendarItemId } from './types';
 import { dlog } from '../../debugLog';
 import {
+  floatingDayOf,
   intersectsWindow,
-  isFloatingMidnight,
+  isAllDayMidnightBoundary,
   isLocalDayString,
   localDaySpanOfInstants,
   localDayOfWallClock,
@@ -361,19 +362,22 @@ function isAllDayShaped(event: ExternalEvent): boolean {
 }
 
 function allDaySpan(event: ExternalEvent): LocalDaySpan | null {
-  const startDay = localDayOfWallClock(event.start);
+  // Read all-day boundaries as FLOATING dates (date part verbatim), never as
+  // instants: an all-day event names a calendar day regardless of the observer's
+  // zone, so an offset-stamped midnight (`…T00:00:00Z`) must not zone-shift to an
+  // adjacent local day the way localDayOfWallClock would convert an instant.
+  const startDay = floatingDayOf(event.start);
   if (startDay === null) return null;
   if (event.end === undefined) return { startDay, endDay: startDay };
-  let endDay = localDayOfWallClock(event.end);
+  const endDay = floatingDayOf(event.end);
   if (endDay === null) return null;
   // iCalendar DTEND for an all-day event is exclusive and TaskNotes passes it
-  // verbatim, so the last occupied day is the day before. The end can arrive as
-  // a bare date (VALUE=DATE) OR as a midnight datetime (Google/Microsoft style
-  // `…T00:00:00`); both are the same exclusive whole-day boundary, so key the
-  // adjustment on all-day midnight semantics, not only the date-only shape.
-  const endsOnWholeDayBoundary = isLocalDayString(event.end) || isFloatingMidnight(event.end);
-  if (endsOnWholeDayBoundary && endDay > startDay) endDay = shiftLocalDay(endDay, -1);
-  return orderedSpan(startDay, endDay);
+  // verbatim, so the last occupied day is the day before — when the end lands on
+  // a whole-day (midnight) boundary in ANY zone (bare date, or a `…T00:00[:00]`
+  // datetime with Z/offset), not only the date-only shape.
+  const exclusiveEnd =
+    isAllDayMidnightBoundary(event.end) && endDay > startDay ? shiftLocalDay(endDay, -1) : endDay;
+  return orderedSpan(startDay, exclusiveEnd);
 }
 
 function timedSpan(event: ExternalEvent): LocalDaySpan | null {

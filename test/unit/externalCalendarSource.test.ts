@@ -570,6 +570,27 @@ describe('createExternalCalendarSource — ICS dialect normalization', () => {
     expect(batch.items[0].endDay).toBe('2026-08-10');
   });
 
+  it('collapses an all-day event whose boundaries are OFFSET-STAMPED midnights (read floating, not zone-shifted)', async () => {
+    // Some feeds serialize all-day boundaries as UTC midnights (`…T00:00:00Z`).
+    // An all-day event names a calendar day regardless of zone, so the boundary
+    // must be read as its floating date — not converted as an instant (which in
+    // US zones would shift the start to 08-09) — and the exclusive DTEND applied,
+    // so it occupies exactly 2026-08-10.
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [
+        icsEvent({ start: '2026-08-10T00:00:00Z', end: '2026-08-11T00:00:00Z', allDay: true }),
+      ],
+    });
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-10');
+  });
+
   it('renders a multi-day all-day event through its last occupied day (exclusive DTEND minus one)', async () => {
     const fixture = pluginFixture({
       subscriptions: [icsSubscription()],
