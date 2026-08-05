@@ -198,6 +198,10 @@ describe('buildSvarTasks — family off, recorded pieces (plain bar retained)', 
       ['2026-01-15', 'completed'],
       ['2026-01-16', 'skipped'],
     ]);
+    // The bar span is still the authored scheduled→due span (not a derived
+    // envelope), so it stays an editable task bar with its link affordances —
+    // no affordance-hiding recurring cue.
+    expect(task!.type).not.toContain(RECURRING_TYPE);
   });
 });
 

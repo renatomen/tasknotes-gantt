@@ -443,15 +443,17 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     const displayedOccupancy = hiddenSources?.has('recurring-instance')
       ? occupancy.filter((entry) => entry.family !== 'recurring-instance')
       : occupancy;
-    // The recurring cue marks occupancy-rendered TASK rows only; an event
-    // row's occupancy (external series pieces) renders under its og-event cue.
-    if (displayedOccupancy.length > 0 && !inst.calendarItem) classes.push(RECURRING_TYPE);
+    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, displayedOccupancy);
+    // The recurring cue hides the link handles and neutralizes the cursor
+    // because the bar span is DERIVED geometry — an occupancy envelope. A row
+    // whose occupancy stays within its authored scheduled→due span renders its
+    // pieces over a normal editable bar, so it keeps its link affordances; only
+    // an envelope row (not an event row) earns the affordance-hiding cue.
+    if (envelope !== null && !inst.calendarItem) classes.push(RECURRING_TYPE);
     // Read-only calendar-item event row: the og-event cue drives the read-only
     // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
     if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
-
-    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, displayedOccupancy);
 
     const task: SvarTask = {
       id: inst.id,

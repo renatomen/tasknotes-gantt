@@ -278,11 +278,16 @@
         <div
           class="og-instance og-instance-plain og-indicative"
           style="left:{pct(occupancyView.plain.left)};width:{pct(occupancyView.plain.width)};"
+          {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
         ></div>
       {/if}
+      <!-- Coarse-zoom envelope geometry: block the drag-gesture exactly like the
+           day/hour pieces (an authored-span overlay, occupancyEnvelope false,
+           stays editable and passes the gesture through to its bar). -->
       <div
         class="og-series-spine"
         style="left:{pct(occupancyView.left)};width:{pct(occupancyView.width)};"
+        {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
       ></div>
     {/if}
     {@render barContent()}
