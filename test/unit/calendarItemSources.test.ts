@@ -761,7 +761,10 @@ describe('createCalendarItemSourcesProvider', () => {
         taskNotesPlugin: fixture.plugin,
         onExternalBatchFlags,
       });
-      visibleWorkFeed(harness);
+      // A provider feed is visible but the registry is absent, so the provider
+      // surface is read and its absence degrades the collect (an ICS-only view
+      // would NOT be degraded by the missing registry — see the ICS-only test).
+      harness.visibleFeeds.add(externalCalendarFeedKey('google', 'cal1'));
       const source = provideSources(harness).find((entry) => entry.family === 'external-event')!;
 
       const batch = await collectOne(source);
