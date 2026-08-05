@@ -368,13 +368,35 @@ describe('createExternalCalendarSource — guarded service absence', () => {
       ...fixture.plugin,
       calendarProviderRegistry: { getAllProviders: () => malformedProviders },
     };
-    const { source } = makeSource(plugin, ALL_WORK_VISIBLE);
+    // A provider feed is visible, so the provider surface is read and its
+    // malformed entries degrade the collect.
+    const { source } = makeSource(plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
 
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toEqual([]);
     expect(batch.degraded).toBe(true);
     expect(readExternalCalendarDiscovery(plugin).degraded).toBe(true);
+  });
+
+  it('does not degrade an ICS-only view when the provider registry is absent or throwing', async () => {
+    // An ICS-only selection must not be marked degraded (which would suppress its
+    // cold-cache loading indicator) just because the Google/Microsoft registry is
+    // missing — the provider is irrelevant to a view that selected no provider feed.
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], icsEvents: [icsEvent()] });
+    const plugin = {
+      icsSubscriptionService: fixture.icsSubscriptionService,
+      calendarProviderRegistry: {
+        getAllProviders: () => {
+          throw new Error('registry offline');
+        },
+      },
+    };
+    const { source } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.degraded).toBeFalsy();
   });
 
   it('attaches a later provider\'s data-changed listener when an earlier provider\'s on() throws', () => {

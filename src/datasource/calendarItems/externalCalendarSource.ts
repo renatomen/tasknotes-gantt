@@ -913,10 +913,22 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
       // selection must not initiate one. A gated-out surface is simply absent
       // from the set, so it never counts as degraded.
       const icsPrefix = externalCalendarFeedKey('ics', '');
+      const providerPrefixes = [
+        externalCalendarFeedKey('google', ''),
+        externalCalendarFeedKey('microsoft', ''),
+      ];
       const hasVisibleIcs = [...visible].some((key) => key.startsWith(icsPrefix));
+      // Read the provider surface only when a provider feed is visible, mirroring
+      // the ICS gate: an ICS-only view must not be marked degraded (which would
+      // suppress its cold-cache loading indicator) just because the Google/
+      // Microsoft registry is absent or momentarily throwing — the provider is
+      // irrelevant to a view that selected no provider feed.
+      const hasVisibleProvider = [...visible].some((key) =>
+        providerPrefixes.some((prefix) => key.startsWith(prefix)),
+      );
       const surfaces = [
         ...(hasVisibleIcs ? [readIcsSurface(plugin)] : []),
-        readProviderSurface(plugin),
+        ...(hasVisibleProvider ? [readProviderSurface(plugin)] : []),
       ];
       const present = surfaces.filter((surface): surface is SurfaceRead => surface !== null);
       const degraded =
