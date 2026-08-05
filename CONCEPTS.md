@@ -101,7 +101,9 @@ The union contract with the TaskNotes calendar: with equivalent toggles set, the
 A display-time affordance that shows or hides an active item source immediately — keyboard operable, per view, without a settings round-trip. The clutter control that lets flat event rows replace a grouping hierarchy.
 
 ### Floating time
-A stored datetime with no timezone (all TaskNotes-native date fields), interpreted per RFC 5545 as "this wall-clock time wherever the observer currently is". The gantt attributes floating values to the observer's local day, matching calendar behavior; zone-carrying values (ICS UTC, offset-stamped time entries) are converted to local time first.
+A stored datetime with no timezone (all TaskNotes-native date fields), interpreted per RFC 5545 as "this wall-clock time wherever the observer currently is". The gantt attributes floating values to the observer's local day, matching calendar behavior; a zone-carrying DATE-TIME (ICS UTC, offset-stamped time entries) is an absolute instant, converted to local time first.
+
+An all-day boundary is the exception: it denotes a zone-independent calendar date (RFC 5545 DATE semantics), so it is read verbatim by its date prefix even when a feed serializes it as a UTC- or offset-stamped midnight — the zone on an all-day midnight is a serialization artifact, and the date never shifts across a timezone boundary.
 
 ### Projected instance
 A recurring-task occurrence computed from the parent note's recurrence rule for the visible window — display-only, existing in no note. Distinct from a recorded instance (a date the parent lists as completed or skipped) and suppressed for any date owned by a materialized occurrence.
