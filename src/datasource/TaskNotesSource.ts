@@ -73,6 +73,15 @@ export const TASKNOTES_CHANGE_EVENTS = [
   'task.projects.changed',
   'task.created',
   'task.deleted',
+  // Recurrence-state changes re-derive the recurring calendar-item family
+  // (instance days, recorded completed/skipped sets, materialized index).
+  'task.recurrence.changed',
+  'recurring.instance.completed',
+  'recurring.instance.skipped',
+  // Time-tracking starts/stops re-derive the time-entry calendar-item family
+  // (an entry gaining its endTime is what makes it render).
+  'time.started',
+  'time.stopped',
 ] as const;
 
 /** Handler invoked when a subscribed TaskNotes change event fires. */
@@ -98,6 +107,19 @@ export type TaskNotesBlockedByEntry =
   | string
   | { uid?: string | null; reltype?: string | null; gap?: string | null };
 
+/**
+ * One tracked work session on a task, as TaskNotes stores it. `startTime`/
+ * `endTime` are ISO timestamps carrying the recorder's UTC offset (absolute
+ * instants, unlike the naive date fields); a running session has no `endTime`.
+ */
+export interface TaskNotesTimeEntry {
+  startTime: string;
+  endTime?: string;
+  /** Duration in minutes. */
+  duration?: number;
+  description?: string;
+}
+
 /** A TaskNotes task record (only the fields this source reads). */
 export interface TaskNotesTaskInfo {
   /** Stable identity: the note path. */
@@ -114,6 +136,26 @@ export interface TaskNotesTaskInfo {
   due?: Date | string | null;
   /** Raw dependency edges (predecessors), verbatim. */
   blockedBy?: ReadonlyArray<TaskNotesBlockedByEntry> | null;
+  // Recurrence slice. All canonical TaskInfo field names: TaskNotes' own
+  // field mapper resolves user-remapped frontmatter property names to these
+  // before they reach the api surface, so consuming them here is the
+  // property-agnostic read path (never a hardcoded frontmatter name).
+  /** RRULE recurrence string (may embed a `DTSTART:` prefix). */
+  recurrence?: string | null;
+  /** Recurrence anchor mode (`scheduled` | `completion`). */
+  recurrence_anchor?: string | null;
+  /** Recorded completed instance dates (`yyyy-MM-dd`), possibly off-pattern. */
+  complete_instances?: readonly string[] | null;
+  /** Recorded skipped instance dates (`yyyy-MM-dd`), possibly off-pattern. */
+  skipped_instances?: readonly string[] | null;
+  /** Link/path reference to the recurring parent (materialized occurrences). */
+  recurrence_parent?: string | null;
+  /** The materialized occurrence's date (`yyyy-MM-dd`). */
+  occurrence_date?: string | null;
+  /** Time estimate in minutes. */
+  timeEstimate?: number | null;
+  /** Tracked work sessions (finished and running). */
+  timeEntries?: ReadonlyArray<TaskNotesTimeEntry> | null;
 }
 
 /** A TaskNotes custom-status definition (the slice consumed for bar coloring). */
@@ -384,6 +426,11 @@ export class TaskNotesSource implements DataSource {
     return new TaskNotesSource(app, api);
   }
 
+  /** Current TaskNotes API object identity, or `undefined` when unavailable. */
+  public static apiIdentity(app: App): unknown {
+    return TaskNotesSource.resolveApi(app) ?? undefined;
+  }
+
   /**
    * Resolve the TaskNotes api object via the plugin registry, guarded.
    *
@@ -426,6 +473,25 @@ export class TaskNotesSource implements DataSource {
         return [];
       }
       return tasks.map((task) => this.toSourceTask(task));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The raw TaskNotes TaskInfo records, verbatim from `api.tasks.list()` — the
+   * canonical, field-mapper-resolved read the calendar-item families derive
+   * from (recurrence state, time entries), which {@link getTasks}' SourceTask
+   * projection drops. Read-only; `[]` on any failure (same tolerance as
+   * {@link getTasks}).
+   */
+  public async listTaskInfos(): Promise<readonly TaskNotesTaskInfo[]> {
+    try {
+      if (!this.api.tasks || typeof this.api.tasks.list !== 'function') {
+        return [];
+      }
+      const tasks = await this.api.tasks.list();
+      return Array.isArray(tasks) ? tasks : [];
     } catch {
       return [];
     }

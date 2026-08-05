@@ -89,6 +89,35 @@ A list or property value in its verbatim stored form, including wikilink bracket
 ### Display form
 The human-facing rendering of a stored value with wikilink brackets stripped and aliases resolved to their label. Distinct from the raw entry: seeding or committing an editor from the display form silently discards the underlying link, so raw entries are the source of truth for editing.
 
+## Calendar-view union
+
+### Item family
+One of the kinds of calendar item the TaskNotes calendar can display and the gantt can ingest: task date events (scheduled, due, scheduled-to-due span), recurring task instances, time entries, timeblocks, property-based events, and external calendar events (ICS, Google, Microsoft). Each family has its own access path, datetime dialect, and per-view visibility toggles.
+
+### Dataset parity
+The union contract with the TaskNotes calendar: with equivalent toggles set, the gantt's underlying item set matches what the calendar shows for the same vault and window. Presentation may differ — day-granularity bars versus calendar cells — the data may not.
+
+### Quick source switcher
+A display-time affordance that shows or hides an active item source immediately — keyboard operable, per view, without a settings round-trip. The clutter control that lets flat event rows replace a grouping hierarchy.
+
+### Floating time
+A stored datetime with no timezone (all TaskNotes-native date fields), interpreted per RFC 5545 as "this wall-clock time wherever the observer currently is". The gantt attributes floating values to the observer's local day, matching calendar behavior; a zone-carrying DATE-TIME (ICS UTC, offset-stamped time entries) is an absolute instant, converted to local time first.
+
+An all-day boundary is the exception: it denotes a zone-independent calendar date (RFC 5545 DATE semantics), so it is read verbatim by its date prefix even when a feed serializes it as a UTC- or offset-stamped midnight — the zone on an all-day midnight is a serialization artifact, and the date never shifts across a timezone boundary.
+
+### Projected instance
+A recurring-task occurrence computed from the parent note's recurrence rule for the visible window — display-only, existing in no note. Distinct from a recorded instance (a date the parent lists as completed or skipped) and suppressed for any date owned by a materialized occurrence.
+
+### Materialized occurrence
+A real task note representing one occurrence of a recurring task, linked to its parent and date. Wherever it exists, it replaces the projected instance for that parent/date pair — in the calendar and therefore in the gantt.
+
+### Occupancy run
+The inverse of a ghost run: a contiguous run of days a recurring series actually occupies inside its envelope bar, rendered as a solid per-instance piece while the gaps between instances render nothing. Same segment engine as ghost runs, opposite emphasis.
+
+### Series spine
+The honest degraded form of a recurring row at zoom levels where per-instance pieces cannot tile faithfully: a dashed line spanning first-to-last instance, asserting only the series' extent — never a solid bar, which would claim continuous occupancy.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.
+- "Calendar" spans two unrelated features: calendar availability (working-time shading and stretch, from calendar notes) and the calendar-view union (TaskNotes calendar items as bars). Qualify the word when context does not disambiguate.

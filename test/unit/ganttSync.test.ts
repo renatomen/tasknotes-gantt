@@ -29,12 +29,15 @@ import {
   buildInstanceCueTaskTypes,
   REPLICATED_TYPE,
   CONTEXT_TYPE,
+  EVENT_TYPE,
   type SvarTask,
   type SvarTaskInputs,
   type TaskSyncPlan,
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
+import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
+import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource/calendarItems';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
@@ -59,6 +62,9 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     ghostRuns: over.ghostRuns,
     stretchFlagged: over.stretchFlagged,
     interpretationOverridden: over.interpretationOverridden,
+    calendarItem: over.calendarItem,
+    occupancy: over.occupancy,
+    plainBarSuppressed: over.plainBarSuppressed,
   };
 }
 
@@ -652,6 +658,115 @@ describe('instance cues (U6)', () => {
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE}`);
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`);
   });
+
+  // The read-only event-row cue joins the registered superset — an
+  // unregistered composite `type` silently collapses to plain `task` in SVAR,
+  // dropping the row's read-only styling.
+  it('registers the og-event cue and its base-crossed forms', () => {
+    const ids = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
+    expect(ids).toContain(EVENT_TYPE);
+    expect(ids).toContain(`${DATE_STATUS_TYPE} ${EVENT_TYPE}`);
+  });
+
+  it('stamps a calendar-item row with og-event and the composed type round-trips through registration', () => {
+    const eventId = 'og-calendar://timeblock/Calendar%2Fblocks.md@2026-08-03';
+    const tasks = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'timeblock',
+              title: 'Deep work',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              notePath: 'Calendar/blocks.md',
+            },
+          }),
+        ],
+      }),
+    );
+    expect(tasks[0]!.type).toBe(EVENT_TYPE);
+    const registered = buildInstanceCueTaskTypes([DATE_STATUS_TYPE]).map((t) => t.id);
+    expect(registered).toContain(tasks[0]!.type);
+  });
+
+  it('threads a safe calendar-item source color into the bar payload', () => {
+    const eventId = makeCalendarItemId('external-event', 'ics:work@2026-08-03');
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'external-event',
+              title: 'Team sync',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              color: '#c0392b',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(task?.custom.calendarItemColor).toBe('#c0392b');
+  });
+
+  it('drops an unsafe calendar-item source color from the bar payload', () => {
+    const eventId = makeCalendarItemId('external-event', 'ics:work@2026-08-03');
+    const [task] = buildSvarTasks(
+      inputs({
+        instances: [
+          inst({
+            id: eventId,
+            sourcePath: eventId,
+            calendarItem: {
+              id: eventId,
+              family: 'external-event',
+              title: 'Team sync',
+              startDay: '2026-08-03',
+              endDay: '2026-08-03',
+              color: 'red; background: url(bad)',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(task?.custom.calendarItemColor).toBeUndefined();
+  });
+
+  it('re-syncs a calendar-item row when only its source color changes', () => {
+    const eventId = makeCalendarItemId('timeblock', 'daily@block');
+    const taskWithColor = (color: string) =>
+      buildSvarTasks(
+        inputs({
+          instances: [
+            inst({
+              id: eventId,
+              sourcePath: eventId,
+              calendarItem: {
+                id: eventId,
+                family: 'timeblock',
+                title: 'Focus',
+                startDay: '2026-08-03',
+                endDay: '2026-08-03',
+                color,
+              },
+            }),
+          ],
+        }),
+      )[0]!;
+
+    expect(taskStateKey(taskWithColor('#c0392b'))).not.toBe(
+      taskStateKey(taskWithColor('#2980b9')),
+    );
+  });
 });
 
 describe('planTaskSync', () => {
@@ -1104,5 +1219,44 @@ describe('echoTaskPatch', () => {
     const patch = echoTaskPatch(geometryPayload([], false), current);
 
     expect((patch as { custom: SvarTask['custom'] }).custom.stretchFlagged).toBeUndefined();
+  });
+
+  const occupiedDays = (...days: string[]): CalendarOccupancy[] =>
+    days.map((d) => ({
+      family: 'recurring-instance',
+      itemId: makeCalendarItemId('recurring-instance', 'a.md', d),
+      day: d,
+      minutes: null,
+      stateClass: 'completed',
+    }));
+
+  it('drops the derived-occupancy marks on a geometry echo: the echoed span is executor-owned, never the envelope', () => {
+    const current = customOf({
+      occupancy: occupiedDays('2026-01-02', '2026-01-10'),
+      plainBarSuppressed: true,
+    });
+    expect(hasDerivedBarGeometry(current)).toBe(true);
+
+    const patch = echoTaskPatch(geometryPayload([]), current);
+
+    const custom = (patch as { custom: SvarTask['custom'] }).custom;
+    expect(custom.occupancyRuns).toBeUndefined();
+    expect(custom.occupancyEnvelope).toBeUndefined();
+    // The strip removes exactly what the derived-geometry guard keys on, so
+    // the cascade snapshot overlay trusts the echoed span on a stacked move.
+    expect(hasDerivedBarGeometry(custom)).toBe(false);
+    // Everything else in the row's custom record rides along untouched.
+    expect(custom).toMatchObject({ ...current, occupancyRuns: undefined, occupancyEnvelope: undefined });
+  });
+
+  it('keeps the derived-occupancy marks on a progress echo: only a geometry write disowns the envelope', () => {
+    const current = customOf({ occupancy: occupiedDays('2026-01-02'), plainBarSuppressed: true });
+
+    const patch = echoTaskPatch({ kind: 'progress', progress: 40 }, current);
+
+    // A progress-only patch carries no custom record, so the store's — marks
+    // included — stays exactly as it was.
+    expect(patch).toEqual({ progress: 40 });
+    expect(hasDerivedBarGeometry(current)).toBe(true);
   });
 });

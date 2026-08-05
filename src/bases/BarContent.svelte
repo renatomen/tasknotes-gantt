@@ -13,9 +13,16 @@
   // library's transparency condition instead of fighting its fill rule. When
   // the scale snapshot is unavailable the bar degrades to its continuous form.
   //
+  // A row with per-instance occupancy (custom.occupancyRuns — the recurring
+  // family) renders on the same substrate: one whole-day piece per instance
+  // with a state class, gaps unrendered so the calendar shading reads through;
+  // at zooms coarser than day/hour a dashed series spine spans first→last
+  // instance instead. The host goes transparent only when the occupancy
+  // ENVELOPE replaced the plain bar (custom.occupancyEnvelope).
+  //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element, MutationObserver, Event */
+  /* global Element, HTMLElement, MutationObserver, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -24,9 +31,13 @@
   import {
     canTileSubSpans,
     ghostRunSegments,
+    occupancyRender,
     segmentPieces,
     type GhostRunSpan,
+    type OccupancyPiece,
+    type OccupancyRunSpan,
   } from '../render/segmentLayout';
+  import { resolveOccupancyActivationPath } from './occupancyDisplay';
 
   // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
   // three so the assignment typechecks. Fields are optional/loose so SVAR's
@@ -38,8 +49,12 @@
       start?: Date;
       end?: Date;
       custom?: {
+        sourceTaskId?: string;
         barIcon?: IconSpec | null;
         ghostRuns?: readonly GhostRunSpan[];
+        occupancyRuns?: readonly OccupancyRunSpan[];
+        occupancyEnvelope?: boolean;
+        calendarItemColor?: string;
         interpretationOverridden?: EstimateMeaning;
       };
     };
@@ -80,7 +95,53 @@
     }));
   });
 
+  // Per-instance occupancy (recurring rows): tiled whole-day pieces at day/hour
+  // zoom, a dashed series spine at coarser zooms — never a solid continuous
+  // claim. Null (no runs / no usable scale) falls through to the other branches.
+  const occupancyView = $derived.by(() => {
+    const runs = data?.custom?.occupancyRuns;
+    if (!runs?.length || !(data.start instanceof Date) || !(data.end instanceof Date) || !api) {
+      return null;
+    }
+    const snapshot = scaleSnapshot(api as IApi);
+    if (!snapshot) return null;
+    return occupancyRender(runs, data.start, data.end, snapshot);
+  });
+
   const pct = (fraction: number): string => `${(fraction * 100).toFixed(4)}%`;
+
+  const pieceClass = (piece: OccupancyPiece): string =>
+    piece.stateClass ? `og-instance og-instance-${piece.stateClass}` : 'og-instance';
+
+  const pieceTitle = (piece: OccupancyPiece): string =>
+    piece.stateClass ? `${piece.day} — ${piece.stateClass}` : piece.day;
+
+  /** The path this piece activates: its materialized note, else the owning task. */
+  const pieceActivatePath = (piece: OccupancyPiece): string | undefined => {
+    const sourceTaskId = data?.custom?.sourceTaskId;
+    return sourceTaskId ? resolveOccupancyActivationPath(piece, sourceTaskId) : undefined;
+  };
+
+  /**
+   * Swallow drag-initiating events (pointer, mouse AND touch — SVAR starts a
+   * bar drag from all three) so pressing the node — an occupancy piece or the
+   * override dot — can never move the bar's dates; click/dblclick still
+   * bubble, so selection, hover tooltips, and piece-routed activation keep
+   * working.
+   */
+  function stopDragEvents(node: Element): () => void {
+    const stop = (e: Event): void => e.stopPropagation();
+    const events = ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const;
+    for (const evt of events) node.addEventListener(evt, stop);
+    return () => {
+      for (const evt of events) node.removeEventListener(evt, stop);
+    };
+  }
+
+  function stopDragEventsWhen(enabled: boolean) {
+    return (node: Element): (() => void) | undefined =>
+      enabled ? stopDragEvents(node) : undefined;
+  }
 
   /**
    * Stamp SVAR's own `wx-split` class on the host bar so its
@@ -109,6 +170,39 @@
   }
 
   /**
+   * Conditional {@link markBarSplit}: an occupancy ENVELOPE goes transparent so
+   * only its pieces paint (the plain scheduled→due bar is suppressed); with the
+   * family off the host bar keeps its fill and the recorded pieces overlay it.
+   */
+  function markBarSplitWhen(enabled: boolean) {
+    return (node: Element): (() => void) | undefined =>
+      enabled ? markBarSplit(node) : undefined;
+  }
+
+  function colorCalendarItemBar(color: string | undefined) {
+    return (node: Element): (() => void) | undefined => {
+      if (!color) return undefined;
+      const bar = node.closest('.wx-bar');
+      if (!(bar instanceof HTMLElement)) return undefined;
+      const eventColor = bar.style.getPropertyValue('--og-event-color');
+      const ghostFill = bar.style.getPropertyValue('--og-ghost-fill');
+      const wasSourceColored = bar.hasAttribute('data-og-source-colored');
+      bar.style.setProperty('--og-event-color', color);
+      bar.style.setProperty('--og-ghost-fill', color);
+      bar.setAttribute('data-og-source-colored', '');
+      return () => {
+        eventColor
+          ? bar.style.setProperty('--og-event-color', eventColor)
+          : bar.style.removeProperty('--og-event-color');
+        ghostFill
+          ? bar.style.setProperty('--og-ghost-fill', ghostFill)
+          : bar.style.removeProperty('--og-ghost-fill');
+        if (!wasSourceColored) bar.removeAttribute('data-og-source-colored');
+      };
+    };
+  }
+
+  /**
    * Attach the upper-left corner override dot to the host bar (R11). Mirrors
    * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the dot
    * must anchor to the bar in both the plain and ghost-run branches) and appends
@@ -124,17 +218,15 @@
       const dot = document.createElement('span');
       dot.className = 'og-override-dot';
       dot.title = tooltip;
-      // The dot sits on the bar's top-left corner, which is SVAR's start-resize
-      // zone — and SVAR begins a drag from mouse/pointer AND touch events on
-      // `.wx-bars`. Stop every drag-initiating event from bubbling out of the dot
-      // so inspecting the indicator — including a long-press on touch — can't move
-      // the start date; hover and the `title` tooltip still work.
-      const stopDrag = (e: Event): void => e.stopPropagation();
-      for (const evt of ['pointerdown', 'mousedown', 'touchstart', 'touchmove'] as const) {
-        dot.addEventListener(evt, stopDrag);
-      }
+      // The dot sits on the bar's top-left corner — SVAR's start-resize zone —
+      // so inspecting the indicator (including a long-press on touch) must not
+      // move the start date.
+      const removeDragStops = stopDragEvents(dot);
       bar.appendChild(dot);
-      return () => dot.remove();
+      return () => {
+        removeDragStops();
+        dot.remove();
+      };
     };
   }
 </script>
@@ -142,7 +234,8 @@
 {#snippet barContent()}
   <div
     class="wx-content"
-    class:og-ghost-label={ghostPieces}
+    class:og-ghost-label={Boolean(ghostPieces) || Boolean(occupancyView)}
+    {@attach colorCalendarItemBar(data?.custom?.calendarItemColor)}
     {@attach markBarOverridden(overrideTooltip)}
   >
     {#if spec}
@@ -163,7 +256,43 @@
   </div>
 {/snippet}
 
-{#if ghostPieces}
+{#if occupancyView}
+  <div
+    class="og-ghost-runs"
+    {@attach markBarSplitWhen(data?.custom?.occupancyEnvelope === true)}
+  >
+    {#if occupancyView.kind === 'pieces'}
+      {#each occupancyView.pieces as piece (piece.day)}
+        <div
+          class={pieceClass(piece)}
+          title={pieceTitle(piece)}
+          data-og-instance={piece.day}
+          data-og-activate-path={pieceActivatePath(piece)}
+          style="left:{pct(piece.left)};width:{pct(piece.width)};"
+          {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
+        ></div>
+      {/each}
+    {:else}
+      {#if occupancyView.plain}
+        <!-- The kept plain scheduled→due bar at coarse zoom: indicative precision, exactly like the spine. -->
+        <div
+          class="og-instance og-instance-plain og-indicative"
+          style="left:{pct(occupancyView.plain.left)};width:{pct(occupancyView.plain.width)};"
+          {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
+        ></div>
+      {/if}
+      <!-- Coarse-zoom envelope geometry: block the drag-gesture exactly like the
+           day/hour pieces (an authored-span overlay, occupancyEnvelope false,
+           stays editable and passes the gesture through to its bar). -->
+      <div
+        class="og-series-spine"
+        style="left:{pct(occupancyView.left)};width:{pct(occupancyView.width)};"
+        {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
+      ></div>
+    {/if}
+    {@render barContent()}
+  </div>
+{:else if ghostPieces}
   <div class="og-ghost-runs" {@attach markBarSplit}>
     {#each ghostPieces as piece, index (index)}
       <div

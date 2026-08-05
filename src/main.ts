@@ -4,6 +4,7 @@ import {
   getActiveGanttFocusEntry,
   getActiveGanttCalendarPickerEntry,
 } from './bases/register';
+import { registerSourceSwitcherCommand } from './bases/sourceSwitcher';
 import { ReleaseNotesView, RELEASE_NOTES_VIEW_TYPE } from './release/ReleaseNotesView';
 import { RELEASE_NOTES_BUNDLE, type ReleaseNoteVersion } from './releaseNotes';
 import {
@@ -120,6 +121,10 @@ export default class ObsidianGanttPlugin extends Plugin {
         return true;
       },
     });
+    // Quick source switcher for the active Gantt view (instant per-source
+    // show/hide). Same activation shape as focus-task and select-calendars:
+    // available only while a Gantt (OG) view is mounted.
+    registerSourceSwitcherCommand(this);
     // The always-available escape hatch from the calendar editor back to the
     // markdown floor, as a command as well as the pane menu.
     this.addCommand({

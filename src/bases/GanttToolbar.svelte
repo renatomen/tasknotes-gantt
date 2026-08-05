@@ -3,11 +3,12 @@
    * Gantt per-view toolbar (plan 002 U4). Slim control surface rendered above
    * the chart only when the per-view `tngantt_showToolbar` toggle is on.
    *
-   * v1 holds a single control: a 3-state Auto / Light / Dark theme switch (R3,
-   * R7). On change it calls `onModeChange` — the parent (GanttContainer) owns the
-   * live theme `mode` write so the reseed + theme flip batch in one tick (U2);
-   * the parent's callback also persists the per-view config (U3). The toolbar
-   * never writes `mode` locally and never touches Bases config directly.
+   * Controls: a 3-state Auto / Light / Dark theme switch and — when the host
+   * supplies the opener — a quick-source-switcher button. On change the theme
+   * switch calls `onModeChange` — the parent (GanttContainer) owns the live
+   * theme `mode` write so the reseed + theme flip batch in one tick; the
+   * parent's callback also persists the per-view config. The toolbar never
+   * writes `mode` locally and never touches Bases config directly.
    *
    * Styled with Obsidian CSS variables so it reads as native chrome — the chart
    * itself is themed by the SVAR wrapper, but this toolbar lives in Obsidian's
@@ -20,9 +21,20 @@
     mode: ThemeMode;
     /** Notify the parent of the chosen mode; the parent updates state + persists. */
     onModeChange: (mode: ThemeMode) => void;
+    /**
+     * Open the quick source switcher. Presence-gated like the container's other
+     * optional interaction callbacks: the button renders only when the host
+     * supplies the opener.
+     */
+    onOpenSourceSwitcher?: () => void;
+    /**
+     * External-calendar caches are still cold (fetches in flight upstream).
+     * Renders a muted transient indicator; absent/false renders nothing.
+     */
+    externalEventsLoading?: boolean;
   }
 
-  let { mode, onModeChange }: Props = $props();
+  let { mode, onModeChange, onOpenSourceSwitcher, externalEventsLoading = false }: Props = $props();
 
   const choices: ReadonlyArray<{ value: ThemeMode; label: string }> = [
     { value: 'auto', label: 'Auto' },
@@ -54,6 +66,24 @@
       {/each}
     </div>
   </div>
+  {#if onOpenSourceSwitcher}
+    <div class="og-toolbar-group">
+      <button
+        type="button"
+        class="og-toolbar-button"
+        aria-haspopup="dialog"
+        aria-label="Quick source switcher"
+        onclick={onOpenSourceSwitcher}
+      >
+        Sources
+      </button>
+    </div>
+  {/if}
+  {#if externalEventsLoading}
+    <div class="og-toolbar-group" role="status" aria-live="polite">
+      <span class="og-toolbar-loading">Fetching external events…</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -113,5 +143,27 @@
 
   .og-segment.is-active:hover {
     background: var(--interactive-accent-hover, var(--interactive-accent));
+  }
+
+  .og-toolbar-button {
+    appearance: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 4px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    padding: var(--size-4-1, 4px) var(--size-4-2, 8px);
+    cursor: pointer;
+    font-size: inherit;
+    line-height: 1.4;
+    box-shadow: none;
+  }
+
+  .og-toolbar-button:hover {
+    background: var(--background-modifier-hover);
+  }
+
+  .og-toolbar-loading {
+    color: var(--text-muted);
+    font-style: italic;
   }
 </style>
