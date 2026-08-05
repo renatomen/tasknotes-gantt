@@ -630,9 +630,13 @@
       // piece (if any) this pointer went down on, paired with its bar's id so a
       // later activation of a DIFFERENT row can never borrow it. Captured here
       // because the activation paths (select-task / show-editor intercepts)
-      // carry no DOM target. Every press elsewhere clears it.
+      // carry no DOM target. Only the PRIMARY button arms it — a right/middle
+      // press opens a menu, not a piece activation — and every press elsewhere
+      // (or with a non-primary button) clears it.
       const piece =
-        e.target instanceof Element ? e.target.closest('[data-og-activate-path]') : null;
+        e.button === 0 && e.target instanceof Element
+          ? e.target.closest('[data-og-activate-path]')
+          : null;
       const rawBarId = piece?.closest('[data-id]')?.getAttribute('data-id') ?? null;
       const activatePath = piece?.getAttribute('data-og-activate-path') ?? null;
       lastPieceActivation =
@@ -682,14 +686,28 @@
       e.stopPropagation();
       onBarContextMenu(path, e);
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      // A keyboard activation (Enter → show-editor) acts on the SELECTED ROW,
+      // never a pointer-targeted occupancy piece. Clear the pointer's piece
+      // binding on any real keypress so it can never leak into a keyboard action
+      // — captured on window, before SVAR's own key handler runs. A bare
+      // modifier (Ctrl held for a ctrl+click) must NOT clear it, or it would
+      // wipe the binding the modified pointer-click is about to use.
+      if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') {
+        return;
+      }
+      lastPieceActivation = null;
+    };
     el.addEventListener('mousedown', onPointerDown, true);
     // Reset on window so a drag that ends off the grid still clears the flag.
     window.addEventListener('mouseup', onPointerUp, true);
+    window.addEventListener('keydown', onKeyDown, true);
     el.addEventListener('dblclick', onDblClick, true);
     el.addEventListener('contextmenu', onContextMenu, true);
     return () => {
       el.removeEventListener('mousedown', onPointerDown, true);
       window.removeEventListener('mouseup', onPointerUp, true);
+      window.removeEventListener('keydown', onKeyDown, true);
       el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('contextmenu', onContextMenu, true);
     };
@@ -3312,12 +3330,15 @@
   /*
    * Coarse-zoom fallback: a dashed series spine spanning first→last
    * instance — explicitly not a solid bar claiming continuous occupancy.
+   * Follows the bar's own feed colour (--og-ghost-fill, like the ghost pieces)
+   * so a coloured external series keeps its identity at coarse zoom; a plain
+   * recurring row (no ghost fill) falls back to the accent.
    */
   .og-bases-gantt :global(.og-series-spine) {
     position: absolute;
     top: calc(50% - 1px);
     height: 0;
-    border-top: 2px dashed var(--interactive-accent);
+    border-top: 2px dashed var(--og-ghost-fill, var(--interactive-accent));
     z-index: 1;
   }
 
