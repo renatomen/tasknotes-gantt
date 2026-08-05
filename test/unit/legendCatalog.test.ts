@@ -225,6 +225,17 @@ describe('buildLegendCatalog', () => {
     );
   });
 
+  it('renders the estimate override decoration on a production task-bar host', () => {
+    const context = baseContext({
+      calendarDisplayedCount: 1,
+      estimateOverrideMapped: true,
+    });
+
+    expect(entry(context, 'estimate-override').sample.classTokens).toEqual(
+      expect.arrayContaining(['wx-bar', 'og-override-dot']),
+    );
+  });
+
   it('does not present scheduling-calendar semantics for an unselected vault palette', () => {
     const ids = entries(
       baseContext({

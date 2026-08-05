@@ -452,7 +452,7 @@ function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
     case 'context-task':
       return [classes.bar, classes.context];
     case 'estimate-override':
-      return [classes.overrideDot];
+      return [classes.bar, classes.overrideDot];
     case 'bar-treatment':
     case 'bar-icon':
     case 'working-time-extension':

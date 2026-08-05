@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, MutationObserver, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -8,7 +8,7 @@
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
-  import { Notice, TFile } from 'obsidian';
+  import { Notice, Scope, TFile } from 'obsidian';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -128,6 +128,15 @@
   import { createDragExecutor, type CascadePhase } from './dragExecutor';
   import { createDragPromptResolver } from './dragPromptResolver';
   import { dlog } from '../debugLog';
+  import GanttLegend from './GanttLegend.svelte';
+  import { buildLegendCatalog } from './legendCatalog';
+  import {
+    CLOSED_LEGEND_SESSION,
+    reduceLegendSession,
+    resolveLegendLayout,
+    type LegendPosition,
+    type LegendSessionState,
+  } from './legendLayout';
 
   // The toggle handler our floating full-screen button invokes (wired as an
   // onclick; it ignores the event). Named alias so the snippet signature can be
@@ -454,6 +463,94 @@
   // LIVE toggle (show/hide without a remount). Default off (R6) is preserved by
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
+
+  // The legend is presentation-only: every opening copies the latest Appearance
+  // default into local session state, while live Right/Bottom moves stay local.
+  // The catalogue consumes the same effective values already driving the chart.
+  let legendSession = $state<LegendSessionState>(CLOSED_LEGEND_SESSION);
+  let legendTriggerEl: HTMLButtonElement | undefined = $state();
+  let chartHostEl: HTMLElement | undefined = $state();
+  let chartHostWidth = $state(0);
+  let chartHostHeight = $state(0);
+  let legendEscapeScope: Scope | undefined;
+  let legendOverlayObserver: MutationObserver | undefined;
+  const legendGroups = $derived($data.legendContext ? buildLegendCatalog($data.legendContext) : []);
+  const legendLayout = $derived(
+    legendSession.open
+      ? resolveLegendLayout({
+          position: legendSession.position,
+          width: chartHostWidth,
+          height: chartHostHeight,
+        })
+      : null,
+  );
+
+  $effect(() => {
+    const host = chartHostEl;
+    if (!host) return;
+    const measure = (): void => {
+      const bounds = host.getBoundingClientRect();
+      chartHostWidth = bounds.width;
+      chartHostHeight = bounds.height;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  });
+
+  function openLegend(): void {
+    legendSession = reduceLegendSession(legendSession, {
+      type: 'open',
+      defaultPosition: $data.defaultLegendPosition,
+    });
+    activateLegendEscapeScope();
+  }
+
+  function moveLegend(position: LegendPosition): void {
+    legendSession = reduceLegendSession(legendSession, { type: 'move', position });
+  }
+
+  async function closeLegend(): Promise<void> {
+    if (!legendSession.open) return;
+    deactivateLegendEscapeScope();
+    legendSession = reduceLegendSession(legendSession, { type: 'close' });
+    await tick();
+    legendTriggerEl?.focus();
+  }
+
+  function deactivateLegendEscapeScope(): void {
+    legendOverlayObserver?.disconnect();
+    legendOverlayObserver = undefined;
+    if (legendEscapeScope) app.keymap.popScope(legendEscapeScope);
+    legendEscapeScope = undefined;
+  }
+
+  function activateLegendEscapeScope(): void {
+    deactivateLegendEscapeScope();
+    const scope = new Scope();
+    scope.register([], 'Escape', (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void closeLegend();
+      return false;
+    });
+    app.keymap.pushScope(scope);
+    legendEscapeScope = scope;
+
+    // Obsidian popups push a newer keymap scope after opening. Reassert ours
+    // only when such an overlay appears so the first Escape remains Legend's.
+    let overlayPresent = Boolean(document.querySelector(OBSIDIAN_OVERLAY_SELECTOR));
+    legendOverlayObserver = new MutationObserver(() => {
+      const nextOverlayPresent = Boolean(document.querySelector(OBSIDIAN_OVERLAY_SELECTOR));
+      if (nextOverlayPresent && !overlayPresent) {
+        app.keymap.popScope(scope);
+        app.keymap.pushScope(scope);
+      }
+      overlayPresent = nextOverlayPresent;
+    });
+    legendOverlayObserver.observe(document.body, { childList: true, subtree: true });
+  }
 
   // External-calendar fetching indicator, store-driven like showToolbar so the
   // transient loading state appears/clears live without a remount.
@@ -1250,6 +1347,7 @@
   let hostGeneration = 0;
   let destroyed = false;
   onDestroy(() => {
+    deactivateLegendEscapeScope();
     destroyed = true;
     hostGeneration += 1;
   });
@@ -1357,6 +1455,7 @@
       registerEscape: (onEscape) => {
         const handler = (e: KeyboardEvent): void => {
           if (e.key !== 'Escape') return;
+          if (document.querySelector('.og-gantt-legend')) return;
           if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
           onEscape();
         };
@@ -2567,7 +2666,12 @@
     </div>
   {/if}
 
-  <div class="gtcell">
+  <div class="gtcell" bind:this={chartHostEl}>
+    <div
+      class="og-chart-surface"
+      inert={legendLayout === 'full'}
+      aria-hidden={legendLayout === 'full' ? 'true' : undefined}
+    >
     <!-- Full screen = "maximize within Obsidian" (plan 2026-06-30-002): the view
          root carries `.is-maximized` (CSS below) to fill the Obsidian window in
          Obsidian's own stacking context, so popups (Edit Modal, command palette,
@@ -2675,6 +2779,28 @@
     <!-- Floating full-screen toggle, rendered as a child of `.gtcell` so it stays
          visible while maximized (it used to be rendered by SVAR's <Fullscreen>). -->
     {@render maximizeToggle(toggleMaximize, isMaximized)}
+    <button
+      bind:this={legendTriggerEl}
+      type="button"
+      class="og-legend-toggle"
+      onclick={openLegend}
+      aria-label="Legend"
+      title="Legend"
+      aria-expanded={legendSession.open}
+    >
+      <span class="og-legend-toggle-icon" aria-hidden="true" use:lucideIcon={'book-open'}></span>
+    </button>
+    </div>
+
+    {#if legendSession.open && legendLayout}
+      <GanttLegend
+        groups={legendGroups}
+        layout={legendLayout}
+        position={legendSession.position}
+        onPositionChange={moveLegend}
+        onDismiss={() => { void closeLegend(); }}
+      />
+    {/if}
   </div>
 
   <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
@@ -2764,6 +2890,12 @@
     height: 100%;
     /* Position relative for floating zoom controls (OG-81) */
     position: relative;
+  }
+
+  .og-chart-surface {
+    position: relative;
+    width: 100%;
+    height: 100%;
   }
 
   /* Row drag-reorder is vetoed at the store (move-task intercept), but SVAR's
@@ -2899,6 +3031,38 @@
     height: 18px;
     pointer-events: none;
   }
+
+  .og-legend-toggle {
+    position: absolute;
+    top: 64px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: max(44px, var(--input-height, 0px));
+    height: max(44px, var(--input-height, 0px));
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 4px;
+    background-color: #ffffff;
+    color: #5f6368;
+    cursor: pointer;
+    appearance: none;
+    box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .og-legend-toggle:active { background-color: #e0e0e0; }
+  .og-legend-toggle:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+  }
+  .og-legend-toggle-icon { display: flex; width: 18px; height: 18px; pointer-events: none; }
+  .og-legend-toggle-icon :global(svg) { width: 18px; height: 18px; stroke: currentColor; }
 
   /* Style the Lucide SVG injected by Obsidian's setIcon (OG-81) */
   .zoom-icon :global(svg) {

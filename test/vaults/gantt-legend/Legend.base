@@ -1,0 +1,22 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.name == "Legend Task"'
+views:
+  - type: obsidianGantt
+    name: "Legend"
+    tngantt_startDateProperty: note.begin
+    tngantt_endDateProperty: note.finish
+    tngantt_calendarProperty: note.calendar
+    tngantt_statusProperty: note.status
+    tngantt_priorityProperty: note.priority
+    tngantt_barFillSource: calendar
+    tngantt_barStripSource: priority
+    tngantt_barIcon: status
+    tngantt_showDateIndicators: false
+    tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    tngantt_defaultLegendPosition: right
+    tngantt_maxHeight: 400
+    order:
+      - file.name
