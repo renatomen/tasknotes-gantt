@@ -406,7 +406,10 @@ describe('createExternalCalendarSource — guarded service absence', () => {
     };
     const microsoft = providerFixture({ providerId: 'microsoft', calendars: [{ id: 'calA', summary: 'Outlook' }] });
     const fixture = pluginFixture({ providers: [broken.provider, microsoft.provider] });
-    const { source } = makeSource(fixture.plugin, new Set());
+    const { source } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('microsoft', 'calA')]),
+    );
 
     microsoft.emitter.emit('data-changed');
 
@@ -1185,13 +1188,25 @@ describe('createExternalCalendarSource — refresh signals', () => {
     expect(source.epoch()).toBe(1);
   });
 
-  it('bumps the epoch when a provider emits data-changed', () => {
-    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+  it('bumps on a provider data-changed while nothing is visible only on a catalog change (discovery)', () => {
+    let calendars: Array<{ id: string; summary: string }> = [{ id: 'cal1', summary: 'Home' }];
+    const google = providerFixture({ providerId: 'google' });
+    google.provider.getAvailableCalendars.mockImplementation(() => calendars);
     const fixture = pluginFixture({ providers: [google.provider] });
     const { source } = makeSource(fixture.plugin, new Set());
 
+    // A routine provider sync (data-changed, catalog unchanged) must not refresh
+    // an empty/opted-out view…
     google.emitter.emit('data-changed');
+    expect(source.epoch()).toBe(0);
 
+    // …but the same emitter signalling a catalog change (a configured feed's
+    // calendar reappearing) is a discovery signal that does bump.
+    calendars = [
+      { id: 'cal1', summary: 'Home' },
+      { id: 'cal2', summary: 'Work' },
+    ];
+    google.emitter.emit('data-changed');
     expect(source.epoch()).toBe(1);
   });
 
@@ -1344,7 +1359,10 @@ describe('createExternalCalendarSource — refresh signals', () => {
       events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
     });
     const fixture = pluginFixture({ providers: [google.provider] });
-    const { source, timers } = makeSource(fixture.plugin, new Set());
+    const { source, timers } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+    );
 
     google.state.events = [
       icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
@@ -1383,7 +1401,10 @@ describe('createExternalCalendarSource — refresh signals', () => {
       events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
     });
     const fixture = pluginFixture({ providers: [google.provider] });
-    const { source, timers } = makeSource(fixture.plugin, new Set());
+    const { source, timers } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+    );
 
     // Same event content, new upstream id: rendered ids derive from the id,
     // so a silent reindex must still count as a change.
@@ -1402,9 +1423,156 @@ describe('createExternalCalendarSource — refresh signals', () => {
       events: [occurrence('google-cal1-master1-0')],
     });
     const fixture = pluginFixture({ providers: [google.provider] });
-    const { source, timers } = makeSource(fixture.plugin, new Set());
+    const { source, timers } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+    );
 
     google.state.events = [occurrence('google-cal1-master1-7')];
+    timers.tick();
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('does not bump on a provider event sync when only an ICS feed is visible', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
+    });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    // Only the ICS feed is visible; the provider is connected but not selected.
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    // A provider event syncs — irrelevant to an ICS-only view, so no epoch bump
+    // (which would otherwise refresh a view that opted out of that feed).
+    google.state.events = [
+      icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
+    ];
+    timers.tick();
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('does not bump when an invisible provider gains a sync token in an ICS-only view', () => {
+    let syncToken: string | undefined;
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+    });
+    google.provider.getSyncToken.mockImplementation(() => syncToken);
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    // The invisible provider completes (gains a sync token) — completion evidence
+    // for a feed this ICS-only view never shows, so it must not bump.
+    syncToken = 'completed-token';
+    timers.tick();
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('does not bump on an ICS service replacement in a provider-only view', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const first = emitterStub();
+    const plugin: { icsSubscriptionService: unknown; calendarProviderRegistry: unknown } = {
+      icsSubscriptionService: {
+        getSubscriptions: () => [],
+        getAllEvents: () => [],
+        getLastFetched: () => undefined,
+        on: first.on,
+      },
+      calendarProviderRegistry: { getAllProviders: () => [google.provider] },
+    };
+    const { source, timers } = makeSource(
+      plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+    );
+
+    // TaskNotes swaps the ICS service — irrelevant to a provider-only view, so
+    // the lifecycle rebind must not refresh it.
+    plugin.icsSubscriptionService = {
+      getSubscriptions: () => [],
+      getAllEvents: () => [],
+      on: () => () => {},
+    };
+    timers.tick();
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('does not bump on a Microsoft event sync when only a Google feed is visible', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'gcal', summary: 'Google' }],
+      events: [icsEvent({ id: 'google-gcal-e1', subscriptionId: 'google-gcal' })],
+    });
+    const microsoft = providerFixture({
+      providerId: 'microsoft',
+      calendars: [{ id: 'mcal', summary: 'Outlook' }],
+      events: [icsEvent({ id: 'microsoft-mcal-e1', subscriptionId: 'microsoft-mcal' })],
+    });
+    const fixture = pluginFixture({ providers: [google.provider, microsoft.provider] });
+    const { source, timers } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'gcal')]),
+    );
+
+    // Microsoft (invisible) syncs its events — a different provider KIND than the
+    // visible Google feed, so it must not refresh the Google-only view.
+    microsoft.state.events = [
+      icsEvent({ id: 'microsoft-mcal-e1', subscriptionId: 'microsoft-mcal', start: '2026-08-11T10:00:00' }),
+    ];
+    timers.tick();
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('does not bump on a Microsoft data-changed emission when only a Google feed is visible', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'gcal', summary: 'Google' }] });
+    const microsoft = providerFixture({ providerId: 'microsoft', calendars: [{ id: 'mcal', summary: 'Outlook' }] });
+    const fixture = pluginFixture({ providers: [google.provider, microsoft.provider] });
+    const { source } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'gcal')]),
+    );
+
+    // The invisible Microsoft provider's emitter fires — its callback is scoped
+    // to the Microsoft kind, which is not visible, so no bump.
+    microsoft.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(0);
+  });
+
+  it('still bumps on a provider catalog change while nothing is visible (discovery)', () => {
+    let calendars: Array<{ id: string; summary: string }> = [];
+    const google = providerFixture({ providerId: 'google' });
+    google.provider.getAvailableCalendars.mockImplementation(() => calendars);
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, new Set());
+
+    // A previously-selected calendar reappears in the catalog — a discovery
+    // signal that must still bump while nothing is visible so the feed can show.
+    calendars = [{ id: 'cal1', summary: 'Home' }];
+    timers.tick();
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('does not bump on a provider event-only change while nothing is visible', () => {
+    const google = providerFixture({
+      providerId: 'google',
+      calendars: [{ id: 'cal1', summary: 'Home' }],
+      events: [icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1' })],
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source, timers } = makeSource(fixture.plugin, new Set());
+
+    // Catalog unchanged; only event CONTENT changes. While nothing is visible the
+    // fingerprint folds the catalog only (discovery), so event syncs don't bump.
+    google.state.events = [
+      icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
+    ];
     timers.tick();
 
     expect(source.epoch()).toBe(0);
@@ -1429,6 +1597,36 @@ describe('createExternalCalendarSource — refresh signals', () => {
 
     expect(onEpochBump).toHaveBeenCalledTimes(1);
     expect(source.epoch()).toBe(1);
+  });
+
+  it('does not bump on a provider data-changed emission when only an ICS feed is visible', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const fixture = pluginFixture({ subscriptions: [icsSubscription()], providers: [google.provider] });
+    const onEpochBump = jest.fn();
+    const { source } = makeSource(fixture.plugin, ALL_WORK_VISIBLE, { onEpochBump });
+
+    // A connected-but-unselected provider fires data-changed; the view is
+    // ICS-only, so the primary emitter signal must not refresh it either.
+    google.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(0);
+    expect(onEpochBump).not.toHaveBeenCalled();
+  });
+
+  it('bumps on a provider data-changed emission when its provider feed is visible', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const onEpochBump = jest.fn();
+    const { source } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+      { onEpochBump },
+    );
+
+    google.emitter.emit('data-changed');
+
+    expect(source.epoch()).toBe(1);
+    expect(onEpochBump).toHaveBeenCalledTimes(1);
   });
 
   it('fires onEpochBump when a fallback tick observes changed cached facts', () => {

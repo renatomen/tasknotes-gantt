@@ -98,6 +98,32 @@ export function externalCalendarFeedKey(kind: ExternalCalendarProviderKind, id: 
   return `${kind}:${id}`;
 }
 
+type ProviderKind = Exclude<ExternalCalendarProviderKind, 'ics'>;
+
+const PROVIDER_KINDS: readonly ProviderKind[] = ['google', 'microsoft'];
+
+interface VisibleFeedKinds {
+  empty: boolean;
+  hasVisibleIcs: boolean;
+  /** The provider KINDS with at least one visible feed (google/microsoft tracked separately). */
+  visibleProviderKinds: ReadonlySet<ProviderKind>;
+}
+
+/** Which external feed KINDS the visible set contains, plus whether it is empty. */
+function visibleFeedKinds(visible: ReadonlySet<string>): VisibleFeedKinds {
+  const keys = [...visible];
+  const visibleProviderKinds = new Set<ProviderKind>();
+  for (const kind of PROVIDER_KINDS) {
+    const prefix = externalCalendarFeedKey(kind, '');
+    if (keys.some((key) => key.startsWith(prefix))) visibleProviderKinds.add(kind);
+  }
+  return {
+    empty: visible.size === 0,
+    hasVisibleIcs: keys.some((key) => key.startsWith(externalCalendarFeedKey('ics', ''))),
+    visibleProviderKinds,
+  };
+}
+
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -172,6 +198,8 @@ interface GuardedProvider {
   events: ExternalEvent[];
   calendars: ExternalProviderCalendar[];
   completedCalendarIds: string[];
+  /** This provider's OWN event-cache read threw — a per-kind degrade signal. */
+  eventsDegraded: boolean;
 }
 
 function providerKindOf(value: unknown): GuardedProvider['kind'] | undefined {
@@ -231,6 +259,7 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
     // degrade handling instead of staying selectable and marked degraded. One
     // throwing provider still loses only its own data; healthy siblings render.
     const events: ExternalEvent[] = [];
+    let eventsDegraded = false;
     try {
       for (const rawEvent of asArray(getAllEvents())) {
         const event = toExternalEvent(rawEvent);
@@ -238,12 +267,14 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
       }
     } catch {
       degraded = true;
+      eventsDegraded = true;
     }
     try {
       const calendars = toProviderCalendars(kind, getAvailableCalendars());
       providers.push({
         kind,
         events,
+        eventsDegraded,
         calendars,
         completedCalendarIds: calendars
           .filter((calendar) => hasProviderSyncToken(provider, calendar.id))
@@ -702,35 +733,75 @@ function fingerprintEvent(event: ExternalEvent): string {
  * deliberately absent — its only fetch-free change signal is the service's
  * `data-changed` emitter.
  */
-function fetchFreeFingerprint(plugin: unknown): string {
-  const parts: string[] = [];
-  for (const subscription of readExternalIcsSubscriptions(plugin)) {
-    parts.push(
+/** ICS subscription config parts — a discovery/config signal, no event content. */
+function icsFingerprintParts(plugin: unknown): string[] {
+  return readExternalIcsSubscriptions(plugin).map(
+    (subscription) =>
       `ics|${subscription.id}|${subscription.name}|${subscription.color ?? ''}|${subscription.enabled}`,
-    );
-  }
-  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
-  if (getAllProviders) {
-    try {
-      const guarded = guardedProviders(getAllProviders());
-      // Fold the degraded flag in: a provider whose event cache throws now keeps
-      // its catalog (unchanged fingerprint), so recovering to a healthy empty
-      // read would otherwise leave the epoch unbumped and the stale degraded
-      // batch cached. The flag flip is the only fetch-free signal of that
-      // transition.
-      parts.push(`providers|degraded|${guarded.degraded}`);
-      for (const provider of guarded.providers) {
-        for (const calendar of provider.calendars) {
-          parts.push(`${provider.kind}|cal|${calendar.id}|${calendar.name}`);
-        }
-        for (const event of provider.events) {
-          parts.push(`${provider.kind}|ev|${fingerprintEvent(event)}`);
-        }
-      }
-    } catch {
-      parts.push('providers|unreadable');
+  );
+}
+
+/**
+ * Fingerprint parts for one provider, scoped PER KIND: `foldCatalog` folds the
+ * calendar catalog (a discovery signal); `foldEvents` folds this provider's own
+ * degrade flag + event content (only while its kind is visible). Keeping this
+ * per provider means a Microsoft sync never perturbs a Google-only view.
+ */
+function oneProviderFingerprintParts(
+  provider: GuardedProvider,
+  foldCatalog: boolean,
+  foldEvents: boolean,
+): string[] {
+  const parts: string[] = [];
+  if (foldCatalog) {
+    for (const calendar of provider.calendars) {
+      parts.push(`${provider.kind}|cal|${calendar.id}|${calendar.name}`);
     }
   }
+  if (foldEvents) {
+    // Per-kind degrade: a provider whose event cache throws keeps its catalog
+    // (unchanged), so recovering to a healthy empty read would otherwise leave
+    // the epoch unbumped — the flag flip is the only fetch-free signal.
+    parts.push(`${provider.kind}|degraded|${provider.eventsDegraded}`);
+    for (const event of provider.events) {
+      parts.push(`${provider.kind}|ev|${fingerprintEvent(event)}`);
+    }
+  }
+  return parts;
+}
+
+function providerFingerprintParts(
+  plugin: unknown,
+  visibleProviderKinds: ReadonlySet<ProviderKind>,
+  empty: boolean,
+): string[] {
+  if (visibleProviderKinds.size === 0 && !empty) return [];
+  const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
+  if (!getAllProviders) return [];
+  try {
+    const guarded = guardedProviders(getAllProviders());
+    const parts: string[] = [];
+    for (const provider of guarded.providers) {
+      const foldEvents = visibleProviderKinds.has(provider.kind);
+      parts.push(...oneProviderFingerprintParts(provider, foldEvents || empty, foldEvents));
+    }
+    return parts;
+  } catch {
+    return ['providers|unreadable'];
+  }
+}
+
+function fetchFreeFingerprint(plugin: unknown, visible: ReadonlySet<string>): string {
+  // Scope the fingerprint to the currently visible feed KINDS so a retained
+  // source (an ICS-only view with providers connected, or one kept alive across
+  // a transient empty) never bumps its epoch — and refreshes the view — on an
+  // unrelated calendar sync. Event content folds only while its kind is visible;
+  // catalogs are a discovery signal that also folds while nothing is visible, so
+  // a previously-selected feed's calendar reappearing is still observed.
+  const { empty, hasVisibleIcs, visibleProviderKinds } = visibleFeedKinds(visible);
+  const parts: string[] = [];
+  if (hasVisibleIcs || empty) parts.push(...icsFingerprintParts(plugin));
+  parts.push(...providerFingerprintParts(plugin, visibleProviderKinds, empty));
   return parts.join('\n');
 }
 
@@ -750,7 +821,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   // service whose emitter is not yet ready at swap time still gets a listener.
   let icsSubscriptionPending = false;
   const providerUnsubscribes = new Map<string, () => void>();
-  let lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
+  let lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin(), deps.visibleFeeds());
 
   // Loading is a per-feed first-signal lifecycle, never an emptiness
   // inference: each configured feed stays loading until its own event or
@@ -767,8 +838,17 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     return changed;
   };
 
-  const recordFetchFreeCompletionEvidence = (): boolean => {
-    return recordCompletedFeedKeys(fetchFreeCompletedFeedKeys(deps.getTaskNotesPlugin()));
+  // Record ALL fetch-free completion evidence (so an invisible feed's completion
+  // is known once it later becomes visible), but report a change ONLY for a
+  // currently-visible feed — an invisible provider gaining a sync token (or an
+  // invisible ICS feed getting a lastFetched) must not bump the current view.
+  const recordFetchFreeCompletionEvidence = (visible: ReadonlySet<string>): boolean => {
+    const feedKeys = fetchFreeCompletedFeedKeys(deps.getTaskNotesPlugin());
+    const visibleNewlyCompleted = feedKeys.some(
+      (feedKey) => visible.has(feedKey) && !completedFeedKeys.has(feedKey),
+    );
+    recordCompletedFeedKeys(feedKeys);
+    return visibleNewlyCompleted;
   };
 
   // Drop ICS completion evidence when the ICS service is replaced: a cold
@@ -781,16 +861,48 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     }
   };
 
-  const bumpOnDataChanged = (): void => {
+  const performBump = (): void => {
     // A listener can outlive dispose when a service's unsubscribe misbehaves;
     // the guard keeps a disposed source from bumping or re-reading services.
     if (disposed) return;
     // Refresh the fingerprint too, so the next fallback tick stays quiet
     // instead of double-bumping for the same change.
-    lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
-    recordFetchFreeCompletionEvidence();
+    lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin(), deps.visibleFeeds());
+    recordFetchFreeCompletionEvidence(deps.visibleFeeds());
     epoch += 1;
     deps.onEpochBump?.();
+  };
+
+  // Bump only when the SCOPED fetch-free fingerprint (or a visible feed's
+  // completion) actually changed — the fallback-tick semantics, reused by the
+  // emitter path while nothing is visible so a routine event sync can't refresh
+  // an opted-out view; only a catalog change (discovery) does.
+  const bumpIfFingerprintChanged = (): void => {
+    if (disposed) return;
+    const fingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin(), deps.visibleFeeds());
+    const completionChanged = recordFetchFreeCompletionEvidence(deps.visibleFeeds());
+    if (fingerprint === lastFingerprint && !completionChanged) return;
+    lastFingerprint = fingerprint;
+    epoch += 1;
+    deps.onEpochBump?.();
+  };
+
+  // Scope the PRIMARY (emitter) refresh signal by kind, exactly like the fallback
+  // fingerprint. A data-changed on a VISIBLE kind bumps unconditionally — for ICS
+  // the emitter is the only fetch-free signal (event content is not fingerprinted).
+  // While NOTHING is visible only a discovery signal (a feed's catalog returning)
+  // should refresh, so route through the fingerprint comparison; a routine sync on
+  // an invisible feed leaves it quiet. A data-changed for a kind that is neither
+  // visible nor the sole reason to watch is ignored.
+  const bumpOnIcsDataChanged = (): void => {
+    const { empty, hasVisibleIcs } = visibleFeedKinds(deps.visibleFeeds());
+    if (hasVisibleIcs) performBump();
+    else if (empty) bumpIfFingerprintChanged();
+  };
+  const bumpOnProviderDataChangedForKind = (kind: ProviderKind): void => {
+    const { empty, visibleProviderKinds } = visibleFeedKinds(deps.visibleFeeds());
+    if (visibleProviderKinds.has(kind)) performBump();
+    else if (empty) bumpIfFingerprintChanged();
   };
 
   const asUnsubscribe = (value: unknown): (() => void) =>
@@ -807,7 +919,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
       return;
     }
     try {
-      icsUnsubscribe = asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged));
+      icsUnsubscribe = asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnIcsDataChanged));
       icsSubscriptionPending = false;
     } catch {
       icsUnsubscribe = undefined;
@@ -839,11 +951,15 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     subscribeIcs(service);
     // A genuine replacement invalidates prior ICS completion (a cold service must
     // re-show loading) and forces one refresh against the new service — a signal
-    // it emitted before we could bind would otherwise be lost.
+    // it emitted before we could bind would otherwise be lost. Scope that refresh
+    // by ICS visibility (like the emitter/tick): a provider-only view doesn't
+    // show the ICS service's data, so an ICS swap must not refresh it. performBump
+    // refreshes the fingerprint too, so a concurrent tick doesn't double-bump.
     if (isReplacement) {
       forgetIcsCompletion();
-      epoch += 1;
-      deps.onEpochBump?.();
+      const { empty, hasVisibleIcs } = visibleFeedKinds(deps.visibleFeeds());
+      if (hasVisibleIcs) performBump();
+      else if (empty) bumpIfFingerprintChanged();
     }
   };
 
@@ -861,12 +977,20 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
       const provider = asRecord(entry);
       const providerId = typeof provider?.providerId === 'string' ? provider.providerId : undefined;
       if (providerId === undefined || providerUnsubscribes.has(providerId)) continue;
+      const kind = providerKindOf(providerId);
       const on = methodOf(provider, 'on');
-      if (!on) continue;
-      // Per-provider guard: one throwing subscription is retried next tick
-      // while every later provider still gets its listener attached now.
+      // A provider of no recognizable kind contributes no rendered feed, so its
+      // emissions can't scope to a visible kind — skip its listener entirely.
+      if (kind === undefined || !on) continue;
+      // Per-provider guard: one throwing subscription is retried next tick while
+      // every later provider still gets its listener attached now. The callback
+      // is scoped to THIS provider's kind so a Microsoft sync never bumps a
+      // Google-only view.
       try {
-        providerUnsubscribes.set(providerId, asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged)));
+        providerUnsubscribes.set(
+          providerId,
+          asUnsubscribe(on(DATA_CHANGED_EVENT, () => bumpOnProviderDataChangedForKind(kind))),
+        );
       } catch {
         // Retried on the next tick.
       }
@@ -882,13 +1006,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   const tick = (): void => {
     if (disposed) return;
     attachEmitters();
-    const fingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
-    const completionChanged = recordFetchFreeCompletionEvidence();
-    if (fingerprint !== lastFingerprint || completionChanged) {
-      lastFingerprint = fingerprint;
-      epoch += 1;
-      deps.onEpochBump?.();
-    }
+    bumpIfFingerprintChanged();
     timer = deps.scheduler.setTimeout(tick, pollIntervalMs);
   };
 
