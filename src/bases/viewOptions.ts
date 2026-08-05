@@ -20,6 +20,7 @@ import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarChannelSource, BarIconSource } from './barTreatment';
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 import type { EstimateMeaning, NonWorkingRendering } from '../controller/calendar/estimateMeaning';
+import type { LegendPosition } from './legendLayout';
 
 /**
  * The field-mapping property options. The Gantt view splits these across its
@@ -420,6 +421,13 @@ function appearanceOptions(): BasesOptions[] {
       key: 'tngantt_showToolbar',
       default: false,
     },
+    {
+      type: 'dropdown',
+      displayName: 'Default legend position',
+      key: 'tngantt_defaultLegendPosition',
+      default: 'right',
+      options: { right: 'Right', bottom: 'Bottom' },
+    },
     // Per-view min-height in px. The chart host never shrinks below this, so a
     // chart reduced to a single (e.g. collapsed) root stays a usable size rather
     // than a sliver. Read in getMinHeight(); clamped to the absolute ~2-row floor
@@ -530,6 +538,10 @@ export function ganttViewOptions(
  */
 export function readShowToolbar(get: (key: string) => unknown): boolean {
   return get('tngantt_showToolbar') === true;
+}
+
+export function readDefaultLegendPosition(get: (key: string) => unknown): LegendPosition {
+  return get('tngantt_defaultLegendPosition') === 'bottom' ? 'bottom' : 'right';
 }
 
 /**
@@ -787,4 +799,3 @@ export function readContextOpacity(get: (key: string) => unknown): number {
   if (!Number.isFinite(pct)) return DEFAULT_CONTEXT_OPACITY;
   return Math.min(1, Math.max(MIN_CONTEXT_OPACITY, pct / 100));
 }
-

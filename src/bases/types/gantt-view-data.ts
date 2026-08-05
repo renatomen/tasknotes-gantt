@@ -28,6 +28,7 @@ import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
 import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
+import type { LegendPosition } from '../legendLayout';
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -46,6 +47,8 @@ export interface GanttData {
    * the toolbar without a remount — same treatment as {@link showDateIndicators}.
    */
   showToolbar: boolean;
+  /** Appearance-owned default copied into local state whenever the legend opens. */
+  defaultLegendPosition: LegendPosition;
   /**
    * Per-view "Highlight weekends" toggle. Flows through the reactive data path
    * (not a static mount prop) so toggling the option live shows/hides the

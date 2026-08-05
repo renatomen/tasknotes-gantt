@@ -81,6 +81,7 @@ export async function assembleGanttData(
     arrowMode,
     showDateIndicators: true,
     showToolbar: false,
+    defaultLegendPosition: 'right',
     highlightWeekends: true,
     showUndatedTasks: true,
     showPartialDateTasks: true,

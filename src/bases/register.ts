@@ -106,6 +106,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readDefaultLegendPosition,
   readHighlightWeekends,
   readEstimateMeaning,
   readNonWorkingRendering,
@@ -920,6 +921,10 @@ class ObsidianGanttBasesView extends BasesView {
     return readShowToolbar((key) => this.config.get(key));
   }
 
+  private getDefaultLegendPosition() {
+    return readDefaultLegendPosition((key) => this.config.get(key));
+  }
+
   /** Read the per-view "Highlight weekends" toggle; default on. */
   private getHighlightWeekends(): boolean {
     return readHighlightWeekends((key) => this.config.get(key));
@@ -1486,6 +1491,7 @@ class ObsidianGanttBasesView extends BasesView {
       arrowMode,
       showDateIndicators: this.getShowDateIndicators(),
       showToolbar: this.getShowToolbar(),
+      defaultLegendPosition: this.getDefaultLegendPosition(),
       highlightWeekends: this.getHighlightWeekends(),
       // #161: the same config key as before, now a view-level display filter.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
