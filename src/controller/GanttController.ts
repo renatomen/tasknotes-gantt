@@ -1551,7 +1551,7 @@ export class GanttController {
     if (willReadTaskFacts && !opts.retriedRead) this.consecutiveReadRetries = 0;
     const readSeq = willReadTaskFacts ? ++this.readStartedSeq : null;
     const next: Snapshot = source
-      ? await this.buildSnapshot(source, !willReadTaskFacts)
+      ? await this.buildSnapshot(source, !willReadTaskFacts, seq)
       : emptySnapshot();
 
     if (this.disposed || seq !== this.recomputeSeq) {
@@ -1612,7 +1612,11 @@ export class GanttController {
    * the feedback loop while the (cheap, Bases-free) companion expansion still
    * re-runs against the fresh config, so the option toggle still applies.
    */
-  private async buildSnapshot(source: DataSource, reuseTasks: boolean): Promise<Snapshot> {
+  private async buildSnapshot(
+    source: DataSource,
+    reuseTasks: boolean,
+    buildSeq: number,
+  ): Promise<Snapshot> {
     const tStart = performance.now(); // [OGDBG #161] stage timing
     const canReuse = reuseTasks && this.cachedRawTasks !== null;
     const rawTasks = canReuse ? this.cachedRawTasks! : await source.getTasks();
@@ -1739,7 +1743,7 @@ export class GanttController {
     }
 
     const sourceLinks = buildSourceLinks(tasks, depsByTask);
-    const calendarBatches = await this.collectCalendarBatches(rawTasks, tasks);
+    const calendarBatches = await this.collectCalendarBatches(rawTasks, tasks, buildSeq);
     const unionInstances = unionCalendarBatches(expansion.instances, calendarBatches);
 
     return { expansion, unionInstances, sourceLinks, matchedEdgesResolved };
@@ -1753,8 +1757,23 @@ export class GanttController {
   private async collectCalendarBatches(
     rawTasks: readonly SourceTask[],
     resolvedTasks: readonly ExpandableTask[],
+    buildSeq: number,
   ): Promise<CalendarItemBatch[]> {
     const sources = this.calendarItemSources();
+    // Mutate the shared batch cache only while this build is still the current
+    // recompute: a superseded build awaiting a slow collect must not prune a
+    // newer build's entries nor resurrect a source the newer build retired.
+    const isCurrentBuild = (): boolean => this.recomputeSeq === buildSeq;
+    // Evict cached batches for sources no longer provided — a feed toggled off
+    // or a plugin reload retires its source and mints a new one, so the strong
+    // key would otherwise pin the retired batch (and its events) for the view's
+    // lifetime and leak stale rows into findCalendarItemById.
+    if (isCurrentBuild()) {
+      const live = new Set<CalendarItemSource>(sources);
+      for (const key of this.calendarBatchCache.keys()) {
+        if (!live.has(key)) this.calendarBatchCache.delete(key);
+      }
+    }
     if (sources.length === 0) {
       return [];
     }
@@ -1778,7 +1797,9 @@ export class GanttController {
         continue;
       }
       const batch = await source.collect(context);
-      this.calendarBatchCache.set(source, { epoch, windowKey, batch });
+      if (isCurrentBuild()) {
+        this.calendarBatchCache.set(source, { epoch, windowKey, batch });
+      }
       batches.push(batch);
     }
     return batches;

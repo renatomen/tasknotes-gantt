@@ -491,4 +491,85 @@ describe('calendar-item union — bar-activate resolution', () => {
     expect(controller.resolveBarActivationPath(backedId)).toBe('a.md');
     expect(controller.resolveBarActivationPath(notelessId)).toBeNull();
   });
+
+  it('evicts the cached batch of a retired source so its items stop resolving', async () => {
+    const retiredId = makeCalendarItemId('time-entry', 'retired.md', '2026-01-10');
+    const retired = new FakeCalendarSource(
+      'time-entry',
+      itemsBatch([calendarItem({ id: retiredId, family: 'time-entry', notePath: 'retired.md' })]),
+    );
+    const replacement = new FakeCalendarSource('time-entry', itemsBatch([]));
+    let currentSources: readonly CalendarItemSource[] = [retired];
+    const taskSource = new FakeTaskSource([task({ path: 'a.md' })]);
+    const controller = new GanttController({
+      app: fakeApp,
+      basesInput: () => ({ entries: [], mappings: {} as never }),
+      now: () => new Date(2026, 0, 15),
+      deps: {
+        createTaskNotesSource: async () => taskSource,
+        createCalendarItemSources: () => currentSources,
+      },
+    });
+    await controller.init();
+    expect(controller.resolveBarActivationPath(retiredId)).toBe('retired.md');
+
+    // The feed is disabled: the provider retires its source and mints a new one.
+    currentSources = [replacement];
+    await controller.refreshSource();
+
+    // The retired batch is evicted — its item no longer resolves from the cache.
+    expect(controller.resolveBarActivationPath(retiredId)).toBeNull();
+  });
+
+  it('does not let a superseded in-flight build re-cache a source the newer build retired', async () => {
+    const retiredId = makeCalendarItemId('time-entry', 'retired.md', '2026-01-10');
+    let releaseRetired: () => void = () => {};
+    const retiredCollected = new Promise<void>((resolve) => {
+      releaseRetired = resolve;
+    });
+    let signalRetiredCollecting: () => void = () => {};
+    const retiredCollecting = new Promise<void>((resolve) => {
+      signalRetiredCollecting = resolve;
+    });
+    // A retired source whose collect parks in flight until released, so its
+    // build can be superseded while it awaits.
+    const retired: CalendarItemSource = {
+      family: 'time-entry',
+      epoch: () => 1,
+      windowStartAnchor: () => null,
+      collect: async () => {
+        signalRetiredCollecting();
+        await retiredCollected;
+        return itemsBatch([
+          calendarItem({ id: retiredId, family: 'time-entry', notePath: 'retired.md' }),
+        ]);
+      },
+    };
+    const replacement = new FakeCalendarSource('time-entry', itemsBatch([]));
+    let currentSources: readonly CalendarItemSource[] = [retired];
+    const taskSource = new FakeTaskSource([task({ path: 'a.md' })]);
+    const controller = new GanttController({
+      app: fakeApp,
+      basesInput: () => ({ entries: [], mappings: {} as never }),
+      now: () => new Date(2026, 0, 15),
+      deps: {
+        createTaskNotesSource: async () => taskSource,
+        createCalendarItemSources: () => currentSources,
+      },
+    });
+
+    // Build A reads [retired] and parks inside its gated collect.
+    const buildA = controller.init();
+    await retiredCollecting;
+
+    // Only now is the feed disabled: a newer build B retires the source and finishes.
+    currentSources = [replacement];
+    await controller.refreshSource();
+
+    // Build A finishes late — it must not resurrect the retired source.
+    releaseRetired();
+    await buildA;
+
+    expect(controller.resolveBarActivationPath(retiredId)).toBeNull();
+  });
 });

@@ -31,7 +31,12 @@ import type {
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
-import { localDayOfInstant, localDayOfWallClock, type LocalDaySpan } from './normalizers';
+import {
+  intersectsWindow,
+  localDayOfInstant,
+  localDayOfWallClock,
+  type LocalDaySpan,
+} from './normalizers';
 
 /** The property-event slice of the per-view calendar-item toggles. */
 export interface PropertyEventToggles {
@@ -150,10 +155,6 @@ function toPropertyEvent(
     endDay: span.endDay,
     notePath: entry.file.path,
   };
-}
-
-function intersectsWindow(item: CalendarItem, window: CalendarDerivationWindow): boolean {
-  return item.endDay >= window.startDate && item.startDay < window.endDateExclusive;
 }
 
 /** Pure expansion: mapped note properties → flat day-attributed event rows. */

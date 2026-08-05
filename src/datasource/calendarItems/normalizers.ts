@@ -11,12 +11,24 @@
  * @module datasource/calendarItems/normalizers
  */
 
-import type { LocalDay } from './types';
+import type { CalendarDerivationWindow, LocalDay } from './types';
 
 /** An inclusive observer-local day span. */
 export interface LocalDaySpan {
   startDay: LocalDay;
   endDay: LocalDay;
+}
+
+/**
+ * Whether a day span overlaps the derivation window (start inclusive, end
+ * exclusive). Structural in the span so both a built `CalendarItem` and an
+ * in-progress candidate share one window predicate rather than each imitating it.
+ */
+export function intersectsWindow(
+  span: { startDay: LocalDay; endDay: LocalDay },
+  window: CalendarDerivationWindow,
+): boolean {
+  return span.endDay >= window.startDate && span.startDay < window.endDateExclusive;
 }
 
 function formatLocalDay(date: Date): LocalDay {

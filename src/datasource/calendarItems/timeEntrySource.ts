@@ -14,13 +14,14 @@
 
 import type { TaskNotesTaskInfo, TaskNotesTimeEntry } from '../TaskNotesSource';
 import type {
+  CalendarDerivationWindow,
   CalendarItem,
   CalendarItemBatch,
   CalendarItemSource,
   LocalDay,
 } from './types';
 import { makeCalendarItemId } from './types';
-import { localDaySpanOfInstants } from './normalizers';
+import { intersectsWindow, localDaySpanOfInstants } from './normalizers';
 import { dlog } from '../../debugLog';
 
 /** The time-entry slice of the per-view calendar-item toggles. */
@@ -47,6 +48,7 @@ export interface TimeEntrySource extends CalendarItemSource {
 export interface TimeEntryExpansionInput {
   tasks: readonly TaskNotesTaskInfo[];
   toggles: TimeEntryToggles;
+  window: CalendarDerivationWindow;
 }
 
 interface TimeEntryCandidate {
@@ -132,7 +134,12 @@ export function expandTimeEntryItems(input: TimeEntryExpansionInput): CalendarIt
     rawEntries.forEach((entry, index) => {
       try {
         const candidate = toCandidate(entry, index);
-        if (candidate !== null) candidates.push(candidate);
+        // Drop entries outside the derivation window: a task with years of
+        // historical tracking must not append out-of-window rows that stretch
+        // the timeline. The window is the shared span predicate.
+        if (candidate !== null && intersectsWindow(candidate, input.window)) {
+          candidates.push(candidate);
+        }
       } catch (error) {
         // A throwing accessor/Proxy on the raw entry skips just this fact.
         dlog('[calendar] skipped a malformed time entry', error);
@@ -163,10 +170,11 @@ export function createTimeEntrySource(deps: TimeEntrySourceDeps): TimeEntrySourc
   return {
     family: 'time-entry',
     epoch: () => epoch,
-    collect: async () =>
+    collect: async (context) =>
       expandTimeEntryItems({
         tasks: await deps.listTasks(),
         toggles: deps.toggles(),
+        window: context.window,
       }),
     dispose: () => {
       unsubscribe?.();

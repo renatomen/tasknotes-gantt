@@ -108,6 +108,36 @@ describe('timeEntrySource — flat event rows from finished entries', () => {
     expect(batch.occupancyByTaskPath.size).toBe(0);
   });
 
+  it('drops entries outside the derivation window, keeping in-window ones', async () => {
+    // Months of historical tracking on the same task: only the in-window
+    // session should render, not the far-past one.
+    const historical: TaskNotesTimeEntry = {
+      startTime: isoAtLocalOffset(new Date(2025, 0, 5, 9, 0, 0)),
+      endTime: isoAtLocalOffset(new Date(2025, 0, 5, 10, 0, 0)),
+      duration: 60,
+    };
+
+    const batch = await makeSource([taskWithEntries([historical, morningEntry()])]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-08-03', endDay: '2026-08-03' });
+  });
+
+  it('keeps an entry spanning into the window even when it starts before it', async () => {
+    // Ends inside the window (endDay >= startDate) though it starts the day
+    // before — span intersection, not a start-only cutoff.
+    const straddling: TaskNotesTimeEntry = {
+      startTime: isoAtLocalOffset(new Date(2026, 6, 31, 23, 0, 0)),
+      endTime: isoAtLocalOffset(new Date(2026, 7, 1, 1, 0, 0)),
+      duration: 120,
+    };
+
+    const batch = await makeSource([taskWithEntries([straddling])]).collect(CONTEXT);
+
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0]).toMatchObject({ startDay: '2026-07-31', endDay: '2026-08-01' });
+  });
+
   it('attributes an offset-stamped entry to the observer-local day, not its wall date', async () => {
     // 00:30–00:45 local on Aug 4, stamped at an offset one hour behind the
     // observer's — the wall clock still reads Aug 3 there.
