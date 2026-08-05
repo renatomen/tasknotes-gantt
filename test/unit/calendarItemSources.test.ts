@@ -589,7 +589,7 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(batch.items[0]!.startDay).toBe('2026-03-10');
     });
 
-    it('retires the source and clears loading after every feed is hidden', async () => {
+    it('keeps the source alive as a fetch-free watcher when every feed is hidden, clearing loading on collect', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
         icsEvents: [],
@@ -604,10 +604,38 @@ describe('createCalendarItemSourcesProvider', () => {
       await collectOne(source);
       expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: true });
 
+      // Every feed hidden: the source is RETAINED as a fetch-free discovery
+      // watcher (not torn down), and its next collect reports no loading.
       harness.visibleFeeds.clear();
-
-      expect(families(provideSources(harness))).not.toContain('external-event');
+      const stillThere = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      expect(stillThere).toBe(source);
+      await collectOne(stillThere);
       expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: false });
+    });
+
+    it('keeps observing a feed that transiently vanishes and reappears (no retire, no recreate)', () => {
+      const fixture = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+        icsEvents: [],
+      });
+      const harness = makeHarness([], { taskNotesPlugin: fixture.plugin });
+      visibleWorkFeed(harness);
+      const first = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      expect(fixture.listenerCount('data-changed')).toBe(1);
+
+      // The provider calendar transiently disappears from getAvailableCalendars
+      // during a reconnect — the listener + fallback timer must survive so the
+      // feed's return is still observed.
+      harness.visibleFeeds.clear();
+      provideSources(harness);
+      expect(fixture.listenerCount('data-changed')).toBe(1);
+
+      // When it reappears, the SAME live source handles it — not a fresh object
+      // whose liveness only a later unrelated refresh would have restored.
+      visibleWorkFeed(harness);
+      const second = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+      expect(second).toBe(first);
+      expect(fixture.listenerCount('data-changed')).toBe(1);
     });
 
     it('retires the source and clears loading when the TaskNotes handle disappears', async () => {

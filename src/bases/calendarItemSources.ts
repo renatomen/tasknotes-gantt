@@ -388,14 +388,20 @@ export function createCalendarItemSourcesProvider(
         propertyEvents ??= createPropertyEvents();
       }
       const taskNotesPlugin = deps.getTaskNotesPlugin?.();
-      const canProvideExternal = taskNotesPlugin != null && visibleFeeds.size > 0;
-      if (
-        external !== null &&
-        (!canProvideExternal || taskNotesPlugin !== externalTaskNotesPlugin)
-      ) {
+      const hasPlugin = taskNotesPlugin != null;
+      // Retire only when the plugin is gone or replaced — NEVER on a transient
+      // empty feed set. A provider calendar that vanishes from getAvailableCalendars
+      // during a reconnect/resync must not tear down the listener + fallback timer
+      // that observe its return; the source gates its own reads by visible feeds
+      // (idling fetch-free while none are visible) and re-populates the instant a
+      // still-configured feed reappears, instead of staying absent until an
+      // unrelated Bases refresh rebuilds the source.
+      if (external !== null && (!hasPlugin || taskNotesPlugin !== externalTaskNotesPlugin)) {
         retireExternal();
       }
-      if (external === null && canProvideExternal && deps.scheduler) {
+      // Create the discovery watcher once a feed is actually visible; keep it
+      // alive across later empties rather than recreating it each reappearance.
+      if (external === null && hasPlugin && visibleFeeds.size > 0 && deps.scheduler) {
         external = createExternal(taskNotesPlugin, deps.scheduler);
         externalTaskNotesPlugin = taskNotesPlugin;
       }
