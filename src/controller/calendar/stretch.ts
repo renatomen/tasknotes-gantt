@@ -156,12 +156,14 @@ function shiftIso(iso: string, days: number): string {
   return `${y}-${m}-${d}`;
 }
 
-function isoToLocalDate(iso: string): Date {
+/** A local-day ISO key's local-midnight Date — the inverse of {@link localIso}. */
+export function isoToLocalDate(iso: string): Date {
   const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
   return new Date(year, month - 1, day);
 }
 
-function isoToLocalEndOfDay(iso: string): Date {
+/** A local-day ISO key's end-of-day Date (23:59:59.999) — bar-end convention. */
+export function isoToLocalEndOfDay(iso: string): Date {
   const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
   return new Date(year, month - 1, day, 23, 59, 59, 999);
 }

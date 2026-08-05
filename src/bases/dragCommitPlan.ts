@@ -21,6 +21,7 @@ import type { DerivedEstimate, DerivedGeometry } from '../controller/calendar/de
 import type { DateStatus } from '../controller/datePolicy';
 import type { InferredDragAction, InferredDragMode, InferredEdge } from './inferredDragGate';
 import { computeMoveDelta, type AncestorExtension, type DateRange } from './cascadeGate';
+import { hasDerivedBarGeometry } from './eventRowGuards';
 
 /** The pre-drag bar capture: the SPAN plus frontmatter-derived facts. */
 export interface BarBefore {
@@ -351,13 +352,16 @@ export function datedInstancesOf(
 }
 
 /** The live store row's geometry surface: the span plus the custom record the
- *  echoes advance (ghost runs and the stretch flag ride `custom`, store-style). */
+ *  echoes advance (ghost runs and the stretch flag ride `custom`, store-style),
+ *  plus the derived-bar-geometry marks the overlay consults to refuse a row. */
 export interface LiveGeometryTask {
   start?: unknown;
   end?: unknown;
   custom?: {
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     stretchFlagged?: boolean;
+    occupancyRuns?: unknown;
+    occupancyEnvelope?: unknown;
   };
 }
 
@@ -376,6 +380,12 @@ export interface LiveGeometryTask {
  * captured at dequeue, after SVAR applied the drag, so its store span is the
  * post-drag position — overlaying it turns the cancel/failure restore into a
  * no-op. Its geometry authority is the gesture's own before/after capture.
+ *
+ * A row whose store task carries DERIVED bar geometry (occupancy runs or the
+ * envelope flag) never overlays either: its store span is the derived envelope
+ * of its instances, not authored dates, so overlaying would cascade subtree
+ * moves and shrink-fits over envelope geometry. The un-overlaid controller row
+ * keeps the authored scheduled/due span the writes must displace or fit to.
  */
 export function overlayStoreGeometry<
   Row extends {
@@ -393,6 +403,7 @@ export function overlayStoreGeometry<
   return instances.map((row) => {
     const live = row.id === exceptId ? undefined : getTask(row.id);
     if (!(live?.start instanceof Date) || !(live.end instanceof Date)) return row;
+    if (hasDerivedBarGeometry(live.custom)) return row;
     const overlaid = { ...row, start: live.start, end: live.end };
     // A store row with no custom record answers no geometry fields either way,
     // so the controller row's own stay in place.

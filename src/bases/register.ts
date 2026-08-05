@@ -19,12 +19,48 @@ import {
   type QueryController,
 } from 'obsidian';
 import { mount, unmount } from 'svelte';
-import { writable, type Writable } from 'svelte/store';
+import { get, writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
+import {
+  calendarItemOptionsGroup,
+  calendarItemTogglesSignatureTag,
+  calendarItemWatchedProperties,
+  externalCalendarDegradedEntry,
+  externalCalendarOptionEntries,
+  readCalendarItemToggles,
+  readVisibleExternalCalendarFeeds,
+  type CalendarItemToggles,
+} from './calendarItemOptions';
+import {
+  createCalendarItemSourcesProvider,
+  createTaskNotesCalendarBinding,
+  type CalendarItemSourcesProvider,
+  type ExternalBatchFlags,
+} from './calendarItemSources';
+import {
+  readExternalCalendarDiscovery,
+  readExternalIcsSubscriptions,
+  readExternalProviderCalendars,
+  type TimeblockWatch,
+} from '../datasource/calendarItems';
+import { createDailyNoteAccess } from './dailyNoteAccess';
+import { sessionExternalCalendarDegradeSignal } from './externalCalendarDegradeNotice';
+import { createTimeblockLiveness } from './timeblockLiveness';
+import { defaultScheduler } from './scheduler';
+import { SourceSwitcherModal } from './SourceSwitcherModal';
+import {
+  activeSwitcherSources,
+  createSourceSwitcherState,
+  registerSourceSwitcherEntry,
+  switcherCountsFromInstances,
+  switcherSourceCensus,
+  type ActiveSwitcherSource,
+  type SourceSwitcherState,
+} from './sourceSwitcher';
 import {
   GanttController,
   type DatePolicyConfig,
@@ -47,9 +83,9 @@ import { resolveUserFieldTypes } from './taskNotesFieldTypes';
 import { resolveGridCellEditors } from './cellEditability';
 import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
-import type { TaskPatch } from '../datasource';
+import { TaskNotesSource, type TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
-import { createMountCalendarWatch, type CalendarWatch } from './calendarWatch';
+import { createMountCalendarWatch, wireCalendarWatch, type CalendarWatch } from './calendarWatch';
 import {
   createReadinessWindow,
   DEFAULT_READINESS_WINDOW_CONFIG,
@@ -198,6 +234,37 @@ export function getActiveGanttCalendarPickerEntry(
   return pickActiveFocusEntry(livePickerEntries, activeContainer);
 }
 
+/**
+ * The raw TaskNotes plugin handle (NOT its api) for the external-calendar
+ * family's structurally-guarded service reads; `null` when absent.
+ * {@link isTaskNotesPresent} derives its presence check from this lookup.
+ */
+function getTaskNotesPluginHandle(app: Plugin['app']): unknown {
+  try {
+    const plugins = (app as unknown as {
+      plugins?: { getPlugin(id: string): unknown };
+    }).plugins;
+    return plugins?.getPlugin('tasknotes') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The external batch-flags observer exactly as the mount wires it: the loading
+ * flag feeds the view's indicator state, and every collect's degrade flag
+ * feeds the session-wide Notice/options-panel signal. Exported so tests can
+ * drive the production collect→signal path through the same composition.
+ */
+export function wireExternalBatchFlags(
+  setExternalEventsLoading: (loading: boolean) => void,
+): (flags: ExternalBatchFlags) => void {
+  return (flags) => {
+    setExternalEventsLoading(flags.loading);
+    sessionExternalCalendarDegradeSignal.observeCollect(flags);
+  };
+}
+
 class ObsidianGanttBasesView extends BasesView {
   /** This view's mount container, used as the focus-entry registry key. */
   private focusEntryKey: HTMLElement | null = null;
@@ -254,11 +321,53 @@ class ObsidianGanttBasesView extends BasesView {
   private ganttController: GanttController | null = null;
 
   /**
+   * Per-mount provider of the calendar-item family sources (recurring
+   * instances, time entries), handed to the controller as its
+   * `createCalendarItemSources` dep. Recreated per mount; disposed on
+   * unload/remount so the sources' TaskNotes subscriptions never outlive it.
+   */
+  private calendarItemSourcesProvider: CalendarItemSourcesProvider | null = null;
+
+  /**
    * Calendar-note liveness (edits/renames/deletions of marked notes refresh the
    * chart without a Bases notify). Created per mount; unwired on unload/remount.
    */
   private calendarWatch: CalendarWatch | null = null;
   private unwireCalendarWatch: (() => void) | null = null;
+
+  /**
+   * Daily-note liveness for the timeblock family — the calendar-watch
+   * mechanism reused with a daily-note relevance probe. Its epoch drives the
+   * timeblock source's staleness signal and folds into the entry signature.
+   * Created per mount; unwired on unload/remount.
+   */
+  private timeblockWatch: TimeblockWatch | null = null;
+  private unwireTimeblockWatch: (() => void) | null = null;
+
+  /**
+   * Handlers the property-event source subscribed through the provider's
+   * Bases-data seam. Fired by the refresh coalescer when the entry signature
+   * changes (a genuine data/property change), bumping the family's epoch so
+   * its cached batch re-derives from the current entries.
+   */
+  private readonly basesDataHandlers = new Set<() => void>();
+
+  /**
+   * The external-calendar source's last observed loading flag (visible feeds
+   * awaiting their first completion signal). Rides the reactive data path into
+   * the toolbar's transient fetching indicator; cleared by the refresh the
+   * first completion signal triggers, even when zero events came back.
+   */
+  private externalEventsLoading = false;
+
+  /**
+   * Per-view-instance session state of the quick source switcher (hidden
+   * sources). Created lazily on the first mount and retained across remounts
+   * of this view instance — it survives refreshes and dies with the view.
+   */
+  private sourceSwitcherState: SourceSwitcherState | null = null;
+  /** Retracts this view's switcher opener from the command registry. */
+  private unregisterSwitcherEntry: (() => void) | null = null;
 
   /**
    * Reactive store of the dynamic render data. Mounted once into the view; each
@@ -342,6 +451,9 @@ class ObsidianGanttBasesView extends BasesView {
     this.unwireCalendarWatch?.();
     this.unwireCalendarWatch = null;
     this.calendarWatch = null;
+    this.unwireTimeblockWatch?.();
+    this.unwireTimeblockWatch = null;
+    this.timeblockWatch = null;
     this.restoreConfigChangeHook?.();
     this.restoreConfigChangeHook = null;
     this.unmountGantt();
@@ -454,8 +566,33 @@ class ObsidianGanttBasesView extends BasesView {
    * NEVER `entry.getValue` (the extraction that re-pokes the #161 storm). `file.*`
    * fields need no value read — a rename changes the path, already in the signature.
    */
+  /**
+   * The calendar-item family toggles, read fresh from the live view config on
+   * every call — a provider-closure-style read, so a toggle change is seen by
+   * the very next recompute with no remount.
+   */
+  private getCalendarItemToggles(): CalendarItemToggles {
+    return readCalendarItemToggles((key) => this.config.get(key));
+  }
+
+  /**
+   * The visible external feed keys for the CURRENT TaskNotes subscription and
+   * provider-calendar lists — a provider-closure read like the toggles, so a
+   * per-feed flip applies on the very next provide/collect.
+   */
+  private readVisibleExternalFeeds(): ReadonlySet<string> {
+    const handle = getTaskNotesPluginHandle(this.app);
+    if (handle === null) return new Set();
+    return readVisibleExternalCalendarFeeds(
+      (key) => this.config.get(key),
+      readExternalIcsSubscriptions(handle),
+      readExternalProviderCalendars(handle),
+    );
+  }
+
   private computeEntrySignature(): string {
     const app = this.app;
+    const calendarItemToggles = this.getCalendarItemToggles();
     return composeEntrySignature({
       entries: (this.data?.data ?? []) as ReadonlyArray<SignatureEntry>,
       // The LIVE view config: this runs BEFORE the refresh re-selects the source, so
@@ -471,9 +608,19 @@ class ObsidianGanttBasesView extends BasesView {
         const cache = app.metadataCache.getFileCache(file);
         return { frontmatter: cache?.frontmatter ?? null, listItems: cache?.listItems };
       },
-      // Calendar-note edits change no task entry; the watch epoch flips the
-      // signature so the refresh re-reads instead of reusing stale calendar state.
-      calendarStateTag: `cal:${this.calendarWatch?.epoch() ?? 0}|`,
+      // Calendar-note edits change no task entry; the watch epochs flip the
+      // signature so the refresh re-reads instead of reusing stale calendar
+      // state. The timeblock watch and the external-calendar source fold in
+      // the same way: their facts live outside the Bases entries entirely.
+      calendarStateTag:
+        `cal:${this.calendarWatch?.epoch() ?? 0}|` +
+        `tb:${this.timeblockWatch?.epoch() ?? 0}|` +
+        `ext:${this.calendarItemSourcesProvider?.externalEpoch() ?? 0}|`,
+      // Calendar-item family toggles: flipping one repaints (tag change); a
+      // family switched on adds its consumed properties to the watched set,
+      // switched off removes them.
+      calendarItemsTag: calendarItemTogglesSignatureTag(calendarItemToggles),
+      calendarItemProperties: calendarItemWatchedProperties(calendarItemToggles),
     });
   }
 
@@ -736,6 +883,33 @@ class ObsidianGanttBasesView extends BasesView {
     }).open();
   }
 
+  /**
+   * The switchable sources right now: enabled AND non-empty families, counted
+   * from the last rendered instance set (event rows by family; recurring by
+   * occupancy). External enablement is its live per-feed visibility (at least
+   * one visible feed). Re-derived on every modal render so the list tracks
+   * the view.
+   */
+  private buildActiveSwitcherSources(): ActiveSwitcherSource[] {
+    const data = this.dataStore ? get(this.dataStore) : null;
+    return activeSwitcherSources(
+      switcherSourceCensus(
+        this.getCalendarItemToggles(),
+        switcherCountsFromInstances(data?.instances ?? []),
+        this.readVisibleExternalFeeds().size > 0,
+      ),
+    );
+  }
+
+  private openSourceSwitcher(): void {
+    const state = this.sourceSwitcherState;
+    if (!state) return;
+    new SourceSwitcherModal(this.app, {
+      getActiveSources: () => this.buildActiveSwitcherSources(),
+      state,
+    }).open();
+  }
+
   /** Read the per-view "show date-status indicators" toggle (R11); default on. */
   private getShowDateIndicators(): boolean {
     return this.config.get('tngantt_showDateIndicators') !== false;
@@ -847,6 +1021,80 @@ class ObsidianGanttBasesView extends BasesView {
   private async mountGantt(): Promise<void> {
     const token = ++this.mountToken;
     try {
+      // Calendar-item families read the RAW TaskNotes task list (recurrence
+      // state, time entries) — richer than the SourceTask projection — so they
+      // get their own TaskNotesSource seam here (the controller's memoized
+      // enrichment source is internal to it). Null when TaskNotes is absent:
+      // the families then derive nothing, which is their standalone behavior.
+      const calendarItemTaskNotes = createTaskNotesCalendarBinding({
+        identity: () => TaskNotesSource.apiIdentity(this.app),
+        createSource: () => TaskNotesSource.create(this.app),
+      });
+      const dailyNoteAccess = createDailyNoteAccess(this.app);
+      // Daily-note liveness for timeblocks: the same event wiring as the
+      // calendar watch (metadata `changed` + vault `rename`/`delete`), with a
+      // daily-note relevance probe. Each settled burst bumps the epoch (the
+      // timeblock source's staleness signal, folded into the entry signature)
+      // and schedules the same coalesced refresh. Created BEFORE the
+      // controller below so the init-time collect's daily-note listing seeds
+      // the LIVE watch — a deleted note is only recognised via seeded paths.
+      this.unwireTimeblockWatch?.();
+      const timeblockLiveness = createTimeblockLiveness({
+        dailyNotes: dailyNoteAccess,
+        onEpochBump: () => {
+          if (this.containerEl?.isConnected) this.refreshCoalescer?.schedule();
+        },
+      });
+      // Register the disposer BEFORE wiring events (created-then-throw
+      // window): if the wiring throws, the watch still dies with the view.
+      this.timeblockWatch = timeblockLiveness.watch;
+      this.unwireTimeblockWatch = () => timeblockLiveness.watch.dispose();
+      const unwireTimeblockEvents = wireCalendarWatch(
+        { metadataCache: this.app.metadataCache, vault: this.app.vault },
+        timeblockLiveness.watch,
+      );
+      const unwireTimeblockThisMount = (): void => {
+        unwireTimeblockEvents();
+        timeblockLiveness.watch.dispose();
+      };
+      this.unwireTimeblockWatch = unwireTimeblockThisMount;
+      const calendarItemSources = createCalendarItemSourcesProvider({
+        toggles: () => this.getCalendarItemToggles(),
+        listTasks: calendarItemTaskNotes.listTasks,
+        subscribe: calendarItemTaskNotes.subscribe,
+        taskNotesIdentity: calendarItemTaskNotes.identity,
+        resolveTaskReference: (linkPath, fromPath) =>
+          resolveParentLink(this.app, linkPath, fromPath),
+        // Property events derive from the view's Bases entries; the coalescer
+        // fires these handlers on a changed entry signature so the family's
+        // cached batch re-derives exactly when the data (or a watched event
+        // property) actually changed.
+        subscribeBasesData: (handler: () => void) => {
+          this.basesDataHandlers.add(handler);
+          return () => {
+            this.basesDataHandlers.delete(handler);
+          };
+        },
+        // Timeblocks: the daily-note walk, seeded into THIS mount's live
+        // watch by the liveness assembly so a later deletion of a rendered
+        // daily note is recognised (a deletion cannot probe the gone file).
+        listDailyNotes: (window) => timeblockLiveness.listDailyNotes(window),
+        earliestDailyNoteDay: dailyNoteAccess.earliestDailyNoteDay,
+        timeblockEpoch: () => timeblockLiveness.watch.epoch(),
+        dailyNotesConfigTag: dailyNoteAccess.configTag,
+        // External calendars: guarded reads off the raw TaskNotes plugin
+        // handle, per-feed visibility from the live view config, and a bump
+        // hook so a service's data-changed emitter schedules a refresh.
+        getTaskNotesPlugin: () => getTaskNotesPluginHandle(this.app),
+        visibleExternalFeeds: () => this.readVisibleExternalFeeds(),
+        scheduler: defaultScheduler,
+        onExternalEpochBump: () => {
+          if (this.containerEl?.isConnected) this.refreshCoalescer?.schedule();
+        },
+        onExternalBatchFlags: wireExternalBatchFlags((loading) => {
+          this.externalEventsLoading = loading;
+        }),
+      });
       // The controller reads the live Bases query at (re-)selection time, so the
       // provider closes over `this` rather than a captured snapshot.
       const controller = new GanttController({
@@ -882,17 +1130,41 @@ class ObsidianGanttBasesView extends BasesView {
         // recompute (provider closure) so a toolbar-sort change reflows without a
         // remount. getSort() returns [] when no sort is configured → fallback.
         sortConfig: () => this.getBaseSort(),
+        // Calendar-item family sources (recurring instances, time entries):
+        // the provider re-reads the family toggles on every provide, so an
+        // opted-in family joins the very next recompute without a remount.
+        deps: { createCalendarItemSources: () => calendarItemSources.provide() },
       });
 
-      await controller.init();
+      // Until the assignments below register these on `this`, only this scope
+      // can release the timers/subscriptions init() makes the sources create —
+      // an exception here would otherwise leak them past the error path with
+      // refreshes still scheduling. One disposer covers the throw and both
+      // stale-mount bails; disposal is idempotent, so a bail racing the
+      // unload-path disposal is safe.
+      const disposeMountResources = (): void => {
+        controller.dispose();
+        calendarItemSources.dispose();
+        // This mount's own watch (never `this.unwireTimeblockWatch`, which a
+        // newer racing mount may already have replaced with its own).
+        unwireTimeblockThisMount();
+      };
+
+      try {
+        await controller.init();
+      } catch (error) {
+        disposeMountResources();
+        throw error;
+      }
 
       // A newer mount or an unmount happened while we awaited init() — discard.
       if (token !== this.mountToken) {
-        controller.dispose();
+        disposeMountResources();
         return;
       }
 
       this.ganttController = controller;
+      this.calendarItemSourcesProvider = calendarItemSources;
       // Trailing-debounce for onDataUpdated (#161): closes over this mount's
       // controller; re-checks isConnected at fire time so a refresh queued just
       // before teardown is dropped. Recreated per mount, cancelled on unload.
@@ -910,6 +1182,12 @@ class ObsidianGanttBasesView extends BasesView {
         // re-read the source) so the storm repro can validate fails-first.
         const disableReuse = !!(window as unknown as { __OG_DISABLE_REUSE?: boolean }).__OG_DISABLE_REUSE;
         const reuseTasks = !disableReuse && this.lastEntrySignature !== null && sig === this.lastEntrySignature;
+        // A changed signature is the "Bases data changed" event the
+        // property-event family subscribes to: bump its epoch so the batch
+        // cache re-derives from the current entries in the refresh below.
+        if (this.lastEntrySignature !== null && sig !== this.lastEntrySignature) {
+          for (const handler of [...this.basesDataHandlers]) handler();
+        }
         this.lastEntrySignature = sig;
         dlog(`[OGDBG] coalescer fired → refreshSource (reuseTasks=${reuseTasks})`);
         void (async () => {
@@ -948,7 +1226,7 @@ class ObsidianGanttBasesView extends BasesView {
 
       // Re-check after the second await window.
       if (token !== this.mountToken) {
-        controller.dispose();
+        disposeMountResources();
         return;
       }
 
@@ -962,6 +1240,15 @@ class ObsidianGanttBasesView extends BasesView {
       // One reactive store, mounted once; controller changes re-set it in place.
       this.dataStore = writable(data);
       livePickerEntries.set(this.containerEl, () => this.openCalendarPicker());
+      // Quick source switcher: session state is retained across remounts of
+      // this view instance (display-only hiding survives refreshes, dies with
+      // the view); the opener joins the command registry like the focus and
+      // calendar-picker entries.
+      this.sourceSwitcherState ??= createSourceSwitcherState();
+      this.unregisterSwitcherEntry?.();
+      this.unregisterSwitcherEntry = registerSourceSwitcherEntry(this.containerEl, () =>
+        this.openSourceSwitcher(),
+      );
       const tMountStart = performance.now(); // [OGDBG #161]
       this.svelteComponent = mount(GanttContainer, {
         target: this.containerEl,
@@ -1004,9 +1291,14 @@ class ObsidianGanttBasesView extends BasesView {
             controller.removeDependency(predecessorInstanceId, dependentInstanceId),
           // Native edit interaction (plan 004): a bar's left/double-click and
           // right-click delegate to TaskNotes (open note / native edit modal /
-          // task menu) via the interaction service — no custom modal.
-          onBarActivate: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) =>
-            interactions.handleActivate(path, opts),
+          // task menu) via the interaction service — no custom modal. The
+          // controller first resolves what to open: task rows pass through; a
+          // calendar-item row resolves to its backing note or, without one,
+          // to null — activation then no-ops (a synthetic id is never a path).
+          onBarActivate: (path: string, opts: { kind: 'single' | 'double'; ctrlOrMeta: boolean }) => {
+            const target = controller.resolveBarActivationPath(path);
+            if (target !== null) void interactions.handleActivate(target, opts);
+          },
           onBarContextMenu: (path: string, event: MouseEvent) =>
             interactions.showContextMenu(path, event),
           // Focus-on-task command wiring (R2): the view publishes its opener on
@@ -1014,6 +1306,11 @@ class ObsidianGanttBasesView extends BasesView {
           // active Gantt view. Tracked per-view so one view's teardown never
           // clears another live view's entry.
           onOpenCalendarPicker: () => this.openCalendarPicker(),
+          // Quick source switcher (display-only per-source hiding): the view
+          // folds the session state into its composed display filter; the
+          // toolbar button and the plugin command share this opener.
+          sourceSwitcher: this.sourceSwitcherState,
+          onOpenSourceSwitcher: () => this.openSourceSwitcher(),
           onFocusEntryReady: (entry: (() => void) | null) => {
             if (entry) {
               this.focusEntryKey = this.containerEl;
@@ -1223,6 +1520,11 @@ class ObsidianGanttBasesView extends BasesView {
       gridColumns,
       gridColumnsKey: gridColumnsKey(gridColumns),
       gridWidth: this.getTableWidth(),
+      // Transient external-calendar fetching state (visible feeds awaiting
+      // their first completion signal) — the toolbar's honest minimal
+      // indicator. Cleared by the refresh the first completion signal
+      // (data-changed, a changed fallback tick, or a warm cache) triggers.
+      externalEventsLoading: this.externalEventsLoading,
       calendarShadingCss: calendarShading.css,
       calendarNotice: calendarShading.notice,
       calendarMarkers: calendarShading.markers,
@@ -1354,6 +1656,8 @@ class ObsidianGanttBasesView extends BasesView {
     // Invalidate any in-flight async mount so it does not resurrect the view.
     this.mountToken++;
     livePickerEntries.delete(this.containerEl);
+    this.unregisterSwitcherEntry?.();
+    this.unregisterSwitcherEntry = null;
 
     // Cancel the readiness window so a pending re-check can't fire against the
     // controller we're about to dispose (R6).
@@ -1380,6 +1684,15 @@ class ObsidianGanttBasesView extends BasesView {
       this.ganttController = null;
     }
 
+    if (this.calendarItemSourcesProvider) {
+      try {
+        this.calendarItemSourcesProvider.dispose();
+      } catch (error) {
+        console.warn('[Gantt] Error disposing calendar-item sources:', error);
+      }
+      this.calendarItemSourcesProvider = null;
+    }
+
     this.dataStore = null;
     this.containerEl.empty();
   }
@@ -1392,14 +1705,8 @@ class ObsidianGanttBasesView extends BasesView {
  * are shown only when this is true.
  */
 function isTaskNotesPresent(app: Plugin['app']): boolean {
-  try {
-    const plugins = (app as unknown as {
-      plugins?: { getPlugin(id: string): { api?: unknown } | null | undefined };
-    }).plugins;
-    return Boolean(plugins?.getPlugin('tasknotes')?.api);
-  } catch {
-    return false;
-  }
+  const handle = getTaskNotesPluginHandle(app) as { api?: unknown } | null;
+  return Boolean(handle?.api);
 }
 
 /**
@@ -1441,7 +1748,30 @@ export function registerBasesGantt(plugin: Plugin, calendarLifetime: PluginLifet
     options: (config: BasesViewConfig): BasesAllOptions[] => {
       const hasProgressProperty =
         (readFieldMappings((key) => config.get(key)).progressProperty ?? '').trim() !== '';
-      return ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty);
+      const calendarItems = calendarItemOptionsGroup();
+      // Per-feed external-calendar toggles: dynamic entries built from the
+      // CURRENT TaskNotes subscription/calendar lists (guarded reads), gated
+      // on TaskNotes presence like the other companion-only controls. When an
+      // external service surface degraded this session, a description line
+      // states it (Bases toggles carry no disabled/tooltip shape).
+      const taskNotesHandle = getTaskNotesPluginHandle(plugin.app);
+      if (isTaskNotesPresent(plugin.app) && taskNotesHandle !== null) {
+        const discovery = readExternalCalendarDiscovery(taskNotesHandle);
+        sessionExternalCalendarDegradeSignal.observeCollect({ degraded: discovery.degraded });
+        calendarItems.items.push(
+          ...externalCalendarOptionEntries(
+            discovery.icsSubscriptions,
+            discovery.providerCalendars,
+          ),
+        );
+        if (sessionExternalCalendarDegradeSignal.wasDegradedThisSession()) {
+          calendarItems.items.push(externalCalendarDegradedEntry());
+        }
+      }
+      return [
+        ...ganttViewOptions(isTaskNotesPresent(plugin.app), hasProgressProperty),
+        calendarItems,
+      ];
     },
   });
 

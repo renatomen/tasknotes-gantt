@@ -17,6 +17,12 @@ import {
   composeEntrySignature,
   type SignatureEntry,
 } from '../../src/bases/entrySignature';
+import {
+  CALENDAR_ITEM_OPTION_KEYS,
+  calendarItemTogglesSignatureTag,
+  calendarItemWatchedProperties,
+  readCalendarItemToggles,
+} from '../../src/bases/calendarItemOptions';
 
 const e = (path?: string): SignatureEntry => ({ file: path === undefined ? {} : { path } });
 
@@ -401,5 +407,66 @@ describe('composeEntrySignature', () => {
     const two = composeEntrySignature({ ...inputs, entries: [entry('a.md'), entry('b.md')] });
 
     expect(two).not.toBe(one);
+  });
+
+  describe('calendar-item families (the register wiring composed end-to-end)', () => {
+    const composeWithConfig = (
+      config: Record<string, unknown>,
+      noteCacheOf: (e: SignatureEntry) => { frontmatter: Record<string, unknown> | null } | null,
+    ): string => {
+      const toggles = readCalendarItemToggles((key) => config[key]);
+      return composeEntrySignature({
+        entries: [entry('a.md')],
+        viewMappings: {},
+        resolvedMappings: {},
+        estimateReadKey: null,
+        noteCacheOf,
+        calendarItemsTag: calendarItemTogglesSignatureTag(toggles),
+        calendarItemProperties: calendarItemWatchedProperties(toggles),
+      });
+    };
+
+    it('flips when a family toggle flips (a toggle change must repaint)', () => {
+      const noteCacheOf = cacheOf({});
+
+      const off = composeWithConfig({}, noteCacheOf);
+      const on = composeWithConfig({ [CALENDAR_ITEM_OPTION_KEYS.showTimeblocks]: true }, noteCacheOf);
+
+      expect(on).not.toBe(off);
+    });
+
+    it('is identical across notifies with unchanged toggles (unrelated notify reuses)', () => {
+      const config = { [CALENDAR_ITEM_OPTION_KEYS.showRecurring]: true };
+      const noteCacheOf = cacheOf({ 'a.md': { status: 'open' } });
+
+      expect(composeWithConfig(config, noteCacheOf)).toBe(composeWithConfig(config, noteCacheOf));
+    });
+
+    it('watches the mapped event properties while the property-event family is ON', () => {
+      const config = {
+        [CALENDAR_ITEM_OPTION_KEYS.showPropertyBasedEvents]: true,
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventStart]: 'note.eventStart',
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventEnd]: 'note.eventEnd',
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventTitle]: 'note.eventTitle',
+      };
+
+      const before = composeWithConfig(config, cacheOf({ 'a.md': { eventStart: '2026-01-01' } }));
+      const edited = composeWithConfig(config, cacheOf({ 'a.md': { eventStart: '2026-02-02' } }));
+
+      expect(edited).not.toBe(before);
+    });
+
+    it('stops watching the event properties when the family is OFF (fields leave the watched set)', () => {
+      const config = {
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventStart]: 'note.eventStart',
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventEnd]: 'note.eventEnd',
+        [CALENDAR_ITEM_OPTION_KEYS.propertyEventTitle]: 'note.eventTitle',
+      };
+
+      const before = composeWithConfig(config, cacheOf({ 'a.md': { eventStart: '2026-01-01' } }));
+      const edited = composeWithConfig(config, cacheOf({ 'a.md': { eventStart: '2026-02-02' } }));
+
+      expect(edited).toBe(before);
+    });
   });
 });

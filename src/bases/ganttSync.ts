@@ -20,10 +20,18 @@
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
 import type { DateStatus } from '../controller/datePolicy';
+import type { CalendarItemFamily } from '../datasource/calendarItems';
+import type { OccupancyRunSpan } from '../render/segmentLayout';
+import {
+  occupancyRunsKey,
+  recurringOccupancyFlag,
+  resolveOccupancyDisplay,
+} from './occupancyDisplay';
 import type { PriorityColor, StatusColor } from '../datasource/types';
 import {
   resolveTreatmentClass,
   resolveIconSpec,
+  isSafeColor,
   treatmentClassGroups,
   type BarChannelSource,
   type BarIconSource,
@@ -63,17 +71,45 @@ export const REPLICATED_TYPE = 'og-replicated';
 export const CONTEXT_TYPE = 'og-context';
 
 /**
+ * Custom SVAR task type marking a read-only calendar-item event row (calendar-view
+ * union). Emitted as a bare class (`.wx-bar.og-event`) that drives the read-only
+ * affordance CSS (hidden link handles / progress marker, honest cursor); the
+ * behavioral refusal lives in the intercept guards (`eventRowGuards`).
+ */
+export const EVENT_TYPE = 'og-event';
+
+/**
+ * Custom SVAR task type marking a task row rendered through its per-instance
+ * occupancy (calendar-view union — the recurring family's envelope/pieces).
+ * Emitted as a bare class (`.wx-bar.og-recurring`) hooking the occupancy CSS.
+ */
+export const RECURRING_TYPE = 'og-recurring';
+
+/**
  * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to
- * a bar's `type` string (replicated before context). SVAR matches the *whole*
- * type string against the registered task-type ids (see `taskTypeCss` in SVAR's
- * `Bars.svelte`), so {@link buildInstanceCueTaskTypes} must register every
- * composed form using this same order — the push order here and the registration
- * order there are a single coupled contract (pinned by a unit test).
+ * a bar's `type` string (replicated before context before recurring). SVAR
+ * matches the *whole* type string against the registered task-type ids (see
+ * `taskTypeCss` in SVAR's `Bars.svelte`), so {@link buildInstanceCueTaskTypes}
+ * must register every composed form using this same order — the push order here
+ * and the registration order there are a single coupled contract (pinned by a
+ * unit test).
  */
 const INSTANCE_CUE_SUFFIXES: readonly string[] = [
   REPLICATED_TYPE,
   CONTEXT_TYPE,
   `${REPLICATED_TYPE} ${CONTEXT_TYPE}`,
+  // A recurring (occupancy-carrying) task row can also be replicated and/or
+  // Show-all-fetched, so its cue composes with both.
+  RECURRING_TYPE,
+  `${REPLICATED_TYPE} ${RECURRING_TYPE}`,
+  `${CONTEXT_TYPE} ${RECURRING_TYPE}`,
+  `${REPLICATED_TYPE} ${CONTEXT_TYPE} ${RECURRING_TYPE}`,
+  // Event rows carry the og-event cue alone: a calendar item's synthetic
+  // sourcePath is unique (never replicated) and never Show-all-fetched. A
+  // multi-occurrence series row DOES carry occupancy (pieced per occupied
+  // day), but the recurring cue stays a task-row cue — og-event already
+  // drives the read-only affordances — so no composition can occur.
+  EVENT_TYPE,
 ];
 
 /** The render-data inputs the SVAR-task shaping reads (subset of GanttData). */
@@ -137,6 +173,8 @@ export interface SvarTaskInputs {
    * test contexts) — render read-only.
    */
   managedPaths?: ReadonlySet<string>;
+  /** Session-hidden source families that alter presentation-only geometry. */
+  hiddenSources?: ReadonlySet<CalendarItemFamily>;
 }
 
 /** A SVAR task object as fed to the Gantt store (the shape `<Gantt tasks>` wants). */
@@ -208,6 +246,40 @@ export interface SvarTask {
      */
     ghostRuns?: ReadonlyArray<{ startDate: string; days: number }>;
     /**
+     * The row's per-instance occupancy as whole-day runs with state classes
+     * (calendar-view union), read by the `BarContent` occupancy branch. Absent
+     * = no family occupies this task. Folded into {@link taskStateKey} so a
+     * state flip on an unchanged span re-issues the task.
+     */
+    occupancyRuns?: readonly OccupancyRunSpan[];
+    /**
+     * The row's span IS an occupancy envelope: the host bar goes transparent
+     * and only the pieces paint. Set when the plain scheduled→due bar is
+     * suppressed (family on), and when the kept plain bar is joined by
+     * occupied days OUTSIDE its span — then a synthetic `plain`-state run
+     * stands in for the bar among the pieces. Absent when the plain bar stays
+     * and any occupancy pieces simply overlay it.
+     */
+    occupancyEnvelope?: boolean;
+    /**
+     * The event row's calendar-item family, read by the source switcher's
+     * display predicate. Absent on task rows. Not folded into
+     * {@link taskStateKey}: the family is embedded in the row's synthetic id,
+     * so a family change is an add/delete, never an update.
+     */
+    calendarItemFamily?: CalendarItemFamily;
+    /**
+     * A validated source-native color for a calendar-item event row. The bar
+     * template threads it through SVAR's task-color custom property so plain
+     * bars and split occupancy pieces share the same paint.
+     */
+    calendarItemColor?: string;
+    /**
+     * True when recurring-instance occupancy renders on this task row, so the
+     * source switcher can hide it under the recurring source. Absent otherwise.
+     */
+    hasRecurringOccupancy?: boolean;
+    /**
      * The rendered span came from the derivation authority's ceiling fallback
      * ({@link RenderInstance.stretchFlagged} provenance). Carried so an echoed
      * row's custom record stays indistinguishable from a refreshed one — no
@@ -262,6 +334,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     managedPaths,
     calendarPalette = [],
     calendarBySource,
+    hiddenSources,
   } = input;
   const palettes: Palettes = {
     status: statusColors,
@@ -360,11 +433,26 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       palettes,
     });
     classes.push(...treatmentClasses);
-    // Instance cues come AFTER the state classes, replicated before context. This
-    // order must match INSTANCE_CUE_SUFFIXES so the composed `type` is one of the
-    // ids buildInstanceCueTaskTypes registers (SVAR whole-string-matches `type`).
+    // Instance cues come AFTER the state classes, replicated before context
+    // before recurring. This order must match INSTANCE_CUE_SUFFIXES so the
+    // composed `type` is one of the ids buildInstanceCueTaskTypes registers
+    // (SVAR whole-string-matches `type`).
     if (isReplicated) classes.push(REPLICATED_TYPE);
     if (isContext) classes.push(CONTEXT_TYPE);
+    const occupancy = inst.occupancy ?? [];
+    const displayedOccupancy = hiddenSources?.has('recurring-instance')
+      ? occupancy.filter((entry) => entry.family !== 'recurring-instance')
+      : occupancy;
+    const { envelope, occupancyRuns } = resolveOccupancyDisplay(inst, displayedOccupancy);
+    // The recurring cue hides the link handles and neutralizes the cursor
+    // because the bar span is DERIVED geometry — an occupancy envelope. A row
+    // whose occupancy stays within its authored scheduled→due span renders its
+    // pieces over a normal editable bar, so it keeps its link affordances; only
+    // an envelope row (not an event row) earns the affordance-hiding cue.
+    if (envelope !== null && !inst.calendarItem) classes.push(RECURRING_TYPE);
+    // Read-only calendar-item event row: the og-event cue drives the read-only
+    // affordance CSS. Last, matching INSTANCE_CUE_SUFFIXES.
+    if (inst.calendarItem) classes.push(EVENT_TYPE);
     if (classes.length > 0) type = classes.join(' ');
 
     const task: SvarTask = {
@@ -372,8 +460,8 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       text: inst.text,
       // The date policy resolves concrete dates; `null` (genuinely unscheduled)
       // maps to SVAR's `undefined` so the bar is treated as unscheduled.
-      start: inst.start ?? undefined,
-      end: inst.end ?? undefined,
+      start: envelope?.start ?? inst.start ?? undefined,
+      end: envelope?.end ?? inst.end ?? undefined,
       progress: inst.progress ?? 0,
       type,
       custom: {
@@ -385,6 +473,13 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
         ghostRuns: inst.ghostRuns,
+        occupancyRuns,
+        occupancyEnvelope: envelope ? true : undefined,
+        calendarItemFamily: inst.calendarItem?.family,
+        calendarItemColor: isSafeColor(inst.calendarItem?.color)
+          ? inst.calendarItem?.color
+          : undefined,
+        hasRecurringOccupancy: recurringOccupancyFlag(inst, occupancy),
         stretchFlagged: inst.stretchFlagged === true ? true : undefined,
         interpretationOverridden: inst.interpretationOverridden,
         // In 'primary' mode, a non-primary instance of a task that owns a
@@ -423,6 +518,16 @@ export type EchoTaskUpdate =
  * for an empty run list or an unflagged span just like {@link buildSvarTasks}.
  * Without the row's current custom record the patch stays span-only rather than
  * fabricating a partial record.
+ *
+ * A geometry echo also DROPS the derived-occupancy marks (`occupancyRuns` —
+ * synthetic plain-run claim included — and `occupancyEnvelope`): a span an echo
+ * writes is executor-owned display truth, by definition not the derived
+ * envelope. Keeping the marks would make the cascade snapshot overlay refuse
+ * the echoed span and seed a stacked cascade from the stale controller row,
+ * writing the child backward. The accepted display consequence: after a
+ * cascade write, a recurring row renders its echoed authored span as a plain
+ * bar until the next genuine refresh re-derives its occupancy — display truth
+ * follows the write, exactly as plain rows behave between echo and refresh.
  */
 export function echoTaskPatch(
   payload: EchoPayload,
@@ -438,6 +543,8 @@ export function echoTaskPatch(
       ...currentCustom,
       ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
       stretchFlagged: geometry.flagged ? true : undefined,
+      occupancyRuns: undefined,
+      occupancyEnvelope: undefined,
     },
   };
 }
@@ -546,6 +653,16 @@ export function taskStateKey(t: SvarTask): string {
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
     ghostRunsKey(t.custom.ghostRuns),
+    // Occupancy: an instance-state flip (projected→completed) or a suppression
+    // toggle can leave the span untouched while every piece must redraw.
+    occupancyRunsKey(t.custom.occupancyRuns),
+    t.custom.occupancyEnvelope === true,
+    // Source-switcher mapping: fold so a family recomposition that leaves the
+    // day runs identical still re-issues the row for the display filter.
+    t.custom.hasRecurringOccupancy === true,
+    // Calendar feed/timeblock colors can change without altering the row span
+    // or title; fold the paint token so the live diff re-issues the task.
+    t.custom.calendarItemColor ?? '',
     // Override dot: an interpretation-override change alters only the corner dot
     // and its tooltip within an otherwise-unchanged span — fold it so the
     // task re-issues instead of the dot going stale (R11).

@@ -176,6 +176,20 @@ export interface EntrySignatureInputs {
    * and the refresh would reuse cached tasks — stale stretch/shading inputs.
    */
   calendarStateTag?: string;
+  /**
+   * Tag of the calendar-item family toggle values (see
+   * `calendarItemTogglesSignatureTag`). Flipping any family toggle must force a
+   * re-read (the union repaints), while an unchanged config keeps the tag — and
+   * the reuse — identical.
+   */
+  calendarItemsTag?: string;
+  /**
+   * Mapped properties the ENABLED calendar-item families consume (e.g. the
+   * property-event start/end/title pickers). Joined into the watched mapping
+   * values, so an edit to one re-reads and a family switched off drops its
+   * fields from the watched set.
+   */
+  calendarItemProperties?: ReadonlyArray<string | undefined>;
 }
 
 /**
@@ -190,12 +204,16 @@ export interface EntrySignatureInputs {
  */
 export function composeEntrySignature(input: EntrySignatureInputs): string {
   const { entries, viewMappings, resolvedMappings, estimateReadKey } = input;
-  const watched = watchedMappingValues(viewMappings, resolvedMappings, estimateReadKey);
+  const watched = [
+    ...watchedMappingValues(viewMappings, resolvedMappings, estimateReadKey),
+    ...(input.calendarItemProperties ?? []),
+  ];
   const fmKeys = frontmatterSignatureKeys(watched);
   const prefix =
     mappingSignatureTag(watched) +
     progressModeSignatureTag(viewMappings.progressMode) +
-    (input.calendarStateTag ?? '');
+    (input.calendarStateTag ?? '') +
+    (input.calendarItemsTag ?? '');
   const tasknotesProgress = viewMappings.progressMode === 'tasknotes';
 
   if (fmKeys.length === 0 && !tasknotesProgress) {

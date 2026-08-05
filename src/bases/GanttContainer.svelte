@@ -35,6 +35,14 @@
   import { buildFocusPlan } from './focusController';
   import { FocusTaskModal } from './FocusTaskModal';
   import {
+    allowsLinkEndpoints,
+    allowsRowMutation,
+    allowsTaskContextMenu,
+    hasDerivedBarGeometry,
+    refusesUserRowMutation,
+    resolveShowEditorRoute,
+  } from './eventRowGuards';
+  import {
     buildSvarTasks,
     buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
@@ -49,6 +57,7 @@
     type SvarTaskInputs,
   } from './ganttSync';
   import {
+    applyEchoToBaseline,
     applyIncrementalGanttSync,
     createAppliedGanttSyncState,
     createGanttSeedSnapshot,
@@ -107,6 +116,7 @@
   import { propertyColumnSort } from './columnSort';
   import { cycleNext, type EphemeralSort } from './sortCycle';
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
+  import type { SourceSwitcherState, SwitcherRowSource } from './sourceSwitcher';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
   import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
@@ -225,6 +235,15 @@
     /** Open the calendar picker (the banner's click-through). */
     onOpenCalendarPicker?: () => void;
     /**
+     * The view instance's session-scoped hidden-source state (quick source
+     * switcher). The host owns its lifetime — it survives refreshes of the same
+     * view and dies with it. The view folds it into the composed display filter
+     * and re-applies on every change. Absent → no switcher filtering.
+     */
+    sourceSwitcher?: SourceSwitcherState;
+    /** Open the quick source switcher; the toolbar button renders only when provided. */
+    onOpenSourceSwitcher?: () => void;
+    /**
      * Register a callback the host calls to re-assert the persisted divider width
      * when the view is revealed/reattached (Obsidian's `onResize`). SVAR can
      * recompute the grid pane to the column-sum width on reattach WITHOUT a column
@@ -257,6 +276,8 @@
     onInferredDragModeChange,
     onFocusEntryReady,
     onOpenCalendarPicker,
+    sourceSwitcher,
+    onOpenSourceSwitcher,
     onReassertGridWidthReady,
   }: Props = $props();
 
@@ -434,6 +455,10 @@
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
 
+  // External-calendar fetching indicator, store-driven like showToolbar so the
+  // transient loading state appears/clears live without a remount.
+  const externalEventsLoading = $derived($data.externalEventsLoading ?? false);
+
   // "Highlight weekends", store-driven like showToolbar so the toggle is LIVE.
   // Only the og-weekends-off root class reacts — the highlightTime seed prop
   // stays fixed (SVAR reads it into store state at init; swapping it would
@@ -601,6 +626,24 @@
       // chevron click on `click` (after mouseup) and the keyboard hotkey with no
       // pointer at all. So the open-task intercept vetoes only while this is set.
       pointerButtonDown = true;
+      // Piece-level click routing on recurring rows: remember which occupancy
+      // piece (if any) this pointer went down on, paired with its bar's id so a
+      // later activation of a DIFFERENT row can never borrow it. Captured here
+      // because the activation paths (select-task / show-editor intercepts)
+      // carry no DOM target. Only the PRIMARY button arms it — a right/middle
+      // press opens a menu, not a piece activation — and every press elsewhere
+      // (or with a non-primary button) clears it.
+      const piece =
+        e.button === 0 && e.target instanceof Element
+          ? e.target.closest('[data-og-activate-path]')
+          : null;
+      const rawBarId = piece?.closest('[data-id]')?.getAttribute('data-id') ?? null;
+      const activatePath = piece?.getAttribute('data-og-activate-path') ?? null;
+      lastPieceActivation =
+        rawBarId !== null && activatePath !== null
+          ? // SVAR 2.6+ encodes string ids with a leading ":" (setID); strip it.
+            { barId: rawBarId.startsWith(':') ? rawBarId.slice(1) : rawBarId, path: activatePath }
+          : null;
     };
     const onPointerUp = () => {
       pointerButtonDown = false;
@@ -633,23 +676,38 @@
       // strip it to recover our raw instance id. No-op for un-prefixed ids.
       const id = rawId.startsWith(':') ? rawId.slice(1) : rawId;
       const path = idToSourcePath.get(id);
-      // Only act on a known task row; unknown ids / empty space / header fall
-      // through to the default menu.
-      if (!path || !onBarContextMenu) return;
+      // Only act on a known task row; unknown ids / empty space / header /
+      // calendar-item event rows fall through to the default menu (an event
+      // row's sourcePath is a synthetic id no task menu could act on).
+      if (!path || !onBarContextMenu || !allowsTaskContextMenu(path)) return;
       // Suppress Obsidian's default editor context menu (the grid renders inside
       // editor content) and show the native TaskNotes task menu instead.
       e.preventDefault();
       e.stopPropagation();
       onBarContextMenu(path, e);
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      // A keyboard activation (Enter → show-editor) acts on the SELECTED ROW,
+      // never a pointer-targeted occupancy piece. Clear the pointer's piece
+      // binding on any real keypress so it can never leak into a keyboard action
+      // — captured on window, before SVAR's own key handler runs. A bare
+      // modifier (Ctrl held for a ctrl+click) must NOT clear it, or it would
+      // wipe the binding the modified pointer-click is about to use.
+      if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') {
+        return;
+      }
+      lastPieceActivation = null;
+    };
     el.addEventListener('mousedown', onPointerDown, true);
     // Reset on window so a drag that ends off the grid still clears the flag.
     window.addEventListener('mouseup', onPointerUp, true);
+    window.addEventListener('keydown', onKeyDown, true);
     el.addEventListener('dblclick', onDblClick, true);
     el.addEventListener('contextmenu', onContextMenu, true);
     return () => {
       el.removeEventListener('mousedown', onPointerDown, true);
       window.removeEventListener('mouseup', onPointerUp, true);
+      window.removeEventListener('keydown', onKeyDown, true);
       el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('contextmenu', onContextMenu, true);
     };
@@ -696,6 +754,7 @@
       propertyValues: d.propertyValues,
       cellRenders: d.cellRenders,
       managedPaths: d.managedPaths,
+      hiddenSources: sourceSwitcher?.hiddenSources(),
       // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
       // and any reseed all compute `open` from the same source of truth.
       collapsedIds,
@@ -816,39 +875,63 @@
   // summary-date recomputation fired during an add/move).
   let syncing = false;
 
-  // Apply each store update as the minimal set of SVAR actions instead of
+  // The switcher's hidden-source set lives OUTSIDE Svelte state (a per-view
+  // session object owned by the host), so a revision counter bridges its change
+  // notifications into both task shaping and the display-filter effect.
+  let switcherRevision = $state(0);
+  $effect(() =>
+    sourceSwitcher?.subscribe(() => {
+      switcherRevision += 1;
+    }),
+  );
+
+  // Apply each store or switcher update as the minimal set of SVAR actions instead of
   // replacing the tasks array — so zoom and scroll survive writes, drags,
-  // external TaskNotes edits, and Bases filter changes. Re-runs on every
-  // `store.set` (register.ts) and once `api` is ready.
+  // external TaskNotes edits, and Bases filter changes. A recurring-source
+  // switch reshapes only its occupancy geometry; the stable instance set is
+  // unchanged. Re-runs on every `store.set` (register.ts) and once `api` is ready.
   $effect(() => {
     const d = $data; // reactive dependency: re-run on every store update
+    void switcherRevision; // re-shape recurring geometry when its source is hidden/shown
     if (!api) return;
     syncToGantt(d);
   });
 
   /**
-   * Apply ALL row-visibility options (Hide-top ∧ Show-undated ∧ Show-partial) as
-   * ONE composed SVAR `filter-tasks` DISPLAY filter over the stable task array
-   * (#161, U4). The shared {@link shouldHideRow} predicate reads each row's
-   * `custom` (`isTopLevelPlacement` + `dateStatus`). `filter-tasks` recomputes
-   * SVAR's visible set WITHOUT touching the `tasks` array (no add/delete diff) and
-   * preserves scroll/zoom — so a toggle (or a Bases config oscillation) is cheap
-   * and can never churn the chart. When every option is show-everything, clear with
-   * no predicate. `open: false` so it never force-expands collapsed branches.
+   * Apply ALL row-visibility concerns (Hide-top ∧ Show-undated ∧ Show-partial ∧
+   * switcher-hidden sources) as ONE composed SVAR `filter-tasks` DISPLAY filter
+   * over the stable task array (#161). The shared {@link shouldHideRow}
+   * predicate reads each row's `custom` (`isTopLevelPlacement` + `dateStatus` +
+   * the source identity). `filter-tasks` recomputes SVAR's visible set WITHOUT
+   * touching the `tasks` array (no add/delete diff) and preserves scroll/zoom —
+   * so a toggle (or a Bases config oscillation) is cheap and can never churn
+   * the chart. When every option is show-everything, clear with no predicate.
+   * `open: false` so it never force-expands collapsed branches.
    *
    * The predicate is ALWAYS passed as `filter` (a function), never as a
    * `{key, value}` column filter — keeping the clear-path semantics intact (KTD4).
    */
   function applyDisplayFilters(): void {
     if (!api?.exec) return;
-    const flags = { hideTopLevel, showUndated, showPartial };
+    const flags = {
+      hideTopLevel,
+      showUndated,
+      showPartial,
+      hiddenSources: sourceSwitcher?.hiddenSources(),
+    };
     if (anyRowFilterActive(flags)) {
       api.exec('filter-tasks', {
-        filter: (t: { custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } }) =>
+        filter: (t: {
+          custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } & SwitcherRowSource;
+        }) =>
           !shouldHideRow(
             {
               isTopLevelPlacement: !!t?.custom?.isTopLevelPlacement,
               dateStatus: t?.custom?.dateStatus ?? 'complete',
+              source: {
+                calendarItemFamily: t?.custom?.calendarItemFamily,
+                hasRecurringOccupancy: t?.custom?.hasRecurringOccupancy,
+              },
             },
             flags,
           ),
@@ -859,16 +942,17 @@
     }
   }
 
-  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle
-  // AND after any data refresh (so newly-added rows are filtered too). Created AFTER
-  // the sync effect so it runs after the diff lands. A display-only change is a
-  // content-NOOP for the sync (the task set is identical), so this is the path that
-  // actually toggles row visibility.
+  // Dedicated effect: re-applies the composed filter on ANY row-visibility toggle,
+  // any switcher change, AND after any data refresh (so newly-added rows are
+  // filtered too). Created AFTER the sync effect so it runs after the diff lands.
+  // A display-only change is a content-NOOP for the sync (the task set is
+  // identical), so this is the path that actually toggles row visibility.
   $effect(() => {
     void $data; // re-run after every store update (post-sync)
     void hideTopLevel; // re-run when any row-visibility toggle flips
     void showUndated;
     void showPartial;
+    void switcherRevision; // re-run when a source is hidden/shown in the switcher
     if (api) applyDisplayFilters();
   });
 
@@ -1334,10 +1418,20 @@
   // select-first interceptor skips scheduling activation — Focus highlights the
   // target without opening it, even when it was already selected (R9).
   let suppressSelectActivation = false;
+  // The occupancy piece the most recent pointer press landed on (piece-level
+  // click routing): its owning bar id plus the resolved activation path (a
+  // materialized piece's note, else the recurring task). Null when the press
+  // was anywhere else; set on the chart root's capture-phase mousedown.
+  let lastPieceActivation: { barId: string; path: string } | null = null;
 
-  /** Resolve a bar id → source path and invoke the native-activate callback. */
+  /**
+   * Resolve a bar id → source path and invoke the native-activate callback.
+   * A click that went down on an occupancy piece of THIS bar routes to the
+   * piece's own path instead (a materialized instance opens its backing note).
+   */
   function activateBar(id: string, kind: 'single' | 'double', ctrlOrMeta: boolean): void {
-    const path = idToSourcePath.get(id);
+    const path =
+      lastPieceActivation?.barId === id ? lastPieceActivation.path : idToSourcePath.get(id);
     if (path) onBarActivate?.(path, { kind, ctrlOrMeta });
   }
 
@@ -1717,6 +1811,8 @@
     // actions and the newer semantic aliases are blocked too so a SVAR bump
     // can't silently re-enable reordering.
     const blockUserReorder = (ev?: { eventSource?: string }): boolean =>
+      // Echoes must keep passing even for event rows: planReorder's ordering
+      // moves are the only way appended event rows stay positioned.
       syncing || ev?.eventSource === OG_ECHO_SOURCE;
     for (const reorderAction of [
       "move-task",
@@ -1739,6 +1835,18 @@
         clearTimeout(pendingSingleClick);
         pendingSingleClick = null;
       }
+      // A calendar-item row never opens a task editor: with a backing note the
+      // double-click opens that note (activateBar's synthetic id resolves to it
+      // downstream), without one it is a no-op.
+      const route = resolveShowEditorRoute(
+        id,
+        (rowId) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
+      );
+      if (route.kind === 'open-note') {
+        activateBar(String(id), 'double', lastCtrlMeta);
+        return false;
+      }
+      if (route.kind === 'none') return false;
       // Double-click runs the configured action regardless of selection (R5).
       if (id && resolveClickActivation({ kind: 'double' }) === 'activateDouble') {
         activateBar(String(id), 'double', lastCtrlMeta);
@@ -1807,8 +1915,23 @@
     // extend) in one per-source queue slot. `inProgress` frames and our own
     // echoes / refreshes are ignored; `action` events stay a no-op (no
     // moveSummaryKids/resetSummaryDates fire for non-summary rows).
+    // Read-only calendar-item rows: refusing `drag-task` makes SVAR abort
+    // the move/resize gesture natively at the first frame — the bar never moves.
+    // Occupancy rows refuse the same way: their bar is a DERIVED envelope of
+    // instances, so a drag (even on a bare gap stretch between pieces) would
+    // commit absolute envelope dates into scheduled/due.
+    api.intercept(
+      "drag-task",
+      (ev: { id?: string | number }) =>
+        allowsRowMutation(ev?.id) && !rowHasDerivedGeometry(ev?.id),
+    );
+
     api.intercept("update-task", (ev: UpdateTaskEvent) => {
       if (!ev || ev.inProgress) return true;
+      // Read-only calendar-item rows: refuse any user change (cell edit,
+      // progress, dates) before gesture classification; our echoes and
+      // programmatic refreshes keep passing so the diff-sync applies.
+      if (refusesUserRowMutation(ev, { syncing, echoSource: OG_ECHO_SOURCE })) return false;
       // Cell edits fold into the same event stream: the grid's update-cell
       // bridge re-emits a committed inline edit as an untagged `update-task`
       // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
@@ -1835,34 +1958,8 @@
         new Notice("Couldn't save — the row changed externally; try again.");
         return false;
       }
-      const cls = gesture.kind;
-      if (cls === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
-        const id = String(ev.id);
-        const before = instances.find((i) => i.id === id);
-        // Progress-handle drag: Property mode persists the new percentage on
-        // release (TaskNotes mode hides the handle via progressReadonly).
-        // Identify a progress gesture by the SVAR payload SHAPE, not just a
-        // changed progress value: the marker emits `task: { progress }` with NO
-        // start/end, whereas a date drag emits `task: { start, end }` (and may
-        // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
-        const t = ev.task ?? {};
-        const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
-        const newProgress = t.progress;
-        if (
-          !progressReadonly &&
-          isProgressGesture &&
-          typeof newProgress === 'number' &&
-          newProgress !== (before?.progress ?? undefined)
-        ) {
-          const beforeProgress = before?.progress ?? 0;
-          setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
-          return true;
-        }
-        const beforeFacts = captureBarBefore(id, before);
-        const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
-        const name = before?.text ?? 'this task';
-        // Deferred one tick so the SVAR store holds the committed post-drag span.
-        setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
+      if (gesture.kind === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
+        return handleUserBarGesture(ev, String(ev.id));
       }
       return true;
     });
@@ -1880,6 +1977,10 @@
         return true;
       }
       if (readOnly || !onAddDependency || !ev.link) return false;
+      // Dependencies never touch a read-only calendar-item row on either end,
+      // nor an occupancy row — an edge would anchor to its derived envelope.
+      if (!allowsLinkEndpoints(ev.link.source, ev.link.target)) return false;
+      if (linkTouchesDerivedGeometry(ev.link.source, ev.link.target)) return false;
       const roles = classifyLinkCreate({
         source: String(ev.link.source ?? ''),
         target: String(ev.link.target ?? ''),
@@ -1913,6 +2014,10 @@
         rawId.startsWith(':') ? rawId.slice(1) : rawId,
       );
       if (!link) return false;
+      // A resolved edge touching a read-only calendar-item row is never
+      // removable; same for an occupancy (derived-geometry) row.
+      if (!allowsLinkEndpoints(link.source, link.target)) return false;
+      if (linkTouchesDerivedGeometry(link.source, link.target)) return false;
       void onRemoveDependency(link.source, link.target).catch((err) => {
         console.error('[GanttContainer] remove-dependency failed:', err);
         new Notice("Couldn't remove the dependency — check TaskNotes is running.");
@@ -1971,6 +2076,47 @@
     shrink: "Couldn't adjust the parent date — check TaskNotes is running.",
     extend: "Couldn't update a parent date — check TaskNotes is running.",
   };
+
+  /**
+   * A committed user gesture on a task row (`update-task`, classified
+   * user-gesture): route a progress-handle release to the progress writer,
+   * refuse derived-geometry (occupancy) rows, submit everything else to the
+   * drag executor. Returns the intercept verdict.
+   */
+  function handleUserBarGesture(ev: UpdateTaskEvent, id: string): boolean {
+    const before = instances.find((i) => i.id === id);
+    // Progress-handle drag: Property mode persists the new percentage on
+    // release (TaskNotes mode hides the handle via progressReadonly).
+    // Identify a progress gesture by the SVAR payload SHAPE, not just a
+    // changed progress value: the marker emits `task: { progress }` with NO
+    // start/end, whereas a date drag emits `task: { start, end }` (and may
+    // echo `progress: 0`) — value-keying would misread a date drag as a 0-write.
+    const t = ev.task ?? {};
+    const isProgressGesture = 'progress' in t && !('start' in t) && !('end' in t);
+    const newProgress = t.progress;
+    if (
+      !progressReadonly &&
+      isProgressGesture &&
+      typeof newProgress === 'number' &&
+      newProgress !== (before?.progress ?? undefined)
+    ) {
+      const beforeProgress = before?.progress ?? 0;
+      setTimeout(() => void persistProgress(id, newProgress, beforeProgress), 0);
+      return true;
+    }
+    // Derived-geometry (occupancy) row: refuse the date gesture before it
+    // reaches the drag planner — committing it would write absolute envelope
+    // dates into scheduled/due. Cell edits and progress (above) stay
+    // untouched. Belt to drag-task's braces: that intercept already aborts
+    // pointer gestures at the first frame.
+    if (rowHasDerivedGeometry(id)) return false;
+    const beforeFacts = captureBarBefore(id, before);
+    const echoSeqAtCapture = dragExecutor.echoSeqOf(before?.sourcePath ?? id);
+    const name = before?.text ?? 'this task';
+    // Deferred one tick so the SVAR store holds the committed post-drag span.
+    setTimeout(() => submitBarGesture({ instanceId: id, name, before: beforeFacts, echoSeqAtCapture }), 0);
+    return true;
+  }
 
   /** Pre-drag bar facts: SPAN from the live SVAR row (a stale `instances` span turns a
    *  revert drag into a no-op plan); dateStatus/estimate from the snapshot, rebased over
@@ -2050,12 +2196,16 @@
   }
 
   /** The sole executor echo emitter: rows re-enter SVAR tagged as our own,
-   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end. */
+   *  carrying FULL geometry — `custom.ghostRuns` advances with start/end — and
+   *  every patch mirrors into the diff baseline: the baseline must see what
+   *  the store sees, or the next refresh diffs the authoritative rebuild
+   *  against pre-echo state and skips the re-issue that repaints it. */
   function echoSourceGeometry(echoes: SourceEchoes): void {
     if (!api) return;
     for (const row of echoes.rows) {
       const task = echoTaskPatch(row.payload, api.getTask?.(row.instanceId)?.custom);
       api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
+      applyEchoToBaseline(appliedSyncState, row.instanceId, task);
     }
   }
 
@@ -2108,6 +2258,28 @@
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Whether a row's bar geometry is derived from its occupancy (envelope or
+   * overlay), resolved from the live SVAR task like {@link storedPropertiesOf}.
+   * The mutating intercepts refuse such rows: a drag/resize would commit
+   * envelope dates into scheduled/due.
+   */
+  function rowHasDerivedGeometry(id: string | number | undefined): boolean {
+    if (id == null) return false;
+    try {
+      return hasDerivedBarGeometry(api?.getTask?.(String(id))?.custom);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Per-link {@link rowHasDerivedGeometry}: an edge may not touch such a row on either end. */
+  function linkTouchesDerivedGeometry(source: unknown, target: unknown): boolean {
+    const asId = (v: unknown): string | number | undefined =>
+      typeof v === 'string' || typeof v === 'number' ? v : undefined;
+    return rowHasDerivedGeometry(asId(source)) || rowHasDerivedGeometry(asId(target));
   }
 
   /**
@@ -2296,7 +2468,12 @@
        tngantt_showToolbar toggle is on (R2). Lives in Obsidian's own surface
        (styled with Obsidian CSS vars), outside the SVAR theme wrapper. -->
   {#if showToolbar}
-    <GanttToolbar mode={mode} onModeChange={handleThemeModeChange} />
+    <GanttToolbar
+      mode={mode}
+      onModeChange={handleThemeModeChange}
+      {onOpenSourceSwitcher}
+      {externalEventsLoading}
+    />
   {/if}
 
   <!-- SVAR's real theme component (plan 002 U2): <Willow>/<WillowDark> render
@@ -2963,6 +3140,48 @@
   }
 
   /*
+   * Read-only calendar-item event rows. SVAR emits the registered
+   * `og-event` task type as a bare class on the bar, so hide the mutating
+   * affordances the intercepts refuse anyway — link handles and the progress
+   * drag handle — and keep the cursor honest: SVAR writes `cursor` inline on
+   * hover, so only !important outranks it.
+   */
+  .og-bases-gantt :global(.wx-bar.og-event .wx-link) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event .wx-progress-marker) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event) {
+    background-color: var(
+      --og-event-color,
+      var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6))
+    ) !important;
+    cursor: default !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-event[data-og-source-colored]) {
+    color: var(--text-on-accent, #fff) !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+
+  /*
+   * Occupancy (recurring) rows render DERIVED bar geometry — the envelope of
+   * their instances — so the intercepts refuse drag/resize and link gestures.
+   * Hide the link handles and keep the cursor honest, exactly like og-event
+   * above; the progress marker stays (progress is not geometry).
+   */
+  .og-bases-gantt :global(.wx-bar.og-recurring .wx-link) {
+    display: none !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.og-recurring) {
+    cursor: default !important;
+  }
+
+  /*
    * Weekend shading off-state. The highlightTime seed fn always classifies
    * (swapping it would re-init SVAR's store); this class-gate suppresses the
    * visuals instead, so the toggle is live with zoom/scroll intact. SVAR's
@@ -3035,6 +3254,92 @@
   .og-bases-gantt :global(.og-ghost-label) {
     position: relative;
     z-index: 2;
+  }
+
+  /*
+   * Recurring-instance occupancy pieces (calendar-view union): one whole-day
+   * piece per instance inside the row's envelope; the gaps stay unpainted so
+   * the non-working shading reads through. Colours are theme variables
+   * (accent + backgrounds), so every state reads in light and dark. The base
+   * fill follows the bar's treatment (--og-ghost-fill) like the ghost pieces.
+   */
+  .og-bases-gantt :global(.og-instance) {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: var(--wx-gantt-bar-border-radius, 2px);
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    z-index: 1;
+  }
+  /* Next: the one upcoming instance — solid accent, the row's anchor. */
+  .og-bases-gantt :global(.og-instance-next) {
+    background-color: var(--interactive-accent);
+  }
+  /* Projected: future pattern instances — hollow dashed outline, no claim. The
+     dashed pattern alone reads as tentative, so it stays at full strength (no
+     dimming) for contrast; border-box keeps the 2px stroke inside the cell. */
+  .og-bases-gantt :global(.og-instance-projected) {
+    background-color: transparent;
+    border: 2px dashed var(--interactive-accent);
+  }
+  /* Completed: dimmed with a horizontal strike through the piece. */
+  .og-bases-gantt :global(.og-instance-completed) {
+    opacity: 0.35;
+    background-image: linear-gradient(
+      to bottom,
+      transparent 45%,
+      var(--background-primary) 45%,
+      var(--background-primary) 55%,
+      transparent 55%
+    );
+  }
+  /* Skipped: muted hatching — was on the pattern, deliberately not done. */
+  .og-bases-gantt :global(.og-instance-skipped) {
+    opacity: 0.3;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      var(--background-primary) 3px 5px
+    );
+  }
+  /* Materialized: its own note exists — outlined, and clickable to open it. */
+  .og-bases-gantt :global(.og-instance-materialized) {
+    background-color: transparent;
+    border: 1.5px solid var(--interactive-accent);
+    cursor: pointer;
+  }
+  /*
+   * Plain: the task's own scheduled→due span, kept beside out-of-span recorded
+   * pieces (the host under wx-split is transparent, so this piece IS the bar).
+   * Painted like a normal task bar — the fill treatment threads via
+   * --og-ghost-fill exactly as on the ghost pieces.
+   */
+  .og-bases-gantt :global(.og-instance-plain) {
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+  }
+  /*
+   * External: one occurrence of a multi-occurrence series event row — a plain
+   * calendar fact, not a task state, so the piece paints exactly like the
+   * event bar itself: whatever colours the bar threads via --og-ghost-fill
+   * (the ghost-piece convention), defaulting to the task colour.
+   */
+  .og-bases-gantt :global(.og-instance-external) {
+    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+  }
+  /*
+   * Coarse-zoom fallback: a dashed series spine spanning first→last
+   * instance — explicitly not a solid bar claiming continuous occupancy.
+   * Follows the bar's own feed colour (--og-ghost-fill, like the ghost pieces)
+   * so a coloured external series keeps its identity at coarse zoom; a plain
+   * recurring row (no ghost fill) falls back to the accent.
+   */
+  .og-bases-gantt :global(.og-series-spine) {
+    position: absolute;
+    top: calc(50% - 1px);
+    height: 0;
+    border-top: 2px dashed var(--og-ghost-fill, var(--interactive-accent));
+    z-index: 1;
   }
 
   /*
