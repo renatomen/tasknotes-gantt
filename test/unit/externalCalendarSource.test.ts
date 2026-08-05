@@ -264,7 +264,7 @@ describe('createExternalCalendarSource — guarded service absence', () => {
     expect(batch.degraded).toBe(true);
   });
 
-  it('keeps provider items and flags degraded when only the ICS surface is malformed', async () => {
+  it('never touches the ICS surface (no fetch, no degrade) when no ICS feed is visible', async () => {
     const google = providerFixture({
       providerId: 'google',
       calendars: [{ id: 'cal1', summary: 'Home' }],
@@ -278,17 +278,36 @@ describe('createExternalCalendarSource — guarded service absence', () => {
         }),
       ],
     });
+    // getAllEvents is the ICS fetch trigger; it must not run for a provider-only view.
+    const getAllEvents = jest.fn(() => []);
     const plugin = {
-      icsSubscriptionService: { getSubscriptions: () => [] },
+      icsSubscriptionService: { getSubscriptions: jest.fn(() => []), getAllEvents },
       calendarProviderRegistry: { getAllProviders: () => [google.provider] },
     };
     const { source } = makeSource(plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
 
     const batch = await source.collect(CONTEXT);
 
-    expect(batch.degraded).toBe(true);
-    expect(batch.items).toHaveLength(1);
-    expect(batch.items[0].title).toBe('Dentist');
+    expect(getAllEvents).not.toHaveBeenCalled();
+    expect(batch.degraded).toBeUndefined();
+    expect(batch.items.map((item) => item.title)).toEqual(['Dentist']);
+  });
+
+  it('reads the ICS surface when an ICS feed is visible', async () => {
+    const getAllEvents = jest.fn(() => []);
+    const plugin = {
+      icsSubscriptionService: {
+        getSubscriptions: jest.fn(() => []),
+        getAllEvents,
+        getLastFetched: () => undefined,
+      },
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    };
+    const { source } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    await source.collect(CONTEXT);
+
+    expect(getAllEvents).toHaveBeenCalled();
   });
 
   it('keeps a healthy provider\'s events and flags degraded when a sibling provider throws', async () => {
@@ -1092,6 +1111,134 @@ describe('createExternalCalendarSource — refresh signals', () => {
     expect(source.epoch()).toBe(1);
   });
 
+  it('rebinds to a replacement ICS service swapped under a stable plugin handle', () => {
+    const first = emitterStub();
+    const second = emitterStub();
+    const icsServiceWith = (emitter: ReturnType<typeof emitterStub>) => ({
+      getSubscriptions: () => [],
+      getAllEvents: () => [],
+      getLastFetched: () => undefined,
+      on: emitter.on,
+    });
+    const plugin: { icsSubscriptionService: unknown; calendarProviderRegistry: unknown } = {
+      icsSubscriptionService: icsServiceWith(first),
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    };
+    const { source, timers } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    // Bound to the first service.
+    first.emit('data-changed');
+    expect(source.epoch()).toBe(1);
+
+    // TaskNotes replaces the service object under the same plugin handle.
+    plugin.icsSubscriptionService = icsServiceWith(second);
+    timers.tick();
+    const afterRebind = source.epoch();
+    // The swap itself forces one refresh so the new service's data is collected
+    // even if it never re-emits (a signal it fired before we bound is lost).
+    expect(afterRebind).toBe(2);
+
+    // The replacement's emissions are now observed; the retired one is released.
+    second.emit('data-changed');
+    expect(source.epoch()).toBe(afterRebind + 1);
+    first.emit('data-changed');
+    expect(source.epoch()).toBe(afterRebind + 1);
+  });
+
+  it('does not re-subscribe to the same ICS service across repeated ticks', () => {
+    const emitter = emitterStub();
+    const on = jest.fn(emitter.on);
+    const plugin = {
+      icsSubscriptionService: {
+        getSubscriptions: () => [],
+        getAllEvents: () => [],
+        getLastFetched: () => undefined,
+        on,
+      },
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    };
+    const { source, timers } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    timers.tick();
+    timers.tick();
+    emitter.emit('data-changed');
+
+    // One listener → one bump; a double-subscribe would bump twice.
+    expect(source.epoch()).toBe(1);
+    expect(on.mock.calls.filter((call) => call[0] === 'data-changed')).toHaveLength(1);
+  });
+
+  it('releases the retired ICS binding and refreshes when a replacement has no on()', () => {
+    const first = emitterStub();
+    const plugin: { icsSubscriptionService: unknown; calendarProviderRegistry: unknown } = {
+      icsSubscriptionService: {
+        getSubscriptions: () => [],
+        getAllEvents: () => [],
+        getLastFetched: () => undefined,
+        on: first.on,
+      },
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    };
+    const { source, timers } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    first.emit('data-changed');
+    expect(source.epoch()).toBe(1);
+
+    // A replacement with no `on`: the retired binding is released, and the swap
+    // still forces one refresh (a dead service must not keep emitting).
+    plugin.icsSubscriptionService = { getSubscriptions: () => [], getAllEvents: () => [] };
+    timers.tick();
+    const afterSwap = source.epoch();
+    expect(afterSwap).toBeGreaterThan(1);
+
+    first.emit('data-changed');
+    expect(source.epoch()).toBe(afterSwap);
+  });
+
+  it('retries a replacement whose on() throws at swap time and later recovers', () => {
+    const first = emitterStub();
+    const recovered = emitterStub();
+    let onCalls = 0;
+    const recoveringOn = (event: string, listener: () => void): (() => void) => {
+      onCalls += 1;
+      // The emitter is not ready on the first bind attempt but takes afterward.
+      if (onCalls === 1) throw new Error('emitter not ready');
+      return recovered.on(event, listener);
+    };
+    const plugin: { icsSubscriptionService: unknown; calendarProviderRegistry: unknown } = {
+      icsSubscriptionService: {
+        getSubscriptions: () => [],
+        getAllEvents: () => [],
+        getLastFetched: () => undefined,
+        on: first.on,
+      },
+      calendarProviderRegistry: { getAllProviders: () => [] },
+    };
+    const { source, timers } = makeSource(plugin, ALL_WORK_VISIBLE);
+
+    first.emit('data-changed');
+    expect(source.epoch()).toBe(1);
+
+    // Swap to a service whose on() throws once. The swap forces one refresh…
+    plugin.icsSubscriptionService = {
+      getSubscriptions: () => [],
+      getAllEvents: () => [],
+      getLastFetched: () => undefined,
+      on: recoveringOn,
+    };
+    timers.tick();
+    const afterSwap = source.epoch();
+    expect(afterSwap).toBe(2);
+
+    // …the next tick retries the pending subscription (no second refresh)…
+    timers.tick();
+    expect(source.epoch()).toBe(afterSwap);
+
+    // …and now the recovered emitter's data-changed is finally observed.
+    recovered.emit('data-changed');
+    expect(source.epoch()).toBe(afterSwap + 1);
+  });
+
   it('does not bump the epoch on a timer tick when the cached facts are unchanged', () => {
     const google = providerFixture({
       providerId: 'google',
@@ -1327,6 +1474,33 @@ describe('createExternalCalendarSource — cold cache', () => {
     expect(batch.items).toEqual([]);
     expect(batch.loading).toBeFalsy();
     expect(fixture.icsSubscriptionService.getLastFetched).toHaveBeenCalledWith('work-cal');
+  });
+
+  it('re-shows loading for a cold ICS service that replaces a warm one', async () => {
+    const fixture = pluginFixture({
+      subscriptions: [icsSubscription()],
+      icsEvents: [],
+      lastFetchedById: { 'work-cal': '2026-08-04T10:00:00.000Z' },
+    });
+    const { source, timers } = makeSource(fixture.plugin, ALL_WORK_VISIBLE);
+
+    // The warm service records the feed as completed — no loading.
+    const warm = await source.collect(CONTEXT);
+    expect(warm.loading).toBeFalsy();
+
+    // TaskNotes swaps in a cold service (same feed still configured, but never
+    // fetched). The swap must forget the retired service's completion evidence.
+    const coldEmitter = emitterStub();
+    fixture.plugin.icsSubscriptionService = {
+      getSubscriptions: () => [icsSubscription()],
+      getAllEvents: () => [],
+      getLastFetched: () => undefined,
+      on: coldEmitter.on,
+    };
+    timers.tick();
+
+    const cold = await source.collect(CONTEXT);
+    expect(cold.loading).toBe(true);
   });
 
   it.each(['google', 'microsoft'] as const)(

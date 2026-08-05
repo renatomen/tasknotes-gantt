@@ -709,6 +709,14 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let icsUnsubscribe: (() => void) | undefined;
+  // The exact ICS service object the current unsubscribe is bound to. TaskNotes
+  // can swap icsSubscriptionService under a stable plugin handle, so identity —
+  // not merely "an unsubscribe exists" — decides when to rebind.
+  let icsBoundService: unknown;
+  // The bound service exposes `on` but the last subscribe attempt threw: retry
+  // it on the next tick (without re-processing the swap) until it takes, so a
+  // service whose emitter is not yet ready at swap time still gets a listener.
+  let icsSubscriptionPending = false;
   const providerUnsubscribes = new Map<string, () => void>();
   let lastFingerprint = fetchFreeFingerprint(deps.getTaskNotesPlugin());
 
@@ -731,6 +739,16 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
     return recordCompletedFeedKeys(fetchFreeCompletedFeedKeys(deps.getTaskNotesPlugin()));
   };
 
+  // Drop ICS completion evidence when the ICS service is replaced: a cold
+  // replacement must re-show loading rather than inherit the retired service's
+  // "already loaded" state. Provider completion is untouched.
+  const forgetIcsCompletion = (): void => {
+    const icsPrefix = externalCalendarFeedKey('ics', '');
+    for (const feedKey of completedFeedKeys) {
+      if (feedKey.startsWith(icsPrefix)) completedFeedKeys.delete(feedKey);
+    }
+  };
+
   const bumpOnDataChanged = (): void => {
     // A listener can outlive dispose when a service's unsubscribe misbehaves;
     // the guard keeps a disposed source from bumping or re-reading services.
@@ -746,14 +764,54 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   const asUnsubscribe = (value: unknown): (() => void) =>
     typeof value === 'function' ? (value as () => void) : () => {};
 
-  const attachIcsEmitter = (plugin: Record<string, unknown> | undefined): void => {
-    if (icsUnsubscribe) return;
-    const on = methodOf(icsService(plugin), 'on');
-    if (!on) return;
+  // Subscribe to the bound service's data-changed emitter. A service with no
+  // `on` is legitimately unsubscribable (nothing to retry); one whose `on`
+  // throws is marked pending so the next tick retries without re-processing the
+  // swap.
+  const subscribeIcs = (service: Record<string, unknown> | undefined): void => {
+    const on = methodOf(service, 'on');
+    if (!on) {
+      icsSubscriptionPending = false;
+      return;
+    }
     try {
       icsUnsubscribe = asUnsubscribe(on(DATA_CHANGED_EVENT, bumpOnDataChanged));
+      icsSubscriptionPending = false;
     } catch {
       icsUnsubscribe = undefined;
+      icsSubscriptionPending = true;
+    }
+  };
+
+  const attachIcsEmitter = (plugin: Record<string, unknown> | undefined): void => {
+    const service = icsService(plugin);
+    if (service === icsBoundService) {
+      // Same service: only retry a subscription that previously failed to bind,
+      // never re-process the swap (which would re-bump the epoch every tick).
+      if (icsSubscriptionPending) subscribeIcs(service);
+      return;
+    }
+    // A prior real service was bound: this call is a replacement, not the first
+    // attach. Release the retired binding on ANY identity change — even to an
+    // unsubscribable service — so a dead service can never keep emitting.
+    const isReplacement = icsBoundService !== undefined;
+    if (icsUnsubscribe) {
+      try {
+        icsUnsubscribe();
+      } catch {
+        // Released as far as the retired service allows.
+      }
+      icsUnsubscribe = undefined;
+    }
+    icsBoundService = service;
+    subscribeIcs(service);
+    // A genuine replacement invalidates prior ICS completion (a cold service must
+    // re-show loading) and forces one refresh against the new service — a signal
+    // it emitted before we could bind would otherwise be lost.
+    if (isReplacement) {
+      forgetIcsCompletion();
+      epoch += 1;
+      deps.onEpochBump?.();
     }
   };
 
@@ -818,7 +876,16 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
         return { items: [], occupancyByTaskPath: new Map() };
       }
       const plugin = deps.getTaskNotesPlugin();
-      const surfaces = [readIcsSurface(plugin), readProviderSurface(plugin)];
+      // Read the ICS surface only when an ICS feed is visible: `getAllEvents`
+      // starts network fetches for cold/expired caches, so a provider-only
+      // selection must not initiate one. A gated-out surface is simply absent
+      // from the set, so it never counts as degraded.
+      const icsPrefix = externalCalendarFeedKey('ics', '');
+      const hasVisibleIcs = [...visible].some((key) => key.startsWith(icsPrefix));
+      const surfaces = [
+        ...(hasVisibleIcs ? [readIcsSurface(plugin)] : []),
+        readProviderSurface(plugin),
+      ];
       const present = surfaces.filter((surface): surface is SurfaceRead => surface !== null);
       const degraded =
         present.length < surfaces.length || present.some((surface) => surface.degraded === true);
@@ -857,6 +924,8 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
         // Released as far as the service allows.
       } finally {
         icsUnsubscribe = undefined;
+        icsBoundService = undefined;
+        icsSubscriptionPending = false;
       }
       try {
         for (const unsubscribe of providerUnsubscribes.values()) {
