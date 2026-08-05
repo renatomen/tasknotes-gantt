@@ -47,8 +47,6 @@ export {
   DEFAULT_EXTERNAL_CALENDAR_POLL_MS,
   createExternalCalendarSource,
   externalCalendarFeedKey,
-  hasExternalCalendarProviders,
-  isIcsServiceFailing,
   readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,

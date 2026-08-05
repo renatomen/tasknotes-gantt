@@ -267,59 +267,6 @@ export function readExternalIcsSubscriptions(plugin: unknown): readonly External
   }
 }
 
-/**
- * Whether the provider registry currently exposes any calendar provider — true
- * even while a provider's catalog is transiently empty (mid-reconnect/resync),
- * because the provider object persists. Lets the wiring create the discovery
- * watcher for a selected-but-transiently-absent provider feed at view open, so
- * the calendar's return is observed instead of waiting for an unrelated refresh.
- */
-export function hasExternalCalendarProviders(plugin: unknown): boolean {
-  // A provider counts as present when it is STRUCTURALLY a provider (a resolvable
-  // kind plus the read methods) even if its getAvailableCalendars would currently
-  // throw or return empty — the point is to create the discovery watcher so a
-  // provider recovering from a throwing/empty catalog is observed. Deliberately
-  // does NOT invoke getAvailableCalendars (guardedProviders drops a provider whose
-  // catalog read throws — exactly the case we must still watch). Total over
-  // unknown: registry/method access is guarded, so a throwing accessor degrades
-  // to "no providers" rather than escaping into the per-provide create-gate.
-  try {
-    const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
-    if (!getAllProviders) return false;
-    const raw = getAllProviders();
-    if (!Array.isArray(raw)) return false;
-    return raw.some((entry) => {
-      const provider = asRecord(entry);
-      return (
-        providerKindOf(provider?.providerId) !== undefined &&
-        methodOf(provider, 'getAllEvents') !== undefined &&
-        methodOf(provider, 'getAvailableCalendars') !== undefined
-      );
-    });
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Whether the ICS subscription service is present but its getSubscriptions read
- * currently THROWS — a transient failure worth creating the discovery watcher
- * for, so a selected subscription's return is observed once the service
- * recovers. A service that reads successfully (even to an empty list) is NOT
- * failing: a genuinely empty subscription set must not spin up a watcher on
- * every view, since the ICS service itself is always present. Total over unknown.
- */
-export function isIcsServiceFailing(plugin: unknown): boolean {
-  const getSubscriptions = methodOf(icsService(plugin), 'getSubscriptions');
-  if (!getSubscriptions) return false;
-  try {
-    getSubscriptions();
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 /** Current provider calendars via the guarded registry surface; absence → empty. */
 export function readExternalProviderCalendars(plugin: unknown): readonly ExternalProviderCalendar[] {
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');

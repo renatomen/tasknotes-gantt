@@ -38,8 +38,6 @@ import {
   createRecurringInstanceSource,
   createTimeblockSource,
   createTimeEntrySource,
-  hasExternalCalendarProviders,
-  isIcsServiceFailing,
   type CalendarDerivationWindow,
   type CalendarItemQueryContext,
   type CalendarItemSource,
@@ -413,17 +411,17 @@ export function createCalendarItemSourcesProvider(
       if (external !== null && (!hasPlugin || taskNotesPlugin !== externalTaskNotesPlugin)) {
         retireExternal();
       }
-      // Create the discovery watcher once a feed is visible, OR when a calendar
-      // provider is connected even though no feed is visible yet: a provider
-      // calendar the user already selected can be transiently absent from the
-      // catalog at view open (mid-reconnect), leaving visibleFeeds empty — the
-      // watcher must exist to observe its return instead of waiting for an
-      // unrelated Bases refresh. Kept alive across later empties once created.
-      const canCreateExternal =
-        visibleFeeds.size > 0 ||
-        hasExternalCalendarProviders(taskNotesPlugin) ||
-        isIcsServiceFailing(taskNotesPlugin);
-      if (external === null && hasPlugin && canCreateExternal && deps.scheduler) {
+      // Create the discovery watcher lazily, once a feed is actually visible;
+      // keep it alive across later empties rather than recreating it each
+      // reappearance (see retireExternal). Deliberately NOT created merely
+      // because a provider is connected or the ICS service is failing: the Bases
+      // view config is get-by-key only, so an opted-out view (no external feed
+      // configured) is indistinguishable from one whose selected feed is
+      // transiently absent at open — creating on infra presence would leave the
+      // provider `data-changed` subscription scheduling recomputes for views
+      // that opted out of external calendars. The transient-absent-at-open case
+      // instead self-heals on the next Bases refresh.
+      if (external === null && hasPlugin && visibleFeeds.size > 0 && deps.scheduler) {
         external = createExternal(taskNotesPlugin, deps.scheduler);
         externalTaskNotesPlugin = taskNotesPlugin;
       }

@@ -589,15 +589,19 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(batch.items[0]!.startDay).toBe('2026-03-10');
     });
 
-    it('creates the watcher when a provider is connected even if its calendar is transiently absent', () => {
-      // A connected provider whose catalog is momentarily empty (mid-reconnect):
-      // no feed is visible yet, but the discovery watcher must exist so the
-      // calendar's return is observed instead of waiting for a Bases refresh.
+    it('does not create the external source for an opted-out view even when a provider is connected', () => {
+      // A provider connected for TaskNotes but no external feed enabled in THIS
+      // view must not spin up a watcher — it would subscribe to provider
+      // data-changed and schedule recomputes for a view that opted out. The
+      // Bases config is get-by-key only, so a transiently-absent selected feed
+      // cannot be told apart from an opted-out view; lazy creation (on the first
+      // visible feed) is the conservative choice, and the transient-absent-at-
+      // open case self-heals on the next Bases refresh.
       const provider = {
         providerId: 'google',
         providerName: 'Google Calendar',
         getAllEvents: () => [],
-        getAvailableCalendars: () => [],
+        getAvailableCalendars: () => [{ id: 'cal1', summary: 'Home' }],
         getSyncToken: () => undefined,
         on: () => () => {},
       };
@@ -612,56 +616,7 @@ describe('createCalendarItemSourcesProvider', () => {
       const harness = makeHarness([], { taskNotesPlugin: plugin });
 
       expect(harness.visibleFeeds.size).toBe(0);
-      expect(families(provideSources(harness))).toContain('external-event');
-    });
-
-    it('creates the watcher when a provider is connected but its catalog read throws', () => {
-      // Discovery is throwing (not merely empty) — the provider is still present,
-      // so the watcher must be created to observe its recovery. guardedProviders
-      // drops a throwing-catalog provider, so the presence check must be
-      // structural (never invoking getAvailableCalendars).
-      const provider = {
-        providerId: 'google',
-        providerName: 'Google Calendar',
-        getAllEvents: () => [],
-        getAvailableCalendars: () => {
-          throw new Error('discovery cold');
-        },
-        getSyncToken: () => undefined,
-        on: () => () => {},
-      };
-      const plugin = {
-        icsSubscriptionService: {
-          getSubscriptions: () => [],
-          getAllEvents: () => [],
-          on: () => () => {},
-        },
-        calendarProviderRegistry: { getAllProviders: () => [provider] },
-      };
-      const harness = makeHarness([], { taskNotesPlugin: plugin });
-
-      expect(harness.visibleFeeds.size).toBe(0);
-      expect(families(provideSources(harness))).toContain('external-event');
-    });
-
-    it('creates the watcher for an ICS-only view when getSubscriptions throws', () => {
-      // The ICS service is present but momentarily failing (getSubscriptions
-      // throws), so a selected subscription can't be enumerated — the watcher
-      // must exist to observe the service recovering. No provider is connected.
-      const plugin = {
-        icsSubscriptionService: {
-          getSubscriptions: () => {
-            throw new Error('subscriptions cold');
-          },
-          getAllEvents: () => [],
-          on: () => () => {},
-        },
-        calendarProviderRegistry: { getAllProviders: () => [] },
-      };
-      const harness = makeHarness([], { taskNotesPlugin: plugin });
-
-      expect(harness.visibleFeeds.size).toBe(0);
-      expect(families(provideSources(harness))).toContain('external-event');
+      expect(families(provideSources(harness))).not.toContain('external-event');
     });
 
     it('keeps the source alive as a fetch-free watcher when every feed is hidden, clearing loading on collect', async () => {
