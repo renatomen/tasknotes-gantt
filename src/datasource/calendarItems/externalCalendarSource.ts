@@ -274,13 +274,27 @@ export function readExternalIcsSubscriptions(plugin: unknown): readonly External
  * the calendar's return is observed instead of waiting for an unrelated refresh.
  */
 export function hasExternalCalendarProviders(plugin: unknown): boolean {
-  // Total over unknown: even the registry/method access is guarded, so a
-  // throwing accessor degrades to "no providers" rather than escaping into the
-  // per-provide create-gate.
+  // A provider counts as present when it is STRUCTURALLY a provider (a resolvable
+  // kind plus the read methods) even if its getAvailableCalendars would currently
+  // throw or return empty — the point is to create the discovery watcher so a
+  // provider recovering from a throwing/empty catalog is observed. Deliberately
+  // does NOT invoke getAvailableCalendars (guardedProviders drops a provider whose
+  // catalog read throws — exactly the case we must still watch). Total over
+  // unknown: registry/method access is guarded, so a throwing accessor degrades
+  // to "no providers" rather than escaping into the per-provide create-gate.
   try {
     const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
     if (!getAllProviders) return false;
-    return guardedProviders(getAllProviders()).providers.length > 0;
+    const raw = getAllProviders();
+    if (!Array.isArray(raw)) return false;
+    return raw.some((entry) => {
+      const provider = asRecord(entry);
+      return (
+        providerKindOf(provider?.providerId) !== undefined &&
+        methodOf(provider, 'getAllEvents') !== undefined &&
+        methodOf(provider, 'getAvailableCalendars') !== undefined
+      );
+    });
   } catch {
     return false;
   }

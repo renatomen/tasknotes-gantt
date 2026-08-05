@@ -615,6 +615,35 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(families(provideSources(harness))).toContain('external-event');
     });
 
+    it('creates the watcher when a provider is connected but its catalog read throws', () => {
+      // Discovery is throwing (not merely empty) — the provider is still present,
+      // so the watcher must be created to observe its recovery. guardedProviders
+      // drops a throwing-catalog provider, so the presence check must be
+      // structural (never invoking getAvailableCalendars).
+      const provider = {
+        providerId: 'google',
+        providerName: 'Google Calendar',
+        getAllEvents: () => [],
+        getAvailableCalendars: () => {
+          throw new Error('discovery cold');
+        },
+        getSyncToken: () => undefined,
+        on: () => () => {},
+      };
+      const plugin = {
+        icsSubscriptionService: {
+          getSubscriptions: () => [],
+          getAllEvents: () => [],
+          on: () => () => {},
+        },
+        calendarProviderRegistry: { getAllProviders: () => [provider] },
+      };
+      const harness = makeHarness([], { taskNotesPlugin: plugin });
+
+      expect(harness.visibleFeeds.size).toBe(0);
+      expect(families(provideSources(harness))).toContain('external-event');
+    });
+
     it('keeps the source alive as a fetch-free watcher when every feed is hidden, clearing loading on collect', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
