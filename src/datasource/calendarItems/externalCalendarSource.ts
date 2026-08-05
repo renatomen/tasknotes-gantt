@@ -23,10 +23,16 @@
  */
 
 import type { TimerScheduler } from '../../bases/scheduler';
-import type { CalendarItem, CalendarItemSource, LocalDay } from './types';
+import type {
+  CalendarDerivationWindow,
+  CalendarItem,
+  CalendarItemSource,
+  LocalDay,
+} from './types';
 import { asRecord, makeCalendarItemId } from './types';
 import { dlog } from '../../debugLog';
 import {
+  intersectsWindow,
   isLocalDayString,
   localDaySpanOfInstants,
   localDayOfWallClock,
@@ -218,14 +224,21 @@ function guardedProviders(raw: unknown): GuardedProvidersRead {
       degraded = true;
       continue;
     }
-    // Guard each provider on its own: one throwing provider loses only its own
-    // events while healthy siblings keep rendering.
+    // Guard the event-cache read and the calendar catalog SEPARATELY: a failing
+    // getAllEvents (e.g. a cold/throwing cache) must not drop the provider's
+    // catalog, or a feed the user already selected would vanish from visibility/
+    // degrade handling instead of staying selectable and marked degraded. One
+    // throwing provider still loses only its own data; healthy siblings render.
+    const events: ExternalEvent[] = [];
     try {
-      const events: ExternalEvent[] = [];
       for (const rawEvent of asArray(getAllEvents())) {
         const event = toExternalEvent(rawEvent);
         if (event) events.push(event);
       }
+    } catch {
+      degraded = true;
+    }
+    try {
       const calendars = toProviderCalendars(kind, getAvailableCalendars());
       providers.push({
         kind,
@@ -607,7 +620,10 @@ interface SeriesGroup {
   occurrences: NormalizedOccurrence[];
 }
 
-function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
+function buildItems(
+  feedEvents: readonly FeedEvent[],
+  window: CalendarDerivationWindow,
+): CalendarItem[] {
   const singleEntries: SingleEntry[] = [];
   // Series group per feed AND series id: feed-local series ids are only unique
   // within their own feed, so two feeds reusing one id stay separate rows.
@@ -615,6 +631,10 @@ function buildItems(feedEvents: readonly FeedEvent[]): CalendarItem[] {
   for (const { feedKey, event } of feedEvents) {
     const span = normalizedSpan(event);
     if (span === null) continue;
+    // Drop occurrences outside the derivation window: a feed cache holding old
+    // or far-future events must not append out-of-window rows that stretch the
+    // timeline — a series then spans only its in-window occurrences.
+    if (!intersectsWindow(span, window)) continue;
     const occurrence: NormalizedOccurrence = { event, span, startTime: localStartTime(event) };
     if (event.recurringEventId === undefined) {
       singleEntries.push({ feedKey, occurrence });
@@ -687,7 +707,14 @@ function fetchFreeFingerprint(plugin: unknown): string {
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
   if (getAllProviders) {
     try {
-      for (const provider of guardedProviders(getAllProviders()).providers) {
+      const guarded = guardedProviders(getAllProviders());
+      // Fold the degraded flag in: a provider whose event cache throws now keeps
+      // its catalog (unchanged fingerprint), so recovering to a healthy empty
+      // read would otherwise leave the epoch unbumped and the stale degraded
+      // batch cached. The flag flip is the only fetch-free signal of that
+      // transition.
+      parts.push(`providers|degraded|${guarded.degraded}`);
+      for (const provider of guarded.providers) {
         for (const calendar of provider.calendars) {
           parts.push(`${provider.kind}|cal|${calendar.id}|${calendar.name}`);
         }
@@ -866,7 +893,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
   return {
     family: 'external-event',
     epoch: () => epoch,
-    collect: async () => {
+    collect: async (context) => {
       const visible = deps.visibleFeeds();
       // Zero visible feeds is a full opt-out: return a plain empty batch
       // without touching either event surface — `ICSSubscriptionService.
@@ -903,7 +930,7 @@ export function createExternalCalendarSource(deps: ExternalCalendarSourceDeps): 
         !degraded &&
         visibleFeedKeys.length > 0 &&
         visibleFeedKeys.some((feedKey) => !completedFeedKeys.has(feedKey));
-      const items = buildItems(visibleFeedEvents);
+      const items = buildItems(visibleFeedEvents, context.window);
       return {
         items,
         occupancyByTaskPath: new Map(),

@@ -339,6 +339,23 @@ describe('createExternalCalendarSource — guarded service absence', () => {
     expect(batch.degraded).toBe(true);
   });
 
+  it('preserves a provider catalog when its event-cache read throws (feed stays selectable, degraded)', async () => {
+    const broken = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    broken.provider.getAllEvents.mockImplementation(() => {
+      throw new Error('cache exploded');
+    });
+    const fixture = pluginFixture({ providers: [broken.provider] });
+    const { source } = makeSource(fixture.plugin, new Set([externalCalendarFeedKey('google', 'cal1')]));
+
+    const batch = await source.collect(CONTEXT);
+
+    // The event read failed → degraded, but reading the catalog is independent…
+    expect(batch.degraded).toBe(true);
+    expect(batch.items).toEqual([]);
+    // …so the selected calendar survives the throw and stays selectable.
+    expect(readExternalProviderCalendars(fixture.plugin).map((cal) => cal.id)).toContain('cal1');
+  });
+
   it('marks malformed provider entries and missing required provider surfaces as degraded', async () => {
     const malformedProviders = [
       null,
@@ -576,13 +593,39 @@ describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect',
   }
   const CAL1_VISIBLE = new Set([externalCalendarFeedKey('google', 'cal1')]);
 
+  it('drops external events outside the derivation window, keeping in-window ones', async () => {
+    const { plugin } = googlePlugin([
+      icsEvent({
+        id: 'google-cal1-far',
+        subscriptionId: 'google-cal1',
+        title: 'Far future',
+        start: '2027-01-05',
+        end: '2027-01-06',
+        allDay: true,
+      }),
+      icsEvent({
+        id: 'google-cal1-in',
+        subscriptionId: 'google-cal1',
+        title: 'In window',
+        start: '2026-08-15',
+        end: '2026-08-16',
+        allDay: true,
+      }),
+    ]);
+    const { source } = makeSource(plugin, CAL1_VISIBLE);
+
+    const batch = await source.collect(CONTEXT);
+
+    expect(batch.items.map((item) => item.title)).toEqual(['In window']);
+  });
+
   it('keeps a late-evening local-wall event on its own floating day (23:30 never zone-shifts)', async () => {
     const { plugin } = googlePlugin([
       icsEvent({
         id: 'google-cal1-e1',
         subscriptionId: 'google-cal1',
-        start: '2026-03-10T23:30:00',
-        end: '2026-03-10T23:45:00',
+        start: '2026-08-10T23:30:00',
+        end: '2026-08-10T23:45:00',
       }),
     ]);
     const { source } = makeSource(plugin, CAL1_VISIBLE);
@@ -590,8 +633,8 @@ describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect',
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(1);
-    expect(batch.items[0].startDay).toBe('2026-03-10');
-    expect(batch.items[0].endDay).toBe('2026-03-10');
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-10');
   });
 
   it('keeps an early-morning local-wall event on its own floating day (00:30 never zone-shifts)', async () => {
@@ -602,8 +645,8 @@ describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect',
       icsEvent({
         id: 'google-cal1-e2',
         subscriptionId: 'google-cal1',
-        start: '2026-03-10T00:30:00',
-        end: '2026-03-10T01:00:00',
+        start: '2026-08-10T00:30:00',
+        end: '2026-08-10T01:00:00',
       }),
     ]);
     const { source } = makeSource(plugin, CAL1_VISIBLE);
@@ -611,8 +654,8 @@ describe('createExternalCalendarSource — Google/Microsoft wall-clock dialect',
     const batch = await source.collect(CONTEXT);
 
     expect(batch.items).toHaveLength(1);
-    expect(batch.items[0].startDay).toBe('2026-03-10');
-    expect(batch.items[0].endDay).toBe('2026-03-10');
+    expect(batch.items[0].startDay).toBe('2026-08-10');
+    expect(batch.items[0].endDay).toBe('2026-08-10');
   });
 
   it('renders a multi-day non-recurring wall-clock event as one solid span without occupancyDays', async () => {
@@ -1265,6 +1308,28 @@ describe('createExternalCalendarSource — refresh signals', () => {
     google.state.events = [
       icsEvent({ id: 'google-cal1-e1', subscriptionId: 'google-cal1', start: '2026-08-11T10:00:00' }),
     ];
+    timers.tick();
+
+    expect(source.epoch()).toBe(1);
+  });
+
+  it('bumps the epoch on a timer tick when a provider event cache recovers from a throw', () => {
+    const google = providerFixture({ providerId: 'google', calendars: [{ id: 'cal1', summary: 'Home' }] });
+    let throwing = true;
+    google.provider.getAllEvents.mockImplementation(() => {
+      if (throwing) throw new Error('cache cold');
+      return [];
+    });
+    const fixture = pluginFixture({ providers: [google.provider] });
+    const { source, timers } = makeSource(
+      fixture.plugin,
+      new Set([externalCalendarFeedKey('google', 'cal1')]),
+    );
+
+    // Recover: the event cache stops throwing but returns the same empty set and
+    // the catalog is unchanged — the degraded-flag flip is the only fetch-free
+    // signal, so without folding it into the fingerprint the epoch would stall.
+    throwing = false;
     timers.tick();
 
     expect(source.epoch()).toBe(1);
