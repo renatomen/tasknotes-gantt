@@ -185,7 +185,7 @@ describe('treatmentClassGroups', () => {
 });
 
 describe('buildTreatmentStyle', () => {
-  it('fill=status/strip=none: emits a scoped !important background per present, safe status', () => {
+  it('fill=status/strip=none: emits scoped paint for every configured safe status', () => {
     const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
@@ -198,7 +198,9 @@ describe('buildTreatmentStyle', () => {
     // background is transparent, so without it a stretched bar loses its colour).
     expect(css).toContain('--og-ghost-fill: #f8312f;');
     expect(css).toContain('text-shadow:'); // readable label on the fill
-    expect(css).not.toContain('#123456'); // Unused: not present
+    // Configuration-complete paint: a legend sample can use a configured value
+    // even when no current task row carries it.
+    expect(css).toContain('#123456');
     expect(css).not.toContain('padding-left'); // fill-only → no strip → no extra inset
     expect(css).not.toContain('::before'); // fill draws no strip (bug 2)
   });
@@ -437,7 +439,9 @@ describe('buildTreatmentStyle fidelity (legacy configs render byte-identically)'
   // fidelity-first (R8/KTD6): a legacy `mode=fill|strip, source=X` view renders
   // exactly as before under `fill=X,strip=none` / `fill=none,strip=X`.
   const fidelityPalettes: Palettes = {
-    status: statusColors,
+    // The legacy golden covered these two configured values. The broader
+    // configuration-complete behavior is asserted above.
+    status: statusColors.filter(({ value }) => value !== 'Unused'),
     priority: priorityColors,
     calendar: [
       { value: 'Calendars/NZ.md', color: '#2a9d8f' },

@@ -232,6 +232,14 @@ export interface TreatmentInstance {
   calendarId?: string | null;
 }
 
+/** Production paint inputs for a fixed representative of one configured channel. */
+export interface RepresentativeChannelPaint {
+  source: BarColorSource;
+  value?: string;
+  classToken?: string;
+  color: string;
+}
+
 /**
  * The resolved icon-chip content for a bar. `kind` selects the no-icon shape
  * (status → ring/disc, priority → filled dot, matching TaskNotes' geometry);
@@ -415,6 +423,51 @@ export function resolveTreatmentClass(input: ResolveTreatmentClassInput): string
 }
 
 /**
+ * Resolve one fixed representative using the same effective-source, palette,
+ * safety, slug, and role colors as live bars. The legend consumes this rather
+ * than inventing a parallel palette resolver.
+ */
+export function resolveRepresentativeChannelPaint(
+  source: BarChannelSource,
+  palettes: Palettes,
+): RepresentativeChannelPaint | null {
+  if (source === 'none') return null;
+  const effective = effectiveSource(source, palettes);
+  if (effective === 'default') {
+    return { source: effective, color: DEFAULT_CHILD_COLOR };
+  }
+  if (effective === 'theme') {
+    return { source: effective, color: THEME_CHILD_COLOR };
+  }
+  const { palette, slugOf } = paletteFor(effective, palettes);
+  const representative = palette.find(({ color }) => isSafeColor(color));
+  if (!representative) return null;
+  return {
+    source: effective,
+    value: representative.value,
+    classToken: slugOf(representative.value),
+    color: representative.color,
+  };
+}
+
+/**
+ * Synthetic value carriers used only while generating the production treatment
+ * stylesheet. Adding them makes every safe configured palette value paintable
+ * even when no current row uses it; they never enter the task array or geometry.
+ */
+export function representativeTreatmentInstances(palettes: Palettes): TreatmentInstance[] {
+  return [
+    ...palettes.status.map(({ value }) => ({ status: value, priority: null })),
+    ...palettes.priority.map(({ value }) => ({ status: null, priority: value })),
+    ...(palettes.calendar ?? []).map(({ value }) => ({
+      status: null,
+      priority: null,
+      calendarId: value,
+    })),
+  ];
+}
+
+/**
  * Treatment classes grouped by source: parent role, status, priority, calendar
  * (empty groups dropped). A bar carries two classes only when its Fill and Strip
  * channels resolve to DIFFERENT groups — same-source channels collapse to one
@@ -484,6 +537,7 @@ export interface TreatmentStyleInput {
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   const { palettes, instances, scope } = input;
+  const paintableInstances = [...instances, ...representativeTreatmentInstances(palettes)];
   const barSelector = `${scope} .wx-bar`;
   // `effectiveSource` is keyed on BarColorSource, so gate `none` out first.
   const fillEff: BarChannelSource =
@@ -497,20 +551,20 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   }
   // Fill only → the fill channel supplies the body; no strip is drawn.
   if (fillEff !== 'none' && stripEff === 'none') {
-    return fillChannelRules(barSelector, fillEff, palettes, instances).join('\n');
+    return fillChannelRules(barSelector, fillEff, palettes, paintableInstances).join('\n');
   }
   // Strip only → the strip accent over a neutral body; the body is never filled.
   // Reproduces the legacy strip-mode output exactly.
   if (fillEff === 'none' && stripEff !== 'none') {
-    return stripOnlyRules(barSelector, stripEff, palettes, instances).join('\n');
+    return stripOnlyRules(barSelector, stripEff, palettes, paintableInstances).join('\n');
   }
   // Both channels → the fill body, then the strip's `::before` accent laid over
   // it. No neutral body (the fill supplies it) and no widened content inset (the
   // filled body has no strip-clearing to do).
   if (fillEff !== 'none' && stripEff !== 'none') {
     return [
-      ...fillChannelRules(barSelector, fillEff, palettes, instances),
-      ...stripBeforeRules(barSelector, stripEff, palettes, instances),
+      ...fillChannelRules(barSelector, fillEff, palettes, paintableInstances),
+      ...stripBeforeRules(barSelector, stripEff, palettes, paintableInstances),
     ].join('\n');
   }
   return '';

@@ -44,6 +44,7 @@ import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
 import type { EchoPayload } from './dragCommitPlan';
+import { GANTT_VISUAL_CLASS_TOKENS } from './visualSemantics';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
@@ -51,7 +52,7 @@ import type { EchoPayload } from './dragCommitPlan';
  * a registered task `type` id as a bare class on the bar element, so this
  * doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
  */
-export const DATE_STATUS_TYPE = 'datestatus-flagged';
+export const DATE_STATUS_TYPE = GANTT_VISUAL_CLASS_TOKENS.dateStatus;
 
 /**
  * Custom SVAR task type marking a bar whose source task appears more than once
@@ -60,7 +61,7 @@ export const DATE_STATUS_TYPE = 'datestatus-flagged';
  * cue uniformly (none is privileged as "the real one"), so the reader can tell a
  * replicated instance from a unique row. Emitted as a bare class (`.wx-bar.og-replicated`).
  */
-export const REPLICATED_TYPE = 'og-replicated';
+export const REPLICATED_TYPE = GANTT_VISUAL_CLASS_TOKENS.replicated;
 
 /**
  * Custom SVAR task type marking a bar pulled in only for *context* under Show-all
@@ -68,7 +69,7 @@ export const REPLICATED_TYPE = 'og-replicated';
  * the Base filter (`RenderInstance.isFetched`). Rendered muted so matched rows
  * stay visually dominant. Emitted as a bare class (`.wx-bar.og-context`).
  */
-export const CONTEXT_TYPE = 'og-context';
+export const CONTEXT_TYPE = GANTT_VISUAL_CLASS_TOKENS.context;
 
 /**
  * Custom SVAR task type marking a read-only calendar-item event row (calendar-view
@@ -76,14 +77,14 @@ export const CONTEXT_TYPE = 'og-context';
  * affordance CSS (hidden link handles / progress marker, honest cursor); the
  * behavioral refusal lives in the intercept guards (`eventRowGuards`).
  */
-export const EVENT_TYPE = 'og-event';
+export const EVENT_TYPE = GANTT_VISUAL_CLASS_TOKENS.calendarEvent;
 
 /**
  * Custom SVAR task type marking a task row rendered through its per-instance
  * occupancy (calendar-view union — the recurring family's envelope/pieces).
  * Emitted as a bare class (`.wx-bar.og-recurring`) hooking the occupancy CSS.
  */
-export const RECURRING_TYPE = 'og-recurring';
+export const RECURRING_TYPE = GANTT_VISUAL_CLASS_TOKENS.recurring;
 
 /**
  * Instance-cue suffixes in the EXACT order {@link buildSvarTasks} appends them to

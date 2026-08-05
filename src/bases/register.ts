@@ -1484,15 +1484,26 @@ class ObsidianGanttBasesView extends BasesView {
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     const calendarShading = this.buildCalendarShading(instances);
+    const showDateIndicators = this.getShowDateIndicators();
+    const highlightWeekends = this.getHighlightWeekends();
+    const barFillSource = this.getBarFillSource();
+    const barStripSource = this.getBarStripSource();
+    const barIconSource = this.getBarIcon();
+    const taskNotesPresent = isTaskNotesPresent(this.app);
+    const calendarItems = this.getCalendarItemToggles();
+    const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
+    const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
+    const estimateOverrideMapped =
+      (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
     return {
       instances,
       links,
       capabilities: controller.capabilities,
       arrowMode,
-      showDateIndicators: this.getShowDateIndicators(),
+      showDateIndicators,
       showToolbar: this.getShowToolbar(),
       defaultLegendPosition: this.getDefaultLegendPosition(),
-      highlightWeekends: this.getHighlightWeekends(),
+      highlightWeekends,
       // #161: the same config key as before, now a view-level display filter.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
       // #161: the show-undated/show-partial toggles flow through the store like
@@ -1505,9 +1516,9 @@ class ObsidianGanttBasesView extends BasesView {
       statusColors,
       priorityColors,
       choiceOptions: { status: statusOptions, priority: priorityOptions },
-      barFillSource: this.getBarFillSource(),
-      barStripSource: this.getBarStripSource(),
-      barIcon: this.getBarIcon(),
+      barFillSource,
+      barStripSource,
+      barIcon: barIconSource,
       // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
       // mode and in Property mode with no mapped property (nowhere to persist).
       progressReadonly: this.getProgressReadonly(),
@@ -1515,6 +1526,7 @@ class ObsidianGanttBasesView extends BasesView {
       // container additionally gates on read-only (standalone never writes, R17).
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
+      taskNotesPresent,
       cascadeMode: this.getCascadeMode(),
       getInferredDragMode: () => this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
@@ -1536,6 +1548,25 @@ class ObsidianGanttBasesView extends BasesView {
       calendarMarkers: calendarShading.markers,
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
+      legendContext: {
+        taskNotesPresent,
+        showDateIndicators,
+        highlightWeekends,
+        barFillSource,
+        barStripSource,
+        barIconSource,
+        statusColors,
+        priorityColors,
+        calendarPalette: calendarShading.calendarPalette,
+        calendarMarkers: calendarShading.markers,
+        calendarDisplayedCount: calendarShading.displayedCount,
+        estimateMeaning,
+        nonWorkingRendering,
+        estimateOverrideMapped,
+        expandedRelationships: this.getExpandedRelationships(),
+        calendarItems,
+        externalCalendarsEnabled: this.readVisibleExternalFeeds().size > 0,
+      },
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
       deriveEstimate: controller.buildDeriveEstimate(),
@@ -1563,6 +1594,7 @@ class ObsidianGanttBasesView extends BasesView {
     markers: MarkerInput[];
     calendarPalette: { value: string; color: string }[];
     calendarBySource: Map<string, string>;
+    displayedCount: number;
   } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -1630,6 +1662,7 @@ class ObsidianGanttBasesView extends BasesView {
       markers: computed.markers,
       calendarPalette: computed.calendarPalette,
       calendarBySource: computed.calendarBySource,
+      displayedCount: computed.displayedCount,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,

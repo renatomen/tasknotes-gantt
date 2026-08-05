@@ -32,6 +32,7 @@ import {
   type DisplaySelection,
   type ResolvedTarget,
 } from './calendarSelection';
+import { GANTT_VISUAL_CLASS_TOKENS } from './visualSemantics';
 
 // !important: the weekends-off neutralization rule strips `.wx-weekend`
 // backgrounds with !important, and a calendar-shaded date can fall on a
@@ -104,7 +105,7 @@ export function buildCalendarShadingCss(
 ): string {
   const bodyScope = `${scope} .wx-gantt-holidays`;
   const headerScope = `${scope} .wx-scale`;
-  const cellBaseRule = `${bodyScope} .og-cal-cell{position:absolute;top:0;height:100%;}`;
+  const cellBaseRule = `${bodyScope} .${GANTT_VISUAL_CLASS_TOKENS.calendarCell}{position:absolute;top:0;height:100%;}`;
   const parts = [cellBaseRule];
   if (shadedDates.length > 0) {
     parts.push(`${dateSelectors(shadedDates, bodyScope, headerScope)}${SHADE_DECLARATION}`);
@@ -222,21 +223,6 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
   const calendarPalette = buildCalendarPalette(registry);
   const calendarBySource = resolveCalendarIdentities(registry, inputs);
-  if (window === null) {
-    return {
-      css: buildCalendarShadingCss(inputs.scope, []),
-      displayedCount: 0,
-      conflictCount: 0,
-      conflictCalendars: [],
-      invalidCount,
-      flaggedCount,
-      markers: [],
-      calendarPalette,
-      calendarBySource,
-      markedNotePaths,
-    };
-  }
-
   const displayed = new Map<string, CalendarRecord>();
   if (display !== null) {
     for (const path of display.paths) {
@@ -256,6 +242,21 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   }
 
   const records = [...displayed.values()];
+  const markers = collectMarkers(records);
+  if (window === null) {
+    return {
+      css: buildCalendarShadingCss(inputs.scope, []),
+      displayedCount: displayed.size,
+      conflictCount: 0,
+      conflictCalendars: [],
+      invalidCount,
+      flaggedCount,
+      markers,
+      calendarPalette,
+      calendarBySource,
+      markedNotePaths,
+    };
+  }
   const definitions = records.map((record) => record.definition);
   // Attributed: the banner names the disagreeing calendars, so a user does not have
   // to open the picker and compare patterns to find which selection conflicts.
@@ -274,7 +275,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     conflictCalendars: conflicts.calendars,
     invalidCount,
     flaggedCount,
-    markers: collectMarkers([...displayed.values()]),
+    markers,
     calendarPalette,
     calendarBySource,
     markedNotePaths,
@@ -369,4 +370,3 @@ export function createShadingCssCache(): ShadingCssCache {
     },
   };
 }
-

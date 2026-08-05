@@ -29,6 +29,36 @@ import type { GridColumn } from '../gridColumns';
 import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
 import type { LegendPosition } from '../legendLayout';
+import type { EstimateMeaning, ExpandedRelationships, NonWorkingRendering } from '../viewOptions';
+
+/** Raw effective view facts consumed by the presentation-only legend catalogue. */
+export interface GanttLegendContext {
+  taskNotesPresent: boolean;
+  showDateIndicators: boolean;
+  highlightWeekends: boolean;
+  barFillSource: BarChannelSource;
+  barStripSource: BarChannelSource;
+  barIconSource: BarIconSource;
+  statusColors: StatusColor[];
+  priorityColors: PriorityColor[];
+  calendarPalette: { value: string; color: string }[];
+  calendarMarkers: MarkerInput[];
+  /** Number of calendars selected by the active display configuration. */
+  calendarDisplayedCount: number;
+  estimateMeaning: EstimateMeaning;
+  nonWorkingRendering: NonWorkingRendering;
+  estimateOverrideMapped: boolean;
+  expandedRelationships: ExpandedRelationships;
+  calendarItems: {
+    showRecurring: boolean;
+    showCompletedRecurringInstances: boolean;
+    showSkippedRecurringInstances: boolean;
+    showTimeEntries: boolean;
+    showTimeblocks: boolean;
+    showPropertyBasedEvents: boolean;
+  };
+  externalCalendarsEnabled: boolean;
+}
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -49,6 +79,8 @@ export interface GanttData {
   showToolbar: boolean;
   /** Appearance-owned default copied into local state whenever the legend opens. */
   defaultLegendPosition: LegendPosition;
+  /** Configuration-complete, row-independent inputs for the semantic legend. */
+  legendContext?: GanttLegendContext;
   /**
    * Per-view "Highlight weekends" toggle. Flows through the reactive data path
    * (not a static mount prop) so toggling the option live shows/hides the
