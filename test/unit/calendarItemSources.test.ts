@@ -686,6 +686,33 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(onExternalBatchFlags).toHaveBeenLastCalledWith({ degraded: false, loading: false });
     });
 
+    it('publishes no batch flags from a collect that resolves after the source was retired', async () => {
+      const fixture = taskNotesPluginFixture({
+        subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],
+        icsEvents: [],
+      });
+      let taskNotesPlugin: unknown = fixture.plugin;
+      const onExternalBatchFlags = jest.fn();
+      const harness = makeHarness([], {
+        getTaskNotesPlugin: () => taskNotesPlugin,
+        onExternalBatchFlags,
+      });
+      visibleWorkFeed(harness);
+      const source = provideSources(harness).find((entry) => entry.family === 'external-event')!;
+
+      // The plugin disappears → the source is retired (disposed) and emits its
+      // cleared flags synchronously.
+      taskNotesPlugin = undefined;
+      provideSources(harness);
+      onExternalBatchFlags.mockClear();
+
+      // A late collect from the retired wrapper (a superseded build reaching it)
+      // must publish nothing over the cleared state.
+      await collectOne(source);
+
+      expect(onExternalBatchFlags).not.toHaveBeenCalled();
+    });
+
     it('bumps the provided epoch when the visible feed set changes', () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],

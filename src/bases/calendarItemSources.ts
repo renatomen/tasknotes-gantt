@@ -333,18 +333,30 @@ export function createCalendarItemSourcesProvider(
       scheduler,
       ...(deps.onExternalEpochBump ? { onEpochBump: deps.onExternalEpochBump } : {}),
     });
+    let disposed = false;
     return {
       family: source.family,
       epoch: source.epoch,
       collect: async (context) => {
         const batch = await source.collect(context);
-        deps.onExternalBatchFlags?.({
-          degraded: batch.degraded === true,
-          loading: batch.loading === true,
-        });
+        // A collect that resolves AFTER this source was retired/replaced (an
+        // older, superseded recompute reaching here past a slow earlier calendar
+        // source) must not publish its now-stale flags over the live view state,
+        // or a later refresh could resurrect an old "Fetching external events…"
+        // banner or clear a real one. retireExternal already emits the cleared
+        // flags synchronously; a disposed source stays silent.
+        if (!disposed) {
+          deps.onExternalBatchFlags?.({
+            degraded: batch.degraded === true,
+            loading: batch.loading === true,
+          });
+        }
         return batch;
       },
-      dispose: source.dispose,
+      dispose: () => {
+        disposed = true;
+        source.dispose();
+      },
     };
   };
 
