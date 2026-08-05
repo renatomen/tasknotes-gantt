@@ -38,6 +38,7 @@ import {
   createRecurringInstanceSource,
   createTimeblockSource,
   createTimeEntrySource,
+  hasExternalCalendarProviders,
   type CalendarDerivationWindow,
   type CalendarItemQueryContext,
   type CalendarItemSource,
@@ -399,9 +400,15 @@ export function createCalendarItemSourcesProvider(
       if (external !== null && (!hasPlugin || taskNotesPlugin !== externalTaskNotesPlugin)) {
         retireExternal();
       }
-      // Create the discovery watcher once a feed is actually visible; keep it
-      // alive across later empties rather than recreating it each reappearance.
-      if (external === null && hasPlugin && visibleFeeds.size > 0 && deps.scheduler) {
+      // Create the discovery watcher once a feed is visible, OR when a calendar
+      // provider is connected even though no feed is visible yet: a provider
+      // calendar the user already selected can be transiently absent from the
+      // catalog at view open (mid-reconnect), leaving visibleFeeds empty — the
+      // watcher must exist to observe its return instead of waiting for an
+      // unrelated Bases refresh. Kept alive across later empties once created.
+      const canCreateExternal =
+        visibleFeeds.size > 0 || hasExternalCalendarProviders(taskNotesPlugin);
+      if (external === null && hasPlugin && canCreateExternal && deps.scheduler) {
         external = createExternal(taskNotesPlugin, deps.scheduler);
         externalTaskNotesPlugin = taskNotesPlugin;
       }

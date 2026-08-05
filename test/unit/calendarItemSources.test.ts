@@ -589,6 +589,32 @@ describe('createCalendarItemSourcesProvider', () => {
       expect(batch.items[0]!.startDay).toBe('2026-03-10');
     });
 
+    it('creates the watcher when a provider is connected even if its calendar is transiently absent', () => {
+      // A connected provider whose catalog is momentarily empty (mid-reconnect):
+      // no feed is visible yet, but the discovery watcher must exist so the
+      // calendar's return is observed instead of waiting for a Bases refresh.
+      const provider = {
+        providerId: 'google',
+        providerName: 'Google Calendar',
+        getAllEvents: () => [],
+        getAvailableCalendars: () => [],
+        getSyncToken: () => undefined,
+        on: () => () => {},
+      };
+      const plugin = {
+        icsSubscriptionService: {
+          getSubscriptions: () => [],
+          getAllEvents: () => [],
+          on: () => () => {},
+        },
+        calendarProviderRegistry: { getAllProviders: () => [provider] },
+      };
+      const harness = makeHarness([], { taskNotesPlugin: plugin });
+
+      expect(harness.visibleFeeds.size).toBe(0);
+      expect(families(provideSources(harness))).toContain('external-event');
+    });
+
     it('keeps the source alive as a fetch-free watcher when every feed is hidden, clearing loading on collect', async () => {
       const fixture = taskNotesPluginFixture({
         subscriptions: [{ id: 'work-cal', name: 'Work', enabled: true }],

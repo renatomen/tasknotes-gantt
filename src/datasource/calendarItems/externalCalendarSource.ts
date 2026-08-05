@@ -266,6 +266,26 @@ export function readExternalIcsSubscriptions(plugin: unknown): readonly External
   }
 }
 
+/**
+ * Whether the provider registry currently exposes any calendar provider — true
+ * even while a provider's catalog is transiently empty (mid-reconnect/resync),
+ * because the provider object persists. Lets the wiring create the discovery
+ * watcher for a selected-but-transiently-absent provider feed at view open, so
+ * the calendar's return is observed instead of waiting for an unrelated refresh.
+ */
+export function hasExternalCalendarProviders(plugin: unknown): boolean {
+  // Total over unknown: even the registry/method access is guarded, so a
+  // throwing accessor degrades to "no providers" rather than escaping into the
+  // per-provide create-gate.
+  try {
+    const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
+    if (!getAllProviders) return false;
+    return guardedProviders(getAllProviders()).providers.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Current provider calendars via the guarded registry surface; absence → empty. */
 export function readExternalProviderCalendars(plugin: unknown): readonly ExternalProviderCalendar[] {
   const getAllProviders = methodOf(providerRegistry(plugin), 'getAllProviders');
