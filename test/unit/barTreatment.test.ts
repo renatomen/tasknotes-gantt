@@ -79,14 +79,23 @@ describe('representative bar body paint', () => {
       palettes,
     });
     expect(representative).toMatchObject({
+      source: 'status',
+      value: '11🟥Active = Now',
       classToken: statusSlug('11🟥Active = Now'),
       color: '#f8312f',
     });
-    expect(dualChannelStyle).toContain(
-      `.wx-bar.${representative?.classToken} { background-color: #f8312f !important; --og-ghost-fill: #f8312f;`,
+    expect(dualChannelStyle).toBe(
+      [
+        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} { background-color: #123456 !important; --og-ghost-fill: #123456; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} .wx-progress-percent { background-color: color-mix(in srgb, #123456, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${prioritySlug('high')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #ff0000; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
+        `.og-bases-gantt .wx-bar.${prioritySlug('low')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #00aaff; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
+      ].join('\n'),
     );
-    expect(dualChannelStyle).toContain(`.wx-bar.${prioritySlug('high')}::before`);
-    expect(dualChannelStyle).not.toContain('--og-ghost-fill: #ff0000');
 
     expect(
       resolveRepresentativeBarBodyPaint({
