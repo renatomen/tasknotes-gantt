@@ -299,6 +299,54 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
   });
 
+  it("keeps composite sample hosts transparent while nested pieces own their paint", async () => {
+    await openLegend();
+    const ownership = await browser.execute(() => {
+      const sample = (semanticId: string): HTMLElement | null =>
+        document.querySelector(`[data-semantic-id="${semanticId}"] .og-legend-sample > div`);
+      const split = sample("working-time-split");
+      const extension = sample("working-time-extension");
+      const occupancy = sample("occurrence-occupancy");
+      const progress = sample("progress");
+      const occupancyPainted = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
+      ];
+      const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
+      return {
+        splitHostOwnsPaint:
+          split?.classList.contains("og-ghost-run") || split?.classList.contains("og-ghost-blocked"),
+        splitHasBlockedPiece: !!split?.querySelector(".og-ghost-run.og-ghost-blocked"),
+        extensionHostOwnsPaint: extension?.classList.contains("og-ghost-run") ?? false,
+        extensionHasBlockedPiece: !!extension?.querySelector(".og-ghost-run.og-ghost-blocked"),
+        occupancyHostOwnsPaint:
+          occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
+        occupancyPiecesOwnPaint:
+          occupancyPainted.length === 2 &&
+          occupancyPainted.every(
+            (piece) => piece.classList.contains("wx-bar") && piece.classList.contains("og-instance"),
+          ),
+        occupancyGapBackground: occupancyGap ? getComputedStyle(occupancyGap).backgroundColor : null,
+        progressHostOwnsNestedClasses:
+          progress?.classList.contains("wx-progress-wrapper") ||
+          progress?.classList.contains("wx-progress-percent"),
+        progressHasNestedClasses:
+          !!progress?.querySelector(".wx-progress-wrapper > .wx-progress-percent"),
+      };
+    });
+
+    expect(ownership).toEqual({
+      splitHostOwnsPaint: false,
+      splitHasBlockedPiece: true,
+      extensionHostOwnsPaint: false,
+      extensionHasBlockedPiece: true,
+      occupancyHostOwnsPaint: false,
+      occupancyPiecesOwnPaint: true,
+      occupancyGapBackground: "rgba(0, 0, 0, 0)",
+      progressHostOwnsNestedClasses: false,
+      progressHasNestedClasses: true,
+    });
+  });
+
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
     await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar.og-event")).length > 0, {
       timeout: 10000,

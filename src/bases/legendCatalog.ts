@@ -337,7 +337,7 @@ function sampleFor(
   if (semanticId === 'working-time-split') {
     return {
       kind,
-      classTokens: [classes.ghostRuns, classes.ghostRun, classes.ghostBlocked],
+      classTokens: [classes.ghostRuns],
       pieces: splitPieces('blocked'),
       cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
     };
@@ -345,7 +345,7 @@ function sampleFor(
   if (semanticId === 'working-time-extension') {
     return {
       kind,
-      classTokens: [classes.bar, classes.ghostRun],
+      classTokens: [classes.ghostRuns],
       pieces: splitPieces('blocked'),
       cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
     };
@@ -356,8 +356,8 @@ function sampleFor(
       : representativeEventTreatment(context);
     return {
       kind,
-      classTokens: [...treatment.classTokens, classes.ghostRuns, classes.occurrence],
-      pieces: splitPieces('gap'),
+      classTokens: [classes.ghostRuns],
+      pieces: splitPieces('gap', [...treatment.classTokens, classes.occurrence]),
       paints: treatment.paints,
       cssVariables: treatment.cssVariables,
     };
@@ -535,16 +535,19 @@ function treatmentMeaning(context: GanttLegendContext, icons: LegendIconSample[]
     : 'This task bar uses the default hierarchy treatment for the active view.';
 }
 
-function splitPieces(middle: 'blocked' | 'gap'): LegendSamplePiece[] {
+function splitPieces(
+  middle: 'blocked' | 'gap',
+  paintedClassTokens: string[] = [classes.ghostRun],
+): LegendSamplePiece[] {
   return [
-    { start: 0, width: 0.32, treatment: 'painted', classTokens: [classes.ghostRun] },
+    { start: 0, width: 0.32, treatment: 'painted', classTokens: paintedClassTokens },
     {
       start: 0.32,
       width: 0.24,
       treatment: middle,
       classTokens: middle === 'blocked' ? [classes.ghostRun, classes.ghostBlocked] : [],
     },
-    { start: 0.56, width: 0.44, treatment: 'painted', classTokens: [classes.ghostRun] },
+    { start: 0.56, width: 0.44, treatment: 'painted', classTokens: paintedClassTokens },
   ];
 }
 
@@ -553,7 +556,7 @@ function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
     case 'date-status':
       return [classes.bar, classes.dateStatus];
     case 'progress':
-      return [classes.progressWrapper, classes.progressFill];
+      return [];
     case 'dependency-link':
       return [classes.dependencyLink, classes.dependencyLine];
     case 'weekend-shading':

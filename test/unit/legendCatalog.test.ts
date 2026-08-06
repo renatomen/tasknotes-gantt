@@ -116,8 +116,11 @@ describe('buildLegendCatalog', () => {
   it('uses fixed multi-piece geometry for split working time and occurrence occupancy', () => {
     const context = baseContext({
       taskNotesPresent: true,
+      barFillSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
       calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
       calendarDisplayedCount: 1,
+      estimateMeaning: 'working-days',
       nonWorkingRendering: 'split',
       calendarItems: {
         ...baseContext().calendarItems,
@@ -125,13 +128,49 @@ describe('buildLegendCatalog', () => {
       },
     });
 
-    const split = entry(context, 'working-time-split').sample.pieces ?? [];
+    const splitSample = entry(context, 'working-time-split').sample;
+    const split = splitSample.pieces ?? [];
+    expect(splitSample.classTokens).toEqual(['og-ghost-runs']);
     expect(split.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
     expect(split.some((piece) => piece.treatment === 'blocked')).toBe(true);
+    expect(split.find((piece) => piece.treatment === 'blocked')?.classTokens).toEqual([
+      'og-ghost-run',
+      'og-ghost-blocked',
+    ]);
 
-    const occupancy = entry(context, 'occurrence-occupancy').sample.pieces ?? [];
+    const occupancySample = entry(context, 'occurrence-occupancy').sample;
+    const occupancy = occupancySample.pieces ?? [];
+    expect(occupancySample.classTokens).toEqual(['og-ghost-runs']);
     expect(occupancy.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
     expect(occupancy.some((piece) => piece.treatment === 'gap')).toBe(true);
+    for (const piece of occupancy.filter((candidate) => candidate.treatment === 'painted')) {
+      expect(piece.classTokens).toEqual(
+        expect.arrayContaining(['wx-bar', 'og-instance', expect.stringMatching(/^og-status-/)]),
+      );
+    }
+    expect(occupancy.find((piece) => piece.treatment === 'gap')?.classTokens).toEqual([]);
+
+    const extensionSample = entry(context, 'working-time-extension').sample;
+    expect(extensionSample.classTokens).toEqual(['og-ghost-runs']);
+    expect(extensionSample.pieces?.find((piece) => piece.treatment === 'blocked')?.classTokens).toEqual([
+      'og-ghost-run',
+      'og-ghost-blocked',
+    ]);
+  });
+
+  it('keeps progress paint on the bar host and progress geometry on its nested elements', () => {
+    const context = baseContext({
+      barFillSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+    });
+
+    const progress = entry(context, 'progress').sample;
+    expect(progress.classTokens).toEqual(
+      expect.arrayContaining(['wx-bar', expect.stringMatching(/^og-status-/)]),
+    );
+    expect(progress.classTokens).not.toEqual(
+      expect.arrayContaining(['wx-progress-wrapper', 'wx-progress-percent']),
+    );
   });
 
   it('keeps configured palette semantics when no rendered row currently uses their values', () => {
