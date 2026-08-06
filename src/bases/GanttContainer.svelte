@@ -3022,10 +3022,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: max(44px, var(--input-height, 0px));
-    height: max(44px, var(--input-height, 0px));
-    min-width: 44px;
-    min-height: 44px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
     padding: 0;
     margin: 0;
     border: none;

@@ -540,6 +540,28 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(await $$(".og-gantt-legend .og-legend-sample:not([aria-hidden='true'])")).toHaveLength(0);
   });
 
+  it("aligns the Legend toggle with the fullscreen control", async () => {
+    const geometry = await browser.execute(() => {
+      const snapshot = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) return null;
+        const bounds = element.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, width: bounds.width, height: bounds.height };
+      };
+      return {
+        legend: snapshot(".og-bases-gantt .og-legend-toggle"),
+        fullscreen: snapshot(".og-bases-gantt .og-fullscreen-toggle"),
+      };
+    });
+
+    expect(geometry.legend).not.toBeNull();
+    expect(geometry.fullscreen).not.toBeNull();
+    expect(geometry.legend?.left).toBeCloseTo(geometry.fullscreen?.left ?? Number.NaN, 0);
+    expect(geometry.legend?.right).toBeCloseTo(geometry.fullscreen?.right ?? Number.NaN, 0);
+    expect(geometry.legend?.width).toBeCloseTo(geometry.fullscreen?.width ?? Number.NaN, 0);
+    expect(geometry.legend?.height).toBeCloseTo(geometry.fullscreen?.height ?? Number.NaN, 0);
+  });
+
   it("paints the dark composite sample with the chart's production treatment channels (AE1)", async () => {
     const isDark = await browser.execute(() => document.body.classList.contains("theme-dark"));
     if (!isDark) {
