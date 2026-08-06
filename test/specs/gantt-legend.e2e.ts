@@ -170,6 +170,35 @@ async function openFixtureBase(): Promise<void> {
   });
 }
 
+async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
+  return browser.executeObsidian(async ({ app }) => {
+    interface PatchedCatalog {
+      statuses?: () => unknown[];
+      __legendOriginalStatuses?: () => unknown[];
+    }
+    const taskNotes = (app as unknown as {
+      plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
+    }).plugins?.getPlugin?.("tasknotes");
+    const catalog = taskNotes?.api?.catalog;
+    if (!catalog?.__legendOriginalStatuses) return false;
+    catalog.statuses = catalog.__legendOriginalStatuses;
+    delete catalog.__legendOriginalStatuses;
+    return true;
+  });
+}
+
+async function remountMaximizedFixture(): Promise<void> {
+  await openFixtureBase();
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
+    timeout: 15000,
+    timeoutMsg: "Gantt fixture did not remount",
+  });
+  await $(".og-bases-gantt .og-fullscreen-toggle").click();
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+    timeout: 8000,
+  });
+}
+
 describe("Gantt (OG) context-aware legend", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
@@ -223,6 +252,7 @@ describe("Gantt (OG) context-aware legend", () => {
   afterEach(async () => {
     if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
     if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
+    if (await restoreTaskNotesLegendStatuses()) await remountMaximizedFixture();
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
       if (host) host.style.width = "";
@@ -391,15 +421,7 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     expect(patched).toBe(true);
 
-    await openFixtureBase();
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-legend-toggle")).length === 1, {
-      timeout: 15000,
-      timeoutMsg: "Gantt did not remount with the expanded icon palette",
-    });
-    await $(".og-bases-gantt .og-fullscreen-toggle").click();
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
-      timeout: 8000,
-    });
+    await remountMaximizedFixture();
     await openLegend();
 
     const layout = await browser.execute(() => {
@@ -428,30 +450,6 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(layout.overflow).toBe("visible");
     expect(layout.wrappedRows).toBeGreaterThan(1);
     expect(layout.allContained).toBe(true);
-
-    await closeLegend();
-    await browser.executeObsidian(async ({ app }) => {
-      interface PatchedCatalog {
-        statuses?: () => unknown[];
-        __legendOriginalStatuses?: () => unknown[];
-      }
-      const taskNotes = (app as unknown as {
-        plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
-      }).plugins?.getPlugin?.("tasknotes");
-      const catalog = taskNotes?.api?.catalog;
-      if (catalog?.__legendOriginalStatuses) {
-        catalog.statuses = catalog.__legendOriginalStatuses;
-        delete catalog.__legendOriginalStatuses;
-      }
-    });
-    await openFixtureBase();
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
-      timeout: 15000,
-    });
-    await $(".og-bases-gantt .og-fullscreen-toggle").click();
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
-      timeout: 8000,
-    });
   });
 
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
