@@ -413,6 +413,13 @@
     border-width: 1px;
     border-style: solid;
   }
+  .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {
+    background-color: var(--og-date-status-fill) !important;
+    border: 0 !important;
+  }
+  .og-legend-entry[data-semantic-id='date-status-border'] .og-legend-bar {
+    border: 1px solid var(--og-date-status-border) !important;
+  }
 
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
   .og-legend-sample :global(.wx-progress-percent) { width: 58%; height: 100%; background: var(--wx-gantt-task-fill-color, rgba(0,0,0,.25)); }

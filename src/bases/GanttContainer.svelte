@@ -9,6 +9,10 @@
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, Scope, TFile } from 'obsidian';
+  import {
+    GANTT_DATE_STATUS_BORDER_COLOR,
+    GANTT_DATE_STATUS_FILL_COLOR,
+  } from './visualSemantics';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -528,7 +532,7 @@
 
   function activateLegendEscapeScope(): void {
     deactivateLegendEscapeScope();
-    const scope = new Scope();
+    const scope = new Scope(app.scope);
     scope.register([], 'Escape', (event) => {
       if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
       event.preventDefault();
@@ -2540,6 +2544,7 @@
 
 <div
   class="og-bases-gantt {treatmentScopeClass}"
+  style={`--og-date-status-fill:${GANTT_DATE_STATUS_FILL_COLOR};--og-date-status-border:${GANTT_DATE_STATUS_BORDER_COLOR};`}
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
   class:og-weekends-off={!highlightWeekends}
@@ -3260,8 +3265,8 @@
    * incompletely-dated bar reads differently from a fully-dated one.
    */
   .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
-    background-color: #e67e22 !important;
-    border-color: #c0392b !important;
+    background-color: var(--og-date-status-fill) !important;
+    border-color: var(--og-date-status-border) !important;
     border-width: 1px !important;
     border-style: solid !important;
   }

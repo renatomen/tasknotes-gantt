@@ -594,12 +594,15 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 
-  it("keeps the rendered date-status border visible under the active fill treatment", async () => {
+  it("shows separate date fill and border semantics while preserving the active fill treatment", async () => {
     await openLegend();
 
     const border = await browser.execute(() => {
-      const sample = document.querySelector<HTMLElement>(
-        '[data-semantic-id="date-status"] .og-legend-bar',
+      const fillSample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status-fill"] .og-legend-bar',
+      );
+      const borderSample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status-border"] .og-legend-bar',
       );
       const chart = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar.datestatus-flagged[data-id$="Legend Flagged.md"]',
@@ -614,14 +617,25 @@ describe("Gantt (OG) context-aware legend", () => {
             }
           : null;
       };
-      return { sample: snapshot(sample), chart: snapshot(chart) };
+      const fill = fillSample ? getComputedStyle(fillSample) : null;
+      return {
+        fill: fill
+          ? { background: fill.backgroundColor, borderWidth: Number.parseFloat(fill.borderWidth) }
+          : null,
+        border: snapshot(borderSample),
+        chartBackground: chart ? getComputedStyle(chart).backgroundColor : null,
+        chart: snapshot(chart),
+      };
     });
 
-    expect(border.sample?.color).toBe("rgb(192, 57, 43)");
-    expect(border.sample?.style).toBe("solid");
-    expect(border.sample?.width).toBeGreaterThan(0);
-    expect(border.chart?.color).toBe(border.sample?.color);
-    expect(border.chart?.style).toBe(border.sample?.style);
+    expect(border.fill?.background).toBe("rgb(230, 126, 34)");
+    expect(border.fill?.borderWidth).toBe(0);
+    expect(border.chartBackground).toBe(border.fill?.background);
+    expect(border.border?.color).toBe("rgb(192, 57, 43)");
+    expect(border.border?.style).toBe("solid");
+    expect(border.border?.width).toBeGreaterThan(0);
+    expect(border.chart?.color).toBe(border.border?.color);
+    expect(border.chart?.style).toBe(border.border?.style);
     expect(border.chart?.width).toBeGreaterThan(0);
   });
 
@@ -1365,6 +1379,20 @@ describe("Gantt (OG) context-aware legend", () => {
     await browser.keys(["Escape"]);
     await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, { timeout: 8000 });
     await expect(trigger).toBeFocused();
+  });
+
+  it("keeps Obsidian's command-palette keymap available while Legend is open", async () => {
+    await browser.execute(() => document.querySelector<HTMLButtonElement>(".og-legend-toggle")?.click());
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Legend did not open for the keymap check",
+    });
+    await browser.keys(["Control", "p"]);
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Command-palette hotkey did not open while Legend was active",
+    });
+    expect(await $$(".og-gantt-legend")).toHaveLength(1);
   });
 
   it("lets an Obsidian popup close before Legend, then restores Legend trigger focus", async () => {

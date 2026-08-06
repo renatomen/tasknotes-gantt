@@ -7,7 +7,8 @@
 export const GANTT_VISUAL_SEMANTIC_IDS = [
   'bar-treatment',
   'bar-icon',
-  'date-status',
+  'date-status-fill',
+  'date-status-border',
   'progress',
   'dependency-link',
   'weekend-shading',
@@ -30,6 +31,9 @@ export const GANTT_VISUAL_SEMANTIC_IDS = [
   'context-task',
   'estimate-override',
 ] as const;
+
+export const GANTT_DATE_STATUS_FILL_COLOR = '#e67e22';
+export const GANTT_DATE_STATUS_BORDER_COLOR = '#c0392b';
 
 export type GanttVisualSemanticId = (typeof GANTT_VISUAL_SEMANTIC_IDS)[number];
 

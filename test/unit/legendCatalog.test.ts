@@ -374,10 +374,17 @@ describe('buildLegendCatalog', () => {
     );
   });
 
-  it('describes inferred or corrected ranges for missing or reversed dates', () => {
-    expect(entry(baseContext(), 'date-status').meaning).toBe(
+  it('describes the stable fill and border cues for missing or reversed dates', () => {
+    expect(entry(baseContext(), 'date-status-fill').meaning).toBe(
       'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     );
+    expect(entry(baseContext(), 'date-status-border').meaning).toBe(
+      'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    );
+    expect(entry(baseContext(), 'date-status-fill').sample.cssVariables).toBeUndefined();
+    expect(entry(baseContext(), 'date-status-border').sample.cssVariables).toEqual({
+      '--og-ghost-fill': '#1f6feb',
+    });
   });
 
   it('uses the external occurrence colour for external-only pieces and series spines', () => {

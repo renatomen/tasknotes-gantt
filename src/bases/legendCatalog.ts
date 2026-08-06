@@ -108,10 +108,16 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     meaning: 'A configured glyph or dot shape identifies the selected status or priority.',
     sampleKind: 'icon-set',
   },
-  'date-status': {
+  'date-status-fill': {
     group: 'schedule',
-    name: 'Date status',
+    name: 'Date fill',
     meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    sampleKind: 'bar',
+  },
+  'date-status-border': {
+    group: 'schedule',
+    name: 'Date border',
+    meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     sampleKind: 'bar',
   },
   progress: {
@@ -269,11 +275,14 @@ function buildEntry(
   context: GanttLegendContext,
   icons: LegendIconSample[],
 ): LegendEntry {
+  const sample = isDateStatusSemantic(semanticId)
+    ? dateStatusSample(semanticId, definition.sampleKind, context)
+    : sampleFor(semanticId, definition.sampleKind, context, icons);
   return {
     semanticId,
     name: definition.name,
     meaning: semanticId === 'bar-treatment' ? treatmentMeaning(context, icons) : definition.meaning,
-    sample: sampleFor(semanticId, definition.sampleKind, context, icons),
+    sample,
   };
 }
 
@@ -361,6 +370,38 @@ function sampleFor(
     return externalOccurrenceSample(context, kind, classTokens);
   }
   return baseSample(semanticId, kind, classTokens);
+}
+
+function dateStatusSample(
+  semanticId: 'date-status-fill' | 'date-status-border',
+  kind: LegendSampleKind,
+  context: GanttLegendContext,
+): LegendSampleDescriptor {
+  if (semanticId === 'date-status-fill') {
+    return {
+      kind,
+      classTokens: [classes.bar],
+    };
+  }
+  const treatment = representativeTreatment(context);
+  return {
+    kind,
+    classTokens: treatment.classTokens,
+    paints: treatment.paints,
+    cssVariables: treatment.cssVariables,
+  };
+}
+
+function isDateStatusSemantic(
+  semanticId: GanttVisualSemanticId,
+): semanticId is 'date-status-fill' | 'date-status-border' {
+  switch (semanticId) {
+    case 'date-status-fill':
+    case 'date-status-border':
+      return true;
+    default:
+      return false;
+  }
 }
 
 function occurrenceSeriesSpineSample(
@@ -566,7 +607,7 @@ function representativeExternalEventTreatment(
 
 function semanticUsesRepresentativeTreatment(semanticId: GanttVisualSemanticId): boolean {
   return (
-    semanticId === 'date-status' ||
+    semanticId === 'date-status-border' ||
     semanticId === 'progress' ||
     semanticId === 'occurrence-completed' ||
     semanticId === 'occurrence-skipped' ||
@@ -609,8 +650,9 @@ function splitPieces(
 
 function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
   switch (semanticId) {
-    case 'date-status':
-      return [classes.bar, classes.dateStatus];
+    case 'date-status-fill':
+    case 'date-status-border':
+      return [classes.bar];
     case 'progress':
       return [];
     case 'dependency-link':
