@@ -412,13 +412,13 @@ function occurrenceOccupancySample(
   const paintedClassTokens = recurring
     ? compact([classes.bar, treatment.paints?.fill?.classToken, classes.occurrence])
     : [...treatment.classTokens, classes.occurrence];
-  const representativeStripClass = recurring ? treatment.paints?.strip?.classToken : undefined;
+  const representativeStrip = recurring ? treatment.paints?.strip : undefined;
   return {
     kind,
     classTokens: [classes.ghostRuns],
     pieces: splitPieces('gap', paintedClassTokens),
-    ...(representativeStripClass
-      ? { pieceEnvelopeClassTokens: [classes.bar, representativeStripClass] }
+    ...(representativeStrip
+      ? { pieceEnvelopeClassTokens: compact([classes.bar, representativeStrip.classToken]) }
       : {}),
     paints: treatment.paints,
     cssVariables: treatment.cssVariables,

@@ -447,6 +447,9 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
       const occupancyBounds = occupancy?.getBoundingClientRect();
       const occupancyEnvelopeBounds = occupancyEnvelopes[0]?.getBoundingClientRect();
+      const occupancyPieceZIndexes = occupancyPainted.map((piece) =>
+        Number.parseInt(getComputedStyle(piece).zIndex, 10),
+      );
       const ownsVisiblePaint = (pieces: HTMLElement[]): boolean =>
         pieces.length === 2 &&
         pieces.every((piece) => getComputedStyle(piece).backgroundColor !== "rgba(0, 0, 0, 0)");
@@ -476,6 +479,10 @@ describe("Gantt (OG) context-aware legend", () => {
           !!occupancyEnvelopeBounds &&
           Math.abs(occupancyEnvelopeBounds.left - occupancyBounds.left) < 1 &&
           Math.abs(occupancyEnvelopeBounds.right - occupancyBounds.right) < 1,
+        occupancyEnvelopeAbovePieces:
+          occupancyEnvelopes.length === 1 &&
+          Number.parseInt(getComputedStyle(occupancyEnvelopes[0]!).zIndex, 10) >
+            Math.max(...occupancyPieceZIndexes),
         occupancyEnvelopeOwnsOnlyStrip:
           occupancyEnvelopes.length === 1 &&
           occupancyEnvelopes.every(
@@ -509,6 +516,7 @@ describe("Gantt (OG) context-aware legend", () => {
       occupancyPiecesOwnPaint: true,
       occupancyEnvelopeCount: 1,
       occupancyEnvelopeMatchesHost: true,
+      occupancyEnvelopeAbovePieces: true,
       occupancyEnvelopeOwnsOnlyStrip: true,
       occupancyGapBackground: "rgba(0, 0, 0, 0)",
       progressHostOwnsNestedClasses: false,

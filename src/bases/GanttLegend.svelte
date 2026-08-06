@@ -190,17 +190,17 @@
     </div>
   {:else if descriptor.kind === 'pieces'}
     <div class={`${className(descriptor.classTokens)} og-legend-pieces`} style={descriptorStyle(descriptor)}>
-      {#if descriptor.pieceEnvelopeClassTokens?.length}
-        <span
-          class={`${className(descriptor.pieceEnvelopeClassTokens)} og-legend-piece-envelope`}
-        ></span>
-      {/if}
       {#each descriptor.pieces ?? [] as piece, index (index)}
         <span
           class={`${className(piece.classTokens)} og-piece-${piece.treatment}`}
           style={`left:${percentage(piece.start)};width:${percentage(piece.width)}`}
         ></span>
       {/each}
+      {#if descriptor.pieceEnvelopeClassTokens?.length}
+        <span
+          class={`${className(descriptor.pieceEnvelopeClassTokens)} og-legend-piece-envelope`}
+        ></span>
+      {/if}
     </div>
   {:else if descriptor.kind === 'line'}
     <div class="og-legend-line-frame" style={descriptorStyle(descriptor)}>
@@ -394,6 +394,7 @@
   .og-legend-line-frame :global(.og-series-spine) { left: 5%; width: 90%; }
   .og-legend-pieces :global(.og-ghost-run),
   .og-legend-pieces :global(.og-instance) { position: absolute; top: 7px; height: 20px; }
+  .og-legend-pieces :global(.og-piece-painted)::before { content: none !important; }
   .og-legend-pieces .og-legend-piece-envelope {
     position: absolute;
     inset: auto;
@@ -405,6 +406,7 @@
     background-color: transparent !important;
     border: 0 !important;
     box-shadow: none !important;
+    z-index: 2;
     pointer-events: none;
   }
   .og-legend-pieces .og-piece-gap { background: transparent; }

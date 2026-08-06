@@ -309,13 +309,14 @@ describe('computeCalendarShadingCss', () => {
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
-    const { css } = computeShading({
+    const { css, hasResolvedSchedulingCalendar } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[Ghost]]', taskPath: 'Tasks/T.md' }],
       taskSpans,
     });
     expect(css).not.toContain('og-d-');
+    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
   const explicit = (links: string[]) => ({

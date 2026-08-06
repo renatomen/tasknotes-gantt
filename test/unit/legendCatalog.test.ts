@@ -216,6 +216,67 @@ describe('buildLegendCatalog', () => {
     expect(occupancy.pieceEnvelopeClassTokens).toBeUndefined();
   });
 
+  it.each(['default', 'theme'] as const)(
+    'keeps one classless %s strip on the occurrence envelope',
+    (barStripSource) => {
+      const occupancy = entry(
+        baseContext({
+          taskNotesPresent: true,
+          barFillSource: 'none',
+          barStripSource,
+          calendarItems: {
+            ...baseContext().calendarItems,
+            showRecurring: true,
+          },
+        }),
+        'occurrence-occupancy',
+      ).sample;
+
+      expect(occupancy.pieceEnvelopeClassTokens).toEqual(['wx-bar']);
+      for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
+        expect(piece.classTokens).toEqual(['wx-bar', 'og-instance']);
+      }
+    },
+  );
+
+  it('keeps a same-source fill token on the pieces and the single strip envelope', () => {
+    const occupancy = entry(
+      baseContext({
+        taskNotesPresent: true,
+        barFillSource: 'status',
+        barStripSource: 'status',
+        statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+        calendarItems: {
+          ...baseContext().calendarItems,
+          showRecurring: true,
+        },
+      }),
+      'occurrence-occupancy',
+    ).sample;
+    const stripClass = occupancy.pieceEnvelopeClassTokens?.[1];
+
+    expect(stripClass).toMatch(/^og-status-/);
+    for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
+      expect(piece.classTokens).toEqual(['wx-bar', stripClass, 'og-instance']);
+    }
+  });
+
+  it('uses event treatment for read-only external occurrence occupancy without a strip envelope', () => {
+    const occupancy = entry(
+      baseContext({
+        taskNotesPresent: true,
+        externalCalendarsEnabled: true,
+        calendarEventColor: '#0ea5e9',
+      }),
+      'occurrence-occupancy',
+    ).sample;
+
+    expect(occupancy.pieceEnvelopeClassTokens).toBeUndefined();
+    for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
+      expect(piece.classTokens).toEqual(['wx-bar', 'og-event', 'og-instance']);
+    }
+  });
+
   it('renders a continuous treated extension when non-working time is shaded', () => {
     const context = baseContext({
       taskNotesPresent: true,
