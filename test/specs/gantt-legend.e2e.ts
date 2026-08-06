@@ -250,13 +250,22 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   afterEach(async () => {
-    if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
-    if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
-    if (await restoreTaskNotesLegendStatuses()) await remountMaximizedFixture();
-    await browser.execute(() => {
-      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
-      if (host) host.style.width = "";
-    });
+    try {
+      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+      if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
+    } finally {
+      if (await restoreTaskNotesLegendStatuses()) {
+        try {
+          await remountMaximizedFixture();
+        } catch {
+          await remountMaximizedFixture();
+        }
+      }
+      await browser.execute(() => {
+        const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+        if (host) host.style.width = "";
+      });
+    }
   });
 
   it("keeps Legend available and opens the default right panel without the optional toolbar (AE10)", async () => {
@@ -362,7 +371,7 @@ describe("Gantt (OG) context-aware legend", () => {
         occupancyHostOwnsPaint:
           occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
         occupancyPiecesOwnPaint:
-          occupancyPainted.length === 2 &&
+          ownsVisiblePaint(occupancyPainted) &&
           occupancyPainted.every(
             (piece) => piece.classList.contains("wx-bar") && piece.classList.contains("og-instance"),
           ),
@@ -430,17 +439,25 @@ describe("Gantt (OG) context-aware legend", () => {
       );
       const chips = [...(icons?.querySelectorAll<HTMLElement>(".og-bar-chip") ?? [])];
       const bounds = icons?.getBoundingClientRect();
+      const sampleBounds = icons?.closest<HTMLElement>(".og-legend-sample")?.getBoundingClientRect();
       const rows = new Set(chips.map((chip) => Math.round(chip.getBoundingClientRect().top)));
       return {
         count: chips.length,
         flexWrap: icons ? getComputedStyle(icons).flexWrap : null,
         overflow: icons ? getComputedStyle(icons).overflow : null,
         wrappedRows: rows.size,
+        sampleHeight: sampleBounds?.height ?? 0,
         allContained:
           !!bounds &&
+          !!sampleBounds &&
           chips.every((chip) => {
             const rect = chip.getBoundingClientRect();
-            return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
+            return (
+              rect.left >= bounds.left - 1 &&
+              rect.right <= bounds.right + 1 &&
+              rect.top >= sampleBounds.top - 1 &&
+              rect.bottom <= sampleBounds.bottom + 1
+            );
           }),
       };
     });
@@ -449,7 +466,16 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(layout.flexWrap).toBe("wrap");
     expect(layout.overflow).toBe("visible");
     expect(layout.wrappedRows).toBeGreaterThan(1);
+    expect(layout.sampleHeight).toBeGreaterThan(34);
     expect(layout.allContained).toBe(true);
+
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const bottomOverflow = await browser.execute(() => {
+      const scroll = document.querySelector<HTMLElement>(".og-gantt-legend .og-legend-scroll");
+      return scroll ? getComputedStyle(scroll).overflowY : null;
+    });
+    expect(bottomOverflow).toBe("auto");
   });
 
   it("explains enabled read-only calendar-event bars with their production paint", async () => {

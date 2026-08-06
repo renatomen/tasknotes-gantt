@@ -283,7 +283,7 @@
   }
 
   .og-legend-right .og-legend-scroll { overflow-y: auto; overflow-x: hidden; }
-  .og-legend-bottom .og-legend-scroll { overflow-x: auto; overflow-y: hidden; }
+  .og-legend-bottom .og-legend-scroll { overflow: auto; }
   .og-legend-full .og-legend-scroll { overflow: auto; }
 
   .og-legend-groups { display: flex; flex-direction: column; gap: 14px; padding: 12px; }
