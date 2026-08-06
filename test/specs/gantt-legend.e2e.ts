@@ -15,6 +15,7 @@ const LEGEND_COMPLETED_PIECE_SELECTOR =
   '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed';
 const LEGEND_TASK_PROPERTY_EVENT_SELECTOR =
   '.og-bases-gantt .wx-bar.og-event[data-id*="property-event/Legend%20Task.md"]';
+const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
 
 let fixtureNonWorkingRenderingNeedsReset = false;
 let fixtureBarChannelsNeedReset = false;
@@ -768,10 +769,13 @@ describe("Gantt (OG) context-aware legend", () => {
       const bar = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
       );
-      const visiblePaint =
-        bar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? bar;
+      const visiblePaint = bar?.querySelector<HTMLElement>(
+        ".og-ghost-run:not(.og-ghost-blocked)",
+      );
       return bar
         ? {
+            paintFound: !!visiblePaint,
+            paintWidth: visiblePaint?.getBoundingClientRect().width ?? 0,
             background: visiblePaint ? getComputedStyle(visiblePaint).backgroundColor : null,
             stripContent: getComputedStyle(bar, "::before").content,
           }
@@ -779,7 +783,9 @@ describe("Gantt (OG) context-aware legend", () => {
     });
 
     expect(fallback).not.toBeNull();
-    expect(fallback?.background).toBe("rgb(31, 111, 235)");
+    expect(fallback?.paintFound).toBe(true);
+    expect(fallback?.paintWidth).toBeGreaterThan(0);
+    expect(fallback?.background).toBe(EXPECTED_DEFAULT_CHILD_FILL);
     expect(fallback?.stripContent).toBe("none");
   });
 
