@@ -66,38 +66,44 @@ async function waitForTaskNotesReady(): Promise<void> {
 
 async function waitForLegendRecurringTaskReady(): Promise<void> {
   let lastFacts = "<never polled>";
-  await browser.waitUntil(
-    async () => {
-      lastFacts = await browser.executeObsidian(async ({ app }, expected) => {
-        const taskNotes = (app as unknown as {
-          plugins?: { getPlugin?: (id: string) => unknown };
-        }).plugins?.getPlugin?.("tasknotes") as {
-          api?: { tasks?: { list?: () => Promise<unknown[]> | unknown[] } };
-        } | undefined;
-        const tasks = await taskNotes?.api?.tasks?.list?.();
-        if (!Array.isArray(tasks)) return "no task list";
-        const recurring = (tasks as Array<{
-          path?: string;
-          recurrence?: unknown;
-          complete_instances?: unknown;
-        }>).find(({ path: taskPath }) => taskPath === expected.path);
-        const facts = {
-          recurrence:
-            typeof recurring?.recurrence === "string" &&
-            recurring.recurrence.includes("FREQ=WEEKLY"),
-          completed:
-            Array.isArray(recurring?.complete_instances) &&
-            recurring.complete_instances.some((date) => String(date).startsWith(expected.completed)),
-        };
-        return Object.values(facts).every(Boolean) ? "ok" : JSON.stringify(facts);
-      }, { path: LEGEND_RECURRING_PATH, completed: LEGEND_COMPLETED_OCCURRENCE });
-      return lastFacts === "ok";
-    },
-    {
-      timeout: 60000,
-      timeoutMsg: () => `TaskNotes never served the recurring legend facts; last: ${lastFacts}`,
-    },
-  );
+  try {
+    await browser.waitUntil(
+      async () => {
+        lastFacts = await browser.executeObsidian(async ({ app }, expected) => {
+          const taskNotes = (app as unknown as {
+            plugins?: { getPlugin?: (id: string) => unknown };
+          }).plugins?.getPlugin?.("tasknotes") as {
+            api?: { tasks?: { list?: () => Promise<unknown[]> | unknown[] } };
+          } | undefined;
+          const tasks = await taskNotes?.api?.tasks?.list?.();
+          if (!Array.isArray(tasks)) return "no task list";
+          const recurring = (tasks as Array<{
+            path?: string;
+            recurrence?: unknown;
+            complete_instances?: unknown;
+          }>).find(({ path: taskPath }) => taskPath === expected.path);
+          const facts = {
+            recurrence:
+              typeof recurring?.recurrence === "string" &&
+              recurring.recurrence.includes("FREQ=WEEKLY"),
+            completed:
+              Array.isArray(recurring?.complete_instances) &&
+              recurring.complete_instances.some((date) => String(date).startsWith(expected.completed)),
+          };
+          return Object.values(facts).every(Boolean) ? "ok" : JSON.stringify(facts);
+        }, { path: LEGEND_RECURRING_PATH, completed: LEGEND_COMPLETED_OCCURRENCE });
+        return lastFacts === "ok";
+      },
+      {
+        timeout: 60000,
+        timeoutMsg: "TaskNotes never served the recurring legend facts",
+      },
+    );
+  } catch (error) {
+    throw new Error(
+      `TaskNotes never served the recurring legend facts; last: ${lastFacts}\n${String(error)}`,
+    );
+  }
 }
 
 async function waitForCompletedRecurringPiece(): Promise<void> {
@@ -356,10 +362,11 @@ async function waitForRenderedBarChannels(
       const hasPriority = tokens.some((token) => token.startsWith("og-prio-"));
       const bodyOwnsFill = getComputedStyle(bar).getPropertyValue("--og-ghost-fill").trim() !== "";
       const drawsStrip = getComputedStyle(bar, "::before").content !== "none";
+      const bodyShouldOwnFill = nextFill !== "none" || nextStrip === "none";
       return (
         hasCalendar === (nextFill === "calendar" || nextStrip === "calendar") &&
         hasPriority === (nextFill === "priority" || nextStrip === "priority") &&
-        bodyOwnsFill === (nextFill !== "none") &&
+        bodyOwnsFill === bodyShouldOwnFill &&
         drawsStrip === (nextStrip !== "none")
       );
     }, fillSource, stripSource),
