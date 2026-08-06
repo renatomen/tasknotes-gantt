@@ -247,14 +247,6 @@ async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
     async () => browser.execute((targetSelector) => {
       const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
       if (!toggle || toggle.disabled) return false;
-      const bounds = toggle.getBoundingClientRect();
-      const style = getComputedStyle(toggle);
-      if (
-        bounds.width === 0 ||
-        bounds.height === 0 ||
-        style.display === "none" ||
-        style.visibility === "hidden"
-      ) return false;
       toggle.click();
       return true;
     }, selector),
