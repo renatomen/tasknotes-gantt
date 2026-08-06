@@ -416,12 +416,12 @@ function baseSample(
   kind: LegendSampleKind,
   classTokens: string[],
 ): LegendSampleDescriptor {
-  const shadingBackground =
-    semanticId === 'weekend-shading' || semanticId === 'calendar-shading'
-      ? CALENDAR_SHADE_BACKGROUND
-      : semanticId === 'calendar-conflict'
-        ? CALENDAR_CONFLICT_BACKGROUND
-        : null;
+  let shadingBackground: string | null = null;
+  if (semanticId === 'weekend-shading' || semanticId === 'calendar-shading') {
+    shadingBackground = CALENDAR_SHADE_BACKGROUND;
+  } else if (semanticId === 'calendar-conflict') {
+    shadingBackground = CALENDAR_CONFLICT_BACKGROUND;
+  }
   return {
     kind,
     classTokens,
@@ -450,13 +450,14 @@ function iconSamples(context: GanttLegendContext): LegendIconSample[] {
         : { status: null, priority: value };
     const icon = resolveIconSpec(context.barIconSource, instance, palettesOf(context));
     if (!icon) return [];
-    const shape: LegendIconSample['shape'] = icon.iconName
-      ? 'glyph'
-      : icon.kind === 'priority'
-        ? 'dot'
-        : icon.completed
-          ? 'disc'
-          : 'ring';
+    let shape: LegendIconSample['shape'] = 'ring';
+    if (icon.iconName) {
+      shape = 'glyph';
+    } else if (icon.kind === 'priority') {
+      shape = 'dot';
+    } else if (icon.completed) {
+      shape = 'disc';
+    }
     return [{ ...icon, shape }];
   });
 }
