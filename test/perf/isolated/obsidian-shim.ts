@@ -23,7 +23,11 @@ export class Notice {
 }
 
 export class Scope {
-  register(_modifiers: string[], _key: string, _callback: (...args: any[]) => any): void {}
+  register<TArguments extends unknown[], TResult>(
+    _modifiers: string[],
+    _key: string,
+    _callback: (...args: TArguments) => TResult,
+  ): void {}
 }
 
 export function setIcon(_parent: any, _iconId: string): void {}
