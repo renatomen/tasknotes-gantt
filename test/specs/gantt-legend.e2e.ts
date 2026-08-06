@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-legend");
+const FIXTURE_RESTORE_ATTEMPTS = 2;
+
+let fixtureNonWorkingRenderingNeedsReset = false;
 
 interface ElementRect {
   left: number;
@@ -216,6 +219,30 @@ async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Pro
   await remountMaximizedFixture();
 }
 
+async function restoreFixtureNonWorkingRendering(): Promise<void> {
+  let lastFailure: unknown;
+  for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
+    try {
+      await setFixtureNonWorkingRendering("split");
+      await browser.waitUntil(
+        async () =>
+          (await $$(
+            '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"] .og-ghost-run.og-ghost-blocked',
+          )).length > 0,
+        {
+          timeout: 8000,
+          timeoutMsg: "Gantt legend fixture did not render its restored split extension",
+        },
+      );
+      fixtureNonWorkingRenderingNeedsReset = false;
+      return;
+    } catch (error) {
+      lastFailure = error;
+    }
+  }
+  throw lastFailure ?? new Error("Gantt legend fixture split restoration failed");
+}
+
 describe("Gantt (OG) context-aware legend", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
@@ -267,10 +294,22 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   afterEach(async () => {
-    try {
+    const cleanupFailures: unknown[] = [];
+    const attemptCleanup = async (cleanup: () => Promise<void>): Promise<void> => {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
+    };
+
+    await attemptCleanup(async () => {
       if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+    });
+    await attemptCleanup(async () => {
       if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
-    } finally {
+    });
+    await attemptCleanup(async () => {
       if (await restoreTaskNotesLegendStatuses()) {
         try {
           await remountMaximizedFixture();
@@ -278,10 +317,20 @@ describe("Gantt (OG) context-aware legend", () => {
           await remountMaximizedFixture();
         }
       }
+    });
+    await attemptCleanup(async () => {
+      if (fixtureNonWorkingRenderingNeedsReset) await restoreFixtureNonWorkingRendering();
+    });
+    await attemptCleanup(async () => {
       await browser.execute(() => {
         const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
         if (host) host.style.width = "";
       });
+    });
+
+    if (cleanupFailures.length === 1) throw cleanupFailures[0];
+    if (cleanupFailures.length > 1) {
+      throw new AggregateError(cleanupFailures, "Multiple Gantt legend fixture cleanups failed");
     }
   });
 
@@ -417,36 +466,29 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
-    try {
-      await setFixtureNonWorkingRendering("shaded");
-      await openLegend();
-      const extension = await browser.execute(() => {
-        const sample = document.querySelector<HTMLElement>(
-          '[data-semantic-id="working-time-extension"] .og-legend-sample',
-        );
-        return {
-          hasShadedClass: sample?.classList.contains("og-legend-extension-shaded") ?? false,
-          backgroundImage: sample ? getComputedStyle(sample).backgroundImage : "none",
-          shadingVariable: sample
-            ? getComputedStyle(sample).getPropertyValue("--og-legend-shading-background").trim()
-            : "",
-          barCount: sample?.querySelectorAll(".og-legend-bar").length ?? 0,
-          pieceCount: sample?.querySelectorAll(".og-legend-pieces").length ?? 0,
-        };
-      });
+    fixtureNonWorkingRenderingNeedsReset = true;
+    await setFixtureNonWorkingRendering("shaded");
+    await openLegend();
+    const extension = await browser.execute(() => {
+      const sample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="working-time-extension"] .og-legend-sample',
+      );
+      return {
+        hasShadedClass: sample?.classList.contains("og-legend-extension-shaded") ?? false,
+        backgroundImage: sample ? getComputedStyle(sample).backgroundImage : "none",
+        shadingVariable: sample
+          ? getComputedStyle(sample).getPropertyValue("--og-legend-shading-background").trim()
+          : "",
+        barCount: sample?.querySelectorAll(".og-legend-bar").length ?? 0,
+        pieceCount: sample?.querySelectorAll(".og-legend-pieces").length ?? 0,
+      };
+    });
 
-      expect(extension.hasShadedClass).toBe(true);
-      expect(extension.backgroundImage).toContain("linear-gradient");
-      expect(extension.shadingVariable).not.toBe("");
-      expect(extension.barCount).toBe(1);
-      expect(extension.pieceCount).toBe(0);
-    } finally {
-      try {
-        if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
-      } finally {
-        await setFixtureNonWorkingRendering("split");
-      }
-    }
+    expect(extension.hasShadedClass).toBe(true);
+    expect(extension.backgroundImage).toContain("linear-gradient");
+    expect(extension.shadingVariable).not.toBe("");
+    expect(extension.barCount).toBe(1);
+    expect(extension.pieceCount).toBe(0);
   });
 
   it("keeps more than four configured icon samples visible by wrapping them", async () => {
