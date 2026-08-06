@@ -417,8 +417,8 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
-    await setFixtureNonWorkingRendering("shaded");
     try {
+      await setFixtureNonWorkingRendering("shaded");
       await openLegend();
       const extension = await browser.execute(() => {
         const sample = document.querySelector<HTMLElement>(
@@ -441,8 +441,11 @@ describe("Gantt (OG) context-aware legend", () => {
       expect(extension.barCount).toBe(1);
       expect(extension.pieceCount).toBe(0);
     } finally {
-      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
-      await setFixtureNonWorkingRendering("split");
+      try {
+        if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+      } finally {
+        await setFixtureNonWorkingRendering("split");
+      }
     }
   });
 
