@@ -200,19 +200,27 @@ describe('buildLegendCatalog', () => {
     });
 
     const extension = entry(context, 'working-time-extension').sample;
+    const taskBar = entry(context, 'bar-treatment').sample;
     expect(extension.kind).toBe('bar');
-    expect(extension.classTokens).toEqual(
-      expect.arrayContaining([
-        'wx-bar',
-        expect.stringMatching(/^og-status-/),
-        expect.stringMatching(/^og-prio-/),
-      ]),
-    );
-    expect(extension.paints).toMatchObject({
-      fill: { source: 'status', value: 'Doing', color: '#2563eb' },
-      strip: { source: 'priority', value: 'High', color: '#f97316' },
+    expect(extension.classTokens).toEqual([
+      'wx-bar',
+      expect.stringMatching(/^og-status-/),
+      expect.stringMatching(/^og-prio-/),
+    ]);
+    expect(extension.cssVariables).toEqual({
+      '--og-ghost-fill': '#2563eb',
+      '--og-legend-shading-background': 'var(--wx-gantt-holiday-background)',
     });
     expect(extension.pieces).toBeUndefined();
+    expect({
+      kind: extension.kind,
+      classTokens: extension.classTokens,
+      cssVariables: extension.cssVariables,
+    }).not.toEqual({
+      kind: taskBar.kind,
+      classTokens: taskBar.classTokens,
+      cssVariables: taskBar.cssVariables,
+    });
   });
 
   it('keeps progress paint on the bar host and progress geometry on its nested elements', () => {
@@ -323,16 +331,20 @@ describe('buildLegendCatalog', () => {
   });
 
   it('explains working-time extensions when a mapped task can override a calendar-day default', () => {
-    const ids = entries(
-      baseContext({
-        calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
-        calendarDisplayedCount: 1,
-        estimateMeaning: 'calendar-days',
-        estimateOverrideMapped: true,
-      }),
-    ).map((candidate) => candidate.semanticId);
+    const context = baseContext({
+      calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
+      calendarDisplayedCount: 1,
+      estimateMeaning: 'calendar-days',
+      estimateOverrideMapped: true,
+    });
+    const extension = entry(context, 'working-time-extension');
 
-    expect(ids).toContain('working-time-extension');
+    expect(extension.sample).toMatchObject({
+      kind: 'bar',
+      cssVariables: {
+        '--og-legend-shading-background': 'var(--wx-gantt-holiday-background)',
+      },
+    });
   });
 
   it('lets context samples inherit the configured opacity from the Gantt root', () => {

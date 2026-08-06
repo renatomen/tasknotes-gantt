@@ -669,7 +669,7 @@ describe("Gantt (OG) context-aware legend", () => {
     const focusedPositionControl = await browser.execute(() => {
       const bottom = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
         .find((button) => button.textContent?.trim() === "Bottom");
-      bottom?.focus();
+      bottom?.focus({ preventScroll: true });
       return document.activeElement === bottom;
     });
     expect(focusedPositionControl).toBe(true);
@@ -714,6 +714,13 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(automaticallyRestoredState.scaleLabel).toBe(expectedState.scaleLabel);
     expect(automaticallyRestoredState.scrollLeft).toBeGreaterThan(0);
 
+    const focusedScrollRegion = await browser.execute(() => {
+      const scroll = document.querySelector<HTMLElement>(".og-gantt-legend .og-legend-scroll");
+      scroll?.focus({ preventScroll: true });
+      return document.activeElement === scroll;
+    });
+    expect(focusedScrollRegion).toBe(true);
+
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
       if (host) host.style.width = "400px";
@@ -721,6 +728,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await browser.waitUntil(async () => (await legendLayout()) === "full", { timeout: 8000 });
     const restoredReturnButton = await $(".og-gantt-legend .og-legend-dismiss");
     await expect(restoredReturnButton).toHaveText(expect.stringContaining("Return"));
+    await expect($(".og-gantt-legend .og-legend-scroll")).toBeFocused();
 
     await restoredReturnButton.click();
     await browser.execute(() => {

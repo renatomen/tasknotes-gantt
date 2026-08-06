@@ -23,12 +23,14 @@
       layout === 'full'
       && positionControls?.contains(positionControls.ownerDocument.activeElement)
     ) {
-      void tick().then(() => dismissButton?.focus());
+      void tick().then(() => {
+        if (layout === 'full') dismissButton?.focus({ preventScroll: true });
+      });
     }
   });
 
   function focusOnMount(node: HTMLElement): void {
-    void tick().then(() => node.focus());
+    void tick().then(() => node.focus({ preventScroll: true }));
   }
 
   function descriptorStyle(descriptor: LegendSampleDescriptor): string {
@@ -122,6 +124,9 @@
                   <div
                     class="og-legend-sample"
                     class:og-legend-icon-sample={entry.sample.kind === 'icon-set'}
+                    class:og-legend-extension-shaded={entry.semanticId === 'working-time-extension'
+                      && entry.sample.kind === 'bar'}
+                    style={descriptorStyle(entry.sample)}
                     aria-hidden="true"
                   >
                     {@render sample(entry.sample, entry.semanticId)}
@@ -330,6 +335,14 @@
     position: relative;
     height: 34px;
     overflow: visible;
+  }
+  .og-legend-extension-shaded {
+    background: linear-gradient(
+      to right,
+      transparent 0 32%,
+      var(--og-legend-shading-background) 32% 56%,
+      transparent 56%
+    );
   }
   .og-legend-icon-sample { height: auto; min-height: 34px; }
 

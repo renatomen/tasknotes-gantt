@@ -417,7 +417,10 @@ function workingTimeExtensionSample(
       kind: 'bar',
       classTokens: treatment.classTokens,
       paints: treatment.paints,
-      cssVariables: treatment.cssVariables,
+      cssVariables: {
+        ...treatment.cssVariables,
+        '--og-legend-shading-background': CALENDAR_SHADE_BACKGROUND,
+      },
     };
   }
   return {
