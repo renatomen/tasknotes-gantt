@@ -1254,6 +1254,48 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect($(".og-legend-toggle")).toBeFocused();
   });
 
+  it("does not evacuate focus from a different Gantt when full mode starts", async () => {
+    await openLegend();
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+
+    const foreignFocus = await browser.execute(() => {
+      const foreignRoot = document.createElement("div");
+      foreignRoot.className = "og-bases-gantt";
+      const foreignSurface = document.createElement("div");
+      foreignSurface.className = "og-chart-surface";
+      const foreignButton = document.createElement("button");
+      foreignButton.dataset.testid = "foreign-gantt-focus";
+      foreignSurface.append(foreignButton);
+      foreignRoot.append(foreignSurface);
+      document.body.append(foreignRoot);
+      foreignButton.focus();
+      return document.activeElement === foreignButton;
+    });
+    expect(foreignFocus).toBe(true);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "400px";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "full", { timeout: 8000 });
+    const preservedForeignFocus = await browser.execute(() =>
+      (document.activeElement as HTMLElement | null)?.dataset.testid ?? null,
+    );
+    expect(preservedForeignFocus).toBe("foreign-gantt-focus");
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "";
+      document
+        .querySelector("[data-testid='foreign-gantt-focus']")
+        ?.closest(".og-bases-gantt")
+        ?.remove();
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    await $(".og-gantt-legend .og-legend-dismiss").click();
+  });
+
   it("repaints live with the Obsidian theme without closing or losing session position (AE8)", async () => {
     await openLegend();
     await chooseBottom();

@@ -17,13 +17,17 @@
   let { groups, layout, position, onPositionChange, onDismiss }: Props = $props();
   let positionControls: HTMLElement | undefined = $state();
   let dismissButton: HTMLButtonElement | undefined = $state();
+  let legendOverlay: HTMLElement | undefined = $state();
 
   $effect.pre(() => {
     if (layout !== 'full') return;
     const activeElement = document.activeElement;
     const focusInPositionControls = positionControls?.contains(activeElement) ?? false;
+    const chartSurface = legendOverlay
+      ?.closest('.og-bases-gantt')
+      ?.querySelector<HTMLElement>('.og-chart-surface');
     const focusInChart =
-      activeElement instanceof HTMLElement && activeElement.closest('.og-chart-surface') !== null;
+      activeElement instanceof HTMLElement && (chartSurface?.contains(activeElement) ?? false);
     if (!focusInPositionControls && !focusInChart) return;
     void tick().then(() => {
       if (layout === 'full') dismissButton?.focus({ preventScroll: true });
@@ -91,7 +95,7 @@
   }
 </script>
 
-<div class="og-legend-overlay" data-layout={layout}>
+<div class="og-legend-overlay" data-layout={layout} bind:this={legendOverlay}>
   <section
     class="og-gantt-legend"
     class:og-legend-right={layout === 'right'}
