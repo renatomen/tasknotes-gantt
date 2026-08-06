@@ -65,6 +65,7 @@ export {
   createRecurringInstanceSource,
   expandRecurringOccupancy,
   RECORDED_RECURRING_STATE_CLASSES,
+  isRecordedRecurringStateClass,
 } from './recurringSource';
 
 export type {

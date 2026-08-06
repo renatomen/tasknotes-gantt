@@ -46,7 +46,7 @@ import {
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
   externalCalendarFeedKey,
-  RECORDED_RECURRING_STATE_CLASSES,
+  isRecordedRecurringStateClass,
   type TimeblockWatch,
 } from '../datasource/calendarItems';
 import { isSafeColor } from './barTreatment';
@@ -1527,8 +1527,7 @@ class ObsidianGanttBasesView extends BasesView {
         instance.occupancy?.some(
           (occupancy) =>
             occupancy.family === 'recurring-instance' &&
-            occupancy.stateClass !== undefined &&
-            RECORDED_RECURRING_STATE_CLASSES.has(occupancy.stateClass),
+            isRecordedRecurringStateClass(occupancy.stateClass),
         ) ?? false,
     );
     const visibleCalendarEventColor =

@@ -105,7 +105,7 @@ const hasCalendarEvents = (context: GanttLegendContext): boolean =>
   (context.taskNotesPresent && context.calendarItems.showTimeEntries) ||
   context.calendarItems.showTimeblocks ||
   context.calendarItems.showPropertyBasedEvents ||
-  context.externalCalendarsEnabled;
+  (context.taskNotesPresent && context.externalCalendarsEnabled);
 
 export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
   'bar-treatment': {

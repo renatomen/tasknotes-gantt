@@ -574,12 +574,15 @@ describe('buildLegendCatalog', () => {
 
   it('does not advertise time-entry rows in standalone mode', () => {
     const standaloneTimeEntries = baseContext({
+      taskNotesPresent: false,
       calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
     });
     expect(entries(standaloneTimeEntries).map((candidate) => candidate.semanticId)).not.toContain(
       'calendar-event',
     );
+  });
 
+  it('advertises timeblock rows without TaskNotes', () => {
     expect(
       entries(
         baseContext({
@@ -587,7 +590,9 @@ describe('buildLegendCatalog', () => {
         }),
       ).map((candidate) => candidate.semanticId),
     ).toContain('calendar-event');
+  });
 
+  it('advertises time-entry rows when TaskNotes is available', () => {
     expect(
       entries(
         baseContext({
@@ -595,6 +600,22 @@ describe('buildLegendCatalog', () => {
           calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
         }),
       ).map((candidate) => candidate.semanticId),
+    ).toContain('calendar-event');
+  });
+
+  it('does not advertise external calendar rows without TaskNotes', () => {
+    expect(
+      entries(baseContext({ taskNotesPresent: false, externalCalendarsEnabled: true })).map(
+        (candidate) => candidate.semanticId,
+      ),
+    ).not.toContain('calendar-event');
+  });
+
+  it('advertises external calendar rows when TaskNotes is available', () => {
+    expect(
+      entries(baseContext({ taskNotesPresent: true, externalCalendarsEnabled: true })).map(
+        (candidate) => candidate.semanticId,
+      ),
     ).toContain('calendar-event');
   });
 
