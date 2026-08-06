@@ -68,16 +68,25 @@ describe('representative bar body paint', () => {
       '--og-ghost-fill:',
     );
 
-    expect(
-      resolveRepresentativeBarBodyPaint({
-        fillSource: 'status',
-        stripSource: 'priority',
-        palettes,
-      })?.color,
-    ).toBe('#f8312f');
-    expect(styleFor({ fillSource: 'status', stripSource: 'priority', palettes })).toContain(
-      '--og-ghost-fill: #f8312f',
+    const representative = resolveRepresentativeBarBodyPaint({
+      fillSource: 'status',
+      stripSource: 'priority',
+      palettes,
+    });
+    const dualChannelStyle = styleFor({
+      fillSource: 'status',
+      stripSource: 'priority',
+      palettes,
+    });
+    expect(representative).toMatchObject({
+      classToken: statusSlug('11🟥Active = Now'),
+      color: '#f8312f',
+    });
+    expect(dualChannelStyle).toContain(
+      `.wx-bar.${representative?.classToken} { background-color: #f8312f !important; --og-ghost-fill: #f8312f;`,
     );
+    expect(dualChannelStyle).toContain(`.wx-bar.${prioritySlug('high')}::before`);
+    expect(dualChannelStyle).not.toContain('--og-ghost-fill: #ff0000');
 
     expect(
       resolveRepresentativeBarBodyPaint({
