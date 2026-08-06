@@ -29,43 +29,26 @@ import type { GridColumn } from '../gridColumns';
 import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
 import type { LegendPosition } from '../legendLayout';
-import type { EstimateMeaning, ExpandedRelationships, NonWorkingRendering } from '../viewOptions';
+import type { NonWorkingRendering } from '../viewOptions';
 
 /** Raw effective view facts consumed by the presentation-only legend catalogue. */
 export interface GanttLegendContext {
   taskNotesPresent: boolean;
-  parentPropertyMapped: boolean;
-  showDateIndicators: boolean;
-  highlightWeekends: boolean;
   barFillSource: BarChannelSource;
   barStripSource: BarChannelSource;
   barIconSource: BarIconSource;
   statusColors: StatusColor[];
   priorityColors: PriorityColor[];
   calendarPalette: { value: string; color: string }[];
-  calendarMarkers: MarkerInput[];
-  /** Number of calendars selected by the active display configuration. */
-  calendarDisplayedCount: number;
-  /** True when the selected calendars produce at least one conflict in the chart window. */
-  hasCalendarConflicts: boolean;
-  /** True when selected calendar definitions can produce a conflict outside the current window. */
-  hasCalendarConflictCapability: boolean;
-  /** True when property-based events have a valid note-backed start mapping. */
-  propertyEventStartMapped: boolean;
-  /** True when selected calendars define at least one marker, window or not. */
-  calendarMarkersConfigured: boolean;
-  /** True when at least one rendered task resolves its scheduling calendar. */
-  hasResolvedSchedulingCalendar: boolean;
+  /** Representative colour of a selected calendar that defines markers. */
+  calendarMarkerColor: string | undefined;
   /** True when a rendered recurring task has a recorded or materialized occurrence. */
   hasRecordedRecurringOccurrences: boolean;
   /** Representative paint for enabled read-only event-row families and feeds. */
   calendarEventColor: string | null;
   /** Representative paint owned specifically by enabled external occurrence feeds. */
   externalOccurrenceColor: string | null;
-  estimateMeaning: EstimateMeaning;
   nonWorkingRendering: NonWorkingRendering;
-  estimateOverrideMapped: boolean;
-  expandedRelationships: ExpandedRelationships;
   calendarItems: {
     showRecurring: boolean;
     showCompletedRecurringInstances: boolean;

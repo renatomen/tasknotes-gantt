@@ -15,29 +15,17 @@ import { RECORDED_RECURRING_STATE_CLASSES } from '../../src/datasource/calendarI
 
 const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendContext => ({
   taskNotesPresent: false,
-  parentPropertyMapped: false,
-  showDateIndicators: true,
-  highlightWeekends: true,
   barFillSource: 'default',
   barStripSource: 'none',
   barIconSource: 'none',
   statusColors: [],
   priorityColors: [],
   calendarPalette: [],
-  calendarMarkers: [],
-  calendarDisplayedCount: 0,
-  hasCalendarConflicts: false,
-  hasCalendarConflictCapability: false,
-  propertyEventStartMapped: false,
-  calendarMarkersConfigured: false,
-  hasResolvedSchedulingCalendar: false,
+  calendarMarkerColor: undefined,
   hasRecordedRecurringOccurrences: false,
   calendarEventColor: null,
   externalOccurrenceColor: null,
-  estimateMeaning: 'calendar-days',
   nonWorkingRendering: 'shaded',
-  estimateOverrideMapped: false,
-  expandedRelationships: 'inherit',
   calendarItems: {
     showRecurring: false,
     showCompletedRecurringInstances: true,
@@ -106,6 +94,12 @@ describe('buildLegendCatalog', () => {
     );
   });
 
+  it('keeps the icon semantic legible when no icon palette is configured', () => {
+    expect(entry(baseContext(), 'bar-icon').sample.icons).toEqual([
+      { kind: 'status', shape: 'ring', color: '#1f6feb' },
+    ]);
+  });
+
   it('lists configured icon glyph, status ring/disc, and priority dot shapes from the effective palettes', () => {
     const statusIcons = entry(
       baseContext({
@@ -151,9 +145,6 @@ describe('buildLegendCatalog', () => {
       statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
       priorityColors: [{ value: 'High', color: '#f97316' }],
       calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
-      calendarDisplayedCount: 1,
-      hasResolvedSchedulingCalendar: true,
-      estimateMeaning: 'working-days',
       nonWorkingRendering: 'split',
       calendarItems: {
         ...baseContext().calendarItems,
@@ -325,9 +316,6 @@ describe('buildLegendCatalog', () => {
       statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
       priorityColors: [{ value: 'High', color: '#f97316' }],
       calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
-      calendarDisplayedCount: 1,
-      hasResolvedSchedulingCalendar: true,
-      estimateMeaning: 'working-days',
       nonWorkingRendering: 'shaded',
     });
 
@@ -385,28 +373,9 @@ describe('buildLegendCatalog', () => {
     });
   });
 
-  it('omits companion-only semantics in standalone mode and retains core semantics', () => {
-    const standaloneIds = entries(baseContext()).map((candidate) => candidate.semanticId);
-    expect(standaloneIds).toEqual(expect.arrayContaining(['bar-treatment', 'progress', 'date-status']));
-    expect(standaloneIds).not.toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
-    );
-    expect(standaloneIds).not.toContain('replicated-task');
-
-    const standaloneParentedIds = entries(
-      baseContext({ parentPropertyMapped: true }),
-    ).map((candidate) => candidate.semanticId);
-    expect(standaloneParentedIds).toContain('replicated-task');
-
-    const companionIds = entries(
-      baseContext({
-        taskNotesPresent: true,
-        expandedRelationships: 'show-all',
-        calendarItems: { ...baseContext().calendarItems, showRecurring: true },
-      }),
-    ).map((candidate) => candidate.semanticId);
-    expect(companionIds).toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
+  it('shows the complete semantic catalogue in every gantt context', () => {
+    expect(entries(baseContext()).map((candidate) => candidate.semanticId)).toEqual(
+      [...GANTT_VISUAL_SEMANTIC_IDS],
     );
   });
 
@@ -532,57 +501,6 @@ describe('buildLegendCatalog', () => {
     ).toBe('#1f6feb');
   });
 
-  it('distinguishes every enabled occurrence state and its coarse series spine', () => {
-    const context = baseContext({
-      taskNotesPresent: true,
-      calendarItems: {
-        ...baseContext().calendarItems,
-        showRecurring: true,
-        showCompletedRecurringInstances: true,
-        showSkippedRecurringInstances: true,
-      },
-      externalCalendarsEnabled: true,
-    });
-    const ids = entries(context).map((candidate) => candidate.semanticId);
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        'occurrence-next',
-        'occurrence-projected',
-        'occurrence-completed',
-        'occurrence-skipped',
-        'occurrence-materialized',
-        'occurrence-external',
-        'occurrence-series-spine',
-      ]),
-    );
-  });
-
-  it('keeps recorded recurring semantics visible when virtual recurrence is disabled', () => {
-    const context = baseContext({
-      taskNotesPresent: true,
-      hasRecordedRecurringOccurrences: true,
-      calendarItems: {
-        ...baseContext().calendarItems,
-        showRecurring: false,
-        showCompletedRecurringInstances: true,
-        showSkippedRecurringInstances: true,
-      },
-    });
-    const ids = entries(context).map((candidate) => candidate.semanticId);
-
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        'occurrence-occupancy',
-        'occurrence-completed',
-        'occurrence-skipped',
-        'occurrence-materialized',
-        'occurrence-series-spine',
-      ]),
-    );
-    expect(ids).not.toContain('occurrence-next');
-    expect(ids).not.toContain('occurrence-projected');
-  });
-
   it('derives recorded recurring occupancy only from the recurring family and recorded states', () => {
     const occupancy = (
       family: CalendarOccupancy['family'],
@@ -621,7 +539,7 @@ describe('buildLegendCatalog', () => {
     expect(hasRecordedRecurringOccurrences([])).toBe(false);
   });
 
-  it('keeps every recorded recurring state in the applicability allowlist', () => {
+  it('keeps every recorded recurring state in the state allowlist', () => {
     expect([...RECORDED_RECURRING_STATE_CLASSES].sort()).toEqual([
       'completed',
       'materialized',
@@ -629,187 +547,15 @@ describe('buildLegendCatalog', () => {
     ]);
   });
 
-  it('does not advertise recorded recurring semantics without TaskNotes', () => {
-    const context = baseContext({
-      taskNotesPresent: false,
-      hasRecordedRecurringOccurrences: true,
-      calendarItems: {
-        ...baseContext().calendarItems,
-        showRecurring: false,
-        showCompletedRecurringInstances: true,
-        showSkippedRecurringInstances: true,
-      },
-    });
-    const ids = entries(context).map((candidate) => candidate.semanticId);
-
-    for (const semanticId of [
-      'occurrence-occupancy',
-      'occurrence-completed',
-      'occurrence-skipped',
-      'occurrence-materialized',
-      'occurrence-series-spine',
-    ] as const) {
-      expect(ids).not.toContain(semanticId);
-    }
-  });
-
-  it('advertises virtual recurring semantics when virtual recurrence is enabled', () => {
-    const ids = entries(
-      baseContext({
-        taskNotesPresent: true,
-        calendarItems: { ...baseContext().calendarItems, showRecurring: true },
-      }),
-    ).map((candidate) => candidate.semanticId);
-
-    expect(ids).toEqual(
-      expect.arrayContaining(['occurrence-next', 'occurrence-projected']),
-    );
-  });
-
-  it('does not advertise time-entry rows in standalone mode', () => {
-    const standaloneTimeEntries = baseContext({
-      taskNotesPresent: false,
-      calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
-    });
-    expect(entries(standaloneTimeEntries).map((candidate) => candidate.semanticId)).not.toContain(
-      'calendar-event',
-    );
-  });
-
-  it('advertises timeblock rows without TaskNotes', () => {
+  it('keeps calendar marker semantics visible before markers render', () => {
     expect(
-      entries(
-        baseContext({
-          taskNotesPresent: false,
-          calendarItems: { ...baseContext().calendarItems, showTimeblocks: true },
-        }),
-      ).map((candidate) => candidate.semanticId),
-    ).toContain('calendar-event');
-  });
-
-  it('advertises time-entry rows when TaskNotes is available', () => {
-    expect(
-      entries(
-        baseContext({
-          taskNotesPresent: true,
-          calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
-        }),
-      ).map((candidate) => candidate.semanticId),
-    ).toContain('calendar-event');
-  });
-
-  it('does not advertise external calendar rows without TaskNotes', () => {
-    expect(
-      entries(baseContext({ taskNotesPresent: false, externalCalendarsEnabled: true })).map(
-        (candidate) => candidate.semanticId,
-      ),
-    ).not.toContain('calendar-event');
-  });
-
-  it('advertises external calendar rows when TaskNotes is available', () => {
-    expect(
-      entries(baseContext({ taskNotesPresent: true, externalCalendarsEnabled: true })).map(
-        (candidate) => candidate.semanticId,
-      ),
-    ).toContain('calendar-event');
-  });
-
-  it('does not advertise property-based event rows without a mapped start field', () => {
-    expect(
-      entries(
-        baseContext({
-          taskNotesPresent: false,
-          calendarItems: {
-            ...baseContext().calendarItems,
-            showPropertyBasedEvents: true,
-          },
-        }),
-      ).map((candidate) => candidate.semanticId),
-    ).not.toContain('calendar-event');
-  });
-
-  it('advertises property-based event rows when a start field is mapped', () => {
-    expect(
-      entries(
-        baseContext({
-          calendarItems: {
-            ...baseContext().calendarItems,
-            showPropertyBasedEvents: true,
-          },
-          propertyEventStartMapped: true,
-        }),
-      ).map((candidate) => candidate.semanticId),
-    ).toContain('calendar-event');
-  });
-
-  it('lists configured calendar shading, conflict, marker, working-time, and override signals', () => {
-    const context = baseContext({
-      calendarPalette: [
-        { value: 'Calendars/NZ.md', color: '#0f766e' },
-        { value: 'Calendars/AU.md', color: '#b45309' },
-      ],
-      calendarDisplayedCount: 2,
-      hasCalendarConflicts: true,
-      hasCalendarConflictCapability: true,
-      calendarMarkersConfigured: true,
-      hasResolvedSchedulingCalendar: true,
-      calendarMarkers: [
-        {
-          date: '2026-08-12',
-          name: 'Release',
-          calendarId: 'Calendars/NZ.md',
-          calendarName: 'NZ',
-          color: '#0f766e',
-        },
-      ],
-      estimateMeaning: 'working-days',
-      nonWorkingRendering: 'split',
-      estimateOverrideMapped: true,
-    });
-    const ids = entries(context).map((candidate) => candidate.semanticId);
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        'calendar-shading',
-        'calendar-conflict',
-        'calendar-marker',
-        'working-time-extension',
-        'working-time-split',
-        'estimate-override',
-      ]),
-    );
-  });
-
-  it('does not advertise calendar conflicts when displayed calendars do not disagree', () => {
-    const ids = entries(
-      baseContext({ calendarDisplayedCount: 2, hasCalendarConflicts: false }),
-    ).map((candidate) => candidate.semanticId);
-
-    expect(ids).not.toContain('calendar-conflict');
-  });
-
-  it('keeps conflict semantics visible when the current window has no conflict dates', () => {
-    const ids = entries(
-      baseContext({ hasCalendarConflicts: false, hasCalendarConflictCapability: true }),
-    ).map((candidate) => candidate.semanticId);
-
-    expect(ids).toContain('calendar-conflict');
-  });
-
-  it('advertises configured marker semantics even before markers render', () => {
-    const ids = entries(
-      baseContext({ calendarMarkersConfigured: true, calendarMarkers: [] }),
-    ).map((candidate) => candidate.semanticId);
-
-    expect(ids).toContain('calendar-marker');
+      entry(baseContext({ calendarMarkerColor: '#0f766e' }), 'calendar-marker').sample,
+    ).toMatchObject({ cssVariables: { '--og-marker-color': '#0f766e' } });
   });
 
   it('explains working-time extensions when a mapped task can override a calendar-day default', () => {
     const context = baseContext({
       calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
-      calendarDisplayedCount: 1,
-      hasResolvedSchedulingCalendar: true,
-      estimateMeaning: 'calendar-days',
-      estimateOverrideMapped: true,
     });
     const extension = entry(context, 'working-time-extension');
 
@@ -823,10 +569,7 @@ describe('buildLegendCatalog', () => {
 
   it('lets context samples inherit the configured opacity from the Gantt root', () => {
     const contextSample = entry(
-      baseContext({
-        taskNotesPresent: true,
-        expandedRelationships: 'show-all',
-      }),
+      baseContext({ taskNotesPresent: true }),
       'context-task',
     ).sample;
 
@@ -836,7 +579,6 @@ describe('buildLegendCatalog', () => {
   it('shows a configuration-complete calendar-event sample for enabled event families', () => {
     const context = baseContext({
       calendarEventColor: '#0ea5e9',
-      propertyEventStartMapped: true,
       calendarItems: {
         ...baseContext().calendarItems,
         showPropertyBasedEvents: true,
@@ -850,12 +592,6 @@ describe('buildLegendCatalog', () => {
         '--og-ghost-fill': '#0ea5e9',
       },
     });
-  });
-
-  it('omits calendar-event semantics when every event-row family and feed is disabled', () => {
-    expect(entries(baseContext()).map((candidate) => candidate.semanticId)).not.toContain(
-      'calendar-event',
-    );
   });
 
   it('composes normal secondary bar cues over the configured representative treatment', () => {
@@ -896,57 +632,10 @@ describe('buildLegendCatalog', () => {
 
   it('renders the estimate override decoration on a production task-bar host', () => {
     const context = baseContext({
-      calendarDisplayedCount: 1,
-      hasResolvedSchedulingCalendar: true,
-      estimateOverrideMapped: true,
     });
 
     expect(entry(context, 'estimate-override').sample.classTokens).toEqual(
       expect.arrayContaining(['wx-bar', 'og-override-dot']),
-    );
-  });
-
-  it('keeps scheduling semantics when a resolved task calendar is excluded from background display', () => {
-    const context = baseContext({
-      calendarDisplayedCount: 0,
-      hasResolvedSchedulingCalendar: true,
-      estimateMeaning: 'working-days',
-      nonWorkingRendering: 'split',
-      estimateOverrideMapped: true,
-    });
-    const ids = entries(context).map((candidate) => candidate.semanticId);
-
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        'working-time-extension',
-        'working-time-split',
-        'estimate-override',
-      ]),
-    );
-    expect(ids).not.toEqual(
-      expect.arrayContaining(['calendar-shading', 'calendar-conflict']),
-    );
-  });
-
-  it('does not present scheduling-calendar semantics for an unselected vault palette', () => {
-    const ids = entries(
-      baseContext({
-        calendarPalette: [{ value: 'Calendars/Unselected.md', color: '#0f766e' }],
-        calendarDisplayedCount: 0,
-        hasResolvedSchedulingCalendar: false,
-        estimateMeaning: 'working-days',
-        nonWorkingRendering: 'split',
-        estimateOverrideMapped: true,
-      }),
-    ).map((candidate) => candidate.semanticId);
-
-    expect(ids).not.toEqual(
-      expect.arrayContaining([
-        'calendar-shading',
-        'working-time-extension',
-        'working-time-split',
-        'estimate-override',
-      ]),
     );
   });
 
@@ -962,14 +651,13 @@ describe('buildLegendCatalog', () => {
 });
 
 describe('legend semantic exhaustiveness', () => {
-  it('gives every production-owned semantic one applicability rule, explanation, and sample descriptor', () => {
+  it('gives every production-owned semantic an explanation and sample descriptor', () => {
     expect(Object.keys(LEGEND_CATALOGUE).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
     for (const semanticId of GANTT_VISUAL_SEMANTIC_IDS) {
       const definition = LEGEND_CATALOGUE[semanticId];
       expect(definition.name).not.toBe('');
       expect(definition.meaning).not.toBe('');
       expect(definition.sampleKind).not.toBe('');
-      expect(typeof definition.isApplicable).toBe('function');
     }
   });
 });

@@ -81,31 +81,19 @@ export interface LegendGroup {
   entries: LegendEntry[];
 }
 
-export interface LegendCatalogueDefinition {
+interface LegendCatalogueDefinition {
   group: LegendGroupId;
   name: string;
   meaning: string;
   sampleKind: LegendSampleKind;
-  isApplicable: (context: GanttLegendContext) => boolean;
 }
 
-const hasDisplayedCalendar = (context: GanttLegendContext): boolean =>
-  context.calendarDisplayedCount > 0;
-const hasSchedulingCalendar = (context: GanttLegendContext): boolean =>
-  context.hasResolvedSchedulingCalendar;
 const hasVirtualRecurring = (context: GanttLegendContext): boolean =>
   context.taskNotesPresent && context.calendarItems.showRecurring;
 const hasRecordedRecurring = (context: GanttLegendContext): boolean =>
   context.taskNotesPresent && context.hasRecordedRecurringOccurrences;
 const hasRecurring = (context: GanttLegendContext): boolean =>
   hasVirtualRecurring(context) || hasRecordedRecurring(context);
-const hasOccurrences = (context: GanttLegendContext): boolean =>
-  hasRecurring(context) || (context.taskNotesPresent && context.externalCalendarsEnabled);
-const hasCalendarEvents = (context: GanttLegendContext): boolean =>
-  (context.taskNotesPresent && context.calendarItems.showTimeEntries) ||
-  context.calendarItems.showTimeblocks ||
-  (context.calendarItems.showPropertyBasedEvents && context.propertyEventStartMapped) ||
-  (context.taskNotesPresent && context.externalCalendarsEnabled);
 
 export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
   'bar-treatment': {
@@ -113,174 +101,144 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Task bar',
     meaning: 'The configured fill, strip, and icon channels identify task attributes.',
     sampleKind: 'bar',
-    isApplicable: () => true,
   },
   'bar-icon': {
     group: 'bars',
     name: 'Task icon',
     meaning: 'A configured glyph or dot shape identifies the selected status or priority.',
     sampleKind: 'icon-set',
-    isApplicable: (context) => iconSamples(context).length > 0,
   },
   'date-status': {
     group: 'schedule',
     name: 'Date status',
     meaning: 'A red border marks dates that are missing, inferred, or corrected for display.',
     sampleKind: 'bar',
-    isApplicable: (context) => context.showDateIndicators,
   },
   progress: {
     group: 'schedule',
     name: 'Progress',
     meaning: 'The contrasting portion of a bar shows completion progress.',
     sampleKind: 'progress',
-    isApplicable: () => true,
   },
   'dependency-link': {
     group: 'dependencies',
     name: 'Dependency',
     meaning: 'A connector shows the scheduling relationship between two tasks.',
     sampleKind: 'link',
-    isApplicable: (context) => context.taskNotesPresent,
   },
   'weekend-shading': {
     group: 'calendars',
     name: 'Weekend',
     meaning: 'Theme holiday shading marks the locale weekend.',
     sampleKind: 'shading',
-    isApplicable: (context) => context.highlightWeekends,
   },
   'calendar-shading': {
     group: 'calendars',
     name: 'Calendar shading',
     meaning: 'Theme holiday shading marks non-working availability from the active calendars.',
     sampleKind: 'shading',
-    isApplicable: hasDisplayedCalendar,
   },
   'calendar-conflict': {
     group: 'calendars',
     name: 'Calendar conflict',
     meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
     sampleKind: 'shading',
-    isApplicable: (context) => context.hasCalendarConflictCapability,
   },
   'calendar-event': {
     group: 'calendars',
     name: 'Calendar event',
     meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.',
     sampleKind: 'bar',
-    isApplicable: hasCalendarEvents,
   },
   'today-marker': {
     group: 'calendars',
     name: 'Today',
     meaning: 'The accent line locates today within the visible timeline.',
     sampleKind: 'marker',
-    isApplicable: () => true,
   },
   'calendar-marker': {
     group: 'calendars',
     name: 'Calendar marker',
     meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.',
     sampleKind: 'marker',
-    isApplicable: (context) => context.calendarMarkersConfigured,
   },
   'working-time-extension': {
     group: 'calendars',
     name: 'Working-time extension',
     meaning: 'The bar extends across blocked days so its estimate counts working days.',
     sampleKind: 'pieces',
-    isApplicable: (context) =>
-      hasSchedulingCalendar(context) &&
-      (context.estimateMeaning === 'working-days' || context.estimateOverrideMapped),
   },
   'working-time-split': {
     group: 'calendars',
     name: 'Split working time',
     meaning: 'Solid runs are working time; the translucent run between them is blocked time.',
     sampleKind: 'pieces',
-    isApplicable: (context) =>
-      hasSchedulingCalendar(context) && context.nonWorkingRendering === 'split',
   },
   'occurrence-occupancy': {
     group: 'occurrences',
     name: 'Occurrence occupancy',
     meaning: 'Separate painted pieces are occurrences; empty intervals are not occupied.',
     sampleKind: 'pieces',
-    isApplicable: hasOccurrences,
   },
   'occurrence-next': {
     group: 'occurrences',
     name: 'Next occurrence',
     meaning: 'A solid accent piece is the next upcoming recurring instance.',
     sampleKind: 'bar',
-    isApplicable: hasVirtualRecurring,
   },
   'occurrence-projected': {
     group: 'occurrences',
     name: 'Projected occurrence',
     meaning: 'A hollow dashed piece is a future instance projected from the pattern.',
     sampleKind: 'bar',
-    isApplicable: hasVirtualRecurring,
   },
   'occurrence-completed': {
     group: 'occurrences',
     name: 'Completed occurrence',
     meaning: 'A dimmed struck piece is a completed recurring instance.',
     sampleKind: 'bar',
-    isApplicable: (context) =>
-      hasRecurring(context) && context.calendarItems.showCompletedRecurringInstances,
   },
   'occurrence-skipped': {
     group: 'occurrences',
     name: 'Skipped occurrence',
     meaning: 'A muted hatched piece is a recurring instance that was deliberately skipped.',
     sampleKind: 'bar',
-    isApplicable: (context) =>
-      hasRecurring(context) && context.calendarItems.showSkippedRecurringInstances,
   },
   'occurrence-materialized': {
     group: 'occurrences',
     name: 'Materialized occurrence',
     meaning: 'An outlined piece means that occurrence has its own note.',
     sampleKind: 'bar',
-    isApplicable: hasRecurring,
   },
   'occurrence-external': {
     group: 'occurrences',
     name: 'External occurrence',
     meaning: 'A solid source-coloured piece is one occurrence of an external calendar series.',
     sampleKind: 'bar',
-    isApplicable: (context) => context.taskNotesPresent && context.externalCalendarsEnabled,
   },
   'occurrence-series-spine': {
     group: 'occurrences',
     name: 'Series spine',
     meaning: 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
     sampleKind: 'line',
-    isApplicable: hasOccurrences,
   },
   'replicated-task': {
     group: 'structure',
     name: 'Replicated task',
     meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
     sampleKind: 'decoration',
-    isApplicable: (context) => context.taskNotesPresent || context.parentPropertyMapped,
   },
   'context-task': {
     group: 'structure',
     name: 'Context task',
     meaning: 'A muted bar was fetched to show structure but does not itself match the Base.',
     sampleKind: 'decoration',
-    isApplicable: (context) =>
-      context.taskNotesPresent && context.expandedRelationships === 'show-all',
   },
   'estimate-override': {
     group: 'structure',
     name: 'Estimate override',
     meaning: "A corner dot means the task's estimate meaning overrides the view default.",
     sampleKind: 'decoration',
-    isApplicable: (context) => hasSchedulingCalendar(context) && context.estimateOverrideMapped,
   },
 };
 
@@ -295,22 +253,14 @@ const GROUP_NAMES: Record<LegendGroupId, string> = {
 
 export function buildLegendCatalog(context: GanttLegendContext): LegendGroup[] {
   const icons = iconSamples(context);
-  const entries = GANTT_VISUAL_SEMANTIC_IDS
-    .filter((semanticId) => isApplicable(semanticId, context, icons))
-    .map((semanticId) => buildEntry(semanticId, LEGEND_CATALOGUE[semanticId], context, icons));
+  const entries = GANTT_VISUAL_SEMANTIC_IDS.map((semanticId) =>
+    buildEntry(semanticId, LEGEND_CATALOGUE[semanticId], context, icons),
+  );
 
   return LEGEND_GROUP_ORDER.flatMap((groupId) => {
     const grouped = entries.filter((candidate) => LEGEND_CATALOGUE[candidate.semanticId].group === groupId);
     return grouped.length > 0 ? [{ id: groupId, name: GROUP_NAMES[groupId], entries: grouped }] : [];
   });
-}
-
-function isApplicable(
-  semanticId: GanttVisualSemanticId,
-  context: GanttLegendContext,
-  icons: LegendIconSample[],
-): boolean {
-  return semanticId === 'bar-icon' ? icons.length > 0 : LEGEND_CATALOGUE[semanticId].isApplicable(context);
 }
 
 function buildEntry(
@@ -344,7 +294,17 @@ function sampleFor(
     };
   }
   if (semanticId === 'bar-icon') {
-    return { kind, classTokens: [classes.iconChip], icons };
+    const samples =
+      icons.length > 0
+        ? icons
+        : [
+            {
+              kind: 'status' as const,
+              shape: 'ring' as const,
+              color: representativeBarColor(context),
+            },
+          ];
+    return { kind, classTokens: [classes.iconChip], icons: samples };
   }
   if (semanticId === 'working-time-split') {
     const treatment = representativeTreatment(context);
@@ -367,7 +327,7 @@ function sampleFor(
 
   const classTokens = classTokensFor(semanticId);
   if (semanticId === 'calendar-marker') {
-    const color = resolveMarkerColor(context.calendarMarkers[0]?.color);
+    const color = resolveMarkerColor(context.calendarMarkerColor);
     return { kind, classTokens, cssVariables: { '--og-marker-color': color } };
   }
   if (semanticId === 'today-marker') {

@@ -285,19 +285,18 @@ describe('computeCalendarShadingCss', () => {
     expect(displayedCount).toBe(1);
   });
 
-  it('emits the base rule and no scheduling-calendar fact when no task associates a calendar', () => {
-    const { css, hasResolvedSchedulingCalendar } = computeShading({
+  it('emits the base rule when no task associates a calendar', () => {
+    const { css } = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
       taskSpans,
     });
     expect(css).not.toContain('og-d-');
-    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
-  it('keeps the selected calendar count without reporting an unrendered display', () => {
-    const { css, displayedCount, selectedCount } = computeShading({
+  it('keeps the selected calendar display count without rendering dates', () => {
+    const { css, displayedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
@@ -305,7 +304,6 @@ describe('computeCalendarShadingCss', () => {
     });
     expect(css).not.toContain('og-d-');
     expect(displayedCount).toBe(0);
-    expect(selectedCount).toBe(1);
   });
 
   it('does not expose calendar markers when no chart window is rendered', () => {
@@ -316,6 +314,7 @@ describe('computeCalendarShadingCss', () => {
         basename: 'Marker',
         frontmatter: {
           tngantt: 'calendar',
+          color: '#0f766e',
           events: [{ date: '2026-04-10', name: 'Release', marker: true }],
         },
       },
@@ -326,7 +325,7 @@ describe('computeCalendarShadingCss', () => {
       return note ? note.path : null;
     };
 
-    const { markers, calendarMarkersConfigured } = computeShading({
+    const { markers, calendarMarkerColor } = computeShading({
       markedNotes: notesWithMarker,
       resolveLink: resolveWithMarker,
       associations: [],
@@ -340,18 +339,17 @@ describe('computeCalendarShadingCss', () => {
     });
 
     expect(markers).toEqual([]);
-    expect(calendarMarkersConfigured).toBe(true);
+    expect(calendarMarkerColor).toBe('#0f766e');
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
-    const { css, hasResolvedSchedulingCalendar } = computeShading({
+    const { css } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[Ghost]]', taskPath: 'Tasks/T.md' }],
       taskSpans,
     });
     expect(css).not.toContain('og-d-');
-    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
   const explicit = (links: string[]) => ({
@@ -359,32 +357,6 @@ describe('computeCalendarShadingCss', () => {
     stored: true,
     defaultRow: true,
     entries: links.map((link) => ({ link, enabled: true })),
-  });
-
-  it('keeps scheduling-calendar resolution when background display excludes that calendar', () => {
-    const { displayedCount, hasResolvedSchedulingCalendar } = computeShading({
-      markedNotes,
-      resolveLink,
-      associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
-      taskSpans,
-      displaySelection: explicit([]),
-    });
-
-    expect(displayedCount).toBe(0);
-    expect(hasResolvedSchedulingCalendar).toBe(true);
-  });
-
-  it('does not report scheduling capability for a resolved calendar set with no members', () => {
-    const { calendarBySource, hasResolvedSchedulingCalendar } = computeShading({
-      markedNotes,
-      resolveLink,
-      associations: [{ value: '[[Empty Set]]', taskPath: 'Tasks/T.md' }],
-      taskSpans,
-      displaySelection: explicit([]),
-    });
-
-    expect(calendarBySource.get('Tasks/T.md')).toBe('Calendars/Empty Set.md');
-    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
   it('an explicit displayed set overrides the association union', () => {

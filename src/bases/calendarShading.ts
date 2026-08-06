@@ -25,7 +25,7 @@ import {
   type CalendarRecord,
   type LinkResolver,
 } from '../controller/calendar/resolveCalendars';
-import { calendarConflictCapability, conflictDatesWithSources } from './calendarConflicts';
+import { conflictDatesWithSources } from './calendarConflicts';
 import type { MarkerInput } from './markerOverlay';
 import {
   effectiveDisplayPaths,
@@ -190,12 +190,6 @@ export interface ShadingComputation {
   css: string;
   /** Calendars that actually contributed to the current dated chart window. */
   displayedCount: number;
-  /** Calendars selected by the active display configuration, window or not. */
-  selectedCount: number;
-  /** Whether at least one task association resolves to a scheduling calendar. */
-  hasResolvedSchedulingCalendar: boolean;
-  /** Whether selected calendar definitions can disagree outside this chart window. */
-  hasCalendarConflictCapability: boolean;
   conflictCount: number;
   /** The displayed calendars that disagree, so the banner can name them. */
   conflictCalendars: string[];
@@ -204,8 +198,8 @@ export interface ShadingComputation {
   flaggedCount: number;
   /** Flagged events of the displayed calendars, for the marker overlay. */
   markers: MarkerInput[];
-  /** Whether selected calendars define markers, even when no chart window is rendered. */
-  calendarMarkersConfigured: boolean;
+  /** Representative colour of a selected calendar that defines markers. */
+  calendarMarkerColor: string | undefined;
   /** Every valid calendar/set in the vault as a bar-colour palette. */
   calendarPalette: { value: string; color: string }[];
   /** Each associated task's resolved calendar identity, by source path. */
@@ -234,9 +228,10 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const flaggedCount = display?.flagged.length ?? 0;
   const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
   const calendarPalette = buildCalendarPalette(registry);
-  const { calendarBySource, hasResolvedSchedulingCalendar } = resolveCalendarFacts(
+  const { calendarBySource, associatedCalendars } = resolveAssociatedCalendarFacts(
     registry,
-    inputs,
+    inputs.associations,
+    inputs.resolveLink,
   );
   const displayed = new Map<string, CalendarRecord>();
   if (display !== null) {
@@ -245,39 +240,29 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       if (record) displayed.set(path, record);
     }
   } else {
-    for (const association of inputs.associations) {
-      const resolved = resolveTaskCalendar(
-        registry,
-        association.value,
-        association.taskPath,
-        inputs.resolveLink,
-      );
-      for (const record of resolved.calendars) displayed.set(record.path, record);
-    }
+    for (const record of associatedCalendars.values()) displayed.set(record.path, record);
   }
 
   const records = [...displayed.values()];
-  const definitions = records.map((record) => record.definition);
-  const hasCalendarConflictCapability = calendarConflictCapability(definitions);
-  const calendarMarkersConfigured = records.some((record) => record.definition.markers.length > 0);
+  const calendarMarkerColor = records.find(
+    (record) => record.definition.markers.length > 0 && record.definition.color !== undefined,
+  )?.definition.color;
   if (window === null) {
     return {
       css: buildCalendarShadingCss(inputs.scope, []),
       displayedCount: 0,
-      selectedCount: displayed.size,
-      hasResolvedSchedulingCalendar,
-      hasCalendarConflictCapability,
       conflictCount: 0,
       conflictCalendars: [],
       invalidCount,
       flaggedCount,
       markers: [],
-      calendarMarkersConfigured,
+      calendarMarkerColor,
       calendarPalette,
       calendarBySource,
       markedNotePaths,
     };
   }
+  const definitions = records.map((record) => record.definition);
   const markers = collectMarkers(records);
   // Attributed: the banner names the disagreeing calendars, so a user does not have
   // to open the picker and compare patterns to find which selection conflicts.
@@ -292,15 +277,12 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       conflicts.dates,
     ),
     displayedCount: displayed.size,
-    selectedCount: displayed.size,
-    hasResolvedSchedulingCalendar,
-    hasCalendarConflictCapability,
     conflictCount: conflicts.dates.length,
     conflictCalendars: conflicts.calendars,
     invalidCount,
     flaggedCount,
     markers,
-    calendarMarkersConfigured,
+    calendarMarkerColor,
     calendarPalette,
     calendarBySource,
     markedNotePaths,
@@ -327,35 +309,6 @@ function buildCalendarPalette(
 }
 
 /**
- * Resolve each task association once into its paint identity and scheduling
- * capability. A set identity can resolve even when it has no valid member
- * calendars, so identity alone is not evidence that scheduling can run.
- */
-function resolveCalendarFacts(
-  registry: ReturnType<typeof buildCalendarRegistry>,
-  inputs: ShadingAssemblyInputs,
-): {
-  calendarBySource: Map<string, string>;
-  hasResolvedSchedulingCalendar: boolean;
-} {
-  const calendarBySource = new Map<string, string>();
-  let hasResolvedSchedulingCalendar = false;
-  for (const association of inputs.associations) {
-    const resolved = resolveTaskCalendar(
-      registry,
-      association.value,
-      association.taskPath,
-      inputs.resolveLink,
-    );
-    if (resolved.identity) calendarBySource.set(association.taskPath, resolved.identity.id);
-    if (!resolved.schedulingSuspended && resolved.calendars.length > 0) {
-      hasResolvedSchedulingCalendar = true;
-    }
-  }
-  return { calendarBySource, hasResolvedSchedulingCalendar };
-}
-
-/**
  * Flagged events of the displayed calendars. Markers render as lines, never as
  * column shading, so they are collected separately from the shaded dates and
  * are not windowed — the overlay drops whatever falls outside the drawn span.
@@ -370,6 +323,26 @@ function collectMarkers(records: readonly CalendarRecord[]): MarkerInput[] {
       color: record.definition.color,
     })),
   );
+}
+
+function resolveAssociatedCalendarFacts(
+  registry: ReturnType<typeof buildCalendarRegistry>,
+  associations: ShadingAssemblyInputs['associations'],
+  resolveLink: LinkResolver,
+): { calendarBySource: Map<string, string>; associatedCalendars: Map<string, CalendarRecord> } {
+  const calendarBySource = new Map<string, string>();
+  const associatedCalendars = new Map<string, CalendarRecord>();
+  for (const association of associations) {
+    const resolved = resolveTaskCalendar(
+      registry,
+      association.value,
+      association.taskPath,
+      resolveLink,
+    );
+    if (resolved.identity) calendarBySource.set(association.taskPath, resolved.identity.id);
+    for (const record of resolved.calendars) associatedCalendars.set(record.path, record);
+  }
+  return { calendarBySource, associatedCalendars };
 }
 
 /** Resolve a selection entry's link to its calendar/set registry target. */

@@ -82,7 +82,6 @@ import {
 import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
 import { resolveDateLocale } from './dateLocale';
-import { noteFrontmatterKey } from '../datasource/dateFieldMapping';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
@@ -1520,10 +1519,7 @@ class ObsidianGanttBasesView extends BasesView {
     const barIconSource = this.getBarIcon();
     const taskNotesPresent = isTaskNotesPresent(this.app);
     const calendarItems = this.getCalendarItemToggles();
-    const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
-    const effectiveMappings = this.getEffectiveMappings();
-    const estimateOverrideMapped = (effectiveMappings.estimateMeaningProperty ?? '') !== '';
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
     const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
     const visibleCalendarEventColor =
@@ -1590,31 +1586,19 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: calendarShading.calendarBySource,
       legendContext: {
         taskNotesPresent,
-        parentPropertyMapped: (effectiveMappings.parentProperty ?? '') !== '',
-        showDateIndicators,
-        highlightWeekends,
         barFillSource,
         barStripSource,
         barIconSource,
         statusColors,
         priorityColors,
         calendarPalette: calendarShading.calendarPalette,
-        calendarMarkers: calendarShading.markers,
-        calendarDisplayedCount: calendarShading.selectedCount,
-        hasCalendarConflicts: calendarShading.hasCalendarConflicts,
-        hasCalendarConflictCapability: calendarShading.hasCalendarConflictCapability,
-        propertyEventStartMapped: noteFrontmatterKey(calendarItems.propertyEventStart) !== null,
-        calendarMarkersConfigured: calendarShading.calendarMarkersConfigured,
-        hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
+        calendarMarkerColor: calendarShading.calendarMarkerColor,
         hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:
           visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
-        estimateMeaning,
         nonWorkingRendering,
-        estimateOverrideMapped,
-        expandedRelationships: this.getExpandedRelationships(),
         calendarItems,
         externalCalendarsEnabled: externalCalendarLegendFacts.enabled,
       },
@@ -1646,11 +1630,7 @@ class ObsidianGanttBasesView extends BasesView {
     calendarPalette: { value: string; color: string }[];
     calendarBySource: Map<string, string>;
     displayedCount: number;
-    selectedCount: number;
-    hasCalendarConflicts: boolean;
-    hasCalendarConflictCapability: boolean;
-    calendarMarkersConfigured: boolean;
-    hasResolvedSchedulingCalendar: boolean;
+    calendarMarkerColor: string | undefined;
   } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -1719,11 +1699,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarPalette: computed.calendarPalette,
       calendarBySource: computed.calendarBySource,
       displayedCount: computed.displayedCount,
-      selectedCount: computed.selectedCount,
-      hasCalendarConflicts: computed.conflictCount > 0,
-      hasCalendarConflictCapability: computed.hasCalendarConflictCapability,
-      calendarMarkersConfigured: computed.calendarMarkersConfigured,
-      hasResolvedSchedulingCalendar: computed.hasResolvedSchedulingCalendar,
+      calendarMarkerColor: computed.calendarMarkerColor,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,
