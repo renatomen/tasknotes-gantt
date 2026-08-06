@@ -132,6 +132,9 @@ describe('buildLegendCatalog', () => {
     const split = splitSample.pieces ?? [];
     expect(splitSample.classTokens).toEqual(['og-ghost-runs']);
     expect(split.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
+    for (const piece of split.filter((candidate) => candidate.treatment === 'painted')) {
+      expect(piece.classTokens).toEqual(['og-ghost-run']);
+    }
     expect(split.some((piece) => piece.treatment === 'blocked')).toBe(true);
     expect(split.find((piece) => piece.treatment === 'blocked')?.classTokens).toEqual([
       'og-ghost-run',
@@ -152,6 +155,11 @@ describe('buildLegendCatalog', () => {
 
     const extensionSample = entry(context, 'working-time-extension').sample;
     expect(extensionSample.classTokens).toEqual(['og-ghost-runs']);
+    const extension = extensionSample.pieces ?? [];
+    expect(extension.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
+    for (const piece of extension.filter((candidate) => candidate.treatment === 'painted')) {
+      expect(piece.classTokens).toEqual(['og-ghost-run']);
+    }
     expect(extensionSample.pieces?.find((piece) => piece.treatment === 'blocked')?.classTokens).toEqual([
       'og-ghost-run',
       'og-ghost-blocked',

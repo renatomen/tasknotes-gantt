@@ -311,13 +311,24 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyPainted = [
         ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
       ];
+      const splitPainted = [
+        ...(split?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
+      ];
+      const extensionPainted = [
+        ...(extension?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
+      ];
       const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
+      const ownsVisiblePaint = (pieces: HTMLElement[]): boolean =>
+        pieces.length === 2 &&
+        pieces.every((piece) => getComputedStyle(piece).backgroundColor !== "rgba(0, 0, 0, 0)");
       return {
         splitHostOwnsPaint:
           split?.classList.contains("og-ghost-run") || split?.classList.contains("og-ghost-blocked"),
         splitHasBlockedPiece: !!split?.querySelector(".og-ghost-run.og-ghost-blocked"),
+        splitPaintedPiecesOwnPaint: ownsVisiblePaint(splitPainted),
         extensionHostOwnsPaint: extension?.classList.contains("og-ghost-run") ?? false,
         extensionHasBlockedPiece: !!extension?.querySelector(".og-ghost-run.og-ghost-blocked"),
+        extensionPaintedPiecesOwnPaint: ownsVisiblePaint(extensionPainted),
         occupancyHostOwnsPaint:
           occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
         occupancyPiecesOwnPaint:
@@ -337,8 +348,10 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(ownership).toEqual({
       splitHostOwnsPaint: false,
       splitHasBlockedPiece: true,
+      splitPaintedPiecesOwnPaint: true,
       extensionHostOwnsPaint: false,
       extensionHasBlockedPiece: true,
+      extensionPaintedPiecesOwnPaint: true,
       occupancyHostOwnsPaint: false,
       occupancyPiecesOwnPaint: true,
       occupancyGapBackground: "rgba(0, 0, 0, 0)",
