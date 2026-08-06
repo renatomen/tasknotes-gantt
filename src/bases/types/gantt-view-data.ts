@@ -34,6 +34,7 @@ import type { EstimateMeaning, ExpandedRelationships, NonWorkingRendering } from
 /** Raw effective view facts consumed by the presentation-only legend catalogue. */
 export interface GanttLegendContext {
   taskNotesPresent: boolean;
+  parentPropertyMapped: boolean;
   showDateIndicators: boolean;
   highlightWeekends: boolean;
   barFillSource: BarChannelSource;

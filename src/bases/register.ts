@@ -1518,8 +1518,8 @@ class ObsidianGanttBasesView extends BasesView {
     const calendarItems = this.getCalendarItemToggles();
     const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
-    const estimateOverrideMapped =
-      (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
+    const effectiveMappings = this.getEffectiveMappings();
+    const estimateOverrideMapped = (effectiveMappings.estimateMeaningProperty ?? '') !== '';
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
     const visibleCalendarEventColor =
       instances
@@ -1585,6 +1585,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: calendarShading.calendarBySource,
       legendContext: {
         taskNotesPresent,
+        parentPropertyMapped: (effectiveMappings.parentProperty ?? '') !== '',
         showDateIndicators,
         highlightWeekends,
         barFillSource,

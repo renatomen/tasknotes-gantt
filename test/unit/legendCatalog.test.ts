@@ -12,6 +12,7 @@ import type { GanttLegendContext } from '../../src/bases/types/gantt-view-data';
 
 const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendContext => ({
   taskNotesPresent: false,
+  parentPropertyMapped: false,
   showDateIndicators: true,
   highlightWeekends: true,
   barFillSource: 'default',
@@ -376,9 +377,14 @@ describe('buildLegendCatalog', () => {
     const standaloneIds = entries(baseContext()).map((candidate) => candidate.semanticId);
     expect(standaloneIds).toEqual(expect.arrayContaining(['bar-treatment', 'progress', 'date-status']));
     expect(standaloneIds).not.toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next']),
+      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
     );
-    expect(standaloneIds).toContain('replicated-task');
+    expect(standaloneIds).not.toContain('replicated-task');
+
+    const standaloneParentedIds = entries(
+      baseContext({ parentPropertyMapped: true }),
+    ).map((candidate) => candidate.semanticId);
+    expect(standaloneParentedIds).toContain('replicated-task');
 
     const companionIds = entries(
       baseContext({
@@ -418,25 +424,28 @@ describe('buildLegendCatalog', () => {
     });
   });
 
-  it('falls external occurrence samples back to the active task treatment before feed paint resolves', () => {
-    const context = baseContext({
-      taskNotesPresent: true,
-      externalCalendarsEnabled: true,
-      externalOccurrenceColor: null,
-      barFillSource: 'status',
-      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
-    });
-
-    for (const semanticId of [
-      'occurrence-external',
-      'occurrence-series-spine',
-      'occurrence-occupancy',
-    ] as const) {
-      expect(entry(context, semanticId).sample.cssVariables).toMatchObject({
-        '--og-ghost-fill': '#2563eb',
+  it.each(['default', 'status'] as const)(
+    'defers uncoloured external occurrence samples to production CSS in %s fill mode',
+    (barFillSource) => {
+      const context = baseContext({
+        taskNotesPresent: true,
+        externalCalendarsEnabled: true,
+        externalOccurrenceColor: null,
+        barFillSource,
+        statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
       });
+
+      for (const semanticId of [
+        'occurrence-external',
+        'occurrence-series-spine',
+        'occurrence-occupancy',
+      ] as const) {
+        const cssVariables = entry(context, semanticId).sample.cssVariables;
+        expect(cssVariables?.['--og-event-color']).toBeUndefined();
+        expect(cssVariables?.['--og-ghost-fill']).toBeUndefined();
+      }
     }
-  });
+  );
 
   it('distinguishes every enabled occurrence state and its coarse series spine', () => {
     const context = baseContext({

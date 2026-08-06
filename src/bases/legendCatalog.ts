@@ -259,7 +259,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Replicated task',
     meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
     sampleKind: 'decoration',
-    isApplicable: () => true,
+    isApplicable: (context) => context.taskNotesPresent || context.parentPropertyMapped,
   },
   'context-task': {
     group: 'structure',
@@ -400,7 +400,7 @@ function occurrenceSeriesSpineSample(
 ): LegendSampleDescriptor {
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
-    ? (context.externalOccurrenceColor ?? representativeBarColor(context))
+    ? context.externalOccurrenceColor
     : representativeBarColor(context);
   return {
     kind,
@@ -417,9 +417,9 @@ function externalOccurrenceSample(
   return {
     kind,
     classTokens,
-    cssVariables: {
-      '--og-ghost-fill': context.externalOccurrenceColor ?? representativeBarColor(context),
-    },
+    cssVariables: context.externalOccurrenceColor
+      ? { '--og-ghost-fill': context.externalOccurrenceColor }
+      : {},
   };
 }
 
@@ -565,11 +565,12 @@ function representativeEventTreatment(context: GanttLegendContext): Representati
 function representativeExternalEventTreatment(
   context: GanttLegendContext,
 ): RepresentativeTreatment {
-  const color = context.externalOccurrenceColor ?? representativeBarColor(context);
-  const cssVariables: Record<string, string> = {
-    '--og-event-color': color,
-    '--og-ghost-fill': color,
-  };
+  const cssVariables: Record<string, string> = context.externalOccurrenceColor
+    ? {
+        '--og-event-color': context.externalOccurrenceColor,
+        '--og-ghost-fill': context.externalOccurrenceColor,
+      }
+    : {};
   return {
     classTokens: [classes.bar, classes.calendarEvent],
     paints: {},
