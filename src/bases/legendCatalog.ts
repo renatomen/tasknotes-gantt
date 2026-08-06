@@ -400,8 +400,8 @@ function occurrenceSeriesSpineSample(
 ): LegendSampleDescriptor {
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
-    ? context.externalOccurrenceColor
-    : (resolveRepresentativeChannelPaint(context.barFillSource, palettesOf(context))?.color ?? null);
+    ? (context.externalOccurrenceColor ?? representativeUnclassifiedBarGhostFill(context))
+    : representativeOwnedBarGhostFill(context);
   return {
     kind,
     classTokens,
@@ -414,12 +414,11 @@ function externalOccurrenceSample(
   kind: LegendSampleKind,
   classTokens: string[],
 ): LegendSampleDescriptor {
+  const color = context.externalOccurrenceColor ?? representativeUnclassifiedBarGhostFill(context);
   return {
     kind,
     classTokens,
-    cssVariables: context.externalOccurrenceColor
-      ? { '--og-ghost-fill': context.externalOccurrenceColor }
-      : {},
+    cssVariables: color ? { '--og-ghost-fill': color } : {},
   };
 }
 
@@ -524,10 +523,32 @@ function iconSamples(context: GanttLegendContext): LegendIconSample[] {
 }
 
 function representativeBarColor(context: GanttLegendContext): string {
-  return (
-    resolveRepresentativeChannelPaint(context.barFillSource, palettesOf(context))?.color ??
-    'var(--wx-gantt-task-color, #3d8de6)'
-  );
+  return representativeOwnedBarPaint(context)?.color ?? 'var(--wx-gantt-task-color, #3d8de6)';
+}
+
+function representativeOwnedBarGhostFill(context: GanttLegendContext): string | null {
+  return representativeOwnedBarPaint(context)?.color ?? null;
+}
+
+function representativeOwnedBarPaint(
+  context: GanttLegendContext,
+): RepresentativeChannelPaint | null {
+  const fillSource =
+    context.barFillSource === 'none' && context.barStripSource === 'none'
+      ? 'default'
+      : context.barFillSource;
+  return resolveRepresentativeChannelPaint(fillSource, palettesOf(context));
+}
+
+function representativeUnclassifiedBarGhostFill(context: GanttLegendContext): string | null {
+  const representative = representativeOwnedBarPaint(context);
+  if (!representative) return null;
+  if (representative.source === 'calendar') {
+    return resolveRepresentativeChannelPaint('default', palettesOf(context))?.color ?? null;
+  }
+  return representative.source === 'default' || representative.source === 'theme'
+    ? representative.color
+    : null;
 }
 
 interface RepresentativeTreatment {
@@ -540,7 +561,7 @@ function representativeTreatment(context: GanttLegendContext): RepresentativeTre
   const palettes = palettesOf(context);
   const fill = resolveRepresentativeChannelPaint(context.barFillSource, palettes) ?? undefined;
   const strip = resolveRepresentativeChannelPaint(context.barStripSource, palettes) ?? undefined;
-  const ghostFill = fill?.color ?? 'var(--wx-gantt-task-color, #3d8de6)';
+  const ghostFill = representativeBarColor(context);
   return {
     classTokens: compact([classes.bar, fill?.classToken, strip?.classToken]),
     paints: { fill, strip },

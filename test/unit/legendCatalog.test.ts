@@ -424,26 +424,35 @@ describe('buildLegendCatalog', () => {
     });
   });
 
-  it.each(['default', 'status'] as const)(
-    'defers uncoloured external occurrence samples to production CSS in %s fill mode',
-    (barFillSource) => {
+  it.each([
+    ['default', 'none', '#1f6feb'],
+    ['theme', 'none', 'var(--interactive-accent)'],
+    ['calendar', 'none', '#1f6feb'],
+    ['status', 'none', undefined],
+    ['none', 'none', '#1f6feb'],
+    ['none', 'status', undefined],
+  ] as const)(
+    'matches uncoloured external occurrence fallbacks for %s fill and %s strip',
+    (barFillSource, barStripSource, expectedGhostFill) => {
       const context = baseContext({
         taskNotesPresent: true,
         externalCalendarsEnabled: true,
         externalOccurrenceColor: null,
         barFillSource,
+        barStripSource,
         statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+        calendarPalette: [{ value: 'Calendars/Studio.md', color: '#0891b2' }],
       });
 
-      for (const semanticId of [
-        'occurrence-external',
-        'occurrence-series-spine',
-        'occurrence-occupancy',
-      ] as const) {
+      for (const semanticId of ['occurrence-external', 'occurrence-series-spine'] as const) {
         const cssVariables = entry(context, semanticId).sample.cssVariables;
         expect(cssVariables?.['--og-event-color']).toBeUndefined();
-        expect(cssVariables?.['--og-ghost-fill']).toBeUndefined();
+        expect(cssVariables?.['--og-ghost-fill']).toBe(expectedGhostFill);
       }
+
+      const occupancyVariables = entry(context, 'occurrence-occupancy').sample.cssVariables;
+      expect(occupancyVariables?.['--og-event-color']).toBeUndefined();
+      expect(occupancyVariables?.['--og-ghost-fill']).toBeUndefined();
     }
   );
 
@@ -459,6 +468,22 @@ describe('buildLegendCatalog', () => {
     expect(
       entry(context, 'occurrence-series-spine').sample.cssVariables?.['--og-ghost-fill'],
     ).toBeUndefined();
+  });
+
+  it('uses the production default child fill when both bar channels are off', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'none',
+      barStripSource: 'none',
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    expect(entry(context, 'bar-treatment').sample.cssVariables?.['--og-ghost-fill']).toBe(
+      '#1f6feb',
+    );
+    expect(
+      entry(context, 'occurrence-series-spine').sample.cssVariables?.['--og-ghost-fill'],
+    ).toBe('#1f6feb');
   });
 
   it('distinguishes every enabled occurrence state and its coarse series spine', () => {
