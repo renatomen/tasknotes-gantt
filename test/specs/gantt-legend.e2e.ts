@@ -768,16 +768,18 @@ describe("Gantt (OG) context-aware legend", () => {
       const bar = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
       );
+      const visiblePaint =
+        bar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? bar;
       return bar
         ? {
-            ghostFill: getComputedStyle(bar).getPropertyValue("--og-ghost-fill").trim(),
+            background: visiblePaint ? getComputedStyle(visiblePaint).backgroundColor : null,
             stripContent: getComputedStyle(bar, "::before").content,
           }
         : null;
     });
 
     expect(fallback).not.toBeNull();
-    expect(fallback?.ghostFill).not.toBe("");
+    expect(fallback?.background).toBe("rgb(31, 111, 235)");
     expect(fallback?.stripContent).toBe("none");
   });
 
