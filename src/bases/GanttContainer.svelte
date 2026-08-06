@@ -3260,6 +3260,8 @@
   .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
     background-color: #e67e22 !important;
     border-color: #c0392b !important;
+    border-width: 1px !important;
+    border-style: solid !important;
   }
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-content) {
@@ -3362,18 +3364,6 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split:not(.datestatus-flagged)) {
     border: 0 !important;
-  }
-  /*
-   * On a ghost host the datestatus fill (its usual orange cue) is gone — the host
-   * is transparent and the pieces paint their own colour — so the provenance cue
-   * has to be the border. The datestatus rule only sets its COLOUR, and the base
-   * bar has no border width/style, so recreate a visible outline here (the colour
-   * still comes from the datestatus rule). This is the flagged bar's own indicator,
-   * not the strip halo the rule above removes.
-   */
-  .og-bases-gantt :global(.wx-bar.wx-split.datestatus-flagged) {
-    border-width: 1px !important;
-    border-style: solid !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;

@@ -376,8 +376,9 @@ describe('buildLegendCatalog', () => {
     const standaloneIds = entries(baseContext()).map((candidate) => candidate.semanticId);
     expect(standaloneIds).toEqual(expect.arrayContaining(['bar-treatment', 'progress', 'date-status']));
     expect(standaloneIds).not.toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
+      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next']),
     );
+    expect(standaloneIds).toContain('replicated-task');
 
     const companionIds = entries(
       baseContext({
@@ -415,6 +416,26 @@ describe('buildLegendCatalog', () => {
       '--og-event-color': '#0ea5e9',
       '--og-ghost-fill': '#0ea5e9',
     });
+  });
+
+  it('falls external occurrence samples back to the active task treatment before feed paint resolves', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      externalCalendarsEnabled: true,
+      externalOccurrenceColor: null,
+      barFillSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+    });
+
+    for (const semanticId of [
+      'occurrence-external',
+      'occurrence-series-spine',
+      'occurrence-occupancy',
+    ] as const) {
+      expect(entry(context, semanticId).sample.cssVariables).toMatchObject({
+        '--og-ghost-fill': '#2563eb',
+      });
+    }
   });
 
   it('distinguishes every enabled occurrence state and its coarse series spine', () => {

@@ -1,7 +1,7 @@
 filters:
   and:
     - 'file.ext == "md"'
-    - 'file.name == "Legend Task" || file.name == "Legend Recurring"'
+    - 'file.name == "Legend Task" || file.name == "Legend Recurring" || file.name == "Legend Flagged"'
 views:
   - type: obsidianGantt
     name: "Legend"

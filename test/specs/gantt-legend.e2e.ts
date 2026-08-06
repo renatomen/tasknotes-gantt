@@ -566,19 +566,28 @@ describe("Gantt (OG) context-aware legend", () => {
       const sample = document.querySelector<HTMLElement>(
         '[data-semantic-id="date-status"] .og-legend-bar',
       );
-      const style = sample ? getComputedStyle(sample) : null;
-      return style
-        ? {
-            color: style.borderColor,
-            style: style.borderStyle,
-            width: Number.parseFloat(style.borderWidth),
-          }
-        : null;
+      const chart = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar.datestatus-flagged[data-id$="Legend Flagged.md"]',
+      );
+      const snapshot = (element: HTMLElement | null) => {
+        const style = element ? getComputedStyle(element) : null;
+        return style
+          ? {
+              color: style.borderColor,
+              style: style.borderStyle,
+              width: Number.parseFloat(style.borderWidth),
+            }
+          : null;
+      };
+      return { sample: snapshot(sample), chart: snapshot(chart) };
     });
 
-    expect(border?.color).toBe("rgb(192, 57, 43)");
-    expect(border?.style).toBe("solid");
-    expect(border?.width).toBeGreaterThan(0);
+    expect(border.sample?.color).toBe("rgb(192, 57, 43)");
+    expect(border.sample?.style).toBe("solid");
+    expect(border.sample?.width).toBeGreaterThan(0);
+    expect(border.chart?.color).toBe(border.sample?.color);
+    expect(border.chart?.style).toBe(border.sample?.style);
+    expect(border.chart?.width).toBeGreaterThan(0);
   });
 
   it("reuses production shading and treatment paint for secondary semantics", async () => {
