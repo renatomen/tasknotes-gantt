@@ -39,25 +39,19 @@ export type RecurringInstanceState =
   | 'skipped'
   | 'materialized';
 
-const RECURRING_STATE_KINDS: Record<
-  RecurringInstanceState,
-  'virtual' | 'recorded'
-> = {
+const RECURRING_STATE_KINDS = {
   next: 'virtual',
   projected: 'virtual',
   completed: 'recorded',
   skipped: 'recorded',
   materialized: 'recorded',
-};
+} as const satisfies Record<RecurringInstanceState, 'virtual' | 'recorded'>;
 
-export type RecordedRecurringState = Extract<
-  {
-    [State in RecurringInstanceState]: (typeof RECURRING_STATE_KINDS)[State] extends 'recorded'
-      ? State
-      : never;
-  }[RecurringInstanceState],
-  RecurringInstanceState
->;
+export type RecordedRecurringState = {
+  [State in RecurringInstanceState]: (typeof RECURRING_STATE_KINDS)[State] extends 'recorded'
+    ? State
+    : never;
+}[RecurringInstanceState];
 
 export const RECORDED_RECURRING_STATE_CLASSES: readonly RecordedRecurringState[] =
   Object.entries(RECURRING_STATE_KINDS)
