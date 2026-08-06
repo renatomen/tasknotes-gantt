@@ -111,7 +111,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
   'date-status': {
     group: 'schedule',
     name: 'Date status',
-    meaning: 'A red border marks dates that are missing, inferred, or corrected for display.',
+    meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     sampleKind: 'bar',
   },
   progress: {

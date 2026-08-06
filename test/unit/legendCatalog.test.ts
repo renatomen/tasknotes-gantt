@@ -374,9 +374,9 @@ describe('buildLegendCatalog', () => {
     );
   });
 
-  it('describes the date-status border that remains visible under configured fills', () => {
+  it('describes inferred or corrected ranges for missing or reversed dates', () => {
     expect(entry(baseContext(), 'date-status').meaning).toBe(
-      'A red border marks dates that are missing, inferred, or corrected for display.',
+      'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     );
   });
 
