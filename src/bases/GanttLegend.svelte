@@ -92,7 +92,7 @@
       aria-label={layout === 'right'
         ? 'Legend entries, vertical scrolling'
         : layout === 'bottom'
-          ? 'Legend entries, horizontal scrolling'
+          ? 'Legend entries, horizontal and vertical scrolling'
           : 'Legend entries'}
     >
       <div class="og-legend-groups">

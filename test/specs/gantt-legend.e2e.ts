@@ -485,6 +485,7 @@ describe("Gantt (OG) context-aware legend", () => {
       const viewport = scroll.getBoundingClientRect();
       const finalIcon = chips[chips.length - 1].getBoundingClientRect();
       return {
+        ariaLabel: scroll.getAttribute("aria-label"),
         overflowY: getComputedStyle(scroll).overflowY,
         hasOverflow,
         scrollTop: scroll.scrollTop,
@@ -494,6 +495,7 @@ describe("Gantt (OG) context-aware legend", () => {
       };
     });
     expect(bottomReachability).toEqual({
+      ariaLabel: "Legend entries, horizontal and vertical scrolling",
       overflowY: "auto",
       hasOverflow: true,
       scrollTop: expect.any(Number),
