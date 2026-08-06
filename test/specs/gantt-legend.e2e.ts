@@ -243,18 +243,23 @@ async function openFixtureBase(): Promise<void> {
 
 async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
   const selector = ".og-bases-gantt .og-fullscreen-toggle";
+  let readyToggle: Awaited<ReturnType<typeof $>> | undefined;
   await browser.waitUntil(
     async () => {
       try {
         const toggle = await $(selector);
-        return (await toggle.isDisplayed()) && (await toggle.isEnabled()) && (await toggle.isClickable());
+        const clickable =
+          (await toggle.isDisplayed()) && (await toggle.isEnabled()) && (await toggle.isClickable());
+        if (clickable) readyToggle = toggle;
+        return clickable;
       } catch {
         return false;
       }
     },
     { timeout: 15000, timeoutMsg },
   );
-  await $(selector).click();
+  if (!readyToggle) throw new Error(timeoutMsg);
+  await readyToggle.click();
 }
 
 async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
