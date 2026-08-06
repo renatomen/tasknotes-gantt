@@ -14,6 +14,8 @@ import {
   treatmentClassRegistry,
   treatmentClassGroups,
   buildTreatmentStyle,
+  resolveRepresentativeBarBodyPaint,
+  resolveRepresentativeUnclassifiedBarBodyPaint,
   resolveIconSpec,
   isSafeColor,
   PARENT_ROLE_CLASS,
@@ -42,6 +44,40 @@ const inst = (status: string | null, priority: string | null = null) => ({ statu
 // itself is guarded by its own test below.
 const styleFor = (input: Omit<TreatmentStyleInput, 'scope'>): string =>
   buildTreatmentStyle({ ...input, scope: '.og-bases-gantt' });
+
+describe('representative bar body paint', () => {
+  it('shares the production dispatch for both-off, strip-only, and unsafe calendar fills', () => {
+    const unsafeCalendarPalettes: Palettes = {
+      status: statusColors,
+      priority: priorityColors,
+      calendar: [{ value: 'Calendars/Studio.md', color: '#12345' }],
+    };
+
+    expect(resolveRepresentativeBarBodyPaint('none', 'none', palettes)?.color).toBe('#1f6feb');
+    expect(styleFor({ fillSource: 'none', stripSource: 'none', palettes })).toContain(
+      '--og-ghost-fill: #1f6feb',
+    );
+
+    expect(resolveRepresentativeBarBodyPaint('none', 'status', palettes)).toBeNull();
+    expect(styleFor({ fillSource: 'none', stripSource: 'status', palettes })).not.toContain(
+      '--og-ghost-fill:',
+    );
+
+    expect(
+      resolveRepresentativeBarBodyPaint('calendar', 'none', unsafeCalendarPalettes)?.color,
+    ).toBe('#1f6feb');
+    expect(
+      resolveRepresentativeUnclassifiedBarBodyPaint(
+        'calendar',
+        'none',
+        unsafeCalendarPalettes,
+      )?.color,
+    ).toBe('#1f6feb');
+    expect(
+      styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: unsafeCalendarPalettes }),
+    ).toContain('--og-ghost-fill: #1f6feb');
+  });
+});
 
 describe('isSafeColor', () => {
   it('accepts valid hex (3/4/6/8), rgb()/hsl() forms, and named colors', () => {

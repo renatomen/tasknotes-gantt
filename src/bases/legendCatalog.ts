@@ -1,6 +1,8 @@
 import {
   resolveIconSpec,
+  resolveRepresentativeBarBodyPaint,
   resolveRepresentativeChannelPaint,
+  resolveRepresentativeUnclassifiedBarBodyPaint,
   type IconSpec,
   type Palettes,
   type RepresentativeChannelPaint,
@@ -401,7 +403,11 @@ function occurrenceSeriesSpineSample(
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
     ? (context.externalOccurrenceColor ?? representativeUnclassifiedBarGhostFill(context))
-    : representativeOwnedBarGhostFill(context);
+    : (resolveRepresentativeBarBodyPaint(
+        context.barFillSource,
+        context.barStripSource,
+        palettesOf(context),
+      )?.color ?? null);
   return {
     kind,
     classTokens,
@@ -523,32 +529,23 @@ function iconSamples(context: GanttLegendContext): LegendIconSample[] {
 }
 
 function representativeBarColor(context: GanttLegendContext): string {
-  return representativeOwnedBarPaint(context)?.color ?? 'var(--wx-gantt-task-color, #3d8de6)';
-}
-
-function representativeOwnedBarGhostFill(context: GanttLegendContext): string | null {
-  return representativeOwnedBarPaint(context)?.color ?? null;
-}
-
-function representativeOwnedBarPaint(
-  context: GanttLegendContext,
-): RepresentativeChannelPaint | null {
-  const fillSource =
-    context.barFillSource === 'none' && context.barStripSource === 'none'
-      ? 'default'
-      : context.barFillSource;
-  return resolveRepresentativeChannelPaint(fillSource, palettesOf(context));
+  return (
+    resolveRepresentativeBarBodyPaint(
+      context.barFillSource,
+      context.barStripSource,
+      palettesOf(context),
+    )?.color ?? 'var(--wx-gantt-task-color, #3d8de6)'
+  );
 }
 
 function representativeUnclassifiedBarGhostFill(context: GanttLegendContext): string | null {
-  const representative = representativeOwnedBarPaint(context);
-  if (!representative) return null;
-  if (representative.source === 'calendar') {
-    return resolveRepresentativeChannelPaint('default', palettesOf(context))?.color ?? null;
-  }
-  return representative.source === 'default' || representative.source === 'theme'
-    ? representative.color
-    : null;
+  return (
+    resolveRepresentativeUnclassifiedBarBodyPaint(
+      context.barFillSource,
+      context.barStripSource,
+      palettesOf(context),
+    )?.color ?? null
+  );
 }
 
 interface RepresentativeTreatment {

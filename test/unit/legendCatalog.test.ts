@@ -429,6 +429,7 @@ describe('buildLegendCatalog', () => {
     ['theme', 'none', 'var(--interactive-accent)'],
     ['calendar', 'none', '#1f6feb'],
     ['status', 'none', undefined],
+    ['priority', 'none', undefined],
     ['none', 'none', '#1f6feb'],
     ['none', 'status', undefined],
   ] as const)(
@@ -441,6 +442,7 @@ describe('buildLegendCatalog', () => {
         barFillSource,
         barStripSource,
         statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+        priorityColors: [{ value: 'High', color: '#f97316' }],
         calendarPalette: [{ value: 'Calendars/Studio.md', color: '#0891b2' }],
       });
 
@@ -455,6 +457,25 @@ describe('buildLegendCatalog', () => {
       expect(occupancyVariables?.['--og-ghost-fill']).toBeUndefined();
     }
   );
+
+  it('uses the production default fill when a calendar palette has no safe colour', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      externalCalendarsEnabled: true,
+      barFillSource: 'calendar',
+      calendarPalette: [{ value: 'Calendars/Studio.md', color: '#12345' }],
+    });
+
+    for (const semanticId of [
+      'bar-treatment',
+      'occurrence-external',
+      'occurrence-series-spine',
+    ] as const) {
+      expect(entry(context, semanticId).sample.cssVariables?.['--og-ghost-fill']).toBe(
+        '#1f6feb',
+      );
+    }
+  });
 
   it('defers a recurring series spine to the production accent in strip-only mode', () => {
     const context = baseContext({

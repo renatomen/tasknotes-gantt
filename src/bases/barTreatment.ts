@@ -450,6 +450,62 @@ export function resolveRepresentativeChannelPaint(
   };
 }
 
+interface EffectiveBarChannels {
+  fill: BarChannelSource;
+  strip: BarChannelSource;
+}
+
+function resolveEffectiveBarChannels(
+  fillSource: BarChannelSource,
+  stripSource: BarChannelSource,
+  palettes: Palettes,
+): EffectiveBarChannels {
+  return {
+    fill: fillSource === 'none' ? 'none' : effectiveSource(fillSource, palettes),
+    strip: stripSource === 'none' ? 'none' : effectiveSource(stripSource, palettes),
+  };
+}
+
+/** Representative body paint produced by the configured production channel dispatch. */
+export function resolveRepresentativeBarBodyPaint(
+  fillSource: BarChannelSource,
+  stripSource: BarChannelSource,
+  palettes: Palettes,
+): RepresentativeChannelPaint | null {
+  const channels = resolveEffectiveBarChannels(fillSource, stripSource, palettes);
+  if (channels.fill === 'none') {
+    return channels.strip === 'none'
+      ? resolveRepresentativeChannelPaint('default', palettes)
+      : null;
+  }
+  return (
+    resolveRepresentativeChannelPaint(channels.fill, palettes) ??
+    (channels.fill === 'calendar'
+      ? resolveRepresentativeChannelPaint('default', palettes)
+      : null)
+  );
+}
+
+/** Body paint inherited by a bar carrying no status, priority, or calendar value class. */
+export function resolveRepresentativeUnclassifiedBarBodyPaint(
+  fillSource: BarChannelSource,
+  stripSource: BarChannelSource,
+  palettes: Palettes,
+): RepresentativeChannelPaint | null {
+  const channels = resolveEffectiveBarChannels(fillSource, stripSource, palettes);
+  if (channels.fill === 'none') {
+    return channels.strip === 'none'
+      ? resolveRepresentativeChannelPaint('default', palettes)
+      : null;
+  }
+  if (channels.fill === 'calendar') {
+    return resolveRepresentativeChannelPaint('default', palettes);
+  }
+  return channels.fill === 'default' || channels.fill === 'theme'
+    ? resolveRepresentativeChannelPaint(channels.fill, palettes)
+    : null;
+}
+
 /**
  * Treatment classes grouped by source: parent role, status, priority, calendar
  * (empty groups dropped). A bar carries two classes only when its Fill and Strip
@@ -516,11 +572,11 @@ export interface TreatmentStyleInput {
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   const { palettes, scope } = input;
   const barSelector = `${scope} .wx-bar`;
-  // `effectiveSource` is keyed on BarColorSource, so gate `none` out first.
-  const fillEff: BarChannelSource =
-    input.fillSource === 'none' ? 'none' : effectiveSource(input.fillSource, palettes);
-  const stripEff: BarChannelSource =
-    input.stripSource === 'none' ? 'none' : effectiveSource(input.stripSource, palettes);
+  const { fill: fillEff, strip: stripEff } = resolveEffectiveBarChannels(
+    input.fillSource,
+    input.stripSource,
+    palettes,
+  );
 
   // Both off → the default role fill, so a bar is never invisible.
   if (fillEff === 'none' && stripEff === 'none') {

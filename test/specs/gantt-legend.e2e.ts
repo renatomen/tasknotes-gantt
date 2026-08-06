@@ -854,6 +854,16 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(fallback?.paintWidth).toBeGreaterThan(0);
     expect(fallback?.background).toBe(EXPECTED_DEFAULT_CHILD_FILL);
     expect(fallback?.stripContent).toBe("none");
+
+    await openLegend();
+    const legendSpineColor = await browser.execute(() => {
+      const spine = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-series-spine"] .og-series-spine',
+      );
+      return spine ? getComputedStyle(spine).borderTopColor : null;
+    });
+    expect(legendSpineColor).toBe(EXPECTED_DEFAULT_CHILD_FILL);
+    await closeLegend();
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
