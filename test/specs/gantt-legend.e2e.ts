@@ -15,6 +15,8 @@ const LEGEND_COMPLETED_PIECE_SELECTOR =
   '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed';
 const LEGEND_TASK_PROPERTY_EVENT_SELECTOR =
   '.og-bases-gantt .wx-bar.og-event[data-id*="property-event/Legend%20Task.md"]';
+const LEGEND_TASK_FALLBACK_PAINT_SELECTOR =
+  '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"] .og-ghost-run:not(.og-ghost-blocked)';
 const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
 
 let fixtureNonWorkingRenderingNeedsReset = false;
@@ -764,14 +766,19 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("falls back to the default task fill when both bar channels are off", async () => {
     await setFixtureBarChannels("none", "none");
+    await browser.waitUntil(
+      async () => (await $$(LEGEND_TASK_FALLBACK_PAINT_SELECTOR)).length > 0,
+      {
+        timeout: 8000,
+        timeoutMsg: "Gantt legend fixture did not render its default-fill segment",
+      },
+    );
 
-    const fallback = await browser.execute(() => {
+    const fallback = await browser.execute((paintSelector) => {
       const bar = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
       );
-      const visiblePaint = bar?.querySelector<HTMLElement>(
-        ".og-ghost-run:not(.og-ghost-blocked)",
-      );
+      const visiblePaint = document.querySelector<HTMLElement>(paintSelector);
       return bar
         ? {
             paintFound: !!visiblePaint,
@@ -780,7 +787,7 @@ describe("Gantt (OG) context-aware legend", () => {
             stripContent: getComputedStyle(bar, "::before").content,
           }
         : null;
-    });
+    }, LEGEND_TASK_FALLBACK_PAINT_SELECTOR);
 
     expect(fallback).not.toBeNull();
     expect(fallback?.paintFound).toBe(true);
