@@ -19,18 +19,55 @@
   let dismissButton: HTMLButtonElement | undefined = $state();
 
   $effect.pre(() => {
-    if (
-      layout === 'full'
-      && positionControls?.contains(positionControls.ownerDocument.activeElement)
-    ) {
-      void tick().then(() => {
-        if (layout === 'full') dismissButton?.focus({ preventScroll: true });
-      });
-    }
+    if (layout !== 'full') return;
+    const activeElement = document.activeElement;
+    const focusInPositionControls = positionControls?.contains(activeElement) ?? false;
+    const focusInChart =
+      activeElement instanceof HTMLElement && activeElement.closest('.og-chart-surface') !== null;
+    if (!focusInPositionControls && !focusInChart) return;
+    void tick().then(() => {
+      if (layout === 'full') dismissButton?.focus({ preventScroll: true });
+    });
   });
 
   function focusOnMount(node: HTMLElement): void {
     void tick().then(() => node.focus({ preventScroll: true }));
+  }
+
+  function choosePosition(choice: LegendPosition, focus = false): void {
+    onPositionChange(choice);
+    if (!focus) return;
+    void tick().then(() => {
+      positionControls
+        ?.querySelector<HTMLButtonElement>(`button[data-position="${choice}"]`)
+        ?.focus({ preventScroll: true });
+    });
+  }
+
+  function handlePositionKeydown(event: KeyboardEvent, index: number): void {
+    const choices: LegendPosition[] = ['right', 'bottom'];
+    const current = choices[index];
+    if (!current) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      choosePosition(current);
+      return;
+    }
+    const offset =
+      event.key === 'ArrowRight' || event.key === 'ArrowDown'
+        ? 1
+        : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+          ? -1
+          : 0;
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      choosePosition(event.key === 'Home' ? 'right' : 'bottom', true);
+      return;
+    }
+    if (offset === 0) return;
+    event.preventDefault();
+    const next = choices[(index + offset + choices.length) % choices.length];
+    if (next) choosePosition(next, true);
   }
 
   function descriptorStyle(descriptor: LegendSampleDescriptor): string {
@@ -74,16 +111,21 @@
           class="og-legend-position"
           role="radiogroup"
           aria-label="Legend position"
+          aria-orientation="horizontal"
           bind:this={positionControls}
         >
           <span class="og-legend-control-label">Position</span>
-          {#each ['right', 'bottom'] as choice (choice)}
+          {#each ['right', 'bottom'] as choice, index (choice)}
             <button
               type="button"
               role="radio"
               aria-checked={position === choice}
+              aria-label={choice === 'right' ? 'Right' : 'Bottom'}
+              data-position={choice}
+              tabindex={position === choice ? 0 : -1}
               class:is-active={position === choice}
-              onclick={() => onPositionChange(choice as LegendPosition)}
+              onclick={() => choosePosition(choice as LegendPosition)}
+              onkeydown={(event) => handlePositionKeydown(event, index)}
             >
               {choice === 'right' ? 'Right' : 'Bottom'}
             </button>

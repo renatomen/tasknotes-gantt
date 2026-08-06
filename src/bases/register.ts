@@ -82,6 +82,7 @@ import {
 import { collectFetchedFileMetas } from './propertyValues';
 import { buildCellData, buildFetchedCellData, type ResolveRenderType } from './cellRender';
 import { resolveDateLocale } from './dateLocale';
+import { noteFrontmatterKey } from '../datasource/dateFieldMapping';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
@@ -1600,6 +1601,8 @@ class ObsidianGanttBasesView extends BasesView {
         calendarPalette: calendarShading.calendarPalette,
         calendarMarkers: calendarShading.markers,
         calendarDisplayedCount: calendarShading.selectedCount,
+        hasCalendarConflicts: calendarShading.hasCalendarConflicts,
+        propertyEventStartMapped: noteFrontmatterKey(calendarItems.propertyEventStart) !== null,
         hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
         hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
         calendarEventColor:
@@ -1642,6 +1645,7 @@ class ObsidianGanttBasesView extends BasesView {
     calendarBySource: Map<string, string>;
     displayedCount: number;
     selectedCount: number;
+    hasCalendarConflicts: boolean;
     hasResolvedSchedulingCalendar: boolean;
   } {
     const app = this.app;
@@ -1712,6 +1716,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarBySource: computed.calendarBySource,
       displayedCount: computed.displayedCount,
       selectedCount: computed.selectedCount,
+      hasCalendarConflicts: computed.conflictCount > 0,
       hasResolvedSchedulingCalendar: computed.hasResolvedSchedulingCalendar,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,

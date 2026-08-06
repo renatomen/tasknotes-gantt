@@ -26,6 +26,8 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarPalette: [],
   calendarMarkers: [],
   calendarDisplayedCount: 0,
+  hasCalendarConflicts: false,
+  propertyEventStartMapped: false,
   hasResolvedSchedulingCalendar: false,
   hasRecordedRecurringOccurrences: false,
   calendarEventColor: null,
@@ -160,6 +162,10 @@ describe('buildLegendCatalog', () => {
     const splitSample = entry(context, 'working-time-split').sample;
     const split = splitSample.pieces ?? [];
     expect(splitSample.classTokens).toEqual(['og-ghost-runs']);
+    expect(splitSample.pieceEnvelopeClassTokens).toEqual([
+      'wx-bar',
+      expect.stringMatching(/^og-prio-/),
+    ]);
     expect(split.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
     for (const piece of split.filter((candidate) => candidate.treatment === 'painted')) {
       expect(piece.classTokens).toEqual(['og-ghost-run']);
@@ -706,7 +712,7 @@ describe('buildLegendCatalog', () => {
     ).toContain('calendar-event');
   });
 
-  it('advertises property-based event rows without TaskNotes', () => {
+  it('does not advertise property-based event rows without a mapped start field', () => {
     expect(
       entries(
         baseContext({
@@ -715,6 +721,20 @@ describe('buildLegendCatalog', () => {
             ...baseContext().calendarItems,
             showPropertyBasedEvents: true,
           },
+        }),
+      ).map((candidate) => candidate.semanticId),
+    ).not.toContain('calendar-event');
+  });
+
+  it('advertises property-based event rows when a start field is mapped', () => {
+    expect(
+      entries(
+        baseContext({
+          calendarItems: {
+            ...baseContext().calendarItems,
+            showPropertyBasedEvents: true,
+          },
+          propertyEventStartMapped: true,
         }),
       ).map((candidate) => candidate.semanticId),
     ).toContain('calendar-event');
@@ -727,6 +747,7 @@ describe('buildLegendCatalog', () => {
         { value: 'Calendars/AU.md', color: '#b45309' },
       ],
       calendarDisplayedCount: 2,
+      hasCalendarConflicts: true,
       hasResolvedSchedulingCalendar: true,
       calendarMarkers: [
         {
@@ -752,6 +773,14 @@ describe('buildLegendCatalog', () => {
         'estimate-override',
       ]),
     );
+  });
+
+  it('does not advertise calendar conflicts when displayed calendars do not disagree', () => {
+    const ids = entries(
+      baseContext({ calendarDisplayedCount: 2, hasCalendarConflicts: false }),
+    ).map((candidate) => candidate.semanticId);
+
+    expect(ids).not.toContain('calendar-conflict');
   });
 
   it('explains working-time extensions when a mapped task can override a calendar-day default', () => {
@@ -787,6 +816,7 @@ describe('buildLegendCatalog', () => {
   it('shows a configuration-complete calendar-event sample for enabled event families', () => {
     const context = baseContext({
       calendarEventColor: '#0ea5e9',
+      propertyEventStartMapped: true,
       calendarItems: {
         ...baseContext().calendarItems,
         showPropertyBasedEvents: true,

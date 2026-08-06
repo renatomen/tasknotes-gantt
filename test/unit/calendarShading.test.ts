@@ -308,6 +308,40 @@ describe('computeCalendarShadingCss', () => {
     expect(selectedCount).toBe(1);
   });
 
+  it('does not expose calendar markers when no chart window is rendered', () => {
+    const notesWithMarker: CalendarNoteInput[] = [
+      ...markedNotes,
+      {
+        path: 'Calendars/Marker.md',
+        basename: 'Marker',
+        frontmatter: {
+          tngantt: 'calendar',
+          events: [{ date: '2026-04-10', name: 'Release', marker: true }],
+        },
+      },
+    ];
+    const resolveWithMarker: LinkResolver = (linkText) => {
+      const inner = linkText.startsWith('[[') ? linkText.slice(2, -2).split('|')[0] : linkText;
+      const note = notesWithMarker.find((candidate) => candidate.basename === inner);
+      return note ? note.path : null;
+    };
+
+    const { markers } = computeShading({
+      markedNotes: notesWithMarker,
+      resolveLink: resolveWithMarker,
+      associations: [],
+      taskSpans: [],
+      displaySelection: {
+        auto: false,
+        stored: true,
+        defaultRow: true,
+        entries: [{ link: '[[Marker]]', enabled: true }],
+      },
+    });
+
+    expect(markers).toEqual([]);
+  });
+
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
     const { css, hasResolvedSchedulingCalendar } = computeShading({
       markedNotes,

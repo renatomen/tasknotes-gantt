@@ -253,7 +253,6 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   }
 
   const records = [...displayed.values()];
-  const markers = collectMarkers(records);
   if (window === null) {
     return {
       css: buildCalendarShadingCss(inputs.scope, []),
@@ -264,12 +263,13 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       conflictCalendars: [],
       invalidCount,
       flaggedCount,
-      markers,
+      markers: [],
       calendarPalette,
       calendarBySource,
       markedNotePaths,
     };
   }
+  const markers = collectMarkers(records);
   const definitions = records.map((record) => record.definition);
   // Attributed: the banner names the disagreeing calendars, so a user does not have
   // to open the picker and compare patterns to find which selection conflicts.

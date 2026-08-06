@@ -46,6 +46,10 @@ export interface GanttLegendContext {
   calendarMarkers: MarkerInput[];
   /** Number of calendars selected by the active display configuration. */
   calendarDisplayedCount: number;
+  /** True when the selected calendars produce at least one conflict in the chart window. */
+  hasCalendarConflicts: boolean;
+  /** True when property-based events have a valid note-backed start mapping. */
+  propertyEventStartMapped: boolean;
   /** True when at least one rendered task resolves its scheduling calendar. */
   hasResolvedSchedulingCalendar: boolean;
   /** True when a rendered recurring task has a recorded or materialized occurrence. */

@@ -1179,6 +1179,13 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     expect(focusedPositionControl).toBe(true);
 
+    const focusedChartControl = await browser.execute(() => {
+      const focusButton = document.querySelector<HTMLButtonElement>('.og-chart-surface .og-focus-btn');
+      focusButton?.focus({ preventScroll: true });
+      return document.activeElement === focusButton;
+    });
+    expect(focusedChartControl).toBe(true);
+
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
       if (host) host.style.width = "400px";
@@ -1277,12 +1284,17 @@ describe("Gantt (OG) context-aware legend", () => {
     await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
     await browser.execute(() => {
-      const bottom = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
-        .find((button) => button.textContent?.trim() === "Bottom");
-      bottom?.focus();
+      const right = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
+        .find((button) => button.textContent?.trim() === "Right");
+      right?.focus();
     });
-    await browser.keys(["Space"]);
+    await browser.keys(["ArrowRight"]);
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const activePosition = await browser.execute(() =>
+      (document.activeElement as HTMLElement | null)?.dataset.position ?? null,
+    );
+    expect(activePosition).toBe("bottom");
+    await browser.keys(["Space"]);
     const scroll = await $(".og-gantt-legend .og-legend-scroll");
     await scroll.click();
     await browser.keys(["ArrowRight"]);

@@ -104,7 +104,7 @@ const hasOccurrences = (context: GanttLegendContext): boolean =>
 const hasCalendarEvents = (context: GanttLegendContext): boolean =>
   (context.taskNotesPresent && context.calendarItems.showTimeEntries) ||
   context.calendarItems.showTimeblocks ||
-  context.calendarItems.showPropertyBasedEvents ||
+  (context.calendarItems.showPropertyBasedEvents && context.propertyEventStartMapped) ||
   (context.taskNotesPresent && context.externalCalendarsEnabled);
 
 export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
@@ -162,7 +162,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Calendar conflict',
     meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
     sampleKind: 'shading',
-    isApplicable: (context) => context.calendarDisplayedCount >= 2,
+    isApplicable: (context) => context.hasCalendarConflicts,
   },
   'calendar-event': {
     group: 'calendars',
@@ -347,10 +347,14 @@ function sampleFor(
     return { kind, classTokens: [classes.iconChip], icons };
   }
   if (semanticId === 'working-time-split') {
+    const treatment = representativeTreatment(context);
     return {
       kind,
       classTokens: [classes.ghostRuns],
       pieces: splitPieces('blocked'),
+      ...(treatment.paints?.strip
+        ? { pieceEnvelopeClassTokens: compact([classes.bar, treatment.paints.strip.classToken]) }
+        : {}),
       cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
     };
   }
