@@ -241,6 +241,22 @@ async function openFixtureBase(): Promise<void> {
   });
 }
 
+async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
+  const selector = ".og-bases-gantt .og-fullscreen-toggle";
+  await browser.waitUntil(
+    async () => {
+      try {
+        const toggle = await $(selector);
+        return (await toggle.isDisplayed()) && (await toggle.isEnabled()) && (await toggle.isClickable());
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 15000, timeoutMsg },
+  );
+  await $(selector).click();
+}
+
 async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
   return browser.executeObsidian(async ({ app }) => {
     interface PatchedCatalog {
@@ -264,7 +280,7 @@ async function remountMaximizedFixture(): Promise<void> {
     timeout: 15000,
     timeoutMsg: "Gantt fixture did not remount",
   });
-  await $(".og-bases-gantt .og-fullscreen-toggle").click();
+  await clickFullscreenToggle("Gantt fixture maximize control did not become clickable");
   await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
     timeout: 8000,
   });
@@ -462,7 +478,7 @@ describe("Gantt (OG) context-aware legend", () => {
       });
       throw new Error(`${String(error)}; diagnostic=${JSON.stringify(diagnostic)}`);
     }
-    await $(".og-bases-gantt .og-fullscreen-toggle").click();
+    await clickFullscreenToggle("Gantt maximize control did not become clickable for the overlay scenarios");
     await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
       timeout: 8000,
       timeoutMsg: "Gantt did not maximize for the overlay scenarios",
