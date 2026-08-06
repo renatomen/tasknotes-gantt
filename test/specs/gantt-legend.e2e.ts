@@ -199,6 +199,23 @@ async function remountMaximizedFixture(): Promise<void> {
   });
 }
 
+async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
+  const updated = await browser.executeObsidian(async ({ app }, nextRendering) => {
+    const file = app.vault.getAbstractFileByPath("Legend.base");
+    if (!file) return false;
+    const body = await app.vault.read(file as never) as string;
+    const nextBody = body.replace(
+      /tngantt_nonWorkingRendering: (?:shaded|split)/,
+      `tngantt_nonWorkingRendering: ${nextRendering}`,
+    );
+    if (nextBody === body && !body.includes(`tngantt_nonWorkingRendering: ${nextRendering}`)) return false;
+    if (nextBody !== body) await app.vault.modify(file as never, nextBody);
+    return true;
+  }, rendering);
+  expect(updated).toBe(true);
+  await remountMaximizedFixture();
+}
+
 describe("Gantt (OG) context-aware legend", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
@@ -397,6 +414,36 @@ describe("Gantt (OG) context-aware legend", () => {
       progressHostOwnsNestedClasses: false,
       progressHasNestedClasses: true,
     });
+  });
+
+  it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
+    await setFixtureNonWorkingRendering("shaded");
+    try {
+      await openLegend();
+      const extension = await browser.execute(() => {
+        const sample = document.querySelector<HTMLElement>(
+          '[data-semantic-id="working-time-extension"] .og-legend-sample',
+        );
+        return {
+          hasShadedClass: sample?.classList.contains("og-legend-extension-shaded") ?? false,
+          backgroundImage: sample ? getComputedStyle(sample).backgroundImage : "none",
+          shadingVariable: sample
+            ? getComputedStyle(sample).getPropertyValue("--og-legend-shading-background").trim()
+            : "",
+          barCount: sample?.querySelectorAll(".og-legend-bar").length ?? 0,
+          pieceCount: sample?.querySelectorAll(".og-legend-pieces").length ?? 0,
+        };
+      });
+
+      expect(extension.hasShadedClass).toBe(true);
+      expect(extension.backgroundImage).toContain("linear-gradient");
+      expect(extension.shadingVariable).not.toBe("");
+      expect(extension.barCount).toBe(1);
+      expect(extension.pieceCount).toBe(0);
+    } finally {
+      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+      await setFixtureNonWorkingRendering("split");
+    }
   });
 
   it("keeps more than four configured icon samples visible by wrapping them", async () => {
