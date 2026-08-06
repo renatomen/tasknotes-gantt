@@ -244,20 +244,30 @@ async function openFixtureBase(): Promise<void> {
 async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
   const selector = ".og-bases-gantt .og-fullscreen-toggle";
   await browser.waitUntil(
-    async () => {
-      try {
-        const toggle = await $(selector);
-        const clickable =
-          (await toggle.isDisplayed()) && (await toggle.isEnabled()) && (await toggle.isClickable());
-        if (!clickable) return false;
-        await toggle.click();
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    async () => browser.execute((targetSelector) => {
+      const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
+      if (!toggle || toggle.disabled) return false;
+      const bounds = toggle.getBoundingClientRect();
+      const style = getComputedStyle(toggle);
+      if (
+        bounds.width === 0 ||
+        bounds.height === 0 ||
+        style.display === "none" ||
+        style.visibility === "hidden"
+      ) return false;
+      const hit = document.elementFromPoint(
+        bounds.left + bounds.width / 2,
+        bounds.top + bounds.height / 2,
+      );
+      return hit === toggle || hit?.closest(targetSelector) === toggle;
+    }, selector),
     { timeout: 15000, timeoutMsg },
   );
+  await browser.execute((targetSelector) => {
+    const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
+    if (!toggle) throw new Error("Fullscreen toggle disappeared after readiness check");
+    toggle.click();
+  }, selector);
 }
 
 async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
