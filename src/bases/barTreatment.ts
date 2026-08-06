@@ -451,23 +451,6 @@ export function resolveRepresentativeChannelPaint(
 }
 
 /**
- * Synthetic value carriers used only while generating the production treatment
- * stylesheet. Adding them makes every safe configured palette value paintable
- * even when no current row uses it; they never enter the task array or geometry.
- */
-export function representativeTreatmentInstances(palettes: Palettes): TreatmentInstance[] {
-  return [
-    ...palettes.status.map(({ value }) => ({ status: value, priority: null })),
-    ...palettes.priority.map(({ value }) => ({ status: null, priority: value })),
-    ...(palettes.calendar ?? []).map(({ value }) => ({
-      status: null,
-      priority: null,
-      calendarId: value,
-    })),
-  ];
-}
-
-/**
  * Treatment classes grouped by source: parent role, status, priority, calendar
  * (empty groups dropped). A bar carries two classes only when its Fill and Strip
  * channels resolve to DIFFERENT groups — same-source channels collapse to one
@@ -505,11 +488,6 @@ export interface TreatmentStyleInput {
   stripSource: BarChannelSource;
   palettes: Palettes;
   /**
-   * Render instances — each channel's source decides which field is read for its
-   * present-value set (`.status`, `.priority`, or `.calendarId`).
-   */
-  instances: ReadonlyArray<TreatmentInstance>;
-  /**
    * The per-instance ROOT selector every generated rule is anchored under (e.g.
    * `.og-gantt-abc12345`). Each Gantt instance mints a unique one, so its injected
    * stylesheet cannot restyle another instance's bars that share `.og-bases-gantt`.
@@ -536,8 +514,7 @@ export interface TreatmentStyleInput {
  * over the date-status flag's own `!important` background (coexistence).
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
-  const { palettes, instances, scope } = input;
-  const paintableInstances = [...instances, ...representativeTreatmentInstances(palettes)];
+  const { palettes, scope } = input;
   const barSelector = `${scope} .wx-bar`;
   // `effectiveSource` is keyed on BarColorSource, so gate `none` out first.
   const fillEff: BarChannelSource =
@@ -551,36 +528,23 @@ export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   }
   // Fill only → the fill channel supplies the body; no strip is drawn.
   if (fillEff !== 'none' && stripEff === 'none') {
-    return fillChannelRules(barSelector, fillEff, palettes, paintableInstances).join('\n');
+    return fillChannelRules(barSelector, fillEff, palettes).join('\n');
   }
   // Strip only → the strip accent over a neutral body; the body is never filled.
   // Reproduces the legacy strip-mode output exactly.
   if (fillEff === 'none' && stripEff !== 'none') {
-    return stripOnlyRules(barSelector, stripEff, palettes, paintableInstances).join('\n');
+    return stripOnlyRules(barSelector, stripEff, palettes).join('\n');
   }
   // Both channels → the fill body, then the strip's `::before` accent laid over
   // it. No neutral body (the fill supplies it) and no widened content inset (the
   // filled body has no strip-clearing to do).
   if (fillEff !== 'none' && stripEff !== 'none') {
     return [
-      ...fillChannelRules(barSelector, fillEff, palettes, paintableInstances),
-      ...stripBeforeRules(barSelector, stripEff, palettes, paintableInstances),
+      ...fillChannelRules(barSelector, fillEff, palettes),
+      ...stripBeforeRules(barSelector, stripEff, palettes),
     ].join('\n');
   }
   return '';
-}
-
-/** The present, non-empty values a channel's `valueOf` reads across all instances. */
-function presentValues(
-  valueOf: (instance: TreatmentInstance) => string | null | undefined,
-  instances: ReadonlyArray<TreatmentInstance>,
-): Set<string> {
-  const present = new Set<string>();
-  for (const inst of instances) {
-    const value = valueOf(inst);
-    if (value) present.add(value);
-  }
-  return present;
 }
 
 /**
@@ -592,12 +556,11 @@ function fillChannelRules(
   barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
-  instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
   if (source === 'default') return roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return roleFillRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
-  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules(barSelector, 'fill', palette, presentValues(valueOf, instances), slugOf);
+  const { palette, slugOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'fill', palette, slugOf);
   if (source === 'calendar') {
     return [...roleFillRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
@@ -614,12 +577,11 @@ function stripOnlyRules(
   barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
-  instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
   if (source === 'default') return roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return roleStripRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
-  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
+  const { palette, slugOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'strip', palette, slugOf);
   if (source === 'calendar') {
     return [...roleStripRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
@@ -643,42 +605,39 @@ function stripBeforeRules(
   barSelector: string,
   source: BarColorSource,
   palettes: Palettes,
-  instances: ReadonlyArray<TreatmentInstance>,
 ): string[] {
   if (source === 'default') return roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR);
   if (source === 'theme') return roleStripBeforeRules(barSelector, THEME_PARENT_COLOR, THEME_CHILD_COLOR);
-  const { palette, slugOf, valueOf } = paletteFor(source, palettes);
-  const rules = buildValueRules(barSelector, 'strip', palette, presentValues(valueOf, instances), slugOf);
+  const { palette, slugOf } = paletteFor(source, palettes);
+  const rules = buildValueRules(barSelector, 'strip', palette, slugOf);
   if (source === 'calendar') {
     return [...roleStripBeforeRules(barSelector, DEFAULT_PARENT_COLOR, DEFAULT_CHILD_COLOR), ...rules];
   }
   return rules;
 }
 
-/** The palette, class-slug and per-instance value reader for a value source. */
+/** The palette and class-slug resolver for a value source. */
 function paletteFor(
   source: BarColorSource,
   palettes: Palettes,
 ): {
   palette: ReadonlyArray<{ value: string; color: string }>;
   slugOf: (value: string) => string;
-  valueOf: (instance: TreatmentInstance) => string | null | undefined;
 } {
   if (source === 'calendar') {
     return {
       palette: palettes.calendar ?? [],
       slugOf: calendarSlug,
-      valueOf: (instance) => instance.calendarId,
     };
   }
   if (source === 'status') {
-    return { palette: palettes.status, slugOf: statusSlug, valueOf: (i) => i.status };
+    return { palette: palettes.status, slugOf: statusSlug };
   }
-  return { palette: palettes.priority, slugOf: prioritySlug, valueOf: (i) => i.priority };
+  return { palette: palettes.priority, slugOf: prioritySlug };
 }
 
 /**
- * One rule (fill) or two (fill body + progress) per present, safe palette value,
+ * One rule (fill) or two (fill body + progress) per configured safe palette value,
  * deduped. Extracted from {@link buildTreatmentStyle} so that function stays a thin
  * dispatch + assembly shell (keeps its branch count low).
  */
@@ -686,13 +645,12 @@ function buildValueRules(
   barSelector: string,
   mode: BarColorMode,
   palette: ReadonlyArray<{ value: string; color: string }>,
-  present: ReadonlySet<string>,
   slugOf: (value: string) => string,
 ): string[] {
   const emitted = new Set<string>();
   const rules: string[] = [];
   for (const { value, color } of palette) {
-    if (!present.has(value) || emitted.has(value) || !isSafeColor(color)) continue;
+    if (emitted.has(value) || !isSafeColor(color)) continue;
     emitted.add(value);
     const sel = `${barSelector}.${slugOf(value)}`;
     if (mode === 'strip') {

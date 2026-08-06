@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, MutationObserver, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, MutationObserver, MutationRecord, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -486,6 +486,7 @@
   );
 
   $effect(() => {
+    if (!legendSession.open) return;
     const host = chartHostEl;
     if (!host) return;
     const measure = (): void => {
@@ -540,14 +541,17 @@
 
     // Obsidian popups push a newer keymap scope after opening. Reassert ours
     // only when such an overlay appears so the first Escape remains Legend's.
-    let overlayPresent = Boolean(document.querySelector(OBSIDIAN_OVERLAY_SELECTOR));
-    legendOverlayObserver = new MutationObserver(() => {
-      const nextOverlayPresent = Boolean(document.querySelector(OBSIDIAN_OVERLAY_SELECTOR));
-      if (nextOverlayPresent && !overlayPresent) {
+    const addsOverlay = (mutation: MutationRecord): boolean =>
+      Array.from(mutation.addedNodes).some(
+        (node) =>
+          node instanceof Element &&
+          (node.matches(OBSIDIAN_OVERLAY_SELECTOR) || Boolean(node.querySelector(OBSIDIAN_OVERLAY_SELECTOR))),
+      );
+    legendOverlayObserver = new MutationObserver((mutations) => {
+      if (mutations.some(addsOverlay)) {
         app.keymap.popScope(scope);
         app.keymap.pushScope(scope);
       }
-      overlayPresent = nextOverlayPresent;
     });
     legendOverlayObserver.observe(document.body, { childList: true, subtree: true });
   }
@@ -649,7 +653,7 @@
   // theme/default role rules), scoped under .og-bases-gantt. Injected via a managed
   // style element (see the $effect below) — a literal style tag in markup would be
   // compiled away as component CSS and cannot carry this dynamic content. Reactive
-  // on the two sources/palettes/instances so the options re-color live without a remount.
+  // on the two sources and palettes so the options re-color live without a remount.
   const treatmentStyleCss = $derived(
     buildTreatmentStyle({
       scope: `.${treatmentScopeClass}`,
@@ -660,10 +664,6 @@
         priority: priorityColors,
         calendar: $data.calendarPalette ?? [],
       },
-      instances: instances.map((inst) => ({
-        ...inst,
-        calendarId: $data.calendarBySource?.get(inst.sourcePath) ?? null,
-      })),
     }),
   );
 

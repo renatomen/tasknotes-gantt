@@ -10,6 +10,7 @@ import { resolveMarkerColor } from './markerOverlay';
 import type { GanttLegendContext } from './types/gantt-view-data';
 import {
   GANTT_VISUAL_CLASS_TOKENS as classes,
+  GANTT_VISUAL_SEMANTIC_IDS,
   type GanttVisualSemanticId,
 } from './visualSemantics';
 
@@ -265,11 +266,10 @@ const GROUP_NAMES: Record<LegendGroupId, string> = {
 };
 
 export function buildLegendCatalog(context: GanttLegendContext): LegendGroup[] {
-  const entries = (Object.entries(LEGEND_CATALOGUE) as Array<
-    [GanttVisualSemanticId, LegendCatalogueDefinition]
-  >)
-    .filter(([, definition]) => definition.isApplicable(context))
-    .map(([semanticId, definition]) => buildEntry(semanticId, definition, context));
+  const icons = iconSamples(context);
+  const entries = GANTT_VISUAL_SEMANTIC_IDS
+    .filter((semanticId) => isApplicable(semanticId, context, icons))
+    .map((semanticId) => buildEntry(semanticId, LEGEND_CATALOGUE[semanticId], context, icons));
 
   return LEGEND_GROUP_ORDER.flatMap((groupId) => {
     const grouped = entries.filter((candidate) => LEGEND_CATALOGUE[candidate.semanticId].group === groupId);
@@ -277,16 +277,25 @@ export function buildLegendCatalog(context: GanttLegendContext): LegendGroup[] {
   });
 }
 
+function isApplicable(
+  semanticId: GanttVisualSemanticId,
+  context: GanttLegendContext,
+  icons: LegendIconSample[],
+): boolean {
+  return semanticId === 'bar-icon' ? icons.length > 0 : LEGEND_CATALOGUE[semanticId].isApplicable(context);
+}
+
 function buildEntry(
   semanticId: GanttVisualSemanticId,
   definition: LegendCatalogueDefinition,
   context: GanttLegendContext,
+  icons: LegendIconSample[],
 ): LegendEntry {
   return {
     semanticId,
     name: definition.name,
-    meaning: semanticId === 'bar-treatment' ? treatmentMeaning(context) : definition.meaning,
-    sample: sampleFor(semanticId, definition.sampleKind, context),
+    meaning: semanticId === 'bar-treatment' ? treatmentMeaning(context, icons) : definition.meaning,
+    sample: sampleFor(semanticId, definition.sampleKind, context, icons),
   };
 }
 
@@ -294,12 +303,12 @@ function sampleFor(
   semanticId: GanttVisualSemanticId,
   kind: LegendSampleKind,
   context: GanttLegendContext,
+  icons: LegendIconSample[],
 ): LegendSampleDescriptor {
   const palettes = palettesOf(context);
   if (semanticId === 'bar-treatment') {
     const fill = resolveRepresentativeChannelPaint(context.barFillSource, palettes) ?? undefined;
     const strip = resolveRepresentativeChannelPaint(context.barStripSource, palettes) ?? undefined;
-    const icons = iconSamples(context);
     return {
       kind,
       classTokens: compact([classes.bar, fill?.classToken, strip?.classToken]),
@@ -309,7 +318,7 @@ function sampleFor(
     };
   }
   if (semanticId === 'bar-icon') {
-    return { kind, classTokens: [classes.iconChip], icons: iconSamples(context) };
+    return { kind, classTokens: [classes.iconChip], icons };
   }
   if (semanticId === 'working-time-split') {
     return {
@@ -344,7 +353,7 @@ function sampleFor(
     return {
       kind,
       classTokens,
-      cssVariables: { '--og-marker-color': 'var(--text-accent)' },
+      cssVariables: { '--og-marker-color': resolveMarkerColor(undefined) },
     };
   }
   if (semanticId === 'context-task') {
@@ -394,11 +403,11 @@ function representativeBarColor(context: GanttLegendContext): string {
   );
 }
 
-function treatmentMeaning(context: GanttLegendContext): string {
+function treatmentMeaning(context: GanttLegendContext, icons: LegendIconSample[]): string {
   const channels: string[] = [];
   if (context.barFillSource !== 'none') channels.push(`${context.barFillSource} fill`);
   if (context.barStripSource !== 'none') channels.push(`${context.barStripSource} strip`);
-  if (iconSamples(context).length > 0) channels.push(`${context.barIconSource} icon`);
+  if (icons.length > 0) channels.push(`${context.barIconSource} icon`);
   return channels.length > 0
     ? `This task bar combines ${channels.join(', ')} from the active view.`
     : 'This task bar uses the default hierarchy treatment for the active view.';

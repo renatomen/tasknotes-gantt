@@ -171,7 +171,7 @@ function placeToday(
     xFraction: offset / total,
     label: 'Today',
     title: 'Today',
-    color: 'var(--text-accent)',
+    color: resolveMarkerColor(undefined),
     stackIndex: 0,
     groupedCount: 1,
     isToday: true,

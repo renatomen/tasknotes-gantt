@@ -4,6 +4,7 @@
   import type { LegendGroup, LegendIconSample, LegendSampleDescriptor } from './legendCatalog';
   import type { LegendLayout, LegendPosition } from './legendLayout';
   import { lucideIcon } from './lucideIconAction';
+  import { GANTT_VISUAL_CLASS_TOKENS as classes } from './visualSemantics';
 
   interface Props {
     groups: LegendGroup[];
@@ -119,15 +120,15 @@
 </div>
 
 {#snippet icon(descriptor: LegendIconSample)}
-  <span class="og-bar-chip" aria-hidden="true">
+  <span class={classes.iconChip} aria-hidden="true">
     {#if descriptor.shape === 'glyph' && descriptor.iconName}
-      <span class="og-bar-glyph" use:lucideIcon={descriptor.iconName}></span>
+      <span class={classes.iconGlyph} use:lucideIcon={descriptor.iconName}></span>
     {:else if descriptor.shape === 'ring'}
-      <span class="og-bar-ring" style={`border-color:${descriptor.color}`}></span>
+      <span class={classes.iconRing} style={`border-color:${descriptor.color}`}></span>
     {:else if descriptor.shape === 'disc'}
-      <span class="og-bar-disc" style={`background-color:${descriptor.color}`}></span>
+      <span class={classes.iconDisc} style={`background-color:${descriptor.color}`}></span>
     {:else}
-      <span class="og-bar-dot" style={`background-color:${descriptor.color}`}></span>
+      <span class={classes.iconDot} style={`background-color:${descriptor.color}`}></span>
     {/if}
   </span>
 {/snippet}
@@ -136,7 +137,7 @@
   {#if descriptor.kind === 'bar' || descriptor.kind === 'decoration'}
     <div class={`og-legend-bar ${className(descriptor.classTokens)}`} style={descriptorStyle(descriptor)}>
       {#if descriptor.icons?.[0]}{@render icon(descriptor.icons[0])}{/if}
-      {#if semanticId === 'estimate-override'}<span class="og-override-dot"></span>{/if}
+      {#if semanticId === 'estimate-override'}<span class={classes.overrideDot}></span>{/if}
     </div>
   {:else if descriptor.kind === 'icon-set'}
     <div class="og-legend-icons">
@@ -145,12 +146,12 @@
       {/each}
     </div>
   {:else if descriptor.kind === 'progress'}
-    <div class="og-legend-bar wx-bar">
-      <div class="wx-progress-wrapper"><div class="wx-progress-percent"></div></div>
+    <div class={`og-legend-bar ${classes.bar}`}>
+      <div class={classes.progressWrapper}><div class={classes.progressFill}></div></div>
     </div>
   {:else if descriptor.kind === 'link'}
     <div class={`og-legend-link ${className(descriptor.classTokens)}`}>
-      <span class="og-legend-link-node"></span><span class="wx-line"></span><span class="og-legend-link-arrow"></span>
+      <span class="og-legend-link-node"></span><span class={classes.dependencyLine}></span><span class="og-legend-link-arrow"></span>
     </div>
   {:else if descriptor.kind === 'shading'}
     <div class={`og-legend-shading og-legend-${semanticId} ${className(descriptor.classTokens)}`}></div>
@@ -159,7 +160,7 @@
       <span class={className(descriptor.classTokens)}></span>
     </div>
   {:else if descriptor.kind === 'pieces'}
-    <div class="og-ghost-runs og-legend-pieces" style={descriptorStyle(descriptor)}>
+    <div class={`${classes.ghostRuns} og-legend-pieces`} style={descriptorStyle(descriptor)}>
       {#each descriptor.pieces ?? [] as piece, index (index)}
         <span
           class={`${className(piece.classTokens)} og-piece-${piece.treatment}`}
