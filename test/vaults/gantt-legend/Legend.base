@@ -5,8 +5,8 @@ filters:
 views:
   - type: obsidianGantt
     name: "Legend"
-    tngantt_startDateProperty: note.begin
-    tngantt_endDateProperty: note.finish
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
     tngantt_calendarProperty: note.calendar
     tngantt_statusProperty: note.status
     tngantt_priorityProperty: note.priority
@@ -14,6 +14,8 @@ views:
     tngantt_barStripSource: priority
     tngantt_barIcon: status
     tngantt_showDateIndicators: false
+    tngantt_estimateMeaning: working-days
+    tngantt_nonWorkingRendering: split
     tngantt_defaultScale: day
     tngantt_defaultDuration: 1
     tngantt_defaultLegendPosition: right

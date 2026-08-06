@@ -174,9 +174,10 @@ describe("Gantt (OG) context-aware legend", () => {
     await openLegend();
     const paint = await browser.execute(() => {
       const chartBar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chartBar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chartBar;
       const sample = document.querySelector('[data-semantic-id="bar-treatment"] .og-legend-bar') as HTMLElement | null;
       return {
-        chartBackground: chartBar ? getComputedStyle(chartBar).backgroundColor : null,
+        chartBackground: chartPaint ? getComputedStyle(chartPaint).backgroundColor : null,
         sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
         sampleClass: sample?.className ?? "",
         hasIcon: !!sample?.querySelector(".og-bar-chip"),
@@ -232,6 +233,7 @@ describe("Gantt (OG) context-aware legend", () => {
       return {
         overflowX: getComputedStyle(scroll).overflowX,
         didScroll: scroll.scrollLeft > 0,
+        verticalContentFits: scroll.scrollHeight <= scroll.clientHeight + 1,
         headerFixed: Math.abs(header.getBoundingClientRect().top - headerTop) < 1,
         chartScroll: chart.scrollLeft,
         markerSurvived: !!document.querySelector('[data-legend-state-marker="preserved"]'),
@@ -239,6 +241,7 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     expect(bottom.overflowX).toBe("auto");
     expect(bottom.didScroll).toBe(true);
+    expect(bottom.verticalContentFits).toBe(true);
     expect(bottom.headerFixed).toBe(true);
     expect(bottom.chartScroll).toBe(beforeScroll);
     expect(bottom.markerSurvived).toBe(true);
@@ -320,8 +323,9 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(await $$(".og-gantt-legend")).toHaveLength(1);
     const colors = await browser.execute(() => {
       const chart = document.querySelector('.wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chart?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chart;
       const sample = document.querySelector('[data-semantic-id="bar-treatment"] .og-legend-bar') as HTMLElement | null;
-      return [chart && getComputedStyle(chart).backgroundColor, sample && getComputedStyle(sample).backgroundColor];
+      return [chartPaint && getComputedStyle(chartPaint).backgroundColor, sample && getComputedStyle(sample).backgroundColor];
     });
     expect(colors[1]).toBe(colors[0]);
   });

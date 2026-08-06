@@ -1,6 +1,6 @@
 ---
-begin: 2026-08-03
-finish: 2026-08-14
+scheduled: 2026-08-03
+due: 2026-08-14
 status: in-progress
 priority: high
 calendar:
@@ -8,4 +8,3 @@ calendar:
 ---
 
 Composite legend fixture task.
-

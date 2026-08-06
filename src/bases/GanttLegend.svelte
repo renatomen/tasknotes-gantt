@@ -283,7 +283,9 @@
   .og-legend-full .og-legend-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 
   .og-legend-group { min-width: 0; }
-  .og-legend-bottom .og-legend-group { width: 320px; }
+  .og-legend-bottom .og-legend-group { width: max-content; }
+  .og-legend-bottom .og-legend-group ul { flex-direction: row; }
+  .og-legend-bottom .og-legend-entry { width: 320px; }
   .og-legend-group > h2 { margin-bottom: 7px; font-size: var(--font-ui-small, 13px); }
   .og-legend-group ul { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 
