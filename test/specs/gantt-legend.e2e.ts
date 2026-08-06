@@ -15,8 +15,9 @@ const LEGEND_COMPLETED_PIECE_SELECTOR =
   '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed';
 const LEGEND_TASK_PROPERTY_EVENT_SELECTOR =
   '.og-bases-gantt .wx-bar.og-event[data-id*="property-event/Legend%20Task.md"]';
-const LEGEND_TASK_FALLBACK_PAINT_SELECTOR =
-  '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"] .og-ghost-run:not(.og-ghost-blocked)';
+const LEGEND_TASK_BAR_SELECTOR =
+  '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]';
+const LEGEND_TASK_FALLBACK_PAINT_SELECTOR = ".og-ghost-run:not(.og-ghost-blocked)";
 const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
 
 let fixtureNonWorkingRenderingNeedsReset = false;
@@ -39,6 +40,13 @@ interface ChartViewState {
   scrollLeft: number;
   scaleCellWidth: number;
   scaleLabel: string;
+}
+
+interface FallbackPaintFacts {
+  paintFound: boolean;
+  paintWidth: number;
+  background: string | null;
+  stripContent: string;
 }
 
 async function enableBases(): Promise<void> {
@@ -766,28 +774,38 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("falls back to the default task fill when both bar channels are off", async () => {
     await setFixtureBarChannels("none", "none");
+    let fallback: FallbackPaintFacts | null = null;
     await browser.waitUntil(
-      async () => (await $$(LEGEND_TASK_FALLBACK_PAINT_SELECTOR)).length > 0,
+      async () => {
+        fallback = await browser.execute(({ barSelector, paintSelector }) => {
+          const bar = document.querySelector<HTMLElement>(barSelector);
+          const fallbackPaint = bar?.querySelector<HTMLElement>(paintSelector);
+          return bar
+            ? {
+                paintFound: !!fallbackPaint,
+                paintWidth: fallbackPaint?.getBoundingClientRect().width ?? 0,
+                background: fallbackPaint
+                  ? getComputedStyle(fallbackPaint).backgroundColor
+                  : null,
+                stripContent: getComputedStyle(bar, "::before").content,
+              }
+            : null;
+        }, {
+          barSelector: LEGEND_TASK_BAR_SELECTOR,
+          paintSelector: LEGEND_TASK_FALLBACK_PAINT_SELECTOR,
+        });
+        return (
+          fallback?.paintFound === true &&
+          fallback.paintWidth > 0 &&
+          fallback.background === EXPECTED_DEFAULT_CHILD_FILL &&
+          fallback.stripContent === "none"
+        );
+      },
       {
         timeout: 8000,
-        timeoutMsg: "Gantt legend fixture did not render its default-fill segment",
+        timeoutMsg: "Gantt legend fixture did not settle its default-fill segment",
       },
     );
-
-    const fallback = await browser.execute((paintSelector) => {
-      const bar = document.querySelector<HTMLElement>(
-        '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
-      );
-      const visiblePaint = document.querySelector<HTMLElement>(paintSelector);
-      return bar
-        ? {
-            paintFound: !!visiblePaint,
-            paintWidth: visiblePaint?.getBoundingClientRect().width ?? 0,
-            background: visiblePaint ? getComputedStyle(visiblePaint).backgroundColor : null,
-            stripContent: getComputedStyle(bar, "::before").content,
-          }
-        : null;
-    }, LEGEND_TASK_FALLBACK_PAINT_SELECTOR);
 
     expect(fallback).not.toBeNull();
     expect(fallback?.paintFound).toBe(true);
