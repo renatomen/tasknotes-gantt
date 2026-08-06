@@ -259,15 +259,12 @@ async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
         bounds.left + bounds.width / 2,
         bounds.top + bounds.height / 2,
       );
-      return hit === toggle || hit?.closest(targetSelector) === toggle;
+      if (hit !== toggle && hit?.closest(targetSelector) !== toggle) return false;
+      toggle.click();
+      return true;
     }, selector),
     { timeout: 15000, timeoutMsg },
   );
-  await browser.execute((targetSelector) => {
-    const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
-    if (!toggle) throw new Error("Fullscreen toggle disappeared after readiness check");
-    toggle.click();
-  }, selector);
 }
 
 async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
