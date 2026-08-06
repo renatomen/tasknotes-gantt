@@ -9,6 +9,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-legend");
 const FIXTURE_RESTORE_ATTEMPTS = 2;
+const LEGEND_RECURRING_PATH = "Legend Recurring.md";
+const LEGEND_COMPLETED_OCCURRENCE = "2026-08-10";
+const LEGEND_COMPLETED_PIECE_SELECTOR =
+  '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed';
+const LEGEND_TASK_PROPERTY_EVENT_SELECTOR =
+  '.og-bases-gantt .wx-bar.og-event[data-id*="property-event/Legend%20Task.md"]';
 
 let fixtureNonWorkingRenderingNeedsReset = false;
 let fixtureBarChannelsNeedReset = false;
@@ -56,6 +62,49 @@ async function waitForTaskNotesReady(): Promise<void> {
     }),
     { timeout: 60000, timeoutMsg: "TaskNotes API did not become ready for the legend fixture" },
   );
+}
+
+async function waitForLegendRecurringTaskReady(): Promise<void> {
+  let lastFacts = "<never polled>";
+  await browser.waitUntil(
+    async () => {
+      lastFacts = await browser.executeObsidian(async ({ app }, expected) => {
+        const taskNotes = (app as unknown as {
+          plugins?: { getPlugin?: (id: string) => unknown };
+        }).plugins?.getPlugin?.("tasknotes") as {
+          api?: { tasks?: { list?: () => Promise<unknown[]> | unknown[] } };
+        } | undefined;
+        const tasks = await taskNotes?.api?.tasks?.list?.();
+        if (!Array.isArray(tasks)) return "no task list";
+        const recurring = (tasks as Array<{
+          path?: string;
+          recurrence?: unknown;
+          complete_instances?: unknown;
+        }>).find(({ path: taskPath }) => taskPath === expected.path);
+        const facts = {
+          recurrence:
+            typeof recurring?.recurrence === "string" &&
+            recurring.recurrence.includes("FREQ=WEEKLY"),
+          completed:
+            Array.isArray(recurring?.complete_instances) &&
+            recurring.complete_instances.some((date) => String(date).startsWith(expected.completed)),
+        };
+        return Object.values(facts).every(Boolean) ? "ok" : JSON.stringify(facts);
+      }, { path: LEGEND_RECURRING_PATH, completed: LEGEND_COMPLETED_OCCURRENCE });
+      return lastFacts === "ok";
+    },
+    {
+      timeout: 60000,
+      timeoutMsg: () => `TaskNotes never served the recurring legend facts; last: ${lastFacts}`,
+    },
+  );
+}
+
+async function waitForCompletedRecurringPiece(): Promise<void> {
+  await browser.waitUntil(async () => (await $$(LEGEND_COMPLETED_PIECE_SELECTOR)).length === 1, {
+    timeout: 10000,
+    timeoutMsg: "Legend Recurring did not render its completed occurrence piece",
+  });
 }
 
 async function openLegend(): Promise<void> {
@@ -125,20 +174,20 @@ async function chartViewState(): Promise<ChartViewState> {
 
 async function ensureRealChartSelection(): Promise<void> {
   if ((await $$(".og-bases-gantt .wx-selected")).length === 0) {
-    const clicked = await browser.execute(() => {
-      const bar = document.querySelector(".og-bases-gantt .wx-bar.og-event") as HTMLElement | null;
+    const clicked = await browser.execute((selector) => {
+      const bar = document.querySelector(selector) as HTMLElement | null;
       if (!bar) return false;
       const bounds = bar.getBoundingClientRect();
       for (let y = bounds.top + 2; y < bounds.bottom - 1; y += 4) {
         for (let x = bounds.left + 2; x < bounds.right - 1; x += 4) {
           const target = document.elementFromPoint(x, y) as HTMLElement | null;
-          if (!target?.closest(".wx-bar.og-event")) continue;
+          if (target?.closest(".wx-bar.og-event") !== bar) continue;
           target.click();
           return true;
         }
       }
       return false;
-    });
+    }, LEGEND_TASK_PROPERTY_EVENT_SELECTOR);
     expect(clicked).toBe(true);
     await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
       timeout: 8000,
@@ -305,9 +354,13 @@ async function waitForRenderedBarChannels(
       const tokens = [...bar.classList];
       const hasCalendar = tokens.some((token) => token.startsWith("og-calendar-"));
       const hasPriority = tokens.some((token) => token.startsWith("og-prio-"));
+      const bodyOwnsFill = getComputedStyle(bar).getPropertyValue("--og-ghost-fill").trim() !== "";
+      const drawsStrip = getComputedStyle(bar, "::before").content !== "none";
       return (
         hasCalendar === (nextFill === "calendar" || nextStrip === "calendar") &&
-        hasPriority === (nextFill === "priority" || nextStrip === "priority")
+        hasPriority === (nextFill === "priority" || nextStrip === "priority") &&
+        bodyOwnsFill === (nextFill !== "none") &&
+        drawsStrip === (nextStrip !== "none")
       );
     }, fillSource, stripSource),
     {
@@ -358,6 +411,7 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     await enableBases();
     await waitForTaskNotesReady();
+    await waitForLegendRecurringTaskReady();
     await openFixtureBase();
     try {
       await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length > 0, { timeout: 15000 });
@@ -651,12 +705,14 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("matches strip-only occurrence pieces to the chart piece body", async () => {
     await setFixtureBarChannels("none", "priority");
+    await waitForCompletedRecurringPiece();
     await openLegend();
 
     const paint = await browser.execute(() => {
-      const chartPiece = document.querySelector<HTMLElement>(
-        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed',
+      const chartBar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"]',
       );
+      const chartPiece = chartBar?.querySelector<HTMLElement>(".og-instance-completed") ?? null;
       const occupancy = document.querySelector<HTMLElement>(
         '[data-semantic-id="occurrence-occupancy"] .og-legend-pieces',
       );
@@ -829,20 +885,20 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar.og-event")).length > 0, {
+    await browser.waitUntil(async () => (await $$(LEGEND_TASK_PROPERTY_EVENT_SELECTOR)).length === 1, {
       timeout: 10000,
       timeoutMsg: "Property-event fixture did not render its read-only event bar",
     });
     await openLegend();
-    const paint = await browser.execute(() => {
-      const eventBar = document.querySelector('.og-bases-gantt .wx-bar.og-event') as HTMLElement | null;
+    const paint = await browser.execute((eventSelector) => {
+      const eventBar = document.querySelector(eventSelector) as HTMLElement | null;
       const sample = document.querySelector('[data-semantic-id="calendar-event"] .og-legend-bar') as HTMLElement | null;
       return {
         eventBackground: eventBar ? getComputedStyle(eventBar).backgroundColor : null,
         sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
         sampleClasses: sample?.className ?? "",
       };
-    });
+    }, LEGEND_TASK_PROPERTY_EVENT_SELECTOR);
     expect(paint.sampleClasses).toContain("og-event");
     expect(paint.sampleBackground).toBe(paint.eventBackground);
   });
