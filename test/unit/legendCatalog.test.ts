@@ -27,7 +27,9 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarMarkers: [],
   calendarDisplayedCount: 0,
   hasCalendarConflicts: false,
+  hasCalendarConflictCapability: false,
   propertyEventStartMapped: false,
+  calendarMarkersConfigured: false,
   hasResolvedSchedulingCalendar: false,
   hasRecordedRecurringOccurrences: false,
   calendarEventColor: null,
@@ -748,6 +750,8 @@ describe('buildLegendCatalog', () => {
       ],
       calendarDisplayedCount: 2,
       hasCalendarConflicts: true,
+      hasCalendarConflictCapability: true,
+      calendarMarkersConfigured: true,
       hasResolvedSchedulingCalendar: true,
       calendarMarkers: [
         {
@@ -781,6 +785,22 @@ describe('buildLegendCatalog', () => {
     ).map((candidate) => candidate.semanticId);
 
     expect(ids).not.toContain('calendar-conflict');
+  });
+
+  it('keeps conflict semantics visible when the current window has no conflict dates', () => {
+    const ids = entries(
+      baseContext({ hasCalendarConflicts: false, hasCalendarConflictCapability: true }),
+    ).map((candidate) => candidate.semanticId);
+
+    expect(ids).toContain('calendar-conflict');
+  });
+
+  it('advertises configured marker semantics even before markers render', () => {
+    const ids = entries(
+      baseContext({ calendarMarkersConfigured: true, calendarMarkers: [] }),
+    ).map((candidate) => candidate.semanticId);
+
+    expect(ids).toContain('calendar-marker');
   });
 
   it('explains working-time extensions when a mapped task can override a calendar-day default', () => {

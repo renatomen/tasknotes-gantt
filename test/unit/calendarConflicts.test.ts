@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
 import {
   buildCalendarNotice,
+  calendarConflictCapability,
   conflictDates,
   conflictDatesWithSources,
   conflictsFromFacts,
@@ -18,6 +19,27 @@ function calendar(frontmatter: Record<string, unknown>): CalendarDefinition {
 
 const monToFri = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' });
 const sunToThu = calendar({ pattern: 'FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH' });
+
+describe('calendarConflictCapability', () => {
+  it('recognizes definitions that can disagree outside the current window', () => {
+    expect(calendarConflictCapability([monToFri, sunToThu])).toBe(true);
+  });
+
+  it('does not advertise identical availability as a conflict capability', () => {
+    expect(calendarConflictCapability([monToFri, calendar({ pattern: monToFri.pattern })])).toBe(
+      false,
+    );
+  });
+
+  it('ignores display-only calendars because they cannot block or cover', () => {
+    expect(
+      calendarConflictCapability([
+        calendar({ events: [{ date: '2026-04-08', name: 'Release' }] }),
+        calendar({ events: [{ date: '2026-04-09', name: 'Review' }] }),
+      ]),
+    ).toBe(false);
+  });
+});
 
 describe('conflictDates', () => {
   it('flags a day exactly when one calendar blocks it and another pattern covers it', () => {

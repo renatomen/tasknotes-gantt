@@ -8,7 +8,34 @@
 
 import { addDaysIso, type CalendarDefinition } from '../controller/calendar/schema';
 import type { EvaluationWindow } from '../controller/calendar/patternWindow';
-import { workingComplement } from '../controller/calendar/workingDays';
+import { workingComplement, workingDayRules } from '../controller/calendar/workingDays';
+
+/**
+ * Whether the selected calendar definitions can disagree, independent of the
+ * currently rendered chart window. This is a capability signal for the legend;
+ * the rendered conflict dates remain windowed by `conflictDatesWithSources`.
+ */
+export function calendarConflictCapability(
+  calendars: ReadonlyArray<CalendarDefinition>,
+): boolean {
+  if (calendars.length < 2) return false;
+  const signatures = new Set(calendars.map(conflictSignature));
+  const canCover = calendars.some((calendar) => workingDayRules(calendar).length > 0);
+  const canBlock = calendars.some(
+    (calendar) => workingDayRules(calendar).length > 0 || calendar.nonWorking.length > 0,
+  );
+  return canCover && canBlock && signatures.size > 1;
+}
+
+function conflictSignature(calendar: CalendarDefinition): string {
+  const rules = workingDayRules(calendar)
+    .map(({ rule, anchor }) => `${rule}|${anchor ?? ''}`)
+    .sort();
+  const nonWorking = calendar.nonWorking
+    .map(({ startDate, endDateExclusive }) => `${startDate}|${endDateExclusive}`)
+    .sort();
+  return JSON.stringify({ rules, nonWorking });
+}
 
 export interface CalendarDayFacts {
   /** Days this calendar blocks inside the window. */
@@ -186,4 +213,3 @@ export function buildCalendarNotice(facts: CalendarNoticeFacts): string | null {
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
 }
-

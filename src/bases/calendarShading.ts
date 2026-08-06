@@ -25,7 +25,7 @@ import {
   type CalendarRecord,
   type LinkResolver,
 } from '../controller/calendar/resolveCalendars';
-import { conflictDatesWithSources } from './calendarConflicts';
+import { calendarConflictCapability, conflictDatesWithSources } from './calendarConflicts';
 import type { MarkerInput } from './markerOverlay';
 import {
   effectiveDisplayPaths,
@@ -194,6 +194,8 @@ export interface ShadingComputation {
   selectedCount: number;
   /** Whether at least one task association resolves to a scheduling calendar. */
   hasResolvedSchedulingCalendar: boolean;
+  /** Whether selected calendar definitions can disagree outside this chart window. */
+  hasCalendarConflictCapability: boolean;
   conflictCount: number;
   /** The displayed calendars that disagree, so the banner can name them. */
   conflictCalendars: string[];
@@ -202,6 +204,8 @@ export interface ShadingComputation {
   flaggedCount: number;
   /** Flagged events of the displayed calendars, for the marker overlay. */
   markers: MarkerInput[];
+  /** Whether selected calendars define markers, even when no chart window is rendered. */
+  calendarMarkersConfigured: boolean;
   /** Every valid calendar/set in the vault as a bar-colour palette. */
   calendarPalette: { value: string; color: string }[];
   /** Each associated task's resolved calendar identity, by source path. */
@@ -253,24 +257,28 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   }
 
   const records = [...displayed.values()];
+  const definitions = records.map((record) => record.definition);
+  const hasCalendarConflictCapability = calendarConflictCapability(definitions);
+  const calendarMarkersConfigured = records.some((record) => record.definition.markers.length > 0);
   if (window === null) {
     return {
       css: buildCalendarShadingCss(inputs.scope, []),
       displayedCount: 0,
       selectedCount: displayed.size,
       hasResolvedSchedulingCalendar,
+      hasCalendarConflictCapability,
       conflictCount: 0,
       conflictCalendars: [],
       invalidCount,
       flaggedCount,
       markers: [],
+      calendarMarkersConfigured,
       calendarPalette,
       calendarBySource,
       markedNotePaths,
     };
   }
   const markers = collectMarkers(records);
-  const definitions = records.map((record) => record.definition);
   // Attributed: the banner names the disagreeing calendars, so a user does not have
   // to open the picker and compare patterns to find which selection conflicts.
   const conflicts =
@@ -286,11 +294,13 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     displayedCount: displayed.size,
     selectedCount: displayed.size,
     hasResolvedSchedulingCalendar,
+    hasCalendarConflictCapability,
     conflictCount: conflicts.dates.length,
     conflictCalendars: conflicts.calendars,
     invalidCount,
     flaggedCount,
     markers,
+    calendarMarkersConfigured,
     calendarPalette,
     calendarBySource,
     markedNotePaths,

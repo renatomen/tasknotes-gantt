@@ -1602,7 +1602,9 @@ class ObsidianGanttBasesView extends BasesView {
         calendarMarkers: calendarShading.markers,
         calendarDisplayedCount: calendarShading.selectedCount,
         hasCalendarConflicts: calendarShading.hasCalendarConflicts,
+        hasCalendarConflictCapability: calendarShading.hasCalendarConflictCapability,
         propertyEventStartMapped: noteFrontmatterKey(calendarItems.propertyEventStart) !== null,
+        calendarMarkersConfigured: calendarShading.calendarMarkersConfigured,
         hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
         hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
         calendarEventColor:
@@ -1646,6 +1648,8 @@ class ObsidianGanttBasesView extends BasesView {
     displayedCount: number;
     selectedCount: number;
     hasCalendarConflicts: boolean;
+    hasCalendarConflictCapability: boolean;
+    calendarMarkersConfigured: boolean;
     hasResolvedSchedulingCalendar: boolean;
   } {
     const app = this.app;
@@ -1717,6 +1721,8 @@ class ObsidianGanttBasesView extends BasesView {
       displayedCount: computed.displayedCount,
       selectedCount: computed.selectedCount,
       hasCalendarConflicts: computed.conflictCount > 0,
+      hasCalendarConflictCapability: computed.hasCalendarConflictCapability,
+      calendarMarkersConfigured: computed.calendarMarkersConfigured,
       hasResolvedSchedulingCalendar: computed.hasResolvedSchedulingCalendar,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,

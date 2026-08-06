@@ -162,7 +162,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Calendar conflict',
     meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
     sampleKind: 'shading',
-    isApplicable: (context) => context.hasCalendarConflicts,
+    isApplicable: (context) => context.hasCalendarConflictCapability,
   },
   'calendar-event': {
     group: 'calendars',
@@ -183,7 +183,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Calendar marker',
     meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.',
     sampleKind: 'marker',
-    isApplicable: (context) => context.calendarMarkers.length > 0,
+    isApplicable: (context) => context.calendarMarkersConfigured,
   },
   'working-time-extension': {
     group: 'calendars',

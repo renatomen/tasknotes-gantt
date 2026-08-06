@@ -326,7 +326,7 @@ describe('computeCalendarShadingCss', () => {
       return note ? note.path : null;
     };
 
-    const { markers } = computeShading({
+    const { markers, calendarMarkersConfigured } = computeShading({
       markedNotes: notesWithMarker,
       resolveLink: resolveWithMarker,
       associations: [],
@@ -340,6 +340,7 @@ describe('computeCalendarShadingCss', () => {
     });
 
     expect(markers).toEqual([]);
+    expect(calendarMarkersConfigured).toBe(true);
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
