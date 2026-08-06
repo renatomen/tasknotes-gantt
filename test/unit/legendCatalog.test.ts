@@ -24,6 +24,7 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarMarkers: [],
   calendarDisplayedCount: 0,
   hasResolvedSchedulingCalendar: false,
+  hasRecordedRecurringOccurrences: false,
   calendarEventColor: null,
   externalOccurrenceColor: null,
   estimateMeaning: 'calendar-days',
@@ -543,6 +544,48 @@ describe('buildLegendCatalog', () => {
         'occurrence-series-spine',
       ]),
     );
+  });
+
+  it('keeps recorded recurring semantics visible when virtual recurrence is disabled', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      hasRecordedRecurringOccurrences: true,
+      calendarItems: {
+        ...baseContext().calendarItems,
+        showRecurring: false,
+        showCompletedRecurringInstances: true,
+        showSkippedRecurringInstances: true,
+      },
+    });
+    const ids = entries(context).map((candidate) => candidate.semanticId);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'occurrence-occupancy',
+        'occurrence-completed',
+        'occurrence-skipped',
+        'occurrence-materialized',
+        'occurrence-series-spine',
+      ]),
+    );
+    expect(ids).not.toEqual(expect.arrayContaining(['occurrence-next', 'occurrence-projected']));
+  });
+
+  it('does not advertise time-entry rows in standalone mode', () => {
+    const standaloneTimeEntries = baseContext({
+      calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
+    });
+    expect(entries(standaloneTimeEntries).map((candidate) => candidate.semanticId)).not.toContain(
+      'calendar-event',
+    );
+
+    expect(
+      entries(
+        baseContext({
+          calendarItems: { ...baseContext().calendarItems, showTimeblocks: true },
+        }),
+      ).map((candidate) => candidate.semanticId),
+    ).toContain('calendar-event');
   });
 
   it('lists configured calendar shading, conflict, marker, working-time, and override signals', () => {

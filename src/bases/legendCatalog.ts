@@ -93,12 +93,16 @@ const hasDisplayedCalendar = (context: GanttLegendContext): boolean =>
   context.calendarDisplayedCount > 0;
 const hasSchedulingCalendar = (context: GanttLegendContext): boolean =>
   context.hasResolvedSchedulingCalendar;
-const hasRecurring = (context: GanttLegendContext): boolean =>
+const hasVirtualRecurring = (context: GanttLegendContext): boolean =>
   context.taskNotesPresent && context.calendarItems.showRecurring;
+const hasRecordedRecurring = (context: GanttLegendContext): boolean =>
+  context.taskNotesPresent && context.hasRecordedRecurringOccurrences;
+const hasRecurring = (context: GanttLegendContext): boolean =>
+  hasVirtualRecurring(context) || hasRecordedRecurring(context);
 const hasOccurrences = (context: GanttLegendContext): boolean =>
   hasRecurring(context) || (context.taskNotesPresent && context.externalCalendarsEnabled);
 const hasCalendarEvents = (context: GanttLegendContext): boolean =>
-  context.calendarItems.showTimeEntries ||
+  (context.taskNotesPresent && context.calendarItems.showTimeEntries) ||
   context.calendarItems.showTimeblocks ||
   context.calendarItems.showPropertyBasedEvents ||
   context.externalCalendarsEnabled;
@@ -210,14 +214,14 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Next occurrence',
     meaning: 'A solid accent piece is the next upcoming recurring instance.',
     sampleKind: 'bar',
-    isApplicable: hasRecurring,
+    isApplicable: hasVirtualRecurring,
   },
   'occurrence-projected': {
     group: 'occurrences',
     name: 'Projected occurrence',
     meaning: 'A hollow dashed piece is a future instance projected from the pattern.',
     sampleKind: 'bar',
-    isApplicable: hasRecurring,
+    isApplicable: hasVirtualRecurring,
   },
   'occurrence-completed': {
     group: 'occurrences',

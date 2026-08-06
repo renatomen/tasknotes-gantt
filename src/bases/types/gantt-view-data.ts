@@ -48,6 +48,8 @@ export interface GanttLegendContext {
   calendarDisplayedCount: number;
   /** True when at least one rendered task resolves its scheduling calendar. */
   hasResolvedSchedulingCalendar: boolean;
+  /** True when a rendered recurring task has a recorded or materialized occurrence. */
+  hasRecordedRecurringOccurrences: boolean;
   /** Representative paint for enabled read-only event-row families and feeds. */
   calendarEventColor: string | null;
   /** Representative paint owned specifically by enabled external occurrence feeds. */

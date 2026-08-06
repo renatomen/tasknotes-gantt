@@ -1521,6 +1521,15 @@ class ObsidianGanttBasesView extends BasesView {
     const effectiveMappings = this.getEffectiveMappings();
     const estimateOverrideMapped = (effectiveMappings.estimateMeaningProperty ?? '') !== '';
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
+    const hasRecordedRecurringOccurrences = instances.some(
+      (instance) =>
+        instance.occupancy?.some(
+          (occupancy) =>
+            occupancy.family === 'recurring-instance' &&
+            occupancy.stateClass !== 'next' &&
+            occupancy.stateClass !== 'projected',
+        ) ?? false,
+    );
     const visibleCalendarEventColor =
       instances
         .map((instance) => instance.calendarItem?.color)
@@ -1597,6 +1606,7 @@ class ObsidianGanttBasesView extends BasesView {
         calendarMarkers: calendarShading.markers,
         calendarDisplayedCount: calendarShading.selectedCount,
         hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
+        hasRecordedRecurringOccurrences,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:
