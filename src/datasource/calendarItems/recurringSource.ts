@@ -45,18 +45,21 @@ export type RecordedRecurringState = Extract<
 >;
 
 /** State classes that represent recorded or materialized, rather than virtual, occurrences. */
-export const RECORDED_RECURRING_STATE_CLASSES = [
-  'completed',
-  'skipped',
-  'materialized',
-] as const satisfies readonly RecordedRecurringState[];
+const RECORDED_RECURRING_STATE_MAP: Record<RecordedRecurringState, true> = {
+  completed: true,
+  skipped: true,
+  materialized: true,
+};
+
+export const RECORDED_RECURRING_STATE_CLASSES: readonly RecordedRecurringState[] =
+  Object.keys(RECORDED_RECURRING_STATE_MAP) as RecordedRecurringState[];
 
 export function isRecordedRecurringStateClass(
   stateClass: string | undefined,
 ): stateClass is RecordedRecurringState {
   return (
     stateClass !== undefined &&
-    RECORDED_RECURRING_STATE_CLASSES.some((candidate) => candidate === stateClass)
+    Object.prototype.hasOwnProperty.call(RECORDED_RECURRING_STATE_MAP, stateClass)
   );
 }
 

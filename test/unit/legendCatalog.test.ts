@@ -1,6 +1,5 @@
 import {
   buildLegendCatalog,
-  hasRecordedRecurringOccurrences,
   LEGEND_CATALOGUE,
   LEGEND_GROUP_ORDER,
   type LegendEntry,
@@ -11,6 +10,8 @@ import {
 } from '../../src/bases/visualSemantics';
 import type { GanttLegendContext } from '../../src/bases/types/gantt-view-data';
 import type { CalendarOccupancy } from '../../src/datasource/calendarItems';
+import { hasRecordedRecurringOccurrences } from '../../src/controller/InstanceExpansion';
+import { RECORDED_RECURRING_STATE_CLASSES } from '../../src/datasource/calendarItems/recurringSource';
 
 const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendContext => ({
   taskNotesPresent: false,
@@ -606,6 +607,55 @@ describe('buildLegendCatalog', () => {
         { occupancy: [occupancy('external-event', 'completed')] },
       ]),
     ).toBe(false);
+    expect(hasRecordedRecurringOccurrences([{ occupancy: undefined }, { occupancy: [] }])).toBe(
+      false,
+    );
+    expect(hasRecordedRecurringOccurrences([])).toBe(false);
+  });
+
+  it('keeps every recorded recurring state in the applicability allowlist', () => {
+    expect([...RECORDED_RECURRING_STATE_CLASSES].sort()).toEqual([
+      'completed',
+      'materialized',
+      'skipped',
+    ]);
+  });
+
+  it('does not advertise recorded recurring semantics without TaskNotes', () => {
+    const context = baseContext({
+      taskNotesPresent: false,
+      hasRecordedRecurringOccurrences: true,
+      calendarItems: {
+        ...baseContext().calendarItems,
+        showRecurring: false,
+        showCompletedRecurringInstances: true,
+        showSkippedRecurringInstances: true,
+      },
+    });
+    const ids = entries(context).map((candidate) => candidate.semanticId);
+
+    expect(ids).not.toEqual(
+      expect.arrayContaining([
+        'occurrence-occupancy',
+        'occurrence-completed',
+        'occurrence-skipped',
+        'occurrence-materialized',
+        'occurrence-series-spine',
+      ]),
+    );
+  });
+
+  it('advertises virtual recurring semantics when virtual recurrence is enabled', () => {
+    const ids = entries(
+      baseContext({
+        taskNotesPresent: true,
+        calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+      }),
+    ).map((candidate) => candidate.semanticId);
+
+    expect(ids).toEqual(
+      expect.arrayContaining(['occurrence-next', 'occurrence-projected']),
+    );
   });
 
   it('does not advertise time-entry rows in standalone mode', () => {

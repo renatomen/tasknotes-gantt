@@ -23,7 +23,6 @@ import { get, writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
-import { hasRecordedRecurringOccurrences } from './legendCatalog';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
@@ -69,7 +68,10 @@ import {
   type DatePolicyConfig,
   type DateMappingInfo,
 } from '../controller/GanttController';
-import type { LinkRewriteMode } from '../controller/InstanceExpansion';
+import {
+  hasRecordedRecurringOccurrences,
+  type LinkRewriteMode,
+} from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import {
