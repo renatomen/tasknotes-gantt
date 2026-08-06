@@ -471,11 +471,36 @@ describe("Gantt (OG) context-aware legend", () => {
 
     await chooseBottom();
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
-    const bottomOverflow = await browser.execute(() => {
+    const bottomReachability = await browser.execute(() => {
+      const panel = document.querySelector<HTMLElement>(".og-gantt-legend");
       const scroll = document.querySelector<HTMLElement>(".og-gantt-legend .og-legend-scroll");
-      return scroll ? getComputedStyle(scroll).overflowY : null;
+      const chips = [...document.querySelectorAll<HTMLElement>(
+        '[data-semantic-id="bar-icon"] .og-bar-chip',
+      )];
+      if (!panel || !scroll || chips.length === 0) return null;
+      panel.style.height = "100px";
+      const hasOverflow = scroll.scrollHeight > scroll.clientHeight;
+      scroll.scrollTop = scroll.scrollHeight;
+      chips[chips.length - 1].scrollIntoView({ block: "nearest", inline: "nearest" });
+      const viewport = scroll.getBoundingClientRect();
+      const finalIcon = chips[chips.length - 1].getBoundingClientRect();
+      return {
+        overflowY: getComputedStyle(scroll).overflowY,
+        hasOverflow,
+        scrollTop: scroll.scrollTop,
+        scrollLeft: scroll.scrollLeft,
+        finalIconReachable:
+          finalIcon.top >= viewport.top - 1 && finalIcon.bottom <= viewport.bottom + 1,
+      };
     });
-    expect(bottomOverflow).toBe("auto");
+    expect(bottomReachability).toEqual({
+      overflowY: "auto",
+      hasOverflow: true,
+      scrollTop: expect.any(Number),
+      scrollLeft: expect.any(Number),
+      finalIconReachable: true,
+    });
+    expect(bottomReachability?.scrollTop).toBeGreaterThan(0);
   });
 
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
