@@ -75,6 +75,9 @@ describe('representative bar body paint', () => {
         palettes,
       })?.color,
     ).toBe('#f8312f');
+    expect(styleFor({ fillSource: 'status', stripSource: 'priority', palettes })).toContain(
+      '--og-ghost-fill: #f8312f',
+    );
 
     expect(
       resolveRepresentativeBarBodyPaint({

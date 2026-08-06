@@ -455,15 +455,15 @@ interface EffectiveBarChannels {
   strip: BarChannelSource;
 }
 
-export interface RepresentativeBarBodyPaintInput {
+interface EffectiveBarChannelsInput {
   fillSource: BarChannelSource;
   stripSource: BarChannelSource;
   palettes: Palettes;
 }
 
-function resolveEffectiveBarChannels(
-  input: RepresentativeBarBodyPaintInput,
-): EffectiveBarChannels {
+export interface RepresentativeBarBodyPaintInput extends EffectiveBarChannelsInput {}
+
+function resolveEffectiveBarChannels(input: EffectiveBarChannelsInput): EffectiveBarChannels {
   return {
     fill:
       input.fillSource === 'none'
@@ -543,12 +543,7 @@ export function treatmentClassRegistry(palettes: Palettes): string[] {
 }
 
 /** Inputs to {@link buildTreatmentStyle}, grouped to keep the signature small. */
-export interface TreatmentStyleInput {
-  /** The Fill channel's source; `none` paints no body of its own. */
-  fillSource: BarChannelSource;
-  /** The Strip channel's source; `none` draws no `::before` accent. */
-  stripSource: BarChannelSource;
-  palettes: Palettes;
+export interface TreatmentStyleInput extends EffectiveBarChannelsInput {
   /**
    * The per-instance ROOT selector every generated rule is anchored under (e.g.
    * `.og-gantt-abc12345`). Each Gantt instance mints a unique one, so its injected
