@@ -1525,6 +1525,11 @@ class ObsidianGanttBasesView extends BasesView {
       instances
         .map((instance) => instance.calendarItem?.color)
         .find((color) => isSafeColor(color)) ?? null;
+    const visibleExternalOccurrenceColor =
+      instances
+        .filter((instance) => instance.calendarItem?.family === 'external-event')
+        .map((instance) => instance.calendarItem?.color)
+        .find((color) => isSafeColor(color)) ?? null;
     return {
       instances,
       links,
@@ -1593,6 +1598,8 @@ class ObsidianGanttBasesView extends BasesView {
         hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
+        externalOccurrenceColor:
+          visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
         estimateMeaning,
         nonWorkingRendering,
         estimateOverrideMapped,

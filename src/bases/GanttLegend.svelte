@@ -363,6 +363,10 @@
     border-radius: var(--wx-gantt-bar-border-radius, 2px);
   }
   .og-legend-bar :global(.og-bar-chip) { margin-left: 8px; }
+  .og-legend-sample :global(.wx-bar.datestatus-flagged) {
+    border-width: 1px;
+    border-style: solid;
+  }
 
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
   .og-legend-sample :global(.wx-progress-percent) { width: 58%; height: 100%; background: var(--wx-gantt-task-fill-color, rgba(0,0,0,.25)); }

@@ -24,6 +24,7 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarDisplayedCount: 0,
   hasResolvedSchedulingCalendar: false,
   calendarEventColor: null,
+  externalOccurrenceColor: null,
   estimateMeaning: 'calendar-days',
   nonWorkingRendering: 'shaded',
   estimateOverrideMapped: false,
@@ -375,7 +376,7 @@ describe('buildLegendCatalog', () => {
     const standaloneIds = entries(baseContext()).map((candidate) => candidate.semanticId);
     expect(standaloneIds).toEqual(expect.arrayContaining(['bar-treatment', 'progress', 'date-status']));
     expect(standaloneIds).not.toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next']),
+      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
     );
 
     const companionIds = entries(
@@ -386,8 +387,34 @@ describe('buildLegendCatalog', () => {
       }),
     ).map((candidate) => candidate.semanticId);
     expect(companionIds).toEqual(
-      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next']),
+      expect.arrayContaining(['dependency-link', 'context-task', 'occurrence-next', 'replicated-task']),
     );
+  });
+
+  it('describes the date-status border that remains visible under configured fills', () => {
+    expect(entry(baseContext(), 'date-status').meaning).toBe(
+      'A red border marks dates that are missing, inferred, or corrected for display.',
+    );
+  });
+
+  it('uses the external occurrence colour for external-only pieces and series spines', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      externalCalendarsEnabled: true,
+      calendarEventColor: '#f97316',
+      externalOccurrenceColor: '#0ea5e9',
+    });
+
+    expect(entry(context, 'occurrence-external').sample.cssVariables).toEqual({
+      '--og-ghost-fill': '#0ea5e9',
+    });
+    expect(entry(context, 'occurrence-series-spine').sample.cssVariables).toEqual({
+      '--og-ghost-fill': '#0ea5e9',
+    });
+    expect(entry(context, 'occurrence-occupancy').sample.cssVariables).toEqual({
+      '--og-event-color': '#0ea5e9',
+      '--og-ghost-fill': '#0ea5e9',
+    });
   });
 
   it('distinguishes every enabled occurrence state and its coarse series spine', () => {

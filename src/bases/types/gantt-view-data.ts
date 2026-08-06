@@ -49,6 +49,8 @@ export interface GanttLegendContext {
   hasResolvedSchedulingCalendar: boolean;
   /** Representative paint for enabled read-only event-row families and feeds. */
   calendarEventColor: string | null;
+  /** Representative paint owned specifically by enabled external occurrence feeds. */
+  externalOccurrenceColor: string | null;
   estimateMeaning: EstimateMeaning;
   nonWorkingRendering: NonWorkingRendering;
   estimateOverrideMapped: boolean;

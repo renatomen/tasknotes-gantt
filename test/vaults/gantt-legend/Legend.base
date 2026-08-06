@@ -13,7 +13,7 @@ views:
     tngantt_barFillSource: calendar
     tngantt_barStripSource: priority
     tngantt_barIcon: status
-    tngantt_showDateIndicators: false
+    tngantt_showDateIndicators: true
     tngantt_showRecurring: true
     tngantt_showPropertyBasedEvents: true
     tngantt_propertyEventStart: note.scheduled

@@ -119,7 +119,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
   'date-status': {
     group: 'schedule',
     name: 'Date status',
-    meaning: 'Orange treatment marks dates that are missing, inferred, or corrected for display.',
+    meaning: 'A red border marks dates that are missing, inferred, or corrected for display.',
     sampleKind: 'bar',
     isApplicable: (context) => context.showDateIndicators,
   },
@@ -259,7 +259,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Replicated task',
     meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
     sampleKind: 'decoration',
-    isApplicable: () => true,
+    isApplicable: (context) => context.taskNotesPresent,
   },
   'context-task': {
     group: 'structure',
@@ -385,22 +385,40 @@ function sampleFor(
     };
   }
   if (semanticId === 'occurrence-series-spine') {
-    return {
-      kind,
-      classTokens,
-      cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
-    };
+    return occurrenceSeriesSpineSample(context, kind, classTokens);
   }
   if (semanticId === 'occurrence-external') {
-    return {
-      kind,
-      classTokens,
-      ...(context.calendarEventColor
-        ? { cssVariables: { '--og-ghost-fill': context.calendarEventColor } }
-        : {}),
-    };
+    return externalOccurrenceSample(context, kind, classTokens);
   }
   return baseSample(semanticId, kind, classTokens);
+}
+
+function occurrenceSeriesSpineSample(
+  context: GanttLegendContext,
+  kind: LegendSampleKind,
+  classTokens: string[],
+): LegendSampleDescriptor {
+  const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
+  const color = externalOnly ? context.externalOccurrenceColor : representativeBarColor(context);
+  return {
+    kind,
+    classTokens,
+    ...(color ? { cssVariables: { '--og-ghost-fill': color } } : {}),
+  };
+}
+
+function externalOccurrenceSample(
+  context: GanttLegendContext,
+  kind: LegendSampleKind,
+  classTokens: string[],
+): LegendSampleDescriptor {
+  return {
+    kind,
+    classTokens,
+    ...(context.externalOccurrenceColor
+      ? { cssVariables: { '--og-ghost-fill': context.externalOccurrenceColor } }
+      : {}),
+  };
 }
 
 function occurrenceOccupancySample(
@@ -410,7 +428,7 @@ function occurrenceOccupancySample(
   const recurring = hasRecurring(context);
   const treatment = recurring
     ? representativeTreatment(context)
-    : representativeEventTreatment(context);
+    : representativeExternalEventTreatment(context);
   const paintedClassTokens = recurring
     ? compact([classes.bar, treatment.paints?.fill?.classToken, classes.occurrence])
     : [...treatment.classTokens, classes.occurrence];
@@ -533,6 +551,22 @@ function representativeEventTreatment(context: GanttLegendContext): Representati
     ? {
         '--og-event-color': context.calendarEventColor,
         '--og-ghost-fill': context.calendarEventColor,
+      }
+    : {};
+  return {
+    classTokens: [classes.bar, classes.calendarEvent],
+    paints: {},
+    cssVariables,
+  };
+}
+
+function representativeExternalEventTreatment(
+  context: GanttLegendContext,
+): RepresentativeTreatment {
+  const cssVariables: Record<string, string> = context.externalOccurrenceColor
+    ? {
+        '--og-event-color': context.externalOccurrenceColor,
+        '--og-ghost-fill': context.externalOccurrenceColor,
       }
     : {};
   return {

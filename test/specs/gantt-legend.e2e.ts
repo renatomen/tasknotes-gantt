@@ -559,6 +559,28 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 
+  it("keeps the rendered date-status border visible under the active fill treatment", async () => {
+    await openLegend();
+
+    const border = await browser.execute(() => {
+      const sample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status"] .og-legend-bar',
+      );
+      const style = sample ? getComputedStyle(sample) : null;
+      return style
+        ? {
+            color: style.borderColor,
+            style: style.borderStyle,
+            width: Number.parseFloat(style.borderWidth),
+          }
+        : null;
+    });
+
+    expect(border?.color).toBe("rgb(192, 57, 43)");
+    expect(border?.style).toBe("solid");
+    expect(border?.width).toBeGreaterThan(0);
+  });
+
   it("reuses production shading and treatment paint for secondary semantics", async () => {
     await openLegend();
     const paint = await browser.execute(() => {
