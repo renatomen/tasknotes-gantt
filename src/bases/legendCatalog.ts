@@ -7,6 +7,10 @@ import {
   type TreatmentInstance,
 } from './barTreatment';
 import { resolveMarkerColor } from './markerOverlay';
+import {
+  CALENDAR_CONFLICT_BACKGROUND,
+  CALENDAR_SHADE_BACKGROUND,
+} from './calendarShading';
 import type { GanttLegendContext } from './types/gantt-view-data';
 import {
   GANTT_VISUAL_CLASS_TOKENS as classes,
@@ -86,6 +90,11 @@ const hasRecurring = (context: GanttLegendContext): boolean =>
   context.taskNotesPresent && context.calendarItems.showRecurring;
 const hasOccurrences = (context: GanttLegendContext): boolean =>
   hasRecurring(context) || (context.taskNotesPresent && context.externalCalendarsEnabled);
+const hasCalendarEvents = (context: GanttLegendContext): boolean =>
+  context.calendarItems.showTimeEntries ||
+  context.calendarItems.showTimeblocks ||
+  context.calendarItems.showPropertyBasedEvents ||
+  context.externalCalendarsEnabled;
 
 export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
   'bar-treatment': {
@@ -143,6 +152,13 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
     sampleKind: 'shading',
     isApplicable: (context) => context.calendarDisplayedCount >= 2,
+  },
+  'calendar-event': {
+    group: 'calendars',
+    name: 'Calendar event',
+    meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.',
+    sampleKind: 'bar',
+    isApplicable: hasCalendarEvents,
   },
   'today-marker': {
     group: 'calendars',
@@ -305,16 +321,14 @@ function sampleFor(
   context: GanttLegendContext,
   icons: LegendIconSample[],
 ): LegendSampleDescriptor {
-  const palettes = palettesOf(context);
   if (semanticId === 'bar-treatment') {
-    const fill = resolveRepresentativeChannelPaint(context.barFillSource, palettes) ?? undefined;
-    const strip = resolveRepresentativeChannelPaint(context.barStripSource, palettes) ?? undefined;
+    const treatment = representativeTreatment(context);
     return {
       kind,
-      classTokens: compact([classes.bar, fill?.classToken, strip?.classToken]),
-      paints: { fill, strip },
+      classTokens: treatment.classTokens,
+      paints: treatment.paints,
       icons: icons.slice(0, 1),
-      ...(fill ? { cssVariables: { '--og-ghost-fill': fill.color } } : {}),
+      cssVariables: treatment.cssVariables,
     };
   }
   if (semanticId === 'bar-icon') {
@@ -337,10 +351,15 @@ function sampleFor(
     };
   }
   if (semanticId === 'occurrence-occupancy') {
+    const treatment = hasRecurring(context)
+      ? representativeTreatment(context)
+      : representativeEventTreatment(context);
     return {
       kind,
-      classTokens: [classes.ghostRuns, classes.occurrence],
+      classTokens: [...treatment.classTokens, classes.ghostRuns, classes.occurrence],
       pieces: splitPieces('gap'),
+      paints: treatment.paints,
+      cssVariables: treatment.cssVariables,
     };
   }
 
@@ -356,14 +375,60 @@ function sampleFor(
       cssVariables: { '--og-marker-color': resolveMarkerColor(undefined) },
     };
   }
-  if (semanticId === 'context-task') {
+  if (semanticId === 'calendar-event') {
+    const treatment = representativeEventTreatment(context);
+    return {
+      kind,
+      classTokens: treatment.classTokens,
+      cssVariables: treatment.cssVariables,
+    };
+  }
+  if (semanticUsesRepresentativeTreatment(semanticId)) {
+    const treatment = representativeTreatment(context);
+    return {
+      kind,
+      classTokens: [...treatment.classTokens, ...classTokens],
+      paints: treatment.paints,
+      cssVariables: representativeSemanticVariables(semanticId, treatment.cssVariables),
+    };
+  }
+  if (semanticId === 'occurrence-series-spine') {
     return {
       kind,
       classTokens,
-      cssVariables: { '--og-context-opacity': 'var(--og-context-opacity, 0.55)' },
+      cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
     };
   }
-  return { kind, classTokens };
+  if (semanticId === 'occurrence-external') {
+    return {
+      kind,
+      classTokens,
+      ...(context.calendarEventColor
+        ? { cssVariables: { '--og-ghost-fill': context.calendarEventColor } }
+        : {}),
+    };
+  }
+  return baseSample(semanticId, kind, classTokens);
+}
+
+function baseSample(
+  semanticId: GanttVisualSemanticId,
+  kind: LegendSampleKind,
+  classTokens: string[],
+): LegendSampleDescriptor {
+  const shadingBackground =
+    semanticId === 'weekend-shading' || semanticId === 'calendar-shading'
+      ? CALENDAR_SHADE_BACKGROUND
+      : semanticId === 'calendar-conflict'
+        ? CALENDAR_CONFLICT_BACKGROUND
+        : null;
+  return {
+    kind,
+    classTokens,
+    ...(shadingBackground
+      ? { cssVariables: { '--og-legend-shading-background': shadingBackground } }
+      : {}),
+  };
 }
 
 function palettesOf(context: GanttLegendContext): Palettes {
@@ -403,6 +468,62 @@ function representativeBarColor(context: GanttLegendContext): string {
   );
 }
 
+interface RepresentativeTreatment {
+  classTokens: string[];
+  paints: LegendSampleDescriptor['paints'];
+  cssVariables: Record<string, string>;
+}
+
+function representativeTreatment(context: GanttLegendContext): RepresentativeTreatment {
+  const palettes = palettesOf(context);
+  const fill = resolveRepresentativeChannelPaint(context.barFillSource, palettes) ?? undefined;
+  const strip = resolveRepresentativeChannelPaint(context.barStripSource, palettes) ?? undefined;
+  const ghostFill = fill?.color ?? 'var(--wx-gantt-task-color, #3d8de6)';
+  return {
+    classTokens: compact([classes.bar, fill?.classToken, strip?.classToken]),
+    paints: { fill, strip },
+    cssVariables: { '--og-ghost-fill': ghostFill },
+  };
+}
+
+function representativeEventTreatment(context: GanttLegendContext): RepresentativeTreatment {
+  const cssVariables: Record<string, string> = context.calendarEventColor
+    ? {
+        '--og-event-color': context.calendarEventColor,
+        '--og-ghost-fill': context.calendarEventColor,
+      }
+    : {};
+  return {
+    classTokens: [classes.bar, classes.calendarEvent],
+    paints: {},
+    cssVariables,
+  };
+}
+
+function semanticUsesRepresentativeTreatment(semanticId: GanttVisualSemanticId): boolean {
+  return (
+    semanticId === 'date-status' ||
+    semanticId === 'progress' ||
+    semanticId === 'occurrence-completed' ||
+    semanticId === 'occurrence-skipped' ||
+    semanticId === 'replicated-task' ||
+    semanticId === 'context-task' ||
+    semanticId === 'estimate-override'
+  );
+}
+
+function representativeSemanticVariables(
+  semanticId: GanttVisualSemanticId,
+  treatmentVariables: Record<string, string>,
+): Record<string, string> {
+  return semanticId === 'context-task'
+    ? {
+        ...treatmentVariables,
+        '--og-context-opacity': 'var(--og-context-opacity, 0.55)',
+      }
+    : treatmentVariables;
+}
+
 function treatmentMeaning(context: GanttLegendContext, icons: LegendIconSample[]): string {
   const channels: string[] = [];
   if (context.barFillSource !== 'none') channels.push(`${context.barFillSource} fill`);
@@ -438,6 +559,8 @@ function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
     case 'calendar-shading':
     case 'calendar-conflict':
       return [classes.calendarCell];
+    case 'calendar-event':
+      return [classes.bar, classes.calendarEvent];
     case 'today-marker':
       return [classes.marker, classes.markerToday];
     case 'calendar-marker':

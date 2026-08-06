@@ -9,6 +9,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-legend");
 
+interface ElementRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface ChartGeometry {
+  surface: ElementRect;
+  chart: ElementRect;
+}
+
+interface ChartViewState {
+  selectedCount: number;
+  scrollLeft: number;
+  scaleCellWidth: number;
+  scaleLabel: string;
+}
+
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
     const internalPlugins = (app as unknown as { internalPlugins?: {
@@ -66,21 +85,88 @@ async function chooseBottom(): Promise<void> {
   });
 }
 
+async function chartGeometry(): Promise<ChartGeometry> {
+  return browser.execute(() => {
+    const surface = document.querySelector(".og-bases-gantt .og-chart-surface") as HTMLElement;
+    const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+    const snapshot = (element: HTMLElement): ElementRect => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+    };
+    return { surface: snapshot(surface), chart: snapshot(chart) };
+  });
+}
+
+function expectGeometryUnchanged(actual: ChartGeometry, expected: ChartGeometry): void {
+  for (const part of ["surface", "chart"] as const) {
+    for (const edge of ["left", "top", "width", "height"] as const) {
+      expect(Math.abs(actual[part][edge] - expected[part][edge])).toBeLessThan(1);
+    }
+  }
+}
+
+async function chartViewState(): Promise<ChartViewState> {
+  return browser.execute(() => {
+    const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+    const scaleRows = document.querySelectorAll(".og-bases-gantt .wx-scale .wx-row");
+    const scaleCell = scaleRows[scaleRows.length - 1]?.querySelector(".wx-cell") as HTMLElement;
+    return {
+      selectedCount: document.querySelectorAll(".og-bases-gantt .wx-selected").length,
+      scrollLeft: chart.scrollLeft,
+      scaleCellWidth: scaleCell.getBoundingClientRect().width,
+      scaleLabel: scaleCell.textContent?.trim() ?? "",
+    };
+  });
+}
+
+async function ensureRealChartSelection(): Promise<void> {
+  if ((await $$(".og-bases-gantt .wx-selected")).length === 0) {
+    const clicked = await browser.execute(() => {
+      const bar = document.querySelector(".og-bases-gantt .wx-bar.og-event") as HTMLElement | null;
+      if (!bar) return false;
+      const bounds = bar.getBoundingClientRect();
+      for (let y = bounds.top + 2; y < bounds.bottom - 1; y += 4) {
+        for (let x = bounds.left + 2; x < bounds.right - 1; x += 4) {
+          const target = document.elementFromPoint(x, y) as HTMLElement | null;
+          if (!target?.closest(".wx-bar.og-event")) continue;
+          target.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    expect(clicked).toBe(true);
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
+      timeout: 8000,
+      timeoutMsg: "Legend fixture bar did not become selected",
+    });
+  }
+}
+
 async function openFixtureBase(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
     const workspace = app.workspace as unknown as {
       detachLeavesOfType: (type: string) => void;
-      iterateAllLeaves: (callback: (leaf: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
-      getLeaf: (newLeaf?: boolean) => { openFile: (file: unknown) => Promise<void> };
+      iterateAllLeaves: (callback: (leaf: {
+        view?: { getViewType?: () => string };
+        detach?: () => void;
+        openFile: (file: unknown) => Promise<void>;
+      }) => void) => void;
+      getLeaf: (newLeaf?: boolean) => {
+        view?: { getViewType?: () => string };
+        detach?: () => void;
+        openFile: (file: unknown) => Promise<void>;
+      };
     };
+    const targetLeaf = workspace.getLeaf(true);
     const markdownLeaves: Array<{ detach?: () => void }> = [];
     workspace.iterateAllLeaves((leaf) => {
-      if (leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
+      if (leaf !== targetLeaf && leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
     });
     markdownLeaves.forEach((leaf) => leaf.detach?.());
     workspace.detachLeavesOfType("bases");
     const file = app.vault.getAbstractFileByPath("Legend.base");
-    if (file) await workspace.getLeaf(true).openFile(file as never);
+    if (file) await targetLeaf.openFile(file as never);
   });
 }
 
@@ -189,6 +275,49 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 
+  it("reuses production shading and treatment paint for secondary semantics", async () => {
+    await openLegend();
+    const paint = await browser.execute(() => {
+      const chartBar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chartBar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chartBar;
+      const replicated = document.querySelector('[data-semantic-id="replicated-task"] .og-legend-bar') as HTMLElement | null;
+      const completed = document.querySelector('[data-semantic-id="occurrence-completed"] .og-legend-bar') as HTMLElement | null;
+      const weekend = document.querySelector('[data-semantic-id="weekend-shading"] .og-legend-shading') as HTMLElement | null;
+      const weekendCell = document.querySelector('.og-bases-gantt .wx-weekend') as HTMLElement | null;
+      return {
+        chartBackground: chartPaint ? getComputedStyle(chartPaint).backgroundColor : null,
+        replicatedBackground: replicated ? getComputedStyle(replicated).backgroundColor : null,
+        replicatedHatch: replicated ? getComputedStyle(replicated, '::after').backgroundImage : null,
+        completedBackground: completed ? getComputedStyle(completed).backgroundColor : null,
+        weekendBackground: weekend ? getComputedStyle(weekend).backgroundColor : null,
+        weekendCellBackground: weekendCell ? getComputedStyle(weekendCell).backgroundColor : null,
+      };
+    });
+    expect(paint.replicatedBackground).toBe(paint.chartBackground);
+    expect(paint.replicatedHatch).toContain("repeating-linear-gradient");
+    expect(paint.completedBackground).toBe(paint.chartBackground);
+    expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
+  });
+
+  it("explains enabled read-only calendar-event bars with their production paint", async () => {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar.og-event")).length > 0, {
+      timeout: 10000,
+      timeoutMsg: "Property-event fixture did not render its read-only event bar",
+    });
+    await openLegend();
+    const paint = await browser.execute(() => {
+      const eventBar = document.querySelector('.og-bases-gantt .wx-bar.og-event') as HTMLElement | null;
+      const sample = document.querySelector('[data-semantic-id="calendar-event"] .og-legend-bar') as HTMLElement | null;
+      return {
+        eventBackground: eventBar ? getComputedStyle(eventBar).backgroundColor : null,
+        sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
+        sampleClasses: sample?.className ?? "",
+      };
+    });
+    expect(paint.sampleClasses).toContain("og-event");
+    expect(paint.sampleBackground).toBe(paint.eventBackground);
+  });
+
   it("contains right vertical overflow under a fixed header without scrolling the chart (AE3)", async () => {
     await openLegend();
     const result = await browser.execute(() => {
@@ -210,20 +339,41 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(result.chartUnchanged).toBe(true);
   });
 
-  it("switches live to bottom with horizontal overflow, preserves chart DOM/state, then reopens at the Appearance default (AE4/AE5)", async () => {
-    await browser.execute(() => {
-      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
-      const bar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]');
-      if (chart) chart.scrollLeft = Math.min(25, chart.scrollWidth - chart.clientWidth);
-      bar?.setAttribute("data-legend-state-marker", "preserved");
+  it("switches live without reflow, preserves selection/zoom/scroll, then reopens at the Appearance default (AE4/AE5)", async () => {
+    await ensureRealChartSelection();
+    const beforeZoom = await chartViewState();
+    await $(".og-bases-gantt .zoom-in").click();
+    await browser.waitUntil(async () => {
+      const current = await chartViewState();
+      return current.scaleCellWidth !== beforeZoom.scaleCellWidth || current.scaleLabel !== beforeZoom.scaleLabel;
+    }, {
+      timeout: 8000,
+      timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
     });
+    const scrollRange = await browser.execute(() => {
+      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+      if (!chart) return 0;
+      const maximum = chart.scrollWidth - chart.clientWidth;
+      chart.scrollLeft = Math.min(80, maximum);
+      return maximum;
+    });
+    expect(scrollRange).toBeGreaterThan(0);
+    const expectedGeometry = await chartGeometry();
+    const expectedState = await chartViewState();
+    expect(expectedState.selectedCount).toBeGreaterThan(0);
+    expect(expectedState.scrollLeft).toBeGreaterThan(0);
+
     await openLegend();
-    const beforeScroll = await browser.execute(() => (document.querySelector(".wx-chart") as HTMLElement)?.scrollLeft ?? 0);
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
+
     await chooseBottom();
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", {
       timeout: 8000,
       timeoutMsg: "Legend did not move to the bottom",
     });
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
     const bottom = await browser.execute(() => {
       const scroll = document.querySelector(".og-gantt-legend .og-legend-scroll") as HTMLElement;
       const header = document.querySelector(".og-gantt-legend .og-legend-header") as HTMLElement;
@@ -236,19 +386,21 @@ describe("Gantt (OG) context-aware legend", () => {
         verticalContentFits: scroll.scrollHeight <= scroll.clientHeight + 1,
         headerFixed: Math.abs(header.getBoundingClientRect().top - headerTop) < 1,
         chartScroll: chart.scrollLeft,
-        markerSurvived: !!document.querySelector('[data-legend-state-marker="preserved"]'),
       };
     });
     expect(bottom.overflowX).toBe("auto");
     expect(bottom.didScroll).toBe(true);
     expect(bottom.verticalContentFits).toBe(true);
     expect(bottom.headerFixed).toBe(true);
-    expect(bottom.chartScroll).toBe(beforeScroll);
-    expect(bottom.markerSurvived).toBe(true);
+    expect(bottom.chartScroll).toBe(expectedState.scrollLeft);
 
     await closeLegend();
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
     await openLegend();
     expect(await legendLayout()).toBe("right");
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
   });
 
   it("leaves an uncovered bar interactive and keeps panel clicks out of the chart (R8)", async () => {
@@ -278,12 +430,39 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(selectedAfter).toHaveLength(selectedBefore.length);
   });
 
-  it("uses an opaque full-view panel over an inert mounted chart and Return restores the same chart node (AE6)", async () => {
-    await openLegend();
+  it("automatically leaves full view when space returns and preserves real chart state through Return (AE6)", async () => {
+    await ensureRealChartSelection();
+    let scrollRange = 0;
+    for (let attempt = 0; attempt < 4 && scrollRange < 300; attempt += 1) {
+      const beforeZoom = await chartViewState();
+      await $(".og-bases-gantt .zoom-in").click();
+      await browser.waitUntil(async () => {
+        const current = await chartViewState();
+        return current.scaleCellWidth !== beforeZoom.scaleCellWidth || current.scaleLabel !== beforeZoom.scaleLabel;
+      }, {
+        timeout: 8000,
+        timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
+      });
+      scrollRange = await browser.execute(() => {
+        const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+        return chart ? chart.scrollWidth - chart.clientWidth : 0;
+      });
+    }
+    expect(scrollRange).toBeGreaterThanOrEqual(300);
     await browser.execute(() => {
-      const bar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]');
+      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+      if (chart) chart.scrollLeft = 60;
+    });
+
+    await openLegend();
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const expectedState = await chartViewState();
+    expect(expectedState.selectedCount).toBeGreaterThan(0);
+    expect(expectedState.scrollLeft).toBeGreaterThan(0);
+
+    await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
-      bar?.setAttribute("data-full-state-marker", "preserved");
       if (host) host.style.width = "400px";
     });
     await browser.waitUntil(async () => (await legendLayout()) === "full", {
@@ -295,14 +474,49 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(await $$(".og-gantt-legend [role='radiogroup']")).toHaveLength(0);
     const returnButton = await $(".og-gantt-legend .og-legend-dismiss");
     await expect(returnButton).toHaveText(expect.stringContaining("Return"));
-    expect(await $$('.og-bases-gantt .wx-bar[data-full-state-marker="preserved"]')).toHaveLength(1);
+    expect(await chartViewState()).toEqual(expectedState);
 
-    await returnButton.click();
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
       if (host) host.style.width = "";
     });
-    expect(await $$('.og-bases-gantt .wx-bar[data-full-state-marker="preserved"]')).toHaveLength(1);
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", {
+      timeout: 8000,
+      timeoutMsg: "Legend did not automatically restore its session position when space returned",
+    });
+    expect(await $$(".og-gantt-legend [role='radiogroup']")).toHaveLength(1);
+    const restoredAccessibility = await browser.execute(() => {
+      const surface = document.querySelector(".og-bases-gantt .og-chart-surface");
+      return {
+        inert: surface?.hasAttribute("inert") ?? false,
+        ariaHidden: surface?.getAttribute("aria-hidden"),
+      };
+    });
+    expect(restoredAccessibility).toEqual({ inert: false, ariaHidden: null });
+    await expect($(".og-gantt-legend .og-legend-dismiss")).toHaveText(expect.stringContaining("Close"));
+    const automaticallyRestoredState = await chartViewState();
+    expect(automaticallyRestoredState.selectedCount).toBe(expectedState.selectedCount);
+    expect(automaticallyRestoredState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
+    expect(automaticallyRestoredState.scaleLabel).toBe(expectedState.scaleLabel);
+    expect(automaticallyRestoredState.scrollLeft).toBeGreaterThan(0);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "400px";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "full", { timeout: 8000 });
+    const restoredReturnButton = await $(".og-gantt-legend .og-legend-dismiss");
+    await expect(restoredReturnButton).toHaveText(expect.stringContaining("Return"));
+
+    await restoredReturnButton.click();
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "";
+    });
+    const returnedState = await chartViewState();
+    expect(returnedState.selectedCount).toBe(expectedState.selectedCount);
+    expect(returnedState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
+    expect(returnedState.scaleLabel).toBe(expectedState.scaleLabel);
     await expect($(".og-legend-toggle")).toBeFocused();
   });
 
@@ -350,7 +564,8 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeFocused();
   });
 
-  it("closes Legend before maximize or an unrelated Obsidian modal on Escape", async () => {
+  it("lets an Obsidian popup close before Legend, then restores Legend trigger focus", async () => {
+    const trigger = await $(".og-legend-toggle");
     await openLegend();
     await browser.executeObsidian(async ({ app }) => {
       (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
@@ -358,13 +573,42 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, { timeout: 8000 });
     await browser.keys(["Escape"]);
-    const outcome = await browser.execute(() => {
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "First Escape did not close the Obsidian popup",
+    });
+    const firstEscape = await browser.execute(() => {
       return {
         legendOpen: !!document.querySelector(".og-gantt-legend"),
         maximized: !!document.querySelector(".og-bases-gantt.is-maximized"),
         modalOpen: !!document.querySelector(".modal-container .prompt"),
       };
     });
-    expect(outcome).toEqual({ legendOpen: false, maximized: true, modalOpen: true });
+    expect(firstEscape).toEqual({ legendOpen: true, maximized: true, modalOpen: false });
+
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "Second Escape did not close Legend",
+    });
+    expect(await $$(".og-bases-gantt.is-maximized")).toHaveLength(1);
+    await expect(trigger).toBeFocused();
+  });
+
+  // LAST test: it deliberately leaves another leaf active.
+  it("deactivates Legend without focusing its hidden trigger when another leaf becomes active", async () => {
+    await openLegend();
+    await browser.executeObsidian(async ({ app }) => {
+      app.workspace.getLeaf(true);
+    });
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "Legend stayed active after its owning leaf became inactive",
+    });
+    expect(await $$(".og-bases-gantt.is-maximized")).toHaveLength(0);
+    const hiddenTriggerFocused = await browser.execute(
+      () => document.activeElement?.classList.contains("og-legend-toggle") ?? false,
+    );
+    expect(hiddenTriggerFocused).toBe(false);
   });
 });

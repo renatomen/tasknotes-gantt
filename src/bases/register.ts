@@ -45,8 +45,10 @@ import {
   readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
+  externalCalendarFeedKey,
   type TimeblockWatch,
 } from '../datasource/calendarItems';
+import { isSafeColor } from './barTreatment';
 import { createDailyNoteAccess } from './dailyNoteAccess';
 import { sessionExternalCalendarDegradeSignal } from './externalCalendarDegradeNotice';
 import { createTimeblockLiveness } from './timeblockLiveness';
@@ -589,6 +591,29 @@ class ObsidianGanttBasesView extends BasesView {
       readExternalIcsSubscriptions(handle),
       readExternalProviderCalendars(handle),
     );
+  }
+
+  private readExternalCalendarLegendFacts(): {
+    enabled: boolean;
+    representativeColor: string | null;
+  } {
+    const handle = getTaskNotesPluginHandle(this.app);
+    if (handle === null) return { enabled: false, representativeColor: null };
+    const subscriptions = readExternalIcsSubscriptions(handle);
+    const providerCalendars = readExternalProviderCalendars(handle);
+    const visibleFeeds = readVisibleExternalCalendarFeeds(
+      (key) => this.config.get(key),
+      subscriptions,
+      providerCalendars,
+    );
+    const representativeColor = subscriptions.find(
+      ({ id, color }) =>
+        visibleFeeds.has(externalCalendarFeedKey('ics', id)) && isSafeColor(color),
+    )?.color;
+    return {
+      enabled: visibleFeeds.size > 0,
+      representativeColor: representativeColor ?? null,
+    };
   }
 
   private computeEntrySignature(): string {
@@ -1495,6 +1520,11 @@ class ObsidianGanttBasesView extends BasesView {
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
     const estimateOverrideMapped =
       (this.getEffectiveMappings().estimateMeaningProperty ?? '') !== '';
+    const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
+    const visibleCalendarEventColor =
+      instances
+        .map((instance) => instance.calendarItem?.color)
+        .find((color) => isSafeColor(color)) ?? null;
     return {
       instances,
       links,
@@ -1559,13 +1589,15 @@ class ObsidianGanttBasesView extends BasesView {
         priorityColors,
         calendarPalette: calendarShading.calendarPalette,
         calendarMarkers: calendarShading.markers,
-        calendarDisplayedCount: calendarShading.displayedCount,
+        calendarDisplayedCount: calendarShading.selectedCount,
+        calendarEventColor:
+          visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         estimateMeaning,
         nonWorkingRendering,
         estimateOverrideMapped,
         expandedRelationships: this.getExpandedRelationships(),
         calendarItems,
-        externalCalendarsEnabled: this.readVisibleExternalFeeds().size > 0,
+        externalCalendarsEnabled: externalCalendarLegendFacts.enabled,
       },
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
@@ -1595,6 +1627,7 @@ class ObsidianGanttBasesView extends BasesView {
     calendarPalette: { value: string; color: string }[];
     calendarBySource: Map<string, string>;
     displayedCount: number;
+    selectedCount: number;
   } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -1663,6 +1696,7 @@ class ObsidianGanttBasesView extends BasesView {
       calendarPalette: computed.calendarPalette,
       calendarBySource: computed.calendarBySource,
       displayedCount: computed.displayedCount,
+      selectedCount: computed.selectedCount,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,

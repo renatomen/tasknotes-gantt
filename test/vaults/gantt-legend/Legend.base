@@ -14,6 +14,11 @@ views:
     tngantt_barStripSource: priority
     tngantt_barIcon: status
     tngantt_showDateIndicators: false
+    tngantt_showRecurring: true
+    tngantt_showPropertyBasedEvents: true
+    tngantt_propertyEventStart: note.scheduled
+    tngantt_propertyEventEnd: note.due
+    tngantt_propertyEventTitle: file.name
     tngantt_estimateMeaning: working-days
     tngantt_nonWorkingRendering: split
     tngantt_defaultScale: day

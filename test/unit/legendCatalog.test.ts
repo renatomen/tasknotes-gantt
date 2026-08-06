@@ -22,6 +22,7 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarPalette: [],
   calendarMarkers: [],
   calendarDisplayedCount: 0,
+  calendarEventColor: null,
   estimateMeaning: 'calendar-days',
   nonWorkingRendering: 'shaded',
   estimateOverrideMapped: false,
@@ -222,6 +223,66 @@ describe('buildLegendCatalog', () => {
         'working-time-split',
         'estimate-override',
       ]),
+    );
+  });
+
+  it('shows a configuration-complete calendar-event sample for enabled event families', () => {
+    const context = baseContext({
+      calendarEventColor: '#0ea5e9',
+      calendarItems: {
+        ...baseContext().calendarItems,
+        showPropertyBasedEvents: true,
+      },
+    });
+
+    expect(entry(context, 'calendar-event').sample).toMatchObject({
+      classTokens: ['wx-bar', 'og-event'],
+      cssVariables: {
+        '--og-event-color': '#0ea5e9',
+        '--og-ghost-fill': '#0ea5e9',
+      },
+    });
+  });
+
+  it('omits calendar-event semantics when every event-row family and feed is disabled', () => {
+    expect(entries(baseContext()).map((candidate) => candidate.semanticId)).not.toContain(
+      'calendar-event',
+    );
+  });
+
+  it('composes normal secondary bar cues over the configured representative treatment', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'status',
+      barStripSource: 'priority',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      priorityColors: [{ value: 'High', color: '#f97316' }],
+      calendarItems: {
+        ...baseContext().calendarItems,
+        showRecurring: true,
+      },
+    });
+
+    expect(entry(context, 'replicated-task').sample).toMatchObject({
+      classTokens: expect.arrayContaining(['wx-bar', 'og-replicated', expect.stringMatching(/^og-status-/), expect.stringMatching(/^og-prio-/)]),
+      cssVariables: { '--og-ghost-fill': '#2563eb' },
+    });
+    expect(entry(context, 'occurrence-completed').sample).toMatchObject({
+      classTokens: expect.arrayContaining(['wx-bar', 'og-instance', 'og-instance-completed', expect.stringMatching(/^og-status-/)]),
+      cssVariables: { '--og-ghost-fill': '#2563eb' },
+    });
+  });
+
+  it('keeps state-owned occurrence paint independent of the active task treatment', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    expect(entry(context, 'occurrence-next').sample.classTokens).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^og-status-/)]),
     );
   });
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, MutationObserver, MutationRecord, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -473,7 +473,6 @@
   let chartHostWidth = $state(0);
   let chartHostHeight = $state(0);
   let legendEscapeScope: Scope | undefined;
-  let legendOverlayObserver: MutationObserver | undefined;
   const legendGroups = $derived($data.legendContext ? buildLegendCatalog($data.legendContext) : []);
   const legendLayout = $derived(
     legendSession.open
@@ -512,17 +511,17 @@
     legendSession = reduceLegendSession(legendSession, { type: 'move', position });
   }
 
-  async function closeLegend(): Promise<void> {
+  async function closeLegend(options: { restoreFocus?: boolean } = {}): Promise<void> {
     if (!legendSession.open) return;
     deactivateLegendEscapeScope();
     legendSession = reduceLegendSession(legendSession, { type: 'close' });
     await tick();
-    legendTriggerEl?.focus();
+    if (options.restoreFocus !== false && !document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) {
+      legendTriggerEl?.focus();
+    }
   }
 
   function deactivateLegendEscapeScope(): void {
-    legendOverlayObserver?.disconnect();
-    legendOverlayObserver = undefined;
     if (legendEscapeScope) app.keymap.popScope(legendEscapeScope);
     legendEscapeScope = undefined;
   }
@@ -531,6 +530,7 @@
     deactivateLegendEscapeScope();
     const scope = new Scope();
     scope.register([], 'Escape', (event) => {
+      if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       void closeLegend();
@@ -538,22 +538,6 @@
     });
     app.keymap.pushScope(scope);
     legendEscapeScope = scope;
-
-    // Obsidian popups push a newer keymap scope after opening. Reassert ours
-    // only when such an overlay appears so the first Escape remains Legend's.
-    const addsOverlay = (mutation: MutationRecord): boolean =>
-      Array.from(mutation.addedNodes).some(
-        (node) =>
-          node instanceof Element &&
-          (node.matches(OBSIDIAN_OVERLAY_SELECTOR) || Boolean(node.querySelector(OBSIDIAN_OVERLAY_SELECTOR))),
-      );
-    legendOverlayObserver = new MutationObserver((mutations) => {
-      if (mutations.some(addsOverlay)) {
-        app.keymap.popScope(scope);
-        app.keymap.pushScope(scope);
-      }
-    });
-    legendOverlayObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   // External-calendar fetching indicator, store-driven like showToolbar so the
@@ -1455,7 +1439,7 @@
       registerEscape: (onEscape) => {
         const handler = (e: KeyboardEvent): void => {
           if (e.key !== 'Escape') return;
-          if (document.querySelector('.og-gantt-legend')) return;
+          if (legendSession.open) return;
           if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
           onEscape();
         };
@@ -1472,24 +1456,22 @@
       maximizeController = undefined;
     };
   });
-  // Auto-exit maximize when our leaf stops being the active one. Because the
-  // maximized root lives on `document.body` (not in the leaf), Obsidian's normal
-  // hide-the-inactive-leaf behavior no longer covers it — without this, switching
-  // tabs would leave the full-window chart painted over a different tab. Exiting
-  // also keeps only one view maximized at a time. Our origin container
-  // (`restoreParent`) stays inside our leaf; if the now-active leaf doesn't
-  // contain it, the active leaf isn't ours.
+  // Deactivate transient UI when our leaf stops being active. A maximized root
+  // lives on `document.body`, so it must be restored explicitly; an ordinary
+  // hidden leaf also needs its Legend scope removed so it cannot consume Escape
+  // or focus its hidden trigger from another leaf. Our origin container
+  // (`restoreParent`) stays inside our leaf while maximized.
   $effect(() => {
     const ref = app.workspace.on('active-leaf-change', (leaf) => {
-      if (!maximizeController?.isMaximized()) return;
       const activeContainer = leaf?.view?.containerEl ?? null;
       // Null/transient leaf changes (Obsidian emits these when a modal opens or
-      // during focus transitions) are NOT a real tab switch — staying maximized
-      // is correct. Only exit when a genuine OTHER leaf became active.
+      // during focus transitions) are NOT a real tab switch. Only deactivate UI
+      // when a genuine OTHER leaf became active.
       if (!activeContainer) return;
-      const owner = restoreParent;
+      const owner = restoreParent ?? rootEl;
       if (owner && activeContainer.contains(owner)) return; // still our leaf
-      maximizeController.exit();
+      if (legendSession.open) void closeLegend({ restoreFocus: false });
+      if (maximizeController?.isMaximized()) maximizeController.exit();
     });
     return () => app.workspace.offref(ref);
   });

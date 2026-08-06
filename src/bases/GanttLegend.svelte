@@ -146,7 +146,7 @@
       {/each}
     </div>
   {:else if descriptor.kind === 'progress'}
-    <div class={`og-legend-bar ${classes.bar}`}>
+    <div class={`og-legend-bar ${className(descriptor.classTokens)}`} style={descriptorStyle(descriptor)}>
       <div class={classes.progressWrapper}><div class={classes.progressFill}></div></div>
     </div>
   {:else if descriptor.kind === 'link'}
@@ -154,13 +154,16 @@
       <span class="og-legend-link-node"></span><span class={classes.dependencyLine}></span><span class="og-legend-link-arrow"></span>
     </div>
   {:else if descriptor.kind === 'shading'}
-    <div class={`og-legend-shading og-legend-${semanticId} ${className(descriptor.classTokens)}`}></div>
+    <div
+      class={`og-legend-shading og-legend-${semanticId} ${className(descriptor.classTokens)}`}
+      style={descriptorStyle(descriptor)}
+    ></div>
   {:else if descriptor.kind === 'marker'}
     <div class="og-legend-marker-frame" style={descriptorStyle(descriptor)}>
       <span class={className(descriptor.classTokens)}></span>
     </div>
   {:else if descriptor.kind === 'pieces'}
-    <div class={`${classes.ghostRuns} og-legend-pieces`} style={descriptorStyle(descriptor)}>
+    <div class={`${className(descriptor.classTokens)} og-legend-pieces`} style={descriptorStyle(descriptor)}>
       {#each descriptor.pieces ?? [] as piece, index (index)}
         <span
           class={`${className(piece.classTokens)} og-piece-${piece.treatment}`}
@@ -330,10 +333,11 @@
   .og-legend-link :global(.wx-line) { flex: 1; height: 2px; background: currentColor; }
   .og-legend-link-arrow { width: 0; height: 0; border-block: 5px solid transparent; border-left: 7px solid currentColor; }
 
-  .og-legend-shading { height: 100%; border: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
-  .og-legend-weekend-shading,
-  .og-legend-calendar-shading { background: color-mix(in srgb, var(--background-secondary) 75%, var(--interactive-accent) 25%); }
-  .og-legend-calendar-conflict { background: repeating-linear-gradient(45deg, transparent 0 5px, var(--interactive-accent) 5px 7px), var(--background-secondary); }
+  .og-legend-shading {
+    height: 100%;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--og-legend-shading-background, var(--background-secondary));
+  }
 
   .og-legend-marker-frame,
   .og-legend-line-frame,

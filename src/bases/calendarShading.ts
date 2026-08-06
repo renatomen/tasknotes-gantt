@@ -38,13 +38,16 @@ import { GANTT_VISUAL_CLASS_TOKENS } from './visualSemantics';
 // backgrounds with !important, and a calendar-shaded date can fall on a
 // weekend — calendar shading must survive that toggle (adding a calendar
 // only ever adds shading; the legacy toggle gates only the built-in default).
-const SHADE_DECLARATION = '{background:var(--wx-gantt-holiday-background)!important;}';
+export const CALENDAR_SHADE_BACKGROUND = 'var(--wx-gantt-holiday-background)';
+export const CALENDAR_CONFLICT_BACKGROUND =
+  'repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)';
+
+const SHADE_DECLARATION = `{background:${CALENDAR_SHADE_BACKGROUND}!important;}`;
 
 // Disagreement stripes: one displayed calendar blocks the day, another's
 // working pattern covers it. Emitted after the shade rule so it wins at
 // equal specificity.
-const CONFLICT_DECLARATION =
-  '{background:repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)!important;}';
+const CONFLICT_DECLARATION = `{background:${CALENDAR_CONFLICT_BACKGROUND}!important;}`;
 
 /**
  * The evaluation window for shading — the derivation authority's span window
@@ -185,7 +188,10 @@ export interface ShadingAssemblyInputs {
 /** The assembly result: the stylesheet plus the facts the banner reads. */
 export interface ShadingComputation {
   css: string;
+  /** Calendars that actually contributed to the current dated chart window. */
   displayedCount: number;
+  /** Calendars selected by the active display configuration, window or not. */
+  selectedCount: number;
   conflictCount: number;
   /** The displayed calendars that disagree, so the banner can name them. */
   conflictCalendars: string[];
@@ -246,7 +252,8 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   if (window === null) {
     return {
       css: buildCalendarShadingCss(inputs.scope, []),
-      displayedCount: displayed.size,
+      displayedCount: 0,
+      selectedCount: displayed.size,
       conflictCount: 0,
       conflictCalendars: [],
       invalidCount,
@@ -271,6 +278,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       conflicts.dates,
     ),
     displayedCount: displayed.size,
+    selectedCount: displayed.size,
     conflictCount: conflicts.dates.length,
     conflictCalendars: conflicts.calendars,
     invalidCount,

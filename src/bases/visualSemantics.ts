@@ -13,6 +13,7 @@ export const GANTT_VISUAL_SEMANTIC_IDS = [
   'weekend-shading',
   'calendar-shading',
   'calendar-conflict',
+  'calendar-event',
   'today-marker',
   'calendar-marker',
   'working-time-extension',

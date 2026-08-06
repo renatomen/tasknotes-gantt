@@ -290,15 +290,16 @@ describe('computeCalendarShadingCss', () => {
     expect(css).not.toContain('og-d-');
   });
 
-  it('emits the base rule only when there are no dated tasks to window against', () => {
-    const { css, displayedCount } = computeShading({
+  it('keeps the selected calendar count without reporting an unrendered display', () => {
+    const { css, displayedCount, selectedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
       taskSpans: [],
     });
     expect(css).not.toContain('og-d-');
-    expect(displayedCount).toBe(1);
+    expect(displayedCount).toBe(0);
+    expect(selectedCount).toBe(1);
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {
