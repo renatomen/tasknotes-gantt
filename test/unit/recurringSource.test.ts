@@ -24,6 +24,7 @@ import {
   type RecurringSourceDeps,
 } from '../../src/datasource/calendarItems/recurringSource';
 import { hasRecordedRecurringOccurrences } from '../../src/controller/InstanceExpansion';
+import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 import { TASKNOTES_CHANGE_EVENTS, type TaskNotesTaskInfo } from '../../src/datasource/TaskNotesSource';
 
 /**
@@ -275,10 +276,11 @@ describe('recurringSource — family off (R13)', () => {
       ['2026-01-20', 'materialized'],
     ]);
     expect(batch.plainBarSuppressedTaskPaths?.has(STANDUP_PATH)).toBe(false);
+    const renderedInstance: Pick<RenderInstance, 'occupancy'> = {
+      occupancy: batch.occupancyByTaskPath.get(STANDUP_PATH),
+    };
     expect(
-      hasRecordedRecurringOccurrences([
-        { occupancy: batch.occupancyByTaskPath.get(STANDUP_PATH) },
-      ]),
+      hasRecordedRecurringOccurrences([renderedInstance]),
     ).toBe(true);
   });
 });

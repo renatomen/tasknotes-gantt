@@ -39,27 +39,38 @@ export type RecurringInstanceState =
   | 'skipped'
   | 'materialized';
 
-export type RecordedRecurringState = Extract<
+const RECURRING_STATE_KINDS: Record<
   RecurringInstanceState,
-  'completed' | 'skipped' | 'materialized'
->;
-
-/** State classes that represent recorded or materialized, rather than virtual, occurrences. */
-const RECORDED_RECURRING_STATE_MAP: Record<RecordedRecurringState, true> = {
-  completed: true,
-  skipped: true,
-  materialized: true,
+  'virtual' | 'recorded'
+> = {
+  next: 'virtual',
+  projected: 'virtual',
+  completed: 'recorded',
+  skipped: 'recorded',
+  materialized: 'recorded',
 };
 
+export type RecordedRecurringState = Extract<
+  {
+    [State in RecurringInstanceState]: (typeof RECURRING_STATE_KINDS)[State] extends 'recorded'
+      ? State
+      : never;
+  }[RecurringInstanceState],
+  RecurringInstanceState
+>;
+
 export const RECORDED_RECURRING_STATE_CLASSES: readonly RecordedRecurringState[] =
-  Object.keys(RECORDED_RECURRING_STATE_MAP) as RecordedRecurringState[];
+  Object.entries(RECURRING_STATE_KINDS)
+    .filter(([, kind]) => kind === 'recorded')
+    .map(([state]) => state) as RecordedRecurringState[];
 
 export function isRecordedRecurringStateClass(
   stateClass: string | undefined,
 ): stateClass is RecordedRecurringState {
   return (
     stateClass !== undefined &&
-    Object.prototype.hasOwnProperty.call(RECORDED_RECURRING_STATE_MAP, stateClass)
+    Object.prototype.hasOwnProperty.call(RECURRING_STATE_KINDS, stateClass) &&
+    RECURRING_STATE_KINDS[stateClass as RecurringInstanceState] === 'recorded'
   );
 }
 

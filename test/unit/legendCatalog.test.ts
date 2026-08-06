@@ -634,15 +634,15 @@ describe('buildLegendCatalog', () => {
     });
     const ids = entries(context).map((candidate) => candidate.semanticId);
 
-    expect(ids).not.toEqual(
-      expect.arrayContaining([
-        'occurrence-occupancy',
-        'occurrence-completed',
-        'occurrence-skipped',
-        'occurrence-materialized',
-        'occurrence-series-spine',
-      ]),
-    );
+    for (const semanticId of [
+      'occurrence-occupancy',
+      'occurrence-completed',
+      'occurrence-skipped',
+      'occurrence-materialized',
+      'occurrence-series-spine',
+    ] as const) {
+      expect(ids).not.toContain(semanticId);
+    }
   });
 
   it('advertises virtual recurring semantics when virtual recurrence is enabled', () => {
