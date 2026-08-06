@@ -1,6 +1,6 @@
 /**
- * Inert `obsidian` module shim for the isolated render harness (#161 perf plan,
- * KD2 / U3). `GanttContainer.svelte` imports `Notice`/`setIcon` at module scope
+ * Inert `obsidian` module shim for the isolated render harness.
+ * `GanttContainer.svelte` imports `Notice`/`Scope`/`setIcon` at module scope
  * and pulls `CascadeConfirmModal`, which imports `App`/`Modal`/`Setting` — none
  * of which exist outside Obsidian. The Vitest browser config aliases `obsidian`
  * to this file so the module graph loads and mounts in plain Chromium.
@@ -20,6 +20,10 @@ export class Notice {
     return this;
   }
   hide(): void {}
+}
+
+export class Scope {
+  register(_modifiers: string[], _key: string, _callback: (...args: any[]) => any): void {}
 }
 
 export function setIcon(_parent: any, _iconId: string): void {}
