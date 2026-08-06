@@ -11,6 +11,7 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-legend");
 const FIXTURE_RESTORE_ATTEMPTS = 2;
 
 let fixtureNonWorkingRenderingNeedsReset = false;
+let fixtureBarChannelsNeedReset = false;
 
 interface ElementRect {
   left: number;
@@ -262,6 +263,62 @@ async function restoreFixtureNonWorkingRendering(): Promise<void> {
   );
 }
 
+type FixtureBarSource = "none" | "calendar" | "priority";
+
+async function writeFixtureBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  const updated = await browser.executeObsidian(async ({ app }, nextFill, nextStrip) => {
+    const file = app.vault.getAbstractFileByPath("Legend.base");
+    if (!file) return false;
+    const body = await app.vault.read(file as never) as string;
+    const nextBody = body
+      .replace(
+        /tngantt_barFillSource: (?:none|calendar|priority)/,
+        `tngantt_barFillSource: ${nextFill}`,
+      )
+      .replace(
+        /tngantt_barStripSource: (?:none|calendar|priority)/,
+        `tngantt_barStripSource: ${nextStrip}`,
+      );
+    const expected =
+      nextBody.includes(`tngantt_barFillSource: ${nextFill}`) &&
+      nextBody.includes(`tngantt_barStripSource: ${nextStrip}`);
+    if (!expected) return false;
+    if (nextBody !== body) await app.vault.modify(file as never, nextBody);
+    return true;
+  }, fillSource, stripSource);
+  expect(updated).toBe(true);
+}
+
+async function setFixtureBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  fixtureBarChannelsNeedReset = fillSource !== "calendar" || stripSource !== "priority";
+  await writeFixtureBarChannels(fillSource, stripSource);
+  await remountMaximizedFixture();
+}
+
+async function restoreFixtureBarChannels(): Promise<void> {
+  await writeFixtureBarChannels("calendar", "priority");
+  const remountFailures: unknown[] = [];
+  for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
+    try {
+      await remountMaximizedFixture();
+      fixtureBarChannelsNeedReset = false;
+      return;
+    } catch (error) {
+      remountFailures.push(error);
+    }
+  }
+  throw createCombinedFailure(
+    `Gantt legend fixture bar-channel restoration failed after ${FIXTURE_RESTORE_ATTEMPTS} attempts`,
+    remountFailures,
+  );
+}
+
 describe("Gantt (OG) context-aware legend", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
@@ -339,6 +396,9 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     await attemptCleanup(async () => {
       if (fixtureNonWorkingRenderingNeedsReset) await restoreFixtureNonWorkingRendering();
+    });
+    await attemptCleanup(async () => {
+      if (fixtureBarChannelsNeedReset) await restoreFixtureBarChannels();
     });
     await attemptCleanup(async () => {
       await browser.execute(() => {
@@ -522,6 +582,71 @@ describe("Gantt (OG) context-aware legend", () => {
       progressHostOwnsNestedClasses: false,
       progressHasNestedClasses: true,
     });
+  });
+
+  it("suppresses duplicate occurrence strips when fill and strip share a treatment token", async () => {
+    await setFixtureBarChannels("priority", "priority");
+    await openLegend();
+
+    const ownership = await browser.execute(() => {
+      const occupancy = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-occupancy"] .og-legend-pieces',
+      );
+      const pieces = [...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? [])];
+      const envelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
+      const hasPriorityToken = (element: HTMLElement): boolean =>
+        [...element.classList].some((token) => token.startsWith("og-prio-"));
+      return {
+        pieceCount: pieces.length,
+        piecesCarrySharedToken: pieces.every(hasPriorityToken),
+        pieceStripsSuppressed: pieces.every(
+          (piece) => getComputedStyle(piece, "::before").content === "none",
+        ),
+        envelopeCount: envelopes.length,
+        envelopeCarriesSharedToken: envelopes.every(hasPriorityToken),
+        envelopeDrawsStrip: envelopes.every(
+          (envelope) => getComputedStyle(envelope, "::before").content !== "none",
+        ),
+      };
+    });
+
+    expect(ownership).toEqual({
+      pieceCount: 2,
+      piecesCarrySharedToken: true,
+      pieceStripsSuppressed: true,
+      envelopeCount: 1,
+      envelopeCarriesSharedToken: true,
+      envelopeDrawsStrip: true,
+    });
+  });
+
+  it("matches strip-only occurrence pieces to the chart piece body", async () => {
+    await setFixtureBarChannels("none", "priority");
+    await openLegend();
+
+    const paint = await browser.execute(() => {
+      const chartPiece = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .og-ghost-run:not(.og-ghost-blocked)',
+      );
+      const legendPieces = [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-semantic-id="occurrence-occupancy"] .og-piece-painted',
+        ),
+      ];
+      return {
+        chartBackground: chartPiece ? getComputedStyle(chartPiece).backgroundColor : null,
+        legendBackgrounds: legendPieces.map(
+          (piece) => getComputedStyle(piece).backgroundColor,
+        ),
+        legendBorders: legendPieces.map((piece) => getComputedStyle(piece).borderStyle),
+      };
+    });
+
+    expect(paint.chartBackground).not.toBeNull();
+    expect(paint.legendBackgrounds).toEqual([paint.chartBackground, paint.chartBackground]);
+    expect(paint.legendBorders).toEqual(["none", "none"]);
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {

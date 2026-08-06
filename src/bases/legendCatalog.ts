@@ -29,6 +29,8 @@ export const LEGEND_GROUP_ORDER = [
 
 export type LegendGroupId = (typeof LEGEND_GROUP_ORDER)[number];
 
+const LEGEND_STRIP_ONLY_CLASS = 'og-legend-strip-only';
+
 export type LegendSampleKind =
   | 'bar'
   | 'icon-set'
@@ -413,9 +415,10 @@ function occurrenceOccupancySample(
     ? compact([classes.bar, treatment.paints?.fill?.classToken, classes.occurrence])
     : [...treatment.classTokens, classes.occurrence];
   const representativeStrip = recurring ? treatment.paints?.strip : undefined;
+  const stripOnly = recurring && !treatment.paints?.fill && !!representativeStrip;
   return {
     kind,
-    classTokens: [classes.ghostRuns],
+    classTokens: compact([classes.ghostRuns, stripOnly ? LEGEND_STRIP_ONLY_CLASS : undefined]),
     pieces: splitPieces('gap', paintedClassTokens),
     ...(representativeStrip
       ? { pieceEnvelopeClassTokens: compact([classes.bar, representativeStrip.classToken]) }

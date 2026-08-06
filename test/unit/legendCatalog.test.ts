@@ -232,6 +232,7 @@ describe('buildLegendCatalog', () => {
         'occurrence-occupancy',
       ).sample;
 
+      expect(occupancy.classTokens).toContain('og-legend-strip-only');
       expect(occupancy.pieceEnvelopeClassTokens).toEqual(['wx-bar']);
       for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
         expect(piece.classTokens).toEqual(['wx-bar', 'og-instance']);
@@ -255,6 +256,7 @@ describe('buildLegendCatalog', () => {
     ).sample;
     const stripClass = occupancy.pieceEnvelopeClassTokens?.[1];
 
+    expect(occupancy.classTokens).not.toContain('og-legend-strip-only');
     expect(stripClass).toMatch(/^og-status-/);
     for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
       expect(piece.classTokens).toEqual(['wx-bar', stripClass, 'og-instance']);
