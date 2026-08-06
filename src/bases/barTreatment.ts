@@ -455,6 +455,12 @@ interface EffectiveBarChannels {
   strip: BarChannelSource;
 }
 
+export interface RepresentativeBarBodyPaintInput {
+  fillSource: BarChannelSource;
+  stripSource: BarChannelSource;
+  palettes: Palettes;
+}
+
 function resolveEffectiveBarChannels(
   fillSource: BarChannelSource,
   stripSource: BarChannelSource,
@@ -468,41 +474,45 @@ function resolveEffectiveBarChannels(
 
 /** Representative body paint produced by the configured production channel dispatch. */
 export function resolveRepresentativeBarBodyPaint(
-  fillSource: BarChannelSource,
-  stripSource: BarChannelSource,
-  palettes: Palettes,
+  input: RepresentativeBarBodyPaintInput,
 ): RepresentativeChannelPaint | null {
-  const channels = resolveEffectiveBarChannels(fillSource, stripSource, palettes);
+  const channels = resolveEffectiveBarChannels(
+    input.fillSource,
+    input.stripSource,
+    input.palettes,
+  );
   if (channels.fill === 'none') {
     return channels.strip === 'none'
-      ? resolveRepresentativeChannelPaint('default', palettes)
+      ? resolveRepresentativeChannelPaint('default', input.palettes)
       : null;
   }
   return (
-    resolveRepresentativeChannelPaint(channels.fill, palettes) ??
+    resolveRepresentativeChannelPaint(channels.fill, input.palettes) ??
     (channels.fill === 'calendar'
-      ? resolveRepresentativeChannelPaint('default', palettes)
+      ? resolveRepresentativeChannelPaint('default', input.palettes)
       : null)
   );
 }
 
 /** Body paint inherited by a bar carrying no status, priority, or calendar value class. */
 export function resolveRepresentativeUnclassifiedBarBodyPaint(
-  fillSource: BarChannelSource,
-  stripSource: BarChannelSource,
-  palettes: Palettes,
+  input: RepresentativeBarBodyPaintInput,
 ): RepresentativeChannelPaint | null {
-  const channels = resolveEffectiveBarChannels(fillSource, stripSource, palettes);
+  const channels = resolveEffectiveBarChannels(
+    input.fillSource,
+    input.stripSource,
+    input.palettes,
+  );
   if (channels.fill === 'none') {
     return channels.strip === 'none'
-      ? resolveRepresentativeChannelPaint('default', palettes)
+      ? resolveRepresentativeChannelPaint('default', input.palettes)
       : null;
   }
   if (channels.fill === 'calendar') {
-    return resolveRepresentativeChannelPaint('default', palettes);
+    return resolveRepresentativeChannelPaint('default', input.palettes);
   }
   return channels.fill === 'default' || channels.fill === 'theme'
-    ? resolveRepresentativeChannelPaint(channels.fill, palettes)
+    ? resolveRepresentativeChannelPaint(channels.fill, input.palettes)
     : null;
 }
 

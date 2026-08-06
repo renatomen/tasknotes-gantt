@@ -491,6 +491,19 @@ describe('buildLegendCatalog', () => {
     ).toBeUndefined();
   });
 
+  it('paints a recurring series spine with the owned fill representative', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    expect(
+      entry(context, 'occurrence-series-spine').sample.cssVariables?.['--og-ghost-fill'],
+    ).toBe('#2563eb');
+  });
+
   it('uses the production default child fill when both bar channels are off', () => {
     const context = baseContext({
       taskNotesPresent: true,

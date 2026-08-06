@@ -403,11 +403,11 @@ function occurrenceSeriesSpineSample(
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
     ? (context.externalOccurrenceColor ?? representativeUnclassifiedBarGhostFill(context))
-    : (resolveRepresentativeBarBodyPaint(
-        context.barFillSource,
-        context.barStripSource,
-        palettesOf(context),
-      )?.color ?? null);
+    : (resolveRepresentativeBarBodyPaint({
+        fillSource: context.barFillSource,
+        stripSource: context.barStripSource,
+        palettes: palettesOf(context),
+      })?.color ?? null);
   return {
     kind,
     classTokens,
@@ -530,21 +530,21 @@ function iconSamples(context: GanttLegendContext): LegendIconSample[] {
 
 function representativeBarColor(context: GanttLegendContext): string {
   return (
-    resolveRepresentativeBarBodyPaint(
-      context.barFillSource,
-      context.barStripSource,
-      palettesOf(context),
-    )?.color ?? 'var(--wx-gantt-task-color, #3d8de6)'
+    resolveRepresentativeBarBodyPaint({
+      fillSource: context.barFillSource,
+      stripSource: context.barStripSource,
+      palettes: palettesOf(context),
+    })?.color ?? 'var(--wx-gantt-task-color, #3d8de6)'
   );
 }
 
 function representativeUnclassifiedBarGhostFill(context: GanttLegendContext): string | null {
   return (
-    resolveRepresentativeUnclassifiedBarBodyPaint(
-      context.barFillSource,
-      context.barStripSource,
-      palettesOf(context),
-    )?.color ?? null
+    resolveRepresentativeUnclassifiedBarBodyPaint({
+      fillSource: context.barFillSource,
+      stripSource: context.barStripSource,
+      palettes: palettesOf(context),
+    })?.color ?? null
   );
 }
 

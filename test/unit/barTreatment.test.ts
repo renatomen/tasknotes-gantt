@@ -53,25 +53,34 @@ describe('representative bar body paint', () => {
       calendar: [{ value: 'Calendars/Studio.md', color: '#12345' }],
     };
 
-    expect(resolveRepresentativeBarBodyPaint('none', 'none', palettes)?.color).toBe('#1f6feb');
+    expect(
+      resolveRepresentativeBarBodyPaint({ fillSource: 'none', stripSource: 'none', palettes })
+        ?.color,
+    ).toBe('#1f6feb');
     expect(styleFor({ fillSource: 'none', stripSource: 'none', palettes })).toContain(
       '--og-ghost-fill: #1f6feb',
     );
 
-    expect(resolveRepresentativeBarBodyPaint('none', 'status', palettes)).toBeNull();
+    expect(
+      resolveRepresentativeBarBodyPaint({ fillSource: 'none', stripSource: 'status', palettes }),
+    ).toBeNull();
     expect(styleFor({ fillSource: 'none', stripSource: 'status', palettes })).not.toContain(
       '--og-ghost-fill:',
     );
 
     expect(
-      resolveRepresentativeBarBodyPaint('calendar', 'none', unsafeCalendarPalettes)?.color,
+      resolveRepresentativeBarBodyPaint({
+        fillSource: 'calendar',
+        stripSource: 'none',
+        palettes: unsafeCalendarPalettes,
+      })?.color,
     ).toBe('#1f6feb');
     expect(
-      resolveRepresentativeUnclassifiedBarBodyPaint(
-        'calendar',
-        'none',
-        unsafeCalendarPalettes,
-      )?.color,
+      resolveRepresentativeUnclassifiedBarBodyPaint({
+        fillSource: 'calendar',
+        stripSource: 'none',
+        palettes: unsafeCalendarPalettes,
+      })?.color,
     ).toBe('#1f6feb');
     expect(
       styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: unsafeCalendarPalettes }),
