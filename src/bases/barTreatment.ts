@@ -462,13 +462,17 @@ export interface RepresentativeBarBodyPaintInput {
 }
 
 function resolveEffectiveBarChannels(
-  fillSource: BarChannelSource,
-  stripSource: BarChannelSource,
-  palettes: Palettes,
+  input: RepresentativeBarBodyPaintInput,
 ): EffectiveBarChannels {
   return {
-    fill: fillSource === 'none' ? 'none' : effectiveSource(fillSource, palettes),
-    strip: stripSource === 'none' ? 'none' : effectiveSource(stripSource, palettes),
+    fill:
+      input.fillSource === 'none'
+        ? 'none'
+        : effectiveSource(input.fillSource, input.palettes),
+    strip:
+      input.stripSource === 'none'
+        ? 'none'
+        : effectiveSource(input.stripSource, input.palettes),
   };
 }
 
@@ -476,11 +480,7 @@ function resolveEffectiveBarChannels(
 export function resolveRepresentativeBarBodyPaint(
   input: RepresentativeBarBodyPaintInput,
 ): RepresentativeChannelPaint | null {
-  const channels = resolveEffectiveBarChannels(
-    input.fillSource,
-    input.stripSource,
-    input.palettes,
-  );
+  const channels = resolveEffectiveBarChannels(input);
   if (channels.fill === 'none') {
     return channels.strip === 'none'
       ? resolveRepresentativeChannelPaint('default', input.palettes)
@@ -498,11 +498,7 @@ export function resolveRepresentativeBarBodyPaint(
 export function resolveRepresentativeUnclassifiedBarBodyPaint(
   input: RepresentativeBarBodyPaintInput,
 ): RepresentativeChannelPaint | null {
-  const channels = resolveEffectiveBarChannels(
-    input.fillSource,
-    input.stripSource,
-    input.palettes,
-  );
+  const channels = resolveEffectiveBarChannels(input);
   if (channels.fill === 'none') {
     return channels.strip === 'none'
       ? resolveRepresentativeChannelPaint('default', input.palettes)
@@ -582,11 +578,7 @@ export interface TreatmentStyleInput {
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   const { palettes, scope } = input;
   const barSelector = `${scope} .wx-bar`;
-  const { fill: fillEff, strip: stripEff } = resolveEffectiveBarChannels(
-    input.fillSource,
-    input.stripSource,
-    palettes,
-  );
+  const { fill: fillEff, strip: stripEff } = resolveEffectiveBarChannels(input);
 
   // Both off → the default role fill, so a bar is never invisible.
   if (fillEff === 'none' && stripEff === 'none') {

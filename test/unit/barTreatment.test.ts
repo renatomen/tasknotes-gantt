@@ -70,6 +70,14 @@ describe('representative bar body paint', () => {
 
     expect(
       resolveRepresentativeBarBodyPaint({
+        fillSource: 'status',
+        stripSource: 'priority',
+        palettes,
+      })?.color,
+    ).toBe('#f8312f');
+
+    expect(
+      resolveRepresentativeBarBodyPaint({
         fillSource: 'calendar',
         stripSource: 'none',
         palettes: unsafeCalendarPalettes,
