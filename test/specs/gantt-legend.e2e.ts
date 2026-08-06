@@ -774,39 +774,50 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("falls back to the default task fill when both bar channels are off", async () => {
     await setFixtureBarChannels("none", "none");
-    let fallback: FallbackPaintFacts | null = null;
-    await browser.waitUntil(
-      async () => {
-        fallback = await browser.execute(({ barSelector, paintSelector }) => {
-          const bar = document.querySelector<HTMLElement>(barSelector);
-          const fallbackPaint = bar?.querySelector<HTMLElement>(paintSelector);
-          return bar
-            ? {
-                paintFound: !!fallbackPaint,
-                paintWidth: fallbackPaint?.getBoundingClientRect().width ?? 0,
-                background: fallbackPaint
-                  ? getComputedStyle(fallbackPaint).backgroundColor
-                  : null,
-                stripContent: getComputedStyle(bar, "::before").content,
-              }
-            : null;
-        }, {
-          barSelector: LEGEND_TASK_BAR_SELECTOR,
-          paintSelector: LEGEND_TASK_FALLBACK_PAINT_SELECTOR,
-        });
-        return (
-          fallback?.paintFound === true &&
-          fallback.paintWidth > 0 &&
-          fallback.background === EXPECTED_DEFAULT_CHILD_FILL &&
-          fallback.stripContent === "none"
-        );
-      },
-      {
-        timeout: 8000,
-        timeoutMsg: "Gantt legend fixture did not settle its default-fill segment",
-      },
-    );
+    const observed: { facts: FallbackPaintFacts | null } = { facts: null };
+    try {
+      await browser.waitUntil(
+        async () => {
+          observed.facts = await browser.execute(
+            ({ barSelector, paintSelector }) => {
+              const bar = document.querySelector<HTMLElement>(barSelector);
+              const fallbackPaint = bar?.querySelector<HTMLElement>(paintSelector);
+              return bar
+                ? {
+                    paintFound: !!fallbackPaint,
+                    paintWidth: fallbackPaint?.getBoundingClientRect().width ?? 0,
+                    background: fallbackPaint
+                      ? getComputedStyle(fallbackPaint).backgroundColor
+                      : null,
+                    stripContent: getComputedStyle(bar, "::before").content,
+                  }
+                : null;
+            },
+            {
+              barSelector: LEGEND_TASK_BAR_SELECTOR,
+              paintSelector: LEGEND_TASK_FALLBACK_PAINT_SELECTOR,
+            },
+          );
+          return (
+            observed.facts?.paintFound === true &&
+            observed.facts.paintWidth > 0 &&
+            observed.facts.background === EXPECTED_DEFAULT_CHILD_FILL &&
+            observed.facts.stripContent === "none"
+          );
+        },
+        {
+          timeout: 8000,
+          timeoutMsg: "Gantt legend fixture did not reach its expected default-fill state",
+        },
+      );
+    } catch (error) {
+      const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);
+      throw new Error(
+        `Gantt default-fill wait failed; last facts: ${JSON.stringify(observed.facts)}\n${cause}`,
+      );
+    }
 
+    const fallback = observed.facts;
     expect(fallback).not.toBeNull();
     expect(fallback?.paintFound).toBe(true);
     expect(fallback?.paintWidth).toBeGreaterThan(0);
