@@ -34,6 +34,13 @@ import { isRealCalendarDay } from './normalizers';
 /** Per-day state of one recurring instance (drives the per-instance piece classes). */
 export type RecurringInstanceState = 'next' | 'projected' | 'completed' | 'skipped' | 'materialized';
 
+/** State classes that represent recorded or materialized, rather than virtual, occurrences. */
+export const RECORDED_RECURRING_STATE_CLASSES: ReadonlySet<string> = new Set([
+  'completed',
+  'skipped',
+  'materialized',
+]);
+
 /** The recurring-family slice of the per-view calendar-item toggles. */
 export interface RecurringInstanceToggles {
   showRecurring: boolean;

@@ -568,7 +568,8 @@ describe('buildLegendCatalog', () => {
         'occurrence-series-spine',
       ]),
     );
-    expect(ids).not.toEqual(expect.arrayContaining(['occurrence-next', 'occurrence-projected']));
+    expect(ids).not.toContain('occurrence-next');
+    expect(ids).not.toContain('occurrence-projected');
   });
 
   it('does not advertise time-entry rows in standalone mode', () => {
@@ -583,6 +584,15 @@ describe('buildLegendCatalog', () => {
       entries(
         baseContext({
           calendarItems: { ...baseContext().calendarItems, showTimeblocks: true },
+        }),
+      ).map((candidate) => candidate.semanticId),
+    ).toContain('calendar-event');
+
+    expect(
+      entries(
+        baseContext({
+          taskNotesPresent: true,
+          calendarItems: { ...baseContext().calendarItems, showTimeEntries: true },
         }),
       ).map((candidate) => candidate.semanticId),
     ).toContain('calendar-event');

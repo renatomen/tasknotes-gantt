@@ -61,7 +61,11 @@ export type {
   ExternalProviderCalendar,
 } from './externalCalendarSource';
 
-export { createRecurringInstanceSource, expandRecurringOccupancy } from './recurringSource';
+export {
+  createRecurringInstanceSource,
+  expandRecurringOccupancy,
+  RECORDED_RECURRING_STATE_CLASSES,
+} from './recurringSource';
 
 export type {
   RecurringExpansionInput,
