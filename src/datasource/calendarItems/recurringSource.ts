@@ -32,19 +32,32 @@ import { makeCalendarItemId } from './types';
 import { isRealCalendarDay } from './normalizers';
 
 /** Per-day state of one recurring instance (drives the per-instance piece classes). */
-export type RecurringInstanceState = 'next' | 'projected' | 'completed' | 'skipped' | 'materialized';
+export type RecurringInstanceState =
+  | 'next'
+  | 'projected'
+  | 'completed'
+  | 'skipped'
+  | 'materialized';
+
+export type RecordedRecurringState = Extract<
+  RecurringInstanceState,
+  'completed' | 'skipped' | 'materialized'
+>;
 
 /** State classes that represent recorded or materialized, rather than virtual, occurrences. */
-export const RECORDED_RECURRING_STATE_CLASSES: ReadonlySet<RecurringInstanceState> = new Set([
+export const RECORDED_RECURRING_STATE_CLASSES = [
   'completed',
   'skipped',
   'materialized',
-]);
+] as const satisfies readonly RecordedRecurringState[];
 
 export function isRecordedRecurringStateClass(
   stateClass: string | undefined,
-): stateClass is RecurringInstanceState {
-  return stateClass !== undefined && RECORDED_RECURRING_STATE_CLASSES.has(stateClass as RecurringInstanceState);
+): stateClass is RecordedRecurringState {
+  return (
+    stateClass !== undefined &&
+    RECORDED_RECURRING_STATE_CLASSES.some((candidate) => candidate === stateClass)
+  );
 }
 
 /** The recurring-family slice of the per-view calendar-item toggles. */

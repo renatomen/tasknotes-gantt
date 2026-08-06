@@ -14,6 +14,8 @@ import {
   CALENDAR_SHADE_BACKGROUND,
 } from './calendarShading';
 import type { GanttLegendContext } from './types/gantt-view-data';
+import type { RenderInstance } from '../controller/InstanceExpansion';
+import { isRecordedRecurringStateClass } from '../datasource/calendarItems';
 import {
   GANTT_VISUAL_CLASS_TOKENS as classes,
   GANTT_VISUAL_SEMANTIC_IDS,
@@ -106,6 +108,19 @@ const hasCalendarEvents = (context: GanttLegendContext): boolean =>
   context.calendarItems.showTimeblocks ||
   context.calendarItems.showPropertyBasedEvents ||
   (context.taskNotesPresent && context.externalCalendarsEnabled);
+
+export function hasRecordedRecurringOccurrences(
+  instances: ReadonlyArray<Pick<RenderInstance, 'occupancy'>>,
+): boolean {
+  return instances.some(
+    (instance) =>
+      instance.occupancy?.some(
+        (occupancy) =>
+          occupancy.family === 'recurring-instance' &&
+          isRecordedRecurringStateClass(occupancy.stateClass),
+      ) ?? false,
+  );
+}
 
 export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
   'bar-treatment': {

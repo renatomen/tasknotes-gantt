@@ -72,6 +72,7 @@ export type {
   RecurringExpansionInput,
   RecurringInstanceSource,
   RecurringInstanceState,
+  RecordedRecurringState,
   RecurringInstanceToggles,
   RecurringSourceDeps,
   TaskReferenceResolver,

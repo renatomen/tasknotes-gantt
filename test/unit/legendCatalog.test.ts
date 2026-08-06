@@ -1,5 +1,6 @@
 import {
   buildLegendCatalog,
+  hasRecordedRecurringOccurrences,
   LEGEND_CATALOGUE,
   LEGEND_GROUP_ORDER,
   type LegendEntry,
@@ -9,6 +10,7 @@ import {
   type GanttVisualSemanticId,
 } from '../../src/bases/visualSemantics';
 import type { GanttLegendContext } from '../../src/bases/types/gantt-view-data';
+import type { CalendarOccupancy } from '../../src/datasource/calendarItems';
 
 const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendContext => ({
   taskNotesPresent: false,
@@ -572,6 +574,40 @@ describe('buildLegendCatalog', () => {
     expect(ids).not.toContain('occurrence-projected');
   });
 
+  it('derives recorded recurring occupancy only from the recurring family and recorded states', () => {
+    const occupancy = (
+      family: CalendarOccupancy['family'],
+      stateClass: string,
+    ): CalendarOccupancy => ({
+      family,
+      itemId: 'item',
+      day: '2026-01-01',
+      minutes: null,
+      stateClass,
+    });
+
+    expect(
+      hasRecordedRecurringOccurrences([
+        { occupancy: [occupancy('recurring-instance', 'completed')] },
+      ]),
+    ).toBe(true);
+    expect(
+      hasRecordedRecurringOccurrences([
+        {
+          occupancy: [
+            occupancy('recurring-instance', 'next'),
+            occupancy('recurring-instance', 'projected'),
+          ],
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasRecordedRecurringOccurrences([
+        { occupancy: [occupancy('external-event', 'completed')] },
+      ]),
+    ).toBe(false);
+  });
+
   it('does not advertise time-entry rows in standalone mode', () => {
     const standaloneTimeEntries = baseContext({
       taskNotesPresent: false,
@@ -586,6 +622,7 @@ describe('buildLegendCatalog', () => {
     expect(
       entries(
         baseContext({
+          taskNotesPresent: false,
           calendarItems: { ...baseContext().calendarItems, showTimeblocks: true },
         }),
       ).map((candidate) => candidate.semanticId),
@@ -616,6 +653,20 @@ describe('buildLegendCatalog', () => {
       entries(baseContext({ taskNotesPresent: true, externalCalendarsEnabled: true })).map(
         (candidate) => candidate.semanticId,
       ),
+    ).toContain('calendar-event');
+  });
+
+  it('advertises property-based event rows without TaskNotes', () => {
+    expect(
+      entries(
+        baseContext({
+          taskNotesPresent: false,
+          calendarItems: {
+            ...baseContext().calendarItems,
+            showPropertyBasedEvents: true,
+          },
+        }),
+      ).map((candidate) => candidate.semanticId),
     ).toContain('calendar-event');
   });
 

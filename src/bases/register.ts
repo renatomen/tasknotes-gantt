@@ -23,6 +23,7 @@ import { get, writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
+import { hasRecordedRecurringOccurrences } from './legendCatalog';
 import type { FieldMappings } from './types/field-mapping';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
@@ -46,7 +47,6 @@ import {
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
   externalCalendarFeedKey,
-  isRecordedRecurringStateClass,
   type TimeblockWatch,
 } from '../datasource/calendarItems';
 import { isSafeColor } from './barTreatment';
@@ -1522,14 +1522,7 @@ class ObsidianGanttBasesView extends BasesView {
     const effectiveMappings = this.getEffectiveMappings();
     const estimateOverrideMapped = (effectiveMappings.estimateMeaningProperty ?? '') !== '';
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
-    const hasRecordedRecurringOccurrences = instances.some(
-      (instance) =>
-        instance.occupancy?.some(
-          (occupancy) =>
-            occupancy.family === 'recurring-instance' &&
-            isRecordedRecurringStateClass(occupancy.stateClass),
-        ) ?? false,
-    );
+    const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
     const visibleCalendarEventColor =
       instances
         .map((instance) => instance.calendarItem?.color)
@@ -1606,7 +1599,7 @@ class ObsidianGanttBasesView extends BasesView {
         calendarMarkers: calendarShading.markers,
         calendarDisplayedCount: calendarShading.selectedCount,
         hasResolvedSchedulingCalendar: calendarShading.hasResolvedSchedulingCalendar,
-        hasRecordedRecurringOccurrences,
+        hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:
