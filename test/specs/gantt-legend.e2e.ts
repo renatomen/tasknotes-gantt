@@ -292,6 +292,31 @@ async function writeFixtureBarChannels(
   expect(updated).toBe(true);
 }
 
+async function waitForRenderedBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  await browser.waitUntil(
+    async () => browser.execute((nextFill, nextStrip) => {
+      const bar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
+      );
+      if (!bar) return false;
+      const tokens = [...bar.classList];
+      const hasCalendar = tokens.some((token) => token.startsWith("og-calendar-"));
+      const hasPriority = tokens.some((token) => token.startsWith("og-prio-"));
+      return (
+        hasCalendar === (nextFill === "calendar" || nextStrip === "calendar") &&
+        hasPriority === (nextFill === "priority" || nextStrip === "priority")
+      );
+    }, fillSource, stripSource),
+    {
+      timeout: 8000,
+      timeoutMsg: `Gantt legend fixture did not render ${fillSource} fill / ${stripSource} strip`,
+    },
+  );
+}
+
 async function setFixtureBarChannels(
   fillSource: FixtureBarSource,
   stripSource: FixtureBarSource,
@@ -299,6 +324,7 @@ async function setFixtureBarChannels(
   fixtureBarChannelsNeedReset = fillSource !== "calendar" || stripSource !== "priority";
   await writeFixtureBarChannels(fillSource, stripSource);
   await remountMaximizedFixture();
+  await waitForRenderedBarChannels(fillSource, stripSource);
 }
 
 async function restoreFixtureBarChannels(): Promise<void> {
@@ -307,6 +333,7 @@ async function restoreFixtureBarChannels(): Promise<void> {
   for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
     try {
       await remountMaximizedFixture();
+      await waitForRenderedBarChannels("calendar", "priority");
       fixtureBarChannelsNeedReset = false;
       return;
     } catch (error) {
@@ -628,25 +655,46 @@ describe("Gantt (OG) context-aware legend", () => {
 
     const paint = await browser.execute(() => {
       const chartPiece = document.querySelector<HTMLElement>(
-        '.og-bases-gantt .og-ghost-run:not(.og-ghost-blocked)',
+        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed',
+      );
+      const occupancy = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-occupancy"] .og-legend-pieces',
       );
       const legendPieces = [
-        ...document.querySelectorAll<HTMLElement>(
-          '[data-semantic-id="occurrence-occupancy"] .og-piece-painted',
-        ),
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
+      ];
+      const envelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
       ];
       return {
+        chartPieceFound: !!chartPiece,
         chartBackground: chartPiece ? getComputedStyle(chartPiece).backgroundColor : null,
+        stripOnlyMarked: occupancy?.classList.contains("og-legend-strip-only") ?? false,
+        piecesCarryNoFillToken: legendPieces.every(
+          (piece) =>
+            ![...piece.classList].some(
+              (token) => token.startsWith("og-calendar-") || token.startsWith("og-prio-"),
+            ),
+        ),
         legendBackgrounds: legendPieces.map(
           (piece) => getComputedStyle(piece).backgroundColor,
         ),
         legendBorders: legendPieces.map((piece) => getComputedStyle(piece).borderStyle),
+        envelopeCount: envelopes.length,
+        envelopeDrawsStrip: envelopes.every(
+          (envelope) => getComputedStyle(envelope, "::before").content !== "none",
+        ),
       };
     });
 
+    expect(paint.chartPieceFound).toBe(true);
     expect(paint.chartBackground).not.toBeNull();
+    expect(paint.stripOnlyMarked).toBe(true);
+    expect(paint.piecesCarryNoFillToken).toBe(true);
     expect(paint.legendBackgrounds).toEqual([paint.chartBackground, paint.chartBackground]);
     expect(paint.legendBorders).toEqual(["none", "none"]);
+    expect(paint.envelopeCount).toBe(1);
+    expect(paint.envelopeDrawsStrip).toBe(true);
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {

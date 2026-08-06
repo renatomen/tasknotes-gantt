@@ -395,9 +395,9 @@
   .og-legend-pieces :global(.og-ghost-run),
   .og-legend-pieces :global(.og-instance) { position: absolute; top: 7px; height: 20px; }
   .og-legend-pieces :global(.og-piece-painted)::before { content: none !important; }
+  .og-legend-pieces :global(.og-piece-painted.og-instance) { border: 0 !important; }
   .og-legend-pieces.og-legend-strip-only :global(.og-piece-painted.og-instance) {
     background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6)) !important;
-    border: 0 !important;
   }
   .og-legend-pieces .og-legend-piece-envelope {
     position: absolute;

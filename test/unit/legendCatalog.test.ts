@@ -263,6 +263,29 @@ describe('buildLegendCatalog', () => {
     }
   });
 
+  it('marks a value-backed strip-only occurrence sample without painting its pieces from the strip', () => {
+    const occupancy = entry(
+      baseContext({
+        taskNotesPresent: true,
+        barFillSource: 'none',
+        barStripSource: 'status',
+        statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+        calendarItems: {
+          ...baseContext().calendarItems,
+          showRecurring: true,
+        },
+      }),
+      'occurrence-occupancy',
+    ).sample;
+    const stripClass = occupancy.pieceEnvelopeClassTokens?.[1];
+
+    expect(occupancy.classTokens).toContain('og-legend-strip-only');
+    expect(stripClass).toMatch(/^og-status-/);
+    for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
+      expect(piece.classTokens).toEqual(['wx-bar', 'og-instance']);
+    }
+  });
+
   it('uses event treatment for read-only external occurrence occupancy without a strip envelope', () => {
     const occupancy = entry(
       baseContext({
@@ -274,6 +297,7 @@ describe('buildLegendCatalog', () => {
     ).sample;
 
     expect(occupancy.pieceEnvelopeClassTokens).toBeUndefined();
+    expect(occupancy.classTokens).not.toContain('og-legend-strip-only');
     for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
       expect(piece.classTokens).toEqual(['wx-bar', 'og-event', 'og-instance']);
     }
