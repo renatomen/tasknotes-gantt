@@ -100,8 +100,9 @@ async function waitForLegendRecurringTaskReady(): Promise<void> {
       },
     );
   } catch (error) {
+    const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);
     throw new Error(
-      `TaskNotes never served the recurring legend facts; last: ${lastFacts}\n${String(error)}`,
+      `TaskNotes recurring legend wait failed; last facts: ${lastFacts}\n${cause}`,
     );
   }
 }
@@ -758,6 +759,26 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.legendBorders).toEqual(["none", "none"]);
     expect(paint.envelopeCount).toBe(1);
     expect(paint.envelopeDrawsStrip).toBe(true);
+  });
+
+  it("falls back to the default task fill when both bar channels are off", async () => {
+    await setFixtureBarChannels("none", "none");
+
+    const fallback = await browser.execute(() => {
+      const bar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
+      );
+      return bar
+        ? {
+            ghostFill: getComputedStyle(bar).getPropertyValue("--og-ghost-fill").trim(),
+            stripContent: getComputedStyle(bar, "::before").content,
+          }
+        : null;
+    });
+
+    expect(fallback).not.toBeNull();
+    expect(fallback?.ghostFill).not.toBe("");
+    expect(fallback?.stripContent).toBe("none");
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
