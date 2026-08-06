@@ -180,7 +180,8 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     meaning: 'The bar extends across blocked days so its estimate counts working days.',
     sampleKind: 'pieces',
     isApplicable: (context) =>
-      hasDisplayedCalendar(context) && context.estimateMeaning === 'working-days',
+      hasDisplayedCalendar(context) &&
+      (context.estimateMeaning === 'working-days' || context.estimateOverrideMapped),
   },
   'working-time-split': {
     group: 'calendars',
@@ -389,7 +390,7 @@ function sampleFor(
       kind,
       classTokens: [...treatment.classTokens, ...classTokens],
       paints: treatment.paints,
-      cssVariables: representativeSemanticVariables(semanticId, treatment.cssVariables),
+      cssVariables: treatment.cssVariables,
     };
   }
   if (semanticId === 'occurrence-series-spine') {
@@ -513,22 +514,15 @@ function semanticUsesRepresentativeTreatment(semanticId: GanttVisualSemanticId):
   );
 }
 
-function representativeSemanticVariables(
-  semanticId: GanttVisualSemanticId,
-  treatmentVariables: Record<string, string>,
-): Record<string, string> {
-  return semanticId === 'context-task'
-    ? {
-        ...treatmentVariables,
-        '--og-context-opacity': 'var(--og-context-opacity, 0.55)',
-      }
-    : treatmentVariables;
-}
-
 function treatmentMeaning(context: GanttLegendContext, icons: LegendIconSample[]): string {
+  const treatment = representativeTreatment(context);
   const channels: string[] = [];
-  if (context.barFillSource !== 'none') channels.push(`${context.barFillSource} fill`);
-  if (context.barStripSource !== 'none') channels.push(`${context.barStripSource} strip`);
+  if (treatment.paints?.fill && treatment.paints.fill.source !== 'default') {
+    channels.push(`${treatment.paints.fill.source} fill`);
+  }
+  if (treatment.paints?.strip && treatment.paints.strip.source !== 'default') {
+    channels.push(`${treatment.paints.strip.source} strip`);
+  }
   if (icons.length > 0) channels.push(`${context.barIconSource} icon`);
   return channels.length > 0
     ? `This task bar combines ${channels.join(', ')} from the active view.`

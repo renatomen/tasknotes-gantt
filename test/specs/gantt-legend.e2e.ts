@@ -360,6 +360,100 @@ describe("Gantt (OG) context-aware legend", () => {
     });
   });
 
+  it("keeps more than four configured icon samples visible by wrapping them", async () => {
+    const patched = await browser.executeObsidian(async ({ app }) => {
+      interface StatusEntry {
+        value: string;
+        color: string;
+        isCompleted?: boolean;
+        icon?: string;
+      }
+      interface PatchedCatalog {
+        statuses?: () => StatusEntry[];
+        __legendOriginalStatuses?: () => StatusEntry[];
+      }
+      const taskNotes = (app as unknown as {
+        plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
+      }).plugins?.getPlugin?.("tasknotes");
+      const catalog = taskNotes?.api?.catalog;
+      if (!catalog?.statuses) return false;
+      catalog.__legendOriginalStatuses ??= catalog.statuses.bind(catalog);
+      const configured = catalog.__legendOriginalStatuses();
+      catalog.statuses = () => [
+        ...configured,
+        { value: "legend-one", color: "#2563eb", icon: "circle" },
+        { value: "legend-two", color: "#7c3aed", icon: "square" },
+        { value: "legend-three", color: "#db2777", icon: "triangle" },
+        { value: "legend-four", color: "#ea580c", icon: "diamond" },
+        { value: "legend-five", color: "#16a34a", icon: "star" },
+      ];
+      return true;
+    });
+    expect(patched).toBe(true);
+
+    await openFixtureBase();
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-legend-toggle")).length === 1, {
+      timeout: 15000,
+      timeoutMsg: "Gantt did not remount with the expanded icon palette",
+    });
+    await $(".og-bases-gantt .og-fullscreen-toggle").click();
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+      timeout: 8000,
+    });
+    await openLegend();
+
+    const layout = await browser.execute(() => {
+      const icons = document.querySelector<HTMLElement>(
+        '[data-semantic-id="bar-icon"] .og-legend-icons',
+      );
+      const chips = [...(icons?.querySelectorAll<HTMLElement>(".og-bar-chip") ?? [])];
+      const bounds = icons?.getBoundingClientRect();
+      const rows = new Set(chips.map((chip) => Math.round(chip.getBoundingClientRect().top)));
+      return {
+        count: chips.length,
+        flexWrap: icons ? getComputedStyle(icons).flexWrap : null,
+        overflow: icons ? getComputedStyle(icons).overflow : null,
+        wrappedRows: rows.size,
+        allContained:
+          !!bounds &&
+          chips.every((chip) => {
+            const rect = chip.getBoundingClientRect();
+            return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
+          }),
+      };
+    });
+
+    expect(layout.count).toBeGreaterThan(4);
+    expect(layout.flexWrap).toBe("wrap");
+    expect(layout.overflow).toBe("visible");
+    expect(layout.wrappedRows).toBeGreaterThan(1);
+    expect(layout.allContained).toBe(true);
+
+    await closeLegend();
+    await browser.executeObsidian(async ({ app }) => {
+      interface PatchedCatalog {
+        statuses?: () => unknown[];
+        __legendOriginalStatuses?: () => unknown[];
+      }
+      const taskNotes = (app as unknown as {
+        plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
+      }).plugins?.getPlugin?.("tasknotes");
+      const catalog = taskNotes?.api?.catalog;
+      if (catalog?.__legendOriginalStatuses) {
+        catalog.statuses = catalog.__legendOriginalStatuses;
+        delete catalog.__legendOriginalStatuses;
+      }
+    });
+    await openFixtureBase();
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
+      timeout: 15000,
+    });
+    await $(".og-bases-gantt .og-fullscreen-toggle").click();
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+      timeout: 8000,
+    });
+  });
+
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
     await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar.og-event")).length > 0, {
       timeout: 10000,

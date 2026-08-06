@@ -80,6 +80,21 @@ describe('buildLegendCatalog', () => {
     expect(treatment.meaning).toContain('status icon');
   });
 
+  it('describes the default hierarchy treatment when configured channels have no resolvable palette', () => {
+    const treatment = entry(
+      baseContext({
+        barFillSource: 'status',
+        barStripSource: 'priority',
+        barIconSource: 'status',
+      }),
+      'bar-treatment',
+    );
+
+    expect(treatment.meaning).toBe(
+      'This task bar uses the default hierarchy treatment for the active view.',
+    );
+  });
+
   it('lists configured icon glyph, status ring/disc, and priority dot shapes from the effective palettes', () => {
     const statusIcons = entry(
       baseContext({
@@ -89,12 +104,16 @@ describe('buildLegendCatalog', () => {
           { value: 'Doing', color: '#2563eb', isCompleted: false, icon: 'loader' },
           { value: 'Queued', color: '#a855f7', isCompleted: false },
           { value: 'Done', color: '#16a34a', isCompleted: true },
+          { value: 'Waiting', color: '#d97706', isCompleted: false },
+          { value: 'Cancelled', color: '#64748b', isCompleted: true },
         ],
       }),
       'bar-icon',
     );
     expect(statusIcons.sample.icons?.map((icon) => icon.shape)).toEqual([
       'glyph',
+      'ring',
+      'disc',
       'ring',
       'disc',
     ]);
@@ -271,6 +290,31 @@ describe('buildLegendCatalog', () => {
         'estimate-override',
       ]),
     );
+  });
+
+  it('explains working-time extensions when a mapped task can override a calendar-day default', () => {
+    const ids = entries(
+      baseContext({
+        calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
+        calendarDisplayedCount: 1,
+        estimateMeaning: 'calendar-days',
+        estimateOverrideMapped: true,
+      }),
+    ).map((candidate) => candidate.semanticId);
+
+    expect(ids).toContain('working-time-extension');
+  });
+
+  it('lets context samples inherit the configured opacity from the Gantt root', () => {
+    const contextSample = entry(
+      baseContext({
+        taskNotesPresent: true,
+        expandedRelationships: 'show-all',
+      }),
+      'context-task',
+    ).sample;
+
+    expect(contextSample.cssVariables).not.toHaveProperty('--og-context-opacity');
   });
 
   it('shows a configuration-complete calendar-event sample for enabled event families', () => {

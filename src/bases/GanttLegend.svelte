@@ -102,7 +102,11 @@
             <ul>
               {#each group.entries as entry (entry.semanticId)}
                 <li class="og-legend-entry" data-semantic-id={entry.semanticId}>
-                  <div class="og-legend-sample" aria-hidden="true">
+                  <div
+                    class="og-legend-sample"
+                    class:og-legend-icon-sample={entry.sample.kind === 'icon-set'}
+                    aria-hidden="true"
+                  >
                     {@render sample(entry.sample, entry.semanticId)}
                   </div>
                   <div class="og-legend-copy">
@@ -310,6 +314,7 @@
     height: 34px;
     overflow: visible;
   }
+  .og-legend-icon-sample { height: auto; min-height: 34px; }
 
   .og-legend-sample :global(.wx-bar),
   .og-legend-bar {
@@ -327,7 +332,15 @@
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
   .og-legend-sample :global(.wx-progress-percent) { width: 58%; height: 100%; background: var(--wx-gantt-task-fill-color, rgba(0,0,0,.25)); }
 
-  .og-legend-icons { height: 100%; display: flex; align-items: center; gap: 5px; overflow: hidden; }
+  .og-legend-icons {
+    min-height: 34px;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    align-items: center;
+    gap: 5px;
+    overflow: visible;
+  }
   .og-legend-link { height: 100%; display: flex; align-items: center; color: var(--wx-gantt-link-color, var(--interactive-accent)); }
   .og-legend-link-node { width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 2px; }
   .og-legend-link :global(.wx-line) { flex: 1; height: 2px; background: currentColor; }
