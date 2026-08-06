@@ -202,7 +202,17 @@ async function remountMaximizedFixture(): Promise<void> {
   });
 }
 
-async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
+function createCombinedFailure(message: string, failures: unknown[]): Error {
+  const details = failures
+    .map((failure, index) => {
+      const rendered = failure instanceof Error ? (failure.stack ?? failure.message) : String(failure);
+      return `Failure ${index + 1}: ${rendered}`;
+    })
+    .join("\n");
+  return new Error(`${message}\n${details}`);
+}
+
+async function writeFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
   const updated = await browser.executeObsidian(async ({ app }, nextRendering) => {
     const file = app.vault.getAbstractFileByPath("Legend.base");
     if (!file) return false;
@@ -216,14 +226,20 @@ async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Pro
     return true;
   }, rendering);
   expect(updated).toBe(true);
+}
+
+async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
+  if (rendering === "shaded") fixtureNonWorkingRenderingNeedsReset = true;
+  await writeFixtureNonWorkingRendering(rendering);
   await remountMaximizedFixture();
 }
 
 async function restoreFixtureNonWorkingRendering(): Promise<void> {
-  let lastFailure: unknown;
+  await writeFixtureNonWorkingRendering("split");
+  const remountFailures: unknown[] = [];
   for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
     try {
-      await setFixtureNonWorkingRendering("split");
+      await remountMaximizedFixture();
       await browser.waitUntil(
         async () =>
           (await $$(
@@ -237,10 +253,13 @@ async function restoreFixtureNonWorkingRendering(): Promise<void> {
       fixtureNonWorkingRenderingNeedsReset = false;
       return;
     } catch (error) {
-      lastFailure = error;
+      remountFailures.push(error);
     }
   }
-  throw lastFailure ?? new Error("Gantt legend fixture split restoration failed");
+  throw createCombinedFailure(
+    `Gantt legend fixture split restoration failed after ${FIXTURE_RESTORE_ATTEMPTS} attempts`,
+    remountFailures,
+  );
 }
 
 describe("Gantt (OG) context-aware legend", () => {
@@ -330,7 +349,7 @@ describe("Gantt (OG) context-aware legend", () => {
 
     if (cleanupFailures.length === 1) throw cleanupFailures[0];
     if (cleanupFailures.length > 1) {
-      throw new AggregateError(cleanupFailures, "Multiple Gantt legend fixture cleanups failed");
+      throw createCombinedFailure("Multiple Gantt legend fixture cleanups failed", cleanupFailures);
     }
   });
 
@@ -466,7 +485,6 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
-    fixtureNonWorkingRenderingNeedsReset = true;
     await setFixtureNonWorkingRendering("shaded");
     await openLegend();
     const extension = await browser.execute(() => {
