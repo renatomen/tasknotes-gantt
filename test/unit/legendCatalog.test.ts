@@ -447,6 +447,20 @@ describe('buildLegendCatalog', () => {
     }
   );
 
+  it('defers a recurring series spine to the production accent in strip-only mode', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'none',
+      barStripSource: 'status',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    expect(
+      entry(context, 'occurrence-series-spine').sample.cssVariables?.['--og-ghost-fill'],
+    ).toBeUndefined();
+  });
+
   it('distinguishes every enabled occurrence state and its coarse series spine', () => {
     const context = baseContext({
       taskNotesPresent: true,

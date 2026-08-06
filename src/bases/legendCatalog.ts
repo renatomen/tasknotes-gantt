@@ -401,7 +401,7 @@ function occurrenceSeriesSpineSample(
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
     ? context.externalOccurrenceColor
-    : representativeBarColor(context);
+    : (resolveRepresentativeChannelPaint(context.barFillSource, palettesOf(context))?.color ?? null);
   return {
     kind,
     classTokens,
