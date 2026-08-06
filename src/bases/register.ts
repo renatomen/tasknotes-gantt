@@ -1599,7 +1599,7 @@ class ObsidianGanttBasesView extends BasesView {
         externalOccurrenceColor:
           visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
         nonWorkingRendering,
-        calendarItems,
+        calendarItems: { showRecurring: calendarItems.showRecurring },
         externalCalendarsEnabled: externalCalendarLegendFacts.enabled,
       },
       // Span↔estimate answers come from the controller's derivation authority —

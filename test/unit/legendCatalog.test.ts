@@ -28,11 +28,6 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   nonWorkingRendering: 'shaded',
   calendarItems: {
     showRecurring: false,
-    showCompletedRecurringInstances: true,
-    showSkippedRecurringInstances: true,
-    showTimeEntries: false,
-    showTimeblocks: false,
-    showPropertyBasedEvents: false,
   },
   externalCalendarsEnabled: false,
   ...overrides,
@@ -579,10 +574,6 @@ describe('buildLegendCatalog', () => {
   it('shows a configuration-complete calendar-event sample for enabled event families', () => {
     const context = baseContext({
       calendarEventColor: '#0ea5e9',
-      calendarItems: {
-        ...baseContext().calendarItems,
-        showPropertyBasedEvents: true,
-      },
     });
 
     expect(entry(context, 'calendar-event').sample).toMatchObject({

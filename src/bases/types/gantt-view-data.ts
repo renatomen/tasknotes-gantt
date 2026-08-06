@@ -51,11 +51,6 @@ export interface GanttLegendContext {
   nonWorkingRendering: NonWorkingRendering;
   calendarItems: {
     showRecurring: boolean;
-    showCompletedRecurringInstances: boolean;
-    showSkippedRecurringInstances: boolean;
-    showTimeEntries: boolean;
-    showTimeblocks: boolean;
-    showPropertyBasedEvents: boolean;
   };
   externalCalendarsEnabled: boolean;
 }
