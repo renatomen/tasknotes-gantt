@@ -344,12 +344,7 @@ function sampleFor(
     };
   }
   if (semanticId === 'working-time-extension') {
-    return {
-      kind,
-      classTokens: [classes.ghostRuns],
-      pieces: splitPieces('blocked'),
-      cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
-    };
+    return workingTimeExtensionSample(context, kind);
   }
   if (semanticId === 'occurrence-occupancy') {
     const treatment = hasRecurring(context)
@@ -410,6 +405,27 @@ function sampleFor(
     };
   }
   return baseSample(semanticId, kind, classTokens);
+}
+
+function workingTimeExtensionSample(
+  context: GanttLegendContext,
+  splitKind: LegendSampleKind,
+): LegendSampleDescriptor {
+  if (context.nonWorkingRendering === 'shaded') {
+    const treatment = representativeTreatment(context);
+    return {
+      kind: 'bar',
+      classTokens: treatment.classTokens,
+      paints: treatment.paints,
+      cssVariables: treatment.cssVariables,
+    };
+  }
+  return {
+    kind: splitKind,
+    classTokens: [classes.ghostRuns],
+    pieces: splitPieces('blocked'),
+    cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
+  };
 }
 
 function baseSample(

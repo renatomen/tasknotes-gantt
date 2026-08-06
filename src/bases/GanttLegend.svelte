@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, KeyboardEvent */
+  /* global HTMLElement, HTMLButtonElement, KeyboardEvent */
   import { tick } from 'svelte';
   import type { LegendGroup, LegendIconSample, LegendSampleDescriptor } from './legendCatalog';
   import type { LegendLayout, LegendPosition } from './legendLayout';
@@ -15,6 +15,17 @@
   }
 
   let { groups, layout, position, onPositionChange, onDismiss }: Props = $props();
+  let positionControls: HTMLElement | undefined = $state();
+  let dismissButton: HTMLButtonElement | undefined = $state();
+
+  $effect.pre(() => {
+    if (
+      layout === 'full'
+      && positionControls?.contains(positionControls.ownerDocument.activeElement)
+    ) {
+      void tick().then(() => dismissButton?.focus());
+    }
+  });
 
   function focusOnMount(node: HTMLElement): void {
     void tick().then(() => node.focus());
@@ -57,7 +68,12 @@
       </div>
 
       {#if layout !== 'full'}
-        <div class="og-legend-position" role="radiogroup" aria-label="Legend position">
+        <div
+          class="og-legend-position"
+          role="radiogroup"
+          aria-label="Legend position"
+          bind:this={positionControls}
+        >
           <span class="og-legend-control-label">Position</span>
           {#each ['right', 'bottom'] as choice (choice)}
             <button
@@ -78,6 +94,7 @@
         class="og-legend-dismiss"
         aria-label={layout === 'full' ? 'Return to Gantt' : 'Close legend'}
         onclick={onDismiss}
+        bind:this={dismissButton}
         use:focusOnMount
       >
         <span aria-hidden="true" use:lucideIcon={layout === 'full' ? 'arrow-left' : 'x'}></span>

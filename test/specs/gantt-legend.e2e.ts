@@ -666,6 +666,13 @@ describe("Gantt (OG) context-aware legend", () => {
     const expectedState = await chartViewState();
     expect(expectedState.selectedCount).toBeGreaterThan(0);
     expect(expectedState.scrollLeft).toBeGreaterThan(0);
+    const focusedPositionControl = await browser.execute(() => {
+      const bottom = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
+        .find((button) => button.textContent?.trim() === "Bottom");
+      bottom?.focus();
+      return document.activeElement === bottom;
+    });
+    expect(focusedPositionControl).toBe(true);
 
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
@@ -680,6 +687,7 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(await $$(".og-gantt-legend [role='radiogroup']")).toHaveLength(0);
     const returnButton = await $(".og-gantt-legend .og-legend-dismiss");
     await expect(returnButton).toHaveText(expect.stringContaining("Return"));
+    await expect(returnButton).toBeFocused();
     expect(await chartViewState()).toEqual(expectedState);
 
     await browser.execute(() => {

@@ -173,6 +173,7 @@ describe('buildLegendCatalog', () => {
     expect(occupancy.find((piece) => piece.treatment === 'gap')?.classTokens).toEqual([]);
 
     const extensionSample = entry(context, 'working-time-extension').sample;
+    expect(extensionSample.kind).toBe('pieces');
     expect(extensionSample.classTokens).toEqual(['og-ghost-runs']);
     const extension = extensionSample.pieces ?? [];
     expect(extension.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
@@ -183,6 +184,35 @@ describe('buildLegendCatalog', () => {
       'og-ghost-run',
       'og-ghost-blocked',
     ]);
+  });
+
+  it('renders a continuous treated extension when non-working time is shaded', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'status',
+      barStripSource: 'priority',
+      statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      priorityColors: [{ value: 'High', color: '#f97316' }],
+      calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
+      calendarDisplayedCount: 1,
+      estimateMeaning: 'working-days',
+      nonWorkingRendering: 'shaded',
+    });
+
+    const extension = entry(context, 'working-time-extension').sample;
+    expect(extension.kind).toBe('bar');
+    expect(extension.classTokens).toEqual(
+      expect.arrayContaining([
+        'wx-bar',
+        expect.stringMatching(/^og-status-/),
+        expect.stringMatching(/^og-prio-/),
+      ]),
+    );
+    expect(extension.paints).toMatchObject({
+      fill: { source: 'status', value: 'Doing', color: '#2563eb' },
+      strip: { source: 'priority', value: 'High', color: '#f97316' },
+    });
+    expect(extension.pieces).toBeUndefined();
   });
 
   it('keeps progress paint on the bar host and progress geometry on its nested elements', () => {
