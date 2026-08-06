@@ -260,6 +260,11 @@ describe('computeCalendarShadingCss', () => {
       basename: 'AU',
       frontmatter: { tngantt: 'calendar', non_working: ['2026-04-13'] },
     },
+    {
+      path: 'Calendars/Empty Set.md',
+      basename: 'Empty Set',
+      frontmatter: { tngantt: 'calendar-set', calendars: [] },
+    },
   ];
   const resolveLink: LinkResolver = (linkText) => {
     const inner = linkText.startsWith('[[') ? linkText.slice(2, -2).split('|')[0] : linkText;
@@ -280,14 +285,15 @@ describe('computeCalendarShadingCss', () => {
     expect(displayedCount).toBe(1);
   });
 
-  it('emits the base rule only when no task associates a calendar', () => {
-    const { css } = computeShading({
+  it('emits the base rule and no scheduling-calendar fact when no task associates a calendar', () => {
+    const { css, hasResolvedSchedulingCalendar } = computeShading({
       markedNotes,
       resolveLink,
       associations: [],
       taskSpans,
     });
     expect(css).not.toContain('og-d-');
+    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
   it('keeps the selected calendar count without reporting an unrendered display', () => {
@@ -317,6 +323,32 @@ describe('computeCalendarShadingCss', () => {
     stored: true,
     defaultRow: true,
     entries: links.map((link) => ({ link, enabled: true })),
+  });
+
+  it('keeps scheduling-calendar resolution when background display excludes that calendar', () => {
+    const { displayedCount, hasResolvedSchedulingCalendar } = computeShading({
+      markedNotes,
+      resolveLink,
+      associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
+      taskSpans,
+      displaySelection: explicit([]),
+    });
+
+    expect(displayedCount).toBe(0);
+    expect(hasResolvedSchedulingCalendar).toBe(true);
+  });
+
+  it('does not report scheduling capability for a resolved calendar set with no members', () => {
+    const { calendarBySource, hasResolvedSchedulingCalendar } = computeShading({
+      markedNotes,
+      resolveLink,
+      associations: [{ value: '[[Empty Set]]', taskPath: 'Tasks/T.md' }],
+      taskSpans,
+      displaySelection: explicit([]),
+    });
+
+    expect(calendarBySource.get('Tasks/T.md')).toBe('Calendars/Empty Set.md');
+    expect(hasResolvedSchedulingCalendar).toBe(false);
   });
 
   it('an explicit displayed set overrides the association union', () => {

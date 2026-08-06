@@ -192,6 +192,8 @@ export interface ShadingComputation {
   displayedCount: number;
   /** Calendars selected by the active display configuration, window or not. */
   selectedCount: number;
+  /** Whether at least one task association resolves to a scheduling calendar. */
+  hasResolvedSchedulingCalendar: boolean;
   conflictCount: number;
   /** The displayed calendars that disagree, so the banner can name them. */
   conflictCalendars: string[];
@@ -228,7 +230,10 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const flaggedCount = display?.flagged.length ?? 0;
   const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
   const calendarPalette = buildCalendarPalette(registry);
-  const calendarBySource = resolveCalendarIdentities(registry, inputs);
+  const { calendarBySource, hasResolvedSchedulingCalendar } = resolveCalendarFacts(
+    registry,
+    inputs,
+  );
   const displayed = new Map<string, CalendarRecord>();
   if (display !== null) {
     for (const path of display.paths) {
@@ -254,6 +259,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       css: buildCalendarShadingCss(inputs.scope, []),
       displayedCount: 0,
       selectedCount: displayed.size,
+      hasResolvedSchedulingCalendar,
       conflictCount: 0,
       conflictCalendars: [],
       invalidCount,
@@ -279,6 +285,7 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     ),
     displayedCount: displayed.size,
     selectedCount: displayed.size,
+    hasResolvedSchedulingCalendar,
     conflictCount: conflicts.dates.length,
     conflictCalendars: conflicts.calendars,
     invalidCount,
@@ -310,14 +317,19 @@ function buildCalendarPalette(
 }
 
 /**
- * Each associated task's calendar identity — the SET's id for a set-linked
- * task, so a set's colour wins over its members'.
+ * Resolve each task association once into its paint identity and scheduling
+ * capability. A set identity can resolve even when it has no valid member
+ * calendars, so identity alone is not evidence that scheduling can run.
  */
-function resolveCalendarIdentities(
+function resolveCalendarFacts(
   registry: ReturnType<typeof buildCalendarRegistry>,
   inputs: ShadingAssemblyInputs,
-): Map<string, string> {
-  const bySource = new Map<string, string>();
+): {
+  calendarBySource: Map<string, string>;
+  hasResolvedSchedulingCalendar: boolean;
+} {
+  const calendarBySource = new Map<string, string>();
+  let hasResolvedSchedulingCalendar = false;
   for (const association of inputs.associations) {
     const resolved = resolveTaskCalendar(
       registry,
@@ -325,9 +337,12 @@ function resolveCalendarIdentities(
       association.taskPath,
       inputs.resolveLink,
     );
-    if (resolved.identity) bySource.set(association.taskPath, resolved.identity.id);
+    if (resolved.identity) calendarBySource.set(association.taskPath, resolved.identity.id);
+    if (!resolved.schedulingSuspended && resolved.calendars.length > 0) {
+      hasResolvedSchedulingCalendar = true;
+    }
   }
-  return bySource;
+  return { calendarBySource, hasResolvedSchedulingCalendar };
 }
 
 /**

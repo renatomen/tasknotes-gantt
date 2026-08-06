@@ -22,6 +22,7 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarPalette: [],
   calendarMarkers: [],
   calendarDisplayedCount: 0,
+  hasResolvedSchedulingCalendar: false,
   calendarEventColor: null,
   estimateMeaning: 'calendar-days',
   nonWorkingRendering: 'shaded',
@@ -136,9 +137,12 @@ describe('buildLegendCatalog', () => {
     const context = baseContext({
       taskNotesPresent: true,
       barFillSource: 'status',
+      barStripSource: 'priority',
       statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+      priorityColors: [{ value: 'High', color: '#f97316' }],
       calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
       calendarDisplayedCount: 1,
+      hasResolvedSchedulingCalendar: true,
       estimateMeaning: 'working-days',
       nonWorkingRendering: 'split',
       calendarItems: {
@@ -163,11 +167,20 @@ describe('buildLegendCatalog', () => {
     const occupancySample = entry(context, 'occurrence-occupancy').sample;
     const occupancy = occupancySample.pieces ?? [];
     expect(occupancySample.classTokens).toEqual(['og-ghost-runs']);
+    expect(occupancySample.pieceEnvelopeClassTokens).toEqual([
+      'wx-bar',
+      expect.stringMatching(/^og-prio-/),
+    ]);
     expect(occupancy.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
     expect(occupancy.some((piece) => piece.treatment === 'gap')).toBe(true);
     for (const piece of occupancy.filter((candidate) => candidate.treatment === 'painted')) {
-      expect(piece.classTokens).toEqual(
-        expect.arrayContaining(['wx-bar', 'og-instance', expect.stringMatching(/^og-status-/)]),
+      expect(piece.classTokens).toEqual([
+        'wx-bar',
+        expect.stringMatching(/^og-status-/),
+        'og-instance',
+      ]);
+      expect(piece.classTokens).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/^og-prio-/)]),
       );
     }
     expect(occupancy.find((piece) => piece.treatment === 'gap')?.classTokens).toEqual([]);
@@ -186,6 +199,23 @@ describe('buildLegendCatalog', () => {
     ]);
   });
 
+  it('omits the occurrence envelope when the active view has no representative strip', () => {
+    const occupancy = entry(
+      baseContext({
+        taskNotesPresent: true,
+        barFillSource: 'status',
+        statusColors: [{ value: 'Doing', color: '#2563eb', isCompleted: false }],
+        calendarItems: {
+          ...baseContext().calendarItems,
+          showRecurring: true,
+        },
+      }),
+      'occurrence-occupancy',
+    ).sample;
+
+    expect(occupancy.pieceEnvelopeClassTokens).toBeUndefined();
+  });
+
   it('renders a continuous treated extension when non-working time is shaded', () => {
     const context = baseContext({
       taskNotesPresent: true,
@@ -195,6 +225,7 @@ describe('buildLegendCatalog', () => {
       priorityColors: [{ value: 'High', color: '#f97316' }],
       calendarPalette: [{ value: 'Calendars/Work.md', color: '#0f766e' }],
       calendarDisplayedCount: 1,
+      hasResolvedSchedulingCalendar: true,
       estimateMeaning: 'working-days',
       nonWorkingRendering: 'shaded',
     });
@@ -304,6 +335,7 @@ describe('buildLegendCatalog', () => {
         { value: 'Calendars/AU.md', color: '#b45309' },
       ],
       calendarDisplayedCount: 2,
+      hasResolvedSchedulingCalendar: true,
       calendarMarkers: [
         {
           date: '2026-08-12',
@@ -334,6 +366,7 @@ describe('buildLegendCatalog', () => {
     const context = baseContext({
       calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
       calendarDisplayedCount: 1,
+      hasResolvedSchedulingCalendar: true,
       estimateMeaning: 'calendar-days',
       estimateOverrideMapped: true,
     });
@@ -422,6 +455,7 @@ describe('buildLegendCatalog', () => {
   it('renders the estimate override decoration on a production task-bar host', () => {
     const context = baseContext({
       calendarDisplayedCount: 1,
+      hasResolvedSchedulingCalendar: true,
       estimateOverrideMapped: true,
     });
 
@@ -430,11 +464,34 @@ describe('buildLegendCatalog', () => {
     );
   });
 
+  it('keeps scheduling semantics when a resolved task calendar is excluded from background display', () => {
+    const context = baseContext({
+      calendarDisplayedCount: 0,
+      hasResolvedSchedulingCalendar: true,
+      estimateMeaning: 'working-days',
+      nonWorkingRendering: 'split',
+      estimateOverrideMapped: true,
+    });
+    const ids = entries(context).map((candidate) => candidate.semanticId);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'working-time-extension',
+        'working-time-split',
+        'estimate-override',
+      ]),
+    );
+    expect(ids).not.toEqual(
+      expect.arrayContaining(['calendar-shading', 'calendar-conflict']),
+    );
+  });
+
   it('does not present scheduling-calendar semantics for an unselected vault palette', () => {
     const ids = entries(
       baseContext({
         calendarPalette: [{ value: 'Calendars/Unselected.md', color: '#0f766e' }],
         calendarDisplayedCount: 0,
+        hasResolvedSchedulingCalendar: false,
         estimateMeaning: 'working-days',
         nonWorkingRendering: 'split',
         estimateOverrideMapped: true,

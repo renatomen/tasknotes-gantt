@@ -45,6 +45,8 @@ export interface GanttLegendContext {
   calendarMarkers: MarkerInput[];
   /** Number of calendars selected by the active display configuration. */
   calendarDisplayedCount: number;
+  /** True when at least one rendered task resolves its scheduling calendar. */
+  hasResolvedSchedulingCalendar: boolean;
   /** Representative paint for enabled read-only event-row families and feeds. */
   calendarEventColor: string | null;
   estimateMeaning: EstimateMeaning;

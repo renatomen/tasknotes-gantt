@@ -54,6 +54,7 @@ export interface LegendIconSample extends IconSpec {
 export interface LegendSampleDescriptor {
   kind: LegendSampleKind;
   classTokens: string[];
+  pieceEnvelopeClassTokens?: string[];
   paints?: {
     fill?: RepresentativeChannelPaint;
     strip?: RepresentativeChannelPaint;
@@ -86,6 +87,8 @@ export interface LegendCatalogueDefinition {
 
 const hasDisplayedCalendar = (context: GanttLegendContext): boolean =>
   context.calendarDisplayedCount > 0;
+const hasSchedulingCalendar = (context: GanttLegendContext): boolean =>
+  context.hasResolvedSchedulingCalendar;
 const hasRecurring = (context: GanttLegendContext): boolean =>
   context.taskNotesPresent && context.calendarItems.showRecurring;
 const hasOccurrences = (context: GanttLegendContext): boolean =>
@@ -180,7 +183,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     meaning: 'The bar extends across blocked days so its estimate counts working days.',
     sampleKind: 'pieces',
     isApplicable: (context) =>
-      hasDisplayedCalendar(context) &&
+      hasSchedulingCalendar(context) &&
       (context.estimateMeaning === 'working-days' || context.estimateOverrideMapped),
   },
   'working-time-split': {
@@ -189,7 +192,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     meaning: 'Solid runs are working time; the translucent run between them is blocked time.',
     sampleKind: 'pieces',
     isApplicable: (context) =>
-      hasDisplayedCalendar(context) && context.nonWorkingRendering === 'split',
+      hasSchedulingCalendar(context) && context.nonWorkingRendering === 'split',
   },
   'occurrence-occupancy': {
     group: 'occurrences',
@@ -269,7 +272,7 @@ export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefi
     name: 'Estimate override',
     meaning: "A corner dot means the task's estimate meaning overrides the view default.",
     sampleKind: 'decoration',
-    isApplicable: (context) => hasDisplayedCalendar(context) && context.estimateOverrideMapped,
+    isApplicable: (context) => hasSchedulingCalendar(context) && context.estimateOverrideMapped,
   },
 };
 
@@ -347,16 +350,7 @@ function sampleFor(
     return workingTimeExtensionSample(context, kind);
   }
   if (semanticId === 'occurrence-occupancy') {
-    const treatment = hasRecurring(context)
-      ? representativeTreatment(context)
-      : representativeEventTreatment(context);
-    return {
-      kind,
-      classTokens: [classes.ghostRuns],
-      pieces: splitPieces('gap', [...treatment.classTokens, classes.occurrence]),
-      paints: treatment.paints,
-      cssVariables: treatment.cssVariables,
-    };
+    return occurrenceOccupancySample(context, kind);
   }
 
   const classTokens = classTokensFor(semanticId);
@@ -405,6 +399,30 @@ function sampleFor(
     };
   }
   return baseSample(semanticId, kind, classTokens);
+}
+
+function occurrenceOccupancySample(
+  context: GanttLegendContext,
+  kind: LegendSampleKind,
+): LegendSampleDescriptor {
+  const recurring = hasRecurring(context);
+  const treatment = recurring
+    ? representativeTreatment(context)
+    : representativeEventTreatment(context);
+  const paintedClassTokens = recurring
+    ? compact([classes.bar, treatment.paints?.fill?.classToken, classes.occurrence])
+    : [...treatment.classTokens, classes.occurrence];
+  const representativeStripClass = recurring ? treatment.paints?.strip?.classToken : undefined;
+  return {
+    kind,
+    classTokens: [classes.ghostRuns],
+    pieces: splitPieces('gap', paintedClassTokens),
+    ...(representativeStripClass
+      ? { pieceEnvelopeClassTokens: [classes.bar, representativeStripClass] }
+      : {}),
+    paints: treatment.paints,
+    cssVariables: treatment.cssVariables,
+  };
 }
 
 function workingTimeExtensionSample(

@@ -435,6 +435,9 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyPainted = [
         ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
       ];
+      const occupancyEnvelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
       const splitPainted = [
         ...(split?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
       ];
@@ -442,6 +445,8 @@ describe("Gantt (OG) context-aware legend", () => {
         ...(extension?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
       ];
       const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
+      const occupancyBounds = occupancy?.getBoundingClientRect();
+      const occupancyEnvelopeBounds = occupancyEnvelopes[0]?.getBoundingClientRect();
       const ownsVisiblePaint = (pieces: HTMLElement[]): boolean =>
         pieces.length === 2 &&
         pieces.every((piece) => getComputedStyle(piece).backgroundColor !== "rgba(0, 0, 0, 0)");
@@ -458,7 +463,31 @@ describe("Gantt (OG) context-aware legend", () => {
         occupancyPiecesOwnPaint:
           ownsVisiblePaint(occupancyPainted) &&
           occupancyPainted.every(
-            (piece) => piece.classList.contains("wx-bar") && piece.classList.contains("og-instance"),
+            (piece) =>
+              piece.classList.contains("wx-bar") &&
+              piece.classList.contains("og-instance") &&
+              [...piece.classList].some((token) => token.startsWith("og-calendar-")) &&
+              ![...piece.classList].some((token) => token.startsWith("og-prio-")) &&
+              getComputedStyle(piece, "::before").content === "none",
+          ),
+        occupancyEnvelopeCount: occupancyEnvelopes.length,
+        occupancyEnvelopeMatchesHost:
+          !!occupancyBounds &&
+          !!occupancyEnvelopeBounds &&
+          Math.abs(occupancyEnvelopeBounds.left - occupancyBounds.left) < 1 &&
+          Math.abs(occupancyEnvelopeBounds.right - occupancyBounds.right) < 1,
+        occupancyEnvelopeOwnsOnlyStrip:
+          occupancyEnvelopes.length === 1 &&
+          occupancyEnvelopes.every(
+            (envelope) =>
+              envelope.classList.contains("wx-bar") &&
+              [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
+              ![...envelope.classList].some((token) => token.startsWith("og-calendar-")) &&
+              !envelope.classList.contains("og-instance") &&
+              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
+              getComputedStyle(envelope).borderStyle === "none" &&
+              getComputedStyle(envelope, "::before").content !== "none" &&
+              getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
           ),
         occupancyGapBackground: occupancyGap ? getComputedStyle(occupancyGap).backgroundColor : null,
         progressHostOwnsNestedClasses:
@@ -478,6 +507,9 @@ describe("Gantt (OG) context-aware legend", () => {
       extensionPaintedPiecesOwnPaint: true,
       occupancyHostOwnsPaint: false,
       occupancyPiecesOwnPaint: true,
+      occupancyEnvelopeCount: 1,
+      occupancyEnvelopeMatchesHost: true,
+      occupancyEnvelopeOwnsOnlyStrip: true,
       occupancyGapBackground: "rgba(0, 0, 0, 0)",
       progressHostOwnsNestedClasses: false,
       progressHasNestedClasses: true,

@@ -190,6 +190,11 @@
     </div>
   {:else if descriptor.kind === 'pieces'}
     <div class={`${className(descriptor.classTokens)} og-legend-pieces`} style={descriptorStyle(descriptor)}>
+      {#if descriptor.pieceEnvelopeClassTokens?.length}
+        <span
+          class={`${className(descriptor.pieceEnvelopeClassTokens)} og-legend-piece-envelope`}
+        ></span>
+      {/if}
       {#each descriptor.pieces ?? [] as piece, index (index)}
         <span
           class={`${className(piece.classTokens)} og-piece-${piece.treatment}`}
@@ -389,6 +394,19 @@
   .og-legend-line-frame :global(.og-series-spine) { left: 5%; width: 90%; }
   .og-legend-pieces :global(.og-ghost-run),
   .og-legend-pieces :global(.og-instance) { position: absolute; top: 7px; height: 20px; }
+  .og-legend-pieces .og-legend-piece-envelope {
+    position: absolute;
+    inset: auto;
+    left: 0;
+    top: 7px;
+    width: 100%;
+    height: 20px;
+    box-sizing: border-box;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    pointer-events: none;
+  }
   .og-legend-pieces .og-piece-gap { background: transparent; }
 
   @media (max-width: 600px) {
