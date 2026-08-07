@@ -143,181 +143,31 @@ type LegendCatalogueRows = {
 };
 
 export const LEGEND_CATALOGUE_ROWS = {
-  'bar-treatment': [
-    'bar',
-    {
-      name: 'Task bar',
-      meaning: 'The configured fill, strip, and icon channels identify task attributes.',
-    },
-  ],
-  'bar-icon': [
-    'icon',
-    {
-      name: 'Task icon',
-      meaning: 'A configured glyph or dot shape identifies the selected status or priority.',
-    },
-  ],
-  'date-status-fill': [
-    'schedule-bar',
-    {
-      name: 'Date fill',
-      meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
-    },
-  ],
-  'date-status-border': [
-    'schedule-bar',
-    {
-      name: 'Date border',
-      meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
-    },
-  ],
-  progress: [
-    'progress',
-    {
-      name: 'Progress',
-      meaning: 'The contrasting portion of a bar shows completion progress.',
-    },
-  ],
-  'dependency-link': [
-    'dependency',
-    {
-      name: 'Dependency',
-      meaning: 'A connector shows the scheduling relationship between two tasks.',
-    },
-  ],
-  'weekend-shading': [
-    'calendar-shading',
-    {
-      name: 'Weekend',
-      meaning: 'Theme holiday shading marks the locale weekend.',
-    },
-  ],
-  'calendar-shading': [
-    'calendar-shading',
-    {
-      name: 'Calendar shading',
-      meaning: 'Theme holiday shading marks non-working availability from the active calendars.',
-    },
-  ],
-  'calendar-conflict': [
-    'calendar-shading',
-    {
-      name: 'Calendar conflict',
-      meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
-    },
-  ],
-  'calendar-event': [
-    'calendar-bar',
-    {
-      name: 'Calendar event',
-      meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.',
-    },
-  ],
-  'today-marker': [
-    'marker',
-    {
-      name: 'Today',
-      meaning: 'The accent line locates today within the visible timeline.',
-    },
-  ],
-  'calendar-marker': [
-    'marker',
-    {
-      name: 'Calendar marker',
-      meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.',
-    },
-  ],
-  'working-time-extension': [
-    'calendar-pieces',
-    {
-      name: 'Working-time extension',
-      meaning: 'The bar extends across blocked days so its estimate counts working days.',
-    },
-  ],
-  'working-time-split': [
-    'calendar-pieces',
-    {
-      name: 'Split working time',
-      meaning: 'Solid runs are working time; the translucent run between them is blocked time.',
-    },
-  ],
-  'occurrence-occupancy': [
-    'occurrence-pieces',
-    {
-      name: 'Occurrence occupancy',
-      meaning: 'Separate painted pieces are occurrences; empty intervals are not occupied.',
-    },
-  ],
-  'occurrence-next': [
-    'occurrence-bar',
-    {
-      name: 'Next occurrence',
-      meaning: 'A solid accent piece is the next upcoming recurring instance.',
-    },
-  ],
-  'occurrence-projected': [
-    'occurrence-bar',
-    {
-      name: 'Projected occurrence',
-      meaning: 'A hollow dashed piece is a future instance projected from the pattern.',
-    },
-  ],
-  'occurrence-completed': [
-    'occurrence-bar',
-    {
-      name: 'Completed occurrence',
-      meaning: 'A dimmed struck piece is a completed recurring instance.',
-    },
-  ],
-  'occurrence-skipped': [
-    'occurrence-bar',
-    {
-      name: 'Skipped occurrence',
-      meaning: 'A muted hatched piece is a recurring instance that was deliberately skipped.',
-    },
-  ],
-  'occurrence-materialized': [
-    'occurrence-bar',
-    {
-      name: 'Materialized occurrence',
-      meaning: 'An outlined piece means that occurrence has its own note.',
-    },
-  ],
-  'occurrence-external': [
-    'occurrence-bar',
-    {
-      name: 'External occurrence',
-      meaning: 'A solid source-coloured piece is one occurrence of an external calendar series.',
-    },
-  ],
-  'occurrence-series-spine': [
-    'series-line',
-    {
-      name: 'Series spine',
-      meaning: 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
-    },
-  ],
-  'replicated-task': [
-    'structure-decoration',
-    {
-      name: 'Replicated task',
-      meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
-    },
-  ],
-  'context-task': [
-    'structure-decoration',
-    {
-      name: 'Context task',
-      meaning: 'A muted bar was fetched to show structure but does not itself match the Base.',
-    },
-  ],
-  'estimate-override': [
-    'structure-decoration',
-    {
-      name: 'Estimate override',
-      meaning: "A corner dot means the task's estimate meaning overrides the view default.",
-    },
-  ],
+  'bar-treatment': ['bar', { name: 'Task bar', meaning: 'The configured fill, strip, and icon channels identify task attributes.' }],
+  'bar-icon': ['icon', { name: 'Task icon', meaning: 'A configured glyph or dot shape identifies the selected status or priority.' }],
+  'date-status-fill': ['schedule-bar', { name: 'Date fill', meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.' }],
+  'date-status-border': ['schedule-bar', { name: 'Date border', meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.' }],
+  progress: ['progress', { name: 'Progress', meaning: 'The contrasting portion of a bar shows completion progress.' }],
+  'dependency-link': ['dependency', { name: 'Dependency', meaning: 'A connector shows the scheduling relationship between two tasks.' }],
+  'weekend-shading': ['calendar-shading', { name: 'Weekend', meaning: 'Theme holiday shading marks the locale weekend.' }],
+  'calendar-shading': ['calendar-shading', { name: 'Calendar shading', meaning: 'Theme holiday shading marks non-working availability from the active calendars.' }],
+  'calendar-conflict': ['calendar-shading', { name: 'Calendar conflict', meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.' }],
+  'calendar-event': ['calendar-bar', { name: 'Calendar event', meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.' }],
+  'today-marker': ['marker', { name: 'Today', meaning: 'The accent line locates today within the visible timeline.' }],
+  'calendar-marker': ['marker', { name: 'Calendar marker', meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.' }],
+  'working-time-extension': ['calendar-pieces', { name: 'Working-time extension', meaning: 'The bar extends across blocked days so its estimate counts working days.' }],
+  'working-time-split': ['calendar-pieces', { name: 'Split working time', meaning: 'Solid runs are working time; the translucent run between them is blocked time.' }],
+  'occurrence-occupancy': ['occurrence-pieces', { name: 'Occurrence occupancy', meaning: 'Separate painted pieces are occurrences; empty intervals are not occupied.' }],
+  'occurrence-next': ['occurrence-bar', { name: 'Next occurrence', meaning: 'A solid accent piece is the next upcoming recurring instance.' }],
+  'occurrence-projected': ['occurrence-bar', { name: 'Projected occurrence', meaning: 'A hollow dashed piece is a future instance projected from the pattern.' }],
+  'occurrence-completed': ['occurrence-bar', { name: 'Completed occurrence', meaning: 'A dimmed struck piece is a completed recurring instance.' }],
+  'occurrence-skipped': ['occurrence-bar', { name: 'Skipped occurrence', meaning: 'A muted hatched piece is a recurring instance that was deliberately skipped.' }],
+  'occurrence-materialized': ['occurrence-bar', { name: 'Materialized occurrence', meaning: 'An outlined piece means that occurrence has its own note.' }],
+  'occurrence-external': ['occurrence-bar', { name: 'External occurrence', meaning: 'A solid source-coloured piece is one occurrence of an external calendar series.' }],
+  'occurrence-series-spine': ['series-line', { name: 'Series spine', meaning: 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.' }],
+  'replicated-task': ['structure-decoration', { name: 'Replicated task', meaning: 'A diagonal hatch means the same note appears in more than one tree position.' }],
+  'context-task': ['structure-decoration', { name: 'Context task', meaning: 'A muted bar was fetched to show structure but does not itself match the Base.' }],
+  'estimate-override': ['structure-decoration', { name: 'Estimate override', meaning: "A corner dot means the task's estimate meaning overrides the view default." }],
 } as const satisfies LegendCatalogueRows;
 
 export const LEGEND_CATALOGUE = materializeCatalogue(LEGEND_CATALOGUE_ROWS);
