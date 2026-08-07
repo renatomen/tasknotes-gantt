@@ -569,9 +569,21 @@ describe("Gantt (OG) context-aware legend", () => {
 
   beforeEach(async function () {
     this.timeout(30000);
-    const shieldPresent = await browser.execute(() => Boolean(document.getElementById("og-e2e-notice-shield")));
-    if (!shieldPresent) {
-      throw new Error("Gantt legend e2e notice shield was removed during the fixture lifecycle");
+    await suppressTransientObsidianNotices();
+    const shieldEffective = await browser.execute(() => {
+      const container = document.createElement("div");
+      container.className = "notice-container";
+      container.style.cssText = "position:fixed;left:-9999px;top:0;";
+      const probe = document.createElement("div");
+      probe.className = "notice";
+      container.appendChild(probe);
+      document.body.appendChild(container);
+      const effective = getComputedStyle(probe).pointerEvents === "none";
+      container.remove();
+      return effective;
+    });
+    if (!shieldEffective) {
+      throw new Error("Gantt legend e2e notice shield no longer disables notice hit-testing");
     }
   });
 
