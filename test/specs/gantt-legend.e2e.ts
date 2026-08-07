@@ -130,7 +130,7 @@ async function suppressTransientObsidianNotices(): Promise<void> {
     if (document.getElementById("og-e2e-notice-shield")) return;
     const shield = document.createElement("style");
     shield.id = "og-e2e-notice-shield";
-    shield.textContent = ".notice { display: none !important; }";
+    shield.textContent = ".notice, .notice-container { pointer-events: none !important; }";
     document.head.appendChild(shield);
   });
 }
@@ -533,6 +533,9 @@ describe("Gantt (OG) context-aware legend", () => {
     };
 
     await attemptCleanup(async () => {
+      await restoreTransientObsidianNotices();
+    });
+    await attemptCleanup(async () => {
       if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
     });
     await attemptCleanup(async () => {
@@ -552,9 +555,6 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     await attemptCleanup(async () => {
       if (fixtureBarChannelsNeedReset) await restoreFixtureBarChannels();
-    });
-    await attemptCleanup(async () => {
-      await restoreTransientObsidianNotices();
     });
     await attemptCleanup(async () => {
       await browser.execute(() => {
