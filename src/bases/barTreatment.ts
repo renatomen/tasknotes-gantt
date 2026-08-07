@@ -735,14 +735,14 @@ function fillBodyRule(selector: string, color: string): string {
  * border shows to the strip's left); its left corners inherit the bar's radius so
  * it conforms to the rounded outer corner rather than letting the bar peek past.
  *
- * `z-index: 1` keeps the strip painted ABOVE SVAR's `.wx-progress-wrapper` (a real
- * child at `z-index: auto`, which as a later sibling would otherwise paint over the
- * `::before` and hide the strip as progress grows), while staying below `.wx-content`
- * (`z-index: 2`) so the icon/text remain on top.
+ * `z-index: 2` keeps the strip painted above SVAR's `.wx-progress-wrapper` and
+ * recurring occurrence pieces (both real descendants that otherwise paint over
+ * the pseudo-element), while the later `.wx-content` at the same layer keeps the
+ * icon/text on top.
  */
 function stripRule(color: string): string {
   return (
-    `::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; ` +
+    `::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; ` +
     `width: ${STRIP_WIDTH_PX}px; background-color: ${color}; ` +
     `border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); ` +
     `border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`

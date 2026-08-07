@@ -735,12 +735,19 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("keeps composite sample hosts transparent while nested pieces own their paint", async () => {
     await openLegend();
+    await waitForCompletedRecurringPiece();
     const ownership = await browser.execute(() => {
       const sample = (semanticId: string): HTMLElement | null =>
         document.querySelector(`[data-semantic-id="${semanticId}"] .og-legend-sample > div`);
       const split = sample("working-time-split");
       const extension = sample("working-time-extension");
       const occupancy = sample("occurrence-occupancy");
+      const chartRecurring = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"]',
+      );
+      const chartRecurringPieces = [
+        ...(chartRecurring?.querySelectorAll<HTMLElement>(".og-instance") ?? []),
+      ];
       const progress = sample("progress");
       const occupancyPainted = [
         ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
@@ -761,6 +768,9 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyBounds = occupancy?.getBoundingClientRect();
       const occupancyEnvelopeBounds = occupancyEnvelopes[0]?.getBoundingClientRect();
       const occupancyPieceZIndexes = occupancyPainted.map((piece) =>
+        Number.parseInt(getComputedStyle(piece).zIndex, 10),
+      );
+      const chartRecurringPieceZIndexes = chartRecurringPieces.map((piece) =>
         Number.parseInt(getComputedStyle(piece).zIndex, 10),
       );
       const ownsVisiblePaint = (pieces: HTMLElement[]): boolean =>
@@ -809,6 +819,11 @@ describe("Gantt (OG) context-aware legend", () => {
           occupancyEnvelopes.length === 1 &&
           Number.parseInt(getComputedStyle(occupancyEnvelopes[0]!).zIndex, 10) >
             Math.max(...occupancyPieceZIndexes),
+        chartRecurringStripAbovePieces:
+          !!chartRecurring &&
+          chartRecurringPieces.length > 0 &&
+          Number.parseInt(getComputedStyle(chartRecurring, "::before").zIndex, 10) >
+            Math.max(...chartRecurringPieceZIndexes),
         occupancyEnvelopeOwnsOnlyStrip:
           occupancyEnvelopes.length === 1 &&
           occupancyEnvelopes.every(
@@ -844,6 +859,7 @@ describe("Gantt (OG) context-aware legend", () => {
       occupancyEnvelopeCount: 1,
       occupancyEnvelopeMatchesHost: true,
       occupancyEnvelopeAbovePieces: true,
+      chartRecurringStripAbovePieces: true,
       occupancyEnvelopeOwnsOnlyStrip: true,
       occupancyGapBackground: "rgba(0, 0, 0, 0)",
       progressHostOwnsNestedClasses: false,
