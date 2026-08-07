@@ -143,7 +143,6 @@ async function restoreTransientObsidianNotices(): Promise<void> {
 
 async function openLegend(): Promise<void> {
   const trigger = await $(".og-bases-gantt .og-legend-toggle");
-  await suppressTransientObsidianNotices();
   await trigger.click();
   await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
     timeout: 8000,
@@ -568,6 +567,14 @@ describe("Gantt (OG) context-aware legend", () => {
     }
   });
 
+  beforeEach(async function () {
+    this.timeout(30000);
+    const shieldPresent = await browser.execute(() => Boolean(document.getElementById("og-e2e-notice-shield")));
+    if (!shieldPresent) {
+      throw new Error("Gantt legend e2e notice shield was removed during the fixture lifecycle");
+    }
+  });
+
   after(async function () {
     this.timeout(60000);
     try {
@@ -583,7 +590,6 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeExisting();
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
-    await suppressTransientObsidianNotices();
     await trigger.click();
     const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
     await expect(panel).toBeExisting();
@@ -1427,7 +1433,6 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
     const trigger = await $(".og-bases-gantt .og-legend-toggle");
-    await suppressTransientObsidianNotices();
     await trigger.click();
     await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
