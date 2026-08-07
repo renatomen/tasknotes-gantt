@@ -301,11 +301,14 @@ describe('buildLegendCatalog', () => {
         calendarEventColor: '#0ea5e9',
       }),
       'occurrence-occupancy',
-    ).sample;
+    );
 
-    expect(occupancy.pieceEnvelopeClassTokens).toBeUndefined();
-    expect(occupancy.classTokens).not.toContain('og-legend-strip-only');
-    for (const piece of occupancy.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
+    expect(occupancy.meaning).toBe(
+      'Separate painted pieces are occurrences of a recurring task or an external calendar series.',
+    );
+    expect(occupancy.sample.pieceEnvelopeClassTokens).toBeUndefined();
+    expect(occupancy.sample.classTokens).not.toContain('og-legend-strip-only');
+    for (const piece of occupancy.sample.pieces?.filter(({ treatment }) => treatment === 'painted') ?? []) {
       expect(piece.classTokens).toEqual(['wx-bar', 'og-event', 'og-instance']);
     }
   });
