@@ -97,8 +97,10 @@ const hasRecurring = (context: GanttLegendContext): boolean =>
 
 type LegendCatalogueRow = readonly [
   group: LegendGroupId,
-  name: string,
-  meaning: string,
+  copy: {
+    name: string;
+    meaning: string;
+  },
   sampleKind: LegendSampleKind,
 ];
 
@@ -109,152 +111,202 @@ type LegendCatalogueRows = {
 const LEGEND_CATALOGUE_ROWS = {
   'bar-treatment': [
     'bars',
-    'Task bar',
-    'The configured fill, strip, and icon channels identify task attributes.',
+    {
+      name: 'Task bar',
+      meaning: 'The configured fill, strip, and icon channels identify task attributes.',
+    },
     'bar',
   ],
   'bar-icon': [
     'bars',
-    'Task icon',
-    'A configured glyph or dot shape identifies the selected status or priority.',
+    {
+      name: 'Task icon',
+      meaning: 'A configured glyph or dot shape identifies the selected status or priority.',
+    },
     'icon-set',
   ],
   'date-status-fill': [
     'schedule',
-    'Date fill',
-    'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    {
+      name: 'Date fill',
+      meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    },
     'bar',
   ],
   'date-status-border': [
     'schedule',
-    'Date border',
-    'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    {
+      name: 'Date border',
+      meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
+    },
     'bar',
   ],
   progress: [
     'schedule',
-    'Progress',
-    'The contrasting portion of a bar shows completion progress.',
+    {
+      name: 'Progress',
+      meaning: 'The contrasting portion of a bar shows completion progress.',
+    },
     'progress',
   ],
   'dependency-link': [
     'dependencies',
-    'Dependency',
-    'A connector shows the scheduling relationship between two tasks.',
+    {
+      name: 'Dependency',
+      meaning: 'A connector shows the scheduling relationship between two tasks.',
+    },
     'link',
   ],
   'weekend-shading': [
     'calendars',
-    'Weekend',
-    'Theme holiday shading marks the locale weekend.',
+    {
+      name: 'Weekend',
+      meaning: 'Theme holiday shading marks the locale weekend.',
+    },
     'shading',
   ],
   'calendar-shading': [
     'calendars',
-    'Calendar shading',
-    'Theme holiday shading marks non-working availability from the active calendars.',
+    {
+      name: 'Calendar shading',
+      meaning: 'Theme holiday shading marks non-working availability from the active calendars.',
+    },
     'shading',
   ],
   'calendar-conflict': [
     'calendars',
-    'Calendar conflict',
-    'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
+    {
+      name: 'Calendar conflict',
+      meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
+    },
     'shading',
   ],
   'calendar-event': [
     'calendars',
-    'Calendar event',
-    'A solid read-only bar is an event supplied by an enabled calendar-item source.',
+    {
+      name: 'Calendar event',
+      meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.',
+    },
     'bar',
   ],
   'today-marker': [
     'calendars',
-    'Today',
-    'The accent line locates today within the visible timeline.',
+    {
+      name: 'Today',
+      meaning: 'The accent line locates today within the visible timeline.',
+    },
     'marker',
   ],
   'calendar-marker': [
     'calendars',
-    'Calendar marker',
-    'A labelled vertical line marks a flagged event from a displayed calendar.',
+    {
+      name: 'Calendar marker',
+      meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.',
+    },
     'marker',
   ],
   'working-time-extension': [
     'calendars',
-    'Working-time extension',
-    'The bar extends across blocked days so its estimate counts working days.',
+    {
+      name: 'Working-time extension',
+      meaning: 'The bar extends across blocked days so its estimate counts working days.',
+    },
     'pieces',
   ],
   'working-time-split': [
     'calendars',
-    'Split working time',
-    'Solid runs are working time; the translucent run between them is blocked time.',
+    {
+      name: 'Split working time',
+      meaning: 'Solid runs are working time; the translucent run between them is blocked time.',
+    },
     'pieces',
   ],
   'occurrence-occupancy': [
     'occurrences',
-    'Occurrence occupancy',
-    'Separate painted pieces are occurrences; empty intervals are not occupied.',
+    {
+      name: 'Occurrence occupancy',
+      meaning: 'Separate painted pieces are occurrences; empty intervals are not occupied.',
+    },
     'pieces',
   ],
   'occurrence-next': [
     'occurrences',
-    'Next occurrence',
-    'A solid accent piece is the next upcoming recurring instance.',
+    {
+      name: 'Next occurrence',
+      meaning: 'A solid accent piece is the next upcoming recurring instance.',
+    },
     'bar',
   ],
   'occurrence-projected': [
     'occurrences',
-    'Projected occurrence',
-    'A hollow dashed piece is a future instance projected from the pattern.',
+    {
+      name: 'Projected occurrence',
+      meaning: 'A hollow dashed piece is a future instance projected from the pattern.',
+    },
     'bar',
   ],
   'occurrence-completed': [
     'occurrences',
-    'Completed occurrence',
-    'A dimmed struck piece is a completed recurring instance.',
+    {
+      name: 'Completed occurrence',
+      meaning: 'A dimmed struck piece is a completed recurring instance.',
+    },
     'bar',
   ],
   'occurrence-skipped': [
     'occurrences',
-    'Skipped occurrence',
-    'A muted hatched piece is a recurring instance that was deliberately skipped.',
+    {
+      name: 'Skipped occurrence',
+      meaning: 'A muted hatched piece is a recurring instance that was deliberately skipped.',
+    },
     'bar',
   ],
   'occurrence-materialized': [
     'occurrences',
-    'Materialized occurrence',
-    'An outlined piece means that occurrence has its own note.',
+    {
+      name: 'Materialized occurrence',
+      meaning: 'An outlined piece means that occurrence has its own note.',
+    },
     'bar',
   ],
   'occurrence-external': [
     'occurrences',
-    'External occurrence',
-    'A solid source-coloured piece is one occurrence of an external calendar series.',
+    {
+      name: 'External occurrence',
+      meaning: 'A solid source-coloured piece is one occurrence of an external calendar series.',
+    },
     'bar',
   ],
   'occurrence-series-spine': [
     'occurrences',
-    'Series spine',
-    'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
+    {
+      name: 'Series spine',
+      meaning: 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
+    },
     'line',
   ],
   'replicated-task': [
     'structure',
-    'Replicated task',
-    'A diagonal hatch means the same note appears in more than one tree position.',
+    {
+      name: 'Replicated task',
+      meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
+    },
     'decoration',
   ],
   'context-task': [
     'structure',
-    'Context task',
-    'A muted bar was fetched to show structure but does not itself match the Base.',
+    {
+      name: 'Context task',
+      meaning: 'A muted bar was fetched to show structure but does not itself match the Base.',
+    },
     'decoration',
   ],
   'estimate-override': [
     'structure',
-    'Estimate override',
-    "A corner dot means the task's estimate meaning overrides the view default.",
+    {
+      name: 'Estimate override',
+      meaning: "A corner dot means the task's estimate meaning overrides the view default.",
+    },
     'decoration',
   ],
 } as const satisfies LegendCatalogueRows;
@@ -266,8 +318,8 @@ function materializeCatalogue(
 ): Record<GanttVisualSemanticId, LegendCatalogueDefinition> {
   return Object.fromEntries(
     GANTT_VISUAL_SEMANTIC_IDS.map((semanticId) => {
-      const [group, name, meaning, sampleKind] = rows[semanticId];
-      return [semanticId, { group, name, meaning, sampleKind }];
+      const [group, copy, sampleKind] = rows[semanticId];
+      return [semanticId, { group, ...copy, sampleKind }];
     }),
   ) as Record<GanttVisualSemanticId, LegendCatalogueDefinition>;
 }
