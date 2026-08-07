@@ -42,7 +42,7 @@ You can also use it as a **read-only timeline** over any Obsidian Base, with no 
 
 | Right legend | Bottom legend |
 | :---: | :---: |
-| ![A context-aware Gantt legend overlaid on the right side of a dark Obsidian Gantt, showing separate date-fill and date-border meanings](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-right.png) | ![The same context-aware Gantt legend moved to the bottom, showing working-day estimates, split non-working time, and recurring occurrences](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-bottom.png) |
+| ![A context-aware Gantt legend overlaid on the right side of a dark Obsidian Gantt, showing separate date-fill and date-border meanings](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-right.png) | ![The same context-aware Gantt legend moved to the bottom and horizontally scrolled to working-day estimates, split non-working time, and recurring occurrences](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-bottom.png) |
 
 - **Resizable grid/timeline split** that remembers its width, a configurable min/max height, sortable grid columns, and a view-settings menu grouped into collapsible sections.
 - **Missing-date handling** — control how tasks with partial or no dates appear, with optional on-bar date-status indicators.

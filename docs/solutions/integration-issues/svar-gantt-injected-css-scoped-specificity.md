@@ -75,7 +75,7 @@ function stripContentPadRule(): string {
 }
 ```
 
-**2. Set an explicit `z-index` on a pseudo-element layered over SVAR bars** — don't trust sibling/paint order. SVAR's real children sit in a defined stack (`.wx-progress-wrapper` at `z-index: auto`, recurring occurrence pieces, and `.wx-content` at `z-index: 2`); place the strip at `z-index: 2` so it stays above progress and occurrence pieces, while the later `.wx-content` at the same layer keeps the icon and text on top:
+**2. Set an explicit `z-index` on a pseudo-element layered over SVAR bars** — don't trust sibling/paint order. SVAR's real children include `.wx-progress-wrapper` at `z-index: auto` and `.wx-content` at `z-index: 2`; the plugin also injects `.og-instance` occurrence pieces at `z-index: 1`. Place the strip at `z-index: 2` so it stays above progress and occurrence pieces, while the later `.wx-content` at the same layer keeps the icon and text on top:
 
 ```ts
 function stripRule(color: string): string {
@@ -110,7 +110,7 @@ Parent vs child from a single accent is **one hue, two tones** (`THEME_CHILD_COL
 ## Prevention
 
 - **Any time you inject CSS to restyle SVAR `.wx-*` elements from outside its component CSS, expect to lose the cascade** — reach for `!important` (or a more specific anchor) on the contested property from the start.
-- **Whenever you add a `::before`/`::after` over SVAR bars, set an explicit `z-index`** relative to SVAR's known layers (`.wx-progress-wrapper` auto, recurring occurrence pieces, `.wx-content` 2) — never rely on sibling order. The strip invariant is `z-index: 2`: it stays visible over bar paint while later content remains readable.
+- **Whenever you add a `::before`/`::after` over SVAR bars, set an explicit `z-index`** relative to SVAR's known layers (`.wx-progress-wrapper` auto and `.wx-content` 2) and the plugin's `.og-instance` occurrence pieces at `z-index: 1` — never rely on sibling order. The strip invariant is `z-index: 2`: it stays visible over bar paint while later content remains readable.
 - **Whenever a color must survive arbitrary Obsidian themes, build it from `color-mix` against `--text-normal` / `--background-primary`** (guaranteed delta) and `--interactive-accent` (theme hue). Never use `--background-secondary` / `--background-modifier-*` for something that must stay visible. Test at least one low-contrast theme (Obsidian default).
 - **When a style "doesn't apply," confirm with `getComputedStyle` before changing code** — one read beats several reload cycles.
 - This is the CSS instance of the standing rule *"don't deviate from SVAR's documented API without sign-off"*: prefer the documented component; when you must inject over SVAR, out-specify it deliberately rather than swapping its patterns (see the "heavy lines" cautionary precedent below).
