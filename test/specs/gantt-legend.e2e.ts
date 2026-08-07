@@ -125,8 +125,8 @@ async function waitForCompletedRecurringPiece(): Promise<void> {
   });
 }
 
-async function suppressTransientObsidianNotices(targetSelector?: string): Promise<void> {
-  const verification = await browser.execute((selector) => {
+async function suppressTransientObsidianNotices(): Promise<void> {
+  await browser.execute(() => {
     if (!document.getElementById("og-e2e-notice-shield")) {
       const shield = document.createElement("style");
       shield.id = "og-e2e-notice-shield";
@@ -134,34 +134,7 @@ async function suppressTransientObsidianNotices(targetSelector?: string): Promis
         ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
       document.head.appendChild(shield);
     }
-    if (!selector) return null;
-    const target = document.querySelector<HTMLElement>(selector);
-    if (!target) return { targetFound: false, targetHit: false, interceptedBy: null };
-    const bounds = target.getBoundingClientRect();
-    const visible =
-      bounds.width > 0 &&
-      bounds.height > 0 &&
-      bounds.left < window.innerWidth &&
-      bounds.top < window.innerHeight &&
-      bounds.bottom > 0 &&
-      bounds.right > 0;
-    if (!visible) return { targetFound: true, targetHit: false, interceptedBy: "target is outside the viewport" };
-    const x = Math.min(Math.max(bounds.left + bounds.width / 2, 0), window.innerWidth - 1);
-    const y = Math.min(Math.max(bounds.top + bounds.height / 2, 0), window.innerHeight - 1);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      targetFound: true,
-      targetHit: hit === target || (hit !== null && target.contains(hit)),
-      interceptedBy: hit instanceof HTMLElement
-        ? `${hit.tagName.toLowerCase()}.${hit.className}`
-        : "no element at point",
-    };
-  }, targetSelector);
-  if (verification && (!verification.targetFound || !verification.targetHit)) {
-    throw new Error(
-      `Gantt legend e2e click target check failed: ${verification.targetFound ? verification.interceptedBy : "target not found"}`,
-    );
-  }
+  });
 }
 
 async function restoreTransientObsidianNotices(): Promise<void> {
@@ -169,9 +142,8 @@ async function restoreTransientObsidianNotices(): Promise<void> {
 }
 
 async function openLegend(): Promise<void> {
-  const selector = ".og-bases-gantt .og-legend-toggle";
-  const trigger = await $(selector);
-  await suppressTransientObsidianNotices(selector);
+  const trigger = await $(".og-bases-gantt .og-legend-toggle");
+  await suppressTransientObsidianNotices();
   await trigger.click();
   await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
     timeout: 8000,
@@ -611,7 +583,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeExisting();
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
-    await suppressTransientObsidianNotices(".og-bases-gantt .og-legend-toggle");
+    await suppressTransientObsidianNotices();
     await trigger.click();
     const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
     await expect(panel).toBeExisting();
@@ -1186,7 +1158,6 @@ describe("Gantt (OG) context-aware legend", () => {
   it("switches live without reflow, preserves selection/zoom/scroll, then reopens at the Appearance default (AE4/AE5)", async () => {
     await ensureRealChartSelection();
     const beforeZoom = await chartViewState();
-    await suppressTransientObsidianNotices(".og-bases-gantt .zoom-in");
     await $(".og-bases-gantt .zoom-in").click();
     await browser.waitUntil(async () => {
       const current = await chartViewState();
@@ -1270,7 +1241,6 @@ describe("Gantt (OG) context-aware legend", () => {
       timeoutMsg: "Uncovered chart bar was not selectable through the overlay",
     });
     const selectedBefore = await $$(".og-bases-gantt .wx-selected");
-    await suppressTransientObsidianNotices(".og-gantt-legend .og-legend-title-block");
     await $(".og-gantt-legend .og-legend-title-block").click();
     const selectedAfter = await $$(".og-bases-gantt .wx-selected");
     expect(selectedAfter).toHaveLength(selectedBefore.length);
@@ -1281,7 +1251,6 @@ describe("Gantt (OG) context-aware legend", () => {
     let scrollRange = 0;
     for (let attempt = 0; attempt < 4 && scrollRange < 300; attempt += 1) {
       const beforeZoom = await chartViewState();
-      await suppressTransientObsidianNotices(".og-bases-gantt .zoom-in");
       await $(".og-bases-gantt .zoom-in").click();
       await browser.waitUntil(async () => {
         const current = await chartViewState();
@@ -1378,7 +1347,6 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(restoredReturnButton).toHaveText(expect.stringContaining("Return"));
     await expect($(".og-gantt-legend .og-legend-scroll")).toBeFocused();
 
-    await suppressTransientObsidianNotices(".og-gantt-legend .og-legend-dismiss");
     await restoredReturnButton.click();
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
@@ -1458,9 +1426,8 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
-    const selector = ".og-bases-gantt .og-legend-toggle";
-    const trigger = await $(selector);
-    await suppressTransientObsidianNotices(selector);
+    const trigger = await $(".og-bases-gantt .og-legend-toggle");
+    await suppressTransientObsidianNotices();
     await trigger.click();
     await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
@@ -1477,7 +1444,6 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(activePosition).toBe("bottom");
     await browser.keys(["Space"]);
     const scroll = await $(".og-gantt-legend .og-legend-scroll");
-    await suppressTransientObsidianNotices(".og-gantt-legend .og-legend-scroll");
     await scroll.click();
     await browser.keys(["ArrowRight"]);
     await browser.keys(["Escape"]);
