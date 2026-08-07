@@ -95,220 +95,148 @@ const hasRecordedRecurring = (context: GanttLegendContext): boolean =>
 const hasRecurring = (context: GanttLegendContext): boolean =>
   hasVirtualRecurring(context) || hasRecordedRecurring(context);
 
-type LegendCatalogueRow = readonly [
-  group: LegendGroupId,
-  copy: {
-    name: string;
-    meaning: string;
-  },
-  sampleKind: LegendSampleKind,
-];
+type LegendCatalogueStyleRow = readonly [group: LegendGroupId, sampleKind: LegendSampleKind];
+
+interface LegendCatalogueCopy {
+  name: string;
+  meaning: string;
+}
 
 type LegendCatalogueRows = {
-  [K in GanttVisualSemanticId]: LegendCatalogueRow;
+  style: { [K in GanttVisualSemanticId]: LegendCatalogueStyleRow };
+  copy: { [K in GanttVisualSemanticId]: LegendCatalogueCopy };
 };
 
 export const LEGEND_CATALOGUE_ROWS = {
-  'bar-treatment': [
-    'bars',
-    {
+  style: {
+    'bar-treatment': ['bars', 'bar'],
+    'bar-icon': ['bars', 'icon-set'],
+    'date-status-fill': ['schedule', 'bar'],
+    'date-status-border': ['schedule', 'bar'],
+    progress: ['schedule', 'progress'],
+    'dependency-link': ['dependencies', 'link'],
+    'weekend-shading': ['calendars', 'shading'],
+    'calendar-shading': ['calendars', 'shading'],
+    'calendar-conflict': ['calendars', 'shading'],
+    'calendar-event': ['calendars', 'bar'],
+    'today-marker': ['calendars', 'marker'],
+    'calendar-marker': ['calendars', 'marker'],
+    'working-time-extension': ['calendars', 'pieces'],
+    'working-time-split': ['calendars', 'pieces'],
+    'occurrence-occupancy': ['occurrences', 'pieces'],
+    'occurrence-next': ['occurrences', 'bar'],
+    'occurrence-projected': ['occurrences', 'bar'],
+    'occurrence-completed': ['occurrences', 'bar'],
+    'occurrence-skipped': ['occurrences', 'bar'],
+    'occurrence-materialized': ['occurrences', 'bar'],
+    'occurrence-external': ['occurrences', 'bar'],
+    'occurrence-series-spine': ['occurrences', 'line'],
+    'replicated-task': ['structure', 'decoration'],
+    'context-task': ['structure', 'decoration'],
+    'estimate-override': ['structure', 'decoration'],
+  },
+  copy: {
+    'bar-treatment': {
       name: 'Task bar',
       meaning: 'The configured fill, strip, and icon channels identify task attributes.',
     },
-    'bar',
-  ],
-  'bar-icon': [
-    'bars',
-    {
+    'bar-icon': {
       name: 'Task icon',
       meaning: 'A configured glyph or dot shape identifies the selected status or priority.',
     },
-    'icon-set',
-  ],
-  'date-status-fill': [
-    'schedule',
-    {
+    'date-status-fill': {
       name: 'Date fill',
       meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     },
-    'bar',
-  ],
-  'date-status-border': [
-    'schedule',
-    {
+    'date-status-border': {
       name: 'Date border',
       meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
     },
-    'bar',
-  ],
-  progress: [
-    'schedule',
-    {
+    progress: {
       name: 'Progress',
       meaning: 'The contrasting portion of a bar shows completion progress.',
     },
-    'progress',
-  ],
-  'dependency-link': [
-    'dependencies',
-    {
+    'dependency-link': {
       name: 'Dependency',
       meaning: 'A connector shows the scheduling relationship between two tasks.',
     },
-    'link',
-  ],
-  'weekend-shading': [
-    'calendars',
-    {
+    'weekend-shading': {
       name: 'Weekend',
       meaning: 'Theme holiday shading marks the locale weekend.',
     },
-    'shading',
-  ],
-  'calendar-shading': [
-    'calendars',
-    {
+    'calendar-shading': {
       name: 'Calendar shading',
       meaning: 'Theme holiday shading marks non-working availability from the active calendars.',
     },
-    'shading',
-  ],
-  'calendar-conflict': [
-    'calendars',
-    {
+    'calendar-conflict': {
       name: 'Calendar conflict',
       meaning: 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
     },
-    'shading',
-  ],
-  'calendar-event': [
-    'calendars',
-    {
+    'calendar-event': {
       name: 'Calendar event',
       meaning: 'A solid read-only bar is an event supplied by an enabled calendar-item source.',
     },
-    'bar',
-  ],
-  'today-marker': [
-    'calendars',
-    {
+    'today-marker': {
       name: 'Today',
       meaning: 'The accent line locates today within the visible timeline.',
     },
-    'marker',
-  ],
-  'calendar-marker': [
-    'calendars',
-    {
+    'calendar-marker': {
       name: 'Calendar marker',
       meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.',
     },
-    'marker',
-  ],
-  'working-time-extension': [
-    'calendars',
-    {
+    'working-time-extension': {
       name: 'Working-time extension',
       meaning: 'The bar extends across blocked days so its estimate counts working days.',
     },
-    'pieces',
-  ],
-  'working-time-split': [
-    'calendars',
-    {
+    'working-time-split': {
       name: 'Split working time',
       meaning: 'Solid runs are working time; the translucent run between them is blocked time.',
     },
-    'pieces',
-  ],
-  'occurrence-occupancy': [
-    'occurrences',
-    {
+    'occurrence-occupancy': {
       name: 'Occurrence occupancy',
       meaning: 'Separate painted pieces are occurrences; empty intervals are not occupied.',
     },
-    'pieces',
-  ],
-  'occurrence-next': [
-    'occurrences',
-    {
+    'occurrence-next': {
       name: 'Next occurrence',
       meaning: 'A solid accent piece is the next upcoming recurring instance.',
     },
-    'bar',
-  ],
-  'occurrence-projected': [
-    'occurrences',
-    {
+    'occurrence-projected': {
       name: 'Projected occurrence',
       meaning: 'A hollow dashed piece is a future instance projected from the pattern.',
     },
-    'bar',
-  ],
-  'occurrence-completed': [
-    'occurrences',
-    {
+    'occurrence-completed': {
       name: 'Completed occurrence',
       meaning: 'A dimmed struck piece is a completed recurring instance.',
     },
-    'bar',
-  ],
-  'occurrence-skipped': [
-    'occurrences',
-    {
+    'occurrence-skipped': {
       name: 'Skipped occurrence',
       meaning: 'A muted hatched piece is a recurring instance that was deliberately skipped.',
     },
-    'bar',
-  ],
-  'occurrence-materialized': [
-    'occurrences',
-    {
+    'occurrence-materialized': {
       name: 'Materialized occurrence',
       meaning: 'An outlined piece means that occurrence has its own note.',
     },
-    'bar',
-  ],
-  'occurrence-external': [
-    'occurrences',
-    {
+    'occurrence-external': {
       name: 'External occurrence',
       meaning: 'A solid source-coloured piece is one occurrence of an external calendar series.',
     },
-    'bar',
-  ],
-  'occurrence-series-spine': [
-    'occurrences',
-    {
+    'occurrence-series-spine': {
       name: 'Series spine',
       meaning: 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
     },
-    'line',
-  ],
-  'replicated-task': [
-    'structure',
-    {
+    'replicated-task': {
       name: 'Replicated task',
       meaning: 'A diagonal hatch means the same note appears in more than one tree position.',
     },
-    'decoration',
-  ],
-  'context-task': [
-    'structure',
-    {
+    'context-task': {
       name: 'Context task',
       meaning: 'A muted bar was fetched to show structure but does not itself match the Base.',
     },
-    'decoration',
-  ],
-  'estimate-override': [
-    'structure',
-    {
+    'estimate-override': {
       name: 'Estimate override',
       meaning: "A corner dot means the task's estimate meaning overrides the view default.",
     },
-    'decoration',
-  ],
+  },
 } as const satisfies LegendCatalogueRows;
 
 export const LEGEND_CATALOGUE = materializeCatalogue(LEGEND_CATALOGUE_ROWS);
@@ -319,8 +247,8 @@ function materializeCatalogue(
   return Object.fromEntries(
     GANTT_VISUAL_SEMANTIC_IDS.map(
       (semanticId): [GanttVisualSemanticId, LegendCatalogueDefinition] => {
-        const [group, copy, sampleKind] = rows[semanticId];
-        return [semanticId, { group, ...copy, sampleKind }];
+        const [group, sampleKind] = rows.style[semanticId];
+        return [semanticId, { group, ...rows.copy[semanticId], sampleKind }];
       },
     ),
   ) as Record<GanttVisualSemanticId, LegendCatalogueDefinition>;

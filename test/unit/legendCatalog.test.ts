@@ -651,7 +651,8 @@ describe('buildLegendCatalog', () => {
 
 describe('legend semantic exhaustiveness', () => {
   it('gives every production-owned semantic an explanation and sample descriptor', () => {
-    expect(Object.keys(LEGEND_CATALOGUE_ROWS).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
+    expect(Object.keys(LEGEND_CATALOGUE_ROWS.style).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
+    expect(Object.keys(LEGEND_CATALOGUE_ROWS.copy).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
     expect(Object.keys(LEGEND_CATALOGUE).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
     for (const semanticId of GANTT_VISUAL_SEMANTIC_IDS) {
       const definition = LEGEND_CATALOGUE[semanticId];
