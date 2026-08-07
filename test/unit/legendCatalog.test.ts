@@ -568,6 +568,9 @@ describe('buildLegendCatalog', () => {
     });
     const extension = entry(context, 'working-time-extension');
 
+    expect(extension.meaning).toBe(
+      'The bar extends across non-working time so its estimate counts only working time.',
+    );
     expect(extension.sample).toMatchObject({
       kind: 'bar',
       cssVariables: {

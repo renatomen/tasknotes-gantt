@@ -157,7 +157,7 @@ export const LEGEND_CATALOGUE_ROWS = {
   'calendar-marker': ['marker', { name: 'Calendar marker', meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.' }],
   'working-time-extension': ['calendar-pieces', { name: 'Working-time extension', meaning: 'The bar extends across non-working time so its estimate counts only working time.' }],
   'working-time-split': ['calendar-pieces', { name: 'Split working time', meaning: 'Solid runs are working time; the translucent run between them is non-working time.' }],
-  'occurrence-occupancy': ['occurrence-pieces', { name: 'Occurrence occupancy', meaning: 'Separate painted pieces are occurrences of a recurring task or calendar series.' }],
+  'occurrence-occupancy': ['occurrence-pieces', { name: 'Occurrence occupancy', meaning: 'Separate painted pieces are occurrences of a recurring task or an external calendar series.' }],
   'occurrence-next': ['occurrence-bar', { name: 'Next occurrence', meaning: 'A solid accent piece is the next upcoming recurring instance.' }],
   'occurrence-projected': ['occurrence-bar', { name: 'Projected occurrence', meaning: 'A hollow dashed piece is a future instance projected from the pattern.' }],
   'occurrence-completed': ['occurrence-bar', { name: 'Completed occurrence', meaning: 'A dimmed struck piece is a completed recurring instance.' }],
