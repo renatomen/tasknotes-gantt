@@ -127,23 +127,29 @@ async function waitForCompletedRecurringPiece(): Promise<void> {
 
 async function suppressTransientObsidianNotices(): Promise<void> {
   const verification = await browser.execute(() => {
-    if (document.getElementById("og-e2e-notice-shield")) return;
-    const shield = document.createElement("style");
-    shield.id = "og-e2e-notice-shield";
-    shield.textContent =
-      ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
-    document.head.appendChild(shield);
-    const notices = [
-      ...document.querySelectorAll<HTMLElement>(
-        ".notice, .notice-container, .notice *, .notice-container *",
-      ),
-    ];
+    if (!document.getElementById("og-e2e-notice-shield")) {
+      const shield = document.createElement("style");
+      shield.id = "og-e2e-notice-shield";
+      shield.textContent =
+        ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
+      document.head.appendChild(shield);
+    }
+    const noticeSelector = ".notice, .notice-container, [class*='notice' i]";
+    const notices = [...document.querySelectorAll<HTMLElement>(noticeSelector)].filter((notice) => {
+      const bounds = notice.getBoundingClientRect();
+      return bounds.width > 0 && bounds.height > 0;
+    });
+    const blockedNotices = notices.filter((notice) => {
+      const bounds = notice.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+      return hit?.closest(noticeSelector) != null;
+    });
     return {
       count: notices.length,
-      allIgnorePointerEvents: notices.every((notice) => getComputedStyle(notice).pointerEvents === "none"),
+      blockedCount: blockedNotices.length,
     };
   });
-  if (verification && verification.count > 0 && !verification.allIgnorePointerEvents) {
+  if (verification && verification.blockedCount > 0) {
     throw new Error("Gantt legend e2e notice shield did not disable notice hit-testing");
   }
 }
@@ -582,7 +588,11 @@ describe("Gantt (OG) context-aware legend", () => {
 
   after(async function () {
     this.timeout(60000);
-    await restoreTransientObsidianNotices();
+    try {
+      await restoreTransientObsidianNotices();
+    } catch {
+      // The browser session can already be gone after a before-hook failure.
+    }
   });
 
   it("keeps Legend available and opens the default right panel without the optional toolbar (AE10)", async () => {
