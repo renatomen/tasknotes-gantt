@@ -136,7 +136,7 @@ function entriesForCluster(cluster: readonly PlacedMarker[]): MarkerOverlayEntry
       xFraction: placed.xFraction,
       label: labelOf(placed.marker),
       title: titleOf(placed.marker),
-      color: safeColor(placed.marker.color),
+      color: resolveMarkerColor(placed.marker.color),
       stackIndex,
       groupedCount: 1,
       isToday: false,
@@ -150,7 +150,7 @@ function entriesForCluster(cluster: readonly PlacedMarker[]): MarkerOverlayEntry
       xFraction: first.xFraction,
       label: `${cluster.length} markers`,
       title: cluster.map((placed) => titleOf(placed.marker)).join('\n'),
-      color: safeColor(first.marker.color),
+      color: resolveMarkerColor(first.marker.color),
       stackIndex: 0,
       groupedCount: cluster.length,
       isToday: false,
@@ -171,7 +171,7 @@ function placeToday(
     xFraction: offset / total,
     label: 'Today',
     title: 'Today',
-    color: 'var(--text-accent)',
+    color: resolveMarkerColor(undefined),
     stackIndex: 0,
     groupedCount: 1,
     isToday: true,
@@ -186,7 +186,8 @@ function titleOf(marker: MarkerInput): string {
   return `${labelOf(marker)} — ${marker.calendarName}`;
 }
 
-function safeColor(color: string | undefined): string {
+/** The effective marker paint used by both the live overlay and fixed samples. */
+export function resolveMarkerColor(color: string | undefined): string {
   return isSafeColor(color) ? (color as string) : DEFAULT_MARKER_COLOR;
 }
 

@@ -45,8 +45,10 @@ import {
   readExternalCalendarDiscovery,
   readExternalIcsSubscriptions,
   readExternalProviderCalendars,
+  externalCalendarFeedKey,
   type TimeblockWatch,
 } from '../datasource/calendarItems';
+import { isSafeColor } from './barTreatment';
 import { createDailyNoteAccess } from './dailyNoteAccess';
 import { sessionExternalCalendarDegradeSignal } from './externalCalendarDegradeNotice';
 import { createTimeblockLiveness } from './timeblockLiveness';
@@ -66,7 +68,10 @@ import {
   type DatePolicyConfig,
   type DateMappingInfo,
 } from '../controller/GanttController';
-import type { LinkRewriteMode } from '../controller/InstanceExpansion';
+import {
+  hasRecordedRecurringOccurrences,
+  type LinkRewriteMode,
+} from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
 import { normalizeCascadeMode } from './cascadeGate';
 import {
@@ -106,6 +111,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readDefaultLegendPosition,
   readHighlightWeekends,
   readEstimateMeaning,
   readNonWorkingRendering,
@@ -590,6 +596,29 @@ class ObsidianGanttBasesView extends BasesView {
     );
   }
 
+  private readExternalCalendarLegendFacts(): {
+    enabled: boolean;
+    representativeColor: string | null;
+  } {
+    const handle = getTaskNotesPluginHandle(this.app);
+    if (handle === null) return { enabled: false, representativeColor: null };
+    const subscriptions = readExternalIcsSubscriptions(handle);
+    const providerCalendars = readExternalProviderCalendars(handle);
+    const visibleFeeds = readVisibleExternalCalendarFeeds(
+      (key) => this.config.get(key),
+      subscriptions,
+      providerCalendars,
+    );
+    const representativeColor = subscriptions.find(
+      ({ id, color }) =>
+        visibleFeeds.has(externalCalendarFeedKey('ics', id)) && isSafeColor(color),
+    )?.color;
+    return {
+      enabled: visibleFeeds.size > 0,
+      representativeColor: representativeColor ?? null,
+    };
+  }
+
   private computeEntrySignature(): string {
     const app = this.app;
     const calendarItemToggles = this.getCalendarItemToggles();
@@ -918,6 +947,10 @@ class ObsidianGanttBasesView extends BasesView {
   /** Read the per-view "show toolbar" toggle (plan 002 R2); default off. */
   private getShowToolbar(): boolean {
     return readShowToolbar((key) => this.config.get(key));
+  }
+
+  private getDefaultLegendPosition() {
+    return readDefaultLegendPosition((key) => this.config.get(key));
   }
 
   /** Read the per-view "Highlight weekends" toggle; default on. */
@@ -1479,14 +1512,35 @@ class ObsidianGanttBasesView extends BasesView {
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     const calendarShading = this.buildCalendarShading(instances);
+    const showDateIndicators = this.getShowDateIndicators();
+    const highlightWeekends = this.getHighlightWeekends();
+    const barFillSource = this.getBarFillSource();
+    const barStripSource = this.getBarStripSource();
+    const barIconSource = this.getBarIcon();
+    const taskNotesPresent = isTaskNotesPresent(this.app);
+    const calendarItems = this.getCalendarItemToggles();
+    const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
+    const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
+    const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
+    const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
+    const visibleCalendarEventColor =
+      instances
+        .map((instance) => instance.calendarItem?.color)
+        .find((color) => isSafeColor(color)) ?? null;
+    const visibleExternalOccurrenceColor =
+      instances
+        .filter((instance) => instance.calendarItem?.family === 'external-event')
+        .map((instance) => instance.calendarItem?.color)
+        .find((color) => isSafeColor(color)) ?? null;
     return {
       instances,
       links,
       capabilities: controller.capabilities,
       arrowMode,
-      showDateIndicators: this.getShowDateIndicators(),
+      showDateIndicators,
       showToolbar: this.getShowToolbar(),
-      highlightWeekends: this.getHighlightWeekends(),
+      defaultLegendPosition: this.getDefaultLegendPosition(),
+      highlightWeekends,
       // #161: the same config key as before, now a view-level display filter.
       hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
       // #161: the show-undated/show-partial toggles flow through the store like
@@ -1499,9 +1553,9 @@ class ObsidianGanttBasesView extends BasesView {
       statusColors,
       priorityColors,
       choiceOptions: { status: statusOptions, priority: priorityOptions },
-      barFillSource: this.getBarFillSource(),
-      barStripSource: this.getBarStripSource(),
-      barIcon: this.getBarIcon(),
+      barFillSource,
+      barStripSource,
+      barIcon: barIconSource,
       // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
       // mode and in Property mode with no mapped property (nowhere to persist).
       progressReadonly: this.getProgressReadonly(),
@@ -1509,6 +1563,7 @@ class ObsidianGanttBasesView extends BasesView {
       // container additionally gates on read-only (standalone never writes, R17).
       timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
       dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
+      taskNotesPresent,
       cascadeMode: this.getCascadeMode(),
       getInferredDragMode: () => this.getInferredDragMode(),
       defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
@@ -1530,6 +1585,25 @@ class ObsidianGanttBasesView extends BasesView {
       calendarMarkers: calendarShading.markers,
       calendarPalette: calendarShading.calendarPalette,
       calendarBySource: calendarShading.calendarBySource,
+      legendContext: {
+        taskNotesPresent,
+        barFillSource,
+        barStripSource,
+        barIconSource,
+        statusColors,
+        priorityColors,
+        calendarPalette: calendarShading.calendarPalette,
+        calendarMarkerColor: calendarShading.calendarMarkerColor,
+        hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
+        calendarEventColor:
+          visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
+        externalOccurrenceColor:
+          visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
+        estimateMeaning,
+        nonWorkingRendering,
+        calendarItems: { showRecurring: calendarItems.showRecurring },
+        externalCalendarsEnabled: externalCalendarLegendFacts.enabled,
+      },
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
       deriveEstimate: controller.buildDeriveEstimate(),
@@ -1557,6 +1631,8 @@ class ObsidianGanttBasesView extends BasesView {
     markers: MarkerInput[];
     calendarPalette: { value: string; color: string }[];
     calendarBySource: Map<string, string>;
+    displayedCount: number;
+    calendarMarkerColor: string | undefined;
   } {
     const app = this.app;
     const calendarProperty = this.getEffectiveMappings().calendarProperty ?? '';
@@ -1624,6 +1700,8 @@ class ObsidianGanttBasesView extends BasesView {
       markers: computed.markers,
       calendarPalette: computed.calendarPalette,
       calendarBySource: computed.calendarBySource,
+      displayedCount: computed.displayedCount,
+      calendarMarkerColor: computed.calendarMarkerColor,
       notice: buildCalendarNotice({
         displayedCount: computed.displayedCount,
         conflictCount: computed.conflictCount,

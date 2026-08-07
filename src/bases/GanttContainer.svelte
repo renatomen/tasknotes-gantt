@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -8,7 +8,11 @@
   import { createMaximizeController, type MaximizeController } from './maximizeController';
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
-  import { Notice, TFile } from 'obsidian';
+  import { Notice, Scope, TFile } from 'obsidian';
+  import {
+    GANTT_DATE_STATUS_BORDER_COLOR,
+    GANTT_DATE_STATUS_FILL_COLOR,
+  } from './visualSemantics';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -128,6 +132,15 @@
   import { createDragExecutor, type CascadePhase } from './dragExecutor';
   import { createDragPromptResolver } from './dragPromptResolver';
   import { dlog } from '../debugLog';
+  import GanttLegend from './GanttLegend.svelte';
+  import { buildLegendCatalog } from './legendCatalog';
+  import {
+    CLOSED_LEGEND_SESSION,
+    reduceLegendSession,
+    resolveLegendLayout,
+    type LegendPosition,
+    type LegendSessionState,
+  } from './legendLayout';
 
   // The toggle handler our floating full-screen button invokes (wired as an
   // onclick; it ignores the event). Named alias so the snippet signature can be
@@ -455,6 +468,82 @@
   // register.getShowToolbar()'s `=== true` default-false read.
   const showToolbar = $derived($data.showToolbar ?? false);
 
+  // The legend is presentation-only: every opening copies the latest Appearance
+  // default into local session state, while live Right/Bottom moves stay local.
+  // The catalogue consumes the same effective values already driving the chart.
+  let legendSession = $state<LegendSessionState>(CLOSED_LEGEND_SESSION);
+  let legendTriggerEl: HTMLButtonElement | undefined = $state();
+  let chartHostEl: HTMLElement | undefined = $state();
+  let chartHostWidth = $state(0);
+  let chartHostHeight = $state(0);
+  let legendEscapeScope: Scope | undefined;
+  const legendGroups = $derived($data.legendContext ? buildLegendCatalog($data.legendContext) : []);
+  const legendLayout = $derived(
+    legendSession.open
+      ? resolveLegendLayout({
+          position: legendSession.position,
+          width: chartHostWidth,
+          height: chartHostHeight,
+        })
+      : null,
+  );
+
+  $effect(() => {
+    if (!legendSession.open) return;
+    const host = chartHostEl;
+    if (!host) return;
+    const measure = (): void => {
+      const bounds = host.getBoundingClientRect();
+      chartHostWidth = bounds.width;
+      chartHostHeight = bounds.height;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  });
+
+  function openLegend(): void {
+    legendSession = reduceLegendSession(legendSession, {
+      type: 'open',
+      defaultPosition: $data.defaultLegendPosition,
+    });
+    activateLegendEscapeScope();
+  }
+
+  function moveLegend(position: LegendPosition): void {
+    legendSession = reduceLegendSession(legendSession, { type: 'move', position });
+  }
+
+  async function closeLegend(options: { restoreFocus?: boolean } = {}): Promise<void> {
+    if (!legendSession.open) return;
+    deactivateLegendEscapeScope();
+    legendSession = reduceLegendSession(legendSession, { type: 'close' });
+    await tick();
+    if (options.restoreFocus !== false && !document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) {
+      legendTriggerEl?.focus();
+    }
+  }
+
+  function deactivateLegendEscapeScope(): void {
+    if (legendEscapeScope) app.keymap.popScope(legendEscapeScope);
+    legendEscapeScope = undefined;
+  }
+
+  function activateLegendEscapeScope(): void {
+    deactivateLegendEscapeScope();
+    const scope = new Scope(app.scope);
+    scope.register([], 'Escape', (event) => {
+      if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void closeLegend();
+      return false;
+    });
+    app.keymap.pushScope(scope);
+    legendEscapeScope = scope;
+  }
+
   // External-calendar fetching indicator, store-driven like showToolbar so the
   // transient loading state appears/clears live without a remount.
   const externalEventsLoading = $derived($data.externalEventsLoading ?? false);
@@ -552,7 +641,7 @@
   // theme/default role rules), scoped under .og-bases-gantt. Injected via a managed
   // style element (see the $effect below) — a literal style tag in markup would be
   // compiled away as component CSS and cannot carry this dynamic content. Reactive
-  // on the two sources/palettes/instances so the options re-color live without a remount.
+  // on the two sources and palettes so the options re-color live without a remount.
   const treatmentStyleCss = $derived(
     buildTreatmentStyle({
       scope: `.${treatmentScopeClass}`,
@@ -563,10 +652,6 @@
         priority: priorityColors,
         calendar: $data.calendarPalette ?? [],
       },
-      instances: instances.map((inst) => ({
-        ...inst,
-        calendarId: $data.calendarBySource?.get(inst.sourcePath) ?? null,
-      })),
     }),
   );
 
@@ -1250,6 +1335,7 @@
   let hostGeneration = 0;
   let destroyed = false;
   onDestroy(() => {
+    deactivateLegendEscapeScope();
     destroyed = true;
     hostGeneration += 1;
   });
@@ -1357,6 +1443,7 @@
       registerEscape: (onEscape) => {
         const handler = (e: KeyboardEvent): void => {
           if (e.key !== 'Escape') return;
+          if (legendSession.open) return;
           if (document.querySelector(OBSIDIAN_OVERLAY_SELECTOR)) return;
           onEscape();
         };
@@ -1373,24 +1460,22 @@
       maximizeController = undefined;
     };
   });
-  // Auto-exit maximize when our leaf stops being the active one. Because the
-  // maximized root lives on `document.body` (not in the leaf), Obsidian's normal
-  // hide-the-inactive-leaf behavior no longer covers it — without this, switching
-  // tabs would leave the full-window chart painted over a different tab. Exiting
-  // also keeps only one view maximized at a time. Our origin container
-  // (`restoreParent`) stays inside our leaf; if the now-active leaf doesn't
-  // contain it, the active leaf isn't ours.
+  // Deactivate transient UI when our leaf stops being active. A maximized root
+  // lives on `document.body`, so it must be restored explicitly; an ordinary
+  // hidden leaf also needs its Legend scope removed so it cannot consume Escape
+  // or focus its hidden trigger from another leaf. Our origin container
+  // (`restoreParent`) stays inside our leaf while maximized.
   $effect(() => {
     const ref = app.workspace.on('active-leaf-change', (leaf) => {
-      if (!maximizeController?.isMaximized()) return;
       const activeContainer = leaf?.view?.containerEl ?? null;
       // Null/transient leaf changes (Obsidian emits these when a modal opens or
-      // during focus transitions) are NOT a real tab switch — staying maximized
-      // is correct. Only exit when a genuine OTHER leaf became active.
+      // during focus transitions) are NOT a real tab switch. Only deactivate UI
+      // when a genuine OTHER leaf became active.
       if (!activeContainer) return;
-      const owner = restoreParent;
+      const owner = restoreParent ?? rootEl;
       if (owner && activeContainer.contains(owner)) return; // still our leaf
-      maximizeController.exit();
+      if (legendSession.open) void closeLegend({ restoreFocus: false });
+      if (maximizeController?.isMaximized()) maximizeController.exit();
     });
     return () => app.workspace.offref(ref);
   });
@@ -2459,6 +2544,7 @@
 
 <div
   class="og-bases-gantt {treatmentScopeClass}"
+  style={`--og-date-status-fill:${GANTT_DATE_STATUS_FILL_COLOR};--og-date-status-border:${GANTT_DATE_STATUS_BORDER_COLOR};`}
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
   class:og-weekends-off={!highlightWeekends}
@@ -2567,7 +2653,12 @@
     </div>
   {/if}
 
-  <div class="gtcell">
+  <div class="gtcell" bind:this={chartHostEl}>
+    <div
+      class="og-chart-surface"
+      inert={legendLayout === 'full'}
+      aria-hidden={legendLayout === 'full' ? 'true' : undefined}
+    >
     <!-- Full screen = "maximize within Obsidian" (plan 2026-06-30-002): the view
          root carries `.is-maximized` (CSS below) to fill the Obsidian window in
          Obsidian's own stacking context, so popups (Edit Modal, command palette,
@@ -2675,6 +2766,28 @@
     <!-- Floating full-screen toggle, rendered as a child of `.gtcell` so it stays
          visible while maximized (it used to be rendered by SVAR's <Fullscreen>). -->
     {@render maximizeToggle(toggleMaximize, isMaximized)}
+    <button
+      bind:this={legendTriggerEl}
+      type="button"
+      class="og-legend-toggle"
+      onclick={openLegend}
+      aria-label="Legend"
+      title="Legend"
+      aria-expanded={legendSession.open}
+    >
+      <span class="og-legend-toggle-icon" aria-hidden="true" use:lucideIcon={'book-open'}></span>
+    </button>
+    </div>
+
+    {#if legendSession.open && legendLayout}
+      <GanttLegend
+        groups={legendGroups}
+        layout={legendLayout}
+        position={legendSession.position}
+        onPositionChange={moveLegend}
+        onDismiss={() => { void closeLegend(); }}
+      />
+    {/if}
   </div>
 
   <!-- Editing is delegated to native TaskNotes (U2): no custom editor modal.
@@ -2764,6 +2877,12 @@
     height: 100%;
     /* Position relative for floating zoom controls (OG-81) */
     position: relative;
+  }
+
+  .og-chart-surface {
+    position: relative;
+    width: 100%;
+    height: 100%;
   }
 
   /* Row drag-reorder is vetoed at the store (move-task intercept), but SVAR's
@@ -2899,6 +3018,40 @@
     height: 18px;
     pointer-events: none;
   }
+
+  .og-legend-toggle {
+    position: absolute;
+    top: 64px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 4px;
+    background-color: #ffffff;
+    color: #5f6368;
+    cursor: pointer;
+    appearance: none;
+    box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .og-legend-toggle:active { background-color: #e0e0e0; }
+  .og-legend-toggle:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+  }
+  .og-legend-toggle-icon { display: flex; width: 18px; height: 18px; pointer-events: none; }
+  .og-legend-toggle-icon :global(svg) { width: 18px; height: 18px; stroke: currentColor; }
 
   /* Style the Lucide SVG injected by Obsidian's setIcon (OG-81) */
   .zoom-icon :global(svg) {
@@ -3112,8 +3265,10 @@
    * incompletely-dated bar reads differently from a fully-dated one.
    */
   .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
-    background-color: #e67e22 !important;
-    border-color: #c0392b !important;
+    background-color: var(--og-date-status-fill) !important;
+    border-color: var(--og-date-status-border) !important;
+    border-width: 1px !important;
+    border-style: solid !important;
   }
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-content) {
@@ -3216,18 +3371,6 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split:not(.datestatus-flagged)) {
     border: 0 !important;
-  }
-  /*
-   * On a ghost host the datestatus fill (its usual orange cue) is gone — the host
-   * is transparent and the pieces paint their own colour — so the provenance cue
-   * has to be the border. The datestatus rule only sets its COLOUR, and the base
-   * bar has no border width/style, so recreate a visible outline here (the colour
-   * still comes from the datestatus rule). This is the flagged bar's own indicator,
-   * not the strip halo the rule above removes.
-   */
-  .og-bases-gantt :global(.wx-bar.wx-split.datestatus-flagged) {
-    border-width: 1px !important;
-    border-style: solid !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
     display: none;

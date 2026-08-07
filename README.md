@@ -38,6 +38,12 @@ You can also use it as a **read-only timeline** over any Obsidian Base, with no 
 ![A Gantt timeline at the day scale with weekend day-columns shaded, following the reader's locale and Obsidian theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/weekend-shading.png)
 
 - **Maximize within Obsidian** — expand the chart to fill the window without pushing Obsidian's own modals, menus, command palette, or hover previews behind it.
+- **Context-aware legend** — click the book icon to explain the colors, hatches, splits, markers, links, and other symbols used by that Gantt's current theme and view settings. Move an open legend between **Right** and **Bottom** for the current opening; future openings use **Appearance → Default legend position** from the view settings. Right legends scroll vertically, bottom legends scroll horizontally, and constrained views temporarily show the legend over the full chart area.
+
+| Right legend | Bottom legend |
+| :---: | :---: |
+| ![A context-aware Gantt legend overlaid on the right side of a dark Obsidian Gantt, showing separate date-fill and date-border meanings](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-right.png) | ![The same context-aware Gantt legend moved to the bottom and horizontally scrolled to working-day estimates, split non-working time, and recurring occurrences](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/792e961fd4596d16e4684a73c3862687d7f5c9a3/docs/media/gantt-legend-bottom.png) |
+
 - **Resizable grid/timeline split** that remembers its width, a configurable min/max height, sortable grid columns, and a view-settings menu grouped into collapsible sections.
 - **Missing-date handling** — control how tasks with partial or no dates appear, with optional on-bar date-status indicators.
 - **In-app "What's New"** — after an update, the release notes for the new version open once inside Obsidian; reopen them any time with the **"Show release notes"** command.

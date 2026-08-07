@@ -38,6 +38,10 @@
     type OccupancyRunSpan,
   } from '../render/segmentLayout';
   import { resolveOccupancyActivationPath } from './occupancyDisplay';
+  import {
+    GANTT_VISUAL_CLASS_TOKENS as visualClasses,
+    OCCURRENCE_STATE_CLASS_TOKENS,
+  } from './visualSemantics';
 
   // SVAR's taskTemplate is typed Component<{data, api, onaction}>; declare all
   // three so the assignment typechecks. Fields are optional/loose so SVAR's
@@ -110,8 +114,14 @@
 
   const pct = (fraction: number): string => `${(fraction * 100).toFixed(4)}%`;
 
-  const pieceClass = (piece: OccupancyPiece): string =>
-    piece.stateClass ? `og-instance og-instance-${piece.stateClass}` : 'og-instance';
+  const pieceClass = (piece: OccupancyPiece): string => {
+    if (!piece.stateClass) return visualClasses.occurrence;
+    const stateClass =
+      OCCURRENCE_STATE_CLASS_TOKENS[
+        piece.stateClass as keyof typeof OCCURRENCE_STATE_CLASS_TOKENS
+      ] ?? `og-instance-${piece.stateClass}`;
+    return `${visualClasses.occurrence} ${stateClass}`;
+  };
 
   const pieceTitle = (piece: OccupancyPiece): string =>
     piece.stateClass ? `${piece.day} — ${piece.stateClass}` : piece.day;
@@ -157,7 +167,7 @@
    */
   function markBarSplit(node: Element): (() => void) | undefined {
     const bar = node.parentElement;
-    if (!bar?.classList.contains('wx-bar')) return undefined;
+    if (!bar?.classList.contains(visualClasses.bar)) return undefined;
     bar.classList.add('wx-split');
     const observer = new MutationObserver(() => {
       if (!bar.classList.contains('wx-split')) bar.classList.add('wx-split');
@@ -182,7 +192,7 @@
   function colorCalendarItemBar(color: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!color) return undefined;
-      const bar = node.closest('.wx-bar');
+      const bar = node.closest(`.${visualClasses.bar}`);
       if (!(bar instanceof HTMLElement)) return undefined;
       const eventColor = bar.style.getPropertyValue('--og-event-color');
       const ghostFill = bar.style.getPropertyValue('--og-ghost-fill');
@@ -213,10 +223,10 @@
   function markBarOverridden(tooltip: string | null) {
     return (node: Element): (() => void) | undefined => {
       if (!tooltip) return undefined;
-      const bar = node.closest('.wx-bar');
+      const bar = node.closest(`.${visualClasses.bar}`);
       if (!bar) return undefined;
       const dot = document.createElement('span');
-      dot.className = 'og-override-dot';
+      dot.className = visualClasses.overrideDot;
       dot.title = tooltip;
       // The dot sits on the bar's top-left corner — SVAR's start-resize zone —
       // so inspecting the indicator (including a long-press on touch) must not

@@ -260,6 +260,11 @@ describe('computeCalendarShadingCss', () => {
       basename: 'AU',
       frontmatter: { tngantt: 'calendar', non_working: ['2026-04-13'] },
     },
+    {
+      path: 'Calendars/Empty Set.md',
+      basename: 'Empty Set',
+      frontmatter: { tngantt: 'calendar-set', calendars: [] },
+    },
   ];
   const resolveLink: LinkResolver = (linkText) => {
     const inner = linkText.startsWith('[[') ? linkText.slice(2, -2).split('|')[0] : linkText;
@@ -280,7 +285,7 @@ describe('computeCalendarShadingCss', () => {
     expect(displayedCount).toBe(1);
   });
 
-  it('emits the base rule only when no task associates a calendar', () => {
+  it('emits the base rule when no task associates a calendar', () => {
     const { css } = computeShading({
       markedNotes,
       resolveLink,
@@ -290,14 +295,51 @@ describe('computeCalendarShadingCss', () => {
     expect(css).not.toContain('og-d-');
   });
 
-  it('emits the base rule only when there are no dated tasks to window against', () => {
-    const { css } = computeShading({
+  it('keeps the selected calendar display count without rendering dates', () => {
+    const { css, displayedCount } = computeShading({
       markedNotes,
       resolveLink,
       associations: [{ value: '[[NZ]]', taskPath: 'Tasks/T.md' }],
       taskSpans: [],
     });
     expect(css).not.toContain('og-d-');
+    expect(displayedCount).toBe(0);
+  });
+
+  it('does not expose calendar markers when no chart window is rendered', () => {
+    const notesWithMarker: CalendarNoteInput[] = [
+      ...markedNotes,
+      {
+        path: 'Calendars/Marker.md',
+        basename: 'Marker',
+        frontmatter: {
+          tngantt: 'calendar',
+          color: '#0f766e',
+          events: [{ date: '2026-04-10', name: 'Release', marker: true }],
+        },
+      },
+    ];
+    const resolveWithMarker: LinkResolver = (linkText) => {
+      const inner = linkText.startsWith('[[') ? linkText.slice(2, -2).split('|')[0] : linkText;
+      const note = notesWithMarker.find((candidate) => candidate.basename === inner);
+      return note ? note.path : null;
+    };
+
+    const { markers, calendarMarkerColor } = computeShading({
+      markedNotes: notesWithMarker,
+      resolveLink: resolveWithMarker,
+      associations: [],
+      taskSpans: [],
+      displaySelection: {
+        auto: false,
+        stored: true,
+        defaultRow: true,
+        entries: [{ link: '[[Marker]]', enabled: true }],
+      },
+    });
+
+    expect(markers).toEqual([]);
+    expect(calendarMarkerColor).toBe('#0f766e');
   });
 
   it('a broken association contributes nothing (fail-safe, no throw)', () => {

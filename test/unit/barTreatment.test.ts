@@ -14,6 +14,8 @@ import {
   treatmentClassRegistry,
   treatmentClassGroups,
   buildTreatmentStyle,
+  resolveRepresentativeBarBodyPaint,
+  resolveRepresentativeUnclassifiedBarBodyPaint,
   resolveIconSpec,
   isSafeColor,
   PARENT_ROLE_CLASS,
@@ -42,6 +44,78 @@ const inst = (status: string | null, priority: string | null = null) => ({ statu
 // itself is guarded by its own test below.
 const styleFor = (input: Omit<TreatmentStyleInput, 'scope'>): string =>
   buildTreatmentStyle({ ...input, scope: '.og-bases-gantt' });
+
+describe('representative bar body paint', () => {
+  it('shares the production dispatch for both-off, strip-only, and unsafe calendar fills', () => {
+    const unsafeCalendarPalettes: Palettes = {
+      status: statusColors,
+      priority: priorityColors,
+      calendar: [{ value: 'Calendars/Studio.md', color: '#12345' }],
+    };
+
+    expect(
+      resolveRepresentativeBarBodyPaint({ fillSource: 'none', stripSource: 'none', palettes })
+        ?.color,
+    ).toBe('#1f6feb');
+    expect(styleFor({ fillSource: 'none', stripSource: 'none', palettes })).toContain(
+      '--og-ghost-fill: #1f6feb',
+    );
+
+    expect(
+      resolveRepresentativeBarBodyPaint({ fillSource: 'none', stripSource: 'status', palettes }),
+    ).toBeNull();
+    expect(styleFor({ fillSource: 'none', stripSource: 'status', palettes })).not.toContain(
+      '--og-ghost-fill:',
+    );
+
+    const representative = resolveRepresentativeBarBodyPaint({
+      fillSource: 'status',
+      stripSource: 'priority',
+      palettes,
+    });
+    const dualChannelStyle = styleFor({
+      fillSource: 'status',
+      stripSource: 'priority',
+      palettes,
+    });
+    expect(representative).toMatchObject({
+      source: 'status',
+      value: '11🟥Active = Now',
+      classToken: statusSlug('11🟥Active = Now'),
+      color: '#f8312f',
+    });
+    expect(dualChannelStyle).toBe(
+      [
+        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} { background-color: #123456 !important; --og-ghost-fill: #123456; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} .wx-progress-percent { background-color: color-mix(in srgb, #123456, var(--text-normal) 30%) !important; }`,
+        `.og-bases-gantt .wx-bar.${prioritySlug('high')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #ff0000; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
+        `.og-bases-gantt .wx-bar.${prioritySlug('low')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #00aaff; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
+      ].join('\n'),
+    );
+
+    expect(
+      resolveRepresentativeBarBodyPaint({
+        fillSource: 'calendar',
+        stripSource: 'none',
+        palettes: unsafeCalendarPalettes,
+      })?.color,
+    ).toBe('#1f6feb');
+    expect(
+      resolveRepresentativeUnclassifiedBarBodyPaint({
+        fillSource: 'calendar',
+        stripSource: 'none',
+        palettes: unsafeCalendarPalettes,
+      })?.color,
+    ).toBe('#1f6feb');
+    expect(
+      styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: unsafeCalendarPalettes }),
+    ).toContain('--og-ghost-fill: #1f6feb');
+  });
+});
 
 describe('isSafeColor', () => {
   it('accepts valid hex (3/4/6/8), rgb()/hsl() forms, and named colors', () => {
@@ -185,12 +259,11 @@ describe('treatmentClassGroups', () => {
 });
 
 describe('buildTreatmentStyle', () => {
-  it('fill=status/strip=none: emits a scoped !important background per present, safe status', () => {
+  it('fill=status/strip=none: emits scoped paint for every configured safe status', () => {
     const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes,
-      instances: [inst('11🟥Active = Now'), inst('41🟩Done = Recent')],
     });
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important;`);
     expect(css).toContain('background-color: #00d26a !important;');
@@ -198,7 +271,9 @@ describe('buildTreatmentStyle', () => {
     // background is transparent, so without it a stretched bar loses its colour).
     expect(css).toContain('--og-ghost-fill: #f8312f;');
     expect(css).toContain('text-shadow:'); // readable label on the fill
-    expect(css).not.toContain('#123456'); // Unused: not present
+    // Configuration-complete paint: a legend sample can use a configured value
+    // even when no current task row carries it.
+    expect(css).toContain('#123456');
     expect(css).not.toContain('padding-left'); // fill-only → no strip → no extra inset
     expect(css).not.toContain('::before'); // fill draws no strip (bug 2)
   });
@@ -208,12 +283,11 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'none',
       stripSource: 'status',
       palettes,
-      instances: [inst('11🟥Active = Now')],
     });
     expect(css).toContain(`.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}::before`);
     expect(css).toContain('width: 6px;');
     expect(css).toContain('background-color: #f8312f;');
-    expect(css).toContain('z-index: 1;'); // above SVAR's progress fill, below .wx-content
+    expect(css).toContain('z-index: 2;'); // above SVAR's progress fill and recurring pieces, below later .wx-content content
     expect(css).toContain('border-top-left-radius:'); // conforms to the bar's rounded left corner
     expect(css).not.toContain('#f8312f !important'); // strip accent is not a !important fill
     // Strip mode widens the content inset so the chip/text clears the strip.
@@ -225,14 +299,14 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('keys fill and strip on the priority palette independently', () => {
-    const fill = styleFor({ fillSource: 'priority', stripSource: 'none', palettes, instances: [inst(null, 'high')] });
+    const fill = styleFor({ fillSource: 'priority', stripSource: 'none', palettes });
     expect(fill).toContain(`.wx-bar.${prioritySlug('high')} { background-color: #ff0000 !important;`);
-    const strip = styleFor({ fillSource: 'none', stripSource: 'priority', palettes, instances: [inst(null, 'high')] });
+    const strip = styleFor({ fillSource: 'none', stripSource: 'priority', palettes });
     expect(strip).toContain(`.wx-bar.${prioritySlug('high')}::before`);
   });
 
   it('fill=theme: uses the theme accent (child) + a tonal-shifted accent (parent), not fixed hues', () => {
-    const css = styleFor({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [] });
+    const css = styleFor({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] } });
     expect(css).toContain('background-color: var(--interactive-accent) !important;'); // child = raw theme accent
     expect(css).toContain(
       `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%) !important;`,
@@ -242,7 +316,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('strip=theme: emits a neutral body + theme-accent ::before rules', () => {
-    const css = styleFor({ fillSource: 'none', stripSource: 'theme', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'theme', palettes });
     // Body is mixed a bit off the background so it stays visible in low-contrast themes.
     expect(css).toContain('background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     expect(css).toContain(
@@ -254,7 +328,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('strip=default: parent body is a higher-contrast neutral than the child body (hierarchy cue)', () => {
-    const css = styleFor({ fillSource: 'none', stripSource: 'default', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'default', palettes });
     // Child/base neutral body (16% toward text)...
     expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     // ...and a more prominent parent body override (30%), contrast-only (no opacity).
@@ -265,21 +339,21 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=default: emits fixed green-parent / blue-child role rules (no palette)', () => {
-    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (green)
     expect(css).not.toContain('#f8312f'); // does not consult the status palette
   });
 
   it('fill channel: progress is a contrasting shift of the bar fill accent (not SVAR blue)', () => {
-    const fill = styleFor({ fillSource: 'status', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const fill = styleFor({ fillSource: 'status', stripSource: 'none', palettes });
     expect(fill).toContain(
       `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
     );
   });
 
   it('strip channel: progress shifts the NEUTRAL bar body, not the strip accent', () => {
-    const strip = styleFor({ fillSource: 'none', stripSource: 'status', palettes, instances: [inst('11🟥Active = Now')] });
+    const strip = styleFor({ fillSource: 'none', stripSource: 'status', palettes });
     // Progress is a tonal shift of the shared neutral body...
     expect(strip).toContain(
       '.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }',
@@ -289,7 +363,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=default: progress follows the role colors (contrasted child + parent)', () => {
-    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes, instances: [] });
+    const css = styleFor({ fillSource: 'default', stripSource: 'none', palettes });
     expect(css).toContain('.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }');
     expect(css).toContain(
       `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }`,
@@ -298,17 +372,16 @@ describe('buildTreatmentStyle', () => {
 
   it('degrades a channel to the Default role style when its source palette is empty (standalone)', () => {
     // No TaskNotes palette → By Status/Priority behaves like Default (R15/F3), not blank.
-    const css = styleFor({ fillSource: 'status', stripSource: 'none', palettes: { status: [], priority: [] }, instances: [inst('x')] });
+    const css = styleFor({ fillSource: 'status', stripSource: 'none', palettes: { status: [], priority: [] } });
     expect(css).toContain('background-color: #1f6feb !important;'); // child (default blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // parent (default green)
   });
 
-  it('dedupes a value present on multiple instances', () => {
+  it('dedupes duplicate configured values', () => {
     const css = styleFor({
       fillSource: 'status',
       stripSource: 'none',
       palettes,
-      instances: [inst('11🟥Active = Now'), inst('11🟥Active = Now')],
     });
     expect(css.match(/background-color: #f8312f !important;/g)).toHaveLength(1);
   });
@@ -318,7 +391,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'status',
       stripSource: 'none',
       palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
-      instances: [inst('Evil')],
     });
     expect(css).toBe('');
   });
@@ -328,7 +400,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'none',
       stripSource: 'status',
       palettes: { status: [{ value: 'Evil', color: 'red; } body { display: none', isCompleted: false }], priority: [] },
-      instances: [inst('Evil')],
     });
     expect(css).toBe('');
   });
@@ -338,7 +409,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'status',
       stripSource: 'none',
       palettes: { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] },
-      instances: [inst('x')],
     });
     expect(css).toBe('');
   });
@@ -350,7 +420,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'none',
       stripSource: 'status',
       palettes,
-      instances: [inst('11🟥Active = Now')],
     });
     const statusSel = `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}`;
     // The status accent is a ::before strip...
@@ -368,7 +437,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCal,
-      instances: [{ status: null, priority: null, calendarId: 'Cal/A.md' }],
     });
     // Per-calendar fill body present...
     expect(css).toContain(`.wx-bar.${calendarSlug('Cal/A.md')} { background-color: #2a9d8f !important;`);
@@ -385,7 +453,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'status',
       stripSource: 'priority',
       palettes,
-      instances: [inst('11🟥Active = Now', 'high')],
     });
     expect(css).toContain(`.wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important;`);
     expect(css).toContain(`.wx-bar.${prioritySlug('high')}::before`);
@@ -399,7 +466,6 @@ describe('buildTreatmentStyle', () => {
       fillSource: 'status',
       stripSource: 'status',
       palettes,
-      instances: [inst('11🟥Active = Now')],
     });
     const statusSel = `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')}`;
     expect(css).toContain(`${statusSel} { background-color: #f8312f !important;`);
@@ -407,7 +473,7 @@ describe('buildTreatmentStyle', () => {
   });
 
   it('fill=none + strip=none: falls back to the default role fill so a bar is never invisible', () => {
-    const css = styleFor({ fillSource: 'none', stripSource: 'none', palettes, instances: [inst('11🟥Active = Now')] });
+    const css = styleFor({ fillSource: 'none', stripSource: 'none', palettes });
     expect(css).toContain('background-color: #1f6feb !important;'); // default child (blue)
     expect(css).toContain(`.wx-bar.${PARENT_ROLE_CLASS} { background-color: #2ea043 !important;`); // default parent (green)
     expect(css).not.toContain('::before');
@@ -421,7 +487,6 @@ describe('buildTreatmentStyle scope parameterization (multi-instance leak guard)
       fillSource: 'status',
       stripSource: 'none',
       palettes,
-      instances: [inst('11🟥Active = Now')],
     });
     // Rules anchor under the unique per-instance scope...
     expect(css).toContain(`.og-gantt-test .wx-bar.${statusSlug('11🟥Active = Now')}`);
@@ -431,72 +496,71 @@ describe('buildTreatmentStyle scope parameterization (multi-instance leak guard)
   });
 });
 
-describe('buildTreatmentStyle fidelity (legacy configs render byte-identically)', () => {
+describe('buildTreatmentStyle fidelity (legacy configs preserve rendering semantics)', () => {
   // Golden masters captured from the pre-decoupling builder for the migrated-
-  // equivalent inputs. A byte-for-byte match proves the read-time migration is
-  // fidelity-first (R8/KTD6): a legacy `mode=fill|strip, source=X` view renders
-  // exactly as before under `fill=X,strip=none` / `fill=none,strip=X`.
+  // equivalent inputs. They preserve the legacy rendering contract, with the
+  // intentional strip-layer z-index change covered by the updated expectations.
   const fidelityPalettes: Palettes = {
-    status: statusColors,
+    // The legacy golden covered these two configured values. The broader
+    // configuration-complete behavior is asserted above.
+    status: statusColors.filter(({ value }) => value !== 'Unused'),
     priority: priorityColors,
     calendar: [
       { value: 'Calendars/NZ.md', color: '#2a9d8f' },
       { value: 'Calendars/APAC.md', color: '#e76f51' },
     ],
   };
-  const s = (st: string | null, pr: string | null = null, cal: string | null = null) => ({ status: st, priority: pr, calendarId: cal });
-
   const GOLDEN_FILL_STATUS =
     '.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_STATUS =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #f8312f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #00d26a; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #f8312f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #00d26a; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
 
   const GOLDEN_FILL_DEFAULT =
     '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_DEFAULT =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }';
 
   const GOLDEN_FILL_CALENDAR =
     '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk { background-color: #2a9d8f !important; --og-ghost-fill: #2a9d8f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk .wx-progress-percent { background-color: color-mix(in srgb, #2a9d8f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t { background-color: #e76f51 !important; --og-ghost-fill: #e76f51; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t .wx-progress-percent { background-color: color-mix(in srgb, #e76f51, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_CALENDAR =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #2a9d8f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; width: 6px; background-color: #e76f51; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 10px !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #2a9d8f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #e76f51; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
 
   it('fill=status,strip=none == legacy mode=fill,source=status', () => {
     expect(
-      styleFor({ fillSource: 'status', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+      styleFor({ fillSource: 'status', stripSource: 'none', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_FILL_STATUS);
   });
 
   it('fill=none,strip=status == legacy mode=strip,source=status', () => {
     expect(
-      styleFor({ fillSource: 'none', stripSource: 'status', palettes: fidelityPalettes, instances: [s('11🟥Active = Now'), s('41🟩Done = Recent')] }),
+      styleFor({ fillSource: 'none', stripSource: 'status', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_STRIP_STATUS);
   });
 
   it('fill=default,strip=none == legacy mode=fill,source=default', () => {
     expect(
-      styleFor({ fillSource: 'default', stripSource: 'none', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+      styleFor({ fillSource: 'default', stripSource: 'none', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_FILL_DEFAULT);
   });
 
   it('fill=none,strip=default == legacy mode=strip,source=default', () => {
     expect(
-      styleFor({ fillSource: 'none', stripSource: 'default', palettes: fidelityPalettes, instances: [s('11🟥Active = Now')] }),
+      styleFor({ fillSource: 'none', stripSource: 'default', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_STRIP_DEFAULT);
   });
 
   it('fill=calendar,strip=none == legacy mode=fill,source=calendar', () => {
     expect(
-      styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+      styleFor({ fillSource: 'calendar', stripSource: 'none', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_FILL_CALENDAR);
   });
 
   it('fill=none,strip=calendar == legacy mode=strip,source=calendar', () => {
     expect(
-      styleFor({ fillSource: 'none', stripSource: 'calendar', palettes: fidelityPalettes, instances: [s(null, null, 'Calendars/NZ.md'), s(null, null, 'Calendars/APAC.md')] }),
+      styleFor({ fillSource: 'none', stripSource: 'calendar', palettes: fidelityPalettes }),
     ).toBe(GOLDEN_STRIP_CALENDAR);
   });
 });
@@ -580,23 +644,21 @@ describe('calendar color source (U12)', () => {
   const withCalendars: Palettes = { ...palettes, calendar: calendarPalette };
   const calInst = (calendarId: string | null) => ({ status: null, priority: null, calendarId });
 
-  it('emits a fill rule per present calendar colour', () => {
+  it('emits a fill rule per configured calendar colour', () => {
     const css = styleFor({
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
-      instances: [calInst('Calendars/NZ.md'), calInst('Calendars/APAC.md')],
     });
     expect(css).toContain(`.wx-bar.${calendarSlug('Calendars/NZ.md')} { background-color: #2a9d8f !important;`);
     expect(css).toContain('background-color: #e76f51 !important;');
   });
 
-  it('emits a strip rule per present calendar colour', () => {
+  it('emits a strip rule per configured calendar colour', () => {
     const css = styleFor({
       fillSource: 'none',
       stripSource: 'calendar',
       palettes: withCalendars,
-      instances: [calInst('Calendars/NZ.md')],
     });
     expect(css).toContain(`.wx-bar.${calendarSlug('Calendars/NZ.md')}::before`);
     expect(css).toContain('background-color: #2a9d8f;');
@@ -607,7 +669,6 @@ describe('calendar color source (U12)', () => {
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
-      instances: [calInst('Calendars/NZ.md'), calInst(null)],
     });
     expect(css).toContain(PARENT_ROLE_CLASS);
   });
@@ -630,7 +691,6 @@ describe('calendar color source (U12)', () => {
       fillSource: 'calendar',
       stripSource: 'none',
       palettes: withCalendars,
-      instances: [calInst('Calendars/Unsafe.md')],
     });
     expect(css).not.toContain('url(evil)');
   });
@@ -640,7 +700,6 @@ describe('calendar color source (U12)', () => {
       fillSource: 'calendar',
       stripSource: 'none',
       palettes,
-      instances: [calInst('Calendars/NZ.md')],
     });
     expect(css).toContain(PARENT_ROLE_CLASS);
     expect(css).not.toContain('og-calendar-');

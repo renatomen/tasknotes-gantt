@@ -28,6 +28,33 @@ import type { CellRender } from '../cellRender';
 import type { GridColumn } from '../gridColumns';
 import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
+import type { LegendPosition } from '../legendLayout';
+import type { EstimateMeaning, NonWorkingRendering } from '../viewOptions';
+
+/** Raw effective view facts consumed by the presentation-only legend catalogue. */
+export interface GanttLegendContext {
+  taskNotesPresent: boolean;
+  barFillSource: BarChannelSource;
+  barStripSource: BarChannelSource;
+  barIconSource: BarIconSource;
+  statusColors: StatusColor[];
+  priorityColors: PriorityColor[];
+  calendarPalette: { value: string; color: string }[];
+  /** Representative colour of a selected calendar that defines markers. */
+  calendarMarkerColor: string | undefined;
+  /** True when a rendered recurring task has a recorded or materialized occurrence. */
+  hasRecordedRecurringOccurrences: boolean;
+  /** Representative paint for enabled read-only event-row families and feeds. */
+  calendarEventColor: string | null;
+  /** Representative paint owned specifically by enabled external occurrence feeds. */
+  externalOccurrenceColor: string | null;
+  estimateMeaning: EstimateMeaning;
+  nonWorkingRendering: NonWorkingRendering;
+  calendarItems: {
+    showRecurring: boolean;
+  };
+  externalCalendarsEnabled: boolean;
+}
 
 export interface GanttData {
   /** Expanded render instances from the controller. */
@@ -46,6 +73,10 @@ export interface GanttData {
    * the toolbar without a remount — same treatment as {@link showDateIndicators}.
    */
   showToolbar: boolean;
+  /** Appearance-owned default copied into local state whenever the legend opens. */
+  defaultLegendPosition: LegendPosition;
+  /** Configuration-complete, row-independent inputs for the semantic legend. */
+  legendContext?: GanttLegendContext;
   /**
    * Per-view "Highlight weekends" toggle. Flows through the reactive data path
    * (not a static mount prop) so toggling the option live shows/hides the

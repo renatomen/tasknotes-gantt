@@ -75,11 +75,11 @@ function stripContentPadRule(): string {
 }
 ```
 
-**2. Set an explicit `z-index` on a pseudo-element layered over SVAR bars** — don't trust sibling/paint order. SVAR's real children sit in a defined stack (`.wx-progress-wrapper` at `z-index: auto`, `.wx-content` at `z-index: 2`); place the strip above progress, below content:
+**2. Set an explicit `z-index` on a pseudo-element layered over SVAR bars** — don't trust sibling/paint order. SVAR's real children include `.wx-progress-wrapper` at `z-index: auto` and `.wx-content` at `z-index: 2`; the plugin also injects `.og-instance` occurrence pieces at `z-index: 1`. Place the strip at `z-index: 2` so it stays above progress and occurrence pieces, while the later `.wx-content` at the same layer keeps the icon and text on top:
 
 ```ts
 function stripRule(color: string): string {
-  return `::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 1; ` +
+  return `::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; ` +
          `width: ${STRIP_WIDTH_PX}px; background-color: ${color}; /* … */ }`;
 }
 ```
@@ -103,14 +103,14 @@ Parent vs child from a single accent is **one hue, two tones** (`THEME_CHILD_COL
 
 ## Why This Works
 
-- **Specificity beats source order.** Both sheets target `.wx-bar`, but Svelte's hash class lifts SVAR to `(0,3,0)` while the injected rule sits at `(0,2,0)`; loading later doesn't help. `!important` jumps the injected declaration above normal-weight rules regardless of the hash. (It also lets treatment fills coexist with the date-status flag's own `!important` background.)
-- **Paint order is defined, not incidental.** A pseudo-element paints as its host's first child, so a later real sibling (`.wx-progress-wrapper`) covers it. An explicit `z-index: 1` slots the strip into the exact layer between progress (`auto` → 0) and content (`2`).
+- **Specificity beats source order.** Both sheets target `.wx-bar`, but Svelte's hash class lifts SVAR to `(0,3,0)` while the injected rule sits at `(0,2,0)`; loading later doesn't help. `!important` jumps the injected declaration above normal-weight rules regardless of the hash. The scoped date-status selector remains authoritative when a flagged bar also carries a configured fill class.
+- **Paint order is defined, not incidental.** A pseudo-element paints as its host's first child, so later real descendants cover it. An explicit `z-index: 2` keeps the strip above the progress layer and recurring occurrence pieces; the later `.wx-content` at that same layer still paints the icon and text on top.
 - **`--text-normal` and `--background-primary` are opposite by definition**, so a `color-mix` between them yields a fixed perceptual delta in *any* theme — unlike `--background-secondary`, which is only coincidentally distinct from the primary background in some themes.
 
 ## Prevention
 
 - **Any time you inject CSS to restyle SVAR `.wx-*` elements from outside its component CSS, expect to lose the cascade** — reach for `!important` (or a more specific anchor) on the contested property from the start.
-- **Whenever you add a `::before`/`::after` over SVAR bars, set an explicit `z-index`** relative to SVAR's known layers (`.wx-progress-wrapper` auto, `.wx-content` 2) — never rely on sibling order.
+- **Whenever you add a `::before`/`::after` over SVAR bars, set an explicit `z-index`** relative to SVAR's known layers (`.wx-progress-wrapper` auto and `.wx-content` 2) and the plugin's `.og-instance` occurrence pieces at `z-index: 1` — never rely on sibling order. The strip invariant is `z-index: 2`: it stays visible over bar paint while later content remains readable.
 - **Whenever a color must survive arbitrary Obsidian themes, build it from `color-mix` against `--text-normal` / `--background-primary`** (guaranteed delta) and `--interactive-accent` (theme hue). Never use `--background-secondary` / `--background-modifier-*` for something that must stay visible. Test at least one low-contrast theme (Obsidian default).
 - **When a style "doesn't apply," confirm with `getComputedStyle` before changing code** — one read beats several reload cycles.
 - This is the CSS instance of the standing rule *"don't deviate from SVAR's documented API without sign-off"*: prefer the documented component; when you must inject over SVAR, out-specify it deliberately rather than swapping its patterns (see the "heavy lines" cautionary precedent below).

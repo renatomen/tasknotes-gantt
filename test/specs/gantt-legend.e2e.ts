@@ -1,0 +1,1761 @@
+/* global HTMLButtonElement, getComputedStyle */
+import { browser, expect, $, $$ } from "@wdio/globals";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { fileURLToPath } from "node:url";
+import type { EstimateMeaning, NonWorkingRendering } from "../../src/bases/viewOptions";
+import type { GanttVisualSemanticId } from "../../src/bases/visualSemantics";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const fixtureVault = path.resolve(__dirname, "../vaults/gantt-legend");
+const FIXTURE_RESTORE_ATTEMPTS = 2;
+const LEGEND_RECURRING_PATH = "Legend Recurring.md";
+const LEGEND_COMPLETED_OCCURRENCE = "2026-08-10";
+const LEGEND_COMPLETED_PIECE_SELECTOR =
+  '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"] .og-instance-completed';
+const LEGEND_TASK_PROPERTY_EVENT_SELECTOR =
+  '.og-bases-gantt .wx-bar.og-event[data-id*="property-event/Legend%20Task.md"]';
+const LEGEND_TASK_BAR_SELECTOR =
+  '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]';
+const LEGEND_TASK_FALLBACK_PAINT_SELECTOR = ".og-ghost-run:not(.og-ghost-blocked)";
+const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
+
+let fixtureCalendarAxesNeedReset = false;
+let fixtureBarChannelsNeedReset = false;
+
+interface ElementRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface ChartGeometry {
+  surface: ElementRect;
+  chart: ElementRect;
+}
+
+interface ChartViewState {
+  selectedCount: number;
+  scrollLeft: number;
+  scaleCellWidth: number;
+  scaleLabel: string;
+}
+
+interface FallbackPaintFacts {
+  paintFound: boolean;
+  paintWidth: number;
+  background: string | null;
+  stripContent: string;
+}
+
+async function enableBases(): Promise<void> {
+  await browser.executeObsidian(async ({ app }) => {
+    const internalPlugins = (app as unknown as { internalPlugins?: {
+      getPluginById?: (id: string) => { enabled?: boolean; enable?: (options?: unknown) => unknown } | undefined;
+      enablePluginAndSave?: (id: string) => unknown;
+    } }).internalPlugins;
+    const bases = internalPlugins?.getPluginById?.("bases");
+    if (bases && !bases.enabled) {
+      await (internalPlugins?.enablePluginAndSave?.("bases") ?? bases.enable?.({ reloadApp: false }));
+    }
+  });
+}
+
+async function waitForTaskNotesReady(): Promise<void> {
+  await browser.waitUntil(
+    async () => browser.executeObsidian(async ({ app }) => {
+      const taskNotes = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } })
+        .plugins?.getPlugin?.("tasknotes") as { api?: { lifecycle?: { ready?: () => Promise<void> } } } | undefined;
+      if (!taskNotes?.api) return false;
+      await taskNotes.api.lifecycle?.ready?.();
+      return true;
+    }),
+    { timeout: 60000, timeoutMsg: "TaskNotes API did not become ready for the legend fixture" },
+  );
+}
+
+async function waitForLegendRecurringTaskReady(): Promise<void> {
+  let lastFacts = "<never polled>";
+  try {
+    await browser.waitUntil(
+      async () => {
+        lastFacts = await browser.executeObsidian(async ({ app }, expected) => {
+          const taskNotes = (app as unknown as {
+            plugins?: { getPlugin?: (id: string) => unknown };
+          }).plugins?.getPlugin?.("tasknotes") as {
+            api?: { tasks?: { list?: () => Promise<unknown[]> | unknown[] } };
+          } | undefined;
+          const tasks = await taskNotes?.api?.tasks?.list?.();
+          if (!Array.isArray(tasks)) return "no task list";
+          const recurring = (tasks as Array<{
+            path?: string;
+            recurrence?: unknown;
+            complete_instances?: unknown;
+          }>).find(({ path: taskPath }) => taskPath === expected.path);
+          const facts = {
+            recurrence:
+              typeof recurring?.recurrence === "string" &&
+              recurring.recurrence.includes("FREQ=WEEKLY"),
+            completed:
+              Array.isArray(recurring?.complete_instances) &&
+              recurring.complete_instances.some((date) => String(date).startsWith(expected.completed)),
+          };
+          return Object.values(facts).every(Boolean) ? "ok" : JSON.stringify(facts);
+        }, { path: LEGEND_RECURRING_PATH, completed: LEGEND_COMPLETED_OCCURRENCE });
+        return lastFacts === "ok";
+      },
+      {
+        timeout: 60000,
+        timeoutMsg: "TaskNotes never served the recurring legend facts",
+      },
+    );
+  } catch (error) {
+    const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    throw new Error(
+      `TaskNotes recurring legend wait failed; last facts: ${lastFacts}\n${cause}`,
+    );
+  }
+}
+
+async function waitForCompletedRecurringPiece(): Promise<void> {
+  await browser.waitUntil(async () => (await $$(LEGEND_COMPLETED_PIECE_SELECTOR)).length === 1, {
+    timeout: 10000,
+    timeoutMsg: "Legend Recurring did not render its completed occurrence piece",
+  });
+}
+
+async function suppressTransientObsidianNotices(): Promise<void> {
+  await browser.execute(() => {
+    if (!document.getElementById("og-e2e-notice-shield")) {
+      const shield = document.createElement("style");
+      shield.id = "og-e2e-notice-shield";
+      shield.textContent =
+        ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
+      document.head.appendChild(shield);
+    }
+  });
+}
+
+async function restoreTransientObsidianNotices(): Promise<void> {
+  await browser.execute(() => document.getElementById("og-e2e-notice-shield")?.remove());
+}
+
+async function openLegend(): Promise<void> {
+  const trigger = await $(".og-bases-gantt .og-legend-toggle");
+  await trigger.click();
+  await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+    timeout: 8000,
+    timeoutMsg: "Legend panel did not open",
+  });
+}
+
+async function closeLegend(): Promise<void> {
+  await browser.execute(() => {
+    (document.querySelector(".og-gantt-legend .og-legend-dismiss") as HTMLButtonElement | null)?.click();
+  });
+  await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+    timeout: 8000,
+    timeoutMsg: "Legend panel did not close",
+  });
+}
+
+interface LegendCalendarAxisCopy {
+  estimateName: string | null;
+  estimateMeaning: string | null;
+  renderingName: string | null;
+  renderingMeaning: string | null;
+  overrideMeaning: string | null;
+}
+
+async function readLegendCalendarAxisCopy(): Promise<LegendCalendarAxisCopy> {
+  return browser.execute(() => {
+    const copy = (semanticId: GanttVisualSemanticId): { name: string | null; meaning: string | null } => {
+      const entry = document.querySelector(`[data-semantic-id="${semanticId}"]`);
+      return {
+        name: entry?.querySelector("h3")?.textContent ?? null,
+        meaning: entry?.querySelector("p")?.textContent ?? null,
+      };
+    };
+    const estimate = copy("estimate-meaning");
+    const rendering = copy("non-working-rendering");
+    return {
+      estimateName: estimate.name,
+      estimateMeaning: estimate.meaning,
+      renderingName: rendering.name,
+      renderingMeaning: rendering.meaning,
+      overrideMeaning: copy("estimate-override").meaning,
+    };
+  });
+}
+
+async function waitForLegendCalendarAxisCopy(
+  expected: LegendCalendarAxisCopy,
+): Promise<LegendCalendarAxisCopy> {
+  let observed = await readLegendCalendarAxisCopy();
+  await browser.waitUntil(
+    async () => {
+      observed = await readLegendCalendarAxisCopy();
+      return JSON.stringify(observed) === JSON.stringify(expected);
+    },
+    {
+      timeout: 8000,
+      timeoutMsg: `Legend calendar-axis copy did not update: ${JSON.stringify(observed)}`,
+    },
+  );
+  return observed;
+}
+
+async function legendLayout(): Promise<string | null> {
+  return browser.execute(() => document.querySelector(".og-gantt-legend")?.getAttribute("data-layout") ?? null);
+}
+
+async function chooseBottom(): Promise<void> {
+  await browser.execute(() => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
+      .find((candidate) => candidate.textContent?.trim() === "Bottom");
+    button?.click();
+  });
+}
+
+async function chartGeometry(): Promise<ChartGeometry> {
+  return browser.execute(() => {
+    const surface = document.querySelector(".og-bases-gantt .og-chart-surface") as HTMLElement;
+    const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+    const snapshot = (element: HTMLElement): ElementRect => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+    };
+    return { surface: snapshot(surface), chart: snapshot(chart) };
+  });
+}
+
+function expectGeometryUnchanged(actual: ChartGeometry, expected: ChartGeometry): void {
+  for (const part of ["surface", "chart"] as const) {
+    for (const edge of ["left", "top", "width", "height"] as const) {
+      expect(Math.abs(actual[part][edge] - expected[part][edge])).toBeLessThan(1);
+    }
+  }
+}
+
+async function chartViewState(): Promise<ChartViewState> {
+  return browser.execute(() => {
+    const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+    const scaleRows = document.querySelectorAll(".og-bases-gantt .wx-scale .wx-row");
+    const scaleCell = scaleRows[scaleRows.length - 1]?.querySelector(".wx-cell") as HTMLElement;
+    return {
+      selectedCount: document.querySelectorAll(".og-bases-gantt .wx-selected").length,
+      scrollLeft: chart.scrollLeft,
+      scaleCellWidth: scaleCell.getBoundingClientRect().width,
+      scaleLabel: scaleCell.textContent?.trim() ?? "",
+    };
+  });
+}
+
+async function ensureRealChartSelection(): Promise<void> {
+  if ((await $$(".og-bases-gantt .wx-selected")).length === 0) {
+    const clicked = await browser.execute((selector) => {
+      const bar = document.querySelector(selector) as HTMLElement | null;
+      if (!bar) return false;
+      const bounds = bar.getBoundingClientRect();
+      for (let y = bounds.top + 2; y < bounds.bottom - 1; y += 4) {
+        for (let x = bounds.left + 2; x < bounds.right - 1; x += 4) {
+          const target = document.elementFromPoint(x, y) as HTMLElement | null;
+          if (target?.closest(".wx-bar.og-event") !== bar) continue;
+          target.click();
+          return true;
+        }
+      }
+      return false;
+    }, LEGEND_TASK_PROPERTY_EVENT_SELECTOR);
+    expect(clicked).toBe(true);
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
+      timeout: 8000,
+      timeoutMsg: "Legend fixture bar did not become selected",
+    });
+  }
+}
+
+async function openFixtureBase(): Promise<void> {
+  await browser.executeObsidian(async ({ app }) => {
+    const workspace = app.workspace as unknown as {
+      detachLeavesOfType: (type: string) => void;
+      iterateAllLeaves: (callback: (leaf: {
+        view?: { getViewType?: () => string };
+        detach?: () => void;
+        openFile: (file: unknown) => Promise<void>;
+      }) => void) => void;
+      getLeaf: (newLeaf?: boolean) => {
+        view?: { getViewType?: () => string };
+        detach?: () => void;
+        openFile: (file: unknown) => Promise<void>;
+      };
+    };
+    const markdownLeaves: Array<{ detach?: () => void }> = [];
+    workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
+    });
+    markdownLeaves.forEach((leaf) => leaf.detach?.());
+    workspace.detachLeavesOfType("bases");
+  });
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length === 0, {
+    timeout: 15000,
+    timeoutMsg: "Gantt legend fixture did not unmount its previous chart root",
+  });
+  await browser.executeObsidian(async ({ app }) => {
+    const file = app.vault.getAbstractFileByPath("Legend.base");
+    if (file) await app.workspace.getLeaf(true).openFile(file as never);
+  });
+}
+
+async function waitForSingleFixtureRoot(
+  timeout = 15000,
+  timeoutMsg = "Gantt legend fixture did not settle at exactly one chart root",
+): Promise<void> {
+  let observedCount = -1;
+  try {
+    await browser.waitUntil(
+      async () => {
+        observedCount = (await $$(".og-bases-gantt")).length;
+        return observedCount === 1;
+      },
+      { timeout, timeoutMsg },
+    );
+  } catch (error) {
+    const detail = observedCount < 0 ? "no root count observed" : `observed ${observedCount} roots`;
+    const reason = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    throw new Error(`${timeoutMsg}; ${detail}\n${reason}`);
+  }
+}
+
+async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
+  const selector = ".og-bases-gantt .og-fullscreen-toggle";
+  await browser.waitUntil(
+    async () => browser.execute((targetSelector) => {
+      const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
+      if (!toggle || toggle.disabled) return false;
+      toggle.click();
+      return true;
+    }, selector),
+    { timeout: 15000, timeoutMsg },
+  );
+}
+
+async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
+  return browser.executeObsidian(async ({ app }) => {
+    interface PatchedCatalog {
+      statuses?: () => unknown[];
+      __legendOriginalStatuses?: () => unknown[];
+    }
+    const taskNotes = (app as unknown as {
+      plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
+    }).plugins?.getPlugin?.("tasknotes");
+    const catalog = taskNotes?.api?.catalog;
+    if (!catalog?.__legendOriginalStatuses) return false;
+    catalog.statuses = catalog.__legendOriginalStatuses;
+    delete catalog.__legendOriginalStatuses;
+    return true;
+  });
+}
+
+async function remountMaximizedFixture(): Promise<void> {
+  await openFixtureBase();
+  await waitForSingleFixtureRoot();
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
+    timeout: 15000,
+    timeoutMsg: "Gantt fixture did not remount",
+  });
+  await clickFullscreenToggle("Gantt fixture maximize control did not become clickable");
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+    timeout: 8000,
+  });
+}
+
+function createCombinedFailure(message: string, failures: unknown[]): Error {
+  const details = failures
+    .map((failure, index) => {
+      const rendered = failure instanceof Error ? (failure.stack ?? failure.message) : String(failure);
+      return `Failure ${index + 1}: ${rendered}`;
+    })
+    .join("\n");
+  return new Error(`${message}\n${details}`);
+}
+
+async function writeFixtureCalendarAxes(
+  estimateMeaning: EstimateMeaning,
+  rendering: NonWorkingRendering,
+): Promise<void> {
+  const updated = await browser.executeObsidian(async ({ app }, nextMeaning, nextRendering) => {
+    const file = app.vault.getAbstractFileByPath("Legend.base");
+    if (!file) return false;
+    const body = await app.vault.read(file as never) as string;
+    const nextBody = body
+      .replace(
+        /tngantt_estimateMeaning: (?:calendar-days|working-days)/,
+        `tngantt_estimateMeaning: ${nextMeaning}`,
+      )
+      .replace(
+        /tngantt_nonWorkingRendering: (?:shaded|split)/,
+        `tngantt_nonWorkingRendering: ${nextRendering}`,
+      );
+    const expected =
+      nextBody.includes(`tngantt_estimateMeaning: ${nextMeaning}`) &&
+      nextBody.includes(`tngantt_nonWorkingRendering: ${nextRendering}`);
+    if (!expected) return false;
+    if (nextBody !== body) await app.vault.modify(file as never, nextBody);
+    return true;
+  }, estimateMeaning, rendering);
+  expect(updated).toBe(true);
+}
+
+async function setFixtureCalendarAxes(
+  estimateMeaning: EstimateMeaning,
+  rendering: NonWorkingRendering,
+): Promise<void> {
+  fixtureCalendarAxesNeedReset = estimateMeaning !== "working-days" || rendering !== "split";
+  await writeFixtureCalendarAxes(estimateMeaning, rendering);
+  await remountMaximizedFixture();
+}
+
+async function restoreFixtureCalendarAxes(): Promise<void> {
+  await writeFixtureCalendarAxes("working-days", "split");
+  const remountFailures: unknown[] = [];
+  for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
+    try {
+      await remountMaximizedFixture();
+      await browser.waitUntil(
+        async () =>
+          (await $$(
+            '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"] .og-ghost-run.og-ghost-blocked',
+          )).length > 0,
+        {
+          timeout: 8000,
+          timeoutMsg: "Gantt legend fixture did not render its restored split non-working time",
+        },
+      );
+      fixtureCalendarAxesNeedReset = false;
+      return;
+    } catch (error) {
+      remountFailures.push(error);
+    }
+  }
+  throw createCombinedFailure(
+    `Gantt legend fixture split restoration failed after ${FIXTURE_RESTORE_ATTEMPTS} attempts`,
+    remountFailures,
+  );
+}
+
+type FixtureBarSource = "none" | "calendar" | "priority";
+
+async function writeFixtureBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  const updated = await browser.executeObsidian(async ({ app }, nextFill, nextStrip) => {
+    const file = app.vault.getAbstractFileByPath("Legend.base");
+    if (!file) return false;
+    const body = await app.vault.read(file as never) as string;
+    const nextBody = body
+      .replace(
+        /tngantt_barFillSource: (?:none|calendar|priority)/,
+        `tngantt_barFillSource: ${nextFill}`,
+      )
+      .replace(
+        /tngantt_barStripSource: (?:none|calendar|priority)/,
+        `tngantt_barStripSource: ${nextStrip}`,
+      );
+    const expected =
+      nextBody.includes(`tngantt_barFillSource: ${nextFill}`) &&
+      nextBody.includes(`tngantt_barStripSource: ${nextStrip}`);
+    if (!expected) return false;
+    if (nextBody !== body) await app.vault.modify(file as never, nextBody);
+    return true;
+  }, fillSource, stripSource);
+  expect(updated).toBe(true);
+}
+
+async function waitForRenderedBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  await browser.waitUntil(
+    async () => browser.execute((nextFill, nextStrip) => {
+      const bar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]',
+      );
+      if (!bar) return false;
+      const tokens = [...bar.classList];
+      const hasCalendar = tokens.some((token) => token.startsWith("og-calendar-"));
+      const hasPriority = tokens.some((token) => token.startsWith("og-prio-"));
+      const bodyOwnsFill = getComputedStyle(bar).getPropertyValue("--og-ghost-fill").trim() !== "";
+      const drawsStrip = getComputedStyle(bar, "::before").content !== "none";
+      const bodyShouldOwnFill = nextFill !== "none" || nextStrip === "none";
+      return (
+        hasCalendar === (nextFill === "calendar" || nextStrip === "calendar") &&
+        hasPriority === (nextFill === "priority" || nextStrip === "priority") &&
+        bodyOwnsFill === bodyShouldOwnFill &&
+        drawsStrip === (nextStrip !== "none")
+      );
+    }, fillSource, stripSource),
+    {
+      timeout: 8000,
+      timeoutMsg: `Gantt legend fixture did not render ${fillSource} fill / ${stripSource} strip`,
+    },
+  );
+}
+
+async function setFixtureBarChannels(
+  fillSource: FixtureBarSource,
+  stripSource: FixtureBarSource,
+): Promise<void> {
+  fixtureBarChannelsNeedReset = fillSource !== "calendar" || stripSource !== "priority";
+  await writeFixtureBarChannels(fillSource, stripSource);
+  await remountMaximizedFixture();
+  await waitForRenderedBarChannels(fillSource, stripSource);
+}
+
+async function restoreFixtureBarChannels(): Promise<void> {
+  await writeFixtureBarChannels("calendar", "priority");
+  const remountFailures: unknown[] = [];
+  for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
+    try {
+      await remountMaximizedFixture();
+      await waitForRenderedBarChannels("calendar", "priority");
+      fixtureBarChannelsNeedReset = false;
+      return;
+    } catch (error) {
+      remountFailures.push(error);
+    }
+  }
+  throw createCombinedFailure(
+    `Gantt legend fixture bar-channel restoration failed after ${FIXTURE_RESTORE_ATTEMPTS} attempts`,
+    remountFailures,
+  );
+}
+
+describe("Gantt (OG) context-aware legend", () => {
+  before(async function () {
+    this.timeout(420000);
+    const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+    fs.cpSync(fixtureVault, tmpVault, { recursive: true });
+
+    await browser.reloadObsidian({
+      vault: tmpVault,
+      plugins: ["tasknotes-gantt", "tasknotes"],
+    });
+    await suppressTransientObsidianNotices();
+    await enableBases();
+    await waitForTaskNotesReady();
+    await waitForLegendRecurringTaskReady();
+    await openFixtureBase();
+    try {
+      await waitForSingleFixtureRoot();
+    } catch {
+      // TaskNotes can finish its startup navigation after lifecycle.ready and
+      // steal the active leaf once. Reopen the fixture after that bounded race.
+      await openFixtureBase();
+      await waitForSingleFixtureRoot(60000, "Gantt legend fixture did not mount the plugin view after reopening");
+    }
+    try {
+      await browser.waitUntil(
+        async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+        { timeout: 30000, timeoutMsg: "Gantt legend fixture did not render a task bar" },
+      );
+    } catch (error) {
+      const diagnostic = await browser.execute(() => {
+        const root = document.querySelector(".og-bases-gantt") as HTMLElement | null;
+        const chart = root?.querySelector(".og-chart-area") as HTMLElement | null;
+        const surface = root?.querySelector(".og-chart-surface") as HTMLElement | null;
+        return {
+          rootText: root?.innerText.slice(0, 300),
+          chartHeight: chart?.getBoundingClientRect().height,
+          surfaceHeight: surface?.getBoundingClientRect().height,
+          ganttCount: root?.querySelectorAll(".wx-gantt").length,
+        };
+      });
+      throw new Error(`${String(error)}; diagnostic=${JSON.stringify(diagnostic)}`);
+    }
+    await clickFullscreenToggle("Gantt maximize control did not become clickable for the overlay scenarios");
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Gantt did not maximize for the overlay scenarios",
+    });
+  });
+
+  afterEach(async function () {
+    this.timeout(240000);
+    const cleanupFailures: unknown[] = [];
+    const attemptCleanup = async (cleanup: () => Promise<void>): Promise<void> => {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
+    };
+
+    await attemptCleanup(async () => {
+      if ((await $$(".modal-container")).length === 0) return;
+      await browser.keys(["Escape"]);
+      await browser.waitUntil(async () => (await $$(".modal-container")).length === 0, {
+        timeout: 8000,
+        timeoutMsg: "Gantt legend cleanup did not close the Obsidian modal",
+      });
+    });
+    await attemptCleanup(async () => {
+      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+    });
+    await attemptCleanup(async () => {
+      if (await restoreTaskNotesLegendStatuses()) {
+        try {
+          await remountMaximizedFixture();
+        } catch {
+          await remountMaximizedFixture();
+        }
+      }
+    });
+    await attemptCleanup(async () => {
+      if (fixtureCalendarAxesNeedReset) await restoreFixtureCalendarAxes();
+    });
+    await attemptCleanup(async () => {
+      if (fixtureBarChannelsNeedReset) await restoreFixtureBarChannels();
+    });
+    await attemptCleanup(async () => {
+      await browser.execute(() => {
+        const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+        if (host) host.style.width = "";
+      });
+    });
+    if (cleanupFailures.length === 1) throw cleanupFailures[0];
+    if (cleanupFailures.length > 1) {
+      throw createCombinedFailure("Multiple Gantt legend fixture cleanups failed", cleanupFailures);
+    }
+  });
+
+  beforeEach(async function () {
+    this.timeout(30000);
+    await suppressTransientObsidianNotices();
+    const shieldEffective = await browser.execute(() => {
+      const container = document.createElement("div");
+      container.className = "notice-container";
+      container.style.cssText = "position:fixed;left:-9999px;top:0;";
+      const probe = document.createElement("div");
+      probe.className = "notice";
+      container.appendChild(probe);
+      document.body.appendChild(container);
+      const effective = getComputedStyle(probe).pointerEvents === "none";
+      container.remove();
+      return effective;
+    });
+    if (!shieldEffective) {
+      throw new Error("Gantt legend e2e notice shield no longer disables notice hit-testing");
+    }
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    try {
+      await restoreTransientObsidianNotices();
+    } catch {
+      // The browser session can already be gone after a before-hook failure.
+    }
+  });
+
+  it("keeps Legend available and opens the default right panel without the optional toolbar (AE10)", async () => {
+    expect(await $$(".og-bases-gantt .og-gantt-toolbar")).toHaveLength(0);
+    const trigger = await $(".og-bases-gantt .og-legend-toggle");
+    await expect(trigger).toBeExisting();
+    await expect(trigger).toHaveAttribute("aria-label", "Legend");
+
+    await trigger.click();
+    const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
+    await expect(panel).toBeExisting();
+    await expect(panel).toHaveAttribute("aria-label", "Gantt legend");
+    await expect($(".og-gantt-legend .og-legend-dismiss")).toBeFocused();
+    expect(await $$(".og-gantt-legend .og-legend-sample:not([aria-hidden='true'])")).toHaveLength(0);
+  });
+
+  it("aligns the Legend toggle with the fullscreen control", async () => {
+    const geometry = await browser.execute(() => {
+      const snapshot = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) return null;
+        const bounds = element.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, width: bounds.width, height: bounds.height };
+      };
+      return {
+        legend: snapshot(".og-bases-gantt .og-legend-toggle"),
+        fullscreen: snapshot(".og-bases-gantt .og-fullscreen-toggle"),
+      };
+    });
+
+    expect(geometry.legend).not.toBeNull();
+    expect(geometry.fullscreen).not.toBeNull();
+    expect(geometry.legend?.left).toBeCloseTo(geometry.fullscreen?.left ?? Number.NaN, 0);
+    expect(geometry.legend?.right).toBeCloseTo(geometry.fullscreen?.right ?? Number.NaN, 0);
+    expect(geometry.legend?.width).toBeCloseTo(geometry.fullscreen?.width ?? Number.NaN, 0);
+    expect(geometry.legend?.height).toBeCloseTo(geometry.fullscreen?.height ?? Number.NaN, 0);
+  });
+
+  it("paints the dark composite sample with the chart's production treatment channels (AE1)", async () => {
+    const isDark = await browser.execute(() => document.body.classList.contains("theme-dark"));
+    if (!isDark) {
+      await browser.executeObsidian(async ({ app }) => {
+        (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+          .commands.executeCommandById("theme:toggle-light-dark");
+      });
+      await browser.waitUntil(
+        async () => browser.execute(() => document.body.classList.contains("theme-dark")),
+        { timeout: 10000, timeoutMsg: "Obsidian did not switch to dark theme" },
+      );
+      await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, { timeout: 30000 });
+    }
+
+    await openLegend();
+    const paint = await browser.execute(() => {
+      const chartBar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chartBar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chartBar;
+      const sample = document.querySelector('[data-semantic-id="bar-treatment"] .og-legend-bar') as HTMLElement | null;
+      return {
+        chartBackground: chartPaint ? getComputedStyle(chartPaint).backgroundColor : null,
+        sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
+        sampleClass: sample?.className ?? "",
+        hasIcon: !!sample?.querySelector(".og-bar-chip"),
+      };
+    });
+    expect(paint.sampleClass).toContain("og-calendar-");
+    expect(paint.sampleClass).toContain("og-prio-");
+    expect(paint.hasIcon).toBe(true);
+    expect(paint.sampleBackground).toBe(paint.chartBackground);
+  });
+
+  it("keeps the orange date fill authoritative over a configured priority fill", async () => {
+    await setFixtureBarChannels("priority", "none");
+    await openLegend();
+
+    const dateStatus = await browser.execute(() => {
+      const fillSample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status-fill"] .og-legend-bar',
+      );
+      const borderSample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status-border"] .og-legend-bar',
+      );
+      const chart = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar.datestatus-flagged[data-id$="Legend Flagged.md"]',
+      );
+      const snapshot = (element: HTMLElement | null) => {
+        const style = element ? getComputedStyle(element) : null;
+        return style
+          ? {
+              color: style.borderColor,
+              style: style.borderStyle,
+              width: Number.parseFloat(style.borderWidth),
+            }
+          : null;
+      };
+      const fill = fillSample ? getComputedStyle(fillSample) : null;
+      const chartStyle = chart ? getComputedStyle(chart) : null;
+      const configuredFill = chartStyle?.getPropertyValue("--og-ghost-fill").trim() ?? "";
+      const colorProbe = document.createElement("span");
+      colorProbe.style.backgroundColor = configuredFill;
+      document.body.append(colorProbe);
+      const configuredFillColor = colorProbe.style.backgroundColor
+        ? getComputedStyle(colorProbe).backgroundColor
+        : null;
+      colorProbe.remove();
+      return {
+        fill: fill
+          ? { background: fill.backgroundColor, borderWidth: Number.parseFloat(fill.borderWidth) }
+          : null,
+        border: snapshot(borderSample),
+        chartBackground: chartStyle?.backgroundColor ?? null,
+        configuredFillColor,
+        chartHasPriorityClass:
+          chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
+        chart: snapshot(chart),
+      };
+    });
+
+    expect(dateStatus.chartHasPriorityClass).toBe(true);
+    expect(dateStatus.fill?.background).toBe("rgb(230, 126, 34)");
+    expect(dateStatus.configuredFillColor).not.toBeNull();
+    expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
+    expect(dateStatus.fill?.borderWidth).toBe(0);
+    expect(dateStatus.chartBackground).toBe(dateStatus.fill?.background);
+    expect(dateStatus.border?.color).toBe("rgb(192, 57, 43)");
+    expect(dateStatus.border?.style).toBe("solid");
+    expect(dateStatus.border?.width).toBeGreaterThan(0);
+    expect(dateStatus.chart?.color).toBe(dateStatus.border?.color);
+    expect(dateStatus.chart?.style).toBe(dateStatus.border?.style);
+    expect(dateStatus.chart?.width).toBeGreaterThan(0);
+  });
+
+  it("reuses production shading and treatment paint for secondary semantics", async () => {
+    await openLegend();
+    const paint = await browser.execute(() => {
+      const chartBar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chartBar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chartBar;
+      const replicated = document.querySelector('[data-semantic-id="replicated-task"] .og-legend-bar') as HTMLElement | null;
+      const completed = document.querySelector('[data-semantic-id="occurrence-completed"] .og-legend-bar') as HTMLElement | null;
+      const weekend = document.querySelector('[data-semantic-id="weekend-shading"] .og-legend-shading') as HTMLElement | null;
+      const weekendCell = document.querySelector('.og-bases-gantt .wx-weekend') as HTMLElement | null;
+      return {
+        chartBackground: chartPaint ? getComputedStyle(chartPaint).backgroundColor : null,
+        replicatedBackground: replicated ? getComputedStyle(replicated).backgroundColor : null,
+        replicatedHatch: replicated ? getComputedStyle(replicated, '::after').backgroundImage : null,
+        completedBackground: completed ? getComputedStyle(completed).backgroundColor : null,
+        weekendBackground: weekend ? getComputedStyle(weekend).backgroundColor : null,
+        weekendCellBackground: weekendCell ? getComputedStyle(weekendCell).backgroundColor : null,
+      };
+    });
+    expect(paint.replicatedBackground).toBe(paint.chartBackground);
+    expect(paint.replicatedHatch).toContain("repeating-linear-gradient");
+    expect(paint.completedBackground).toBe(paint.chartBackground);
+    expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
+  });
+
+  it("constrains standalone occurrence samples to the bar track", async () => {
+    await openLegend();
+
+    const samples = await browser.execute(() => {
+      const semanticIds = [
+        "occurrence-next",
+        "occurrence-projected",
+        "occurrence-completed",
+        "occurrence-skipped",
+        "occurrence-materialized",
+        "occurrence-external",
+      ];
+      return semanticIds.map((semanticId) => {
+        const host = document.querySelector<HTMLElement>(
+          `[data-semantic-id="${semanticId}"] .og-legend-sample`,
+        );
+        const bar = host?.querySelector<HTMLElement>(".og-legend-bar.og-instance");
+        const hostBounds = host?.getBoundingClientRect();
+        const barBounds = bar?.getBoundingClientRect();
+        return {
+          semanticId,
+          height: barBounds?.height ?? 0,
+          topInset: hostBounds && barBounds ? barBounds.top - hostBounds.top : 0,
+          bottomInset: hostBounds && barBounds ? hostBounds.bottom - barBounds.bottom : 0,
+        };
+      });
+    });
+
+    expect(samples).toEqual(samples.map(({ semanticId }) => ({
+      semanticId,
+      height: 20,
+      topInset: 7,
+      bottomInset: 7,
+    })));
+  });
+
+  it("keeps composite sample hosts transparent while nested pieces own their paint", async () => {
+    await openLegend();
+    await waitForCompletedRecurringPiece();
+    const ownership = await browser.execute(() => {
+      const sample = (semanticId: string): HTMLElement | null =>
+        document.querySelector(`[data-semantic-id="${semanticId}"] .og-legend-sample > div`);
+      const split = sample("non-working-rendering");
+      const occupancy = sample("occurrence-occupancy");
+      const chartRecurring = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"]',
+      );
+      const chartRecurringPieces = [
+        ...(chartRecurring?.querySelectorAll<HTMLElement>(".og-instance") ?? []),
+      ];
+      const progress = sample("progress");
+      const occupancyPainted = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
+      ];
+      const occupancyEnvelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
+      const splitPainted = [
+        ...(split?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
+      ];
+      const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
+      const occupancyBounds = occupancy?.getBoundingClientRect();
+      const occupancyEnvelopeBounds = occupancyEnvelopes[0]?.getBoundingClientRect();
+      const occupancyPieceZIndexes = occupancyPainted.map((piece) =>
+        Number.parseInt(getComputedStyle(piece).zIndex, 10),
+      );
+      const chartRecurringPieceZIndexes = chartRecurringPieces.map((piece) =>
+        Number.parseInt(getComputedStyle(piece).zIndex, 10),
+      );
+      const ownsVisiblePaint = (pieces: HTMLElement[]): boolean =>
+        pieces.length === 2 &&
+        pieces.every((piece) => getComputedStyle(piece).backgroundColor !== "rgba(0, 0, 0, 0)");
+      return {
+        splitHostOwnsPaint:
+          split?.classList.contains("og-ghost-run") || split?.classList.contains("og-ghost-blocked"),
+        splitHasBlockedPiece: !!split?.querySelector(".og-ghost-run.og-ghost-blocked"),
+        splitPaintedPiecesOwnPaint: ownsVisiblePaint(splitPainted),
+        occupancyHostOwnsPaint:
+          occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
+        occupancyPiecesOwnPaint:
+          ownsVisiblePaint(occupancyPainted) &&
+          occupancyPainted.every(
+            (piece) =>
+              piece.classList.contains("wx-bar") &&
+              piece.classList.contains("og-instance") &&
+              [...piece.classList].some((token) => token.startsWith("og-calendar-")) &&
+              ![...piece.classList].some((token) => token.startsWith("og-prio-")) &&
+              getComputedStyle(piece, "::before").content === "none",
+          ),
+        occupancyEnvelopeCount: occupancyEnvelopes.length,
+        occupancyEnvelopeMatchesHost:
+          !!occupancyBounds &&
+          !!occupancyEnvelopeBounds &&
+          Math.abs(occupancyEnvelopeBounds.left - occupancyBounds.left) < 1 &&
+          Math.abs(occupancyEnvelopeBounds.right - occupancyBounds.right) < 1,
+        occupancyEnvelopeAbovePieces:
+          occupancyEnvelopes.length === 1 &&
+          Number.parseInt(getComputedStyle(occupancyEnvelopes[0]!).zIndex, 10) >
+            Math.max(...occupancyPieceZIndexes),
+        chartRecurringStripAbovePieces:
+          !!chartRecurring &&
+          chartRecurringPieces.length > 0 &&
+          Number.parseInt(getComputedStyle(chartRecurring, "::before").zIndex, 10) >
+            Math.max(...chartRecurringPieceZIndexes),
+        occupancyEnvelopeOwnsOnlyStrip:
+          occupancyEnvelopes.length === 1 &&
+          occupancyEnvelopes.every(
+            (envelope) =>
+              envelope.classList.contains("wx-bar") &&
+              [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
+              ![...envelope.classList].some((token) => token.startsWith("og-calendar-")) &&
+              !envelope.classList.contains("og-instance") &&
+              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
+              getComputedStyle(envelope).borderStyle === "none" &&
+              getComputedStyle(envelope, "::before").content !== "none" &&
+              getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
+          ),
+        occupancyGapBackground: occupancyGap ? getComputedStyle(occupancyGap).backgroundColor : null,
+        progressHostOwnsNestedClasses:
+          progress?.classList.contains("wx-progress-wrapper") ||
+          progress?.classList.contains("wx-progress-percent"),
+        progressHasNestedClasses:
+          !!progress?.querySelector(".wx-progress-wrapper > .wx-progress-percent"),
+      };
+    });
+
+    expect(ownership).toEqual({
+      splitHostOwnsPaint: false,
+      splitHasBlockedPiece: true,
+      splitPaintedPiecesOwnPaint: true,
+      occupancyHostOwnsPaint: false,
+      occupancyPiecesOwnPaint: true,
+      occupancyEnvelopeCount: 1,
+      occupancyEnvelopeMatchesHost: true,
+      occupancyEnvelopeAbovePieces: true,
+      chartRecurringStripAbovePieces: true,
+      occupancyEnvelopeOwnsOnlyStrip: true,
+      occupancyGapBackground: "rgba(0, 0, 0, 0)",
+      progressHostOwnsNestedClasses: false,
+      progressHasNestedClasses: true,
+    });
+  });
+
+  it("suppresses duplicate occurrence strips when fill and strip share a treatment token", async () => {
+    await setFixtureBarChannels("priority", "priority");
+    await openLegend();
+
+    const ownership = await browser.execute(() => {
+      const occupancy = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-occupancy"] .og-legend-pieces',
+      );
+      const pieces = [...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? [])];
+      const envelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
+      const hasPriorityToken = (element: HTMLElement): boolean =>
+        [...element.classList].some((token) => token.startsWith("og-prio-"));
+      return {
+        pieceCount: pieces.length,
+        piecesCarrySharedToken: pieces.every(hasPriorityToken),
+        pieceStripsSuppressed: pieces.every(
+          (piece) => getComputedStyle(piece, "::before").content === "none",
+        ),
+        envelopeCount: envelopes.length,
+        envelopeCarriesSharedToken: envelopes.every(hasPriorityToken),
+        envelopeDrawsStrip: envelopes.every(
+          (envelope) => getComputedStyle(envelope, "::before").content !== "none",
+        ),
+      };
+    });
+
+    expect(ownership).toEqual({
+      pieceCount: 2,
+      piecesCarrySharedToken: true,
+      pieceStripsSuppressed: true,
+      envelopeCount: 1,
+      envelopeCarriesSharedToken: true,
+      envelopeDrawsStrip: true,
+    });
+  });
+
+  it("matches strip-only occurrence pieces to the chart piece body", async () => {
+    await setFixtureBarChannels("none", "priority");
+    await waitForCompletedRecurringPiece();
+    await openLegend();
+
+    const paint = await browser.execute(() => {
+      const chartBar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"]',
+      );
+      const chartPiece = chartBar?.querySelector<HTMLElement>(".og-instance-completed") ?? null;
+      const occupancy = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-occupancy"] .og-legend-pieces',
+      );
+      const legendPieces = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-piece-painted") ?? []),
+      ];
+      const envelopes = [
+        ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
+      return {
+        chartPieceFound: !!chartPiece,
+        chartBackground: chartPiece ? getComputedStyle(chartPiece).backgroundColor : null,
+        stripOnlyMarked: occupancy?.classList.contains("og-legend-strip-only") ?? false,
+        piecesCarryNoFillToken: legendPieces.every(
+          (piece) =>
+            ![...piece.classList].some(
+              (token) => token.startsWith("og-calendar-") || token.startsWith("og-prio-"),
+            ),
+        ),
+        legendBackgrounds: legendPieces.map(
+          (piece) => getComputedStyle(piece).backgroundColor,
+        ),
+        legendBorders: legendPieces.map((piece) => getComputedStyle(piece).borderStyle),
+        envelopeCount: envelopes.length,
+        envelopeDrawsStrip: envelopes.every(
+          (envelope) => getComputedStyle(envelope, "::before").content !== "none",
+        ),
+      };
+    });
+
+    expect(paint.chartPieceFound).toBe(true);
+    expect(paint.chartBackground).not.toBeNull();
+    expect(paint.stripOnlyMarked).toBe(true);
+    expect(paint.piecesCarryNoFillToken).toBe(true);
+    expect(paint.legendBackgrounds).toEqual([paint.chartBackground, paint.chartBackground]);
+    expect(paint.legendBorders).toEqual(["none", "none"]);
+    expect(paint.envelopeCount).toBe(1);
+    expect(paint.envelopeDrawsStrip).toBe(true);
+  });
+
+  it("keeps envelope strip paint off occurrence-state samples while retaining representative fill", async () => {
+    await setFixtureBarChannels("priority", "priority");
+    await waitForCompletedRecurringPiece();
+    await openLegend();
+
+    const paint = await browser.execute(() => {
+      const representative = document.querySelector<HTMLElement>(
+        '[data-semantic-id="bar-treatment"] .og-legend-bar',
+      );
+      const sampleFacts = ["occurrence-completed", "occurrence-skipped"].map((semanticId) => {
+        const sample = document.querySelector<HTMLElement>(
+          `[data-semantic-id="${semanticId}"] .og-legend-bar`,
+        );
+        const treatmentTokens = sample
+          ? [...sample.classList].filter(
+              (token) =>
+                token.startsWith("og-status-") ||
+                token.startsWith("og-prio-") ||
+                token.startsWith("og-calendar-"),
+            )
+          : [];
+        return {
+          semanticId,
+          found: !!sample,
+          isTaskBar: sample?.classList.contains("wx-bar") ?? false,
+          treatmentTokens,
+          stripContent: sample ? getComputedStyle(sample, "::before").content : null,
+          background: sample ? getComputedStyle(sample).backgroundColor : null,
+        };
+      });
+      return {
+        representativeFound: !!representative,
+        representativeHasPriorityClass:
+          [...(representative?.classList ?? [])].some((token) => token.startsWith("og-prio-")),
+        representativeBackground: representative
+          ? getComputedStyle(representative).backgroundColor
+          : null,
+        sampleFacts,
+      };
+    });
+
+    expect(paint.representativeFound).toBe(true);
+    expect(paint.representativeHasPriorityClass).toBe(true);
+    expect(paint.representativeBackground).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paint.sampleFacts).toEqual([
+      {
+        semanticId: "occurrence-completed",
+        found: true,
+        isTaskBar: false,
+        treatmentTokens: [],
+        stripContent: "none",
+        background: paint.representativeBackground,
+      },
+      {
+        semanticId: "occurrence-skipped",
+        found: true,
+        isTaskBar: false,
+        treatmentTokens: [],
+        stripContent: "none",
+        background: paint.representativeBackground,
+      },
+    ]);
+  });
+
+  it("falls back to the default task fill when both bar channels are off", async () => {
+    await setFixtureBarChannels("none", "none");
+    const observed: { facts: FallbackPaintFacts | null } = { facts: null };
+    try {
+      await browser.waitUntil(
+        async () => {
+          observed.facts = await browser.execute(
+            ({ barSelector, paintSelector }) => {
+              const bar = document.querySelector<HTMLElement>(barSelector);
+              const fallbackPaint = bar?.querySelector<HTMLElement>(paintSelector);
+              return bar
+                ? {
+                    paintFound: !!fallbackPaint,
+                    paintWidth: fallbackPaint?.getBoundingClientRect().width ?? 0,
+                    background: fallbackPaint
+                      ? getComputedStyle(fallbackPaint).backgroundColor
+                      : null,
+                    stripContent: getComputedStyle(bar, "::before").content,
+                  }
+                : null;
+            },
+            {
+              barSelector: LEGEND_TASK_BAR_SELECTOR,
+              paintSelector: LEGEND_TASK_FALLBACK_PAINT_SELECTOR,
+            },
+          );
+          return (
+            observed.facts?.paintFound === true &&
+            observed.facts.paintWidth > 0 &&
+            observed.facts.background === EXPECTED_DEFAULT_CHILD_FILL &&
+            observed.facts.stripContent === "none"
+          );
+        },
+        {
+          timeout: 8000,
+          timeoutMsg: "Gantt legend fixture did not reach its expected default-fill state",
+        },
+      );
+    } catch (error) {
+      const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);
+      throw new Error(
+        `Gantt default-fill wait failed; last facts: ${JSON.stringify(observed.facts)}\n${cause}`,
+      );
+    }
+
+    const fallback = observed.facts;
+    expect(fallback).not.toBeNull();
+    expect(fallback?.paintFound).toBe(true);
+    expect(fallback?.paintWidth).toBeGreaterThan(0);
+    expect(fallback?.background).toBe(EXPECTED_DEFAULT_CHILD_FILL);
+    expect(fallback?.stripContent).toBe("none");
+
+    await openLegend();
+    const legendSpineColor = await browser.execute(() => {
+      const spine = document.querySelector<HTMLElement>(
+        '[data-semantic-id="occurrence-series-spine"] .og-series-spine',
+      );
+      return spine ? getComputedStyle(spine).borderTopColor : null;
+    });
+    expect(legendSpineColor).toBe(EXPECTED_DEFAULT_CHILD_FILL);
+    await closeLegend();
+  });
+
+  it("updates estimate and non-working-time explanations from independent view settings", async () => {
+    await openLegend();
+    const workingSplit = await readLegendCalendarAxisCopy();
+    expect(workingSplit).toEqual({
+      estimateName: "Working-day estimate",
+      estimateMeaning:
+        "Non-working time does not count toward the estimate, so an inferred edge extends until the required working time fits.",
+      renderingName: "Split non-working time",
+      renderingMeaning:
+        "Solid runs are working time; the translucent run between them is non-working time.",
+      overrideMeaning:
+        "A corner dot means this task uses a calendar-day estimate instead of the view's working-day estimate.",
+    });
+    expect(await browser.execute(() => {
+      const sample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="estimate-meaning"] .og-legend-sample',
+      );
+      return {
+        hasRenderingShading: sample?.classList.contains("og-legend-non-working-shaded") ?? false,
+        estimateInset: sample
+          ? getComputedStyle(sample).getPropertyValue("--og-legend-estimate-end-inset").trim()
+          : "",
+      };
+    })).toEqual({ hasRenderingShading: false, estimateInset: "2px" });
+    const sessionMarker = `calendar-axes-${Date.now()}`;
+    const marked = await browser.execute((marker) => {
+      const chart = document.querySelector<HTMLElement>(".og-bases-gantt");
+      chart?.setAttribute("data-e2e-calendar-axis-session", marker);
+      return !!chart;
+    }, sessionMarker);
+    expect(marked).toBe(true);
+
+    fixtureCalendarAxesNeedReset = true;
+    await writeFixtureCalendarAxes("calendar-days", "split");
+    const calendarSplit = await waitForLegendCalendarAxisCopy({
+      ...workingSplit,
+      estimateName: "Calendar-day estimate",
+      estimateMeaning:
+        "The bar keeps its elapsed span through non-working time because both working and non-working time count toward the estimate.",
+      overrideMeaning:
+        "A corner dot means this task uses a working-day estimate instead of the view's calendar-day estimate.",
+    });
+
+    await writeFixtureCalendarAxes("calendar-days", "shaded");
+    await waitForLegendCalendarAxisCopy({
+      ...calendarSplit,
+      renderingName: "Shaded non-working time",
+      renderingMeaning: "The bar remains continuous while background shading marks non-working time.",
+    });
+    expect(await legendLayout()).toBe("right");
+    expect(await browser.execute((marker) =>
+      document
+        .querySelector(".og-bases-gantt")
+        ?.getAttribute("data-e2e-calendar-axis-session") === marker,
+    sessionMarker)).toBe(true);
+  });
+
+  it("renders shaded non-working time as one continuous bar over background shading", async () => {
+    await setFixtureCalendarAxes("working-days", "shaded");
+    await openLegend();
+    const shadedRendering = await browser.execute(() => {
+      const sample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="non-working-rendering"] .og-legend-sample',
+      );
+      return {
+        hasShadedClass: sample?.classList.contains("og-legend-non-working-shaded") ?? false,
+        backgroundImage: sample ? getComputedStyle(sample).backgroundImage : "none",
+        shadingVariable: sample
+          ? getComputedStyle(sample).getPropertyValue("--og-legend-shading-background").trim()
+          : "",
+        barCount: sample?.querySelectorAll(".og-legend-bar").length ?? 0,
+        pieceCount: sample?.querySelectorAll(".og-legend-pieces").length ?? 0,
+      };
+    });
+
+    expect(shadedRendering.hasShadedClass).toBe(true);
+    expect(shadedRendering.backgroundImage).toContain("linear-gradient");
+    expect(shadedRendering.shadingVariable).not.toBe("");
+    expect(shadedRendering.barCount).toBe(1);
+    expect(shadedRendering.pieceCount).toBe(0);
+  });
+
+  it("keeps more than four configured icon samples visible by wrapping them", async () => {
+    const patched = await browser.executeObsidian(async ({ app }) => {
+      interface StatusEntry {
+        value: string;
+        color: string;
+        isCompleted?: boolean;
+        icon?: string;
+      }
+      interface PatchedCatalog {
+        statuses?: () => StatusEntry[];
+        __legendOriginalStatuses?: () => StatusEntry[];
+      }
+      const taskNotes = (app as unknown as {
+        plugins?: { getPlugin?: (id: string) => { api?: { catalog?: PatchedCatalog } } | undefined };
+      }).plugins?.getPlugin?.("tasknotes");
+      const catalog = taskNotes?.api?.catalog;
+      if (!catalog?.statuses) return false;
+      catalog.__legendOriginalStatuses ??= catalog.statuses.bind(catalog);
+      const configured = catalog.__legendOriginalStatuses();
+      catalog.statuses = () => [
+        ...configured,
+        { value: "legend-one", color: "#2563eb", icon: "circle" },
+        { value: "legend-two", color: "#7c3aed", icon: "square" },
+        { value: "legend-three", color: "#db2777", icon: "triangle" },
+        { value: "legend-four", color: "#ea580c", icon: "diamond" },
+        { value: "legend-five", color: "#16a34a", icon: "star" },
+      ];
+      return true;
+    });
+    expect(patched).toBe(true);
+
+    await remountMaximizedFixture();
+    await openLegend();
+
+    const layout = await browser.execute(() => {
+      const icons = document.querySelector<HTMLElement>(
+        '[data-semantic-id="bar-icon"] .og-legend-icons',
+      );
+      const chips = [...(icons?.querySelectorAll<HTMLElement>(".og-bar-chip") ?? [])];
+      const bounds = icons?.getBoundingClientRect();
+      const sampleBounds = icons?.closest<HTMLElement>(".og-legend-sample")?.getBoundingClientRect();
+      const rows = new Set(chips.map((chip) => Math.round(chip.getBoundingClientRect().top)));
+      return {
+        count: chips.length,
+        flexWrap: icons ? getComputedStyle(icons).flexWrap : null,
+        overflow: icons ? getComputedStyle(icons).overflow : null,
+        wrappedRows: rows.size,
+        sampleHeight: sampleBounds?.height ?? 0,
+        allContained:
+          !!bounds &&
+          !!sampleBounds &&
+          chips.every((chip) => {
+            const rect = chip.getBoundingClientRect();
+            return (
+              rect.left >= bounds.left - 1 &&
+              rect.right <= bounds.right + 1 &&
+              rect.top >= sampleBounds.top - 1 &&
+              rect.bottom <= sampleBounds.bottom + 1
+            );
+          }),
+      };
+    });
+
+    expect(layout.count).toBeGreaterThan(4);
+    expect(layout.flexWrap).toBe("wrap");
+    expect(layout.overflow).toBe("visible");
+    expect(layout.wrappedRows).toBeGreaterThan(1);
+    expect(layout.sampleHeight).toBeGreaterThan(34);
+    expect(layout.allContained).toBe(true);
+
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const bottomReachability = await browser.execute(() => {
+      const panel = document.querySelector<HTMLElement>(".og-gantt-legend");
+      const scroll = document.querySelector<HTMLElement>(".og-gantt-legend .og-legend-scroll");
+      const chips = [...document.querySelectorAll<HTMLElement>(
+        '[data-semantic-id="bar-icon"] .og-bar-chip',
+      )];
+      if (!panel || !scroll || chips.length === 0) return null;
+      panel.style.height = "100px";
+      const hasOverflow = scroll.scrollHeight > scroll.clientHeight;
+      scroll.scrollTop = scroll.scrollHeight;
+      chips[chips.length - 1].scrollIntoView({ block: "nearest", inline: "nearest" });
+      const viewport = scroll.getBoundingClientRect();
+      const finalIcon = chips[chips.length - 1].getBoundingClientRect();
+      return {
+        ariaLabel: scroll.getAttribute("aria-label"),
+        overflowY: getComputedStyle(scroll).overflowY,
+        hasOverflow,
+        scrollTop: scroll.scrollTop,
+        scrollLeft: scroll.scrollLeft,
+        finalIconReachable:
+          finalIcon.top >= viewport.top - 1 && finalIcon.bottom <= viewport.bottom + 1,
+      };
+    });
+    expect(bottomReachability).toEqual({
+      ariaLabel: "Legend entries, horizontal and vertical scrolling",
+      overflowY: "auto",
+      hasOverflow: true,
+      scrollTop: expect.any(Number),
+      scrollLeft: expect.any(Number),
+      finalIconReachable: true,
+    });
+    expect(bottomReachability?.scrollTop).toBeGreaterThan(0);
+  });
+
+  it("explains enabled read-only calendar-event bars with their production paint", async () => {
+    await browser.waitUntil(async () => (await $$(LEGEND_TASK_PROPERTY_EVENT_SELECTOR)).length === 1, {
+      timeout: 10000,
+      timeoutMsg: "Property-event fixture did not render its read-only event bar",
+    });
+    await openLegend();
+    const paint = await browser.execute((eventSelector) => {
+      const eventBar = document.querySelector(eventSelector) as HTMLElement | null;
+      const sample = document.querySelector('[data-semantic-id="calendar-event"] .og-legend-bar') as HTMLElement | null;
+      return {
+        eventBackground: eventBar ? getComputedStyle(eventBar).backgroundColor : null,
+        sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
+        sampleClasses: sample?.className ?? "",
+      };
+    }, LEGEND_TASK_PROPERTY_EVENT_SELECTOR);
+    expect(paint.sampleClasses).toContain("og-event");
+    expect(paint.sampleBackground).toBe(paint.eventBackground);
+  });
+
+  it("contains right vertical overflow under a fixed header without scrolling the chart (AE3)", async () => {
+    await openLegend();
+    const result = await browser.execute(() => {
+      const scroll = document.querySelector(".og-gantt-legend .og-legend-scroll") as HTMLElement;
+      const header = document.querySelector(".og-gantt-legend .og-legend-header") as HTMLElement;
+      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+      const before = { headerTop: header.getBoundingClientRect().top, chartTop: chart.scrollTop, chartLeft: chart.scrollLeft };
+      scroll.scrollTop = Math.max(1, scroll.scrollHeight - scroll.clientHeight);
+      return {
+        overflowY: getComputedStyle(scroll).overflowY,
+        didScroll: scroll.scrollTop > 0,
+        headerFixed: Math.abs(header.getBoundingClientRect().top - before.headerTop) < 1,
+        chartUnchanged: chart.scrollTop === before.chartTop && chart.scrollLeft === before.chartLeft,
+      };
+    });
+    expect(result.overflowY).toBe("auto");
+    expect(result.didScroll).toBe(true);
+    expect(result.headerFixed).toBe(true);
+    expect(result.chartUnchanged).toBe(true);
+  });
+
+  it("switches live without reflow, preserves selection/zoom/scroll, then reopens at the Appearance default (AE4/AE5)", async () => {
+    await ensureRealChartSelection();
+    const beforeZoom = await chartViewState();
+    await $(".og-bases-gantt .zoom-in").click();
+    await browser.waitUntil(async () => {
+      const current = await chartViewState();
+      return current.scaleCellWidth !== beforeZoom.scaleCellWidth || current.scaleLabel !== beforeZoom.scaleLabel;
+    }, {
+      timeout: 8000,
+      timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
+    });
+    const scrollRange = await browser.execute(() => {
+      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+      if (!chart) return 0;
+      const maximum = chart.scrollWidth - chart.clientWidth;
+      chart.scrollLeft = Math.min(80, maximum);
+      return maximum;
+    });
+    expect(scrollRange).toBeGreaterThan(0);
+    const expectedGeometry = await chartGeometry();
+    const expectedState = await chartViewState();
+    expect(expectedState.selectedCount).toBeGreaterThan(0);
+    expect(expectedState.scrollLeft).toBeGreaterThan(0);
+
+    await openLegend();
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
+
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", {
+      timeout: 8000,
+      timeoutMsg: "Legend did not move to the bottom",
+    });
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
+    const bottom = await browser.execute(() => {
+      const scroll = document.querySelector(".og-gantt-legend .og-legend-scroll") as HTMLElement;
+      const header = document.querySelector(".og-gantt-legend .og-legend-header") as HTMLElement;
+      const chart = document.querySelector(".wx-chart") as HTMLElement;
+      const headerTop = header.getBoundingClientRect().top;
+      scroll.scrollLeft = Math.max(1, scroll.scrollWidth - scroll.clientWidth);
+      return {
+        overflowX: getComputedStyle(scroll).overflowX,
+        didScroll: scroll.scrollLeft > 0,
+        verticalContentFits: scroll.scrollHeight <= scroll.clientHeight + 1,
+        headerFixed: Math.abs(header.getBoundingClientRect().top - headerTop) < 1,
+        chartScroll: chart.scrollLeft,
+      };
+    });
+    expect(bottom.overflowX).toBe("auto");
+    expect(bottom.didScroll).toBe(true);
+    expect(bottom.verticalContentFits).toBe(true);
+    expect(bottom.headerFixed).toBe(true);
+    expect(bottom.chartScroll).toBe(expectedState.scrollLeft);
+
+    await closeLegend();
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
+    await openLegend();
+    expect(await legendLayout()).toBe("right");
+    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
+    expect(await chartViewState()).toEqual(expectedState);
+  });
+
+  it("leaves an uncovered bar interactive and keeps panel clicks out of the chart (R8)", async () => {
+    await openLegend();
+    const clickedUncoveredBar = await browser.execute(() => {
+      const bar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      if (!bar) return false;
+      const bounds = bar.getBoundingClientRect();
+      for (let y = bounds.top + 2; y < bounds.bottom - 1; y += 4) {
+        for (let x = bounds.left + 2; x < bounds.right - 1; x += 4) {
+          const target = document.elementFromPoint(x, y) as HTMLElement | null;
+          if (!target?.closest('.wx-bar[data-id$="Legend Task.md"]')) continue;
+          target.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    expect(clickedUncoveredBar).toBe(true);
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
+      timeout: 8000,
+      timeoutMsg: "Uncovered chart bar was not selectable through the overlay",
+    });
+    const selectedBefore = await $$(".og-bases-gantt .wx-selected");
+    await $(".og-gantt-legend .og-legend-title-block").click();
+    const selectedAfter = await $$(".og-bases-gantt .wx-selected");
+    expect(selectedAfter).toHaveLength(selectedBefore.length);
+  });
+
+  it("automatically leaves full view when space returns and preserves real chart state through Return (AE6)", async () => {
+    await ensureRealChartSelection();
+    let scrollRange = 0;
+    for (let attempt = 0; attempt < 4 && scrollRange < 300; attempt += 1) {
+      const beforeZoom = await chartViewState();
+      await $(".og-bases-gantt .zoom-in").click();
+      await browser.waitUntil(async () => {
+        const current = await chartViewState();
+        return current.scaleCellWidth !== beforeZoom.scaleCellWidth || current.scaleLabel !== beforeZoom.scaleLabel;
+      }, {
+        timeout: 8000,
+        timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
+      });
+      scrollRange = await browser.execute(() => {
+        const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+        return chart ? chart.scrollWidth - chart.clientWidth : 0;
+      });
+    }
+    expect(scrollRange).toBeGreaterThanOrEqual(300);
+    await browser.execute(() => {
+      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
+      if (chart) chart.scrollLeft = 60;
+    });
+
+    await openLegend();
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const expectedState = await chartViewState();
+    expect(expectedState.selectedCount).toBeGreaterThan(0);
+    expect(expectedState.scrollLeft).toBeGreaterThan(0);
+    const focusedPositionControl = await browser.execute(() => {
+      const bottom = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
+        .find((button) => button.textContent?.trim() === "Bottom");
+      bottom?.focus({ preventScroll: true });
+      return document.activeElement === bottom;
+    });
+    expect(focusedPositionControl).toBe(true);
+
+    const focusedChartControl = await browser.execute(() => {
+      const focusButton = document.querySelector<HTMLButtonElement>('.og-chart-surface .og-focus-btn');
+      focusButton?.focus({ preventScroll: true });
+      return document.activeElement === focusButton;
+    });
+    expect(focusedChartControl).toBe(true);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "400px";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "full", {
+      timeout: 8000,
+      timeoutMsg: "Constrained legend did not enter full mode",
+    });
+    await expect($(".og-chart-surface")).toHaveAttribute("inert");
+    await expect($(".og-chart-surface")).toHaveAttribute("aria-hidden", "true");
+    expect(await $$(".og-gantt-legend [role='radiogroup']")).toHaveLength(0);
+    const returnButton = await $(".og-gantt-legend .og-legend-dismiss");
+    await expect(returnButton).toHaveText(expect.stringContaining("Return"));
+    await expect(returnButton).toBeFocused();
+    expect(await chartViewState()).toEqual(expectedState);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", {
+      timeout: 8000,
+      timeoutMsg: "Legend did not automatically restore its session position when space returned",
+    });
+    expect(await $$(".og-gantt-legend [role='radiogroup']")).toHaveLength(1);
+    const restoredAccessibility = await browser.execute(() => {
+      const surface = document.querySelector(".og-bases-gantt .og-chart-surface");
+      return {
+        inert: surface?.hasAttribute("inert") ?? false,
+        ariaHidden: surface?.getAttribute("aria-hidden"),
+      };
+    });
+    expect(restoredAccessibility).toEqual({ inert: false, ariaHidden: null });
+    await expect($(".og-gantt-legend .og-legend-dismiss")).toHaveText(expect.stringContaining("Close"));
+    const automaticallyRestoredState = await chartViewState();
+    expect(automaticallyRestoredState.selectedCount).toBe(expectedState.selectedCount);
+    expect(automaticallyRestoredState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
+    expect(automaticallyRestoredState.scaleLabel).toBe(expectedState.scaleLabel);
+    expect(automaticallyRestoredState.scrollLeft).toBeGreaterThan(0);
+
+    const focusedScrollRegion = await browser.execute(() => {
+      const scroll = document.querySelector<HTMLElement>(".og-gantt-legend .og-legend-scroll");
+      scroll?.focus({ preventScroll: true });
+      return document.activeElement === scroll;
+    });
+    expect(focusedScrollRegion).toBe(true);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "400px";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "full", { timeout: 8000 });
+    const restoredReturnButton = await $(".og-gantt-legend .og-legend-dismiss");
+    await expect(restoredReturnButton).toHaveText(expect.stringContaining("Return"));
+    await expect($(".og-gantt-legend .og-legend-scroll")).toBeFocused();
+
+    await restoredReturnButton.click();
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "";
+    });
+    const returnedState = await chartViewState();
+    expect(returnedState.selectedCount).toBe(expectedState.selectedCount);
+    expect(returnedState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
+    expect(returnedState.scaleLabel).toBe(expectedState.scaleLabel);
+    await expect($(".og-legend-toggle")).toBeFocused();
+  });
+
+  it("does not evacuate focus from a different Gantt when full mode starts", async () => {
+    await openLegend();
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+
+    const foreignFocus = await browser.execute(() => {
+      const foreignRoot = document.createElement("div");
+      foreignRoot.className = "og-bases-gantt";
+      const foreignSurface = document.createElement("div");
+      foreignSurface.className = "og-chart-surface";
+      const foreignButton = document.createElement("button");
+      foreignButton.dataset.testid = "foreign-gantt-focus";
+      foreignSurface.append(foreignButton);
+      foreignRoot.append(foreignSurface);
+      document.body.append(foreignRoot);
+      foreignButton.focus();
+      return document.activeElement === foreignButton;
+    });
+    expect(foreignFocus).toBe(true);
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "400px";
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "full", { timeout: 8000 });
+    const preservedForeignFocus = await browser.execute(() =>
+      (document.activeElement as HTMLElement | null)?.dataset.testid ?? null,
+    );
+    expect(preservedForeignFocus).toBe("foreign-gantt-focus");
+
+    await browser.execute(() => {
+      const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
+      if (host) host.style.width = "";
+      document
+        .querySelector("[data-testid='foreign-gantt-focus']")
+        ?.closest(".og-bases-gantt")
+        ?.remove();
+    });
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    await $(".og-gantt-legend .og-legend-dismiss").click();
+  });
+
+  it("repaints live with the Obsidian theme without closing or losing session position (AE8)", async () => {
+    await openLegend();
+    await chooseBottom();
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const wasDark = await browser.execute(() => document.body.classList.contains("theme-dark"));
+    await browser.executeObsidian(async ({ app }) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+        .commands.executeCommandById("theme:toggle-light-dark");
+    });
+    await browser.waitUntil(
+      async () => (await browser.execute(() => document.body.classList.contains("theme-dark"))) !== wasDark,
+      { timeout: 10000, timeoutMsg: "Theme did not repaint while legend was open" },
+    );
+    expect(await legendLayout()).toBe("bottom");
+    expect(await $$(".og-gantt-legend")).toHaveLength(1);
+    const colors = await browser.execute(() => {
+      const chart = document.querySelector('.wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
+      const chartPaint = chart?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chart;
+      const sample = document.querySelector('[data-semantic-id="bar-treatment"] .og-legend-bar') as HTMLElement | null;
+      return [chartPaint && getComputedStyle(chartPaint).backgroundColor, sample && getComputedStyle(sample).backgroundColor];
+    });
+    expect(colors[1]).toBe(colors[0]);
+  });
+
+  it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
+    const trigger = await $(".og-bases-gantt .og-legend-toggle");
+    await trigger.click();
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
+    await expect($(".og-legend-dismiss")).toBeFocused();
+    await browser.execute(() => {
+      const right = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
+        .find((button) => button.textContent?.trim() === "Right");
+      right?.focus();
+    });
+    await browser.keys(["ArrowRight"]);
+    await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
+    const activePosition = await browser.execute(() =>
+      (document.activeElement as HTMLElement | null)?.dataset.position ?? null,
+    );
+    expect(activePosition).toBe("bottom");
+    await browser.keys(["Space"]);
+    const scroll = await $(".og-gantt-legend .og-legend-scroll");
+    await scroll.click();
+    await browser.keys(["ArrowRight"]);
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, { timeout: 8000 });
+    await expect(trigger).toBeFocused();
+  });
+
+  it("keeps Obsidian's command-palette keymap available while Legend is open", async () => {
+    await browser.execute(() => document.querySelector<HTMLButtonElement>(".og-legend-toggle")?.click());
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Legend did not open for the keymap check",
+    });
+    await browser.keys(["Control", "p"]);
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Command-palette hotkey did not open while Legend was active",
+    });
+    expect(await $$(".og-gantt-legend")).toHaveLength(1);
+  });
+
+  it("lets an Obsidian popup close before Legend, then restores Legend trigger focus", async () => {
+    const trigger = await $(".og-legend-toggle");
+    await openLegend();
+    await browser.executeObsidian(async ({ app }) => {
+      (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
+        .commands.executeCommandById("command-palette:open");
+    });
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, { timeout: 8000 });
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "First Escape did not close the Obsidian popup",
+    });
+    const firstEscape = await browser.execute(() => {
+      return {
+        legendOpen: !!document.querySelector(".og-gantt-legend"),
+        maximized: !!document.querySelector(".og-bases-gantt.is-maximized"),
+        modalOpen: !!document.querySelector(".modal-container .prompt"),
+      };
+    });
+    expect(firstEscape).toEqual({ legendOpen: true, maximized: true, modalOpen: false });
+
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "Second Escape did not close Legend",
+    });
+    expect(await $$(".og-bases-gantt.is-maximized")).toHaveLength(1);
+    await expect(trigger).toBeFocused();
+  });
+
+  // LAST test: it deliberately leaves another leaf active.
+  it("deactivates Legend without focusing its hidden trigger when another leaf becomes active", async () => {
+    await openLegend();
+    await browser.executeObsidian(async ({ app }) => {
+      app.workspace.getLeaf(true);
+    });
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+      timeout: 8000,
+      timeoutMsg: "Legend stayed active after its owning leaf became inactive",
+    });
+    expect(await $$(".og-bases-gantt.is-maximized")).toHaveLength(0);
+    const hiddenTriggerFocused = await browser.execute(
+      () => document.activeElement?.classList.contains("og-legend-toggle") ?? false,
+    );
+    expect(hiddenTriggerFocused).toBe(false);
+  });
+});

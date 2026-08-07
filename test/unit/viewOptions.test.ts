@@ -14,6 +14,7 @@ import {
   readMaxHeight,
   readMinHeight,
   readShowToolbar,
+  readDefaultLegendPosition,
   readEstimateMeaning,
   readNonWorkingRendering,
   readHighlightWeekends,
@@ -114,6 +115,22 @@ describe("ganttViewOptions", () => {
       key: "tngantt_showToolbar",
       default: false,
     });
+  });
+
+  it("exposes Default legend position in Appearance with only Right and Bottom", () => {
+    const dropdown = byKey(options, "tngantt_defaultLegendPosition");
+    expect(dropdown).toMatchObject({
+      type: "dropdown",
+      displayName: "Default legend position",
+      key: "tngantt_defaultLegendPosition",
+      default: "right",
+      options: { right: "Right", bottom: "Bottom" },
+    });
+    expect(Object.keys((dropdown as { options: Record<string, string> }).options)).not.toContain(
+      "full",
+    );
+    const appearance = groupsOf(options).find((group) => group.displayName === "Appearance");
+    expect(appearance?.items).toContain(dropdown);
   });
 
   it("models the max-height input as a slider defaulting to 400 (plan 003 R1)", () => {
@@ -284,8 +301,8 @@ describe("ganttViewOptions", () => {
 
   it("has the expected total option count", () => {
     // Five groups; flattened leaves = 10 Fields + 2 Progress + 3 Relationships
-    // + 10 Timeline + 8 Appearance = 33 (10 property + 12 dropdowns + 4 sliders + 6 toggles + 1 text).
-    expect(flattenLeaves(options)).toHaveLength(33);
+    // + 10 Timeline + 9 Appearance = 34 (10 property + 13 dropdowns + 4 sliders + 6 toggles + 1 text).
+    expect(flattenLeaves(options)).toHaveLength(34);
   });
 
   it("organizes options into five collapsible sections in order (R4)", () => {
@@ -345,6 +362,7 @@ describe("ganttViewOptions", () => {
       "tngantt_barIcon",
       "tngantt_showDateIndicators",
       "tngantt_showToolbar",
+      "tngantt_defaultLegendPosition",
       "tngantt_minHeight",
       "tngantt_maxHeight",
       "tngantt_tableWidth",
@@ -397,6 +415,21 @@ describe("ganttViewOptions", () => {
       max: 100,
       step: 5,
     });
+  });
+});
+
+describe("readDefaultLegendPosition", () => {
+  it("defaults an absent value to right", () => {
+    expect(readDefaultLegendPosition(() => undefined)).toBe("right");
+  });
+
+  it("defaults an invalid value to right", () => {
+    expect(readDefaultLegendPosition(() => "full")).toBe("right");
+  });
+
+  it("returns either configured overlay position", () => {
+    expect(readDefaultLegendPosition(() => "right")).toBe("right");
+    expect(readDefaultLegendPosition(() => "bottom")).toBe("bottom");
   });
 });
 

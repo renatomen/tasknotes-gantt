@@ -186,4 +186,3 @@ export function buildCalendarNotice(facts: CalendarNoticeFacts): string | null {
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
 }
-

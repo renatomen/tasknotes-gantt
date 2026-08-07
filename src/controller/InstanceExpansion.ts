@@ -18,6 +18,7 @@
 
 import type { SourceTask, DependencyRelType } from '../datasource/types';
 import type { CalendarItem, CalendarOccupancy } from '../datasource/calendarItems';
+import { isRecordedRecurringStateClass } from '../datasource/calendarItems/recurringSource';
 import type { DateStatus } from './datePolicy';
 import { isoDurationToDays } from './dateGap';
 
@@ -164,6 +165,20 @@ export interface RenderInstance {
    * plain bar always stays.
    */
   plainBarSuppressed?: boolean;
+}
+
+/** Whether any rendered task instance carries a recorded recurring occurrence. */
+export function hasRecordedRecurringOccurrences(
+  instances: ReadonlyArray<Pick<RenderInstance, 'occupancy'>>,
+): boolean {
+  return instances.some(
+    (instance) =>
+      instance.occupancy?.some(
+        (occupancy) =>
+          occupancy.family === 'recurring-instance' &&
+          isRecordedRecurringStateClass(occupancy.stateClass),
+      ) ?? false,
+  );
 }
 
 /** A source-level dependency link between two note paths. */

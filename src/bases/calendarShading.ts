@@ -32,18 +32,22 @@ import {
   type DisplaySelection,
   type ResolvedTarget,
 } from './calendarSelection';
+import { GANTT_VISUAL_CLASS_TOKENS } from './visualSemantics';
 
 // !important: the weekends-off neutralization rule strips `.wx-weekend`
 // backgrounds with !important, and a calendar-shaded date can fall on a
 // weekend — calendar shading must survive that toggle (adding a calendar
 // only ever adds shading; the legacy toggle gates only the built-in default).
-const SHADE_DECLARATION = '{background:var(--wx-gantt-holiday-background)!important;}';
+export const CALENDAR_SHADE_BACKGROUND = 'var(--wx-gantt-holiday-background)';
+export const CALENDAR_CONFLICT_BACKGROUND =
+  'repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)';
+
+const SHADE_DECLARATION = `{background:${CALENDAR_SHADE_BACKGROUND}!important;}`;
 
 // Disagreement stripes: one displayed calendar blocks the day, another's
 // working pattern covers it. Emitted after the shade rule so it wins at
 // equal specificity.
-const CONFLICT_DECLARATION =
-  '{background:repeating-linear-gradient(45deg,var(--wx-gantt-holiday-background),var(--wx-gantt-holiday-background) 6px,transparent 6px,transparent 12px)!important;}';
+const CONFLICT_DECLARATION = `{background:${CALENDAR_CONFLICT_BACKGROUND}!important;}`;
 
 /**
  * The evaluation window for shading — the derivation authority's span window
@@ -104,7 +108,7 @@ export function buildCalendarShadingCss(
 ): string {
   const bodyScope = `${scope} .wx-gantt-holidays`;
   const headerScope = `${scope} .wx-scale`;
-  const cellBaseRule = `${bodyScope} .og-cal-cell{position:absolute;top:0;height:100%;}`;
+  const cellBaseRule = `${bodyScope} .${GANTT_VISUAL_CLASS_TOKENS.calendarCell}{position:absolute;top:0;height:100%;}`;
   const parts = [cellBaseRule];
   if (shadedDates.length > 0) {
     parts.push(`${dateSelectors(shadedDates, bodyScope, headerScope)}${SHADE_DECLARATION}`);
@@ -184,6 +188,7 @@ export interface ShadingAssemblyInputs {
 /** The assembly result: the stylesheet plus the facts the banner reads. */
 export interface ShadingComputation {
   css: string;
+  /** Calendars that actually contributed to the current dated chart window. */
   displayedCount: number;
   conflictCount: number;
   /** The displayed calendars that disagree, so the banner can name them. */
@@ -193,6 +198,8 @@ export interface ShadingComputation {
   flaggedCount: number;
   /** Flagged events of the displayed calendars, for the marker overlay. */
   markers: MarkerInput[];
+  /** Representative colour of a selected calendar that defines markers. */
+  calendarMarkerColor: string | undefined;
   /** Every valid calendar/set in the vault as a bar-colour palette. */
   calendarPalette: { value: string; color: string }[];
   /** Each associated task's resolved calendar identity, by source path. */
@@ -221,7 +228,25 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
   const flaggedCount = display?.flagged.length ?? 0;
   const window = shadingWindow(inputs.taskSpans, inputs.marginDays);
   const calendarPalette = buildCalendarPalette(registry);
-  const calendarBySource = resolveCalendarIdentities(registry, inputs);
+  const { calendarBySource, associatedCalendars } = resolveAssociatedCalendarFacts(
+    registry,
+    inputs.associations,
+    inputs.resolveLink,
+  );
+  const displayed = new Map<string, CalendarRecord>();
+  if (display !== null) {
+    for (const path of display.paths) {
+      const record = registry.calendars.get(path);
+      if (record) displayed.set(path, record);
+    }
+  } else {
+    for (const record of associatedCalendars.values()) displayed.set(record.path, record);
+  }
+
+  const records = [...displayed.values()];
+  const calendarMarkerColor = records.find(
+    (record) => record.definition.markers.length > 0 && record.definition.color !== undefined,
+  )?.definition.color;
   if (window === null) {
     return {
       css: buildCalendarShadingCss(inputs.scope, []),
@@ -231,32 +256,14 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
       invalidCount,
       flaggedCount,
       markers: [],
+      calendarMarkerColor,
       calendarPalette,
       calendarBySource,
       markedNotePaths,
     };
   }
-
-  const displayed = new Map<string, CalendarRecord>();
-  if (display !== null) {
-    for (const path of display.paths) {
-      const record = registry.calendars.get(path);
-      if (record) displayed.set(path, record);
-    }
-  } else {
-    for (const association of inputs.associations) {
-      const resolved = resolveTaskCalendar(
-        registry,
-        association.value,
-        association.taskPath,
-        inputs.resolveLink,
-      );
-      for (const record of resolved.calendars) displayed.set(record.path, record);
-    }
-  }
-
-  const records = [...displayed.values()];
   const definitions = records.map((record) => record.definition);
+  const markers = collectMarkers(records);
   // Attributed: the banner names the disagreeing calendars, so a user does not have
   // to open the picker and compare patterns to find which selection conflicts.
   const conflicts =
@@ -274,7 +281,8 @@ export function computeCalendarShadingCss(inputs: ShadingAssemblyInputs): Shadin
     conflictCalendars: conflicts.calendars,
     invalidCount,
     flaggedCount,
-    markers: collectMarkers([...displayed.values()]),
+    markers,
+    calendarMarkerColor,
     calendarPalette,
     calendarBySource,
     markedNotePaths,
@@ -301,27 +309,6 @@ function buildCalendarPalette(
 }
 
 /**
- * Each associated task's calendar identity — the SET's id for a set-linked
- * task, so a set's colour wins over its members'.
- */
-function resolveCalendarIdentities(
-  registry: ReturnType<typeof buildCalendarRegistry>,
-  inputs: ShadingAssemblyInputs,
-): Map<string, string> {
-  const bySource = new Map<string, string>();
-  for (const association of inputs.associations) {
-    const resolved = resolveTaskCalendar(
-      registry,
-      association.value,
-      association.taskPath,
-      inputs.resolveLink,
-    );
-    if (resolved.identity) bySource.set(association.taskPath, resolved.identity.id);
-  }
-  return bySource;
-}
-
-/**
  * Flagged events of the displayed calendars. Markers render as lines, never as
  * column shading, so they are collected separately from the shaded dates and
  * are not windowed — the overlay drops whatever falls outside the drawn span.
@@ -336,6 +323,26 @@ function collectMarkers(records: readonly CalendarRecord[]): MarkerInput[] {
       color: record.definition.color,
     })),
   );
+}
+
+function resolveAssociatedCalendarFacts(
+  registry: ReturnType<typeof buildCalendarRegistry>,
+  associations: ShadingAssemblyInputs['associations'],
+  resolveLink: LinkResolver,
+): { calendarBySource: Map<string, string>; associatedCalendars: Map<string, CalendarRecord> } {
+  const calendarBySource = new Map<string, string>();
+  const associatedCalendars = new Map<string, CalendarRecord>();
+  for (const association of associations) {
+    const resolved = resolveTaskCalendar(
+      registry,
+      association.value,
+      association.taskPath,
+      resolveLink,
+    );
+    if (resolved.identity) calendarBySource.set(association.taskPath, resolved.identity.id);
+    for (const record of resolved.calendars) associatedCalendars.set(record.path, record);
+  }
+  return { calendarBySource, associatedCalendars };
 }
 
 /** Resolve a selection entry's link to its calendar/set registry target. */
@@ -369,4 +376,3 @@ export function createShadingCssCache(): ShadingCssCache {
     },
   };
 }
-

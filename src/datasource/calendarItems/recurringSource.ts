@@ -32,7 +32,41 @@ import { makeCalendarItemId } from './types';
 import { isRealCalendarDay } from './normalizers';
 
 /** Per-day state of one recurring instance (drives the per-instance piece classes). */
-export type RecurringInstanceState = 'next' | 'projected' | 'completed' | 'skipped' | 'materialized';
+export type RecurringInstanceState =
+  | 'next'
+  | 'projected'
+  | 'completed'
+  | 'skipped'
+  | 'materialized';
+
+const RECURRING_STATE_KINDS = {
+  next: 'virtual',
+  projected: 'virtual',
+  completed: 'recorded',
+  skipped: 'recorded',
+  materialized: 'recorded',
+} as const satisfies Record<RecurringInstanceState, 'virtual' | 'recorded'>;
+
+export type RecordedRecurringState = {
+  [State in RecurringInstanceState]: (typeof RECURRING_STATE_KINDS)[State] extends 'recorded'
+    ? State
+    : never;
+}[RecurringInstanceState];
+
+export const RECORDED_RECURRING_STATE_CLASSES: readonly RecordedRecurringState[] =
+  Object.entries(RECURRING_STATE_KINDS)
+    .filter(([, kind]) => kind === 'recorded')
+    .map(([state]) => state) as RecordedRecurringState[];
+
+export function isRecordedRecurringStateClass(
+  stateClass: string | undefined,
+): stateClass is RecordedRecurringState {
+  return (
+    stateClass !== undefined &&
+    Object.prototype.hasOwnProperty.call(RECURRING_STATE_KINDS, stateClass) &&
+    RECURRING_STATE_KINDS[stateClass as RecurringInstanceState] === 'recorded'
+  );
+}
 
 /** The recurring-family slice of the per-view calendar-item toggles. */
 export interface RecurringInstanceToggles {
