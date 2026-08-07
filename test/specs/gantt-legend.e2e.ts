@@ -694,12 +694,22 @@ describe("Gantt (OG) context-aware legend", () => {
           : null;
       };
       const fill = fillSample ? getComputedStyle(fillSample) : null;
+      const chartStyle = chart ? getComputedStyle(chart) : null;
+      const configuredFill = chartStyle?.getPropertyValue("--og-ghost-fill").trim() ?? "";
+      const colorProbe = document.createElement("span");
+      colorProbe.style.backgroundColor = configuredFill;
+      document.body.append(colorProbe);
+      const configuredFillColor = colorProbe.style.backgroundColor
+        ? getComputedStyle(colorProbe).backgroundColor
+        : null;
+      colorProbe.remove();
       return {
         fill: fill
           ? { background: fill.backgroundColor, borderWidth: Number.parseFloat(fill.borderWidth) }
           : null,
         border: snapshot(borderSample),
-        chartBackground: chart ? getComputedStyle(chart).backgroundColor : null,
+        chartBackground: chartStyle?.backgroundColor ?? null,
+        configuredFillColor,
         chartHasPriorityClass:
           chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
         chart: snapshot(chart),
@@ -708,6 +718,8 @@ describe("Gantt (OG) context-aware legend", () => {
 
     expect(dateStatus.chartHasPriorityClass).toBe(true);
     expect(dateStatus.fill?.background).toBe("rgb(230, 126, 34)");
+    expect(dateStatus.configuredFillColor).not.toBeNull();
+    expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
     expect(dateStatus.fill?.borderWidth).toBe(0);
     expect(dateStatus.chartBackground).toBe(dateStatus.fill?.background);
     expect(dateStatus.border?.color).toBe("rgb(192, 57, 43)");
