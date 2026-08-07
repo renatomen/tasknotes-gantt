@@ -300,13 +300,8 @@ function sampleFor(
       cssVariables: treatment.cssVariables,
     };
   }
-  if (semanticId === 'occurrence-series-spine') {
-    return occurrenceSeriesSpineSample(context, kind, classTokens);
-  }
-  if (semanticId === 'occurrence-external') {
-    return externalOccurrenceSample(context, kind, classTokens);
-  }
-  return baseSample(semanticId, kind, classTokens);
+  const occurrenceSample = contextAwareOccurrenceSampleFor(semanticId, kind, context, classTokens);
+  return occurrenceSample ?? baseSample(semanticId, kind, classTokens);
 }
 
 function dateStatusSample(
@@ -341,6 +336,31 @@ function isDateStatusSemantic(
   }
 }
 
+function contextAwareOccurrenceSampleFor(
+  semanticId: GanttVisualSemanticId,
+  kind: LegendSampleKind,
+  context: GanttLegendContext,
+  classTokens: string[],
+): LegendSampleDescriptor | null {
+  switch (semanticId) {
+    case 'occurrence-completed':
+    case 'occurrence-skipped': {
+      const color = representativeBarBodyColor(context);
+      return {
+        kind,
+        classTokens,
+        ...(color ? { cssVariables: { '--og-ghost-fill': color } } : {}),
+      };
+    }
+    case 'occurrence-series-spine':
+      return occurrenceSeriesSpineSample(context, kind, classTokens);
+    case 'occurrence-external':
+      return externalOccurrenceSample(context, kind, classTokens);
+    default:
+      return null;
+  }
+}
+
 function occurrenceSeriesSpineSample(
   context: GanttLegendContext,
   kind: LegendSampleKind,
@@ -349,11 +369,7 @@ function occurrenceSeriesSpineSample(
   const externalOnly = !hasRecurring(context) && context.externalCalendarsEnabled;
   const color = externalOnly
     ? (context.externalOccurrenceColor ?? representativeUnclassifiedBarGhostFill(context))
-    : (resolveRepresentativeBarBodyPaint({
-        fillSource: context.barFillSource,
-        stripSource: context.barStripSource,
-        palettes: palettesOf(context),
-      })?.color ?? null);
+    : representativeBarBodyColor(context);
   return {
     kind,
     classTokens,
@@ -370,7 +386,7 @@ function externalOccurrenceSample(
   return {
     kind,
     classTokens,
-    cssVariables: color ? { '--og-ghost-fill': color } : {},
+    ...(color ? { cssVariables: { '--og-ghost-fill': color } } : {}),
   };
 }
 
@@ -480,14 +496,18 @@ function iconSamples(context: GanttLegendContext): LegendIconSample[] {
   });
 }
 
-function representativeBarColor(context: GanttLegendContext): string {
+function representativeBarBodyColor(context: GanttLegendContext): string | null {
   return (
     resolveRepresentativeBarBodyPaint({
       fillSource: context.barFillSource,
       stripSource: context.barStripSource,
       palettes: palettesOf(context),
-    })?.color ?? 'var(--wx-gantt-task-color, #3d8de6)'
+    })?.color ?? null
   );
+}
+
+function representativeBarColor(context: GanttLegendContext): string {
+  return representativeBarBodyColor(context) ?? 'var(--wx-gantt-task-color, #3d8de6)';
 }
 
 function representativeUnclassifiedBarGhostFill(context: GanttLegendContext): string | null {
@@ -552,8 +572,6 @@ function semanticUsesRepresentativeTreatment(semanticId: GanttVisualSemanticId):
   return (
     semanticId === 'date-status-border' ||
     semanticId === 'progress' ||
-    semanticId === 'occurrence-completed' ||
-    semanticId === 'occurrence-skipped' ||
     semanticId === 'replicated-task' ||
     semanticId === 'context-task' ||
     semanticId === 'estimate-override'

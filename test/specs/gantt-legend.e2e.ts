@@ -1012,6 +1012,70 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.envelopeDrawsStrip).toBe(true);
   });
 
+  it("keeps envelope strip paint off occurrence-state samples while retaining representative fill", async () => {
+    await setFixtureBarChannels("priority", "priority");
+    await waitForCompletedRecurringPiece();
+    await openLegend();
+
+    const paint = await browser.execute(() => {
+      const representative = document.querySelector<HTMLElement>(
+        '[data-semantic-id="bar-treatment"] .og-legend-bar',
+      );
+      const sampleFacts = ["occurrence-completed", "occurrence-skipped"].map((semanticId) => {
+        const sample = document.querySelector<HTMLElement>(
+          `[data-semantic-id="${semanticId}"] .og-legend-bar`,
+        );
+        const treatmentTokens = sample
+          ? [...sample.classList].filter(
+              (token) =>
+                token.startsWith("og-status-") ||
+                token.startsWith("og-prio-") ||
+                token.startsWith("og-calendar-"),
+            )
+          : [];
+        return {
+          semanticId,
+          found: !!sample,
+          isTaskBar: sample?.classList.contains("wx-bar") ?? false,
+          treatmentTokens,
+          stripContent: sample ? getComputedStyle(sample, "::before").content : null,
+          background: sample ? getComputedStyle(sample).backgroundColor : null,
+        };
+      });
+      return {
+        representativeFound: !!representative,
+        representativeHasPriorityClass:
+          [...(representative?.classList ?? [])].some((token) => token.startsWith("og-prio-")),
+        representativeBackground: representative
+          ? getComputedStyle(representative).backgroundColor
+          : null,
+        sampleFacts,
+      };
+    });
+
+    expect(paint.representativeFound).toBe(true);
+    expect(paint.representativeHasPriorityClass).toBe(true);
+    expect(paint.representativeBackground).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paint.sampleFacts).toEqual([
+      {
+        semanticId: "occurrence-completed",
+        found: true,
+        isTaskBar: false,
+        treatmentTokens: [],
+        stripContent: "none",
+        background: paint.representativeBackground,
+      },
+      {
+        semanticId: "occurrence-skipped",
+        found: true,
+        isTaskBar: false,
+        treatmentTokens: [],
+        stripContent: "none",
+        background: paint.representativeBackground,
+      },
+    ]);
+  });
+
   it("falls back to the default task fill when both bar channels are off", async () => {
     await setFixtureBarChannels("none", "none");
     const observed: { facts: FallbackPaintFacts | null } = { facts: null };

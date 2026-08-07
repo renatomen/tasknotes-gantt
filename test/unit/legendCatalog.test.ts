@@ -599,7 +599,7 @@ describe('buildLegendCatalog', () => {
     });
   });
 
-  it('composes normal secondary bar cues over the configured representative treatment', () => {
+  it('composes normal secondary task cues over the configured representative treatment', () => {
     const context = baseContext({
       taskNotesPresent: true,
       barFillSource: 'status',
@@ -616,9 +616,60 @@ describe('buildLegendCatalog', () => {
       classTokens: expect.arrayContaining(['wx-bar', 'og-replicated', expect.stringMatching(/^og-status-/), expect.stringMatching(/^og-prio-/)]),
       cssVariables: { '--og-ghost-fill': '#2563eb' },
     });
+  });
+
+  it('keeps standalone occurrence-state samples on piece-owned fill under configured fill and strip', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'priority',
+      barStripSource: 'priority',
+      priorityColors: [{ value: 'High', color: '#f97316' }],
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
     expect(entry(context, 'occurrence-completed').sample).toMatchObject({
-      classTokens: expect.arrayContaining(['wx-bar', 'og-instance', 'og-instance-completed', expect.stringMatching(/^og-status-/)]),
-      cssVariables: { '--og-ghost-fill': '#2563eb' },
+      classTokens: ['og-instance', 'og-instance-completed'],
+      cssVariables: { '--og-ghost-fill': '#f97316' },
+    });
+    expect(entry(context, 'occurrence-skipped').sample).toMatchObject({
+      classTokens: ['og-instance', 'og-instance-skipped'],
+      cssVariables: { '--og-ghost-fill': '#f97316' },
+    });
+  });
+
+  it('keeps strip-only occurrence-state samples piece-owned without inventing a fill', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'none',
+      barStripSource: 'priority',
+      priorityColors: [{ value: 'High', color: '#f97316' }],
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    const completed = entry(context, 'occurrence-completed').sample;
+    expect(completed.classTokens).toEqual(['og-instance', 'og-instance-completed']);
+    expect(completed.cssVariables).toBeUndefined();
+
+    const skipped = entry(context, 'occurrence-skipped').sample;
+    expect(skipped.classTokens).toEqual(['og-instance', 'og-instance-skipped']);
+    expect(skipped.cssVariables).toBeUndefined();
+  });
+
+  it('uses the production default fill for occurrence-state samples when both channels are off', () => {
+    const context = baseContext({
+      taskNotesPresent: true,
+      barFillSource: 'none',
+      barStripSource: 'none',
+      calendarItems: { ...baseContext().calendarItems, showRecurring: true },
+    });
+
+    expect(entry(context, 'occurrence-completed').sample).toMatchObject({
+      classTokens: ['og-instance', 'og-instance-completed'],
+      cssVariables: { '--og-ghost-fill': '#1f6feb' },
+    });
+    expect(entry(context, 'occurrence-skipped').sample).toMatchObject({
+      classTokens: ['og-instance', 'og-instance-skipped'],
+      cssVariables: { '--og-ghost-fill': '#1f6feb' },
     });
   });
 
