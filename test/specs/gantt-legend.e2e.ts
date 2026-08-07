@@ -535,10 +535,10 @@ describe("Gantt (OG) context-aware legend", () => {
     };
 
     await attemptCleanup(async () => {
-      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+      if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
     });
     await attemptCleanup(async () => {
-      if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
+      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
     });
     await attemptCleanup(async () => {
       if (await restoreTaskNotesLegendStatuses()) {
