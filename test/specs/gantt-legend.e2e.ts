@@ -535,7 +535,12 @@ describe("Gantt (OG) context-aware legend", () => {
     };
 
     await attemptCleanup(async () => {
-      if ((await $$(".modal-container")).length > 0) await browser.keys(["Escape"]);
+      if ((await $$(".modal-container")).length === 0) return;
+      await browser.keys(["Escape"]);
+      await browser.waitUntil(async () => (await $$(".modal-container")).length === 0, {
+        timeout: 8000,
+        timeoutMsg: "Gantt legend cleanup did not close the Obsidian modal",
+      });
     });
     await attemptCleanup(async () => {
       if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
