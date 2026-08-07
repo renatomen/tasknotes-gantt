@@ -229,15 +229,27 @@ async function openFixtureBase(): Promise<void> {
         openFile: (file: unknown) => Promise<void>;
       };
     };
-    const targetLeaf = workspace.getLeaf(true);
     const markdownLeaves: Array<{ detach?: () => void }> = [];
     workspace.iterateAllLeaves((leaf) => {
-      if (leaf !== targetLeaf && leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
+      if (leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
     });
     markdownLeaves.forEach((leaf) => leaf.detach?.());
     workspace.detachLeavesOfType("bases");
+  });
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length === 0, {
+    timeout: 15000,
+    timeoutMsg: "Gantt legend fixture did not unmount its previous chart root",
+  });
+  await browser.executeObsidian(async ({ app }) => {
     const file = app.vault.getAbstractFileByPath("Legend.base");
-    if (file) await targetLeaf.openFile(file as never);
+    if (file) await app.workspace.getLeaf(true).openFile(file as never);
+  });
+}
+
+async function waitForSingleFixtureRoot(): Promise<void> {
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length === 1, {
+    timeout: 15000,
+    timeoutMsg: "Gantt legend fixture left a stale or duplicate chart root mounted",
   });
 }
 
@@ -273,6 +285,7 @@ async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
 
 async function remountMaximizedFixture(): Promise<void> {
   await openFixtureBase();
+  await waitForSingleFixtureRoot();
   await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
     timeout: 15000,
     timeoutMsg: "Gantt fixture did not remount",
@@ -446,15 +459,12 @@ describe("Gantt (OG) context-aware legend", () => {
     await waitForLegendRecurringTaskReady();
     await openFixtureBase();
     try {
-      await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length > 0, { timeout: 15000 });
+      await waitForSingleFixtureRoot();
     } catch {
       // TaskNotes can finish its startup navigation after lifecycle.ready and
       // steal the active leaf once. Reopen the fixture after that bounded race.
       await openFixtureBase();
-      await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length > 0, {
-        timeout: 60000,
-        timeoutMsg: "Gantt legend fixture did not mount the plugin view after reopening",
-      });
+      await waitForSingleFixtureRoot();
     }
     try {
       await browser.waitUntil(
@@ -678,6 +688,9 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyEnvelopes = [
         ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
       ];
+      const extensionEnvelopes = [
+        ...(extension?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
+      ];
       const splitPainted = [
         ...(split?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
       ];
@@ -701,6 +714,17 @@ describe("Gantt (OG) context-aware legend", () => {
         extensionHostOwnsPaint: extension?.classList.contains("og-ghost-run") ?? false,
         extensionHasBlockedPiece: !!extension?.querySelector(".og-ghost-run.og-ghost-blocked"),
         extensionPaintedPiecesOwnPaint: ownsVisiblePaint(extensionPainted),
+        extensionEnvelopeOwnsOnlyStrip:
+          extensionEnvelopes.length === 1 &&
+          extensionEnvelopes.every(
+            (envelope) =>
+              envelope.classList.contains("wx-bar") &&
+              [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
+              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
+              getComputedStyle(envelope).borderStyle === "none" &&
+              getComputedStyle(envelope, "::before").content !== "none" &&
+              getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
+          ),
         occupancyHostOwnsPaint:
           occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
         occupancyPiecesOwnPaint:
@@ -752,6 +776,7 @@ describe("Gantt (OG) context-aware legend", () => {
       extensionHostOwnsPaint: false,
       extensionHasBlockedPiece: true,
       extensionPaintedPiecesOwnPaint: true,
+      extensionEnvelopeOwnsOnlyStrip: true,
       occupancyHostOwnsPaint: false,
       occupancyPiecesOwnPaint: true,
       occupancyEnvelopeCount: 1,
