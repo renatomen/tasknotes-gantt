@@ -191,6 +191,10 @@ describe('buildLegendCatalog', () => {
     const extensionSample = entry(context, 'working-time-extension').sample;
     expect(extensionSample.kind).toBe('pieces');
     expect(extensionSample.classTokens).toEqual(['og-ghost-runs']);
+    expect(extensionSample.pieceEnvelopeClassTokens).toEqual([
+      'wx-bar',
+      expect.stringMatching(/^og-prio-/),
+    ]);
     const extension = extensionSample.pieces ?? [];
     expect(extension.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
     for (const piece of extension.filter((candidate) => candidate.treatment === 'painted')) {

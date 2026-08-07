@@ -565,11 +565,17 @@ function workingTimeExtensionSample(
       },
     };
   }
+  const treatment = representativeTreatment(context);
+  const representativeStrip = treatment.paints?.strip;
   return {
     kind: splitKind,
     classTokens: [classes.ghostRuns],
     pieces: splitPieces('blocked'),
-    cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
+    ...(representativeStrip
+      ? { pieceEnvelopeClassTokens: compact([classes.bar, representativeStrip.classToken]) }
+      : {}),
+    paints: treatment.paints,
+    cssVariables: treatment.cssVariables,
   };
 }
 
