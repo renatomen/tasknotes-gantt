@@ -4,6 +4,8 @@ import {
   LEGEND_CATALOGUE_ROWS,
   LEGEND_GROUP_ORDER,
   type LegendEntry,
+  type LegendGroupId,
+  type LegendSampleKind,
 } from '../../src/bases/legendCatalog';
 import {
   GANTT_VISUAL_SEMANTIC_IDS,
@@ -651,14 +653,45 @@ describe('buildLegendCatalog', () => {
 
 describe('legend semantic exhaustiveness', () => {
   it('gives every production-owned semantic an explanation and sample descriptor', () => {
-    expect(Object.keys(LEGEND_CATALOGUE_ROWS.style).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
-    expect(Object.keys(LEGEND_CATALOGUE_ROWS.copy).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
-    expect(Object.keys(LEGEND_CATALOGUE).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
+    const expectedStyleBySemantic: Record<
+      GanttVisualSemanticId,
+      { group: LegendGroupId; sampleKind: LegendSampleKind }
+    > = {
+      'bar-treatment': { group: 'bars', sampleKind: 'bar' },
+      'bar-icon': { group: 'bars', sampleKind: 'icon-set' },
+      'date-status-fill': { group: 'schedule', sampleKind: 'bar' },
+      'date-status-border': { group: 'schedule', sampleKind: 'bar' },
+      progress: { group: 'schedule', sampleKind: 'progress' },
+      'dependency-link': { group: 'dependencies', sampleKind: 'link' },
+      'weekend-shading': { group: 'calendars', sampleKind: 'shading' },
+      'calendar-shading': { group: 'calendars', sampleKind: 'shading' },
+      'calendar-conflict': { group: 'calendars', sampleKind: 'shading' },
+      'calendar-event': { group: 'calendars', sampleKind: 'bar' },
+      'today-marker': { group: 'calendars', sampleKind: 'marker' },
+      'calendar-marker': { group: 'calendars', sampleKind: 'marker' },
+      'working-time-extension': { group: 'calendars', sampleKind: 'pieces' },
+      'working-time-split': { group: 'calendars', sampleKind: 'pieces' },
+      'occurrence-occupancy': { group: 'occurrences', sampleKind: 'pieces' },
+      'occurrence-next': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-projected': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-completed': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-skipped': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-materialized': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-external': { group: 'occurrences', sampleKind: 'bar' },
+      'occurrence-series-spine': { group: 'occurrences', sampleKind: 'line' },
+      'replicated-task': { group: 'structure', sampleKind: 'decoration' },
+      'context-task': { group: 'structure', sampleKind: 'decoration' },
+      'estimate-override': { group: 'structure', sampleKind: 'decoration' },
+    };
+
+    expect(Object.keys(LEGEND_CATALOGUE_ROWS).sort()).toEqual([...GANTT_VISUAL_SEMANTIC_IDS].sort());
     for (const semanticId of GANTT_VISUAL_SEMANTIC_IDS) {
       const definition = LEGEND_CATALOGUE[semanticId];
+      expect({ group: definition.group, sampleKind: definition.sampleKind }).toEqual(
+        expectedStyleBySemantic[semanticId],
+      );
       expect(definition.name).not.toBe('');
       expect(definition.meaning).not.toBe('');
-      expect(definition.sampleKind).not.toBe('');
     }
   });
 });
