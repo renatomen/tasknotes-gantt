@@ -125,8 +125,8 @@ async function waitForCompletedRecurringPiece(): Promise<void> {
   });
 }
 
-async function suppressTransientObsidianNotices(): Promise<void> {
-  const verification = await browser.execute(() => {
+async function suppressTransientObsidianNotices(targetSelector?: string): Promise<void> {
+  const verification = await browser.execute((selector) => {
     if (!document.getElementById("og-e2e-notice-shield")) {
       const shield = document.createElement("style");
       shield.id = "og-e2e-notice-shield";
@@ -134,23 +134,25 @@ async function suppressTransientObsidianNotices(): Promise<void> {
         ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
       document.head.appendChild(shield);
     }
-    const noticeSelector = ".notice, .notice-container, [class*='notice' i]";
-    const notices = [...document.querySelectorAll<HTMLElement>(noticeSelector)].filter((notice) => {
-      const bounds = notice.getBoundingClientRect();
-      return bounds.width > 0 && bounds.height > 0;
-    });
-    const blockedNotices = notices.filter((notice) => {
-      const bounds = notice.getBoundingClientRect();
-      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-      return hit?.closest(noticeSelector) != null;
-    });
+    if (!selector) return null;
+    const target = document.querySelector<HTMLElement>(selector);
+    if (!target) return { targetFound: false, targetHit: false, interceptedBy: null };
+    const bounds = target.getBoundingClientRect();
+    const visible = bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0;
+    if (!visible) return { targetFound: true, targetHit: false, interceptedBy: "target is not visible" };
+    const x = Math.min(Math.max(bounds.left + bounds.width / 2, 0), window.innerWidth - 1);
+    const y = Math.min(Math.max(bounds.top + bounds.height / 2, 0), window.innerHeight - 1);
+    const hit = document.elementFromPoint(x, y);
     return {
-      count: notices.length,
-      blockedCount: blockedNotices.length,
+      targetFound: true,
+      targetHit: hit === target || (hit !== null && target.contains(hit)),
+      interceptedBy: hit instanceof HTMLElement ? `${hit.tagName.toLowerCase()}.${hit.className}` : null,
     };
-  });
-  if (verification && verification.blockedCount > 0) {
-    throw new Error("Gantt legend e2e notice shield did not disable notice hit-testing");
+  }, targetSelector);
+  if (verification && (!verification.targetFound || !verification.targetHit)) {
+    throw new Error(
+      `Gantt legend e2e click target was intercepted: ${verification.interceptedBy ?? "target not found"}`,
+    );
   }
 }
 
@@ -159,8 +161,9 @@ async function restoreTransientObsidianNotices(): Promise<void> {
 }
 
 async function openLegend(): Promise<void> {
-  const trigger = await $(".og-bases-gantt .og-legend-toggle");
-  await suppressTransientObsidianNotices();
+  const selector = ".og-bases-gantt .og-legend-toggle";
+  const trigger = await $(selector);
+  await suppressTransientObsidianNotices(selector);
   await trigger.click();
   await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
     timeout: 8000,
@@ -502,7 +505,6 @@ describe("Gantt (OG) context-aware legend", () => {
       vault: tmpVault,
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
-    await suppressTransientObsidianNotices();
     await enableBases();
     await waitForTaskNotesReady();
     await waitForLegendRecurringTaskReady();
@@ -579,6 +581,9 @@ describe("Gantt (OG) context-aware legend", () => {
         if (host) host.style.width = "";
       });
     });
+    await attemptCleanup(async () => {
+      await restoreTransientObsidianNotices();
+    });
 
     if (cleanupFailures.length === 1) throw cleanupFailures[0];
     if (cleanupFailures.length > 1) {
@@ -601,7 +606,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeExisting();
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
-    await suppressTransientObsidianNotices();
+    await suppressTransientObsidianNotices(".og-bases-gantt .og-legend-toggle");
     await trigger.click();
     const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
     await expect(panel).toBeExisting();
@@ -1445,6 +1450,7 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
     const trigger = await $(".og-legend-toggle");
+    await suppressTransientObsidianNotices(".og-bases-gantt .og-legend-toggle");
     await trigger.click();
     await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
