@@ -745,6 +745,8 @@ describe("Gantt (OG) context-aware legend", () => {
               [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
               ![...envelope.classList].some((token) => token.startsWith("og-calendar-")) &&
               !envelope.classList.contains("og-instance") &&
+              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
+              getComputedStyle(envelope).borderStyle === "none" &&
               getComputedStyle(envelope, "::before").content !== "none" &&
               getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
           ),
