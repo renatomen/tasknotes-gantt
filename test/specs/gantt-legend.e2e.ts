@@ -126,13 +126,26 @@ async function waitForCompletedRecurringPiece(): Promise<void> {
 }
 
 async function suppressTransientObsidianNotices(): Promise<void> {
-  await browser.execute(() => {
+  const verification = await browser.execute(() => {
     if (document.getElementById("og-e2e-notice-shield")) return;
     const shield = document.createElement("style");
     shield.id = "og-e2e-notice-shield";
-    shield.textContent = ".notice, .notice-container { pointer-events: none !important; }";
+    shield.textContent =
+      ".notice, .notice-container, .notice *, .notice-container * { pointer-events: none !important; }";
     document.head.appendChild(shield);
+    const notices = [
+      ...document.querySelectorAll<HTMLElement>(
+        ".notice, .notice-container, .notice *, .notice-container *",
+      ),
+    ];
+    return {
+      count: notices.length,
+      allIgnorePointerEvents: notices.every((notice) => getComputedStyle(notice).pointerEvents === "none"),
+    };
   });
+  if (verification && verification.count > 0 && !verification.allIgnorePointerEvents) {
+    throw new Error("Gantt legend e2e notice shield did not disable notice hit-testing");
+  }
 }
 
 async function restoreTransientObsidianNotices(): Promise<void> {
@@ -483,6 +496,7 @@ describe("Gantt (OG) context-aware legend", () => {
       vault: tmpVault,
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
+    await suppressTransientObsidianNotices();
     await enableBases();
     await waitForTaskNotesReady();
     await waitForLegendRecurringTaskReady();
@@ -533,9 +547,6 @@ describe("Gantt (OG) context-aware legend", () => {
     };
 
     await attemptCleanup(async () => {
-      await restoreTransientObsidianNotices();
-    });
-    await attemptCleanup(async () => {
       if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
     });
     await attemptCleanup(async () => {
@@ -567,6 +578,11 @@ describe("Gantt (OG) context-aware legend", () => {
     if (cleanupFailures.length > 1) {
       throw createCombinedFailure("Multiple Gantt legend fixture cleanups failed", cleanupFailures);
     }
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await restoreTransientObsidianNotices();
   });
 
   it("keeps Legend available and opens the default right panel without the optional toolbar (AE10)", async () => {
