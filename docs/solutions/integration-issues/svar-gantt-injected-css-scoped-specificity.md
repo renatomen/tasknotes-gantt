@@ -103,7 +103,7 @@ Parent vs child from a single accent is **one hue, two tones** (`THEME_CHILD_COL
 
 ## Why This Works
 
-- **Specificity beats source order.** Both sheets target `.wx-bar`, but Svelte's hash class lifts SVAR to `(0,3,0)` while the injected rule sits at `(0,2,0)`; loading later doesn't help. `!important` jumps the injected declaration above normal-weight rules regardless of the hash. (It also lets treatment fills coexist with the date-status flag's own `!important` background.)
+- **Specificity beats source order.** Both sheets target `.wx-bar`, but Svelte's hash class lifts SVAR to `(0,3,0)` while the injected rule sits at `(0,2,0)`; loading later doesn't help. `!important` jumps the injected declaration above normal-weight rules regardless of the hash. The scoped date-status selector remains authoritative when a flagged bar also carries a configured fill class.
 - **Paint order is defined, not incidental.** A pseudo-element paints as its host's first child, so a later real sibling (`.wx-progress-wrapper`) covers it. An explicit `z-index: 1` slots the strip into the exact layer between progress (`auto` → 0) and content (`2`).
 - **`--text-normal` and `--background-primary` are opposite by definition**, so a `color-mix` between them yields a fixed perceptual delta in *any* theme — unlike `--background-secondary`, which is only coincidentally distinct from the primary background in some themes.
 
