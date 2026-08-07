@@ -135,14 +135,22 @@ async function suppressTransientObsidianNotices(): Promise<void> {
   });
 }
 
+async function restoreTransientObsidianNotices(): Promise<void> {
+  await browser.execute(() => document.getElementById("og-e2e-notice-shield")?.remove());
+}
+
 async function openLegend(): Promise<void> {
   const trigger = await $(".og-bases-gantt .og-legend-toggle");
   await suppressTransientObsidianNotices();
-  await trigger.click();
-  await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
-    timeout: 8000,
-    timeoutMsg: "Legend panel did not open",
-  });
+  try {
+    await trigger.click();
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+      timeout: 8000,
+      timeoutMsg: "Legend panel did not open",
+    });
+  } finally {
+    await restoreTransientObsidianNotices();
+  }
 }
 
 async function closeLegend(): Promise<void> {
@@ -271,7 +279,9 @@ async function waitForSingleFixtureRoot(
       { timeout, timeoutMsg },
     );
   } catch (error) {
-    throw new Error(`${timeoutMsg}; observed ${observedCount} roots`, { cause: error });
+    const detail = observedCount < 0 ? "no root count observed" : `observed ${observedCount} roots`;
+    const reason = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    throw new Error(`${timeoutMsg}; ${detail}\n${reason}`);
   }
 }
 
@@ -467,7 +477,8 @@ async function restoreFixtureBarChannels(): Promise<void> {
 }
 
 describe("Gantt (OG) context-aware legend", () => {
-  before(async () => {
+  before(async function () {
+    this.timeout(300000);
     const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
@@ -546,6 +557,9 @@ describe("Gantt (OG) context-aware legend", () => {
       if (fixtureBarChannelsNeedReset) await restoreFixtureBarChannels();
     });
     await attemptCleanup(async () => {
+      await restoreTransientObsidianNotices();
+    });
+    await attemptCleanup(async () => {
       await browser.execute(() => {
         const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
         if (host) host.style.width = "";
@@ -565,12 +579,16 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
     await suppressTransientObsidianNotices();
-    await trigger.click();
-    const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
-    await expect(panel).toBeExisting();
-    await expect(panel).toHaveAttribute("aria-label", "Gantt legend");
-    await expect($(".og-gantt-legend .og-legend-dismiss")).toBeFocused();
-    expect(await $$(".og-gantt-legend .og-legend-sample:not([aria-hidden='true'])")).toHaveLength(0);
+    try {
+      await trigger.click();
+      const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
+      await expect(panel).toBeExisting();
+      await expect(panel).toHaveAttribute("aria-label", "Gantt legend");
+      await expect($(".og-gantt-legend .og-legend-dismiss")).toBeFocused();
+      expect(await $$(".og-gantt-legend .og-legend-sample:not([aria-hidden='true'])")).toHaveLength(0);
+    } finally {
+      await restoreTransientObsidianNotices();
+    }
   });
 
   it("aligns the Legend toggle with the fullscreen control", async () => {
