@@ -95,167 +95,57 @@ const hasRecordedRecurring = (context: GanttLegendContext): boolean =>
 const hasRecurring = (context: GanttLegendContext): boolean =>
   hasVirtualRecurring(context) || hasRecordedRecurring(context);
 
-function catalogueEntry(
+type LegendCatalogueRow = readonly [
   group: LegendGroupId,
   name: string,
   meaning: string,
   sampleKind: LegendSampleKind,
-): LegendCatalogueDefinition {
-  return { group, name, meaning, sampleKind };
-}
+];
 
-export const LEGEND_CATALOGUE: Record<GanttVisualSemanticId, LegendCatalogueDefinition> = {
-  'bar-treatment': catalogueEntry(
-    'bars',
-    'Task bar',
-    'The configured fill, strip, and icon channels identify task attributes.',
-    'bar',
-  ),
-  'bar-icon': catalogueEntry(
-    'bars',
-    'Task icon',
-    'A configured glyph or dot shape identifies the selected status or priority.',
-    'icon-set',
-  ),
-  'date-status-fill': catalogueEntry(
-    'schedule',
-    'Date fill',
-    'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
-    'bar',
-  ),
-  'date-status-border': catalogueEntry(
-    'schedule',
-    'Date border',
-    'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.',
-    'bar',
-  ),
-  progress: catalogueEntry(
-    'schedule',
-    'Progress',
-    'The contrasting portion of a bar shows completion progress.',
-    'progress',
-  ),
-  'dependency-link': catalogueEntry(
-    'dependencies',
-    'Dependency',
-    'A connector shows the scheduling relationship between two tasks.',
-    'link',
-  ),
-  'weekend-shading': catalogueEntry(
-    'calendars',
-    'Weekend',
-    'Theme holiday shading marks the locale weekend.',
-    'shading',
-  ),
-  'calendar-shading': catalogueEntry(
-    'calendars',
-    'Calendar shading',
-    'Theme holiday shading marks non-working availability from the active calendars.',
-    'shading',
-  ),
-  'calendar-conflict': catalogueEntry(
-    'calendars',
-    'Calendar conflict',
-    'Diagonal stripes mark a day one displayed calendar blocks while another covers it.',
-    'shading',
-  ),
-  'calendar-event': catalogueEntry(
-    'calendars',
-    'Calendar event',
-    'A solid read-only bar is an event supplied by an enabled calendar-item source.',
-    'bar',
-  ),
-  'today-marker': catalogueEntry(
-    'calendars',
-    'Today',
-    'The accent line locates today within the visible timeline.',
-    'marker',
-  ),
-  'calendar-marker': catalogueEntry(
-    'calendars',
-    'Calendar marker',
-    'A labelled vertical line marks a flagged event from a displayed calendar.',
-    'marker',
-  ),
-  'working-time-extension': catalogueEntry(
-    'calendars',
-    'Working-time extension',
-    'The bar extends across blocked days so its estimate counts working days.',
-    'pieces',
-  ),
-  'working-time-split': catalogueEntry(
-    'calendars',
-    'Split working time',
-    'Solid runs are working time; the translucent run between them is blocked time.',
-    'pieces',
-  ),
-  'occurrence-occupancy': catalogueEntry(
-    'occurrences',
-    'Occurrence occupancy',
-    'Separate painted pieces are occurrences; empty intervals are not occupied.',
-    'pieces',
-  ),
-  'occurrence-next': catalogueEntry(
-    'occurrences',
-    'Next occurrence',
-    'A solid accent piece is the next upcoming recurring instance.',
-    'bar',
-  ),
-  'occurrence-projected': catalogueEntry(
-    'occurrences',
-    'Projected occurrence',
-    'A hollow dashed piece is a future instance projected from the pattern.',
-    'bar',
-  ),
-  'occurrence-completed': catalogueEntry(
-    'occurrences',
-    'Completed occurrence',
-    'A dimmed struck piece is a completed recurring instance.',
-    'bar',
-  ),
-  'occurrence-skipped': catalogueEntry(
-    'occurrences',
-    'Skipped occurrence',
-    'A muted hatched piece is a recurring instance that was deliberately skipped.',
-    'bar',
-  ),
-  'occurrence-materialized': catalogueEntry(
-    'occurrences',
-    'Materialized occurrence',
-    'An outlined piece means that occurrence has its own note.',
-    'bar',
-  ),
-  'occurrence-external': catalogueEntry(
-    'occurrences',
-    'External occurrence',
-    'A solid source-coloured piece is one occurrence of an external calendar series.',
-    'bar',
-  ),
-  'occurrence-series-spine': catalogueEntry(
-    'occurrences',
-    'Series spine',
-    'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.',
-    'line',
-  ),
-  'replicated-task': catalogueEntry(
-    'structure',
-    'Replicated task',
-    'A diagonal hatch means the same note appears in more than one tree position.',
-    'decoration',
-  ),
-  'context-task': catalogueEntry(
-    'structure',
-    'Context task',
-    'A muted bar was fetched to show structure but does not itself match the Base.',
-    'decoration',
-  ),
-  'estimate-override': catalogueEntry(
-    'structure',
-    'Estimate override',
-    "A corner dot means the task's estimate meaning overrides the view default.",
-    'decoration',
-  ),
+type LegendCatalogueRows = {
+  [K in GanttVisualSemanticId]: LegendCatalogueRow;
 };
+
+const LEGEND_CATALOGUE_ROWS = {
+  'bar-treatment': ['bars', 'Task bar', 'The configured fill, strip, and icon channels identify task attributes.', 'bar'],
+  'bar-icon': ['bars', 'Task icon', 'A configured glyph or dot shape identifies the selected status or priority.', 'icon-set'],
+  'date-status-fill': ['schedule', 'Date fill', 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.', 'bar'],
+  'date-status-border': ['schedule', 'Date border', 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.', 'bar'],
+  progress: ['schedule', 'Progress', 'The contrasting portion of a bar shows completion progress.', 'progress'],
+  'dependency-link': ['dependencies', 'Dependency', 'A connector shows the scheduling relationship between two tasks.', 'link'],
+  'weekend-shading': ['calendars', 'Weekend', 'Theme holiday shading marks the locale weekend.', 'shading'],
+  'calendar-shading': ['calendars', 'Calendar shading', 'Theme holiday shading marks non-working availability from the active calendars.', 'shading'],
+  'calendar-conflict': ['calendars', 'Calendar conflict', 'Diagonal stripes mark a day one displayed calendar blocks while another covers it.', 'shading'],
+  'calendar-event': ['calendars', 'Calendar event', 'A solid read-only bar is an event supplied by an enabled calendar-item source.', 'bar'],
+  'today-marker': ['calendars', 'Today', 'The accent line locates today within the visible timeline.', 'marker'],
+  'calendar-marker': ['calendars', 'Calendar marker', 'A labelled vertical line marks a flagged event from a displayed calendar.', 'marker'],
+  'working-time-extension': ['calendars', 'Working-time extension', 'The bar extends across blocked days so its estimate counts working days.', 'pieces'],
+  'working-time-split': ['calendars', 'Split working time', 'Solid runs are working time; the translucent run between them is blocked time.', 'pieces'],
+  'occurrence-occupancy': ['occurrences', 'Occurrence occupancy', 'Separate painted pieces are occurrences; empty intervals are not occupied.', 'pieces'],
+  'occurrence-next': ['occurrences', 'Next occurrence', 'A solid accent piece is the next upcoming recurring instance.', 'bar'],
+  'occurrence-projected': ['occurrences', 'Projected occurrence', 'A hollow dashed piece is a future instance projected from the pattern.', 'bar'],
+  'occurrence-completed': ['occurrences', 'Completed occurrence', 'A dimmed struck piece is a completed recurring instance.', 'bar'],
+  'occurrence-skipped': ['occurrences', 'Skipped occurrence', 'A muted hatched piece is a recurring instance that was deliberately skipped.', 'bar'],
+  'occurrence-materialized': ['occurrences', 'Materialized occurrence', 'An outlined piece means that occurrence has its own note.', 'bar'],
+  'occurrence-external': ['occurrences', 'External occurrence', 'A solid source-coloured piece is one occurrence of an external calendar series.', 'bar'],
+  'occurrence-series-spine': ['occurrences', 'Series spine', 'At coarse zoom, a dashed spine shows the first-to-last occurrence envelope.', 'line'],
+  'replicated-task': ['structure', 'Replicated task', 'A diagonal hatch means the same note appears in more than one tree position.', 'decoration'],
+  'context-task': ['structure', 'Context task', 'A muted bar was fetched to show structure but does not itself match the Base.', 'decoration'],
+  'estimate-override': ['structure', 'Estimate override', "A corner dot means the task's estimate meaning overrides the view default.", 'decoration'],
+} as const satisfies LegendCatalogueRows;
+
+export const LEGEND_CATALOGUE = materializeCatalogue(LEGEND_CATALOGUE_ROWS);
+
+function materializeCatalogue(
+  rows: LegendCatalogueRows,
+): Record<GanttVisualSemanticId, LegendCatalogueDefinition> {
+  return Object.fromEntries(
+    GANTT_VISUAL_SEMANTIC_IDS.map((semanticId) => {
+      const [group, name, meaning, sampleKind] = rows[semanticId];
+      return [semanticId, { group, name, meaning, sampleKind }];
+    }),
+  ) as Record<GanttVisualSemanticId, LegendCatalogueDefinition>;
+}
 
 const GROUP_NAMES: Record<LegendGroupId, string> = {
   bars: 'Bar appearance',
