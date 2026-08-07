@@ -108,7 +108,7 @@ type LegendCatalogueRows = {
   [K in GanttVisualSemanticId]: LegendCatalogueRow;
 };
 
-const LEGEND_CATALOGUE_ROWS = {
+export const LEGEND_CATALOGUE_ROWS = {
   'bar-treatment': [
     'bars',
     {
@@ -317,10 +317,12 @@ function materializeCatalogue(
   rows: LegendCatalogueRows,
 ): Record<GanttVisualSemanticId, LegendCatalogueDefinition> {
   return Object.fromEntries(
-    GANTT_VISUAL_SEMANTIC_IDS.map((semanticId) => {
-      const [group, copy, sampleKind] = rows[semanticId];
-      return [semanticId, { group, ...copy, sampleKind }];
-    }),
+    GANTT_VISUAL_SEMANTIC_IDS.map(
+      (semanticId): [GanttVisualSemanticId, LegendCatalogueDefinition] => {
+        const [group, copy, sampleKind] = rows[semanticId];
+        return [semanticId, { group, ...copy, sampleKind }];
+      },
+    ),
   ) as Record<GanttVisualSemanticId, LegendCatalogueDefinition>;
 }
 
