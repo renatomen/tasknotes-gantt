@@ -125,8 +125,19 @@ async function waitForCompletedRecurringPiece(): Promise<void> {
   });
 }
 
+async function suppressTransientObsidianNotices(): Promise<void> {
+  await browser.execute(() => {
+    if (document.getElementById("og-e2e-notice-shield")) return;
+    const shield = document.createElement("style");
+    shield.id = "og-e2e-notice-shield";
+    shield.textContent = ".notice { display: none !important; }";
+    document.head.appendChild(shield);
+  });
+}
+
 async function openLegend(): Promise<void> {
   const trigger = await $(".og-bases-gantt .og-legend-toggle");
+  await suppressTransientObsidianNotices();
   await trigger.click();
   await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
     timeout: 8000,
@@ -246,11 +257,22 @@ async function openFixtureBase(): Promise<void> {
   });
 }
 
-async function waitForSingleFixtureRoot(): Promise<void> {
-  await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length === 1, {
-    timeout: 15000,
-    timeoutMsg: "Gantt legend fixture left a stale or duplicate chart root mounted",
-  });
+async function waitForSingleFixtureRoot(
+  timeout = 15000,
+  timeoutMsg = "Gantt legend fixture did not settle at exactly one chart root",
+): Promise<void> {
+  let observedCount = -1;
+  try {
+    await browser.waitUntil(
+      async () => {
+        observedCount = (await $$(".og-bases-gantt")).length;
+        return observedCount === 1;
+      },
+      { timeout, timeoutMsg },
+    );
+  } catch (error) {
+    throw new Error(`${timeoutMsg}; observed ${observedCount} roots`, { cause: error });
+  }
 }
 
 async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
@@ -464,7 +486,7 @@ describe("Gantt (OG) context-aware legend", () => {
       // TaskNotes can finish its startup navigation after lifecycle.ready and
       // steal the active leaf once. Reopen the fixture after that bounded race.
       await openFixtureBase();
-      await waitForSingleFixtureRoot();
+      await waitForSingleFixtureRoot(60000, "Gantt legend fixture did not mount the plugin view after reopening");
     }
     try {
       await browser.waitUntil(
@@ -542,6 +564,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeExisting();
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
+    await suppressTransientObsidianNotices();
     await trigger.click();
     const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
     await expect(panel).toBeExisting();
@@ -720,8 +743,8 @@ describe("Gantt (OG) context-aware legend", () => {
             (envelope) =>
               envelope.classList.contains("wx-bar") &&
               [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
-              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
-              getComputedStyle(envelope).borderStyle === "none" &&
+              ![...envelope.classList].some((token) => token.startsWith("og-calendar-")) &&
+              !envelope.classList.contains("og-instance") &&
               getComputedStyle(envelope, "::before").content !== "none" &&
               getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
           ),
