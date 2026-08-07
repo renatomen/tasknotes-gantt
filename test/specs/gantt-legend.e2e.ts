@@ -738,6 +738,42 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
   });
 
+  it("constrains standalone occurrence samples to the bar track", async () => {
+    await openLegend();
+
+    const samples = await browser.execute(() => {
+      const semanticIds = [
+        "occurrence-next",
+        "occurrence-projected",
+        "occurrence-completed",
+        "occurrence-skipped",
+        "occurrence-materialized",
+        "occurrence-external",
+      ];
+      return semanticIds.map((semanticId) => {
+        const host = document.querySelector<HTMLElement>(
+          `[data-semantic-id="${semanticId}"] .og-legend-sample`,
+        );
+        const bar = host?.querySelector<HTMLElement>(".og-legend-bar.og-instance");
+        const hostBounds = host?.getBoundingClientRect();
+        const barBounds = bar?.getBoundingClientRect();
+        return {
+          semanticId,
+          height: barBounds?.height ?? 0,
+          topInset: hostBounds && barBounds ? barBounds.top - hostBounds.top : 0,
+          bottomInset: hostBounds && barBounds ? hostBounds.bottom - barBounds.bottom : 0,
+        };
+      });
+    });
+
+    expect(samples).toEqual(samples.map(({ semanticId }) => ({
+      semanticId,
+      height: 20,
+      topInset: 7,
+      bottomInset: 7,
+    })));
+  });
+
   it("keeps composite sample hosts transparent while nested pieces own their paint", async () => {
     await openLegend();
     await waitForCompletedRecurringPiece();

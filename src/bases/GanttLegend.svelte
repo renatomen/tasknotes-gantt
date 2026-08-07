@@ -408,6 +408,10 @@
     background-color: var(--wx-gantt-task-color, #3d8de6);
     border-radius: var(--wx-gantt-bar-border-radius, 2px);
   }
+  .og-legend-sample > .og-legend-bar:global(.og-instance) {
+    top: 7px;
+    height: 20px;
+  }
   .og-legend-bar :global(.og-bar-chip) { margin-left: 8px; }
   .og-legend-sample :global(.wx-bar.datestatus-flagged) {
     border-width: 1px;
