@@ -567,8 +567,8 @@ export interface TreatmentStyleInput extends EffectiveBarChannelsInput {
  * - Neither: the default role fill, so a bar is never invisible.
  *
  * Each channel degrades an empty status/priority/calendar palette to `default`
- * (via {@link effectiveSource}). Fill backgrounds are `!important` so they win
- * over the date-status flag's own `!important` background (coexistence).
+ * (via {@link effectiveSource}). The date-status treatment remains authoritative
+ * for flagged bars even when they also carry one of these configured fill classes.
  */
 export function buildTreatmentStyle(input: TreatmentStyleInput): string {
   const { palettes, scope } = input;
@@ -718,8 +718,8 @@ function buildValueRules(
 
 /**
  * A saturated FILL body rule for `selector`: the accent background plus the legible
- * white-with-shadow label treatment. `!important` so it wins over the date-status
- * flag's own `!important` background (coexistence).
+ * white-with-shadow label treatment. Date-status styling intentionally supersedes
+ * this body paint on flagged bars while the class remains available to ghost pieces.
  */
 function fillBodyRule(selector: string, color: string): string {
   // --og-ghost-fill: the bar's own background is forced transparent when it

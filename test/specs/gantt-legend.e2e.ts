@@ -669,10 +669,11 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 
-  it("shows separate date fill and border semantics while preserving the active fill treatment", async () => {
+  it("keeps the orange date fill authoritative over a configured priority fill", async () => {
+    await setFixtureBarChannels("priority", "none");
     await openLegend();
 
-    const border = await browser.execute(() => {
+    const dateStatus = await browser.execute(() => {
       const fillSample = document.querySelector<HTMLElement>(
         '[data-semantic-id="date-status-fill"] .og-legend-bar',
       );
@@ -699,19 +700,22 @@ describe("Gantt (OG) context-aware legend", () => {
           : null,
         border: snapshot(borderSample),
         chartBackground: chart ? getComputedStyle(chart).backgroundColor : null,
+        chartHasPriorityClass:
+          chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
         chart: snapshot(chart),
       };
     });
 
-    expect(border.fill?.background).toBe("rgb(230, 126, 34)");
-    expect(border.fill?.borderWidth).toBe(0);
-    expect(border.chartBackground).toBe(border.fill?.background);
-    expect(border.border?.color).toBe("rgb(192, 57, 43)");
-    expect(border.border?.style).toBe("solid");
-    expect(border.border?.width).toBeGreaterThan(0);
-    expect(border.chart?.color).toBe(border.border?.color);
-    expect(border.chart?.style).toBe(border.border?.style);
-    expect(border.chart?.width).toBeGreaterThan(0);
+    expect(dateStatus.chartHasPriorityClass).toBe(true);
+    expect(dateStatus.fill?.background).toBe("rgb(230, 126, 34)");
+    expect(dateStatus.fill?.borderWidth).toBe(0);
+    expect(dateStatus.chartBackground).toBe(dateStatus.fill?.background);
+    expect(dateStatus.border?.color).toBe("rgb(192, 57, 43)");
+    expect(dateStatus.border?.style).toBe("solid");
+    expect(dateStatus.border?.width).toBeGreaterThan(0);
+    expect(dateStatus.chart?.color).toBe(dateStatus.border?.color);
+    expect(dateStatus.chart?.style).toBe(dateStatus.border?.style);
+    expect(dateStatus.chart?.width).toBeGreaterThan(0);
   });
 
   it("reuses production shading and treatment paint for secondary semantics", async () => {
