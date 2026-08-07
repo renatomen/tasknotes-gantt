@@ -170,8 +170,8 @@
                   <div
                     class="og-legend-sample"
                     class:og-legend-icon-sample={entry.sample.kind === 'icon-set'}
-                    class:og-legend-extension-shaded={entry.semanticId === 'working-time-extension'
-                      && entry.sample.kind === 'bar'}
+                    class:og-legend-non-working-shaded={entry.sample.kind === 'bar'
+                      && entry.sample.cssVariables?.['--og-legend-shading-background'] !== undefined}
                     style={descriptorStyle(entry.sample)}
                     aria-hidden="true"
                   >
@@ -387,7 +387,7 @@
     height: 34px;
     overflow: visible;
   }
-  .og-legend-extension-shaded {
+  .og-legend-non-working-shaded {
     background: linear-gradient(
       to right,
       transparent 0 32%,
@@ -411,6 +411,9 @@
   .og-legend-sample > .og-legend-bar:global(.og-instance) {
     top: 7px;
     height: 20px;
+  }
+  .og-legend-entry[data-semantic-id='estimate-meaning'] .og-legend-bar {
+    inset-inline-end: var(--og-legend-estimate-end-inset, 2px);
   }
   .og-legend-bar :global(.og-bar-chip) { margin-left: 8px; }
   .og-legend-sample :global(.wx-bar.datestatus-flagged) {

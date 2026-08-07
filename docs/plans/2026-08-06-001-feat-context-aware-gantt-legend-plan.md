@@ -18,6 +18,7 @@ execution: code
 - **Execution profile:** Implement test-first in dependency order, with Jest for pure policy and catalogue behavior and focused WebdriverIO coverage against real Obsidian for rendered behavior.
 - **Stop conditions:** Stop if faithful samples require remounting or re-deriving the Gantt, if an applicable semantic cannot be represented from effective view inputs, or if the panel cannot preserve chart state and uncovered-chart interaction.
 - **Tail ownership:** The implementing workflow owns code, tests, verified documentation media, review fixes, and repository-standard landing work.
+- **Current implementation status:** U1–U4 are already implemented on the active feature branch. U5 is the corrective increment in this revision; it must preserve the shipped overlay, settings, and chart behavior.
 - **Open blockers:** None.
 
 ---
@@ -29,6 +30,7 @@ execution: code
 Add a context-aware legend that opens from the current Gantt and explains its effective visual language.
 The legend overlays the chart, switches live between right and bottom positions, owns its overflow, and becomes a full-view reference when space is too constrained for a usable overlay.
 Each opening starts from the Default legend position selected in the view's Appearance settings; position changes made inside the open legend are ephemeral.
+For calendar availability, the legend explains the active Estimate meaning separately from the active Non-working-day rendering.
 
 ### Problem Frame
 
@@ -47,6 +49,7 @@ The explanation must match what the user sees in the specific Gantt that opened 
 - **Appearance owns the default position.** (session-settled: user-directed — chosen over persisting position changes made inside the legend: only the view's Appearance settings define how future legend openings start.) Governs R9, R11, R12.
 - **Configuration-complete content is the baseline.** Explain everything the active configuration can produce; exact present-on-screen filtering is optional. Governs R2, R14.
 - **The legend is explanatory.** It describes the current visual language without becoming another style editor or task filter. Governs R6, R16.
+- **Estimate meaning and non-working rendering stay independent.** (session-settled: user-approved — chosen over using split bars as evidence of working-day estimation: the settings are orthogonal and every active combination must remain explainable.) Governs R18, R19, R20.
 
 ### Requirements
 
@@ -56,7 +59,7 @@ The explanation must match what the user sees in the specific Gantt that opened 
 - R2. Opening the control binds the legend to that Gantt's effective configuration, theme, palettes, and enabled visual features.
 - R3. The legend covers every plugin-controlled semantic that can appear under the active configuration, including bar treatments, date and progress cues, dependency and calendar treatments, split or extended spans, occurrence states, repeated or contextual task cues, and override decorations.
 - R4. Legend samples use the effective colors, contrast, patterns, shapes, and theme of the opening Gantt and update in place when those effective values change.
-- R5. A split-task or split-working-time entry shows more than one segment and the meaningful gap or blocked segment between them.
+- R5. A split-task entry shows more than one segment and its meaningful gap; a Split non-working-day entry shows working segments separated by non-working time.
 - R6. Every visual sample is paired with concise text naming both the symbol and what it means in the current Gantt.
 
 #### Overlay behavior
@@ -75,6 +78,9 @@ The explanation must match what the user sees in the specific Gantt that opened 
 - R15. The Legend control, position control, close or return action, entries, and overflow regions are keyboard reachable with visible focus and appropriate accessible names.
 - R16. The legend does not change chart styling, configuration, task visibility, or task data.
 - R17. Any future plugin-controlled Gantt semantic must have a legend explanation whenever it is applicable to the active configuration.
+- R18. The estimate entry names the active Estimate meaning and states whether non-working time counts toward the estimate.
+- R19. A separate rendering entry names the active Non-working-day rendering and explains either split pieces or background shading without implying an estimate meaning.
+- R20. The estimate-override entry identifies the task's opposite estimate meaning relative to the current view default.
 
 ### Layout Model
 
@@ -132,7 +138,7 @@ flowchart TB
   - **Covers R5.**
   - **Given:** Split working-time rendering is enabled.
   - **When:** The legend lists the split semantic.
-  - **Then:** Its sample contains at least two painted segments and the intervening blocked or gap treatment rather than a single isolated segment.
+  - **Then:** Its sample contains at least two painted segments and the intervening non-working-time treatment rather than a single isolated segment.
 
 - AE3. Right-side overflow
   - **Covers R8, R10.**
@@ -188,6 +194,12 @@ flowchart TB
   - **When:** The user opens Legend.
   - **Then:** The legend includes a faithful sample and explanation for the new semantic; a view where it is not applicable omits it.
 
+- AE12. Independent calendar axes
+  - **Covers R2, R3, R6, R18, R19, R20.**
+  - **Given:** A Gantt uses Calendar days with Split segments.
+  - **When:** The user opens Legend, then changes only Estimate meaning, and later changes only Non-working-day rendering.
+  - **Then:** The estimate and override explanations change only with Estimate meaning, while the rendering explanation and sample change only with Non-working-day rendering.
+
 ### Success Criteria
 
 - A user can identify an unfamiliar Gantt symbol from the open legend without opening view settings or external documentation.
@@ -205,6 +217,7 @@ flowchart TB
 - Legend-driven editing or filtering per R16.
 - Persisting Right or Bottom from the in-legend position control.
 - Redesigning the Gantt's existing visual vocabulary as part of the legend work.
+- Changing estimate derivation, working-time stretching, split or shaded production rendering, date writes, or the existing view-option choices.
 - A global static legend or documentation page detached from the Gantt that opened it.
 - Free-floating, draggable, or arbitrarily resizable legend windows beyond the Right, Bottom, and constrained full-view positions.
 
@@ -236,7 +249,7 @@ flowchart TB
 
 ## Planning Contract
 
-**Product Contract preservation:** changed: Key Decisions, R11, Layout Model, F2, AE5, and related scope text — the user replaced remembered in-panel placement with an Appearance-owned default and ephemeral in-legend switching; all other R/A/F/AE meanings and IDs are unchanged.
+**Product Contract preservation:** changed: Key Decisions, R11, Layout Model, F2, AE5, and related scope text record the Appearance-owned default and ephemeral in-legend switching. This revision adds the independent-axis Key Decision, R18–R20, AE12, and the corresponding scope boundary; all earlier R/A/F/AE meanings and IDs remain unchanged.
 
 ### Key Technical Decisions
 
@@ -248,6 +261,13 @@ flowchart TB
 - KTD6. **Keep overlay input and overflow contained.** The full overlay wrapper ignores pointer input while the visible panel accepts it; the right and bottom scroll regions use axis-specific overflow and scroll containment. Full mode uses an opaque panel and makes the covered chart subtree inactive and hidden from assistive technology without destroying it.
 - KTD7. **Use non-modal focus behavior for overlays and return focus on exit.** Opening focuses the panel's first control, position choices form a labelled radio group, scroll regions are keyboard focusable, and close or return restores focus to Legend. Overlay mode does not trap focus because the uncovered chart remains interactive; full mode excludes the covered chart from focus until return.
 - KTD8. **Extend the always-visible floating control surface.** The Legend entry joins the existing chart-level controls rather than the optional toolbar, satisfying R1 and R10 without making toolbar visibility a prerequisite. The open panel's header owns close/return and position controls.
+- KTD9. **Carry both resolved calendar axes into the legend catalogue.** (session-settled: user-approved — chosen over inferring Estimate meaning from split or shaded presentation: the settings are independent and the legend must read each authoritative value.) `register` supplies the existing resolved Estimate meaning and Non-working-day rendering through `GanttLegendContext`; no calendar derivation or production rendering path changes.
+- KTD10. **Resolve contextual copy in the pure catalogue builder.** (session-settled: user-approved — chosen over branching in the Svelte renderer or retaining misleading extension/split identities: one presentation seam keeps copy and samples consistent.) Rename the two internal semantic identities around Estimate meaning and Non-working-day rendering, keep `GanttLegend` data-driven, and reuse the current continuous-or-piece sample machinery.
+
+### Assumptions
+
+- The existing legend fixture can switch both calendar axes and restore its committed defaults without a new fixture or production hook.
+- A pure four-combination matrix plus one real-Obsidian wiring journey provides stronger and faster evidence than duplicating the same copy assertions across four end-to-end cases.
 
 ### High-Level Technical Design
 
@@ -289,7 +309,8 @@ stateDiagram-v2
 1. Establish the view option, local session-state policy, and size-to-mode resolver.
 2. Establish the exhaustive context-to-entry catalogue and faithful sample descriptors.
 3. Compose the accessible Svelte panel around the existing Gantt and verify it in real Obsidian.
-4. Capture verified documentation media after behavior and themes pass their gates.
+4. Correct the calendar-axis explanations at the existing context-to-catalogue seam and verify their independence.
+5. Capture verified documentation media from the final corrected legend after behavior and themes pass their gates.
 
 ### Deferred Implementation Notes
 
@@ -321,6 +342,7 @@ stateDiagram-v2
 | Theme change while open produces stale or low-contrast samples | Legend and chart disagree. | Render under the existing effective Willow theme and treatment scope; verify computed samples in light and dark. |
 | Host-size transitions oscillate or overwrite user choice | Embedded views feel unstable. | Derive mode from an absolute overlay that does not affect host measurement; retain session position separately from responsive mode and persisted default. |
 | New Appearance setting accidentally becomes writable from the panel | Ephemeral switching starts persisting. | Expose the setting only through `GanttData`; do not pass a legend persistence callback, and test close/reopen reset behavior. |
+| Estimate meaning is inferred from split or shaded rendering | The legend teaches the wrong estimate semantics for two valid setting combinations. | Carry both resolved axes independently, test the four-combination matrix, and keep scheduling and production rendering outside the diff. |
 
 ---
 
@@ -374,7 +396,7 @@ stateDiagram-v2
 - **Patterns to follow:** Pure resolver structure in `src/bases/barTreatment.ts`; raw-data/view-format boundary in `src/bases/types/gantt-view-data.ts`; composite-paint guidance in `docs/solutions/conventions/svar-gantt-bar-geometry-and-fill-conventions.md`.
 - **Test scenarios:**
   - Covers AE1. Calendar fill, priority strip, and status icon produce a composite task sample carrying the current calendar, priority, and status palette inputs and all three channel explanations.
-  - Covers AE2. Split working-time and occupancy examples contain multiple painted pieces plus a meaningful blocked or empty interval.
+  - Covers AE2. Split non-working-time and occupancy examples contain multiple painted pieces plus a meaningful non-working interval or occurrence gap.
   - Status and priority icon samples distinguish configured glyphs, priority dots, completed discs, and non-completed rings using the effective palette.
   - Calendar availability includes active shading, conflict, marker, and working-time semantics without inventing inactive calendar behavior.
   - Occurrence entries distinguish next, projected, completed, skipped, materialized, external, and coarse series-spine treatments when their family is enabled.
@@ -419,7 +441,7 @@ stateDiagram-v2
 
 - **Goal:** Make the shipped control discoverable in project documentation and preserve verified right and bottom examples.
 - **Requirements:** R1, R9, R10, R11.
-- **Dependencies:** U3.
+- **Dependencies:** U3, U5.
 - **Files:**
   - `README.md`
   - `docs/media/gantt-legend-right.png` (new)
@@ -430,7 +452,52 @@ stateDiagram-v2
   3. Reference committed media through pinned `raw.githubusercontent` URLs.
 - **Patterns to follow:** `docs/conventions/visual-assets.md` and existing feature media references in `README.md`.
 - **Test scenarios:** Test expectation: none — documentation and verified visual assets do not change runtime behavior.
-- **Verification:** README wording agrees with R9–R12, media files render at their referenced URLs after publication, and screenshots depict the implemented UI rather than the disposable brainstorm sketch.
+- **Verification:** README wording agrees with R9–R11, media files render at their referenced URLs after publication, and screenshots depict the implemented UI rather than the disposable brainstorm sketch.
+
+### U5. Separate estimate meaning from non-working rendering in the legend
+
+- **Goal:** Make the legend explain the active estimate semantics, active non-working-time presentation, and per-task override direction as three context-aware concepts.
+- **Requirements:** R2, R3, R6, R16–R20; F1, F3; AE7, AE11, AE12; KTD9, KTD10.
+- **Dependencies:** U2, U3.
+- **Files:**
+  - `src/bases/types/gantt-view-data.ts`
+  - `src/bases/register.ts`
+  - `src/bases/visualSemantics.ts`
+  - `src/bases/legendCatalog.ts`
+  - `src/bases/GanttLegend.svelte`
+  - `test/unit/legendCatalog.test.ts`
+  - `test/specs/gantt-legend.e2e.ts`
+  - `test/vaults/gantt-legend/Legend.base` (only if the existing fixture cannot switch and restore both axes without modification)
+  - `CONCEPTS.md`
+- **Approach:**
+  1. Add the resolved Estimate meaning to `GanttLegendContext` beside the existing Non-working-day rendering value, using the same view-option reader that supplies production behavior.
+  2. Search every consumer of the current extension/split semantic IDs before renaming. Rename internal symbols and presentation-only helpers, update owned test selectors, and keep any persisted key or externally supported CSS/DOM contract stable.
+  3. Resolve entry names and explanations in the catalogue builder using this approved visible copy:
+
+     | Active context | Entry name | Explanation |
+     |---|---|---|
+     | Calendar-day estimate | Calendar-day estimate | The bar keeps its elapsed span through non-working time because both working and non-working time count toward the estimate. |
+     | Working-day estimate | Working-day estimate | Non-working time does not count toward the estimate, so an inferred edge extends until the required working time fits. |
+     | Split non-working time | Split non-working time | Solid runs are working time; the translucent run between them is non-working time. |
+     | Shaded non-working time | Shaded non-working time | The bar remains continuous while background shading marks non-working time. |
+     | Working-day override | Estimate override | A corner dot means this task uses a working-day estimate instead of the view's calendar-day estimate. |
+     | Calendar-day override | Estimate override | A corner dot means this task uses a calendar-day estimate instead of the view's working-day estimate. |
+
+  4. Give the Estimate meaning entry fixed representative geometry selected only by `estimateMeaning`. Give the Non-working-day rendering entry exclusive ownership of the existing split-pieces or continuous-over-shading sample. Each entry's copy and sample must remain invariant when only the other axis changes.
+  5. Confirm the existing legend fixture can switch both calendar axes and restore its committed defaults before writing the real-Obsidian journey. Modify the fixture only if that check proves necessary.
+  6. Replace the stale Calendar mode glossary entry with the two independent concepts and update Ghost run wording to match interpretation-neutral split rendering.
+- **Execution note:** Start with the four-combination catalogue matrix. Run the focused real-Obsidian journey only after the pure semantics are green.
+- **Patterns to follow:** `readEstimateMeaning` and `readNonWorkingRendering` in `src/bases/viewOptions.ts`; reactive legend context assembly in `src/bases/register.ts`; pure entry construction in `src/bases/legendCatalog.ts`; `docs/solutions/architecture-patterns/resolve-config-defaults-at-one-seam.md`; `docs/solutions/tooling-decisions/test-at-the-fastest-level-not-redundant-e2e.md`.
+- **Test scenarios:**
+  - Covers AE12. Calendar days plus Split segments names a calendar-day estimate whose elapsed span includes working and non-working time, while the separate rendering entry explains split pieces.
+  - Covers AE12. Working days plus Split segments changes the estimate and inverse-override explanations without changing the rendering explanation or sample.
+  - Covers AE12. Calendar days plus Shaded background changes only the rendering explanation and sample from the split case.
+  - Covers AE12. Working days plus Shaded background combines the working-day estimate explanation with the continuous-bar-over-shading sample.
+  - Across the four-setting matrix, the estimate entry's copy and sample remain identical when only rendering changes, and the rendering entry's copy and sample remain identical when only estimate meaning changes.
+  - The calendar-day and working-day defaults produce opposite, explicit estimate-override explanations.
+  - The semantic exhaustiveness test recognizes the renamed internal IDs and rejects the retired extension/split identities.
+  - One real-Obsidian journey changes each fixture setting independently, observes the matching visible legend entries, and restores both committed defaults even after a failed assertion.
+- **Verification:** Focused catalogue tests prove the four-setting matrix and naming. The existing legend WebdriverIO fixture proves that live view settings reach the rendered legend without changing chart dates or production bar markup.
 
 ---
 
@@ -442,7 +509,7 @@ stateDiagram-v2
 | `npm run typecheck` | Strict TypeScript and Svelte component contracts | No diagnostics. |
 | `npm run lint` | TypeScript and Svelte repository rules | No warnings or errors. |
 | `npm run build` | Production single-file plugin bundle | Build completes and bundles no new runtime dependency. |
-| `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | Focused real-Obsidian legend behavior | AE1, AE3–AE6, and AE8–AE10 scenarios assigned to U3 pass against the freshly built plugin. |
+| `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | Focused real-Obsidian legend behavior | AE1, AE3–AE6, and AE8–AE10 scenarios assigned to U3 pass against the freshly built plugin, and U5's AE12 calendar-axis journey passes with both fixture defaults restored. |
 | `npm run e2e:local -- --spec test/specs/gantt-theme-toolbar.e2e.ts --spec test/specs/gantt-fullscreen.e2e.ts --spec test/specs/gantt-viewport-sizing.e2e.ts --spec test/specs/gantt-bar-channels.e2e.ts --spec test/specs/gantt-calendar-axes.e2e.ts` | Affected rendering and state-preservation regressions | Existing theme, maximize, sizing, treatment, and split/calendar behavior remains green. |
 | Visual inspection of committed media | Right and bottom overlays in staged real Obsidian | Samples, labels, overflow affordances, and focus-visible treatment are legible in the captured theme. |
 
@@ -453,7 +520,8 @@ stateDiagram-v2
 - The Default legend position option appears under Appearance, defaults to Right, and is the only path that changes how future openings start.
 - The Legend control remains available with the optional toolbar disabled.
 - Every applicable plugin-controlled visual semantic has a concise explanation and a faithful sample driven by the active Gantt's effective configuration, palettes, and theme.
-- Split and working-time samples show multiple segments and their meaningful gap or blocked stretch.
+- Estimate meaning, Non-working-day rendering, and the override marker are explained independently from the active view context.
+- Split-rendering samples show multiple segments and their meaningful non-working stretch; shaded-rendering samples keep the task bar continuous over background shading.
 - Right and Bottom switch live only for the current opening, with vertical and horizontal panel-owned overflow respectively.
 - Constrained mode covers rather than unmounts the Gantt and does not change either the current-session position or the configured default.
 - Opening, moving, scrolling, resizing, closing, and returning preserve zoom, chart scroll, expansion, selection, and task data.
@@ -462,3 +530,4 @@ stateDiagram-v2
 - Jest, typecheck, lint, production build, focused WebdriverIO, and affected regression gates pass.
 - README guidance and committed media describe the implemented behavior accurately.
 - No abandoned experiment, duplicate sample styling system, controller mutation, or unrelated refactor remains in the final diff.
+- Calendar derivation, working-time stretching, production bar rendering, and date writes remain unchanged. Existing Estimate meaning and Non-working-day rendering choices and behavior remain unchanged; the only new view-option behavior in the full feature is Default legend position.

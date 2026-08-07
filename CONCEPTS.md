@@ -13,14 +13,17 @@ A date on which work is not expected to occur, at whole-day granularity in local
 ### Calendar association
 The link from a task to a specific calendar note, carried by a user-mapped property. A task with no association has no calendar of its own — its availability seam is empty, so no day is blocked for it and a working-time stretch never applies. There is no view-wide default calendar.
 
-### Calendar mode
-The per-view choice of how calendar availability affects the timeline: shading tints non-working time in the background and never touches dates; stretch additionally extends duration-derived bars across blocked days.
+### Estimate meaning
+The per-view default for what a duration estimate counts. A working-day estimate excludes the task calendar's non-working days, so an inferred edge extends until the required working time fits. A calendar-day estimate counts elapsed days, including working and non-working time, so non-working time does not extend the span. A task may override the view default.
+
+### Non-working-day rendering
+The independent per-view choice for how non-working time appears. Shaded rendering keeps task bars continuous and marks non-working time in the background. Split rendering marks non-working runs inside applicable bars without changing their dates or implying whether those days count toward the estimate.
 
 ### Working-time stretch
 The extension of a bar whose span is derived from a working-duration estimate: blocked days consume none of the estimate, so the bar stretches across them until the working time fits. Only inferred dates move — an authored date is an anchor and always renders as authored — and a stretch that reaches its safety ceiling falls back to the unstretched span and is flagged.
 
 ### Ghost run
-A contiguous run of blocked days inside a stretched bar, rendered as a dimmed piece of the bar so the pause is visible without splitting the task. Ghost runs degrade gracefully: at zoom levels where faithful piece tiling cannot be guaranteed, the bar renders in its continuous form instead.
+A contiguous run of non-working days inside a bar under Split rendering, shown as a dimmed piece without changing the bar's dates. Ghost runs are interpretation-neutral and may appear on authored, calendar-day-derived, or working-day-derived spans. At zoom levels where faithful piece tiling cannot be guaranteed, the bar renders in its continuous form instead.
 
 ### Availability seam
 The internal query boundary that answers "is this date blocked?" without a consumer inspecting a calendar note directly. It is not one shared query: task-level blocking (stretching, scheduling decisions later) is answered per task from that task's associated calendar, while background shading is the union of the view's displayed calendars. The two paths derive from the same calendar definitions but are resolved separately, so a day can be shaded in the background without blocking an unassociated task.

@@ -29,7 +29,7 @@ import type { GridColumn } from '../gridColumns';
 import type { MarkerInput } from '../markerOverlay';
 import type { DefaultScale } from '../zoomConfig';
 import type { LegendPosition } from '../legendLayout';
-import type { NonWorkingRendering } from '../viewOptions';
+import type { EstimateMeaning, NonWorkingRendering } from '../viewOptions';
 
 /** Raw effective view facts consumed by the presentation-only legend catalogue. */
 export interface GanttLegendContext {
@@ -48,6 +48,7 @@ export interface GanttLegendContext {
   calendarEventColor: string | null;
   /** Representative paint owned specifically by enabled external occurrence feeds. */
   externalOccurrenceColor: string | null;
+  estimateMeaning: EstimateMeaning;
   nonWorkingRendering: NonWorkingRendering;
   calendarItems: {
     showRecurring: boolean;

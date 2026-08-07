@@ -4,6 +4,8 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import type { EstimateMeaning, NonWorkingRendering } from "../../src/bases/viewOptions";
+import type { GanttVisualSemanticId } from "../../src/bases/visualSemantics";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +22,7 @@ const LEGEND_TASK_BAR_SELECTOR =
 const LEGEND_TASK_FALLBACK_PAINT_SELECTOR = ".og-ghost-run:not(.og-ghost-blocked)";
 const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
 
-let fixtureNonWorkingRenderingNeedsReset = false;
+let fixtureCalendarAxesNeedReset = false;
 let fixtureBarChannelsNeedReset = false;
 
 interface ElementRect {
@@ -158,6 +160,52 @@ async function closeLegend(): Promise<void> {
     timeout: 8000,
     timeoutMsg: "Legend panel did not close",
   });
+}
+
+interface LegendCalendarAxisCopy {
+  estimateName: string | null;
+  estimateMeaning: string | null;
+  renderingName: string | null;
+  renderingMeaning: string | null;
+  overrideMeaning: string | null;
+}
+
+async function readLegendCalendarAxisCopy(): Promise<LegendCalendarAxisCopy> {
+  return browser.execute(() => {
+    const copy = (semanticId: GanttVisualSemanticId): { name: string | null; meaning: string | null } => {
+      const entry = document.querySelector(`[data-semantic-id="${semanticId}"]`);
+      return {
+        name: entry?.querySelector("h3")?.textContent ?? null,
+        meaning: entry?.querySelector("p")?.textContent ?? null,
+      };
+    };
+    const estimate = copy("estimate-meaning");
+    const rendering = copy("non-working-rendering");
+    return {
+      estimateName: estimate.name,
+      estimateMeaning: estimate.meaning,
+      renderingName: rendering.name,
+      renderingMeaning: rendering.meaning,
+      overrideMeaning: copy("estimate-override").meaning,
+    };
+  });
+}
+
+async function waitForLegendCalendarAxisCopy(
+  expected: LegendCalendarAxisCopy,
+): Promise<LegendCalendarAxisCopy> {
+  let observed = await readLegendCalendarAxisCopy();
+  await browser.waitUntil(
+    async () => {
+      observed = await readLegendCalendarAxisCopy();
+      return JSON.stringify(observed) === JSON.stringify(expected);
+    },
+    {
+      timeout: 8000,
+      timeoutMsg: `Legend calendar-axis copy did not update: ${JSON.stringify(observed)}`,
+    },
+  );
+  return observed;
 }
 
 async function legendLayout(): Promise<string | null> {
@@ -335,30 +383,44 @@ function createCombinedFailure(message: string, failures: unknown[]): Error {
   return new Error(`${message}\n${details}`);
 }
 
-async function writeFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
-  const updated = await browser.executeObsidian(async ({ app }, nextRendering) => {
+async function writeFixtureCalendarAxes(
+  estimateMeaning: EstimateMeaning,
+  rendering: NonWorkingRendering,
+): Promise<void> {
+  const updated = await browser.executeObsidian(async ({ app }, nextMeaning, nextRendering) => {
     const file = app.vault.getAbstractFileByPath("Legend.base");
     if (!file) return false;
     const body = await app.vault.read(file as never) as string;
-    const nextBody = body.replace(
-      /tngantt_nonWorkingRendering: (?:shaded|split)/,
-      `tngantt_nonWorkingRendering: ${nextRendering}`,
-    );
-    if (nextBody === body && !body.includes(`tngantt_nonWorkingRendering: ${nextRendering}`)) return false;
+    const nextBody = body
+      .replace(
+        /tngantt_estimateMeaning: (?:calendar-days|working-days)/,
+        `tngantt_estimateMeaning: ${nextMeaning}`,
+      )
+      .replace(
+        /tngantt_nonWorkingRendering: (?:shaded|split)/,
+        `tngantt_nonWorkingRendering: ${nextRendering}`,
+      );
+    const expected =
+      nextBody.includes(`tngantt_estimateMeaning: ${nextMeaning}`) &&
+      nextBody.includes(`tngantt_nonWorkingRendering: ${nextRendering}`);
+    if (!expected) return false;
     if (nextBody !== body) await app.vault.modify(file as never, nextBody);
     return true;
-  }, rendering);
+  }, estimateMeaning, rendering);
   expect(updated).toBe(true);
 }
 
-async function setFixtureNonWorkingRendering(rendering: "shaded" | "split"): Promise<void> {
-  if (rendering === "shaded") fixtureNonWorkingRenderingNeedsReset = true;
-  await writeFixtureNonWorkingRendering(rendering);
+async function setFixtureCalendarAxes(
+  estimateMeaning: EstimateMeaning,
+  rendering: NonWorkingRendering,
+): Promise<void> {
+  fixtureCalendarAxesNeedReset = estimateMeaning !== "working-days" || rendering !== "split";
+  await writeFixtureCalendarAxes(estimateMeaning, rendering);
   await remountMaximizedFixture();
 }
 
-async function restoreFixtureNonWorkingRendering(): Promise<void> {
-  await writeFixtureNonWorkingRendering("split");
+async function restoreFixtureCalendarAxes(): Promise<void> {
+  await writeFixtureCalendarAxes("working-days", "split");
   const remountFailures: unknown[] = [];
   for (let attempt = 0; attempt < FIXTURE_RESTORE_ATTEMPTS; attempt += 1) {
     try {
@@ -370,10 +432,10 @@ async function restoreFixtureNonWorkingRendering(): Promise<void> {
           )).length > 0,
         {
           timeout: 8000,
-          timeoutMsg: "Gantt legend fixture did not render its restored split extension",
+          timeoutMsg: "Gantt legend fixture did not render its restored split non-working time",
         },
       );
-      fixtureNonWorkingRenderingNeedsReset = false;
+      fixtureCalendarAxesNeedReset = false;
       return;
     } catch (error) {
       remountFailures.push(error);
@@ -555,7 +617,7 @@ describe("Gantt (OG) context-aware legend", () => {
       }
     });
     await attemptCleanup(async () => {
-      if (fixtureNonWorkingRenderingNeedsReset) await restoreFixtureNonWorkingRendering();
+      if (fixtureCalendarAxesNeedReset) await restoreFixtureCalendarAxes();
     });
     await attemptCleanup(async () => {
       if (fixtureBarChannelsNeedReset) await restoreFixtureBarChannels();
@@ -796,8 +858,7 @@ describe("Gantt (OG) context-aware legend", () => {
     const ownership = await browser.execute(() => {
       const sample = (semanticId: string): HTMLElement | null =>
         document.querySelector(`[data-semantic-id="${semanticId}"] .og-legend-sample > div`);
-      const split = sample("working-time-split");
-      const extension = sample("working-time-extension");
+      const split = sample("non-working-rendering");
       const occupancy = sample("occurrence-occupancy");
       const chartRecurring = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Recurring.md"]',
@@ -812,14 +873,8 @@ describe("Gantt (OG) context-aware legend", () => {
       const occupancyEnvelopes = [
         ...(occupancy?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
       ];
-      const extensionEnvelopes = [
-        ...(extension?.querySelectorAll<HTMLElement>(".og-legend-piece-envelope") ?? []),
-      ];
       const splitPainted = [
         ...(split?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
-      ];
-      const extensionPainted = [
-        ...(extension?.querySelectorAll<HTMLElement>(".og-piece-painted.og-ghost-run") ?? []),
       ];
       const occupancyGap = occupancy?.querySelector<HTMLElement>(".og-piece-gap");
       const occupancyBounds = occupancy?.getBoundingClientRect();
@@ -838,22 +893,6 @@ describe("Gantt (OG) context-aware legend", () => {
           split?.classList.contains("og-ghost-run") || split?.classList.contains("og-ghost-blocked"),
         splitHasBlockedPiece: !!split?.querySelector(".og-ghost-run.og-ghost-blocked"),
         splitPaintedPiecesOwnPaint: ownsVisiblePaint(splitPainted),
-        extensionHostOwnsPaint: extension?.classList.contains("og-ghost-run") ?? false,
-        extensionHasBlockedPiece: !!extension?.querySelector(".og-ghost-run.og-ghost-blocked"),
-        extensionPaintedPiecesOwnPaint: ownsVisiblePaint(extensionPainted),
-        extensionEnvelopeOwnsOnlyStrip:
-          extensionEnvelopes.length === 1 &&
-          extensionEnvelopes.every(
-            (envelope) =>
-              envelope.classList.contains("wx-bar") &&
-              [...envelope.classList].some((token) => token.startsWith("og-prio-")) &&
-              ![...envelope.classList].some((token) => token.startsWith("og-calendar-")) &&
-              !envelope.classList.contains("og-instance") &&
-              getComputedStyle(envelope).backgroundColor === "rgba(0, 0, 0, 0)" &&
-              getComputedStyle(envelope).borderStyle === "none" &&
-              getComputedStyle(envelope, "::before").content !== "none" &&
-              getComputedStyle(envelope, "::before").backgroundColor !== "rgba(0, 0, 0, 0)",
-          ),
         occupancyHostOwnsPaint:
           occupancy?.classList.contains("wx-bar") || occupancy?.classList.contains("og-instance"),
         occupancyPiecesOwnPaint:
@@ -907,10 +946,6 @@ describe("Gantt (OG) context-aware legend", () => {
       splitHostOwnsPaint: false,
       splitHasBlockedPiece: true,
       splitPaintedPiecesOwnPaint: true,
-      extensionHostOwnsPaint: false,
-      extensionHasBlockedPiece: true,
-      extensionPaintedPiecesOwnPaint: true,
-      extensionEnvelopeOwnsOnlyStrip: true,
       occupancyHostOwnsPaint: false,
       occupancyPiecesOwnPaint: true,
       occupancyEnvelopeCount: 1,
@@ -1139,15 +1174,72 @@ describe("Gantt (OG) context-aware legend", () => {
     await closeLegend();
   });
 
-  it("renders a shaded working-time extension as one continuous bar over blocked-day shading", async () => {
-    await setFixtureNonWorkingRendering("shaded");
+  it("updates estimate and non-working-time explanations from independent view settings", async () => {
     await openLegend();
-    const extension = await browser.execute(() => {
+    const workingSplit = await readLegendCalendarAxisCopy();
+    expect(workingSplit).toEqual({
+      estimateName: "Working-day estimate",
+      estimateMeaning:
+        "Non-working time does not count toward the estimate, so an inferred edge extends until the required working time fits.",
+      renderingName: "Split non-working time",
+      renderingMeaning:
+        "Solid runs are working time; the translucent run between them is non-working time.",
+      overrideMeaning:
+        "A corner dot means this task uses a calendar-day estimate instead of the view's working-day estimate.",
+    });
+    expect(await browser.execute(() => {
       const sample = document.querySelector<HTMLElement>(
-        '[data-semantic-id="working-time-extension"] .og-legend-sample',
+        '[data-semantic-id="estimate-meaning"] .og-legend-sample',
       );
       return {
-        hasShadedClass: sample?.classList.contains("og-legend-extension-shaded") ?? false,
+        hasRenderingShading: sample?.classList.contains("og-legend-non-working-shaded") ?? false,
+        estimateInset: sample
+          ? getComputedStyle(sample).getPropertyValue("--og-legend-estimate-end-inset").trim()
+          : "",
+      };
+    })).toEqual({ hasRenderingShading: false, estimateInset: "2px" });
+    const sessionMarker = `calendar-axes-${Date.now()}`;
+    const marked = await browser.execute((marker) => {
+      const chart = document.querySelector<HTMLElement>(".og-bases-gantt");
+      chart?.setAttribute("data-e2e-calendar-axis-session", marker);
+      return !!chart;
+    }, sessionMarker);
+    expect(marked).toBe(true);
+
+    fixtureCalendarAxesNeedReset = true;
+    await writeFixtureCalendarAxes("calendar-days", "split");
+    const calendarSplit = await waitForLegendCalendarAxisCopy({
+      ...workingSplit,
+      estimateName: "Calendar-day estimate",
+      estimateMeaning:
+        "The bar keeps its elapsed span through non-working time because both working and non-working time count toward the estimate.",
+      overrideMeaning:
+        "A corner dot means this task uses a working-day estimate instead of the view's calendar-day estimate.",
+    });
+
+    await writeFixtureCalendarAxes("calendar-days", "shaded");
+    await waitForLegendCalendarAxisCopy({
+      ...calendarSplit,
+      renderingName: "Shaded non-working time",
+      renderingMeaning: "The bar remains continuous while background shading marks non-working time.",
+    });
+    expect(await legendLayout()).toBe("right");
+    expect(await browser.execute((marker) =>
+      document
+        .querySelector(".og-bases-gantt")
+        ?.getAttribute("data-e2e-calendar-axis-session") === marker,
+    sessionMarker)).toBe(true);
+  });
+
+  it("renders shaded non-working time as one continuous bar over background shading", async () => {
+    await setFixtureCalendarAxes("working-days", "shaded");
+    await openLegend();
+    const shadedRendering = await browser.execute(() => {
+      const sample = document.querySelector<HTMLElement>(
+        '[data-semantic-id="non-working-rendering"] .og-legend-sample',
+      );
+      return {
+        hasShadedClass: sample?.classList.contains("og-legend-non-working-shaded") ?? false,
         backgroundImage: sample ? getComputedStyle(sample).backgroundImage : "none",
         shadingVariable: sample
           ? getComputedStyle(sample).getPropertyValue("--og-legend-shading-background").trim()
@@ -1157,11 +1249,11 @@ describe("Gantt (OG) context-aware legend", () => {
       };
     });
 
-    expect(extension.hasShadedClass).toBe(true);
-    expect(extension.backgroundImage).toContain("linear-gradient");
-    expect(extension.shadingVariable).not.toBe("");
-    expect(extension.barCount).toBe(1);
-    expect(extension.pieceCount).toBe(0);
+    expect(shadedRendering.hasShadedClass).toBe(true);
+    expect(shadedRendering.backgroundImage).toContain("linear-gradient");
+    expect(shadedRendering.shadingVariable).not.toBe("");
+    expect(shadedRendering.barCount).toBe(1);
+    expect(shadedRendering.pieceCount).toBe(0);
   });
 
   it("keeps more than four configured icon samples visible by wrapping them", async () => {

@@ -1519,6 +1519,7 @@ class ObsidianGanttBasesView extends BasesView {
     const barIconSource = this.getBarIcon();
     const taskNotesPresent = isTaskNotesPresent(this.app);
     const calendarItems = this.getCalendarItemToggles();
+    const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
     const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
@@ -1598,6 +1599,7 @@ class ObsidianGanttBasesView extends BasesView {
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:
           visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
+        estimateMeaning,
         nonWorkingRendering,
         calendarItems: { showRecurring: calendarItems.showRecurring },
         externalCalendarsEnabled: externalCalendarLegendFacts.enabled,

@@ -32,6 +32,8 @@ export const LEGEND_GROUP_ORDER = [
 export type LegendGroupId = (typeof LEGEND_GROUP_ORDER)[number];
 
 const LEGEND_STRIP_ONLY_CLASS = 'og-legend-strip-only';
+const CALENDAR_DAY_ESTIMATE_END_INSET = '34%';
+const WORKING_DAY_ESTIMATE_END_INSET = '2px';
 
 export type LegendSampleKind =
   | 'bar'
@@ -44,6 +46,7 @@ export type LegendSampleKind =
   | 'line'
   | 'decoration';
 
+/** One normalized horizontal piece within a composite legend sample. */
 export interface LegendSamplePiece {
   start: number;
   width: number;
@@ -51,10 +54,12 @@ export interface LegendSamplePiece {
   classTokens: string[];
 }
 
+/** One resolved icon treatment displayed by an icon-set sample. */
 export interface LegendIconSample extends IconSpec {
   shape: 'glyph' | 'ring' | 'disc' | 'dot';
 }
 
+/** Data-only rendering instructions for one legend sample. */
 export interface LegendSampleDescriptor {
   kind: LegendSampleKind;
   classTokens: string[];
@@ -68,6 +73,7 @@ export interface LegendSampleDescriptor {
   cssVariables?: Record<string, string>;
 }
 
+/** User-facing explanation and sample for one visual semantic. */
 export interface LegendEntry {
   semanticId: GanttVisualSemanticId;
   name: string;
@@ -75,6 +81,7 @@ export interface LegendEntry {
   sample: LegendSampleDescriptor;
 }
 
+/** Ordered legend entries presented under one section heading. */
 export interface LegendGroup {
   id: LegendGroupId;
   name: string;
@@ -155,8 +162,8 @@ export const LEGEND_CATALOGUE_ROWS = {
   'calendar-event': ['calendar-bar', { name: 'Calendar event', meaning: 'A solid read-only bar is an event from a calendar source enabled in this Gantt, such as a timeblock or an event from Google Calendar.' }],
   'today-marker': ['marker', { name: 'Today', meaning: 'The accent line locates today within the visible timeline.' }],
   'calendar-marker': ['marker', { name: 'Calendar marker', meaning: 'A labelled vertical line marks a flagged event from a displayed calendar.' }],
-  'working-time-extension': ['calendar-pieces', { name: 'Working-time extension', meaning: 'The bar extends across non-working time so its estimate counts only working time.' }],
-  'working-time-split': ['calendar-pieces', { name: 'Split working time', meaning: 'Solid runs are working time; the translucent run between them is non-working time.' }],
+  'estimate-meaning': ['calendar-pieces', { name: 'Estimate meaning', meaning: 'The active view determines whether non-working time counts toward a task estimate.' }],
+  'non-working-rendering': ['calendar-pieces', { name: 'Non-working-day rendering', meaning: 'The active view determines how non-working time appears on task bars.' }],
   'occurrence-occupancy': ['occurrence-pieces', { name: 'Occurrence occupancy', meaning: 'Separate painted pieces are occurrences of a recurring task or an external calendar series.' }],
   'occurrence-next': ['occurrence-bar', { name: 'Next occurrence', meaning: 'A solid accent piece is the next upcoming recurring instance.' }],
   'occurrence-projected': ['occurrence-bar', { name: 'Projected occurrence', meaning: 'A hollow dashed piece is a future instance projected from the pattern.' }],
@@ -212,15 +219,57 @@ function buildEntry(
   context: GanttLegendContext,
   icons: LegendIconSample[],
 ): LegendEntry {
+  const copy = contextualCopyFor(semanticId, context) ?? definition;
   const sample = isDateStatusSemantic(semanticId)
     ? dateStatusSample(semanticId, definition.sampleKind, context)
     : sampleFor(semanticId, definition.sampleKind, context, icons);
   return {
     semanticId,
-    name: definition.name,
-    meaning: semanticId === 'bar-treatment' ? treatmentMeaning(context, icons) : definition.meaning,
+    name: copy.name,
+    meaning: semanticId === 'bar-treatment' ? treatmentMeaning(context, icons) : copy.meaning,
     sample,
   };
+}
+
+function contextualCopyFor(
+  semanticId: GanttVisualSemanticId,
+  context: GanttLegendContext,
+): LegendCatalogueCopy | null {
+  if (semanticId === 'estimate-meaning') {
+    return context.estimateMeaning === 'working-days'
+      ? {
+          name: 'Working-day estimate',
+          meaning:
+            'Non-working time does not count toward the estimate, so an inferred edge extends until the required working time fits.',
+        }
+      : {
+          name: 'Calendar-day estimate',
+          meaning:
+            'The bar keeps its elapsed span through non-working time because both working and non-working time count toward the estimate.',
+        };
+  }
+  if (semanticId === 'non-working-rendering') {
+    return context.nonWorkingRendering === 'split'
+      ? {
+          name: 'Split non-working time',
+          meaning:
+            'Solid runs are working time; the translucent run between them is non-working time.',
+        }
+      : {
+          name: 'Shaded non-working time',
+          meaning: 'The bar remains continuous while background shading marks non-working time.',
+        };
+  }
+  if (semanticId === 'estimate-override') {
+    return {
+      name: 'Estimate override',
+      meaning:
+        context.estimateMeaning === 'working-days'
+          ? "A corner dot means this task uses a calendar-day estimate instead of the view's working-day estimate."
+          : "A corner dot means this task uses a working-day estimate instead of the view's calendar-day estimate.",
+    };
+  }
+  return null;
 }
 
 function sampleFor(
@@ -252,20 +301,11 @@ function sampleFor(
           ];
     return { kind, classTokens: [classes.iconChip], icons: samples };
   }
-  if (semanticId === 'working-time-split') {
-    const treatment = representativeTreatment(context);
-    return {
-      kind,
-      classTokens: [classes.ghostRuns],
-      pieces: splitPieces('blocked'),
-      ...(treatment.paints?.strip
-        ? { pieceEnvelopeClassTokens: compact([classes.bar, treatment.paints.strip.classToken]) }
-        : {}),
-      cssVariables: { '--og-ghost-fill': representativeBarColor(context) },
-    };
+  if (semanticId === 'estimate-meaning') {
+    return estimateMeaningSample(context);
   }
-  if (semanticId === 'working-time-extension') {
-    return workingTimeExtensionSample(context, kind);
+  if (semanticId === 'non-working-rendering') {
+    return nonWorkingRenderingSample(context, kind);
   }
   if (semanticId === 'occurrence-occupancy') {
     return occurrenceOccupancySample(context, kind);
@@ -415,21 +455,23 @@ function occurrenceOccupancySample(
   };
 }
 
-function workingTimeExtensionSample(
+function estimateMeaningSample(context: GanttLegendContext): LegendSampleDescriptor {
+  return treatedBarSample(context, {
+    '--og-legend-estimate-end-inset':
+      context.estimateMeaning === 'working-days'
+        ? WORKING_DAY_ESTIMATE_END_INSET
+        : CALENDAR_DAY_ESTIMATE_END_INSET,
+  });
+}
+
+function nonWorkingRenderingSample(
   context: GanttLegendContext,
   splitKind: LegendSampleKind,
 ): LegendSampleDescriptor {
   if (context.nonWorkingRendering === 'shaded') {
-    const treatment = representativeTreatment(context);
-    return {
-      kind: 'bar',
-      classTokens: treatment.classTokens,
-      paints: treatment.paints,
-      cssVariables: {
-        ...treatment.cssVariables,
-        '--og-legend-shading-background': CALENDAR_SHADE_BACKGROUND,
-      },
-    };
+    return treatedBarSample(context, {
+      '--og-legend-shading-background': CALENDAR_SHADE_BACKGROUND,
+    });
   }
   const treatment = representativeTreatment(context);
   const representativeStrip = treatment.paints?.strip;
@@ -442,6 +484,22 @@ function workingTimeExtensionSample(
       : {}),
     paints: treatment.paints,
     cssVariables: treatment.cssVariables,
+  };
+}
+
+function treatedBarSample(
+  context: GanttLegendContext,
+  sampleCssVariables: Record<string, string>,
+): LegendSampleDescriptor {
+  const treatment = representativeTreatment(context);
+  return {
+    kind: 'bar',
+    classTokens: treatment.classTokens,
+    paints: treatment.paints,
+    cssVariables: {
+      ...treatment.cssVariables,
+      ...sampleCssVariables,
+    },
   };
 }
 
@@ -650,8 +708,8 @@ function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
       return [classes.bar, classes.overrideDot];
     case 'bar-treatment':
     case 'bar-icon':
-    case 'working-time-extension':
-    case 'working-time-split':
+    case 'estimate-meaning':
+    case 'non-working-rendering':
     case 'occurrence-occupancy':
       return [];
   }

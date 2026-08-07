@@ -28,6 +28,7 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   hasRecordedRecurringOccurrences: false,
   calendarEventColor: null,
   externalOccurrenceColor: null,
+  estimateMeaning: 'calendar-days',
   nonWorkingRendering: 'shaded',
   calendarItems: {
     showRecurring: false,
@@ -135,7 +136,7 @@ describe('buildLegendCatalog', () => {
     expect(priorityIcons.sample.icons?.map((icon) => icon.shape)).toEqual(['glyph', 'dot']);
   });
 
-  it('uses fixed multi-piece geometry for split working time and occurrence occupancy', () => {
+  it('uses fixed multi-piece geometry for split non-working time and occurrence occupancy', () => {
     const context = baseContext({
       taskNotesPresent: true,
       barFillSource: 'status',
@@ -150,7 +151,7 @@ describe('buildLegendCatalog', () => {
       },
     });
 
-    const splitSample = entry(context, 'working-time-split').sample;
+    const splitSample = entry(context, 'non-working-rendering').sample;
     const split = splitSample.pieces ?? [];
     expect(splitSample.classTokens).toEqual(['og-ghost-runs']);
     expect(splitSample.pieceEnvelopeClassTokens).toEqual([
@@ -188,22 +189,6 @@ describe('buildLegendCatalog', () => {
     }
     expect(occupancy.find((piece) => piece.treatment === 'gap')?.classTokens).toEqual([]);
 
-    const extensionSample = entry(context, 'working-time-extension').sample;
-    expect(extensionSample.kind).toBe('pieces');
-    expect(extensionSample.classTokens).toEqual(['og-ghost-runs']);
-    expect(extensionSample.pieceEnvelopeClassTokens).toEqual([
-      'wx-bar',
-      expect.stringMatching(/^og-prio-/),
-    ]);
-    const extension = extensionSample.pieces ?? [];
-    expect(extension.filter((piece) => piece.treatment === 'painted')).toHaveLength(2);
-    for (const piece of extension.filter((candidate) => candidate.treatment === 'painted')) {
-      expect(piece.classTokens).toEqual(['og-ghost-run']);
-    }
-    expect(extensionSample.pieces?.find((piece) => piece.treatment === 'blocked')?.classTokens).toEqual([
-      'og-ghost-run',
-      'og-ghost-blocked',
-    ]);
   });
 
   it('omits the occurrence envelope when the active view has no representative strip', () => {
@@ -313,7 +298,7 @@ describe('buildLegendCatalog', () => {
     }
   });
 
-  it('renders a continuous treated extension when non-working time is shaded', () => {
+  it('renders a continuous treated bar when non-working time is shaded', () => {
     const context = baseContext({
       taskNotesPresent: true,
       barFillSource: 'status',
@@ -324,23 +309,23 @@ describe('buildLegendCatalog', () => {
       nonWorkingRendering: 'shaded',
     });
 
-    const extension = entry(context, 'working-time-extension').sample;
+    const renderingSample = entry(context, 'non-working-rendering').sample;
     const taskBar = entry(context, 'bar-treatment').sample;
-    expect(extension.kind).toBe('bar');
-    expect(extension.classTokens).toEqual([
+    expect(renderingSample.kind).toBe('bar');
+    expect(renderingSample.classTokens).toEqual([
       'wx-bar',
       expect.stringMatching(/^og-status-/),
       expect.stringMatching(/^og-prio-/),
     ]);
-    expect(extension.cssVariables).toEqual({
+    expect(renderingSample.cssVariables).toEqual({
       '--og-ghost-fill': '#2563eb',
       '--og-legend-shading-background': 'var(--wx-gantt-holiday-background)',
     });
-    expect(extension.pieces).toBeUndefined();
+    expect(renderingSample.pieces).toBeUndefined();
     expect({
-      kind: extension.kind,
-      classTokens: extension.classTokens,
-      cssVariables: extension.cssVariables,
+      kind: renderingSample.kind,
+      classTokens: renderingSample.classTokens,
+      cssVariables: renderingSample.cssVariables,
     }).not.toEqual({
       kind: taskBar.kind,
       classTokens: taskBar.classTokens,
@@ -565,21 +550,75 @@ describe('buildLegendCatalog', () => {
     ).toMatchObject({ cssVariables: { '--og-marker-color': '#0f766e' } });
   });
 
-  it('explains working-time extensions when a mapped task can override a calendar-day default', () => {
-    const context = baseContext({
-      calendarPalette: [{ value: 'Calendars/NZ.md', color: '#0f766e' }],
+  it('keeps estimate meaning and non-working rendering independent across all combinations', () => {
+    const calendarSplit = baseContext({
+      estimateMeaning: 'calendar-days',
+      nonWorkingRendering: 'split',
     });
-    const extension = entry(context, 'working-time-extension');
+    const calendarShaded = baseContext({
+      estimateMeaning: 'calendar-days',
+      nonWorkingRendering: 'shaded',
+    });
+    const workingSplit = baseContext({
+      estimateMeaning: 'working-days',
+      nonWorkingRendering: 'split',
+    });
+    const workingShaded = baseContext({
+      estimateMeaning: 'working-days',
+      nonWorkingRendering: 'shaded',
+    });
 
-    expect(extension.meaning).toBe(
-      'The bar extends across non-working time so its estimate counts only working time.',
-    );
-    expect(extension.sample).toMatchObject({
-      kind: 'bar',
-      cssVariables: {
-        '--og-legend-shading-background': 'var(--wx-gantt-holiday-background)',
-      },
+    const calendarEstimate = entry(calendarSplit, 'estimate-meaning');
+    expect(calendarEstimate).toMatchObject({
+      name: 'Calendar-day estimate',
+      meaning:
+        'The bar keeps its elapsed span through non-working time because both working and non-working time count toward the estimate.',
     });
+    expect(entry(calendarShaded, 'estimate-meaning')).toEqual(calendarEstimate);
+
+    const workingEstimate = entry(workingSplit, 'estimate-meaning');
+    expect(workingEstimate).toMatchObject({
+      name: 'Working-day estimate',
+      meaning:
+        'Non-working time does not count toward the estimate, so an inferred edge extends until the required working time fits.',
+    });
+    expect(entry(workingShaded, 'estimate-meaning')).toEqual(workingEstimate);
+    expect(workingEstimate.sample).not.toEqual(calendarEstimate.sample);
+    expect(calendarEstimate.sample.cssVariables).not.toHaveProperty(
+      '--og-legend-shading-background',
+    );
+    expect(workingEstimate.sample.cssVariables).not.toHaveProperty(
+      '--og-legend-shading-background',
+    );
+    expect(calendarEstimate.sample.cssVariables).toMatchObject({
+      '--og-legend-estimate-end-inset': '34%',
+    });
+    expect(workingEstimate.sample.cssVariables).toMatchObject({
+      '--og-legend-estimate-end-inset': '2px',
+    });
+
+    const splitRendering = entry(calendarSplit, 'non-working-rendering');
+    expect(splitRendering).toMatchObject({
+      name: 'Split non-working time',
+      meaning:
+        'Solid runs are working time; the translucent run between them is non-working time.',
+    });
+    expect(entry(workingSplit, 'non-working-rendering')).toEqual(splitRendering);
+
+    const shadedRendering = entry(calendarShaded, 'non-working-rendering');
+    expect(shadedRendering).toMatchObject({
+      name: 'Shaded non-working time',
+      meaning: 'The bar remains continuous while background shading marks non-working time.',
+    });
+    expect(entry(workingShaded, 'non-working-rendering')).toEqual(shadedRendering);
+    expect(shadedRendering.sample).not.toEqual(splitRendering.sample);
+
+    expect(entry(calendarSplit, 'estimate-override').meaning).toBe(
+      "A corner dot means this task uses a working-day estimate instead of the view's calendar-day estimate.",
+    );
+    expect(entry(workingSplit, 'estimate-override').meaning).toBe(
+      "A corner dot means this task uses a calendar-day estimate instead of the view's working-day estimate.",
+    );
   });
 
   it('lets context samples inherit the configured opacity from the Gantt root', () => {
@@ -730,8 +769,8 @@ describe('legend semantic exhaustiveness', () => {
       'calendar-event': { group: 'calendars', sampleKind: 'bar' },
       'today-marker': { group: 'calendars', sampleKind: 'marker' },
       'calendar-marker': { group: 'calendars', sampleKind: 'marker' },
-      'working-time-extension': { group: 'calendars', sampleKind: 'pieces' },
-      'working-time-split': { group: 'calendars', sampleKind: 'pieces' },
+      'estimate-meaning': { group: 'calendars', sampleKind: 'pieces' },
+      'non-working-rendering': { group: 'calendars', sampleKind: 'pieces' },
       'occurrence-occupancy': { group: 'occurrences', sampleKind: 'pieces' },
       'occurrence-next': { group: 'occurrences', sampleKind: 'bar' },
       'occurrence-projected': { group: 'occurrences', sampleKind: 'bar' },
