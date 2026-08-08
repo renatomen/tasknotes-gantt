@@ -1,4 +1,5 @@
-import { browser, expect, $$ } from "@wdio/globals";
+/* global DOMMatrixReadOnly, getComputedStyle */
+import { browser, expect } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -23,10 +24,11 @@ import { fileURLToPath } from "node:url";
  * a new `begin`/`finish`-dated task pair keeps the new fixtures out of the legacy
  * `note.start || note.due` colour bases.
  *
- * Assertions follow the bar-treatments pattern: inspect the injected treatment
- * stylesheet text (`style[data-og-treatment]`) and the bar classes, rather than
- * brittle computed-style reads. The two strip/fill coupling regressions (AE2/AE3)
- * are pinned as "does NOT contain" tripwires on the generated CSS.
+ * Treatment assertions follow the bar-treatments pattern by inspecting the
+ * injected stylesheet and bar classes. The one-cell alignment regression reads
+ * rendered geometry because the live SVAR/Svelte cascade is the behavior under
+ * test. The strip/fill coupling regressions remain pinned as "does NOT contain"
+ * tripwires on the generated CSS.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,9 +40,30 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-colour");
 const CAL_NZ = "#2a9d8f"; // NZ Holidays calendar
 const STATUS_OPEN = "#808080"; // status "open"
 const PRIORITY_HIGH = "#ff0000"; // priority "high"
+// Both alignment fixtures pin the day scale, whose configured opening width is
+// authoritative even when SVAR omits off-screen scale-header cells.
+const DAY_SCALE_CELL_WIDTH_PX = 30;
+const BAR_CONTENT_GAP_PX = 6;
+const BAR_ICON_CHIP_WIDTH_PX = 20;
 // The neutral strip-mode body (mixNeutral(16) in barTreatment.ts): a strip laid
 // over a calm body emits this, a fill never does.
 const NEUTRAL_BODY = "var(--text-normal) 16%";
+
+interface BarIconLayout {
+  barWidth: number;
+  chipTranslationX: number;
+  contentPaddingLeft: number;
+  contentGap: number;
+  chipWidth: number;
+  textInset: number;
+}
+
+interface BarIconLayoutProbe {
+  layout: BarIconLayout | null;
+  missing: string[];
+}
+
+let currentBase = "";
 
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -75,41 +98,64 @@ async function waitForTaskNotesReady(): Promise<void> {
   );
 }
 
-/**
- * Open a `.base` file and wait for bars. TaskNotes opens a starter markdown note
- * that steals the active leaf, so drop stray markdown leaves and any prior base
- * leaf first — the view under test stays the sole `.og-bases-gantt` (so a
- * document-wide stylesheet read can't catch a previously-opened view's `<style>`).
- */
-async function openBase(basePath: string): Promise<void> {
-  await browser.executeObsidian(async ({ app }, p) => {
-    const ws = app.workspace as unknown as {
-      detachLeavesOfType: (t: string) => void;
-      iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
-      getLeaf: (n?: boolean) => { openFile: (f: unknown) => Promise<void> };
-    };
-    const markdownLeaves: Array<{ detach?: () => void }> = [];
-    ws.iterateAllLeaves((l) => {
-      if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
-    });
-    markdownLeaves.forEach((l) => l.detach?.());
-    ws.detachLeavesOfType("bases");
-    const file = app.vault.getAbstractFileByPath(p);
-    if (file) {
-      await ws.getLeaf(true).openFile(file as never);
-    }
-  }, basePath);
-
+async function waitForMetadataCacheReady(): Promise<void> {
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
-    { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` },
+    async () =>
+      browser.executeObsidian(({ app }) => {
+        const files = app.vault.getMarkdownFiles();
+        return files.length > 0 && files.every((file) => app.metadataCache.getFileCache(file) !== null);
+      }),
+    { timeout: 60000, timeoutMsg: "metadataCache cold scan did not finish" },
   );
 }
 
-/** The active view's injected treatment stylesheet text (single `.og-bases-gantt`). */
+/** Re-front the Base after TaskNotes' asynchronous starter note steals focus. */
+async function activateBaseLeaf(): Promise<void> {
+  await browser.executeObsidian(async ({ app }, basePath) => {
+    const ws = app.workspace as unknown as {
+      iterateAllLeaves: (cb: (leaf: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
+      getLeavesOfType: (type: string) => unknown[];
+      getLeaf: (newLeaf?: boolean) => { openFile: (file: unknown) => Promise<void> };
+      setActiveLeaf: (leaf: unknown, opts?: { focus?: boolean }) => void;
+      revealLeaf: (leaf: unknown) => void;
+    };
+    const markdownLeaves: Array<{ detach?: () => void }> = [];
+    ws.iterateAllLeaves((leaf) => {
+      if (leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
+    });
+    markdownLeaves.forEach((leaf) => leaf.detach?.());
+
+    let baseLeaf = ws.getLeavesOfType("bases")[0];
+    if (!baseLeaf) {
+      const file = app.vault.getAbstractFileByPath(basePath);
+      if (!file) throw new Error(`Base fixture not found: ${basePath}`);
+      const leaf = ws.getLeaf(false);
+      await leaf.openFile(file as never);
+      baseLeaf = leaf;
+    }
+    ws.setActiveLeaf(baseLeaf, { focus: true });
+    ws.revealLeaf(baseLeaf);
+  }, currentBase);
+}
+
+async function openBase(basePath: string): Promise<void> {
+  currentBase = basePath;
+  await browser.executeObsidian(({ app }) => app.workspace.detachLeavesOfType("bases"));
+
+  await browser.waitUntil(async () => {
+    await activateBaseLeaf();
+    return browser.executeObsidian(({ app }) => {
+      const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+      return (root?.querySelectorAll(".og-bases-gantt .wx-bar").length ?? 0) > 0;
+    });
+  }, { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` });
+}
+
 async function treatmentCss(): Promise<string> {
-  return browser.execute(() => {
-    const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
+  await activateBaseLeaf();
+  return browser.executeObsidian(({ app }) => {
+    const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+    const style = root?.querySelector(".og-bases-gantt style[data-og-treatment]");
     return style?.textContent ?? "";
   });
 }
@@ -134,11 +180,85 @@ async function waitForTreatmentCss(mustContain: string): Promise<string> {
 
 /** Number of rendered bars matching a class selector, once at least one appears. */
 async function waitForBars(selector: string): Promise<number> {
-  await browser.waitUntil(async () => (await $$(selector)).length > 0, {
+  const countMatches = async (): Promise<number> => {
+    await activateBaseLeaf();
+    return browser.executeObsidian(({ app }, query) => {
+      const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+      return root?.querySelectorAll(query).length ?? 0;
+    }, selector);
+  };
+
+  await browser.waitUntil(async () => (await countMatches()) > 0, {
     timeout: 30000,
     timeoutMsg: `no bar matched "${selector}"`,
   });
-  return (await $$(selector)).length;
+  return countMatches();
+}
+
+async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
+  await activateBaseLeaf();
+  return browser.executeObsidian(({ app }) => {
+    const activeRoot = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+    if (!activeRoot) return { layout: null, missing: ["active leaf container"] };
+
+    const chip = activeRoot.querySelector<HTMLElement>(
+      ".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip",
+    );
+    const surface = chip?.closest<HTMLElement>(".og-chart-surface");
+    const root = chip?.closest<HTMLElement>(".og-bases-gantt");
+    const bar = chip?.closest<HTMLElement>(".wx-bar");
+    const content = chip?.closest<HTMLElement>(".wx-content");
+    const text = content?.querySelector<HTMLElement>(".og-bar-text");
+    const missing = [
+      !chip && "chart chip",
+      !surface && "owning chart surface",
+      !root && "owning Gantt root",
+      !bar && "owning bar",
+      !content && "owning content",
+      !text && "bar text",
+    ].filter((part): part is string => Boolean(part));
+    if (missing.length > 0 || !bar || !content || !chip || !text) {
+      return { layout: null, missing };
+    }
+
+    const contentStyle = getComputedStyle(content);
+    const chipTransform = getComputedStyle(chip).transform;
+    const transformMatrix = new DOMMatrixReadOnly(chipTransform === "none" ? undefined : chipTransform);
+    const contentBounds = content.getBoundingClientRect();
+    const textBounds = text.getBoundingClientRect();
+
+    return {
+      layout: {
+        barWidth: bar.getBoundingClientRect().width,
+        chipTranslationX: transformMatrix.m41,
+        contentPaddingLeft: Number.parseFloat(contentStyle.paddingLeft),
+        contentGap: Number.parseFloat(contentStyle.gap),
+        chipWidth: chip.getBoundingClientRect().width,
+        textInset: textBounds.left - contentBounds.left,
+      },
+      missing: [],
+    };
+  });
+}
+
+async function waitForBarIconLayout(): Promise<BarIconLayout> {
+  let probe: BarIconLayoutProbe = { layout: null, missing: ["geometry probe"] };
+  try {
+    await browser.waitUntil(
+      async () => {
+        probe = await readBarIconLayout();
+        return probe.layout !== null && probe.layout.barWidth > 0 && probe.layout.chipWidth > 0;
+      },
+      { timeout: 15000, timeoutMsg: "bar icon geometry did not settle" },
+    );
+  } catch (error) {
+    const geometry = probe.layout
+      ? `bar width: ${probe.layout.barWidth}, chip width: ${probe.layout.chipWidth}`
+      : `missing: ${probe.missing.join(", ")}`;
+    throw new Error(`bar icon geometry did not settle; ${geometry}`, { cause: error });
+  }
+  if (!probe.layout) throw new Error("bar icon layout was unavailable");
+  return probe.layout;
 }
 
 describe("Gantt (OG) independent bar treatment channels", () => {
@@ -150,6 +270,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     await browser.reloadObsidian({ vault: tmpVault, plugins: ["tasknotes-gantt", "tasknotes"] });
     await enableBases();
     await waitForTaskNotesReady();
+    await waitForMetadataCacheReady();
   });
 
   describe("AE1 — three channels at once (fill=calendar, strip=priority, icon=status)", () => {
@@ -174,6 +295,41 @@ describe("Gantt (OG) independent bar treatment channels", () => {
 
     it("renders a status icon chip", async () => {
       expect(await waitForBars(".og-bases-gantt .og-bar-chip")).toBeGreaterThan(0);
+    });
+
+    it("moves the status chip left with the adjusted one-cell content inset", async () => {
+      const layout = await waitForBarIconLayout();
+
+      expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
+      expect(layout.chipTranslationX).toBe(0);
+      expect(layout.contentPaddingLeft).toBe(7);
+      expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
+      expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
+      expect(layout.textInset).toBeCloseTo(
+        layout.contentPaddingLeft + layout.chipWidth + layout.contentGap,
+        0,
+      );
+    });
+  });
+
+  describe("one-cell priority icon alignment", () => {
+    before(async () => {
+      await openBase("ChannelsPriorityIcon.base");
+    });
+
+    it("moves the priority chip left with the adjusted strip-mode inset", async () => {
+      await waitForTreatmentCss(STATUS_OPEN);
+      const layout = await waitForBarIconLayout();
+
+      expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
+      expect(layout.chipTranslationX).toBe(0);
+      expect(layout.contentPaddingLeft).toBe(9);
+      expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
+      expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
+      expect(layout.textInset).toBeCloseTo(
+        layout.contentPaddingLeft + layout.chipWidth + layout.contentGap,
+        0,
+      );
     });
   });
 
@@ -216,6 +372,25 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     it("draws NO ::before strip anywhere (regression: fill must not draw a strip)", async () => {
       const css = await waitForTreatmentCss(`${CAL_NZ} !important`);
       expect(css).not.toContain("::before");
+    });
+
+    it("uses the adjusted content inset without an icon", async () => {
+      await waitForBars(".og-bases-gantt .og-chart-surface .wx-bar");
+      await activateBaseLeaf();
+      const chipCount = await browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+        return root?.querySelectorAll(".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip").length ?? 0;
+      });
+      expect(chipCount).toBe(0);
+      await activateBaseLeaf();
+      const paddingLeft = await browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+        const content = root?.querySelector<HTMLElement>(
+          ".og-bases-gantt .og-chart-surface .wx-bar .wx-content",
+        );
+        return content ? Number.parseFloat(getComputedStyle(content).paddingLeft) : null;
+      });
+      expect(paddingLeft).toBe(7);
     });
   });
 
