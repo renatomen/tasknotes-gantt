@@ -40,6 +40,9 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-colour");
 const CAL_NZ = "#2a9d8f"; // NZ Holidays calendar
 const STATUS_OPEN = "#808080"; // status "open"
 const PRIORITY_HIGH = "#ff0000"; // priority "high"
+// Both alignment fixtures pin the day scale, whose configured opening width is
+// authoritative even when SVAR omits off-screen scale-header cells.
+const DAY_SCALE_CELL_WIDTH_PX = 30;
 const BAR_CONTENT_GAP_PX = 6;
 const BAR_ICON_CHIP_WIDTH_PX = 20;
 // The neutral strip-mode body (mixNeutral(16) in barTreatment.ts): a strip laid
@@ -48,7 +51,6 @@ const NEUTRAL_BODY = "var(--text-normal) 16%";
 
 interface BarIconLayout {
   barWidth: number;
-  scaleCellWidth: number;
   chipTranslationX: number;
   contentPaddingLeft: number;
   contentGap: number;
@@ -181,8 +183,6 @@ async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
     const bar = chip?.closest<HTMLElement>(".wx-bar");
     const content = chip?.closest<HTMLElement>(".wx-content");
     const text = content?.querySelector<HTMLElement>(".og-bar-text");
-    const scaleCells = root?.querySelectorAll<HTMLElement>(".wx-scale .wx-row .wx-cell");
-    const scaleCell = scaleCells?.[scaleCells.length - 1];
     const missing = [
       !chip && "chart chip",
       !surface && "owning chart surface",
@@ -190,9 +190,8 @@ async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
       !bar && "owning bar",
       !content && "owning content",
       !text && "bar text",
-      !scaleCell && "finest scale cell",
     ].filter((part): part is string => Boolean(part));
-    if (missing.length > 0 || !bar || !content || !chip || !text || !scaleCell) {
+    if (missing.length > 0 || !bar || !content || !chip || !text) {
       return { layout: null, missing };
     }
 
@@ -205,7 +204,6 @@ async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
     return {
       layout: {
         barWidth: bar.getBoundingClientRect().width,
-        scaleCellWidth: scaleCell.getBoundingClientRect().width,
         chipTranslationX: transformMatrix.m41,
         contentPaddingLeft: Number.parseFloat(contentStyle.paddingLeft),
         contentGap: Number.parseFloat(contentStyle.gap),
@@ -275,7 +273,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     it("moves the status chip left with the adjusted one-cell content inset", async () => {
       const layout = await waitForBarIconLayout();
 
-      expect(layout.barWidth).toBeCloseTo(layout.scaleCellWidth, 0);
+      expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
       expect(layout.chipTranslationX).toBe(0);
       expect(layout.contentPaddingLeft).toBe(7);
       expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
@@ -296,7 +294,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
       await waitForTreatmentCss(STATUS_OPEN);
       const layout = await waitForBarIconLayout();
 
-      expect(layout.barWidth).toBeCloseTo(layout.scaleCellWidth, 0);
+      expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
       expect(layout.chipTranslationX).toBe(0);
       expect(layout.contentPaddingLeft).toBe(9);
       expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
