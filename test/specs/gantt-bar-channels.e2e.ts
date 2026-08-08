@@ -1,5 +1,5 @@
 /* global DOMMatrixReadOnly, getComputedStyle */
-import { browser, expect, $$ } from "@wdio/globals";
+import { browser, expect } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -107,41 +107,38 @@ async function waitForMetadataCacheReady(): Promise<void> {
   );
 }
 
-/**
- * Open a `.base` file and wait for bars. TaskNotes opens a starter markdown note
- * that steals the active leaf, so drop stray markdown leaves and any prior base
- * leaf first — the view under test stays the sole `.og-bases-gantt` (so a
- * document-wide stylesheet read can't catch a previously-opened view's `<style>`).
- */
+/** Open a `.base` file in the active leaf and wait for its visible bars. */
 async function openBase(basePath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, p) => {
     const ws = app.workspace as unknown as {
-      detachLeavesOfType: (t: string) => void;
-      iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
-      getLeaf: (n?: boolean) => { openFile: (f: unknown) => Promise<void> };
+      getLeaf: (newLeaf: false) => { openFile: (f: unknown) => Promise<void> };
+      setActiveLeaf: (l: unknown, opts?: { focus?: boolean }) => void;
+      revealLeaf: (l: unknown) => Promise<void>;
     };
-    const markdownLeaves: Array<{ detach?: () => void }> = [];
-    ws.iterateAllLeaves((l) => {
-      if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
-    });
-    markdownLeaves.forEach((l) => l.detach?.());
-    ws.detachLeavesOfType("bases");
     const file = app.vault.getAbstractFileByPath(p);
-    if (file) {
-      await ws.getLeaf(true).openFile(file as never);
-    }
+    if (!file) throw new Error(`Base fixture not found: ${p}`);
+
+    const leaf = ws.getLeaf(false);
+    await leaf.openFile(file as never);
+    await ws.revealLeaf(leaf);
+    ws.setActiveLeaf(leaf, { focus: true });
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () =>
+      browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+        return (root?.querySelectorAll(".og-bases-gantt .wx-bar").length ?? 0) > 0;
+      }),
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` },
   );
 }
 
 /** The active view's injected treatment stylesheet text (single `.og-bases-gantt`). */
 async function treatmentCss(): Promise<string> {
-  return browser.execute(() => {
-    const style = document.querySelector(".og-bases-gantt style[data-og-treatment]");
+  return browser.executeObsidian(({ app }) => {
+    const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+    const style = root?.querySelector(".og-bases-gantt style[data-og-treatment]");
     return style?.textContent ?? "";
   });
 }
@@ -166,16 +163,25 @@ async function waitForTreatmentCss(mustContain: string): Promise<string> {
 
 /** Number of rendered bars matching a class selector, once at least one appears. */
 async function waitForBars(selector: string): Promise<number> {
-  await browser.waitUntil(async () => (await $$(selector)).length > 0, {
+  const countMatches = async (): Promise<number> =>
+    browser.executeObsidian(({ app }, query) => {
+      const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+      return root?.querySelectorAll(query).length ?? 0;
+    }, selector);
+
+  await browser.waitUntil(async () => (await countMatches()) > 0, {
     timeout: 30000,
     timeoutMsg: `no bar matched "${selector}"`,
   });
-  return (await $$(selector)).length;
+  return countMatches();
 }
 
 async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
-  return browser.execute(() => {
-    const chip = document.querySelector<HTMLElement>(
+  return browser.executeObsidian(({ app }) => {
+    const activeRoot = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+    if (!activeRoot) return { layout: null, missing: ["active leaf container"] };
+
+    const chip = activeRoot.querySelector<HTMLElement>(
       ".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip",
     );
     const surface = chip?.closest<HTMLElement>(".og-chart-surface");
@@ -221,14 +227,15 @@ async function waitForBarIconLayout(): Promise<BarIconLayout> {
     await browser.waitUntil(
       async () => {
         probe = await readBarIconLayout();
-        return probe.layout !== null;
+        return probe.layout !== null && probe.layout.barWidth > 0 && probe.layout.chipWidth > 0;
       },
       { timeout: 15000, timeoutMsg: "bar icon geometry did not settle" },
     );
   } catch (error) {
-    throw new Error(`bar icon geometry did not settle; missing: ${probe.missing.join(", ")}`, {
-      cause: error,
-    });
+    const geometry = probe.layout
+      ? `bar width: ${probe.layout.barWidth}, chip width: ${probe.layout.chipWidth}`
+      : `missing: ${probe.missing.join(", ")}`;
+    throw new Error(`bar icon geometry did not settle; ${geometry}`, { cause: error });
   }
   if (!probe.layout) throw new Error("bar icon layout was unavailable");
   return probe.layout;
@@ -348,9 +355,14 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     });
 
     it("uses the adjusted content inset without an icon", async () => {
-      expect(await $$(".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip")).toHaveLength(0);
-      const paddingLeft = await browser.execute(() => {
-        const content = document.querySelector<HTMLElement>(
+      const chipCount = await browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+        return root?.querySelectorAll(".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip").length ?? 0;
+      });
+      expect(chipCount).toBe(0);
+      const paddingLeft = await browser.executeObsidian(({ app }) => {
+        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+        const content = root?.querySelector<HTMLElement>(
           ".og-bases-gantt .og-chart-surface .wx-bar .wx-content",
         );
         return content ? Number.parseFloat(getComputedStyle(content).paddingLeft) : null;
