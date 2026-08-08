@@ -718,16 +718,19 @@ describe("Gantt (OG) context-aware legend", () => {
       const chartBar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]') as HTMLElement | null;
       const chartPaint = chartBar?.querySelector<HTMLElement>(".og-ghost-run:not(.og-ghost-blocked)") ?? chartBar;
       const sample = document.querySelector('[data-semantic-id="bar-treatment"] .og-legend-bar') as HTMLElement | null;
+      const sampleChip = sample?.querySelector<HTMLElement>(".og-bar-chip");
       return {
         chartBackground: chartPaint ? getComputedStyle(chartPaint).backgroundColor : null,
         sampleBackground: sample ? getComputedStyle(sample).backgroundColor : null,
         sampleClass: sample?.className ?? "",
         hasIcon: !!sample?.querySelector(".og-bar-chip"),
+        chipTransform: sampleChip ? getComputedStyle(sampleChip).transform : null,
       };
     });
     expect(paint.sampleClass).toContain("og-calendar-");
     expect(paint.sampleClass).toContain("og-prio-");
     expect(paint.hasIcon).toBe(true);
+    expect(paint.chipTransform).toBe("none");
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 

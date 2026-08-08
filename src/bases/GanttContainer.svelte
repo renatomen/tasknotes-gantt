@@ -3563,7 +3563,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-left: 8px;
+    padding-left: 7px;
   }
   .og-bases-gantt :global(.og-bar-text) {
     overflow: hidden;

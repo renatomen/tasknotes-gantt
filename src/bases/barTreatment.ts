@@ -76,7 +76,7 @@ export const STRIP_WIDTH_PX = 6;
  * gap so the icon chip / text never crowds the strip. Emitted only in strip mode
  * (via the generated stylesheet), so fill/role modes keep their tighter inset.
  */
-export const STRIP_CONTENT_PADDING_PX = STRIP_WIDTH_PX + 4;
+export const STRIP_CONTENT_PADDING_PX = STRIP_WIDTH_PX + 3;
 
 /**
  * A neutral tone `pct`% of the way from the editor background toward `--text-normal`.

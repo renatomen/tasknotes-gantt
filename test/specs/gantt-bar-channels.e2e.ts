@@ -1,3 +1,4 @@
+/* global DOMMatrixReadOnly, getComputedStyle */
 import { browser, expect, $$ } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -23,10 +24,11 @@ import { fileURLToPath } from "node:url";
  * a new `begin`/`finish`-dated task pair keeps the new fixtures out of the legacy
  * `note.start || note.due` colour bases.
  *
- * Assertions follow the bar-treatments pattern: inspect the injected treatment
- * stylesheet text (`style[data-og-treatment]`) and the bar classes, rather than
- * brittle computed-style reads. The two strip/fill coupling regressions (AE2/AE3)
- * are pinned as "does NOT contain" tripwires on the generated CSS.
+ * Treatment assertions follow the bar-treatments pattern by inspecting the
+ * injected stylesheet and bar classes. The one-cell alignment regression reads
+ * rendered geometry because the live SVAR/Svelte cascade is the behavior under
+ * test. The strip/fill coupling regressions remain pinned as "does NOT contain"
+ * tripwires on the generated CSS.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,9 +40,26 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-colour");
 const CAL_NZ = "#2a9d8f"; // NZ Holidays calendar
 const STATUS_OPEN = "#808080"; // status "open"
 const PRIORITY_HIGH = "#ff0000"; // priority "high"
+const BAR_CONTENT_GAP_PX = 6;
+const BAR_ICON_CHIP_WIDTH_PX = 20;
 // The neutral strip-mode body (mixNeutral(16) in barTreatment.ts): a strip laid
 // over a calm body emits this, a fill never does.
 const NEUTRAL_BODY = "var(--text-normal) 16%";
+
+interface BarIconLayout {
+  barWidth: number;
+  scaleCellWidth: number;
+  chipTranslationX: number;
+  contentPaddingLeft: number;
+  contentGap: number;
+  chipWidth: number;
+  textInset: number;
+}
+
+interface BarIconLayoutProbe {
+  layout: BarIconLayout | null;
+  missing: string[];
+}
 
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -75,28 +94,24 @@ async function waitForTaskNotesReady(): Promise<void> {
   );
 }
 
-/**
- * Open a `.base` file and wait for bars. TaskNotes opens a starter markdown note
- * that steals the active leaf, so drop stray markdown leaves and any prior base
- * leaf first — the view under test stays the sole `.og-bases-gantt` (so a
- * document-wide stylesheet read can't catch a previously-opened view's `<style>`).
- */
+async function waitForMetadataCacheReady(): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.executeObsidian(({ app }) => {
+        const files = app.vault.getMarkdownFiles();
+        return files.length > 0 && files.every((file) => app.metadataCache.getFileCache(file) !== null);
+      }),
+    { timeout: 60000, timeoutMsg: "metadataCache cold scan did not finish" },
+  );
+}
+
+/** Open a `.base` file in a fresh leaf and wait for its bars. */
 async function openBase(basePath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, p) => {
-    const ws = app.workspace as unknown as {
-      detachLeavesOfType: (t: string) => void;
-      iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
-      getLeaf: (n?: boolean) => { openFile: (f: unknown) => Promise<void> };
-    };
-    const markdownLeaves: Array<{ detach?: () => void }> = [];
-    ws.iterateAllLeaves((l) => {
-      if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
-    });
-    markdownLeaves.forEach((l) => l.detach?.());
-    ws.detachLeavesOfType("bases");
+    app.workspace.detachLeavesOfType("bases");
     const file = app.vault.getAbstractFileByPath(p);
     if (file) {
-      await ws.getLeaf(true).openFile(file as never);
+      await app.workspace.getLeaf(true).openFile(file as never);
     }
   }, basePath);
 
@@ -141,6 +156,71 @@ async function waitForBars(selector: string): Promise<number> {
   return (await $$(selector)).length;
 }
 
+async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
+  return browser.execute(() => {
+    const chip = document.querySelector<HTMLElement>(
+      ".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip",
+    );
+    const surface = chip?.closest<HTMLElement>(".og-chart-surface");
+    const root = chip?.closest<HTMLElement>(".og-bases-gantt");
+    const bar = chip?.closest<HTMLElement>(".wx-bar");
+    const content = chip?.closest<HTMLElement>(".wx-content");
+    const text = content?.querySelector<HTMLElement>(".og-bar-text");
+    const scaleCells = root?.querySelectorAll<HTMLElement>(".wx-scale .wx-row .wx-cell");
+    const scaleCell = scaleCells?.[scaleCells.length - 1];
+    const missing = [
+      !chip && "chart chip",
+      !surface && "owning chart surface",
+      !root && "owning Gantt root",
+      !bar && "owning bar",
+      !content && "owning content",
+      !text && "bar text",
+      !scaleCell && "finest scale cell",
+    ].filter((part): part is string => Boolean(part));
+    if (missing.length > 0 || !bar || !content || !chip || !text || !scaleCell) {
+      return { layout: null, missing };
+    }
+
+    const contentStyle = getComputedStyle(content);
+    const chipTransform = getComputedStyle(chip).transform;
+    const transformMatrix = new DOMMatrixReadOnly(chipTransform === "none" ? undefined : chipTransform);
+    const contentBounds = content.getBoundingClientRect();
+    const textBounds = text.getBoundingClientRect();
+
+    return {
+      layout: {
+        barWidth: bar.getBoundingClientRect().width,
+        scaleCellWidth: scaleCell.getBoundingClientRect().width,
+        chipTranslationX: transformMatrix.m41,
+        contentPaddingLeft: Number.parseFloat(contentStyle.paddingLeft),
+        contentGap: Number.parseFloat(contentStyle.gap),
+        chipWidth: chip.getBoundingClientRect().width,
+        textInset: textBounds.left - contentBounds.left,
+      },
+      missing: [],
+    };
+  });
+}
+
+async function waitForBarIconLayout(): Promise<BarIconLayout> {
+  let probe: BarIconLayoutProbe = { layout: null, missing: ["geometry probe"] };
+  try {
+    await browser.waitUntil(
+      async () => {
+        probe = await readBarIconLayout();
+        return probe.layout !== null;
+      },
+      { timeout: 15000, timeoutMsg: "bar icon geometry did not settle" },
+    );
+  } catch (error) {
+    throw new Error(`bar icon geometry did not settle; missing: ${probe.missing.join(", ")}`, {
+      cause: error,
+    });
+  }
+  if (!probe.layout) throw new Error("bar icon layout was unavailable");
+  return probe.layout;
+}
+
 describe("Gantt (OG) independent bar treatment channels", () => {
   before(async () => {
     const tmpVault = path.join(os.tmpdir(), "og-gantt-bar-channels-e2e");
@@ -150,6 +230,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     await browser.reloadObsidian({ vault: tmpVault, plugins: ["tasknotes-gantt", "tasknotes"] });
     await enableBases();
     await waitForTaskNotesReady();
+    await waitForMetadataCacheReady();
   });
 
   describe("AE1 — three channels at once (fill=calendar, strip=priority, icon=status)", () => {
@@ -174,6 +255,41 @@ describe("Gantt (OG) independent bar treatment channels", () => {
 
     it("renders a status icon chip", async () => {
       expect(await waitForBars(".og-bases-gantt .og-bar-chip")).toBeGreaterThan(0);
+    });
+
+    it("moves the status chip left with the adjusted one-cell content inset", async () => {
+      const layout = await waitForBarIconLayout();
+
+      expect(layout.barWidth).toBeCloseTo(layout.scaleCellWidth, 0);
+      expect(layout.chipTranslationX).toBe(0);
+      expect(layout.contentPaddingLeft).toBe(7);
+      expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
+      expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
+      expect(layout.textInset).toBeCloseTo(
+        layout.contentPaddingLeft + layout.chipWidth + layout.contentGap,
+        0,
+      );
+    });
+  });
+
+  describe("one-cell priority icon alignment", () => {
+    before(async () => {
+      await openBase("ChannelsPriorityIcon.base");
+    });
+
+    it("moves the priority chip left with the adjusted strip-mode inset", async () => {
+      await waitForTreatmentCss(STATUS_OPEN);
+      const layout = await waitForBarIconLayout();
+
+      expect(layout.barWidth).toBeCloseTo(layout.scaleCellWidth, 0);
+      expect(layout.chipTranslationX).toBe(0);
+      expect(layout.contentPaddingLeft).toBe(9);
+      expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
+      expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
+      expect(layout.textInset).toBeCloseTo(
+        layout.contentPaddingLeft + layout.chipWidth + layout.contentGap,
+        0,
+      );
     });
   });
 
@@ -216,6 +332,17 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     it("draws NO ::before strip anywhere (regression: fill must not draw a strip)", async () => {
       const css = await waitForTreatmentCss(`${CAL_NZ} !important`);
       expect(css).not.toContain("::before");
+    });
+
+    it("uses the adjusted content inset without an icon", async () => {
+      expect(await $$(".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip")).toHaveLength(0);
+      const paddingLeft = await browser.execute(() => {
+        const content = document.querySelector<HTMLElement>(
+          ".og-bases-gantt .og-chart-surface .wx-bar .wx-content",
+        );
+        return content ? Number.parseFloat(getComputedStyle(content).paddingLeft) : null;
+      });
+      expect(paddingLeft).toBe(7);
     });
   });
 
