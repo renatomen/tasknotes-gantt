@@ -215,7 +215,7 @@ The generalizable habit: **when a default exists, the fixture that omits the set
 the one that tests it.** A suite where every fixture sets the value proves only the
 explicit path.
 
-**Verification** (PR #254, unmerged as of this writing): 1577 unit tests; 22 e2e spec
+**Verification** (PR #254): 1577 unit tests; 22 e2e spec
 files against real Obsidian + TaskNotes, including the #161 storm/loop specs (the
 signature change touches the reuse gate); typecheck and lint clean.
 
