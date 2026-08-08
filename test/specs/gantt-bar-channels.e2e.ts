@@ -105,13 +105,28 @@ async function waitForMetadataCacheReady(): Promise<void> {
   );
 }
 
-/** Open a `.base` file in a fresh leaf and wait for its bars. */
+/**
+ * Open a `.base` file and wait for bars. TaskNotes opens a starter markdown note
+ * that steals the active leaf, so drop stray markdown leaves and any prior base
+ * leaf first — the view under test stays the sole `.og-bases-gantt` (so a
+ * document-wide stylesheet read can't catch a previously-opened view's `<style>`).
+ */
 async function openBase(basePath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, p) => {
-    app.workspace.detachLeavesOfType("bases");
+    const ws = app.workspace as unknown as {
+      detachLeavesOfType: (t: string) => void;
+      iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
+      getLeaf: (n?: boolean) => { openFile: (f: unknown) => Promise<void> };
+    };
+    const markdownLeaves: Array<{ detach?: () => void }> = [];
+    ws.iterateAllLeaves((l) => {
+      if (l.view?.getViewType?.() === "markdown") markdownLeaves.push(l);
+    });
+    markdownLeaves.forEach((l) => l.detach?.());
+    ws.detachLeavesOfType("bases");
     const file = app.vault.getAbstractFileByPath(p);
     if (file) {
-      await app.workspace.getLeaf(true).openFile(file as never);
+      await ws.getLeaf(true).openFile(file as never);
     }
   }, basePath);
 
