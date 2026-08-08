@@ -63,6 +63,8 @@ interface BarIconLayoutProbe {
   missing: string[];
 }
 
+let currentBase = "";
+
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
     const ip = (app as unknown as { internalPlugins?: {
@@ -107,35 +109,50 @@ async function waitForMetadataCacheReady(): Promise<void> {
   );
 }
 
-/** Open a `.base` file in the active leaf and wait for its visible bars. */
-async function openBase(basePath: string): Promise<void> {
-  await browser.executeObsidian(async ({ app }, p) => {
+/** Re-front the Base after TaskNotes' asynchronous starter note steals focus. */
+async function activateBaseLeaf(): Promise<void> {
+  await browser.executeObsidian(async ({ app }, basePath) => {
     const ws = app.workspace as unknown as {
-      getLeaf: (newLeaf: false) => { openFile: (f: unknown) => Promise<void> };
-      setActiveLeaf: (l: unknown, opts?: { focus?: boolean }) => void;
-      revealLeaf: (l: unknown) => Promise<void>;
+      iterateAllLeaves: (cb: (leaf: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
+      getLeavesOfType: (type: string) => unknown[];
+      getLeaf: (newLeaf?: boolean) => { openFile: (file: unknown) => Promise<void> };
+      setActiveLeaf: (leaf: unknown, opts?: { focus?: boolean }) => void;
+      revealLeaf: (leaf: unknown) => void;
     };
-    const file = app.vault.getAbstractFileByPath(p);
-    if (!file) throw new Error(`Base fixture not found: ${p}`);
+    const markdownLeaves: Array<{ detach?: () => void }> = [];
+    ws.iterateAllLeaves((leaf) => {
+      if (leaf.view?.getViewType?.() === "markdown") markdownLeaves.push(leaf);
+    });
+    markdownLeaves.forEach((leaf) => leaf.detach?.());
 
-    const leaf = ws.getLeaf(false);
-    await leaf.openFile(file as never);
-    await ws.revealLeaf(leaf);
-    ws.setActiveLeaf(leaf, { focus: true });
-  }, basePath);
-
-  await browser.waitUntil(
-    async () =>
-      browser.executeObsidian(({ app }) => {
-        const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
-        return (root?.querySelectorAll(".og-bases-gantt .wx-bar").length ?? 0) > 0;
-      }),
-    { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` },
-  );
+    let baseLeaf = ws.getLeavesOfType("bases")[0];
+    if (!baseLeaf) {
+      const file = app.vault.getAbstractFileByPath(basePath);
+      if (!file) throw new Error(`Base fixture not found: ${basePath}`);
+      const leaf = ws.getLeaf(false);
+      await leaf.openFile(file as never);
+      baseLeaf = leaf;
+    }
+    ws.setActiveLeaf(baseLeaf, { focus: true });
+    ws.revealLeaf(baseLeaf);
+  }, currentBase);
 }
 
-/** The active view's injected treatment stylesheet text (single `.og-bases-gantt`). */
+async function openBase(basePath: string): Promise<void> {
+  currentBase = basePath;
+  await browser.executeObsidian(({ app }) => app.workspace.detachLeavesOfType("bases"));
+
+  await browser.waitUntil(async () => {
+    await activateBaseLeaf();
+    return browser.executeObsidian(({ app }) => {
+      const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+      return (root?.querySelectorAll(".og-bases-gantt .wx-bar").length ?? 0) > 0;
+    });
+  }, { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` });
+}
+
 async function treatmentCss(): Promise<string> {
+  await activateBaseLeaf();
   return browser.executeObsidian(({ app }) => {
     const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
     const style = root?.querySelector(".og-bases-gantt style[data-og-treatment]");
@@ -163,11 +180,13 @@ async function waitForTreatmentCss(mustContain: string): Promise<string> {
 
 /** Number of rendered bars matching a class selector, once at least one appears. */
 async function waitForBars(selector: string): Promise<number> {
-  const countMatches = async (): Promise<number> =>
-    browser.executeObsidian(({ app }, query) => {
+  const countMatches = async (): Promise<number> => {
+    await activateBaseLeaf();
+    return browser.executeObsidian(({ app }, query) => {
       const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
       return root?.querySelectorAll(query).length ?? 0;
     }, selector);
+  };
 
   await browser.waitUntil(async () => (await countMatches()) > 0, {
     timeout: 30000,
@@ -177,6 +196,7 @@ async function waitForBars(selector: string): Promise<number> {
 }
 
 async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
+  await activateBaseLeaf();
   return browser.executeObsidian(({ app }) => {
     const activeRoot = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
     if (!activeRoot) return { layout: null, missing: ["active leaf container"] };
@@ -355,11 +375,14 @@ describe("Gantt (OG) independent bar treatment channels", () => {
     });
 
     it("uses the adjusted content inset without an icon", async () => {
+      await waitForBars(".og-bases-gantt .og-chart-surface .wx-bar");
+      await activateBaseLeaf();
       const chipCount = await browser.executeObsidian(({ app }) => {
         const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
         return root?.querySelectorAll(".og-bases-gantt .og-chart-surface .wx-bar .og-bar-chip").length ?? 0;
       });
       expect(chipCount).toBe(0);
+      await activateBaseLeaf();
       const paddingLeft = await browser.executeObsidian(({ app }) => {
         const root = (app.workspace.activeLeaf?.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
         const content = root?.querySelector<HTMLElement>(
