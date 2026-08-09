@@ -163,7 +163,7 @@ flowchart TB
   C -->|split with pieces| P["outermost pieces (.og-ghost-run / .og-instance)\nvia stamped first/last hook classes"]
   C -->|coarse zoom fallback| B
   C -->|coarse suppressed envelope| E["plain piece masks when present\nspine-only: zigzag off"]
-  T -->|swapped| S["host + pieces under .<swapped-token>\neach paints its slice of one whole-bar\ndiagonal via the published fill var"]
+  T -->|swapped| S["host + plain-fill pieces paint slices of one\nwhole-bar diagonal via the published fill var\n(cue-bearing/hollow pieces keep their cue - R5)"]
 ```
 
 ---
@@ -242,7 +242,7 @@ flowchart TB
 - **Files:** `src/bases/GanttContainer.svelte`, `src/bases/BarContent.svelte` (thread the swapped token and host-span geometry to pieces for the composited diagonal), `src/bases/ganttSync.ts`, `src/bases/barTreatment.ts` (publish the dedicated fill variable from every fill rule), `test/unit/barTreatment.test.ts`, `test/specs/gantt-date-handling.e2e.ts`.
 - **Approach:**
   1. Style the swapped token per KTD4 (diagonal gradient, forced-transparent background, no border, fill via the published variable).
-  2. Composite the diagonal across pieces per KTD4: each piece paints its slice of one whole-bar gradient (size/position derived from the host span); piece structure, ghost runs, and occurrence rendering stay untouched.
+  2. Composite the diagonal across pieces per KTD4's per-state map: each plain-fill piece paints its slice of one whole-bar gradient (size/position derived from the host span); pieces carrying a background-borne or hollow-interior occurrence cue keep that cue instead (R5's exception); piece structure, ghost runs, and occurrence rendering stay untouched.
   3. Remove the old-flag assignment for `swapped` in `ganttSync`, then delete the `.wx-bar.datestatus-flagged` color CSS block. Simplify the carve-out by dropping its `:not(.datestatus-flagged)` qualifier: fold `border: 0 !important` into the unconditional `.wx-bar.wx-split` rule, because zeroing the strip halo on split hosts is a job that outlives the date-status feature.
 - **Execution note:** Verify the fill-variable assumption first; if any fill source doesn't publish it, add the variable to the generated fill rules in `barTreatment.ts` in the same PR (it is the same behavior's plumbing).
 - **Test scenarios:**
