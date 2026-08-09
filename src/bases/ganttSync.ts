@@ -684,9 +684,10 @@ export function taskStateKey(t: SvarTask): string {
     // Icon-chip spec (U4): fold so toggling the icon source or a config icon
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
-    // Per-state date-status cue: `type` carries only the shared flag, so
-    // inferred-start→inferred-end (or placeholder→swapped) leaves it identical
-    // while the stamped state class must change. Fold it or the row never
+    // Per-state date-status cue: `type` no longer distinguishes these states —
+    // it carries the colour flag for inverted dates alone — so inferred-start→
+    // inferred-end leaves it identical while the stamped state class must
+    // change. Fold it or the row never
     // re-issues and the bar keeps the previous state's cue.
     t.custom.dateStatusToken ?? '',
     // Ghost runs: a holiday moved inside an unchanged span alters only these —

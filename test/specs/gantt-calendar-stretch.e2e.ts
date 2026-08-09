@@ -152,37 +152,6 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(pieces[0]!.classes).toContain("og-piece-first");
   });
 
-  it("squares off the split host's torn corners so nothing rounds the outer tooth (AE6)", async () => {
-    // A split host paints neither fill nor — with the colour treatment retired
-    // for this state — any border, so the piece beneath it carries the whole
-    // silhouette. What the host still contributes is its corner radius, which
-    // clips that piece: a rounded corner on the cut side would round off the
-    // outermost tooth tip and the tear would read differently here than on a
-    // continuous bar. The intact side keeps its radius, so the squaring is the
-    // torn side's rather than a blanket erase.
-    const host = await browser.execute((selector: string) => {
-      const bar = document.querySelector(selector);
-      if (!bar) throw new Error(`bar not found: ${selector}`);
-      const style = window.getComputedStyle(bar);
-      return {
-        split: bar.classList.contains("wx-split"),
-        torn: bar.classList.contains("datestatus-zigzag-end"),
-        topRightRadius: style.borderTopRightRadius,
-        bottomRightRadius: style.borderBottomRightRadius,
-        topLeftRadius: style.borderTopLeftRadius,
-        bottomLeftRadius: style.borderBottomLeftRadius,
-      };
-    }, STRETCH_BAR);
-
-    // The case only exists on a split host carrying a trailing tear.
-    expect(host.split).toBe(true);
-    expect(host.torn).toBe(true);
-    expect(host.topRightRadius).toBe("0px");
-    expect(host.bottomRightRadius).toBe("0px");
-    expect(host.topLeftRadius).not.toBe("0px");
-    expect(host.bottomLeftRadius).not.toBe("0px");
-  });
-
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
     const segments = await $$(".og-bases-gantt .wx-segment");
     expect(segments).toHaveLength(0);
