@@ -429,8 +429,10 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     });
 
     it("keeps the legacy colour treatment on the swapped bar", async () => {
-      // Swapped dates are the flag's last consumer, so no state is ever left
-      // unsignalled while its own treatment is still to come.
+      // Swapped dates are the flag's last consumer: retiring the colour for the
+      // torn states does not strip the one state whose own treatment is still
+      // to come. (Separately, a surface too small to carry a tooth has no
+      // signal at all — an accepted limit of a shape-based cue, not this.)
       const swapped = await browser.execute((selector: string) => {
         const bar = document.querySelector(selector);
         if (!bar) throw new Error(`bar not found: ${selector}`);

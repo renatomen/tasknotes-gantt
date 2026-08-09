@@ -142,7 +142,7 @@ Pass this block verbatim to every worker subagent; it governs every unit and PR 
 
 ## High-Level Technical Design
 
-PR chain and which signal is live on main after each merge (additive-first — no state is ever unsignalled):
+PR chain and which signal is live on main after each merge (additive-first — no state loses its signal to the sequencing; the rendering exceptions on R3 and R4 are separate and stand):
 
 ```mermaid
 flowchart TB
@@ -225,7 +225,7 @@ flowchart TB
 - **Files:** `src/bases/ganttSync.ts`, `src/bases/GanttContainer.svelte`, `test/unit/ganttSync.test.ts`, `test/specs/gantt-date-handling.e2e.ts`, `test/specs/gantt-inferred-date-drag.e2e.ts`, `test/specs/gantt-inferred-drag-write.e2e.ts`, `test/specs/gantt-time-estimate.e2e.ts`, `test/specs/gantt-calendar-stretch.e2e.ts`, `test/specs/gantt-legend.e2e.ts`.
 - **Approach:**
   1. Restrict the old flag to `swapped` only (its last consumer until U4).
-  2. Keep the `.wx-bar.datestatus-flagged` color CSS live — it now styles only swapped bars, so no state is ever unsignalled. Keep the `.wx-split:not(.datestatus-flagged)` carve-out untouched: it targets *unflagged* split bars (whose population grows here), and its border-zeroing also removes the strip treatment's halo on split hosts — a job that outlives this feature.
+  2. Keep the `.wx-bar.datestatus-flagged` color CSS live — it now styles only swapped bars, so the sequencing leaves no state unsignalled (R3 and R4's rendering exceptions are unaffected by it either way). Keep the `.wx-split:not(.datestatus-flagged)` carve-out untouched: it targets *unflagged* split bars (whose population grows here), and its border-zeroing also removes the strip treatment's halo on split hosts — a job that outlives this feature.
   3. Re-point e2e probes that used `.datestatus-flagged` as an inferred-state marker to the zigzag tokens.
   4. Upgrade the pinned stretch spec: replace the border-visibility assertions with mask assertions on the outermost ghost piece — this is the provenance-aware cue that spec's comment has been waiting for.
   5. Re-point the chart-side flagged-bar color assertions in the legend spec (its "Legend Flagged" fixture is an inferred-start task, so it loses the old class here; U5 owns the legend-side entries).
