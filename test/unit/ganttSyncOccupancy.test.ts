@@ -21,7 +21,6 @@ import {
   type SvarTaskInputs,
 } from '../../src/bases/ganttSync';
 import { unionCalendarBatches } from '../../src/controller/calendarItemUnion';
-import { GANTT_VISUAL_CLASS_TOKENS } from '../../src/bases/visualSemantics';
 import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 import {
   EXTERNAL_OCCUPANCY_STATE,
@@ -150,7 +149,7 @@ describe('buildSvarTasks — occupancy envelope (family on, plain bar suppressed
       }),
     );
 
-    const expected = `${DATE_STATUS_TYPE} ${GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagEnd} ${RECURRING_TYPE}`;
+    const expected = `${DATE_STATUS_TYPE} ${RECURRING_TYPE}`;
     expect(task!.type).toBe(expected);
     // The coupling contract: the whole composed string must be registered, or
     // SVAR's whole-string match silently drops the cue back to plain `task`.

@@ -45,30 +45,23 @@ import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
 import type { EchoPayload } from './dragCommitPlan';
 import {
-  DATE_STATUS_STATE_CLASS_TOKENS,
   GANTT_VISUAL_CLASS_TOKENS,
   resolveDateStatusStateToken,
+  type GanttVisualClassToken,
 } from './visualSemantics';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
- * placeholdered. SVAR emits a registered task `type` id as a bare class on the
- * bar element, so this doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
- * A flagged bar also carries the per-state token for its concrete date status
- * ({@link resolveDateStatusStateToken}) right after this shared flag.
+ * placeholdered (one indicator state for all non-`complete` values). SVAR emits
+ * a registered task `type` id as a bare class on the bar element, so this
+ * doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
+ *
+ * The per-state distinction rides `custom.dateStatusToken` instead, NOT a second
+ * type id: SVAR matches a bar's whole `type` string against the registered set
+ * with a linear scan per bar, so a per-state id would multiply that set by the
+ * number of states across the whole treatment × cue cross-product.
  */
 export const DATE_STATUS_TYPE = GANTT_VISUAL_CLASS_TOKENS.dateStatus;
-
-/**
- * Every date-status prefix a flagged bar's `type` can start with: the shared
- * flag alone, and the flag composed with each per-state token — the exact
- * order {@link buildSvarTasks} pushes them. Registration seeds from these so
- * SVAR's whole-string type match covers every flagged composition.
- */
-const DATE_STATUS_FLAG_PREFIXES: readonly string[] = [
-  DATE_STATUS_TYPE,
-  ...Object.values(DATE_STATUS_STATE_CLASS_TOKENS).map((token) => `${DATE_STATUS_TYPE} ${token}`),
-];
 
 /**
  * Custom SVAR task type marking a bar whose source task appears more than once
@@ -235,6 +228,13 @@ export interface SvarTask {
      * `filter-tasks` over the STABLE task set — never by re-deriving it.
      */
     dateStatus: DateStatus;
+    /**
+     * The per-state class token for this row's date status, or `undefined` when
+     * the dates are complete or indicators are off. The bar template stamps it
+     * on the host bar so each state can be styled distinctly. Folded into
+     * {@link taskStateKey} because two states can share one composed `type`.
+     */
+    dateStatusToken?: GanttVisualClassToken;
     showHasDeps: boolean;
     /**
      * The resolved icon-chip spec for this bar (U4), or `null` when no chip
@@ -428,16 +428,18 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // Hierarchy (indent, expand/collapse) is driven by `parent`/`open`, not by
     // `type`.
     //
-    // Compose the bar's `type` from its state classes (date-status flag + its
-    // per-state token, then the fill/strip treatment classes for the two
-    // channels). SVAR's taskTypeCss emits each space-joined, registered type id
-    // as bare classes. A bar carries the fill-value class then the strip-value
-    // class (0, 1, or 2, deduped when the two channels coincide), in the fixed
-    // position between the date-status tokens and the instance cues.
+    // Compose the bar's `type` from its state classes (date-status flag + the
+    // fill/strip treatment classes for the two channels). SVAR's taskTypeCss emits
+    // each space-joined, registered type id as bare classes. A bar carries the
+    // fill-value class then the strip-value class (0, 1, or 2, deduped when the two
+    // channels coincide), in the fixed position between the date-status flag and
+    // the instance cues.
+    const flagged = showDateIndicators && inst.dateStatus !== 'complete';
     const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
     const isContext = inst.isFetched;
     let type = 'task';
-    const classes: string[] = [...resolveDateStatusClasses(inst.dateStatus, showDateIndicators)];
+    const classes: string[] = [];
+    if (flagged) classes.push(DATE_STATUS_TYPE);
     // The calendar identity is per SOURCE NOTE, not per instance — a task
     // duplicated across parents follows the same calendar in every copy.
     const treatmentClasses = resolveTreatmentClass({
@@ -487,6 +489,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isContext,
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
+        dateStatusToken: publishedDateStatusToken(inst.dateStatus, showDateIndicators),
         ghostRuns: inst.ghostRuns,
         occupancyRuns,
         occupancyEnvelope: envelope ? true : undefined,
@@ -520,14 +523,16 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
 }
 
 /**
- * The date-status classes a bar's `type` starts with: the shared flag plus the
- * per-state token for every non-`complete` status, nothing when indicators are
- * off or the dates are complete. Matches {@link DATE_STATUS_FLAG_PREFIXES}.
+ * The per-state date-status class a bar publishes for the template to stamp:
+ * `undefined` when indicators are off or the dates are complete, gating the
+ * per-state cue exactly as {@link DATE_STATUS_TYPE} gates the shared flag.
  */
-function resolveDateStatusClasses(dateStatus: DateStatus, showDateIndicators: boolean): string[] {
-  if (!showDateIndicators || dateStatus === 'complete') return [];
-  const stateToken = resolveDateStatusStateToken(dateStatus);
-  return stateToken ? [DATE_STATUS_TYPE, stateToken] : [DATE_STATUS_TYPE];
+function publishedDateStatusToken(
+  dateStatus: DateStatus,
+  showDateIndicators: boolean,
+): GanttVisualClassToken | undefined {
+  if (!showDateIndicators) return undefined;
+  return resolveDateStatusStateToken(dateStatus) ?? undefined;
 }
 
 /** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
@@ -577,10 +582,9 @@ export function echoTaskPatch(
 
 /**
  * The stable superset of base task types across ALL fill/strip sources. Registers
- * every date-status prefix (the flag alone and flag + per-state token) plus, for
- * every treatment class the palettes can produce (status slugs, priority slugs,
- * calendar slugs, and the `og-parent` role), the class alone and composed with
- * each date-status prefix.
+ * the date-status flag plus, for every treatment class the palettes can produce
+ * (status slugs, priority slugs, calendar slugs, and the `og-parent` role), the
+ * class alone and composed with the date-status flag.
  *
  * A bar now carries TWO treatment classes at once when the Fill and Strip channels
  * resolve to distinct classes (fill class first — the order
@@ -595,14 +599,14 @@ export function echoTaskPatch(
  */
 export function buildTreatmentTaskTypes(palettes: Palettes): Array<{ id: string; label: string }> {
   const groups = treatmentClassGroups(palettes);
-  const ids = new Set<string>(DATE_STATUS_FLAG_PREFIXES);
+  const ids = new Set<string>([DATE_STATUS_TYPE]);
   for (const c of groups.flat()) {
     ids.add(c);
-    for (const prefix of DATE_STATUS_FLAG_PREFIXES) ids.add(`${prefix} ${c}`);
+    ids.add(`${DATE_STATUS_TYPE} ${c}`);
   }
   for (const [fillClass, stripClass] of crossGroupClassPairs(groups)) {
     ids.add(`${fillClass} ${stripClass}`);
-    for (const prefix of DATE_STATUS_FLAG_PREFIXES) ids.add(`${prefix} ${fillClass} ${stripClass}`);
+    ids.add(`${DATE_STATUS_TYPE} ${fillClass} ${stripClass}`);
   }
   return [...ids].map((id) => ({ id, label: id }));
 }
@@ -676,6 +680,11 @@ export function taskStateKey(t: SvarTask): string {
     // Icon-chip spec (U4): fold so toggling the icon source or a config icon
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
+    // Per-state date-status cue: `type` carries only the shared flag, so
+    // inferred-start→inferred-end (or placeholder→swapped) leaves it identical
+    // while the stamped state class must change. Fold it or the row never
+    // re-issues and the bar keeps the previous state's cue.
+    t.custom.dateStatusToken ?? '',
     // Ghost runs: a holiday moved inside an unchanged span alters only these —
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
