@@ -431,7 +431,9 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     await openPristineMainBase();
     // Write-enabled: no read-only banner, so SVAR bars are draggable at all.
     await expect($$(".og-readonly-text")).toBeElementsArrayOfSize(0);
-    expect((await waitForBar("Solo Inferred.md")).classes).toContain("datestatus-flagged");
+    // An authored start with a derived end, so the bar's trailing edge is torn —
+    // the provenance signal the drag gate's prompt is keyed to.
+    expect((await waitForBar("Solo Inferred.md")).classes).toContain("datestatus-zigzag-end");
     expect(await readNote("Parent Window.md")).toMatch(/due:\s*'?2026-04-07'?/);
 
     // Apr 6 + 2880min (2 days) ends Apr 7; dragging the end out 3 days makes the

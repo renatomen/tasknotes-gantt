@@ -162,14 +162,14 @@ describe('buildSvarTasks', () => {
     expect(tasks.find((t) => t.id === 'p')!.type).toContain(statusSlug('wip'));
   });
 
-  it('flags a non-complete leaf with the date-status type only', () => {
-    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred-start' })] }));
+  it('flags a swapped leaf with the date-status type only', () => {
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'swapped' })] }));
     expect(t.type).toBe(DATE_STATUS_TYPE);
   });
 
   it('does not flag when date indicators are off', () => {
     const [t] = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })], showDateIndicators: false }),
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'swapped' })], showDateIndicators: false }),
     );
     expect(t.type).toBe('task');
   });
@@ -201,20 +201,33 @@ describe('buildSvarTasks', () => {
     // linear-scans per bar.
     const typeOf = (dateStatus: RenderInstance['dateStatus']) =>
       buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!.type;
-    expect(typeOf('inferred-start')).toBe(DATE_STATUS_TYPE);
-    expect(typeOf('inferred-end')).toBe(DATE_STATUS_TYPE);
-    expect(typeOf('placeholder')).toBe(DATE_STATUS_TYPE);
+    for (const dateStatus of ['inferred-start', 'inferred-end', 'placeholder'] as const) {
+      expect(typeOf(dateStatus)).toBe('task');
+    }
     expect(typeOf('swapped')).toBe(DATE_STATUS_TYPE);
     expect(typeOf('complete')).toBe('task');
+  });
+
+  it('leaves a non-authored-edge leaf unflagged — the torn edge is its whole signal', () => {
+    // The colour treatment the flag drives is retired for these three states:
+    // they say "this edge was not authored" with their own shape, so a bar that
+    // still carried the flag would repaint over the fill the zigzag composes with.
+    for (const dateStatus of ['inferred-start', 'inferred-end', 'placeholder'] as const) {
+      const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }));
+      expect(t.type).toBe('task');
+      // …while the per-state token that DOES signal them still rides `custom`.
+      expect(t.custom.dateStatusToken).toBe(DATE_STATUS_STATE_CLASS_TOKENS[dateStatus]);
+    }
   });
 
   it('taskStateKey changes when only the per-state date-status token changes (re-sync guard)', () => {
     const keyFor = (dateStatus: RenderInstance['dateStatus']) =>
       taskStateKey(buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!);
-    // These pairs compose an IDENTICAL `type`, so without the fold the diff-sync
-    // would skip the update and the bar would keep the previous state's cue.
+    // These pairs compose an IDENTICAL `type` — the three non-authored-edge
+    // states are all plain `task` — so without the fold the diff-sync would skip
+    // the update and the bar would keep the previous state's cue.
     expect(keyFor('inferred-start')).not.toBe(keyFor('inferred-end'));
-    expect(keyFor('placeholder')).not.toBe(keyFor('swapped'));
+    expect(keyFor('placeholder')).not.toBe(keyFor('inferred-start'));
     expect(keyFor('swapped')).toBe(keyFor('swapped'));
   });
 
@@ -224,8 +237,8 @@ describe('buildSvarTasks', () => {
     const before = build('inferred-start');
     const after = build('inferred-end');
     // Same dates, same treatment classes, same cues — and an IDENTICAL composed
-    // `type` (both are simply flagged), so the fingerprint fold is the only
-    // thing that can carry the re-stamp to the bar.
+    // `type` (a non-authored edge composes no state class at all), so the
+    // fingerprint fold is the only thing that can carry the re-stamp to the bar.
     expect(before[0]!.type).toBe(after[0]!.type);
     const plan = planTaskSync(mapOf(before), after);
     expect(plan.updates.map((u) => u.id)).toEqual(['a']);
@@ -248,7 +261,7 @@ describe('buildSvarTasks', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
     const [t] = buildSvarTasks(
       inputs({
-        instances: [inst({ id: 'a', dateStatus: 'inferred-start', status: 'wip' })],
+        instances: [inst({ id: 'a', dateStatus: 'swapped', status: 'wip' })],
         statusColors: colors,
       }),
     );
@@ -744,8 +757,8 @@ describe('instance cues (U6)', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'swapped', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'swapped', status: 'wip', isFetched: true }),
         ],
         statusColors: colors,
       }),

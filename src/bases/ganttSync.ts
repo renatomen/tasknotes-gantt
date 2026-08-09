@@ -51,15 +51,19 @@ import {
 } from './visualSemantics';
 
 /**
- * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
- * placeholdered (one indicator state for all non-`complete` values). SVAR emits
- * a registered task `type` id as a bare class on the bar element, so this
+ * Custom SVAR task type flagging a bar whose start falls after its due. SVAR
+ * emits a registered task `type` id as a bare class on the bar element, so this
  * doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
  *
- * The per-state distinction rides `custom.dateStatusToken` instead, NOT a second
- * type id: SVAR matches a bar's whole `type` string against the registered set
- * with a linear scan per bar, so a per-state id would multiply that set by the
- * number of states across the whole treatment × cue cross-product.
+ * Swapped dates are the last state this colour treatment carries: the three
+ * states describing an edge the user never authored say so with a torn edge cut
+ * into the bar's own shape, which composes with any fill instead of repainting
+ * over it, so they compose no state class at all.
+ *
+ * The per-state distinction rides `custom.dateStatusToken`, NOT a second type
+ * id: SVAR matches a bar's whole `type` string against the registered set with a
+ * linear scan per bar, so a per-state id would multiply that set by the number
+ * of states across the whole treatment × cue cross-product.
  */
 export const DATE_STATUS_TYPE = GANTT_VISUAL_CLASS_TOKENS.dateStatus;
 
@@ -434,7 +438,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     // fill-value class then the strip-value class (0, 1, or 2, deduped when the two
     // channels coincide), in the fixed position between the date-status flag and
     // the instance cues.
-    const flagged = showDateIndicators && inst.dateStatus !== 'complete';
+    const flagged = showDateIndicators && inst.dateStatus === 'swapped';
     const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
     const isContext = inst.isFetched;
     let type = 'task';

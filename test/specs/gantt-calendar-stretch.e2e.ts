@@ -152,14 +152,14 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(pieces[0]!.classes).toContain("og-piece-first");
   });
 
-  it("drops the split host's own border on the torn side (AE6)", async () => {
-    // The host of a split bar paints no fill, but it still paints a BORDER — and
-    // on a date-status-flagged bar that border is deliberately kept as the only
-    // cue an otherwise transparent host can show. Kept across the torn side it
-    // draws the straight full-height edge the teeth just cut out of the piece
-    // beneath it, so the silhouette reads as a boxed-in rectangle again. The
-    // torn side has to lose it on a split host exactly as on a continuous one,
-    // while the intact side keeps it.
+  it("squares off the split host's torn corners so nothing rounds the outer tooth (AE6)", async () => {
+    // A split host paints neither fill nor — with the colour treatment retired
+    // for this state — any border, so the piece beneath it carries the whole
+    // silhouette. What the host still contributes is its corner radius, which
+    // clips that piece: a rounded corner on the cut side would round off the
+    // outermost tooth tip and the tear would read differently here than on a
+    // continuous bar. The intact side keeps its radius, so the squaring is the
+    // torn side's rather than a blanket erase.
     const host = await browser.execute((selector: string) => {
       const bar = document.querySelector(selector);
       if (!bar) throw new Error(`bar not found: ${selector}`);
@@ -167,22 +167,20 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
       return {
         split: bar.classList.contains("wx-split"),
         torn: bar.classList.contains("datestatus-zigzag-end"),
-        borderLeftWidth: style.borderLeftWidth,
-        borderRightWidth: style.borderRightWidth,
         topRightRadius: style.borderTopRightRadius,
         bottomRightRadius: style.borderBottomRightRadius,
+        topLeftRadius: style.borderTopLeftRadius,
+        bottomLeftRadius: style.borderBottomLeftRadius,
       };
     }, STRETCH_BAR);
 
     // The case only exists on a split host carrying a trailing tear.
     expect(host.split).toBe(true);
     expect(host.torn).toBe(true);
-    expect(host.borderRightWidth).toBe("0px");
     expect(host.topRightRadius).toBe("0px");
     expect(host.bottomRightRadius).toBe("0px");
-    // …and the intact side still carries the border this bar is entitled to, so
-    // the removal is the torn side's, not a blanket erase.
-    expect(Number.parseFloat(host.borderLeftWidth)).toBeGreaterThan(0);
+    expect(host.topLeftRadius).not.toBe("0px");
+    expect(host.bottomLeftRadius).not.toBe("0px");
   });
 
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
@@ -200,31 +198,39 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(plainClass).not.toContain("wx-split");
   });
 
-  it("keeps the inferred-date border visible on a stretched bar", async () => {
+  it("keeps the inferred date of a stretched strip bar visible, now as the tear", async () => {
     // DELIBERATE, and pinned so it cannot be quietly removed: a stretched task's
-    // end is derived from its estimate, and the date-status border is currently
-    // the only cue that a date was computed rather than authored. It is visually
-    // heavy — it boxes the whole authored span, blocked days included — but the
-    // annoyance stays until a provenance-aware cue replaces it. Removing this
-    // border without a replacement leaves derived dates indistinguishable from
-    // authored ones.
+    // end is derived from its estimate, and that provenance has to stay visible.
+    // The cue used to be the date-status border, which was visually heavy — it
+    // boxed the whole authored span, blocked days included — and this assertion
+    // held it in place until a provenance-aware cue replaced it. That cue is the
+    // tear, so the pin moved to it rather than lapsing. Strip mode is the case
+    // worth pinning: the neutral strip body is the fill the teeth have to read
+    // against, and it is a different surface from the fill-mode ghost above.
     await openBase("CalendarStretchStrip.base");
     await browser.waitUntil(
       async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
     );
-    const border = await browser.execute((selector: string) => {
+    const cue = await browser.execute((selector: string) => {
       const bar = document.querySelector(selector);
-      if (!bar) return null;
-      const style = window.getComputedStyle(bar);
-      return { color: style.borderTopColor, width: style.borderTopWidth, style: style.borderTopStyle };
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      return {
+        torn: bar.classList.contains("datestatus-zigzag-end"),
+        pieces: Array.from(bar.querySelectorAll(".og-ghost-run")).map((piece) => ({
+          classes: piece.className,
+          maskImage: window.getComputedStyle(piece).maskImage,
+        })),
+      };
     }, STRETCH_BAR);
-    expect(border).not.toBeNull();
-    expect(border!.color).not.toBe("rgba(0, 0, 0, 0)");
-    // Not just colour: on a ghost host the datestatus fill is gone, so the cue is
-    // the border — it must have real width and style, not a 0px/none border that
-    // only carries a colour (which a colour-only check would wrongly accept).
-    expect(border!.width).not.toBe("0px");
-    expect(border!.style).not.toBe("none");
+
+    expect(cue.torn).toBe(true);
+    expect(cue.pieces.length).toBeGreaterThan(0);
+    const last = cue.pieces[cue.pieces.length - 1]!;
+    expect(last.classes).toContain("og-piece-last");
+    expect(last.maskImage).toContain("conic-gradient");
+    // Only the outermost piece — an inner boundary would grow a second tooth
+    // column in the middle of the span.
+    for (const piece of cue.pieces.slice(0, -1)) expect(piece.maskImage).toBe("none");
   });
 });

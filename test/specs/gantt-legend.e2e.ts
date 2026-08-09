@@ -734,9 +734,20 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.sampleBackground).toBe(paint.chartBackground);
   });
 
-  it("keeps the orange date fill authoritative over a configured priority fill", async () => {
+  it("leaves a non-authored-edge bar its configured priority fill instead of the date colours", async () => {
+    // The date-status colours no longer outrank the fill channels on a bar whose
+    // edge was never authored — that state is signalled by the torn edge, which
+    // composes with whatever colour the user configured. The legend's own two
+    // colour swatches are still the old ones; they are replaced with their own
+    // entries separately, so this asserts the CHART side of the divergence.
     await setFixtureBarChannels("priority", "none");
     await openLegend();
+    await browser.waitUntil(
+      async () =>
+        (await $$('.og-bases-gantt .wx-bar.datestatus-zigzag-start[data-id$="Legend Flagged.md"]'))
+          .length === 1,
+      { timeout: 20000, timeoutMsg: "the inferred-start fixture bar was never stamped as torn" },
+    );
 
     const dateStatus = await browser.execute(() => {
       const fillSample = document.querySelector<HTMLElement>(
@@ -746,13 +757,13 @@ describe("Gantt (OG) context-aware legend", () => {
         '[data-semantic-id="date-status-border"] .og-legend-bar',
       );
       const chart = document.querySelector<HTMLElement>(
-        '.og-bases-gantt .wx-bar.datestatus-flagged[data-id$="Legend Flagged.md"]',
+        '.og-bases-gantt .wx-bar[data-id$="Legend Flagged.md"]',
       );
       // The TOP edge, not the shorthand: a bar whose start or due was never
       // authored drops the border on that side so the torn edge is not redrawn
       // as a straight line, which makes the shorthand a four-value string. The
-      // top edge is never torn, so it is where the date-status colour is
-      // comparable between a chart bar and a legend swatch.
+      // top edge is never torn, so it is where a chart bar's border colour is
+      // comparable with a legend swatch's.
       const snapshot = (element: HTMLElement | null) => {
         const style = element ? getComputedStyle(element) : null;
         return style
@@ -782,22 +793,26 @@ describe("Gantt (OG) context-aware legend", () => {
         configuredFillColor,
         chartHasPriorityClass:
           chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
+        chartIsFlagged: chart?.classList.contains("datestatus-flagged") ?? null,
         chart: snapshot(chart),
       };
     });
 
-    expect(dateStatus.chartHasPriorityClass).toBe(true);
+    // The legend still projects the retired colours, so they are a live
+    // comparison rather than two absent values matching by accident.
     expect(dateStatus.fill?.background).toBe("rgb(230, 126, 34)");
-    expect(dateStatus.configuredFillColor).not.toBeNull();
-    expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
     expect(dateStatus.fill?.borderWidth).toBe(0);
-    expect(dateStatus.chartBackground).toBe(dateStatus.fill?.background);
     expect(dateStatus.border?.color).toBe("rgb(192, 57, 43)");
     expect(dateStatus.border?.style).toBe("solid");
     expect(dateStatus.border?.width).toBeGreaterThan(0);
-    expect(dateStatus.chart?.color).toBe(dateStatus.border?.color);
-    expect(dateStatus.chart?.style).toBe(dateStatus.border?.style);
-    expect(dateStatus.chart?.width).toBeGreaterThan(0);
+    // The chart bar really is on the priority channel…
+    expect(dateStatus.chartHasPriorityClass).toBe(true);
+    expect(dateStatus.configuredFillColor).not.toBeNull();
+    expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
+    // …and it paints THAT colour, with neither the flag nor its border colour.
+    expect(dateStatus.chartIsFlagged).toBe(false);
+    expect(dateStatus.chartBackground).toBe(dateStatus.configuredFillColor);
+    expect(dateStatus.chart?.color).not.toBe(dateStatus.border?.color);
   });
 
   it("reuses production shading and treatment paint for secondary semantics", async () => {
