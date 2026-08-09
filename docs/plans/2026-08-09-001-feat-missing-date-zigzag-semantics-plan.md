@@ -22,7 +22,7 @@ execution: code
 
 ## Product Contract
 
-Product Contract preservation: changed R5, R6, AE4 (+ added AE8) — the swapped-dates treatment was revised in-session from a small icon chip to a full-bar diagonal half-fill (user-directed). All other requirements unchanged.
+Product Contract preservation: changed R5, R6, AE4 (+ added AE8) — the swapped-dates treatment was revised in-session from a small icon chip to a full-bar diagonal half-fill (user-directed). R4 gained one planning-review exception (spine-only coarse-zoom envelope drops the zigzag; conflict note on the governing Key Decision). All other requirements unchanged.
 
 ### Summary
 
