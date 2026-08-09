@@ -92,20 +92,23 @@ showing its **Status** or **Priority** (companion only), or **None**.
 ## Date-status indicators { #date-status-indicators }
 
 **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
-gives a distinct **orange** treatment to any bar whose dates aren't fully
-specified — a task with **one date missing** (the other inferred), with **no
-dates** (placed at today as a placeholder), or with **start and end swapped**. A
-task with two valid dates is never flagged; there is **no "overdue" marker**. On
-by default.
+signals any bar whose dates aren't fully specified, and the signal names which
+problem it found. A task with **one date missing** (the other inferred) or with
+**no dates** (placed at today as a placeholder) is cut with a **torn, zigzag
+edge** on the side that was never authored, so the bar reads as unreliable
+exactly where its date is. A task with **start and end swapped** takes a distinct
+**orange** treatment instead. A task with two valid dates is never flagged; there
+is **no "overdue" marker**. On by default.
 
 ## Reading bar decorations
 
-Three independent visual cues can appear on a bar — they're unrelated, and a bar
+Four independent visual cues can appear on a bar — they're unrelated, and a bar
 can carry more than one at once:
 
 | Cue | What it means |
 | --- | --- |
-| **Orange bar** | The task's **dates aren't fully specified** — one date missing (the other inferred), no dates (placed at today), or start and end swapped. A fully-dated task is never orange. Toggled by **Show date-status indicators on bars**. |
+| **Torn (zigzag) edge** | That side's date was **never authored** — inferred from the other date, or placed at today because the task has no dates. The tear sits on the side the missing date belongs to, so a bar can be torn on one edge or both. Toggled by **Show date-status indicators on bars**. |
+| **Orange bar** | The task's **start falls after its due date**. A fully-dated task in the right order is never orange. Toggled by **Show date-status indicators on bars**. |
 | **Diagonal hatch** | The **same task appears in more than one place** — e.g. a note shown under several parents. Every copy is hatched equally; none is the "real" one. This is about duplication, **not** dates. |
 | **Faded / muted bar** | A **context row** pulled in by [Show all](../settings/relationships.md) expansion that doesn't itself match the Base's filter — shown only for structure. Its faintness is the **Expanded items opacity** (55% by default). |
 
