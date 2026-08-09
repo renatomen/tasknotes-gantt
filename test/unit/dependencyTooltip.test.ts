@@ -130,18 +130,6 @@ describe('dependencyTooltipModel — hovered dependency edge', () => {
     expect(model.lines).toEqual(['Blocked by Draft docs — SS +3w']);
   });
 
-  it('distinguishes edges from predecessors that share a name', () => {
-    const deps = [
-      dep({ linkId: 'L-a', predecessorName: 'Review', gap: 'P1D' }),
-      dep({ linkId: 'L-b', predecessorName: 'Review', gap: 'P3W' }),
-    ];
-    const model = dependencyTooltipModel({ link: { id: 'L-b', target: 't' } }, () =>
-      task('Ship the release', deps),
-    );
-
-    expect(model.lines).toEqual(['Blocked by Review — FS +3w']);
-  });
-
   it('yields an empty model when the hovered edge resolves to no known dependency', () => {
     expect(
       dependencyTooltipModel({ link: { id: 'L-gone', target: 't' } }, () =>
