@@ -101,10 +101,15 @@ a distinct **orange** treatment instead. A task carrying both dates in
 chronological order is never flagged; there is **no "overdue" marker**. On by
 default.
 
+The teeth scale with the bar, so a short task at a coarse zoom — a one-day
+placeholder on a month scale, say — can be too narrow to show them. Zoom in when
+you need to be sure whether a bar's dates were authored.
+
 ## Reading bar decorations
 
-Four independent visual cues can appear on a bar — they're unrelated, and a bar
-can carry more than one at once:
+Four visual cues can appear on a bar. The two date cues are alternatives — a bar
+is torn **or** orange, never both — while the hatch and the fade say nothing
+about dates and can stack on top of either:
 
 | Cue | What it means |
 | --- | --- |
