@@ -36,6 +36,10 @@ import {
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
+import {
+  GANTT_VISUAL_CLASS_TOKENS,
+  resolveDateStatusStateToken,
+} from '../../src/bases/visualSemantics';
 import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
 import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource/calendarItems';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
@@ -93,6 +97,22 @@ function mapOf(tasks: SvarTask[]): Map<string, SvarTask> {
   return new Map(tasks.map((t) => [t.id, t]));
 }
 
+const ZIGZAG_START = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagStart;
+const ZIGZAG_END = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagEnd;
+const ZIGZAG_BOTH = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagBoth;
+const SWAPPED = GANTT_VISUAL_CLASS_TOKENS.dateStatusSwapped;
+const DATE_STATUS_STATE_TOKENS = [ZIGZAG_START, ZIGZAG_END, ZIGZAG_BOTH, SWAPPED];
+
+describe('resolveDateStatusStateToken', () => {
+  it('maps each non-complete date status to its per-state token, and complete to none', () => {
+    expect(resolveDateStatusStateToken('inferred-start')).toBe(ZIGZAG_START);
+    expect(resolveDateStatusStateToken('inferred-end')).toBe(ZIGZAG_END);
+    expect(resolveDateStatusStateToken('placeholder')).toBe(ZIGZAG_BOTH);
+    expect(resolveDateStatusStateToken('swapped')).toBe(SWAPPED);
+    expect(resolveDateStatusStateToken('complete')).toBeNull();
+  });
+});
+
 describe('buildSvarTasks', () => {
   it('renders a parent as an ordinary task at its own dates (not a summary) but keeps it open', () => {
     const start = new Date(2026, 0, 1);
@@ -129,27 +149,35 @@ describe('buildSvarTasks', () => {
     expect(tasks.find((t) => t.id === 'p')!.type).toContain(statusSlug('wip'));
   });
 
-  it('flags a non-complete leaf with the date-status type only', () => {
-    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })] }));
-    expect(t.type).toBe(DATE_STATUS_TYPE);
+  it('flags each non-complete leaf with the shared flag plus its per-state token', () => {
+    const typeOf = (dateStatus: RenderInstance['dateStatus']) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!.type;
+    expect(typeOf('inferred-start')).toBe(`${DATE_STATUS_TYPE} ${ZIGZAG_START}`);
+    expect(typeOf('inferred-end')).toBe(`${DATE_STATUS_TYPE} ${ZIGZAG_END}`);
+    expect(typeOf('placeholder')).toBe(`${DATE_STATUS_TYPE} ${ZIGZAG_BOTH}`);
+    expect(typeOf('swapped')).toBe(`${DATE_STATUS_TYPE} ${SWAPPED}`);
+    expect(typeOf('complete')).toBe('task');
   });
 
-  it('does not flag when date indicators are off', () => {
+  it('carries no date-status tokens (flag or per-state) when date indicators are off', () => {
     const [t] = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })], showDateIndicators: false }),
+      inputs({
+        instances: [inst({ id: 'a', dateStatus: 'placeholder' })],
+        showDateIndicators: false,
+      }),
     );
     expect(t.type).toBe('task');
   });
 
-  it('composes the date-status flag with the status-color class (flag first)', () => {
+  it('composes the date-status flag + state token with the status-color class (flag first)', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
     const [t] = buildSvarTasks(
       inputs({
-        instances: [inst({ id: 'a', dateStatus: 'inferred', status: 'wip' })],
+        instances: [inst({ id: 'a', dateStatus: 'inferred-start', status: 'wip' })],
         statusColors: colors,
       }),
     );
-    expect(t.type).toBe(`${DATE_STATUS_TYPE} ${statusSlug('wip')}`);
+    expect(t.type).toBe(`${DATE_STATUS_TYPE} ${ZIGZAG_START} ${statusSlug('wip')}`);
   });
 
   it('omits a status class when the status has no configured color', () => {
@@ -363,6 +391,27 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`);
   });
 
+  it('registers every flag + per-state prefix (alone, with a class, and with a class pair)', () => {
+    const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    for (const state of DATE_STATUS_STATE_TOKENS) {
+      expect(ids).toContain(`${DATE_STATUS_TYPE} ${state}`);
+      expect(ids).toContain(`${DATE_STATUS_TYPE} ${state} ${statusSlug('wip')}`);
+      expect(ids).toContain(
+        `${DATE_STATUS_TYPE} ${state} ${statusSlug('wip')} ${prioritySlug('high')}`,
+      );
+    }
+    // A state token never appears without the shared flag in front of it.
+    for (const id of ids) {
+      for (const state of DATE_STATUS_STATE_TOKENS) {
+        if (id.includes(state)) expect(id.startsWith(`${DATE_STATUS_TYPE} ${state}`)).toBe(true);
+      }
+    }
+  });
+
+  it('is deterministic across calls (the container registers once and never re-registers)', () => {
+    expect(buildTreatmentTaskTypes(palettes)).toEqual(buildTreatmentTaskTypes(palettes));
+  });
+
   it('registers the ordered two-class pairs a two-channel bar can compose (fill class + strip class)', () => {
     const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
     // A fill=status + strip=priority bar composes `<status> <priority>`; the whole
@@ -379,26 +428,33 @@ describe('buildTreatmentTaskTypes', () => {
     const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
     const s = statusSlug('wip');
     const p = prioritySlug('high');
+    // Every date-status form of a class (or class pair): the shared flag alone,
+    // then the flag composed with each per-state token, in token order.
+    const flaggedForms = (suffix: string) => [
+      `${DATE_STATUS_TYPE} ${suffix}`,
+      ...DATE_STATUS_STATE_TOKENS.map((state) => `${DATE_STATUS_TYPE} ${state} ${suffix}`),
+    ];
     expect(ids).toEqual([
       DATE_STATUS_TYPE,
+      ...DATE_STATUS_STATE_TOKENS.map((state) => `${DATE_STATUS_TYPE} ${state}`),
       PARENT_ROLE_CLASS,
-      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`,
+      ...flaggedForms(PARENT_ROLE_CLASS),
       s,
-      `${DATE_STATUS_TYPE} ${s}`,
+      ...flaggedForms(s),
       p,
-      `${DATE_STATUS_TYPE} ${p}`,
+      ...flaggedForms(p),
       `${PARENT_ROLE_CLASS} ${s}`,
-      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${s}`,
+      ...flaggedForms(`${PARENT_ROLE_CLASS} ${s}`),
       `${PARENT_ROLE_CLASS} ${p}`,
-      `${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS} ${p}`,
+      ...flaggedForms(`${PARENT_ROLE_CLASS} ${p}`),
       `${s} ${PARENT_ROLE_CLASS}`,
-      `${DATE_STATUS_TYPE} ${s} ${PARENT_ROLE_CLASS}`,
+      ...flaggedForms(`${s} ${PARENT_ROLE_CLASS}`),
       `${s} ${p}`,
-      `${DATE_STATUS_TYPE} ${s} ${p}`,
+      ...flaggedForms(`${s} ${p}`),
       `${p} ${PARENT_ROLE_CLASS}`,
-      `${DATE_STATUS_TYPE} ${p} ${PARENT_ROLE_CLASS}`,
+      ...flaggedForms(`${p} ${PARENT_ROLE_CLASS}`),
       `${p} ${s}`,
-      `${DATE_STATUS_TYPE} ${p} ${s}`,
+      ...flaggedForms(`${p} ${s}`),
     ]);
   });
 
@@ -461,14 +517,14 @@ describe('buildTreatmentTaskTypes', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
         ],
         barFillSource: 'priority',
         priorityColors: palettes.priority,
       }),
     );
-    const expected = `${DATE_STATUS_TYPE} ${prioritySlug('high')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
+    const expected = `${DATE_STATUS_TYPE} ${SWAPPED} ${prioritySlug('high')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
     expect(tasks[0]!.type).toBe(expected);
     const registered = buildInstanceCueTaskTypes(buildTreatmentTaskTypes(palettes).map((t) => t.id)).map(
       (t) => t.id,
@@ -631,13 +687,13 @@ describe('instance cues (U6)', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
         ],
         statusColors: colors,
       }),
     );
-    const expected = `${DATE_STATUS_TYPE} ${statusSlug('wip')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
+    const expected = `${DATE_STATUS_TYPE} ${ZIGZAG_BOTH} ${statusSlug('wip')} ${REPLICATED_TYPE} ${CONTEXT_TYPE}`;
     expect(tasks[0]!.type).toBe(expected);
     // The coupling contract: that exact whole string must be a registered type id,
     // or SVAR's whole-string match drops every cue/state class to plain "task".
