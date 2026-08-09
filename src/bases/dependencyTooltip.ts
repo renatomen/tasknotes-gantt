@@ -98,10 +98,11 @@ export interface DependencyTooltipModel {
  * is how this surface shipped and stayed broken; the shape is therefore pinned
  * by tests here rather than left to inspection at the call site.
  *
- * The parameter stays `unknown` deliberately. The caller types the payload
+ * The parameter stays `unknown` deliberately: the caller types the payload
  * against the library's own task and link types, but the value itself arrives
- * from that library at runtime, so this narrows defensively rather than
- * trusting the declaration.
+ * from that library at runtime. Only the wrapper is checked here — a task
+ * without the expected name or edges degrades to an empty model rather than
+ * throwing, and the edges themselves are taken on trust once found.
  */
 export function dependencyTooltipModel(payload: unknown): DependencyTooltipModel {
   const task = (

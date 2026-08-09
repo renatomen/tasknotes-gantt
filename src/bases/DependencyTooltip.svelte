@@ -17,8 +17,9 @@
 
   // SVAR declares this union for its tooltip content but does not export it, so
   // it is mirrored here against the task, link and resource types it does
-  // export — a change to any of them then fails this file's build instead of
-  // quietly emptying the tooltip again.
+  // export. That catches a change to the wrapper — a renamed key or an added
+  // variant fails the build rather than quietly emptying the tooltip again — but
+  // not a change inside the task itself.
   type TooltipPayload =
     | { task: ITask; segmentIndex: number | null }
     | { link: ILink }
