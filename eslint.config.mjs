@@ -12,6 +12,9 @@ export default [
       "dist/**",
       "node_modules/**",
       ".worktrees/**",
+      // Agent-created worktrees: nested checkouts of this repo, whose copied
+      // configs resolve against the outer root and report phantom errors.
+      ".claude/worktrees/**",
       "website/site/**",
       "coverage/**",
       ".wdio-*",
