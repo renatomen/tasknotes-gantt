@@ -152,6 +152,13 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     });
 
     it("stamps each flagged bar with the per-state class for its own date status", async () => {
+      // The per-state classes are stamped by a post-mount bar attachment, not
+      // emitted with the element, so bar presence alone does not mean they have
+      // landed. Wait for the pair that must exist before counting.
+      await browser.waitUntil(
+        async () => (await $$(".og-bases-gantt .wx-bar.datestatus-zigzag-both")).length === 2,
+        { timeout: 5000, timeoutMsg: "per-state date-status classes were never stamped" },
+      );
       for (const [note, stateClass] of Object.entries(STATE_CLASS_BY_NOTE)) {
         expect(await barClass(note)).toContain(stateClass);
       }

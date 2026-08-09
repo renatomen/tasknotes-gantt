@@ -151,13 +151,13 @@ describe('buildSvarTasks', () => {
   });
 
   it('flags a non-complete leaf with the date-status type only', () => {
-    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })] }));
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred-start' })] }));
     expect(t.type).toBe(DATE_STATUS_TYPE);
   });
 
   it('does not flag when date indicators are off', () => {
     const [t] = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })], showDateIndicators: false }),
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })], showDateIndicators: false }),
     );
     expect(t.type).toBe('task');
   });
@@ -236,7 +236,7 @@ describe('buildSvarTasks', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
     const [t] = buildSvarTasks(
       inputs({
-        instances: [inst({ id: 'a', dateStatus: 'inferred', status: 'wip' })],
+        instances: [inst({ id: 'a', dateStatus: 'inferred-start', status: 'wip' })],
         statusColors: colors,
       }),
     );
@@ -562,8 +562,8 @@ describe('buildTreatmentTaskTypes', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
         ],
         barFillSource: 'priority',
         priorityColors: palettes.priority,
@@ -732,8 +732,8 @@ describe('instance cues (U6)', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
         ],
         statusColors: colors,
       }),
