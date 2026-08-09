@@ -999,22 +999,11 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(toothHeight).toBe(ZIGZAG_PERIOD);
     });
 
-    it("counts the surviving border against a single-torn bar's own width", async () => {
-      // A bar torn on one side KEEPS the border on the other, and with border-box
-      // sizing the used width floors at border + padding — so the border is part
-      // of the same budget the tooth is fitted out of. The both-torn case cannot
-      // catch this: it drops both borders, so its budget is the whole width.
-      const single = await readBarGeometry("Due Only.md");
-
-      // The case only exists while a border survives, and while the bar is
-      // narrow enough for the fit to be doing any work at all.
-      expect(single.borderTotal).toBeGreaterThan(0);
-      expect(single.laidOut).toBeLessThan(8);
-      expect(single.paddingTotal + single.borderTotal).toBeLessThanOrEqual(single.laidOut);
-      expect(single.rendered).toBeCloseTo(single.laidOut, 1);
-    });
-
     it("holds a single-torn bar inside its width when the border alone nearly fills it", async () => {
+      // A bar torn on one side KEEPS the border on the other, and with
+      // border-box sizing the used width floors at border + padding — so the
+      // border is part of the same budget the tooth is fitted out of. The
+      // both-torn case cannot catch this: it drops both borders.
       // The overflow threshold is where the tooth's share plus the surviving
       // border exceed the width. Deriving the probe width from the border this
       // machine actually renders (device-pixel snapping makes it DPI-dependent)
