@@ -3481,7 +3481,13 @@
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end, .datestatus-zigzag-both).og-replicated::after) {
-    z-index: 3 !important;
+    /*
+     * The hatch only needs to beat the wrapper, and a generated `::after`
+     * paints last within its own level — so matching the wrapper's level is
+     * enough, and staying below the accent keeps the override dot and the
+     * progress marker on top of the hatch rather than under it.
+     */
+    z-index: 2 !important;
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end)::before) {
