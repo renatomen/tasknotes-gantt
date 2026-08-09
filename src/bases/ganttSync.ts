@@ -437,7 +437,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     const isReplicated = (countBySource.get(inst.sourcePath) ?? 1) > 1;
     const isContext = inst.isFetched;
     let type = 'task';
-    const classes: string[] = [...dateStatusClasses(inst.dateStatus, showDateIndicators)];
+    const classes: string[] = [...resolveDateStatusClasses(inst.dateStatus, showDateIndicators)];
     // The calendar identity is per SOURCE NOTE, not per instance — a task
     // duplicated across parents follows the same calendar in every copy.
     const treatmentClasses = resolveTreatmentClass({
@@ -524,7 +524,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
  * per-state token for every non-`complete` status, nothing when indicators are
  * off or the dates are complete. Matches {@link DATE_STATUS_FLAG_PREFIXES}.
  */
-function dateStatusClasses(dateStatus: DateStatus, showDateIndicators: boolean): string[] {
+function resolveDateStatusClasses(dateStatus: DateStatus, showDateIndicators: boolean): string[] {
   if (!showDateIndicators || dateStatus === 'complete') return [];
   const stateToken = resolveDateStatusStateToken(dateStatus);
   return stateToken ? [DATE_STATUS_TYPE, stateToken] : [DATE_STATUS_TYPE];
