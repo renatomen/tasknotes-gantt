@@ -28,6 +28,14 @@ A contiguous run of non-working days inside a bar under Split rendering, shown a
 ### Availability seam
 The internal query boundary that answers "is this date blocked?" without a consumer inspecting a calendar note directly. It is not one shared query: task-level blocking (stretching, scheduling decisions later) is answered per task from that task's associated calendar, while background shading is the union of the view's displayed calendars. The two paths derive from the same calendar definitions but are resolved separately, so a day can be shaded in the background without blocking an unassociated task.
 
+## Date status
+
+### Non-authored edge
+A bar edge (start or due) whose date the user did not author — inferred from the other edge and an estimate, or, when neither date exists, given by a placeholder span anchored at today. Signaled by a zigzag cut into that side of the bar; one signal replaces the single color treatment that previously covered every non-complete date status.
+
+### Swapped dates
+The date-status state in which both dates are authored but inverted (start after due). Not a missing edge: it is signaled by a borderless diagonal half-fill across the whole bar in the bar's fill color — icon chips render above it — never by the zigzag.
+
 ## Drag commit
 
 ### Echo
