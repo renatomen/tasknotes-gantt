@@ -222,6 +222,37 @@
     };
   }
 
+  /** Tooth depth at full size, and the largest share of a bar one tooth may take. */
+  const ZIGZAG_TOOTH_DEPTH_PX = 4;
+  const ZIGZAG_TOOTH_MAX_WIDTH_SHARE = 0.3;
+  const ZIGZAG_DEPTH_PROPERTY = '--og-zigzag-depth';
+
+  /**
+   * Hold the torn bar's tooth depth inside its own width.
+   *
+   * The host clears the teeth with padding, and padding wider than the bar grows
+   * the rendered box past the width SVAR lays out from — dependency arrows, link
+   * handles and the drag maths all keep using SVAR's width, so the box must
+   * never exceed it. Sizing the tooth off the bar's own width also keeps a solid
+   * middle on a bar narrower than two full teeth (a one-day placeholder at week
+   * or month zoom), which would otherwise render as a column of tooth tips.
+   */
+  function fitToothDepth(bar: HTMLElement): void {
+    // Only a pixel width is a width in the tooth's own units; anything else
+    // (unset, or a relative unit) leaves the tooth at full size.
+    const width = bar.style.width.endsWith('px')
+      ? Number.parseFloat(bar.style.width)
+      : Number.NaN;
+    const depth = Number.isFinite(width)
+      ? Math.min(ZIGZAG_TOOTH_DEPTH_PX, width * ZIGZAG_TOOTH_MAX_WIDTH_SHARE)
+      : ZIGZAG_TOOTH_DEPTH_PX;
+    const fitted = `${depth}px`;
+    // Writing unconditionally would re-enter through the style observer below.
+    if (bar.style.getPropertyValue(ZIGZAG_DEPTH_PROPERTY) !== fitted) {
+      bar.style.setProperty(ZIGZAG_DEPTH_PROPERTY, fitted);
+    }
+  }
+
   /**
    * Stamp the row's per-state date-status class on the host bar, so each
    * inferred/placeholder/swapped state can be styled distinctly alongside the
@@ -233,21 +264,30 @@
    * re-applies a bar's whole class list from `task.type` on an `update-task`
    * (a Bar Fill / Strip source change re-issues the task with a new treatment
    * class). A MutationObserver re-asserts it, exactly as {@link markBarSplit}
-   * does, so the cue survives a live re-colour without a re-render.
+   * does, so the cue survives a live re-colour without a re-render. A torn bar
+   * watches its inline style too: SVAR rewrites the bar's width there on every
+   * zoom and reflow, and the tooth depth is fitted to that width.
    */
   function markBarDateStatus(token: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!token) return undefined;
       const bar = node.closest(`.${visualClasses.bar}`);
-      if (!bar) return undefined;
-      bar.classList.add(token);
-      const observer = new MutationObserver(() => {
+      if (!(bar instanceof HTMLElement)) return undefined;
+      const torn = isNonAuthoredEdgeToken(token);
+      const reassert = (): void => {
         if (!bar.classList.contains(token)) bar.classList.add(token);
+        if (torn) fitToothDepth(bar);
+      };
+      reassert();
+      const observer = new MutationObserver(reassert);
+      observer.observe(bar, {
+        attributes: true,
+        attributeFilter: torn ? ['class', 'style'] : ['class'],
       });
-      observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
       return () => {
         observer.disconnect();
         bar.classList.remove(token);
+        bar.style.removeProperty(ZIGZAG_DEPTH_PROPERTY);
       };
     };
   }

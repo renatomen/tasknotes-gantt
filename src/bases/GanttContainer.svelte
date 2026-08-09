@@ -3296,15 +3296,37 @@
    * the tooth depth. Under Split rendering the host paints nothing at all, so
    * there the outermost pieces carry the cut instead.
    *
+   * EACH PIXEL IS PAINTED ONCE. The host paints the content box its clip leaves
+   * it; the body paints ONLY the strips the clip took away, and carries the
+   * teeth there. If the body repainted the whole bar over the host, a fill with
+   * alpha would composite twice and the middle would render darker than the
+   * torn strips. The two areas meet exactly: the strip the body paints is as
+   * wide as the padding the host was clipped by.
+   *
    * HOW THE TEETH ARE DRAWN. One alpha-only conic-gradient tile per edge, as
-   * wide as a tooth is deep and as tall as one period, repeated down that edge,
-   * plus a solid layer covering the untouched middle. The layers simply add up,
-   * so an edge pair lists both tiles and needs no mask compositing.
+   * wide as a tooth is deep and as tall as one period, repeated down that edge.
+   * Surfaces that span the WHOLE bar rather than a strip — the progress
+   * wrapper, the replication hatch, an outermost split piece — add a solid
+   * layer over the untouched middle. The layers simply add up, so an edge pair
+   * lists both tiles and needs no mask compositing.
    */
   .og-bases-gantt {
     --og-zigzag-period: 8px;
-    /* Half the period — how far the tile's 45° wedges reach into the body. */
+    /*
+     * Half the period — how far the tile's 45° wedges reach into the body. This
+     * is the FULL-SIZE depth; BarContent republishes the property per bar,
+     * holding it inside the bar's own width so the host's clearing padding can
+     * never grow the rendered box past the width SVAR lays out from.
+     */
     --og-zigzag-depth: 4px;
+    /*
+     * The same depth, additionally held inside the SURFACE it cuts. A split
+     * piece is narrower than the bar the depth was fitted to, so without the
+     * cap its solid middle layer could size to zero and leave a column of
+     * tooth tips. Percentages in `mask-size` resolve against the element's own
+     * mask area, so the cap is per surface.
+     */
+    --og-zigzag-cut: min(var(--og-zigzag-depth), 30%);
     --og-zigzag-teeth-start: conic-gradient(
       from 0deg at 0px 50%,
       #0000 0deg 45deg,
@@ -3339,15 +3361,26 @@
     ) {
     background-clip: content-box !important;
   }
+  /*
+   * Clipping the background stops the FILL behind the teeth but not the border,
+   * and a border on the torn side would redraw the straight full-height edge the
+   * cut just removed — the silhouette would still read rectangular with a
+   * sawtooth behind a line. So the torn side loses its border; the intact sides
+   * keep theirs. The padding is the depth BarContent fitted to this bar, which
+   * is why a percentage is not used here: percentages in `padding` resolve
+   * against the containing block, not the bar.
+   */
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both):not(.wx-split)) {
     padding-left: var(--og-zigzag-depth) !important;
+    border-left: 0 !important;
     border-top-left-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both):not(.wx-split)) {
     padding-right: var(--og-zigzag-depth) !important;
+    border-right: 0 !important;
     border-top-right-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
   }
@@ -3398,71 +3431,133 @@
     left: var(--og-zigzag-depth) !important;
   }
 
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-bar-body),
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .wx-progress-wrapper),
-  .og-bases-gantt
-    :global(.wx-bar.datestatus-zigzag-start :is(.og-ghost-run, .og-instance).og-piece-first),
-  .og-bases-gantt
-    :global(
-      .wx-bar.datestatus-zigzag-both
-        :is(.og-ghost-run, .og-instance).og-piece-first:not(.og-piece-last)
-    ) {
-    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle);
-    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle);
+  /*
+   * THE BODY takes the teeth alone: it paints only the strip the host's clip
+   * gave up, so there is no middle layer to add and nothing paints twice.
+   *
+   * `!important` throughout: SVAR's own styles are Svelte-hashed and out-specify
+   * a plain injected rule, so an unweighted mask longhand can be switched off by
+   * a library or theme rule and take the whole signal with it.
+   */
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-bar-body) {
+    -webkit-mask-image: var(--og-zigzag-teeth-start) !important;
+    mask-image: var(--og-zigzag-teeth-start) !important;
+    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
+    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
+    -webkit-mask-position: left top !important;
+    mask-position: left top !important;
+    -webkit-mask-repeat: repeat-y !important;
+    mask-repeat: repeat-y !important;
+  }
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-bar-body) {
+    -webkit-mask-image: var(--og-zigzag-teeth-end) !important;
+    mask-image: var(--og-zigzag-teeth-end) !important;
+    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
+    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
+    -webkit-mask-position: right top !important;
+    mask-position: right top !important;
+    -webkit-mask-repeat: repeat-y !important;
+    mask-repeat: repeat-y !important;
+  }
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-bar-body) {
+    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end) !important;
+    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end) !important;
     -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth)) 100%;
+      var(--og-zigzag-depth) var(--og-zigzag-period) !important;
     mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth)) 100%;
-    -webkit-mask-position: left top, right top;
-    mask-position: left top, right top;
-    -webkit-mask-repeat: repeat-y, no-repeat;
-    mask-repeat: repeat-y, no-repeat;
+      var(--og-zigzag-depth) var(--og-zigzag-period) !important;
+    -webkit-mask-position: left top, right top !important;
+    mask-position: left top, right top !important;
+    -webkit-mask-repeat: repeat-y, repeat-y !important;
+    mask-repeat: repeat-y, repeat-y !important;
   }
 
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-bar-body),
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .wx-progress-wrapper),
-  .og-bases-gantt
-    :global(.wx-bar.datestatus-zigzag-end :is(.og-ghost-run, .og-instance).og-piece-last),
+  /*
+   * WHOLE-BAR SURFACES take the teeth plus a solid middle: the progress wrapper
+   * above the body, the replication hatch — another host-level pseudo-element
+   * spanning the bar, which would otherwise paint the notches back in exactly as
+   * the strip accent would — and, under Split rendering where the host paints
+   * nothing, the OUTERMOST piece. The piece selectors carry `.wx-split` because
+   * pieces also render over an OPAQUE host (occupancy that did not replace the
+   * plain bar), and there the body already holds the tear: cutting the piece too
+   * would grow a second tooth column at a different x. The cut side also drops
+   * its corner radius, or the outermost tooth tip is rounded off.
+   */
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .wx-progress-wrapper),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start.og-replicated::after),
   .og-bases-gantt
     :global(
-      .wx-bar.datestatus-zigzag-both
+      .wx-bar.datestatus-zigzag-start.wx-split
+        :is(.og-ghost-run, .og-instance).og-piece-first
+    ),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-both.wx-split
+        :is(.og-ghost-run, .og-instance).og-piece-first:not(.og-piece-last)
+    ) {
+    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle) !important;
+    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle) !important;
+    -webkit-mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut)) 100% !important;
+    mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut)) 100% !important;
+    -webkit-mask-position: left top, right top !important;
+    mask-position: left top, right top !important;
+    -webkit-mask-repeat: repeat-y, no-repeat !important;
+    mask-repeat: repeat-y, no-repeat !important;
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .wx-progress-wrapper),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end.og-replicated::after),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-end.wx-split :is(.og-ghost-run, .og-instance).og-piece-last
+    ),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-both.wx-split
         :is(.og-ghost-run, .og-instance).og-piece-last:not(.og-piece-first)
     ) {
-    -webkit-mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle);
-    mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle);
-    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth)) 100%;
-    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth)) 100%;
-    -webkit-mask-position: right top, left top;
-    mask-position: right top, left top;
-    -webkit-mask-repeat: repeat-y, no-repeat;
-    mask-repeat: repeat-y, no-repeat;
+    -webkit-mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle) !important;
+    mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle) !important;
+    -webkit-mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut)) 100% !important;
+    mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut)) 100% !important;
+    -webkit-mask-position: right top, left top !important;
+    mask-position: right top, left top !important;
+    -webkit-mask-repeat: repeat-y, no-repeat !important;
+    mask-repeat: repeat-y, no-repeat !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
   }
 
   /* Both edges — including a split bar rendered as one single piece, which is
      simultaneously the first and the last piece. */
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-bar-body),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .wx-progress-wrapper),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both.og-replicated::after),
   .og-bases-gantt
     :global(
-      .wx-bar.datestatus-zigzag-both
+      .wx-bar.datestatus-zigzag-both.wx-split
         :is(.og-ghost-run, .og-instance).og-piece-first.og-piece-last
     ) {
     -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end),
-      var(--og-zigzag-middle);
+      var(--og-zigzag-middle) !important;
     mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end),
-      var(--og-zigzag-middle);
-    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth) * 2) 100%;
-    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      var(--og-zigzag-depth) var(--og-zigzag-period),
-      calc(100% - var(--og-zigzag-depth) * 2) 100%;
-    -webkit-mask-position: left top, right top, center top;
-    mask-position: left top, right top, center top;
-    -webkit-mask-repeat: repeat-y, repeat-y, no-repeat;
-    mask-repeat: repeat-y, repeat-y, no-repeat;
+      var(--og-zigzag-middle) !important;
+    -webkit-mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut) * 2) 100% !important;
+    mask-size: var(--og-zigzag-cut) var(--og-zigzag-period),
+      var(--og-zigzag-cut) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-cut) * 2) 100% !important;
+    -webkit-mask-position: left top, right top, center top !important;
+    mask-position: left top, right top, center top !important;
+    -webkit-mask-repeat: repeat-y, repeat-y, no-repeat !important;
+    mask-repeat: repeat-y, repeat-y, no-repeat !important;
+    border-radius: 0 !important;
   }
 
   /*

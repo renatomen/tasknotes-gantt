@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
  *      condition) — no fill contest;
  *   3. the split-task segment vocabulary never appears on a calendar-ghost
  *      bar (AE6: calendar gaps and occurrence gaps stay distinct languages);
+ *   3b. the derived (non-authored) end renders as a zigzag torn edge cut into
+ *      the OUTERMOST piece — the split half of the non-authored-edge signal;
  *   4. a task without an associated calendar renders as a plain continuous
  *      bar with no ghost pieces (upgrade-invisible regression).
  */
@@ -111,6 +113,43 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     });
 
     expect(await hasSplit()).toBe(true);
+  });
+
+  it("cuts the torn edge into the outermost piece only (AE6)", async () => {
+    // The stretched task authors a start and derives its end from the estimate,
+    // so its bar carries the trailing-edge tear. Under Split rendering the host
+    // paints nothing, so the cut has to land on the LAST piece — and only that
+    // one, or an inner piece boundary would grow a second tooth column in the
+    // middle of the bar. The piece hooks are stamped by the piece loop, so this
+    // also pins that the loop marks first/last at all.
+    const pieces = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      return Array.from(bar.querySelectorAll(".og-ghost-run")).map((piece) => {
+        const style = window.getComputedStyle(piece);
+        return {
+          classes: piece.className,
+          maskImage: style.maskImage,
+          topRightRadius: style.borderTopRightRadius,
+          topLeftRadius: style.borderTopLeftRadius,
+        };
+      });
+    }, STRETCH_BAR);
+
+    expect(pieces.length).toBeGreaterThan(1);
+    const last = pieces[pieces.length - 1]!;
+    expect(last.classes).toContain("og-piece-last");
+    expect(last.maskImage).toContain("conic-gradient");
+    // A rounded corner on the cut side would round off the outermost tooth tip,
+    // so the tear reads differently on a split bar than on a continuous one.
+    expect(last.topRightRadius).toBe("0px");
+    expect(last.topLeftRadius).not.toBe("0px");
+    // Every piece that is not the outer one stays whole.
+    for (const piece of pieces.slice(0, -1)) {
+      expect(piece.classes).not.toContain("og-piece-last");
+      expect(piece.maskImage).toBe("none");
+    }
+    expect(pieces[0]!.classes).toContain("og-piece-first");
   });
 
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
