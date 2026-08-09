@@ -179,13 +179,14 @@ flowchart TB
 - **Files:** `src/bases/visualSemantics.ts`, `src/bases/ganttSync.ts`, `src/bases/BarContent.svelte`, `test/unit/ganttSync.test.ts`, `test/specs/gantt-date-handling.e2e.ts`, `test/vaults/gantt-dates/` (start-only and swapped fixture notes).
 - **Approach:**
   1. Add four class tokens to `GANTT_VISUAL_CLASS_TOKENS` and a `dateStatus → token` resolver.
-  2. Publish the resolved token on the instance's `custom` payload in `ganttSync`, gated by `showDateIndicators` exactly as the existing flag is (R9); leave the `task.type` string and its registration cross-products untouched (KTD1).
+  2. Publish the resolved token on the instance's `custom` payload in `ganttSync`, gated by `showDateIndicators` exactly as the existing flag is (R9); leave the `task.type` string and its registration cross-products untouched (KTD1). Fold the token into the task's sync fingerprint (`taskStateKey`) so a change to it alone emits an `update-task`: while `datestatus-flagged` still rides `task.type` the type string covers the toggle, but U3/U4 retire that flag and the token becomes the only signal — an unfolded token would leave a stale stamped class on a live toggle.
   3. Stamp the token onto the host bar with a `BarContent` attachment modelled on `markBarSplit`, re-asserting through the same MutationObserver path.
 - **Execution note:** Test-first. This PR must produce zero visual change — dark launch.
 - **Test scenarios:**
   - Each of the five `dateStatus` values maps to its expected token (or none for `complete`).
   - Indicators toggle off → no token published and no flag in the type string.
   - The `task.type` string and the registered type sets are byte-identical to before the change.
+  - A change to the token alone — same dates, same treatment, indicators toggled — changes the sync fingerprint and emits an `update-task`, so the stamped class cannot go stale.
   - The attachment re-asserts the class after SVAR rewrites the bar's class list.
   - E2e in real Obsidian: each state's bar carries its expected class (fixture gains start-only and swapped notes), the complete bar carries none, and indicators-off clears them all.
 - **Verification:** Full jest green; `npm run e2e:local` gantt-date-handling spec green including the new per-state assertions.
