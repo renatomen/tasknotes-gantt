@@ -22,7 +22,7 @@ execution: code
 
 ## Product Contract
 
-Product Contract preservation: changed R5, R6, AE4 (+ added AE8) — the swapped-dates treatment was revised in-session from a small icon chip to a full-bar diagonal half-fill (user-directed). R4 and R5 each gained one planning-review exception (spine-only coarse-zoom envelope drops the zigzag; occurrence-state-cued pieces keep their cue over the diagonal slice; conflict notes on the governing Key Decisions). All other requirements unchanged.
+Product Contract preservation: changed R5, R6, AE4 (+ added AE8) — the swapped-dates treatment was revised in-session from a small icon chip to a full-bar diagonal half-fill (user-directed). R3, R4 and R5 each gained one planning-review exception (a tooth too deep for its bar scales with it; spine-only coarse-zoom envelope drops the zigzag; occurrence-state-cued pieces keep their cue over the diagonal slice; conflict notes on the governing Key Decisions). All other requirements unchanged.
 
 ### Summary
 
@@ -38,7 +38,7 @@ Today every non-complete date status renders the same way: a hardcoded orange fi
 - **One unified signal for non-authored edges.** A zigzag edge means "this edge was not authored", covering both today's missing-date fill and today's inferred-date border. (session-settled: user-approved — chosen over keeping missing and inferred visually distinct: both describe an edge the user did not author.) Governs R1.
 - **Zigzag as a CSS mask carved into the bar.** The teeth are cut out of the bar's own painted body rather than drawn over it, so the signal composes with any fill. (session-settled: user-directed — chosen over overlay or border approaches: the user supplied the conic-gradient mask technique; see Sources.) The mask carrier is an inner body layer, not the host element — KTD2 — so dependency controls and hover feedback stay outside the cut. Governs R2.
 - **Swapped dates render as a full-bar diagonal half-fill.** (session-settled: user-directed — chosen over a small half-filled square icon chip: no contention for the single chip slot, legible at any bar width, and icon chips render above it.) Governs R5. Conflict note from planning review: one evidence-based exception is recorded on R5 — split pieces whose rendering carries an occurrence-state cue (background-borne or hollow-interior) keep the cue instead of their diagonal slice.
-- **Zigzag everywhere, including one-cell bars.** (session-settled: user-directed — chosen over a dashed-outline fallback below a width threshold: one visual language, consistent semantics.) Governs R3.
+- **Zigzag everywhere, including one-cell bars.** (session-settled: user-directed — chosen over a dashed-outline fallback below a width threshold: one visual language, consistent semantics.) Governs R3. Conflict note from implementation review: one evidence-based exception is recorded on R3 — a tooth too deep for its bar makes the rendered box wider than its laid-out width, so the tooth scales there. The visual language is unchanged; only its size follows the bar.
 - **The signal survives Split rendering.** (session-settled: user-approved — chosen over continuous-bars-only: the missing-edge signal is semantics, not decoration.) Governs R4. Conflict note from planning review: one evidence-based exception is recorded on R4 — the spine-only coarse-zoom envelope exposes no maskable surface, so that single flavor drops the zigzag at that zoom.
 
 The resulting state-to-treatment mapping:
@@ -57,7 +57,7 @@ The resulting state-to-treatment mapping:
 
 - R1. A bar whose start is not authored renders a zigzag left edge; a bar whose due is not authored renders a zigzag right edge; a bar with neither date renders both, per the mapping table above.
 - R2. The zigzag is cut into the bar's own shape via CSS mask, so it renders identically over any fill source (status, priority, theme, calendar) in light and dark themes, with no hardcoded hue.
-- R3. Teeth use an 8px vertical period (about 4px horizontal depth) at standard bar height, applied unchanged on short and one-cell bars with no width-based fallback.
+- R3. Teeth use an 8px vertical period (about 4px horizontal depth) at standard bar height, applied unchanged on short and one-cell bars — the treatment never switches to a different visual language below a width threshold. One planning-time exception: on a bar too narrow to carry a standard tooth, the tooth scales down with the bar rather than being forced; a fixed depth there makes the rendered bar wider than the width it was laid out at, which drags its hit area and dependency anchors out of position.
 - R4. Under Split rendering, the outermost visible piece carries the zigzag on its outer edge; at zoom levels where split tiling falls back to a continuous bar, the zigzag renders on the continuous bar's edge. One planning-time exception: a fully-suppressed recurring envelope at coarse zoom renders no maskable surface (a zero-height spine only) and drops the zigzag at that zoom; every other split form keeps the signal.
 
 **Swapped indicator**
@@ -84,7 +84,7 @@ No Key Flows section: the change has no multi-step behavior — it restyles exis
 - AE4. **Covers R5.** Given a task whose start is after its due, then the bar has no zigzag and no border, and renders a diagonal half-fill in the bar's fill color.
 - AE5. **Covers R9, R7.** Given the date-status indicator option is off, then no bar shows a zigzag or diagonal half-fill and the two new legend entries are absent.
 - AE6. **Covers R4.** Given Split rendering with ghost runs and a task whose due is inferred, then the outermost right piece carries the teeth on its right edge.
-- AE7. **Covers R3.** Given a one-cell bar with neither date, then both-edge teeth are still applied at the standard tooth size.
+- AE7. **Covers R3.** Given a one-cell bar with neither date at a zoom where a standard tooth fits, then both-edge teeth are applied at the standard tooth size; at a zoom too coarse for that, the teeth scale with the bar and the bar still renders at the width it was laid out at.
 - AE8. **Covers R5.** Given a swapped task that also has a status or priority icon configured, then the icon chip renders above the diagonal half-fill and both stay visible.
 
 ### Scope Boundaries
