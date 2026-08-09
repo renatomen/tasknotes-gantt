@@ -6,8 +6,11 @@
    *
    * SVAR keeps this component mounted while the pointer moves between bars and
    * renders it for every hover target it can resolve, including dependency
-   * edges. A target that is not a task yields nothing to say, and the whole
-   * container is withheld so the chart shows no empty chip.
+   * edges. A target that is not a task yields nothing to say, so this withholds
+   * its own container — but the surrounding chrome is painted on the presence
+   * of a content component rather than on what that component emits, so a
+   * hovered edge still shows a small empty box. Only a resolver that declines
+   * the target suppresses that, which is not wired up here.
    */
   import type { ILink, IResource, ITask } from '@svar-ui/svelte-gantt';
   import { dependencyTooltipModel } from './dependencyTooltip';
