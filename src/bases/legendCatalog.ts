@@ -152,8 +152,8 @@ type LegendCatalogueRows = {
 export const LEGEND_CATALOGUE_ROWS = {
   'bar-treatment': ['bar', { name: 'Task bar', meaning: 'The configured fill, strip, and icon channels identify task attributes.' }],
   'bar-icon': ['icon', { name: 'Task icon', meaning: 'A configured glyph or dot shape identifies the selected status or priority.' }],
-  'date-status-fill': ['schedule-bar', { name: 'Date fill', meaning: 'An orange fill marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.' }],
-  'date-status-border': ['schedule-bar', { name: 'Date border', meaning: 'A red border marks a task whose displayed range was inferred from a missing start or end date or corrected from reversed dates.' }],
+  'date-status-fill': ['schedule-bar', { name: 'Date fill', meaning: 'An orange fill marks a task whose start date falls after its due date.' }],
+  'date-status-border': ['schedule-bar', { name: 'Date border', meaning: 'A red border marks a task whose start date falls after its due date.' }],
   progress: ['progress', { name: 'Progress', meaning: 'The contrasting portion of a bar shows completion progress.' }],
   'dependency-link': ['dependency', { name: 'Dependency', meaning: 'A connector shows the scheduling relationship between two tasks.' }],
   'weekend-shading': ['calendar-shading', { name: 'Weekend', meaning: 'Theme holiday shading marks the locale weekend.' }],
