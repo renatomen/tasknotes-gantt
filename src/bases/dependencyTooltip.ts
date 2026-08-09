@@ -21,6 +21,11 @@ export interface IncomingDep {
   gap: string | null;
   /** Display name of the predecessor (blocking) task. */
   predecessorName: string;
+  /**
+   * Row id of the predecessor. Names repeat across a vault, so identifying a
+   * hovered edge by name alone would describe the wrong one.
+   */
+  predecessorId: string;
 }
 
 /** Short, conventional label per relationship type. */
@@ -104,16 +109,51 @@ export interface DependencyTooltipModel {
  * without the expected name or edges degrades to an empty model rather than
  * throwing, and the edges themselves are taken on trust once found.
  */
-export function dependencyTooltipModel(payload: unknown): DependencyTooltipModel {
-  const task = (
-    payload as
-      | { task?: { text?: string; custom?: { incomingDeps?: readonly IncomingDep[] } } }
-      | null
-      | undefined
-  )?.task;
-  const formatted = formatIncomingDeps(task?.custom?.incomingDeps ?? []);
-  return {
-    title: typeof task?.text === 'string' ? task.text : '',
-    lines: formatted ? formatted.split('\n') : [],
-  };
+export function dependencyTooltipModel(
+  payload: unknown,
+  findTask?: TaskLookup,
+): DependencyTooltipModel {
+  const hovered = payload as HoveredPayload | null | undefined;
+  if (hovered?.link) return hoveredEdgeModel(hovered.link, findTask);
+  return hoveredTaskModel(hovered?.task);
+}
+
+/** Resolves a row id to the task carrying it, for an edge that names its ends. */
+export type TaskLookup = (id: string) => HoveredTask | null | undefined;
+
+interface HoveredTask {
+  text?: string;
+  custom?: { incomingDeps?: readonly IncomingDep[] };
+}
+
+interface HoveredPayload {
+  task?: HoveredTask;
+  link?: { source?: string; target?: string };
+}
+
+function model(title: string, formatted: string): DependencyTooltipModel {
+  return { title, lines: formatted ? formatted.split('\n') : [] };
+}
+
+function hoveredTaskModel(task: HoveredTask | undefined): DependencyTooltipModel {
+  return model(
+    typeof task?.text === 'string' ? task.text : '',
+    formatIncomingDeps(task?.custom?.incomingDeps ?? []),
+  );
+}
+
+/**
+ * An edge names only its two ends, so the relationship and gap it stands for
+ * are read off the blocked task's own list of incoming edges. An edge whose
+ * predecessor is not among them describes nothing and says nothing.
+ */
+function hoveredEdgeModel(
+  link: { source?: string; target?: string },
+  findTask: TaskLookup | undefined,
+): DependencyTooltipModel {
+  if (!findTask || !link.target || !link.source) return model('', '');
+  const blocked = findTask(link.target);
+  const edge = blocked?.custom?.incomingDeps?.find((d) => d.predecessorId === link.source);
+  if (!edge) return model('', '');
+  return model(typeof blocked?.text === 'string' ? blocked.text : '', formatIncomingDep(edge));
 }

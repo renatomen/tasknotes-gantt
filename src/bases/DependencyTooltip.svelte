@@ -5,15 +5,19 @@
    * degrades to the normal name tooltip rather than an empty container.
    *
    * SVAR keeps this component mounted while the pointer moves between bars and
-   * renders it for every hover target it can resolve, including dependency
-   * edges. A target that is not a task yields nothing to say, so this withholds
-   * its own container — but the surrounding chrome is painted on the presence
-   * of a content component rather than on what that component emits, so a
-   * hovered edge still shows a small empty box. Only a resolver that declines
-   * the target suppresses that, which is not wired up here.
+   * renders it for every hover target it can resolve. A hovered edge is one of
+   * them, and describes itself: the blocked task, and the single relationship
+   * that edge stands for.
+   *
+   * The container is still withheld when there is nothing to say — a rollup or
+   * resource target, or an edge with no matching dependency. That leaves a bare
+   * chip, because the surrounding chrome is painted on the presence of a content
+   * component rather than on what it emits; only a resolver that declines the
+   * target removes it. Every drawn edge resolves, so this is unreachable in
+   * practice rather than merely unlikely.
    */
-  import type { ILink, IResource, ITask } from '@svar-ui/svelte-gantt';
-  import { dependencyTooltipModel } from './dependencyTooltip';
+  import type { IApi, ILink, IResource, ITask } from '@svar-ui/svelte-gantt';
+  import { dependencyTooltipModel, type TaskLookup } from './dependencyTooltip';
 
   // SVAR declares this union for its tooltip content but does not export it, so
   // it is mirrored here against the task, link and resource types it does
@@ -26,9 +30,10 @@
     | { rollup: ITask }
     | { resource: IResource };
 
-  let { data }: { data: TooltipPayload } = $props();
+  let { api, data }: { api?: IApi; data: TooltipPayload } = $props();
 
-  const model = $derived(dependencyTooltipModel(data));
+  const findTask: TaskLookup = (id) => api?.getTask(id) as ReturnType<TaskLookup>;
+  const model = $derived(dependencyTooltipModel(data, findTask));
   const isEmpty = $derived(model.title === '' && model.lines.length === 0);
 </script>
 

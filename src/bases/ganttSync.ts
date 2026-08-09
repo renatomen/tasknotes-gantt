@@ -411,6 +411,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       reltype: link.reltype,
       gap: link.gap,
       predecessorName: idToText.get(link.source) ?? link.source,
+      predecessorId: link.source,
     });
     incomingByTargetId.set(link.target, list);
   }

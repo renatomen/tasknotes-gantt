@@ -100,3 +100,44 @@ describe('dependencyTooltipModel', () => {
     expect(dependencyTooltipModel(undefined)).toEqual({ title: '', lines: [] });
   });
 });
+
+describe('dependencyTooltipModel — hovered dependency edge', () => {
+  const task = (text: string, deps: IncomingDep[] = []) => ({ text, custom: { incomingDeps: deps } });
+
+  it('names the blocked task and describes the one edge that was hovered', () => {
+    const deps = [
+      dep({ predecessorId: 'a', predecessorName: 'Draft docs', gap: 'P1D' }),
+      dep({ predecessorId: 'b', predecessorName: 'Review copy', reltype: 'STARTTOSTART' }),
+    ];
+    const model = dependencyTooltipModel({ link: { id: 'l1', source: 'b', target: 't' } }, (id) =>
+      id === 't' ? task('Ship the release', deps) : null,
+    );
+
+    expect(model.title).toBe('Ship the release');
+    expect(model.lines).toEqual(['Blocked by Review copy — SS']);
+  });
+
+  it('distinguishes edges from predecessors that share a name', () => {
+    const deps = [
+      dep({ predecessorId: 'a', predecessorName: 'Review', gap: 'P1D' }),
+      dep({ predecessorId: 'b', predecessorName: 'Review', gap: 'P3W' }),
+    ];
+    const model = dependencyTooltipModel({ link: { id: 'l2', source: 'b', target: 't' } }, () =>
+      task('Ship the release', deps),
+    );
+
+    expect(model.lines).toEqual(['Blocked by Review — FS +3w']);
+  });
+
+  it('yields an empty model when the hovered edge resolves to no known dependency', () => {
+    expect(
+      dependencyTooltipModel({ link: { id: 'l3', source: 'gone', target: 't' } }, () =>
+        task('Ship the release', [dep({ predecessorId: 'a' })]),
+      ),
+    ).toEqual({ title: '', lines: [] });
+    expect(dependencyTooltipModel({ link: { id: 'l4', source: 'b', target: 't' } })).toEqual({
+      title: '',
+      lines: [],
+    });
+  });
+});
