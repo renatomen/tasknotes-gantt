@@ -3324,9 +3324,13 @@
      * wherever the teeth are cut. Its only job is to keep a solid middle: a
      * split piece is narrower than the bar the depth was fitted to, and without
      * the ceiling its middle layer could size to zero and leave a column of
-     * tooth tips. Sitting above the share the bar template fits the depth by, it
-     * never competes with that fitted depth on a whole-bar surface — it engages
-     * only on a surface narrower than the bar. Percentages in `mask-size`
+     * tooth tips. It sits above the share the bar template fits the depth by, so
+     * on a full-width surface the fitted depth normally wins. It also engages on
+     * a bar torn on a single side: those surfaces are placed against the padding
+     * box while the depth is fitted to the border box, so once the bar narrows
+     * to a few times its surviving border the ceiling cuts the shallower tooth —
+     * sub-pixel territory, where erring shallow costs only a sliver of notch.
+     * Percentages in `mask-size`
      * resolve against the element's own mask area, so it is genuinely per
      * surface — but ONLY when substituted there: a custom property holding
      * `min(var(--og-zigzag-depth), …)` would have the var() replaced on THIS
@@ -3464,6 +3468,20 @@
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both)::before) {
     left: var(--og-zigzag-depth) !important;
+  }
+  /*
+   * The accent and the duplicate-row hatch are host-level painters the piece
+   * wrapper would otherwise cover: it became a stacking context when it took
+   * the mask, and it sits later in tree order than the level the accent used to
+   * win from. Lift both back above it, still under the link handles.
+   */
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end, .datestatus-zigzag-both)::before) {
+    z-index: 3 !important;
+  }
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end, .datestatus-zigzag-both).og-replicated::after) {
+    z-index: 3 !important;
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end)::before) {
