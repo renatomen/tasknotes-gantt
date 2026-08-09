@@ -52,6 +52,9 @@ const STATE_CLASS_BY_NOTE = {
 
 const STATE_CLASSES = [...new Set(Object.values(STATE_CLASS_BY_NOTE))];
 
+/** The due date `Due Only.md` ships with; the live-edit test must restore it. */
+const DUE_ONLY_FIXTURE_DUE = "2026-04-20";
+
 /** The `class` attribute of the bar whose `data-id` ends with `note`. */
 async function barClass(note: string): Promise<string> {
   const bar = await $(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
@@ -185,8 +188,14 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // emitted with the element, so bar presence alone does not mean they have
       // landed. Wait for the pair that must exist before counting.
       await browser.waitUntil(
-        async () => (await $$(".og-bases-gantt .wx-bar.datestatus-zigzag-both")).length === 2,
-        { timeout: 5000, timeoutMsg: "per-state date-status classes were never stamped" },
+        async () => {
+          let stamped = 0;
+          for (const stateClass of STATE_CLASSES) {
+            stamped += (await $$(`.og-bases-gantt .wx-bar.${stateClass}`)).length;
+          }
+          return stamped === 5;
+        },
+        { timeout: 20000, timeoutMsg: "per-state date-status classes were never stamped" },
       );
       for (const [note, stateClass] of Object.entries(STATE_CLASS_BY_NOTE)) {
         expect(await barClass(note)).toContain(stateClass);
@@ -203,13 +212,20 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       for (const stateClass of STATE_CLASSES) expect(complete).not.toContain(stateClass);
     });
 
+    // The live-edit test below mutates the vault. Restoring inline is not
+    // enough: a failed assertion would skip the restore and cascade into every
+    // later block, so an idempotent hook guarantees the fixture state.
+    after(async () => {
+      await setDates("Due Only.md", { start: undefined, due: DUE_ONLY_FIXTURE_DUE });
+    });
+
     it("re-stamps the per-state class in place when a task's dates change", async () => {
       // The interesting case is an UPDATE, not a mount: the bar element survives
       // while SVAR re-applies its class list from the task type, which drops an
       // imperatively-stamped class unless it is re-asserted. Flipping Due Only
       // from due-only to start-only moves it inferred-start -> inferred-end
       // without touching its type, so the stamp is the only thing that changes.
-      await setDates("Due Only.md", { start: "2026-04-06", due: undefined });
+      await setDates("Due Only.md", { start: "2026-04-08", due: undefined });
       await waitForStamp("Due Only.md", "datestatus-zigzag-end");
 
       expect(await barClass("Due Only.md")).not.toContain("datestatus-zigzag-start");
@@ -218,7 +234,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
       // Restore, so the fixture invariants hold for every later block — and so
       // the reverse transition is exercised too.
-      await setDates("Due Only.md", { start: undefined, due: "2026-04-14" });
+      await setDates("Due Only.md", { start: undefined, due: DUE_ONLY_FIXTURE_DUE });
       await waitForStamp("Due Only.md", "datestatus-zigzag-start");
       expect(await barClass("Due Only.md")).not.toContain("datestatus-zigzag-end");
       expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-end`)).toHaveLength(1);
@@ -229,18 +245,23 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // list from the task type erases it — and when the date status itself has
       // not changed, nothing re-runs the stamp. Stripping the class directly is
       // that rewrite in miniature: the guard is that it comes back on its own.
-      await browser.executeObsidian(
-        (_obsidian, selector: string, stateClass: string) => {
+      // Strip and re-read within a single page turn. A re-render would also
+      // re-add the class, so polling from the test side could pass without the
+      // observer at all; one macrotask is long enough for the observer's
+      // microtask callback and short enough to exclude anything else.
+      const restoredInPlace = await browser.executeObsidian(
+        async (_obsidian, selector: string, stateClass: string) => {
           const bar = document.querySelector(selector);
           if (!bar) throw new Error(`bar not found: ${selector}`);
           bar.classList.remove(stateClass);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          return bar.classList.contains(stateClass);
         },
         `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
         "datestatus-zigzag-start",
       );
 
-      await waitForStamp("Due Only.md", "datestatus-zigzag-start");
-      expect(await barClass("Due Only.md")).toContain("datestatus-zigzag-start");
+      expect(restoredInPlace).toBe(true);
       expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-start`)).toHaveLength(1);
     });
   });
