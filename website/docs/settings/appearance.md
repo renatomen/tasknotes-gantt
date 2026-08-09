@@ -40,8 +40,9 @@ missing** (the other inferred) or **no dates at all** (placed at today as a
 placeholder) gets a **torn, zigzag edge** on the side that was never authored. A
 bar whose **start falls after its due date** gets a distinct **orange** treatment
 instead. A task carrying both dates in chronological order is never flagged
-(there's no overdue marker). The teeth scale with the bar, so a short task at a
-coarse zoom may be too narrow to show them — zoom in to be sure. **Default:** on.
+(there's no overdue marker). The teeth are capped by the bar's own width, so a
+short task at a coarse zoom may be too narrow to show them — zoom in to be sure.
+**Default:** on.
 
 ## Show toolbar
 

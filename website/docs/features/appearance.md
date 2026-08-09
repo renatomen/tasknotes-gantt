@@ -101,9 +101,9 @@ a distinct **orange** treatment instead. A task carrying both dates in
 chronological order is never flagged; there is **no "overdue" marker**. On by
 default.
 
-The teeth scale with the bar, so a short task at a coarse zoom — a one-day
-placeholder on a month scale, say — can be too narrow to show them. Zoom in when
-you need to be sure whether a bar's dates were authored.
+The teeth are capped by the bar's own width, so a short task at a coarse zoom — a
+one-day placeholder on a month scale, say — can be too narrow to show them. Zoom
+in when you need to be sure whether a bar's dates were authored.
 
 ## Reading bar decorations
 
