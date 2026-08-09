@@ -228,17 +228,18 @@
   const ZIGZAG_DEPTH_PROPERTY = '--og-zigzag-depth';
 
   /** How many sides of the bar `token` tears — both edges, one, or none. */
-  function tornSideCount(token: string | undefined): number {
+  function countTornSides(token: string | undefined): number {
     if (token === visualClasses.dateStatusZigzagBoth) return 2;
     return isNonAuthoredEdgeToken(token) ? 1 : 0;
   }
 
   /**
-   * The border a torn bar still paints, in px. The torn sides drop theirs — a
-   * border there would redraw the straight edge the teeth removed — so this is
-   * whatever the intact sides carry, read after the state class has landed.
+   * The torn sides drop their border — one there would redraw the straight edge
+   * the teeth removed — so only the intact sides still carry one, and it eats
+   * the same width budget the tooth is fitted out of. Read after the state
+   * class has landed, or the torn sides are still counted.
    */
-  function survivingBorderWidth(bar: HTMLElement): number {
+  function measureSurvivingBorder(bar: HTMLElement): number {
     const style = window.getComputedStyle(bar);
     return (
       (Number.parseFloat(style.borderLeftWidth) || 0) +
@@ -306,14 +307,14 @@
       if (!token) return undefined;
       const bar = node.closest(`.${visualClasses.bar}`);
       if (!(bar instanceof HTMLElement)) return undefined;
-      const tornSides = tornSideCount(token);
+      const tornSides = countTornSides(token);
       // One read: the surviving border is a theme constant, while the width this
       // runs against is rewritten on every drag frame.
       let keptBorderPx: number | null = null;
       const reassert = (): void => {
         if (!bar.classList.contains(token)) bar.classList.add(token);
         if (!tornSides) return;
-        keptBorderPx ??= survivingBorderWidth(bar);
+        keptBorderPx ??= measureSurvivingBorder(bar);
         fitToothDepth(bar, tornSides, keptBorderPx);
       };
       reassert();
