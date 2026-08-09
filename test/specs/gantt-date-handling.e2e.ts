@@ -58,6 +58,35 @@ async function barClass(note: string): Promise<string> {
   return await bar.getAttribute("class");
 }
 
+/**
+ * Rewrite a note's start/due frontmatter through Obsidian's own API, so the
+ * edit reaches the view the way a user's edit would. `undefined` removes a key.
+ */
+async function setDates(
+  note: string,
+  dates: { start?: string; due?: string },
+): Promise<void> {
+  await browser.executeObsidian(async ({ app }, p, d) => {
+    const file = app.vault.getAbstractFileByPath(p);
+    if (!file) throw new Error(`fixture note not found: ${p}`);
+    await app.fileManager.processFrontMatter(file as never, (fm: Record<string, unknown>) => {
+      for (const key of ["start", "due"] as const) {
+        const value = (d as Record<string, string | undefined>)[key];
+        if (value === undefined) delete fm[key];
+        else fm[key] = value;
+      }
+    });
+  }, note, dates);
+}
+
+/** Wait for a note's bar to carry `stateClass`. */
+async function waitForStamp(note: string, stateClass: string): Promise<void> {
+  await browser.waitUntil(async () => (await barClass(note)).includes(stateClass), {
+    timeout: 20000,
+    timeoutMsg: `${note} never carried ${stateClass}`,
+  });
+}
+
 /** Enable the Bases core plugin (required to open a `.base`). */
 async function enableBases(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -172,6 +201,47 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     it("leaves the complete bar without any per-state date-status class", async () => {
       const complete = await barClass("Complete.md");
       for (const stateClass of STATE_CLASSES) expect(complete).not.toContain(stateClass);
+    });
+
+    it("re-stamps the per-state class in place when a task's dates change", async () => {
+      // The interesting case is an UPDATE, not a mount: the bar element survives
+      // while SVAR re-applies its class list from the task type, which drops an
+      // imperatively-stamped class unless it is re-asserted. Flipping Due Only
+      // from due-only to start-only moves it inferred-start -> inferred-end
+      // without touching its type, so the stamp is the only thing that changes.
+      await setDates("Due Only.md", { start: "2026-04-06", due: undefined });
+      await waitForStamp("Due Only.md", "datestatus-zigzag-end");
+
+      expect(await barClass("Due Only.md")).not.toContain("datestatus-zigzag-start");
+      expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-start`)).toHaveLength(0);
+      expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-end`)).toHaveLength(2);
+
+      // Restore, so the fixture invariants hold for every later block — and so
+      // the reverse transition is exercised too.
+      await setDates("Due Only.md", { start: undefined, due: "2026-04-14" });
+      await waitForStamp("Due Only.md", "datestatus-zigzag-start");
+      expect(await barClass("Due Only.md")).not.toContain("datestatus-zigzag-end");
+      expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-end`)).toHaveLength(1);
+    });
+
+    it("restores the stamp when the bar's class list is rewritten under it", async () => {
+      // The stamp is imperative, so any host re-render that rebuilds the class
+      // list from the task type erases it — and when the date status itself has
+      // not changed, nothing re-runs the stamp. Stripping the class directly is
+      // that rewrite in miniature: the guard is that it comes back on its own.
+      await browser.executeObsidian(
+        (_obsidian, selector: string, stateClass: string) => {
+          const bar = document.querySelector(selector);
+          if (!bar) throw new Error(`bar not found: ${selector}`);
+          bar.classList.remove(stateClass);
+        },
+        `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
+        "datestatus-zigzag-start",
+      );
+
+      await waitForStamp("Due Only.md", "datestatus-zigzag-start");
+      expect(await barClass("Due Only.md")).toContain("datestatus-zigzag-start");
+      expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-start`)).toHaveLength(1);
     });
   });
 
