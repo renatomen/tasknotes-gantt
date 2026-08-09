@@ -227,24 +227,57 @@
   const ZIGZAG_TOOTH_MAX_WIDTH_SHARE = 0.3;
   const ZIGZAG_DEPTH_PROPERTY = '--og-zigzag-depth';
 
+  /** How many sides of the bar `token` tears — both edges, one, or none. */
+  function tornSideCount(token: string | undefined): number {
+    if (token === visualClasses.dateStatusZigzagBoth) return 2;
+    return isNonAuthoredEdgeToken(token) ? 1 : 0;
+  }
+
+  /**
+   * The border a torn bar still paints, in px. The torn sides drop theirs — a
+   * border there would redraw the straight edge the teeth removed — so this is
+   * whatever the intact sides carry, read after the state class has landed.
+   */
+  function survivingBorderWidth(bar: HTMLElement): number {
+    const style = window.getComputedStyle(bar);
+    return (
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0)
+    );
+  }
+
   /**
    * Hold the torn bar's tooth depth inside its own width.
    *
-   * The host clears the teeth with padding, and padding wider than the bar grows
-   * the rendered box past the width SVAR lays out from — dependency arrows, link
+   * The host clears the teeth with padding, and a border box never shrinks below
+   * its own border plus padding — so a tooth wider than the room left over grows
+   * the rendered box past the width SVAR lays out from. Dependency arrows, link
    * handles and the drag maths all keep using SVAR's width, so the box must
-   * never exceed it. Sizing the tooth off the bar's own width also keeps a solid
-   * middle on a bar narrower than two full teeth (a one-day placeholder at week
-   * or month zoom), which would otherwise render as a column of tooth tips.
+   * never exceed it, and the budget the teeth divide is the width MINUS the
+   * border the intact sides still paint. Sizing the tooth off the bar's own
+   * width also keeps a solid middle on a bar narrower than two full teeth (a
+   * one-day placeholder at week or month zoom), which would otherwise render as
+   * a column of tooth tips.
+   *
+   * Sub-pixel is deliberate: below a few pixels of bar the tooth fades out with
+   * the bar rather than being floored to a legible minimum. A floor there would
+   * spend the bar's whole width on two teeth and leave no body to tear.
    */
-  function fitToothDepth(bar: HTMLElement): void {
+  function fitToothDepth(bar: HTMLElement, tornSides: number, keptBorderPx: number): void {
     // Only a pixel width is a width in the tooth's own units; anything else
     // (unset, or a relative unit) leaves the tooth at full size.
     const width = bar.style.width.endsWith('px')
       ? Number.parseFloat(bar.style.width)
       : Number.NaN;
     const depth = Number.isFinite(width)
-      ? Math.min(ZIGZAG_TOOTH_DEPTH_PX, width * ZIGZAG_TOOTH_MAX_WIDTH_SHARE)
+      ? Math.max(
+          0,
+          Math.min(
+            ZIGZAG_TOOTH_DEPTH_PX,
+            width * ZIGZAG_TOOTH_MAX_WIDTH_SHARE,
+            (width - keptBorderPx) / tornSides,
+          ),
+        )
       : ZIGZAG_TOOTH_DEPTH_PX;
     const fitted = `${depth}px`;
     // Writing unconditionally would re-enter through the style observer below.
@@ -273,16 +306,21 @@
       if (!token) return undefined;
       const bar = node.closest(`.${visualClasses.bar}`);
       if (!(bar instanceof HTMLElement)) return undefined;
-      const torn = isNonAuthoredEdgeToken(token);
+      const tornSides = tornSideCount(token);
+      // One read: the surviving border is a theme constant, while the width this
+      // runs against is rewritten on every drag frame.
+      let keptBorderPx: number | null = null;
       const reassert = (): void => {
         if (!bar.classList.contains(token)) bar.classList.add(token);
-        if (torn) fitToothDepth(bar);
+        if (!tornSides) return;
+        keptBorderPx ??= survivingBorderWidth(bar);
+        fitToothDepth(bar, tornSides, keptBorderPx);
       };
       reassert();
       const observer = new MutationObserver(reassert);
       observer.observe(bar, {
         attributes: true,
-        attributeFilter: torn ? ['class', 'style'] : ['class'],
+        attributeFilter: tornSides ? ['class', 'style'] : ['class'],
       });
       return () => {
         observer.disconnect();

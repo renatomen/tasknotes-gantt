@@ -152,6 +152,39 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(pieces[0]!.classes).toContain("og-piece-first");
   });
 
+  it("drops the split host's own border on the torn side (AE6)", async () => {
+    // The host of a split bar paints no fill, but it still paints a BORDER — and
+    // on a date-status-flagged bar that border is deliberately kept as the only
+    // cue an otherwise transparent host can show. Kept across the torn side it
+    // draws the straight full-height edge the teeth just cut out of the piece
+    // beneath it, so the silhouette reads as a boxed-in rectangle again. The
+    // torn side has to lose it on a split host exactly as on a continuous one,
+    // while the intact side keeps it.
+    const host = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      const style = window.getComputedStyle(bar);
+      return {
+        split: bar.classList.contains("wx-split"),
+        torn: bar.classList.contains("datestatus-zigzag-end"),
+        borderLeftWidth: style.borderLeftWidth,
+        borderRightWidth: style.borderRightWidth,
+        topRightRadius: style.borderTopRightRadius,
+        bottomRightRadius: style.borderBottomRightRadius,
+      };
+    }, STRETCH_BAR);
+
+    // The case only exists on a split host carrying a trailing tear.
+    expect(host.split).toBe(true);
+    expect(host.torn).toBe(true);
+    expect(host.borderRightWidth).toBe("0px");
+    expect(host.topRightRadius).toBe("0px");
+    expect(host.bottomRightRadius).toBe("0px");
+    // …and the intact side still carries the border this bar is entitled to, so
+    // the removal is the torn side's, not a blanket erase.
+    expect(Number.parseFloat(host.borderLeftWidth)).toBeGreaterThan(0);
+  });
+
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {
     const segments = await $$(".og-bases-gantt .wx-segment");
     expect(segments).toHaveLength(0);
