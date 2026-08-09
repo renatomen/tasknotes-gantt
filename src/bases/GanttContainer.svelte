@@ -2669,9 +2669,9 @@
            targeted api.exec actions (diff-sync $effect above) so SVAR never
            re-inits its store and the user's zoom/scroll/selection survive. -->
       <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
-           from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
-           dependent task's tooltip is the surface. Falls back to the task name
-           for tasks with no dependencies. -->
+           from custom.incomingDeps, on the dependent task rather than on the
+           edges themselves. Falls back to the task name for tasks with no
+           dependencies. -->
       <Tooltip {api} content={DependencyTooltip}>
         <!-- taskTemplate renders the bar's content (text + optional icon chip via
              BarContent). Passed as a STABLE prop set once at mount — SVAR's

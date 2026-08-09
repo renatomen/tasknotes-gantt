@@ -1,9 +1,9 @@
 /**
  * Pure formatting for the dependency summary shown in a task's tooltip (U3).
  *
- * SVAR has no native link tooltip; reltype + gap are surfaced on the *dependent
- * task's* tooltip instead. `buildSvarTasks` attaches each task's incoming edges
- * as `custom.incomingDeps`; this module turns that into display text.
+ * reltype + gap are surfaced on the *dependent task's* tooltip rather than on
+ * the edges themselves. `buildSvarTasks` attaches each task's incoming edges as
+ * `custom.incomingDeps`; this module turns that into display text.
  *
  * Dependency-free (no Obsidian/SVAR/Svelte). Mirrors the pure-helper style of
  * {@link ./cascadeGate} and {@link ./barTreatment}.
@@ -82,4 +82,35 @@ export function formatIncomingDeps(deps: readonly IncomingDep[]): string {
     .sort((a, b) => a.predecessorName.localeCompare(b.predecessorName))
     .map(formatIncomingDep)
     .join('\n');
+}
+
+/** What the tooltip renders: the task's name, then one line per incoming edge. */
+export interface DependencyTooltipModel {
+  title: string;
+  lines: readonly string[];
+}
+
+/**
+ * The chart hands tooltip content a payload that *wraps* whatever was hovered —
+ * a task, a link, a rollup or a resource — rather than the task itself, so the
+ * task has to be unwrapped before its name or edges can be read. Anything that
+ * is not a hovered task yields an empty model, and the component renders no
+ * container at all rather than an empty box.
+ *
+ * Lives here, apart from the component, because a component cannot be reached
+ * by the unit suite: reading the payload wrongly is precisely the mistake that
+ * would otherwise ship unnoticed.
+ */
+export function dependencyTooltipModel(payload: unknown): DependencyTooltipModel {
+  const task = (
+    payload as
+      | { task?: { text?: string; custom?: { incomingDeps?: readonly IncomingDep[] } } }
+      | null
+      | undefined
+  )?.task;
+  const formatted = formatIncomingDeps(task?.custom?.incomingDeps ?? []);
+  return {
+    title: typeof task?.text === 'string' ? task.text : '',
+    lines: formatted ? formatted.split('\n') : [],
+  };
 }

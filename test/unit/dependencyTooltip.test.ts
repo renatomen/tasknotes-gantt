@@ -1,4 +1,5 @@
 import {
+  dependencyTooltipModel,
   formatGap,
   formatIncomingDep,
   formatIncomingDeps,
@@ -70,5 +71,32 @@ describe('formatIncomingDeps', () => {
       dep({ predecessorName: 'Alpha', reltype: 'FINISHTOSTART', gap: 'P1D' }),
     ]);
     expect(out).toBe('Blocked by Alpha — FS +1d\nBlocked by Zeta — SS');
+  });
+});
+
+describe('dependencyTooltipModel', () => {
+  it('reads the task through the wrapper the chart hands its tooltip content', () => {
+    const model = dependencyTooltipModel({
+      task: {
+        text: 'Ship the release',
+        custom: { incomingDeps: [dep({ predecessorName: 'Draft docs', gap: 'P1D' })] },
+      },
+      segmentIndex: null,
+    });
+
+    expect(model.title).toBe('Ship the release');
+    expect(model.lines).toEqual(['Blocked by Draft docs — FS +1d']);
+  });
+
+  it('keeps the name and drops the dependency section when a task has no incoming edges', () => {
+    const model = dependencyTooltipModel({ task: { text: 'Standalone', custom: {} } });
+
+    expect(model.title).toBe('Standalone');
+    expect(model.lines).toEqual([]);
+  });
+
+  it('renders nothing for a payload that carries no task, such as a link tooltip', () => {
+    expect(dependencyTooltipModel({ link: { id: 'l1' } })).toEqual({ title: '', lines: [] });
+    expect(dependencyTooltipModel(undefined)).toEqual({ title: '', lines: [] });
   });
 });
