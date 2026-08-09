@@ -1,34 +1,45 @@
 <script lang="ts">
   /**
-   * SVAR Gantt tooltip content. Always renders the hovered task's name, and
-   * appends one line per incoming dependency when present — so a task with no
-   * dependencies degrades to the normal name tooltip rather than an empty
-   * container.
+   * SVAR Gantt tooltip content. Renders the hovered task's name, and appends one
+   * line per incoming dependency when present — so a task with no dependencies
+   * degrades to the normal name tooltip rather than an empty container.
    *
-   * The payload shape belongs to the library and has changed under us before,
-   * so unwrapping it lives in a pure helper the unit suite can hold, and this
-   * component only renders what the helper returns.
+   * SVAR keeps this component mounted while the pointer moves between bars and
+   * renders it for every hover target it can resolve, including dependency
+   * edges. A target that is not a task yields nothing to say, and the whole
+   * container is withheld so the chart shows no empty chip.
    */
+  import type { ILink, IResource, ITask } from '@svar-ui/svelte-gantt';
   import { dependencyTooltipModel } from './dependencyTooltip';
 
-  // Loosely typed to satisfy SVAR's tooltip content contract, the same
-  // accommodation `PropertyCell.svelte` makes.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let { data }: { data: any } = $props();
+  // SVAR declares this union for its tooltip content but does not export it, so
+  // it is mirrored here against the task, link and resource types it does
+  // export — a change to any of them then fails this file's build instead of
+  // quietly emptying the tooltip again.
+  type TooltipPayload =
+    | { task: ITask; segmentIndex: number | null }
+    | { link: ILink }
+    | { rollup: ITask }
+    | { resource: IResource };
+
+  let { data }: { data: TooltipPayload } = $props();
 
   const model = $derived(dependencyTooltipModel(data));
+  const isEmpty = $derived(model.title === '' && model.lines.length === 0);
 </script>
 
-<div class="og-gantt-tooltip">
-  <div class="og-tooltip-title">{model.title}</div>
-  {#if model.lines.length > 0}
-    <div class="og-tooltip-deps">
-      {#each model.lines as line}
-        <div class="og-tooltip-dep">{line}</div>
-      {/each}
-    </div>
-  {/if}
-</div>
+{#if !isEmpty}
+  <div class="og-gantt-tooltip">
+    <div class="og-tooltip-title">{model.title}</div>
+    {#if model.lines.length > 0}
+      <div class="og-tooltip-deps">
+        {#each model.lines as line}
+          <div class="og-tooltip-dep">{line}</div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .og-gantt-tooltip {

@@ -1,5 +1,5 @@
 /**
- * Pure formatting for the dependency summary shown in a task's tooltip (U3).
+ * Pure formatting for the dependency summary shown in a task's tooltip.
  *
  * reltype + gap are surfaced on the *dependent task's* tooltip rather than on
  * the edges themselves. `buildSvarTasks` attaches each task's incoming edges as
@@ -35,14 +35,14 @@ const RELTYPE_LABEL: Record<DependencyRelType, string> = {
  * A single ISO-8601 duration with exactly one week/day/hour/minute component,
  * optionally lead-signed. Only these clean single-unit forms get a compact
  * label; anything else (composite, seconds, year/month, malformed) falls back
- * to the raw ISO string per plan 004 KTD5.
+ * to the raw ISO string.
  */
 const SINGLE_UNIT = /^(-)?P(?:(\d+)W|(\d+)D|T(\d+)H|T(\d+)M)$/;
 
 /**
  * Format a gap as a compact lag/lead label: `"+1d"`, `"-2h"`, `"+3w"`, `"+30m"`.
  * Returns `""` for a null/empty gap, and the raw trimmed ISO string for any
- * composite or non-single-unit duration (KTD5 fallback).
+ * composite or non-single-unit duration.
  *
  * @param gap - the ISO-8601 duration, or `null`
  */
@@ -51,7 +51,7 @@ export function formatGap(gap: string | null): string {
   const s = gap.trim();
   if (!s) return '';
   const m = SINGLE_UNIT.exec(s);
-  if (!m) return s; // composite / exotic / year-month → raw ISO (KTD5 fallback)
+  if (!m) return s; // composite / exotic / year-month → raw ISO
   const sign = m[1] === '-' ? '-' : '+';
   if (m[2]) return `${sign}${m[2]}w`;
   if (m[3]) return `${sign}${m[3]}d`;
@@ -93,13 +93,15 @@ export interface DependencyTooltipModel {
 /**
  * The chart hands tooltip content a payload that *wraps* whatever was hovered —
  * a task, a link, a rollup or a resource — rather than the task itself, so the
- * task has to be unwrapped before its name or edges can be read. Anything that
- * is not a hovered task yields an empty model, and the component renders no
- * container at all rather than an empty box.
+ * task has to be unwrapped before its name or edges can be read. Reading the
+ * wrapper as though it were the task yields a tooltip with nothing in it, which
+ * is how this surface shipped and stayed broken; the shape is therefore pinned
+ * by tests here rather than left to inspection at the call site.
  *
- * Lives here, apart from the component, because a component cannot be reached
- * by the unit suite: reading the payload wrongly is precisely the mistake that
- * would otherwise ship unnoticed.
+ * The parameter stays `unknown` deliberately. The caller types the payload
+ * against the library's own task and link types, but the value itself arrives
+ * from that library at runtime, so this narrows defensively rather than
+ * trusting the declaration.
  */
 export function dependencyTooltipModel(payload: unknown): DependencyTooltipModel {
   const task = (

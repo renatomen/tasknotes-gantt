@@ -95,7 +95,7 @@ describe('dependencyTooltipModel', () => {
     expect(model.lines).toEqual([]);
   });
 
-  it('renders nothing for a payload that carries no task, such as a link tooltip', () => {
+  it('yields an empty model for a payload that carries no task, such as a link tooltip', () => {
     expect(dependencyTooltipModel({ link: { id: 'l1' } })).toEqual({ title: '', lines: [] });
     expect(dependencyTooltipModel(undefined)).toEqual({ title: '', lines: [] });
   });
