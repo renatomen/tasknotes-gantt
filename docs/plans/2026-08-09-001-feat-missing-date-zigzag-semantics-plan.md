@@ -286,10 +286,10 @@ flowchart TB
 - **Goal:** The old constants, class token, CSS variables, inline seeding, and every remaining reference are deleted; the repo greps clean.
 - **Requirements:** R8; KTD1.
 - **Dependencies:** U5.
-- **Files:** `src/bases/visualSemantics.ts`, `src/bases/ganttSync.ts` (`DATE_STATUS_TYPE`), `src/bases/GanttContainer.svelte` (inline `--og-date-status-*` seeding and remnants), any residual test references.
+- **Files:** `src/bases/visualSemantics.ts`, `src/bases/ganttSync.ts` (`DATE_STATUS_TYPE`), `src/bases/GanttContainer.svelte` (inline `--og-date-status-*` seeding and remnants), `website/docs/features/appearance.md` and `website/docs/settings/appearance.md` (both still describe an orange treatment for every non-complete state), any residual test references.
 - **Approach:** Delete `GANTT_DATE_STATUS_FILL_COLOR`, `GANTT_DATE_STATUS_BORDER_COLOR`, the `datestatus-flagged` token, and the var seeding; let the compiler and grep confirm closure.
 - **Test scenarios:** Test expectation: none — pure removal; the gate is the grep check plus the existing suites staying green.
-- **Verification:** `GANTT_DATE_STATUS|datestatus-flagged|date-status-fill|date-status-border` greps to zero matches in `src/` and `test/`; full jest; one e2e smoke (gantt-date-handling).
+- **Verification:** `GANTT_DATE_STATUS|datestatus-flagged|date-status-fill|date-status-border` greps to zero matches in `src/` and `test/`; the user docs describe the shipped cues (the token grep cannot see `website/`, so read the two appearance pages rather than trusting it); full jest; one e2e smoke (gantt-date-handling).
 
 ---
 

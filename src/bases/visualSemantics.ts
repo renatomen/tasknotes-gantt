@@ -96,10 +96,10 @@ export const DATE_STATUS_STATE_CLASS_TOKENS: Record<
 };
 
 /**
- * The per-state class token a bar carries alongside the shared
- * `datestatus-flagged` cue (`null` for `complete` — no indicator). One token
- * per inferred/placeholder/swapped state so CSS can style each state
- * distinctly instead of one flag for all.
+ * The per-state class token a bar carries (`null` for `complete` — no
+ * indicator). For a non-authored edge the token is the whole signal; only
+ * inverted dates still also carry the shared `datestatus-flagged` colour
+ * treatment, until the diagonal replaces it.
  */
 export function resolveDateStatusStateToken(status: DateStatus): GanttVisualClassToken | null {
   if (status === 'complete') return null;

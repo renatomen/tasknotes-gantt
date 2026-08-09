@@ -419,9 +419,13 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         expect(bar.borderTopColor).toBe(complete.borderTopColor);
         expect(bar.backgroundColor).not.toBe(RETIRED_FILL);
         expect(bar.borderTopColor).not.toBe(RETIRED_BORDER);
-        // The flag repainted the progress fill too, in the same retired red.
-        expect(bar.progressColor).not.toBe(RETIRED_BORDER);
       }
+      // The flag repainted the progress fill too, in the same retired red — so
+      // read it on the one torn bar that HAS a progress fill; the others render
+      // no such element and would compare a colour against nothing.
+      const withProgress = paint.find((bar) => bar.note === "Start Only.md");
+      expect(withProgress?.progressColor).not.toBeNull();
+      expect(withProgress?.progressColor).toBe(complete.progressColor);
     });
 
     it("keeps the legacy colour treatment on the swapped bar", async () => {
