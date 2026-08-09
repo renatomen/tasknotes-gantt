@@ -1,9 +1,10 @@
 /**
  * Pure formatting for the dependency summary shown in a task's tooltip.
  *
- * reltype + gap are surfaced on the *dependent task's* tooltip rather than on
- * the edges themselves. `buildSvarTasks` attaches each task's incoming edges as
- * `custom.incomingDeps`; this module turns that into display text.
+ * reltype + gap are surfaced twice: every incoming edge on the dependent task's
+ * own tooltip, and the single edge a reader points at on that edge's tooltip.
+ * `buildSvarTasks` attaches each task's incoming edges as `custom.incomingDeps`,
+ * which serves both; this module turns that into display text.
  *
  * Dependency-free (no Obsidian/SVAR/Svelte). Mirrors the pure-helper style of
  * {@link ./cascadeGate} and {@link ./barTreatment}.
@@ -22,10 +23,11 @@ export interface IncomingDep {
   /** Display name of the predecessor (blocking) task. */
   predecessorName: string;
   /**
-   * Row id of the predecessor. Names repeat across a vault, so identifying a
-   * hovered edge by name alone would describe the wrong one.
+   * Id of the edge this entry describes. A predecessor can reach the same task
+   * along more than one edge, each with its own relationship and gap, so
+   * neither its name nor its row identifies which arrow was hovered.
    */
-  predecessorId: string;
+  linkId: string;
 }
 
 /** Short, conventional label per relationship type. */
@@ -103,11 +105,15 @@ export interface DependencyTooltipModel {
  * is how this surface shipped and stayed broken; the shape is therefore pinned
  * by tests here rather than left to inspection at the call site.
  *
- * The parameter stays `unknown` deliberately: the caller types the payload
- * against the library's own task and link types, but the value itself arrives
- * from that library at runtime. Only the wrapper is checked here — a task
- * without the expected name or edges degrades to an empty model rather than
- * throwing, and the edges themselves are taken on trust once found.
+ * A hovered task describes all its incoming edges; a hovered edge describes
+ * only itself, and needs `findTask` to reach the blocked row that lists it.
+ * Without that lookup an edge has nothing to report and says nothing.
+ *
+ * The payload stays `unknown` deliberately: the caller types it against the
+ * library's own task and link types, but the value itself arrives from that
+ * library at runtime. Only the wrapper is checked here — a task without the
+ * expected name or edges degrades to an empty model rather than throwing, and
+ * the edges themselves are taken on trust once found.
  */
 export function dependencyTooltipModel(
   payload: unknown,
@@ -128,7 +134,7 @@ interface HoveredTask {
 
 interface HoveredPayload {
   task?: HoveredTask;
-  link?: { source?: string; target?: string };
+  link?: { id?: string; target?: string };
 }
 
 function model(title: string, formatted: string): DependencyTooltipModel {
@@ -143,17 +149,19 @@ function hoveredTaskModel(task: HoveredTask | undefined): DependencyTooltipModel
 }
 
 /**
- * An edge names only its two ends, so the relationship and gap it stands for
- * are read off the blocked task's own list of incoming edges. An edge whose
- * predecessor is not among them describes nothing and says nothing.
+ * A hovered edge carries only its own id and its ends, so the relationship and
+ * gap it stands for are read off the blocked task's list of incoming edges and
+ * matched by that id — a predecessor may reach one task along several edges,
+ * and only the id tells them apart. An edge the blocked task does not list
+ * describes nothing and says nothing.
  */
 function hoveredEdgeModel(
-  link: { source?: string; target?: string },
+  link: { id?: string; target?: string },
   findTask: TaskLookup | undefined,
 ): DependencyTooltipModel {
-  if (!findTask || !link.target || !link.source) return model('', '');
+  if (!findTask || !link.target || !link.id) return model('', '');
   const blocked = findTask(link.target);
-  const edge = blocked?.custom?.incomingDeps?.find((d) => d.predecessorId === link.source);
+  const edge = blocked?.custom?.incomingDeps?.find((d) => d.linkId === link.id);
   if (!edge) return model('', '');
   return model(typeof blocked?.text === 'string' ? blocked.text : '', formatIncomingDep(edge));
 }

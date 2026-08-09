@@ -10,6 +10,7 @@ const dep = (over: Partial<IncomingDep> = {}): IncomingDep => ({
   reltype: 'FINISHTOSTART',
   gap: null,
   predecessorName: 'Draft docs',
+  linkId: 'L-a',
   ...over,
 });
 
@@ -106,10 +107,10 @@ describe('dependencyTooltipModel — hovered dependency edge', () => {
 
   it('names the blocked task and describes the one edge that was hovered', () => {
     const deps = [
-      dep({ predecessorId: 'a', predecessorName: 'Draft docs', gap: 'P1D' }),
-      dep({ predecessorId: 'b', predecessorName: 'Review copy', reltype: 'STARTTOSTART' }),
+      dep({ linkId: 'L-a', predecessorName: 'Draft docs', gap: 'P1D' }),
+      dep({ linkId: 'L-b', predecessorName: 'Review copy', reltype: 'STARTTOSTART' }),
     ];
-    const model = dependencyTooltipModel({ link: { id: 'l1', source: 'b', target: 't' } }, (id) =>
+    const model = dependencyTooltipModel({ link: { id: 'L-b', target: 't' } }, (id) =>
       id === 't' ? task('Ship the release', deps) : null,
     );
 
@@ -117,12 +118,24 @@ describe('dependencyTooltipModel — hovered dependency edge', () => {
     expect(model.lines).toEqual(['Blocked by Review copy — SS']);
   });
 
+  it('describes the hovered edge, not another edge from the same predecessor', () => {
+    const deps = [
+      dep({ linkId: 'L-a', predecessorName: 'Draft docs', reltype: 'FINISHTOSTART' }),
+      dep({ linkId: 'L-b', predecessorName: 'Draft docs', reltype: 'STARTTOSTART', gap: 'P3W' }),
+    ];
+    const model = dependencyTooltipModel({ link: { id: 'L-b', target: 't' } }, () =>
+      task('Ship the release', deps),
+    );
+
+    expect(model.lines).toEqual(['Blocked by Draft docs — SS +3w']);
+  });
+
   it('distinguishes edges from predecessors that share a name', () => {
     const deps = [
-      dep({ predecessorId: 'a', predecessorName: 'Review', gap: 'P1D' }),
-      dep({ predecessorId: 'b', predecessorName: 'Review', gap: 'P3W' }),
+      dep({ linkId: 'L-a', predecessorName: 'Review', gap: 'P1D' }),
+      dep({ linkId: 'L-b', predecessorName: 'Review', gap: 'P3W' }),
     ];
-    const model = dependencyTooltipModel({ link: { id: 'l2', source: 'b', target: 't' } }, () =>
+    const model = dependencyTooltipModel({ link: { id: 'L-b', target: 't' } }, () =>
       task('Ship the release', deps),
     );
 
@@ -131,11 +144,11 @@ describe('dependencyTooltipModel — hovered dependency edge', () => {
 
   it('yields an empty model when the hovered edge resolves to no known dependency', () => {
     expect(
-      dependencyTooltipModel({ link: { id: 'l3', source: 'gone', target: 't' } }, () =>
-        task('Ship the release', [dep({ predecessorId: 'a' })]),
+      dependencyTooltipModel({ link: { id: 'L-gone', target: 't' } }, () =>
+        task('Ship the release', [dep({ linkId: 'L-a' })]),
       ),
     ).toEqual({ title: '', lines: [] });
-    expect(dependencyTooltipModel({ link: { id: 'l4', source: 'b', target: 't' } })).toEqual({
+    expect(dependencyTooltipModel({ link: { id: 'L-b', target: 't' } })).toEqual({
       title: '',
       lines: [],
     });

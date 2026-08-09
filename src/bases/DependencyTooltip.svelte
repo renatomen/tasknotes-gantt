@@ -9,12 +9,11 @@
    * them, and describes itself: the blocked task, and the single relationship
    * that edge stands for.
    *
-   * The container is still withheld when there is nothing to say — a rollup or
-   * resource target, or an edge with no matching dependency. That leaves a bare
-   * chip, because the surrounding chrome is painted on the presence of a content
-   * component rather than on what it emits; only a resolver that declines the
-   * target removes it. Every drawn edge resolves, so this is unreachable in
-   * practice rather than merely unlikely.
+   * The container is still withheld when there is nothing to say — an untitled
+   * row with no edges, or an edge the blocked row does not list. That leaves a
+   * bare chip rather than nothing at all, because the surrounding chrome is
+   * painted on the presence of a content component rather than on what it
+   * emits; only a resolver that declines the target would remove it.
    */
   import type { IApi, ILink, IResource, ITask } from '@svar-ui/svelte-gantt';
   import { dependencyTooltipModel, type TaskLookup } from './dependencyTooltip';
