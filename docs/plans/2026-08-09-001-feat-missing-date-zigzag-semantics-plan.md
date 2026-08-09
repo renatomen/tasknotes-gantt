@@ -57,7 +57,7 @@ The resulting state-to-treatment mapping:
 
 - R1. A bar whose start is not authored renders a zigzag left edge; a bar whose due is not authored renders a zigzag right edge; a bar with neither date renders both, per the mapping table above.
 - R2. The zigzag is cut into the bar's own shape via CSS mask, so it renders identically over any fill source (status, priority, theme, calendar) in light and dark themes, with no hardcoded hue.
-- R3. Teeth use an 8px vertical period (about 4px horizontal depth) at standard bar height, applied unchanged on short and one-cell bars — the treatment never switches to a different visual language below a width threshold. One planning-time exception: on a bar too narrow to carry a standard tooth, the tooth scales down with the bar rather than being forced; a fixed depth there makes the rendered bar wider than the width it was laid out at, which drags its hit area and dependency anchors out of position. The scaling holds the bar inside its laid-out width down to the width of the border it still carries; below that any bordered bar renders at its border width, torn or not, so the sub-pixel overflow there is the box model's floor rather than something this treatment introduces.
+- R3. Teeth use an 8px vertical period (about 4px horizontal depth) at standard bar height, applied unchanged on short and one-cell bars — the treatment never switches to a different visual language below a width threshold. One planning-time exception: on a bar too narrow to carry a standard tooth, the tooth scales down with the bar rather than being forced; a fixed depth there makes the rendered bar wider than the width it was laid out at, which drags its hit area and dependency anchors out of position. The scaling holds the bar inside its laid-out width down to the width of the border it still carries; below that any bordered bar renders at its border width, torn or not, so the sub-pixel overflow there is the box model's floor rather than something this treatment introduces. Consequence to accept knowingly: at the coarsest zooms a one-day bar rounds to about a pixel, the border it still carries takes the whole tooth budget, and no tooth can render — so such a bar carries no date-status signal at all. The retired colour did cover that case, because a fill needs no room. This is the price of a signal made of shape. A second, unmeasured route to the same place: the depth is fitted from the host's width, but under split rendering the tooth is cut into a piece, and a piece can be a few pixels wide while its host spans months — a single-day occurrence in a long series — so the per-surface ceiling alone decides the tooth there, at an ordinary zoom rather than a coarse one. Whether that tooth is still readable has not been measured; treat the bound as "a surface too small to carry a tooth" rather than "a hairline bar". If either case matters in use, the answer is a cue chosen deliberately for it, not a fixed tooth that pushes the bar off its own geometry.
 - R4. Under Split rendering, the outermost visible piece carries the zigzag on its outer edge; at zoom levels where split tiling falls back to a continuous bar, the zigzag renders on the continuous bar's edge. One planning-time exception: a fully-suppressed recurring envelope at coarse zoom renders no maskable surface (a zero-height spine only) and drops the zigzag at that zoom; every other split form keeps the signal.
 
 **Swapped indicator**
@@ -142,7 +142,7 @@ Pass this block verbatim to every worker subagent; it governs every unit and PR 
 
 ## High-Level Technical Design
 
-PR chain and which signal is live on main after each merge (additive-first — no state is ever unsignalled):
+PR chain and which signal is live on main after each merge (additive-first — no state loses its signal to the sequencing; the rendering exceptions on R3 and R4 are separate and stand):
 
 ```mermaid
 flowchart TB
@@ -225,7 +225,7 @@ flowchart TB
 - **Files:** `src/bases/ganttSync.ts`, `src/bases/GanttContainer.svelte`, `test/unit/ganttSync.test.ts`, `test/specs/gantt-date-handling.e2e.ts`, `test/specs/gantt-inferred-date-drag.e2e.ts`, `test/specs/gantt-inferred-drag-write.e2e.ts`, `test/specs/gantt-time-estimate.e2e.ts`, `test/specs/gantt-calendar-stretch.e2e.ts`, `test/specs/gantt-legend.e2e.ts`.
 - **Approach:**
   1. Restrict the old flag to `swapped` only (its last consumer until U4).
-  2. Keep the `.wx-bar.datestatus-flagged` color CSS live — it now styles only swapped bars, so no state is ever unsignalled. Keep the `.wx-split:not(.datestatus-flagged)` carve-out untouched: it targets *unflagged* split bars (whose population grows here), and its border-zeroing also removes the strip treatment's halo on split hosts — a job that outlives this feature.
+  2. Keep the `.wx-bar.datestatus-flagged` color CSS live — it now styles only swapped bars, so the sequencing leaves no state unsignalled (R3 and R4's rendering exceptions are unaffected by it either way). Keep the `.wx-split:not(.datestatus-flagged)` carve-out untouched: it targets *unflagged* split bars (whose population grows here), and its border-zeroing also removes the strip treatment's halo on split hosts — a job that outlives this feature.
   3. Re-point e2e probes that used `.datestatus-flagged` as an inferred-state marker to the zigzag tokens.
   4. Upgrade the pinned stretch spec: replace the border-visibility assertions with mask assertions on the outermost ghost piece — this is the provenance-aware cue that spec's comment has been waiting for.
   5. Re-point the chart-side flagged-bar color assertions in the legend spec (its "Legend Flagged" fixture is an inferred-start task, so it loses the old class here; U5 owns the legend-side entries).
@@ -286,10 +286,10 @@ flowchart TB
 - **Goal:** The old constants, class token, CSS variables, inline seeding, and every remaining reference are deleted; the repo greps clean.
 - **Requirements:** R8; KTD1.
 - **Dependencies:** U5.
-- **Files:** `src/bases/visualSemantics.ts`, `src/bases/ganttSync.ts` (`DATE_STATUS_TYPE`), `src/bases/GanttContainer.svelte` (inline `--og-date-status-*` seeding and remnants), any residual test references.
+- **Files:** `src/bases/visualSemantics.ts`, `src/bases/ganttSync.ts` (`DATE_STATUS_TYPE`), `src/bases/GanttContainer.svelte` (inline `--og-date-status-*` seeding and remnants), `website/docs/features/appearance.md` and `website/docs/settings/appearance.md` (both still describe an orange treatment for every non-complete state), any residual test references.
 - **Approach:** Delete `GANTT_DATE_STATUS_FILL_COLOR`, `GANTT_DATE_STATUS_BORDER_COLOR`, the `datestatus-flagged` token, and the var seeding; let the compiler and grep confirm closure.
 - **Test scenarios:** Test expectation: none — pure removal; the gate is the grep check plus the existing suites staying green.
-- **Verification:** `GANTT_DATE_STATUS|datestatus-flagged|date-status-fill|date-status-border` greps to zero matches in `src/` and `test/`; full jest; one e2e smoke (gantt-date-handling).
+- **Verification:** `GANTT_DATE_STATUS|datestatus-flagged|date-status-fill|date-status-border` greps to zero matches in `src/` and `test/`; the user docs describe the shipped cues (the token grep cannot see `website/`, so read the two appearance pages rather than trusting it); full jest; one e2e smoke (gantt-date-handling).
 
 ---
 

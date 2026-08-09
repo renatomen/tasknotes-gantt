@@ -91,12 +91,22 @@ describe("Gantt (OG) time-estimate inference", () => {
     expect(estWidth).toBeGreaterThan(defWidth);
   });
 
-  it("places the dateless+estimate task as a flagged placeholder at today (AE2)", async () => {
+  it("places the dateless+estimate task as a torn placeholder at today (AE2)", async () => {
     const dateless = await $(`.og-bases-gantt .wx-bar[data-id$="Dateless Estimate.md"]`);
     const aprilTask = await $(`.og-bases-gantt .wx-bar[data-id$="Start Estimate.md"]`);
     // Placeholder at today sits to the RIGHT of the April tasks.
     expect((await dateless.getLocation()).x).toBeGreaterThan((await aprilTask.getLocation()).x);
-    // A dateless (placeholder) row carries the inferred date-status indicator.
-    expect((await dateless.getAttribute("class")).includes("datestatus-flagged")).toBe(true);
+    // Neither date was authored, so both of the row's edges are torn. The class
+    // is stamped by a post-mount bar attachment, so the bar existing is not
+    // enough — wait for the stamp and assert the value that satisfied the wait.
+    let classes = "";
+    await browser.waitUntil(
+      async () => {
+        classes = await dateless.getAttribute("class");
+        return classes.includes("datestatus-zigzag-both");
+      },
+      { timeout: 20000, timeoutMsg: "the dateless placeholder was never stamped as torn" },
+    );
+    expect(classes).toContain("datestatus-zigzag-both");
   });
 });

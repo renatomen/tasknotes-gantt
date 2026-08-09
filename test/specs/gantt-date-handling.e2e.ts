@@ -15,9 +15,10 @@ import { fileURLToPath } from "node:url";
  *      (R7), including both dateless placeholders (the "today pile");
  *   2. the due-only task is placed at its deadline (left of the dateless
  *      placeholders at today), NOT spanning from today (AE1);
- *   3. non-`complete` bars carry the `.datestatus-flagged` indicator while the
- *      complete bar does not (R10);
- *   4. each flagged bar also carries the per-state class for its concrete date
+ *   3. the legacy colour indicator `.datestatus-flagged` is down to its last
+ *      consumer — the swapped bar — while every non-authored-edge bar is left
+ *      the ordinary fill its torn edge composes with;
+ *   4. each non-`complete` bar carries the per-state class for its concrete date
  *      status, so the four states are stylable apart from one another;
  *   5. the three non-authored-edge states render as a zigzag "torn" edge cut
  *      out of the bar's body on the side whose date was never authored — in the
@@ -32,7 +33,7 @@ import { fileURLToPath } from "node:url";
  * string id in the DOM with a leading ":" (its `setID`), so the rendered
  * attribute is `:X.md`; we use the ends-with form `[data-id$="X.md"]` to target
  * a task's bar robustly across that encoding. The custom date-status type
- * renders as the bare `.datestatus-flagged` class on the bar (SVAR only
+ * renders as the bare `.datestatus-flagged` class on the swapped bar (SVAR only
  * `wx-`-prefixes the built-in task/summary/milestone types). The per-state
  * `.datestatus-*` classes are NOT task types — the bar template stamps them
  * from per-instance data — but they land as bare classes on the same element.
@@ -63,6 +64,13 @@ const STATE_CLASSES = [...new Set(Object.values(STATE_CLASS_BY_NOTE))];
 
 /** The due date `Due Only.md` ships with; the live-edit test must restore it. */
 const DUE_ONLY_FIXTURE_DUE = "2026-04-20";
+
+/**
+ * The colour treatment every non-`complete` bar used to carry, now down to the
+ * swapped bar alone: the torn edge is the whole signal for a non-authored one.
+ */
+const RETIRED_FILL = "rgb(230, 126, 34)";
+const RETIRED_BORDER = "rgb(192, 57, 43)";
 
 /**
  * Tooth period the view stylesheet publishes, and the full-size depth — half the
@@ -363,18 +371,77 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(weekendCells.length).toBeGreaterThan(0);
     });
 
-    it("flags non-complete bars and leaves the complete bar unflagged (R10)", async () => {
-      const complete = await $(`.og-bases-gantt .wx-bar[data-id$="Complete.md"]`);
-      const dueOnly = await $(`.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
-      const dateless = await $(`.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
+    it("flags the swapped bar only, leaving every torn and complete bar unflagged (R10)", async () => {
+      // The colour flag is down to its last consumer. A bar whose signal is the
+      // torn edge must not also carry it: the fill it forces is exactly what the
+      // cut was chosen to compose with rather than replace.
+      expect(await barClass("Complete.md")).not.toContain("datestatus-flagged");
+      expect(await barClass("Due Only.md")).not.toContain("datestatus-flagged");
+      expect(await barClass("Start Only.md")).not.toContain("datestatus-flagged");
+      expect(await barClass("Dateless One.md")).not.toContain("datestatus-flagged");
+      expect(await barClass("Swapped.md")).toContain("datestatus-flagged");
 
-      expect((await complete.getAttribute("class")).includes("datestatus-flagged")).toBe(false);
-      expect((await dueOnly.getAttribute("class")).includes("datestatus-flagged")).toBe(true);
-      expect((await dateless.getAttribute("class")).includes("datestatus-flagged")).toBe(true);
-
-      // Exactly 5 flagged (due-only + start-only + swapped + two dateless).
+      // Exactly one flagged bar — the swapped one, and nothing else.
       const flagged = await $$(".og-bases-gantt .wx-bar.datestatus-flagged");
-      expect(flagged).toHaveLength(5);
+      expect(flagged).toHaveLength(1);
+    });
+
+    it("leaves a torn bar the ordinary fill instead of the date-status colours (AE1)", async () => {
+      // An accent fill would compete with the very fill channels the cut was
+      // chosen to compose with, and an accent border would redraw the straight
+      // edge the teeth removed — so a torn bar has to paint exactly as a
+      // fully-dated one does.
+      const paint = await browser.execute(
+        (notes: string[]) =>
+          notes.map((note) => {
+            const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
+            if (!bar) throw new Error(`bar not found: ${note}`);
+            const style = window.getComputedStyle(bar);
+            const progress = bar.querySelector(".wx-progress-percent");
+            return {
+              note,
+              backgroundColor: style.backgroundColor,
+              borderTopColor: style.borderTopColor,
+              progressColor: progress
+                ? window.getComputedStyle(progress).backgroundColor
+                : null,
+            };
+          }),
+        ["Complete.md", "Due Only.md", "Start Only.md", "Dateless One.md"],
+      );
+
+      const complete = paint[0]!;
+      // The reference bar really paints something, so "the same as complete" is
+      // a claim about a colour rather than about two transparent bars.
+      expect(complete.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+      for (const bar of paint.slice(1)) {
+        expect(bar.backgroundColor).toBe(complete.backgroundColor);
+        expect(bar.borderTopColor).toBe(complete.borderTopColor);
+        expect(bar.backgroundColor).not.toBe(RETIRED_FILL);
+        expect(bar.borderTopColor).not.toBe(RETIRED_BORDER);
+      }
+      // The flag repainted the progress fill too, in the same retired red — so
+      // read it on the one torn bar that HAS a progress fill; the others render
+      // no such element and would compare a colour against nothing.
+      const withProgress = paint.find((bar) => bar.note === "Start Only.md");
+      expect(withProgress?.progressColor).not.toBeNull();
+      expect(withProgress?.progressColor).toBe(complete.progressColor);
+    });
+
+    it("keeps the legacy colour treatment on the swapped bar", async () => {
+      // Swapped dates are the flag's last consumer: retiring the colour for the
+      // torn states does not strip the one state whose own treatment is still
+      // to come. (Separately, a surface too small to carry a tooth has no
+      // signal at all — an accepted limit of a shape-based cue, not this.)
+      const swapped = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const style = window.getComputedStyle(bar);
+        return { backgroundColor: style.backgroundColor, borderTopColor: style.borderTopColor };
+      }, `.og-bases-gantt .wx-bar[data-id$="Swapped.md"]`);
+
+      expect(swapped.backgroundColor).toBe(RETIRED_FILL);
+      expect(swapped.borderTopColor).toBe(RETIRED_BORDER);
     });
 
     it("stamps each flagged bar with the per-state class for its own date status", async () => {
@@ -433,7 +500,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
     it("paints the cut body in the host's own fill rather than re-deriving it", async () => {
       // The body layer inherits its colour, so every fill source — here the
-      // date-status fill — reaches it without the treatment code knowing.
+      // default task fill — reaches it without the treatment code knowing.
       const probe = await readZigzag("Due Only.md");
 
       expect(probe.bodyBackgroundColor).toBe(probe.hostBackgroundColor);
@@ -608,6 +675,69 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // …and widening again restores the full tooth: the fit tracks, it does not
       // ratchet down once.
       expect(wideAgain.depth).toBeCloseTo(Number.parseFloat(ZIGZAG_DEPTH), 3);
+    });
+
+    it("re-measures the surviving border when the bar's treatment changes under it", async () => {
+      // The tooth budget is the bar's width MINUS the border its intact side
+      // still paints, and which rule paints that border is a treatment choice:
+      // strip mode outlines the body, fill mode leaves the theme's. A live Bar
+      // Fill / Strip change reaches the bar as a class rewrite that swaps
+      // between them, so a border read once at mount goes stale exactly where it
+      // matters — on a bar narrow enough for the border to be most of its width,
+      // a stale budget pushes the rendered box past the width SVAR laid out.
+      const before = await readBarGeometry("Due Only.md");
+      const original = `${before.laidOut}px`;
+      const PROBE_WIDTH = 8;
+      const PROBE_BORDER = 7;
+
+      const fitted = await browser.executeObsidian(
+        async (_obsidian, selector: string, width: number, border: number) => {
+          const bar = document.querySelector(selector) as HTMLElement | null;
+          if (!bar) throw new Error(`bar not found: ${selector}`);
+          const px = (value: string): number => Number.parseFloat(value) || 0;
+          const fit = (): { depth: number; border: number; rendered: number } => ({
+            depth: px(bar.style.getPropertyValue("--og-zigzag-depth")),
+            border: px(window.getComputedStyle(bar).borderRightWidth),
+            rendered: bar.getBoundingClientRect().width,
+          });
+          // The bar's observer is delivered on the microtask queued by the
+          // mutation itself, so one hop lands after it and before any later task.
+          bar.style.width = `${width}px`;
+          await Promise.resolve();
+          const themed = fit();
+          const sheet = document.createElement("style");
+          // Repeated classes are the portable way to out-specify the view's own
+          // scoped rules without an id — the same trick the mask-longhand test
+          // uses to stand in for a library or theme rule.
+          sheet.textContent =
+            ".og-bases-gantt.og-bases-gantt .wx-bar.wx-bar.wx-bar.og-border-probe {" +
+            `  border-right-width: ${border}px !important;` +
+            "  border-right-style: solid !important; }";
+          document.head.appendChild(sheet);
+          bar.classList.add("og-border-probe");
+          await Promise.resolve();
+          const retreated = fit();
+          bar.classList.remove("og-border-probe");
+          sheet.remove();
+          return { themed, retreated };
+        },
+        `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
+        PROBE_WIDTH,
+        PROBE_BORDER,
+      );
+      await readBarGeometry("Due Only.md", original);
+
+      // The rewrite really did fatten the border under the bar. Device-pixel
+      // snapping makes the rendered width DPI-dependent, so the claim is that it
+      // grew — the arithmetic below reads the width the machine actually gave it.
+      expect(fitted.retreated.border).toBeGreaterThan(fitted.themed.border + 1);
+      // The tooth started at the share of a bar whose border cost almost
+      // nothing, so the two candidate depths are far apart…
+      expect(fitted.themed.depth).toBeCloseTo(PROBE_WIDTH * ZIGZAG_TOOTH_MAX_WIDTH_SHARE, 2);
+      // …and it gave way to the fatter border instead of holding a stale budget.
+      expect(fitted.retreated.depth).toBeCloseTo(PROBE_WIDTH - fitted.retreated.border, 2);
+      // The consequence a stale budget produces: a box wider than its layout.
+      expect(fitted.retreated.rendered).toBeLessThanOrEqual(PROBE_WIDTH + 0.01);
     });
 
     it("leaves no torn-state residue once a bar's dates are authored", async () => {

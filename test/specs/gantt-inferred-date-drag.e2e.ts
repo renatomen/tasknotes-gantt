@@ -11,11 +11,14 @@ import { fileURLToPath } from "node:url";
  * mode — no TaskNotes) and asserts, end-to-end against real Obsidian + SVAR, the
  * PROVENANCE signal the drag-commit gate keys on: each rendered bar's per-edge
  * `dateStatus` (`inferred-end` / `inferred-start` / `complete`) surfaces on the
- * bar as the `datestatus-flagged` class, so the gate can tell an inferred dragged
- * edge from an authored one:
- *   1. an authored-start + estimate task (no due) is `inferred-end` → flagged (AE1);
- *   2. an authored-due + estimate task (no start) is `inferred-start` → flagged (AE5);
- *   3. a both-dates task is `complete` → NOT flagged, so a resize writes silently (AE6).
+ * bar as a per-edge zigzag class, so the gate can tell an inferred dragged edge
+ * from an authored one — and the bar says WHICH edge, not merely that one of
+ * them was derived:
+ *   1. an authored-start + estimate task (no due) is `inferred-end` → the
+ *      trailing edge is torn;
+ *   2. an authored-due + estimate task (no start) is `inferred-start` → the
+ *      leading edge is torn;
+ *   3. a both-dates task is `complete` → untorn, so a resize writes silently.
  *
  * SCOPE NOTE (mirrors gantt-time-estimate.e2e.ts): the drag-commit → prompt →
  * write round-trip is NOT scripted here. A real SVAR bar-edge resize is not
@@ -29,8 +32,9 @@ import { fileURLToPath } from "node:url";
  *
  * SELECTOR NOTE: bars are SVAR `.wx-bar` elements carrying `data-id` = the note
  * path with a leading ":" (SVAR `setID`), so we target with the ends-with form
- * `[data-id$="X.md"]`. The inferred indicator is `.wx-bar.datestatus-flagged`
- * (DATE_STATUS_TYPE), applied to every non-`complete` bar.
+ * `[data-id$="X.md"]`. The inferred indicator is the per-state class a bar
+ * attachment stamps from per-instance data — `datestatus-zigzag-start` /
+ * `-end` — so it lands after the element mounts, not with it.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -67,10 +71,35 @@ async function openBase(basePath: string): Promise<void> {
   );
 }
 
-/** Whether a bar (by note path) carries the inferred date-status indicator. */
-async function isFlagged(notePath: string): Promise<boolean> {
+/** Every per-state date-status class, so an "untorn" claim covers all of them. */
+const DATE_STATUS_CLASSES = [
+  "datestatus-zigzag-start",
+  "datestatus-zigzag-end",
+  "datestatus-zigzag-both",
+  "datestatus-swapped",
+];
+
+/** The `class` attribute of the bar whose `data-id` ends with `notePath`. */
+async function barClass(notePath: string): Promise<string> {
   const bar = await $(`.og-bases-gantt .wx-bar[data-id$="${notePath}"]`);
-  return (await bar.getAttribute("class")).includes("datestatus-flagged");
+  return await bar.getAttribute("class");
+}
+
+/**
+ * Wait for `notePath`'s bar to carry `stateClass`, and return the class list
+ * that satisfied the wait — re-reading afterwards can land in a moment where
+ * the view is briefly unmounted and report a class list that never existed.
+ */
+async function waitForStamp(notePath: string, stateClass: string): Promise<string> {
+  let classes = "";
+  await browser.waitUntil(
+    async () => {
+      classes = await barClass(notePath);
+      return classes.includes(stateClass);
+    },
+    { timeout: 20000, timeoutMsg: `${notePath} never carried ${stateClass}` },
+  );
+  return classes;
 }
 
 describe("Gantt (OG) inferred-date drag provenance", () => {
@@ -93,19 +122,25 @@ describe("Gantt (OG) inferred-date drag provenance", () => {
     await expect($(`.og-bases-gantt .wx-bar[data-id$="Authored Both.md"]`)).toBeExisting();
   });
 
-  it("flags the inferred-end task (authored start + estimate, no due) — AE1", async () => {
+  it("tears the trailing edge of the inferred-end task (authored start + estimate, no due) — AE1", async () => {
     // The end is derived from start + estimate, so the gate would treat an
-    // end-edge resize as the inferred edge.
-    expect(await isFlagged("Inferred End.md")).toBe(true);
+    // end-edge resize as the inferred edge — and the bar names that edge.
+    const classes = await waitForStamp("Inferred End.md", "datestatus-zigzag-end");
+    expect(classes).not.toContain("datestatus-zigzag-start");
   });
 
-  it("flags the inferred-start task (authored due + estimate, no start) — AE5", async () => {
+  it("tears the leading edge of the inferred-start task (authored due + estimate, no start) — AE5", async () => {
     // The start is derived from due − estimate, so the gate would treat a
     // start-edge resize as the inferred edge.
-    expect(await isFlagged("Inferred Start.md")).toBe(true);
+    const classes = await waitForStamp("Inferred Start.md", "datestatus-zigzag-start");
+    expect(classes).not.toContain("datestatus-zigzag-end");
   });
 
-  it("does not flag the fully-authored task — a resize writes silently (AE6)", async () => {
-    expect(await isFlagged("Authored Both.md")).toBe(false);
+  it("leaves the fully-authored task untorn — a resize writes silently (AE6)", async () => {
+    // Read after a torn sibling has been stamped, so an absent class here means
+    // this bar has none rather than that the stamps have not run yet.
+    await waitForStamp("Inferred End.md", "datestatus-zigzag-end");
+    const classes = await barClass("Authored Both.md");
+    for (const stateClass of DATE_STATUS_CLASSES) expect(classes).not.toContain(stateClass);
   });
 });

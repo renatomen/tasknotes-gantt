@@ -141,7 +141,7 @@ describe('buildSvarTasks — occupancy envelope (family on, plain bar suppressed
         instances: [
           inst({
             id: STANDUP_PATH,
-            dateStatus: 'inferred-end',
+            dateStatus: 'swapped',
             occupancy: [occ('2026-01-06', 'next')],
             plainBarSuppressed: true,
           }),

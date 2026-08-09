@@ -718,8 +718,9 @@ function buildValueRules(
 
 /**
  * A saturated FILL body rule for `selector`: the accent background plus the legible
- * white-with-shadow label treatment. Date-status styling intentionally supersedes
- * this body paint on flagged bars while the class remains available to ghost pieces.
+ * white-with-shadow label treatment. A bar whose dates are inverted is repainted over
+ * this by the date-status colour treatment; a bar with a non-authored edge keeps this
+ * paint and signals with its cut edge instead.
  */
 function fillBodyRule(selector: string, color: string): string {
   // --og-ghost-fill: the bar's own background is forced transparent when it

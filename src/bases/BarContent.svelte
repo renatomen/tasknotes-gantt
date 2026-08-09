@@ -289,10 +289,10 @@
 
   /**
    * Stamp the row's per-state date-status class on the host bar, so each
-   * inferred/placeholder/swapped state can be styled distinctly alongside the
-   * shared `datestatus-flagged` cue. The state rides per-instance `custom`
-   * rather than the bar's `type`, which SVAR whole-string-matches against a
-   * pre-registered set — a per-state type id would multiply that set.
+   * inferred/placeholder/swapped state can be styled distinctly. The state rides
+   * per-instance `custom` rather than the bar's `type`, which SVAR
+   * whole-string-matches against a pre-registered set — a per-state type id
+   * would multiply that set.
    *
    * Because the class is added imperatively, SVAR drops it whenever it
    * re-applies a bar's whole class list from `task.type` on an `update-task`
@@ -308,17 +308,23 @@
       const bar = node.closest(`.${visualClasses.bar}`);
       if (!(bar instanceof HTMLElement)) return undefined;
       const tornSides = countTornSides(token);
-      // One read: the surviving border is a theme constant, while the width this
-      // runs against is rewritten on every drag frame.
+      // The surviving border moves only when the bar's classes do — the strip
+      // treatment paints its own outline where the fill treatment leaves the
+      // theme's, and a live Bar Fill / Strip change rewrites the class list to
+      // swap between them. So it is measured once and re-measured on a class
+      // rewrite, rather than on the width rewrites that arrive every drag frame.
       let keptBorderPx: number | null = null;
-      const reassert = (): void => {
+      const restamp = (classesRewritten: boolean): void => {
+        if (classesRewritten) keptBorderPx = null;
         if (!bar.classList.contains(token)) bar.classList.add(token);
         if (!tornSides) return;
         keptBorderPx ??= measureSurvivingBorder(bar);
         fitToothDepth(bar, tornSides, keptBorderPx);
       };
-      reassert();
-      const observer = new MutationObserver(reassert);
+      restamp(true);
+      const observer = new MutationObserver((mutations) =>
+        restamp(mutations.some((record) => record.attributeName === 'class')),
+      );
       observer.observe(bar, {
         attributes: true,
         attributeFilter: tornSides ? ['class', 'style'] : ['class'],
