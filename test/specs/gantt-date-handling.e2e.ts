@@ -249,18 +249,22 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // re-add the class, so polling from the test side could pass without the
       // observer at all; one macrotask is long enough for the observer's
       // microtask callback and short enough to exclude anything else.
-      const restoredInPlace = await browser.executeObsidian(
+      const [presentBefore, restoredInPlace] = await browser.executeObsidian(
         async (_obsidian, selector: string, stateClass: string) => {
           const bar = document.querySelector(selector);
           if (!bar) throw new Error(`bar not found: ${selector}`);
+          // Reading before the strip matters: without it a stamp that merely
+          // arrived late would look like a restore.
+          const before = bar.classList.contains(stateClass);
           bar.classList.remove(stateClass);
           await new Promise((resolve) => setTimeout(resolve, 0));
-          return bar.classList.contains(stateClass);
+          return [before, bar.classList.contains(stateClass)];
         },
         `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
         "datestatus-zigzag-start",
       );
 
+      expect(presentBefore).toBe(true);
       expect(restoredInPlace).toBe(true);
       expect(await $$(`.og-bases-gantt .wx-bar.datestatus-zigzag-start`)).toHaveLength(1);
     });
