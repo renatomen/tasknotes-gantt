@@ -188,11 +188,19 @@ async function waitForBars(selector: string): Promise<number> {
     }, selector);
   };
 
-  await browser.waitUntil(async () => (await countMatches()) > 0, {
-    timeout: 30000,
-    timeoutMsg: `no bar matched "${selector}"`,
-  });
-  return countMatches();
+  // Return the count that SATISFIED the wait, not a fresh one: re-counting
+  // afterwards can land in a moment where the base leaf has been taken over and
+  // the view is briefly unmounted, reporting zero matches for a selector that
+  // just matched.
+  let matched = 0;
+  await browser.waitUntil(
+    async () => {
+      matched = await countMatches();
+      return matched > 0;
+    },
+    { timeout: 30000, timeoutMsg: `no bar matched "${selector}"` },
+  );
+  return matched;
 }
 
 async function readBarIconLayout(): Promise<BarIconLayoutProbe> {

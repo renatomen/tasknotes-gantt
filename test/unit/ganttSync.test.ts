@@ -39,6 +39,7 @@ import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../..
 import {
   DATE_STATUS_STATE_CLASS_TOKENS,
   GANTT_VISUAL_CLASS_TOKENS,
+  isNonAuthoredEdgeToken,
   resolveDateStatusStateToken,
 } from '../../src/bases/visualSemantics';
 import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
@@ -111,6 +112,17 @@ describe('resolveDateStatusStateToken', () => {
     expect(resolveDateStatusStateToken('placeholder')).toBe(ZIGZAG_BOTH);
     expect(resolveDateStatusStateToken('swapped')).toBe(SWAPPED);
     expect(resolveDateStatusStateToken('complete')).toBeNull();
+  });
+});
+
+describe('isNonAuthoredEdgeToken', () => {
+  it('accepts the three torn-edge tokens and rejects swapped, absent and unknown ones', () => {
+    expect(isNonAuthoredEdgeToken(ZIGZAG_START)).toBe(true);
+    expect(isNonAuthoredEdgeToken(ZIGZAG_END)).toBe(true);
+    expect(isNonAuthoredEdgeToken(ZIGZAG_BOTH)).toBe(true);
+    expect(isNonAuthoredEdgeToken(SWAPPED)).toBe(false);
+    expect(isNonAuthoredEdgeToken(GANTT_VISUAL_CLASS_TOKENS.dateStatus)).toBe(false);
+    expect(isNonAuthoredEdgeToken(undefined)).toBe(false);
   });
 });
 

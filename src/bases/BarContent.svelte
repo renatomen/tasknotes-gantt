@@ -40,6 +40,7 @@
   import { resolveOccupancyActivationPath } from './occupancyDisplay';
   import {
     GANTT_VISUAL_CLASS_TOKENS as visualClasses,
+    isNonAuthoredEdgeToken,
     OCCURRENCE_STATE_CLASS_TOKENS,
   } from './visualSemantics';
 
@@ -69,6 +70,14 @@
   let { data, api }: Props = $props();
 
   const spec = $derived(data?.custom?.barIcon ?? null);
+
+  // The torn-edge treatment cuts an alpha mask out of the bar's painted body.
+  // The host cannot carry that mask: SVAR hangs the dependency link handles,
+  // the link-delete buttons and the hover/selection feedback off it, and a
+  // host-level mask would clip them all away. So a bar whose start or due was
+  // never authored renders one extra layer that mirrors the host's fill and
+  // takes the cut in its place.
+  const tornBody = $derived(isNonAuthoredEdgeToken(data?.custom?.dateStatusToken));
 
   // The per-task override dot (R11): a tooltip only when this task's effective
   // Estimate meaning differs from the view default, else null (no dot). It names
@@ -213,6 +222,71 @@
     };
   }
 
+  /** Tooth depth at full size, and the largest share of a bar one tooth may take. */
+  const ZIGZAG_TOOTH_DEPTH_PX = 4;
+  const ZIGZAG_TOOTH_MAX_WIDTH_SHARE = 0.3;
+  const ZIGZAG_DEPTH_PROPERTY = '--og-zigzag-depth';
+
+  /** How many sides of the bar `token` tears — both edges, one, or none. */
+  function countTornSides(token: string | undefined): number {
+    if (token === visualClasses.dateStatusZigzagBoth) return 2;
+    return isNonAuthoredEdgeToken(token) ? 1 : 0;
+  }
+
+  /**
+   * The torn sides drop their border — one there would redraw the straight edge
+   * the teeth removed — so only the intact sides still carry one, and it eats
+   * the same width budget the tooth is fitted out of. Read after the state
+   * class has landed, or the torn sides are still counted.
+   */
+  function measureSurvivingBorder(bar: HTMLElement): number {
+    const style = window.getComputedStyle(bar);
+    return (
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0)
+    );
+  }
+
+  /**
+   * Hold the torn bar's tooth depth inside its own width.
+   *
+   * The host clears the teeth with padding, and a border box never shrinks below
+   * its own border plus padding — so a tooth wider than the room left over grows
+   * the rendered box past the width SVAR lays out from. Dependency arrows, link
+   * handles and the drag maths all keep using SVAR's width, so the box must
+   * never exceed it, and the budget the teeth divide is the width MINUS the
+   * border the intact sides still paint. Sizing the tooth off the bar's own
+   * width also keeps a solid middle on a bar narrower than two full teeth (a
+   * one-day placeholder at week or month zoom), which would otherwise render as
+   * a column of tooth tips.
+   *
+   * Sub-pixel is deliberate: below a few pixels of bar the tooth fades out with
+   * the bar rather than being floored to a legible minimum. A floor there would
+   * spend the bar's whole width on two teeth and leave no body to tear.
+   */
+  function fitToothDepth(bar: HTMLElement, tornSides: number, keptBorderPx: number): void {
+    // Only a pixel width is a width in the tooth's own units; anything else
+    // (unset, or a relative unit) leaves the tooth at full size.
+    const width = bar.style.width.endsWith('px')
+      ? Number.parseFloat(bar.style.width)
+      : Number.NaN;
+    const depth = Number.isFinite(width)
+      ? Math.max(
+          0,
+          Math.min(
+            ZIGZAG_TOOTH_DEPTH_PX,
+            width * ZIGZAG_TOOTH_MAX_WIDTH_SHARE,
+            (width - keptBorderPx) / tornSides,
+          ),
+        )
+      : ZIGZAG_TOOTH_DEPTH_PX;
+    const fitted = `${depth}px`;
+    // Writing unconditionally would re-enter through the style observer below.
+    if (bar.style.getPropertyValue(ZIGZAG_DEPTH_PROPERTY) !== fitted) {
+      bar.style.setProperty(ZIGZAG_DEPTH_PROPERTY, fitted);
+    }
+  }
+
   /**
    * Stamp the row's per-state date-status class on the host bar, so each
    * inferred/placeholder/swapped state can be styled distinctly alongside the
@@ -224,21 +298,35 @@
    * re-applies a bar's whole class list from `task.type` on an `update-task`
    * (a Bar Fill / Strip source change re-issues the task with a new treatment
    * class). A MutationObserver re-asserts it, exactly as {@link markBarSplit}
-   * does, so the cue survives a live re-colour without a re-render.
+   * does, so the cue survives a live re-colour without a re-render. A torn bar
+   * watches its inline style too: SVAR rewrites the bar's width there on every
+   * zoom and reflow, and the tooth depth is fitted to that width.
    */
   function markBarDateStatus(token: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!token) return undefined;
       const bar = node.closest(`.${visualClasses.bar}`);
-      if (!bar) return undefined;
-      bar.classList.add(token);
-      const observer = new MutationObserver(() => {
+      if (!(bar instanceof HTMLElement)) return undefined;
+      const tornSides = countTornSides(token);
+      // One read: the surviving border is a theme constant, while the width this
+      // runs against is rewritten on every drag frame.
+      let keptBorderPx: number | null = null;
+      const reassert = (): void => {
         if (!bar.classList.contains(token)) bar.classList.add(token);
+        if (!tornSides) return;
+        keptBorderPx ??= measureSurvivingBorder(bar);
+        fitToothDepth(bar, tornSides, keptBorderPx);
+      };
+      reassert();
+      const observer = new MutationObserver(reassert);
+      observer.observe(bar, {
+        attributes: true,
+        attributeFilter: tornSides ? ['class', 'style'] : ['class'],
       });
-      observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
       return () => {
         observer.disconnect();
         bar.classList.remove(token);
+        bar.style.removeProperty(ZIGZAG_DEPTH_PROPERTY);
       };
     };
   }
@@ -298,15 +386,20 @@
   </div>
 {/snippet}
 
+{#if tornBody}
+  <div class="og-bar-body"></div>
+{/if}
 {#if occupancyView}
   <div
     class="og-ghost-runs"
     {@attach markBarSplitWhen(data?.custom?.occupancyEnvelope === true)}
   >
     {#if occupancyView.kind === 'pieces'}
-      {#each occupancyView.pieces as piece (piece.day)}
+      {#each occupancyView.pieces as piece, index (piece.day)}
         <div
           class={pieceClass(piece)}
+          class:og-piece-first={index === 0}
+          class:og-piece-last={index === occupancyView.pieces.length - 1}
           title={pieceTitle(piece)}
           data-og-instance={piece.day}
           data-og-activate-path={pieceActivatePath(piece)}
@@ -318,7 +411,7 @@
       {#if occupancyView.plain}
         <!-- The kept plain scheduled→due bar at coarse zoom: indicative precision, exactly like the spine. -->
         <div
-          class="og-instance og-instance-plain og-indicative"
+          class="og-instance og-instance-plain og-indicative og-piece-first og-piece-last"
           style="left:{pct(occupancyView.plain.left)};width:{pct(occupancyView.plain.width)};"
           {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
         ></div>
@@ -340,6 +433,8 @@
       <div
         class="og-ghost-run"
         class:og-ghost-blocked={piece.blocked}
+        class:og-piece-first={index === 0}
+        class:og-piece-last={index === ghostPieces.length - 1}
         style="left:{pct(piece.left)};width:{pct(piece.width)};"
       ></div>
     {/each}

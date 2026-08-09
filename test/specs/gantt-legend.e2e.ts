@@ -748,13 +748,18 @@ describe("Gantt (OG) context-aware legend", () => {
       const chart = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar.datestatus-flagged[data-id$="Legend Flagged.md"]',
       );
+      // The TOP edge, not the shorthand: a bar whose start or due was never
+      // authored drops the border on that side so the torn edge is not redrawn
+      // as a straight line, which makes the shorthand a four-value string. The
+      // top edge is never torn, so it is where the date-status colour is
+      // comparable between a chart bar and a legend swatch.
       const snapshot = (element: HTMLElement | null) => {
         const style = element ? getComputedStyle(element) : null;
         return style
           ? {
-              color: style.borderColor,
-              style: style.borderStyle,
-              width: Number.parseFloat(style.borderWidth),
+              color: style.borderTopColor,
+              style: style.borderTopStyle,
+              width: Number.parseFloat(style.borderTopWidth),
             }
           : null;
       };
