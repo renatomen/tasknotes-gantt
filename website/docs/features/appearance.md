@@ -92,13 +92,14 @@ showing its **Status** or **Priority** (companion only), or **None**.
 ## Date-status indicators { #date-status-indicators }
 
 **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
-signals any bar whose dates aren't fully specified, and the signal names which
-problem it found. A task with **one date missing** (the other inferred) or with
-**no dates** (placed at today as a placeholder) is cut with a **torn, zigzag
-edge** on the side that was never authored, so the bar reads as unreliable
-exactly where its date is. A task with **start and end swapped** takes a distinct
-**orange** treatment instead. A task with two valid dates is never flagged; there
-is **no "overdue" marker**. On by default.
+signals any bar with an **incomplete or reversed** date range, and the signal
+names which problem it found. A task with **one date missing** (the other
+inferred) or with **no dates** (placed at today as a placeholder) is cut with a
+**torn, zigzag edge** on the side that was never authored, so the bar reads as
+unreliable exactly where its date is. A task with **start and end swapped** takes
+a distinct **orange** treatment instead. A task carrying both dates in
+chronological order is never flagged; there is **no "overdue" marker**. On by
+default.
 
 ## Reading bar decorations
 
