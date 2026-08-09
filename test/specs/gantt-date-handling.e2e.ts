@@ -253,10 +253,9 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // list from the task type erases it — and when the date status itself has
       // not changed, nothing re-runs the stamp. Stripping the class directly is
       // that rewrite in miniature: the guard is that it comes back on its own.
-      // Strip and re-read within a single page turn. A re-render would also
-      // re-add the class, so polling from the test side could pass without the
-      // observer at all; one macrotask is long enough for the observer's
-      // microtask callback and short enough to exclude anything else.
+      // Strip and re-read within a single page turn: a re-render would also
+      // re-add the class, so polling from the test side could pass with the
+      // observer gone entirely.
       const [presentBefore, restoredInPlace] = await browser.executeObsidian(
         async (_obsidian, selector: string, stateClass: string) => {
           const bar = document.querySelector(selector);
