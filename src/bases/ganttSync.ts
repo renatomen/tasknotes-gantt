@@ -44,13 +44,22 @@ import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
 import type { EchoPayload } from './dragCommitPlan';
-import { GANTT_VISUAL_CLASS_TOKENS } from './visualSemantics';
+import {
+  GANTT_VISUAL_CLASS_TOKENS,
+  resolveDateStatusStateToken,
+  type GanttVisualClassToken,
+} from './visualSemantics';
 
 /**
  * Custom SVAR task type flagging bars whose dates were inferred, swapped, or
  * placeholdered (one indicator state for all non-`complete` values). SVAR emits
  * a registered task `type` id as a bare class on the bar element, so this
  * doubles as the CSS hook (`.wx-bar.datestatus-flagged`).
+ *
+ * The per-state distinction rides `custom.dateStatusToken` instead, NOT a second
+ * type id: SVAR matches a bar's whole `type` string against the registered set
+ * with a linear scan per bar, so a per-state id would multiply that set by the
+ * number of states across the whole treatment × cue cross-product.
  */
 export const DATE_STATUS_TYPE = GANTT_VISUAL_CLASS_TOKENS.dateStatus;
 
@@ -219,6 +228,13 @@ export interface SvarTask {
      * `filter-tasks` over the STABLE task set — never by re-deriving it.
      */
     dateStatus: DateStatus;
+    /**
+     * The per-state class token for this row's date status, or `undefined` when
+     * the dates are complete or indicators are off. The bar template stamps it
+     * on the host bar so each state can be styled distinctly. Folded into
+     * {@link taskStateKey} because two states can share one composed `type`.
+     */
+    dateStatusToken?: GanttVisualClassToken;
     showHasDeps: boolean;
     /**
      * The resolved icon-chip spec for this bar (U4), or `null` when no chip
@@ -473,6 +489,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
         isContext,
         isTopLevelPlacement: inst.isTopLevelPlacement,
         dateStatus: inst.dateStatus,
+        dateStatusToken: publishedDateStatusToken(inst.dateStatus, showDateIndicators),
         ghostRuns: inst.ghostRuns,
         occupancyRuns,
         occupancyEnvelope: envelope ? true : undefined,
@@ -503,6 +520,19 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
     if (isParent) task.open = !collapsedIds?.has(inst.id);
     return task;
   });
+}
+
+/**
+ * The per-state date-status class a bar publishes for the template to stamp:
+ * `undefined` when indicators are off or the dates are complete, gating the
+ * per-state cue exactly as {@link DATE_STATUS_TYPE} gates the shared flag.
+ */
+function publishedDateStatusToken(
+  dateStatus: DateStatus,
+  showDateIndicators: boolean,
+): GanttVisualClassToken | undefined {
+  if (!showDateIndicators) return undefined;
+  return resolveDateStatusStateToken(dateStatus) ?? undefined;
 }
 
 /** What an executor echo applies to one SVAR task (see {@link echoTaskPatch}). */
@@ -650,6 +680,11 @@ export function taskStateKey(t: SvarTask): string {
     // Icon-chip spec (U4): fold so toggling the icon source or a config icon
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
+    // Per-state date-status cue: `type` carries only the shared flag, so
+    // inferred-start→inferred-end (or placeholder→swapped) leaves it identical
+    // while the stamped state class must change. Fold it or the row never
+    // re-issues and the bar keeps the previous state's cue.
+    t.custom.dateStatusToken ?? '',
     // Ghost runs: a holiday moved inside an unchanged span alters only these —
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.

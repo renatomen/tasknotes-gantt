@@ -59,6 +59,7 @@
         occupancyRuns?: readonly OccupancyRunSpan[];
         occupancyEnvelope?: boolean;
         calendarItemColor?: string;
+        dateStatusToken?: string;
         interpretationOverridden?: EstimateMeaning;
       };
     };
@@ -213,6 +214,36 @@
   }
 
   /**
+   * Stamp the row's per-state date-status class on the host bar, so each
+   * inferred/placeholder/swapped state can be styled distinctly alongside the
+   * shared `datestatus-flagged` cue. The state rides per-instance `custom`
+   * rather than the bar's `type`, which SVAR whole-string-matches against a
+   * pre-registered set — a per-state type id would multiply that set.
+   *
+   * Because the class is added imperatively, SVAR drops it whenever it
+   * re-applies a bar's whole class list from `task.type` on an `update-task`
+   * (a Bar Fill / Strip source change re-issues the task with a new treatment
+   * class). A MutationObserver re-asserts it, exactly as {@link markBarSplit}
+   * does, so the cue survives a live re-colour without a re-render.
+   */
+  function markBarDateStatus(token: string | undefined) {
+    return (node: Element): (() => void) | undefined => {
+      if (!token) return undefined;
+      const bar = node.closest(`.${visualClasses.bar}`);
+      if (!bar) return undefined;
+      bar.classList.add(token);
+      const observer = new MutationObserver(() => {
+        if (!bar.classList.contains(token)) bar.classList.add(token);
+      });
+      observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
+      return () => {
+        observer.disconnect();
+        bar.classList.remove(token);
+      };
+    };
+  }
+
+  /**
    * Attach the upper-left corner override dot to the host bar (R11). Mirrors
    * {@link markBarSplit} but walks to the nearest `.wx-bar` ancestor (the dot
    * must anchor to the bar in both the plain and ghost-run branches) and appends
@@ -246,6 +277,7 @@
     class="wx-content"
     class:og-ghost-label={Boolean(ghostPieces) || Boolean(occupancyView)}
     {@attach colorCalendarItemBar(data?.custom?.calendarItemColor)}
+    {@attach markBarDateStatus(data?.custom?.dateStatusToken)}
     {@attach markBarOverridden(overrideTooltip)}
   >
     {#if spec}

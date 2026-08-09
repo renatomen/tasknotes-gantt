@@ -36,6 +36,11 @@ import {
   type LinkSyncPlan,
 } from '../../src/bases/ganttSync';
 import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../../src/bases/barTreatment';
+import {
+  DATE_STATUS_STATE_CLASS_TOKENS,
+  GANTT_VISUAL_CLASS_TOKENS,
+  resolveDateStatusStateToken,
+} from '../../src/bases/visualSemantics';
 import { hasDerivedBarGeometry } from '../../src/bases/eventRowGuards';
 import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource/calendarItems';
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
@@ -93,6 +98,22 @@ function mapOf(tasks: SvarTask[]): Map<string, SvarTask> {
   return new Map(tasks.map((t) => [t.id, t]));
 }
 
+const ZIGZAG_START = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagStart;
+const ZIGZAG_END = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagEnd;
+const ZIGZAG_BOTH = GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagBoth;
+const SWAPPED = GANTT_VISUAL_CLASS_TOKENS.dateStatusSwapped;
+const DATE_STATUS_STATE_TOKENS = Object.values(DATE_STATUS_STATE_CLASS_TOKENS);
+
+describe('resolveDateStatusStateToken', () => {
+  it('maps each non-complete date status to its per-state token, and complete to none', () => {
+    expect(resolveDateStatusStateToken('inferred-start')).toBe(ZIGZAG_START);
+    expect(resolveDateStatusStateToken('inferred-end')).toBe(ZIGZAG_END);
+    expect(resolveDateStatusStateToken('placeholder')).toBe(ZIGZAG_BOTH);
+    expect(resolveDateStatusStateToken('swapped')).toBe(SWAPPED);
+    expect(resolveDateStatusStateToken('complete')).toBeNull();
+  });
+});
+
 describe('buildSvarTasks', () => {
   it('renders a parent as an ordinary task at its own dates (not a summary) but keeps it open', () => {
     const start = new Date(2026, 0, 1);
@@ -130,22 +151,92 @@ describe('buildSvarTasks', () => {
   });
 
   it('flags a non-complete leaf with the date-status type only', () => {
-    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })] }));
+    const [t] = buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred-start' })] }));
     expect(t.type).toBe(DATE_STATUS_TYPE);
   });
 
   it('does not flag when date indicators are off', () => {
     const [t] = buildSvarTasks(
-      inputs({ instances: [inst({ id: 'a', dateStatus: 'inferred' })], showDateIndicators: false }),
+      inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })], showDateIndicators: false }),
     );
     expect(t.type).toBe('task');
+  });
+
+  it('publishes the per-state date-status token on custom for each non-complete status', () => {
+    const tokenOf = (dateStatus: RenderInstance['dateStatus']) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!.custom
+        .dateStatusToken;
+    expect(tokenOf('inferred-start')).toBe(ZIGZAG_START);
+    expect(tokenOf('inferred-end')).toBe(ZIGZAG_END);
+    expect(tokenOf('placeholder')).toBe(ZIGZAG_BOTH);
+    expect(tokenOf('swapped')).toBe(SWAPPED);
+    expect(tokenOf('complete')).toBeUndefined();
+  });
+
+  it('publishes no per-state date-status token when date indicators are off', () => {
+    const [t] = buildSvarTasks(
+      inputs({
+        instances: [inst({ id: 'a', dateStatus: 'placeholder' })],
+        showDateIndicators: false,
+      }),
+    );
+    expect(t.custom.dateStatusToken).toBeUndefined();
+  });
+
+  it('keeps the per-state token OUT of the composed bar type (one flag id, not a per-state one)', () => {
+    // The token rides per-instance `custom`, never `type`: folding it into the
+    // whole-string type would multiply the pre-registered cross-product SVAR
+    // linear-scans per bar.
+    const typeOf = (dateStatus: RenderInstance['dateStatus']) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!.type;
+    expect(typeOf('inferred-start')).toBe(DATE_STATUS_TYPE);
+    expect(typeOf('inferred-end')).toBe(DATE_STATUS_TYPE);
+    expect(typeOf('placeholder')).toBe(DATE_STATUS_TYPE);
+    expect(typeOf('swapped')).toBe(DATE_STATUS_TYPE);
+    expect(typeOf('complete')).toBe('task');
+  });
+
+  it('taskStateKey changes when only the per-state date-status token changes (re-sync guard)', () => {
+    const keyFor = (dateStatus: RenderInstance['dateStatus']) =>
+      taskStateKey(buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }))[0]!);
+    // These pairs compose an IDENTICAL `type`, so without the fold the diff-sync
+    // would skip the update and the bar would keep the previous state's cue.
+    expect(keyFor('inferred-start')).not.toBe(keyFor('inferred-end'));
+    expect(keyFor('placeholder')).not.toBe(keyFor('swapped'));
+    expect(keyFor('swapped')).toBe(keyFor('swapped'));
+  });
+
+  it('plans an update-task when only the per-state date-status token changes (live re-stamp)', () => {
+    const build = (dateStatus: RenderInstance['dateStatus']) =>
+      buildSvarTasks(inputs({ instances: [inst({ id: 'a', dateStatus })] }));
+    const before = build('inferred-start');
+    const after = build('inferred-end');
+    // Same dates, same treatment classes, same cues — and an IDENTICAL composed
+    // `type` (both are simply flagged), so the fingerprint fold is the only
+    // thing that can carry the re-stamp to the bar.
+    expect(before[0]!.type).toBe(after[0]!.type);
+    const plan = planTaskSync(mapOf(before), after);
+    expect(plan.updates.map((u) => u.id)).toEqual(['a']);
+    expect(plan.updates[0]!.task.custom.dateStatusToken).toBe(ZIGZAG_END);
+    expect(plan.adds).toEqual([]);
+    expect(plan.deletes).toEqual([]);
+  });
+
+  it('plans an update-task when the indicator toggle drops the per-state token', () => {
+    const build = (showDateIndicators: boolean) =>
+      buildSvarTasks(
+        inputs({ instances: [inst({ id: 'a', dateStatus: 'placeholder' })], showDateIndicators }),
+      );
+    const plan = planTaskSync(mapOf(build(true)), build(false));
+    expect(plan.updates.map((u) => u.id)).toEqual(['a']);
+    expect(plan.updates[0]!.task.custom.dateStatusToken).toBeUndefined();
   });
 
   it('composes the date-status flag with the status-color class (flag first)', () => {
     const colors: StatusColor[] = [{ value: 'wip', color: '#abc', isCompleted: false }];
     const [t] = buildSvarTasks(
       inputs({
-        instances: [inst({ id: 'a', dateStatus: 'inferred', status: 'wip' })],
+        instances: [inst({ id: 'a', dateStatus: 'inferred-start', status: 'wip' })],
         statusColors: colors,
       }),
     );
@@ -363,6 +454,16 @@ describe('buildTreatmentTaskTypes', () => {
     expect(ids).toContain(`${DATE_STATUS_TYPE} ${PARENT_ROLE_CLASS}`);
   });
 
+  it('registers no per-state date-status token, so the cross-product stays at its flag-only size', () => {
+    const baseIds = buildTreatmentTaskTypes(palettes).map((t) => t.id);
+    const cueIds = buildInstanceCueTaskTypes(baseIds).map((t) => t.id);
+    for (const id of [...baseIds, ...cueIds]) {
+      for (const token of DATE_STATUS_STATE_TOKENS) expect(id).not.toContain(token);
+    }
+    // The flag itself still registers — the dark-launch hook is unchanged.
+    expect(baseIds).toContain(DATE_STATUS_TYPE);
+  });
+
   it('registers the ordered two-class pairs a two-channel bar can compose (fill class + strip class)', () => {
     const ids = buildTreatmentTaskTypes(palettes).map((t) => t.id);
     // A fill=status + strip=priority bar composes `<status> <priority>`; the whole
@@ -461,8 +562,8 @@ describe('buildTreatmentTaskTypes', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', priority: 'high', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'swapped', priority: 'high', isFetched: true }),
         ],
         barFillSource: 'priority',
         priorityColors: palettes.priority,
@@ -631,8 +732,8 @@ describe('instance cues (U6)', () => {
     const tasks = buildSvarTasks(
       inputs({
         instances: [
-          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
-          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'inferred', status: 'wip', isFetched: true }),
+          inst({ id: 'x', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
+          inst({ id: 'y', sourcePath: 's.md', dateStatus: 'placeholder', status: 'wip', isFetched: true }),
         ],
         statusColors: colors,
       }),

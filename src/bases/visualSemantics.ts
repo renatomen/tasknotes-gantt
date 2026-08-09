@@ -4,6 +4,8 @@
  * requires an intentional catalogue decision instead of a second vocabulary.
  */
 
+import type { DateStatus } from '../controller/datePolicy';
+
 export const GANTT_VISUAL_SEMANTIC_IDS = [
   'bar-treatment',
   'bar-icon',
@@ -45,6 +47,10 @@ export const GANTT_VISUAL_CLASS_TOKENS = {
   dependencyLink: 'wx-link',
   dependencyLine: 'wx-line',
   dateStatus: 'datestatus-flagged',
+  dateStatusZigzagStart: 'datestatus-zigzag-start',
+  dateStatusZigzagEnd: 'datestatus-zigzag-end',
+  dateStatusZigzagBoth: 'datestatus-zigzag-both',
+  dateStatusSwapped: 'datestatus-swapped',
   replicated: 'og-replicated',
   context: 'og-context',
   calendarEvent: 'og-event',
@@ -75,6 +81,27 @@ export const GANTT_VISUAL_CLASS_TOKENS = {
 
 export type GanttVisualClassToken =
   (typeof GANTT_VISUAL_CLASS_TOKENS)[keyof typeof GANTT_VISUAL_CLASS_TOKENS];
+
+export const DATE_STATUS_STATE_CLASS_TOKENS: Record<
+  Exclude<DateStatus, 'complete'>,
+  GanttVisualClassToken
+> = {
+  'inferred-start': GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagStart,
+  'inferred-end': GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagEnd,
+  placeholder: GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagBoth,
+  swapped: GANTT_VISUAL_CLASS_TOKENS.dateStatusSwapped,
+};
+
+/**
+ * The per-state class token a bar carries alongside the shared
+ * `datestatus-flagged` cue (`null` for `complete` — no indicator). One token
+ * per inferred/placeholder/swapped state so CSS can style each state
+ * distinctly instead of one flag for all.
+ */
+export function resolveDateStatusStateToken(status: DateStatus): GanttVisualClassToken | null {
+  if (status === 'complete') return null;
+  return DATE_STATUS_STATE_CLASS_TOKENS[status];
+}
 
 export const OCCURRENCE_STATE_CLASS_TOKENS = {
   next: GANTT_VISUAL_CLASS_TOKENS.occurrenceNext,
