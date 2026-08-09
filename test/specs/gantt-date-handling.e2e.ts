@@ -18,8 +18,11 @@ import { fileURLToPath } from "node:url";
  *      complete bar does not (R10);
  *   4. each flagged bar also carries the per-state class for its concrete date
  *      status, so the four states are stylable apart from one another;
- *   5. with "hide undated" on, the dateless tasks disappear; and with the
- *      date-status indicator option off, no bar carries any date-status class.
+ *   5. the three non-authored-edge states render as a zigzag "torn" edge cut
+ *      out of the bar's body on the side whose date was never authored; and
+ *   6. with "hide undated" on, the dateless tasks disappear; and with the
+ *      date-status indicator option off, no bar carries any date-status class
+ *      and no bar is torn.
  *
  * SELECTOR NOTE: bars are SVAR `.wx-bar` elements carrying `data-id` = the note
  * path (our instance id for these single-parent roots). SVAR 2.6+ encodes a
@@ -30,6 +33,9 @@ import { fileURLToPath } from "node:url";
  * `wx-`-prefixes the built-in task/summary/milestone types). The per-state
  * `.datestatus-*` classes are NOT task types — the bar template stamps them
  * from per-instance data — but they land as bare classes on the same element.
+ * The teeth themselves are read off `.og-bar-body`, the inner layer the bar
+ * template renders to take the mask — the host must stay unmasked, because SVAR
+ * hangs the dependency link handles and hover feedback off it.
  * Verified against @svar-ui/svelte-gantt v2.7.0.
  *
  * PLACEMENT NOTE: the fixture's dated tasks sit in April 2026, before any
@@ -54,6 +60,59 @@ const STATE_CLASSES = [...new Set(Object.values(STATE_CLASS_BY_NOTE))];
 
 /** The due date `Due Only.md` ships with; the live-edit test must restore it. */
 const DUE_ONLY_FIXTURE_DUE = "2026-04-20";
+
+/** Tooth period the view stylesheet publishes; teeth are half that deep. */
+const ZIGZAG_PERIOD = "8px";
+const ZIGZAG_DEPTH = "4px";
+const ZIGZAG_TOOTH_SIZE = `${ZIGZAG_DEPTH} ${ZIGZAG_PERIOD}`;
+
+/** Computed mask facts for a bar: the inner body layer plus its host. */
+interface ZigzagProbe {
+  /** Whether the bar renders the inner mask carrier at all. */
+  body: boolean;
+  bodyMaskImage: string;
+  bodyMaskSize: string;
+  bodyMaskPosition: string;
+  /** The body layer mirrors the host's fill instead of re-deriving it. */
+  bodyBackgroundColor: string;
+  hostBackgroundColor: string;
+  /** How the host stops painting behind the teeth it just cut. */
+  hostBackgroundClip: string;
+  hostPaddingLeft: string;
+  hostPaddingRight: string;
+  /** The host must never be masked — SVAR hangs link handles off it. */
+  hostMaskImage: string;
+  period: string;
+}
+
+/** Read the zigzag mask state of the bar whose `data-id` ends with `note`. */
+async function readZigzag(note: string): Promise<ZigzagProbe> {
+  return browser.execute((selector: string) => {
+    const bar = document.querySelector(selector);
+    if (!bar) throw new Error(`bar not found: ${selector}`);
+    const host = window.getComputedStyle(bar);
+    const body = bar.querySelector(".og-bar-body");
+    const bodyStyle = body ? window.getComputedStyle(body) : null;
+    return {
+      body: body !== null,
+      bodyMaskImage: bodyStyle?.maskImage ?? "",
+      bodyMaskSize: bodyStyle?.maskSize ?? "",
+      bodyMaskPosition: bodyStyle?.maskPosition ?? "",
+      bodyBackgroundColor: bodyStyle?.backgroundColor ?? "",
+      hostBackgroundColor: host.backgroundColor,
+      hostBackgroundClip: host.backgroundClip,
+      hostPaddingLeft: host.paddingLeft,
+      hostPaddingRight: host.paddingRight,
+      hostMaskImage: host.maskImage,
+      period: host.getPropertyValue("--og-zigzag-period").trim(),
+    };
+  }, `.og-bases-gantt .wx-bar[data-id$="${note}"]`);
+}
+
+/** The mask layers of `probe`, as their computed positions (one per layer). */
+function maskLayerPositions(probe: ZigzagProbe): string[] {
+  return probe.bodyMaskPosition.split(", ");
+}
 
 /** The `class` attribute of the bar whose `data-id` ends with `note`. */
 async function barClass(note: string): Promise<string> {
@@ -216,6 +275,119 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       for (const stateClass of STATE_CLASSES) expect(complete).not.toContain(stateClass);
     });
 
+    it("cuts teeth into an inner body layer on the leading edge of a due-only bar (AE1)", async () => {
+      const probe = await readZigzag("Due Only.md");
+
+      expect(probe.body).toBe(true);
+      expect(probe.bodyMaskImage).toContain("conic-gradient");
+      expect(probe.period).toBe(ZIGZAG_PERIOD);
+      // Two layers: the teeth tile pinned to the leading edge, then the solid
+      // layer that keeps the rest of the body intact.
+      const layers = maskLayerPositions(probe);
+      expect(layers).toHaveLength(2);
+      expect(layers[0]).toBe("0% 0%");
+      expect(probe.bodyMaskSize.split(", ")[0]).toBe(ZIGZAG_TOOTH_SIZE);
+      // Cutting the body only shows through if the host stops painting behind
+      // the teeth: it clips its own background to a content box inset by the
+      // tooth depth on the torn side, and by nothing on the intact side.
+      expect(probe.hostBackgroundClip).toBe("content-box");
+      expect(probe.hostPaddingLeft).toBe(ZIGZAG_DEPTH);
+      expect(probe.hostPaddingRight).toBe("0px");
+    });
+
+    it("paints the cut body in the host's own fill rather than re-deriving it", async () => {
+      // The body layer inherits its colour, so every fill source — here the
+      // date-status fill — reaches it without the treatment code knowing.
+      const probe = await readZigzag("Due Only.md");
+
+      expect(probe.bodyBackgroundColor).toBe(probe.hostBackgroundColor);
+      expect(probe.bodyBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    });
+
+    it("cuts teeth on the trailing edge of a start-only bar (AE2)", async () => {
+      const probe = await readZigzag("Start Only.md");
+
+      expect(probe.body).toBe(true);
+      expect(probe.bodyMaskImage).toContain("conic-gradient");
+      const layers = maskLayerPositions(probe);
+      expect(layers).toHaveLength(2);
+      expect(layers[0]).toBe("100% 0%");
+      expect(probe.bodyMaskSize.split(", ")[0]).toBe(ZIGZAG_TOOTH_SIZE);
+      expect(probe.hostBackgroundClip).toBe("content-box");
+      expect(probe.hostPaddingRight).toBe(ZIGZAG_DEPTH);
+      expect(probe.hostPaddingLeft).toBe("0px");
+    });
+
+    it("cuts both edges of a one-cell dateless bar at the standard tooth size (AE3, AE7)", async () => {
+      // Dateless One is a single-day placeholder, so this is also the one-cell
+      // case: the teeth keep their absolute size instead of scaling with width.
+      const probe = await readZigzag("Dateless One.md");
+
+      expect(probe.body).toBe(true);
+      const layers = maskLayerPositions(probe);
+      expect(layers).toHaveLength(3);
+      expect(layers[0]).toBe("0% 0%");
+      expect(layers[1]).toBe("100% 0%");
+      const sizes = probe.bodyMaskSize.split(", ");
+      expect(sizes[0]).toBe(ZIGZAG_TOOTH_SIZE);
+      expect(sizes[1]).toBe(ZIGZAG_TOOTH_SIZE);
+      expect(probe.hostBackgroundClip).toBe("content-box");
+      expect(probe.hostPaddingLeft).toBe(ZIGZAG_DEPTH);
+      expect(probe.hostPaddingRight).toBe(ZIGZAG_DEPTH);
+    });
+
+    it("never masks the host bar, so its hover and selection feedback stays whole", async () => {
+      // The host paints SVAR's hover/selection box-shadow and outline, and hosts
+      // the link handles that sit OUTSIDE its border box, so a host-level mask
+      // would cut all of them. The tear has to live on the inner layer, only.
+      // (Handles need an editable view; the dependency spec asserts those.)
+      const torn = await readZigzag("Dateless One.md");
+      const complete = await readZigzag("Complete.md");
+
+      expect(torn.body).toBe(true);
+      expect(torn.hostMaskImage).toBe("none");
+      expect(complete.hostMaskImage).toBe("none");
+    });
+
+    it("keeps the label and the progress fill painted above the cut body", async () => {
+      // Start Only carries progress, so SVAR renders its progress wrapper as a
+      // SIBLING of the body layer: it has to stay above the carrier (or the
+      // fill vanishes) and start at the bar's edge (or the host padding that
+      // clears the teeth shifts it out of place).
+      const painted = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const wrapper = bar.querySelector(".wx-progress-wrapper");
+        const label = bar.querySelector(".og-bar-text");
+        const body = bar.querySelector(".og-bar-body");
+        const wrapperStyle = wrapper ? window.getComputedStyle(wrapper) : null;
+        return {
+          labelWidth: (label as HTMLElement | null)?.offsetWidth ?? 0,
+          fillWidth: (bar.querySelector(".wx-progress-percent") as HTMLElement | null)?.offsetWidth ?? 0,
+          wrapperLeft: wrapperStyle?.left ?? "",
+          wrapperZIndex: wrapperStyle?.zIndex ?? "",
+          wrapperMaskImage: wrapperStyle?.maskImage ?? "",
+          bodyZIndex: body ? window.getComputedStyle(body).zIndex : "",
+        };
+      }, `.og-bases-gantt .wx-bar[data-id$="Start Only.md"]`);
+
+      expect(painted.labelWidth).toBeGreaterThan(0);
+      expect(painted.fillWidth).toBeGreaterThan(0);
+      expect(painted.wrapperLeft).toBe("0px");
+      expect(painted.wrapperZIndex).toBe("1");
+      expect(painted.bodyZIndex).toBe("0");
+      // The progress fill reaches the same edge as the body, so it carries the
+      // same cut — otherwise it would paint over the teeth.
+      expect(painted.wrapperMaskImage).toContain("conic-gradient");
+    });
+
+    it("renders no body layer on the complete bar or the swapped bar", async () => {
+      // Only the three non-authored-edge states are torn; a complete bar has
+      // nothing to signal and a swapped bar gets its own treatment.
+      expect((await readZigzag("Complete.md")).body).toBe(false);
+      expect((await readZigzag("Swapped.md")).body).toBe(false);
+    });
+
     // The live-edit test below mutates the vault. Restoring inline is not
     // enough: a failed assertion would skip the restore and cascade into every
     // later block, so an idempotent hook guarantees the fixture state.
@@ -334,6 +506,42 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         expect(swapped).not.toContain(stateClass);
         expect(startOnly).not.toContain(stateClass);
       }
+    });
+
+    it("cuts no teeth into any bar when showDateIndicators is off (AE5)", async () => {
+      const bodies = await $$(".og-bases-gantt .wx-bar .og-bar-body");
+      expect(bodies).toHaveLength(0);
+      // Rows that WOULD be torn are on screen, so the empty count reports the
+      // toggle rather than an empty chart.
+      expect((await readZigzag("Due Only.md")).body).toBe(false);
+      expect((await readZigzag("Start Only.md")).body).toBe(false);
+    });
+  });
+
+  describe("strip treatment over a torn edge", () => {
+    before(async () => {
+      await openBase("DatesStrip.base");
+    });
+
+    it("offsets the strip accent clear of the leading teeth", async () => {
+      // The strip accent is a host-level `::before`, so it sits OUTSIDE the
+      // masked body layer and would otherwise paint straight over the teeth.
+      const accent = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const before = window.getComputedStyle(bar, "::before");
+        return {
+          left: before.left,
+          backgroundColor: before.backgroundColor,
+          torn: bar.querySelector(".og-bar-body") !== null,
+        };
+      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+
+      expect(accent.torn).toBe(true);
+      // The accent is really painted (a stripless bar would report no colour),
+      // and it starts at the tooth depth instead of the bar's edge.
+      expect(accent.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+      expect(accent.left).toBe("4px");
     });
   });
 });

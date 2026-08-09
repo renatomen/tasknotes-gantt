@@ -40,6 +40,7 @@
   import { resolveOccupancyActivationPath } from './occupancyDisplay';
   import {
     GANTT_VISUAL_CLASS_TOKENS as visualClasses,
+    isNonAuthoredEdgeToken,
     OCCURRENCE_STATE_CLASS_TOKENS,
   } from './visualSemantics';
 
@@ -69,6 +70,14 @@
   let { data, api }: Props = $props();
 
   const spec = $derived(data?.custom?.barIcon ?? null);
+
+  // The torn-edge treatment cuts an alpha mask out of the bar's painted body.
+  // The host cannot carry that mask: SVAR hangs the dependency link handles,
+  // the link-delete buttons and the hover/selection feedback off it, and a
+  // host-level mask would clip them all away. So a bar whose start or due was
+  // never authored renders one extra layer that mirrors the host's fill and
+  // takes the cut in its place.
+  const tornBody = $derived(isNonAuthoredEdgeToken(data?.custom?.dateStatusToken));
 
   // The per-task override dot (R11): a tooltip only when this task's effective
   // Estimate meaning differs from the view default, else null (no dot). It names
@@ -298,15 +307,20 @@
   </div>
 {/snippet}
 
+{#if tornBody}
+  <div class="og-bar-body"></div>
+{/if}
 {#if occupancyView}
   <div
     class="og-ghost-runs"
     {@attach markBarSplitWhen(data?.custom?.occupancyEnvelope === true)}
   >
     {#if occupancyView.kind === 'pieces'}
-      {#each occupancyView.pieces as piece (piece.day)}
+      {#each occupancyView.pieces as piece, index (piece.day)}
         <div
           class={pieceClass(piece)}
+          class:og-piece-first={index === 0}
+          class:og-piece-last={index === occupancyView.pieces.length - 1}
           title={pieceTitle(piece)}
           data-og-instance={piece.day}
           data-og-activate-path={pieceActivatePath(piece)}
@@ -318,7 +332,7 @@
       {#if occupancyView.plain}
         <!-- The kept plain scheduled→due bar at coarse zoom: indicative precision, exactly like the spine. -->
         <div
-          class="og-instance og-instance-plain og-indicative"
+          class="og-instance og-instance-plain og-indicative og-piece-first og-piece-last"
           style="left:{pct(occupancyView.plain.left)};width:{pct(occupancyView.plain.width)};"
           {@attach stopDragEventsWhen(data?.custom?.occupancyEnvelope === true)}
         ></div>
@@ -340,6 +354,8 @@
       <div
         class="og-ghost-run"
         class:og-ghost-blocked={piece.blocked}
+        class:og-piece-first={index === 0}
+        class:og-piece-last={index === ghostPieces.length - 1}
         style="left:{pct(piece.left)};width:{pct(piece.width)};"
       ></div>
     {/each}

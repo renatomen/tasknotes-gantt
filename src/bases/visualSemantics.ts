@@ -58,9 +58,12 @@ export const GANTT_VISUAL_CLASS_TOKENS = {
   calendarCell: 'og-cal-cell',
   marker: 'og-marker',
   markerToday: 'og-marker-today',
+  barBody: 'og-bar-body',
   ghostRuns: 'og-ghost-runs',
   ghostRun: 'og-ghost-run',
   ghostBlocked: 'og-ghost-blocked',
+  pieceFirst: 'og-piece-first',
+  pieceLast: 'og-piece-last',
   occurrence: 'og-instance',
   occurrenceNext: 'og-instance-next',
   occurrenceProjected: 'og-instance-projected',
@@ -101,6 +104,21 @@ export const DATE_STATUS_STATE_CLASS_TOKENS: Record<
 export function resolveDateStatusStateToken(status: DateStatus): GanttVisualClassToken | null {
   if (status === 'complete') return null;
   return DATE_STATUS_STATE_CLASS_TOKENS[status];
+}
+
+const NON_AUTHORED_EDGE_CLASS_TOKENS: readonly GanttVisualClassToken[] = [
+  GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagStart,
+  GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagEnd,
+  GANTT_VISUAL_CLASS_TOKENS.dateStatusZigzagBoth,
+];
+
+/**
+ * Whether `token` marks an edge the user never authored — the three states the
+ * bar renders as a torn edge. Swapped dates carry their own token and are not
+ * torn, and a complete bar carries no token at all.
+ */
+export function isNonAuthoredEdgeToken(token: string | undefined): boolean {
+  return NON_AUTHORED_EDGE_CLASS_TOKENS.some((edgeToken) => edgeToken === token);
 }
 
 export const OCCURRENCE_STATE_CLASS_TOKENS = {

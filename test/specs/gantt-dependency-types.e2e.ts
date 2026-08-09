@@ -93,6 +93,39 @@ async function readGanttState(): Promise<{ mounted: boolean; bars: number; arrow
   });
 }
 
+/** Per-handle geometry + masking on the partial-date bar, read in one page turn. */
+interface HandleState {
+  /** Whether the bar renders the inner (masked) body layer. */
+  torn: boolean;
+  hostMaskImage: string;
+  handles: Array<{ maskImage: string; width: number; height: number; hit: boolean }>;
+}
+
+/** Read the link-handle state of the partial-date bar (the masked one). */
+async function readHandleState(): Promise<HandleState> {
+  return browser.execute(() => {
+    const bar = document.querySelector('.og-bases-gantt .wx-bar[data-id$="Build Partial.md"]');
+    if (!bar) return { torn: false, hostMaskImage: "", handles: [] };
+    return {
+      torn: bar.querySelector(".og-bar-body") !== null,
+      hostMaskImage: window.getComputedStyle(bar).maskImage,
+      handles: Array.from(bar.querySelectorAll(".wx-link")).map((handle) => {
+        const box = handle.getBoundingClientRect();
+        const atCentre = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        );
+        return {
+          maskImage: window.getComputedStyle(handle).maskImage,
+          width: box.width,
+          height: box.height,
+          hit: atCentre === handle || handle.contains(atCentre),
+        };
+      }),
+    };
+  });
+}
+
 /**
  * Wait until the OG Gantt is the active leaf AND fully rendered (five named bars
  * + four arrows), re-activating the base leaf on every poll so a starter-note
@@ -316,6 +349,36 @@ describe("Gantt (OG) dependency read fidelity", () => {
     );
     expect(bg).toBeTruthy();
     expect(bg).not.toBe("none");
+  });
+
+  it("keeps both link handles whole and hittable on a torn-edge bar", async () => {
+    // `Build Partial.md` authors only a start date, so its bar carries the
+    // trailing-edge zigzag — a genuinely masked bar for the handles to sit on.
+    // SVAR renders the handles as bar DESCENDANTS positioned OUTSIDE the border
+    // box, so a mask on `.wx-bar` itself would cut them away and dependency
+    // authoring would silently die. The cut must be on the inner body layer.
+    let observed = "<unobserved>";
+    await browser.waitUntil(
+      async () => {
+        await activateBaseLeaf();
+        observed = JSON.stringify(await readHandleState());
+        return (await readHandleState()).torn;
+      },
+      { timeout: 30000, timeoutMsg: () => `torn-edge bar never rendered; saw: ${observed}` }
+    );
+
+    const state = await readHandleState();
+    expect(state.torn).toBe(true);
+    expect(state.hostMaskImage).toBe("none");
+    expect(state.handles).toHaveLength(2);
+    for (const handle of state.handles) {
+      expect(handle.maskImage).toBe("none");
+      expect(handle.width).toBeGreaterThan(0);
+      expect(handle.height).toBeGreaterThan(0);
+      // Nothing overlays the handle at its own centre, so the click that starts
+      // (or deletes) a dependency still lands on it.
+      expect(handle.hit).toBe(true);
+    }
   });
 
   // NOTE: the U3 dependency tooltip is intentionally NOT asserted here. SVAR's

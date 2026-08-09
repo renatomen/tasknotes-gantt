@@ -3280,6 +3280,192 @@
   }
 
   /*
+   * Non-authored-edge zigzag — a "torn" edge on the side whose date the user
+   * never wrote. The teeth are cut OUT of the bar's painted body, so the signal
+   * composes with any fill colour instead of competing with it.
+   *
+   * WHERE THE CUT LIVES. Never on `.wx-bar`. SVAR renders the dependency link
+   * handles and the link-delete buttons as bar descendants positioned OUTSIDE
+   * its border box, and paints hover/selection feedback on the host itself, so
+   * a host-level mask would clip all of them away and break dependency
+   * authoring. Instead BarContent renders an inner `.og-bar-body` layer that
+   * mirrors the host's fill (`background-color: inherit`, so every fill source
+   * — default, status, priority, strip, calendar, parent role — comes along for
+   * free) and takes the cut in its place, while the host stops painting behind
+   * the teeth by clipping its own background to a content box inset by exactly
+   * the tooth depth. Under Split rendering the host paints nothing at all, so
+   * there the outermost pieces carry the cut instead.
+   *
+   * HOW THE TEETH ARE DRAWN. One alpha-only conic-gradient tile per edge, as
+   * wide as a tooth is deep and as tall as one period, repeated down that edge,
+   * plus a solid layer covering the untouched middle. The layers simply add up,
+   * so an edge pair lists both tiles and needs no mask compositing.
+   */
+  .og-bases-gantt {
+    --og-zigzag-period: 8px;
+    /* Half the period — how far the tile's 45° wedges reach into the body. */
+    --og-zigzag-depth: 4px;
+    --og-zigzag-teeth-start: conic-gradient(
+      from 0deg at 0px 50%,
+      #0000 0deg 45deg,
+      #000 45deg 135deg,
+      #0000 135deg 360deg
+    );
+    --og-zigzag-teeth-end: conic-gradient(
+      from 0deg at 100% 50%,
+      #0000 0deg 225deg,
+      #000 225deg 315deg,
+      #0000 315deg 360deg
+    );
+    --og-zigzag-middle: linear-gradient(#000, #000);
+  }
+
+  .og-bases-gantt :global(.wx-bar > .og-bar-body) {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-color: inherit;
+    border-radius: inherit;
+  }
+
+  .og-bases-gantt
+    :global(
+      .wx-bar:is(
+          .datestatus-zigzag-start,
+          .datestatus-zigzag-end,
+          .datestatus-zigzag-both
+        ):not(.wx-split)
+    ) {
+    background-clip: content-box !important;
+  }
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both):not(.wx-split)) {
+    padding-left: var(--og-zigzag-depth) !important;
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+  }
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both):not(.wx-split)) {
+    padding-right: var(--og-zigzag-depth) !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+  }
+
+  /*
+   * The padding that stops the host painting behind the teeth also moves every
+   * in-flow and statically-placed child inward. SVAR's progress wrapper takes
+   * its position from the content box, and our piece wrapper is in flow, so
+   * both are re-pinned to the bar's own edges. The wrapper additionally has to
+   * sit ABOVE the body layer: SVAR emits it before the bar template, so without
+   * a lift the later body layer would paint over the progress fill.
+   */
+  .og-bases-gantt
+    :global(
+      .wx-bar:is(
+          .datestatus-zigzag-start,
+          .datestatus-zigzag-end,
+          .datestatus-zigzag-both
+        ):not(.wx-split)
+        > .wx-progress-wrapper
+    ) {
+    left: 0 !important;
+    top: 0 !important;
+    z-index: 1 !important;
+  }
+  .og-bases-gantt
+    :global(
+      .wx-bar:is(
+          .datestatus-zigzag-start,
+          .datestatus-zigzag-end,
+          .datestatus-zigzag-both
+        ):not(.wx-split)
+        > .og-ghost-runs
+    ) {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  /*
+   * The strip treatment's accent is a host-level `::before`, so it sits outside
+   * the masked layer and would paint straight over a leading torn edge. Start
+   * it at the tooth depth instead; a bar with no strip has no `content` and is
+   * unaffected.
+   */
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both)::before) {
+    left: var(--og-zigzag-depth) !important;
+  }
+
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-bar-body),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .wx-progress-wrapper),
+  .og-bases-gantt
+    :global(.wx-bar.datestatus-zigzag-start :is(.og-ghost-run, .og-instance).og-piece-first),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-both
+        :is(.og-ghost-run, .og-instance).og-piece-first:not(.og-piece-last)
+    ) {
+    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle);
+    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle);
+    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth)) 100%;
+    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth)) 100%;
+    -webkit-mask-position: left top, right top;
+    mask-position: left top, right top;
+    -webkit-mask-repeat: repeat-y, no-repeat;
+    mask-repeat: repeat-y, no-repeat;
+  }
+
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-bar-body),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .wx-progress-wrapper),
+  .og-bases-gantt
+    :global(.wx-bar.datestatus-zigzag-end :is(.og-ghost-run, .og-instance).og-piece-last),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-both
+        :is(.og-ghost-run, .og-instance).og-piece-last:not(.og-piece-first)
+    ) {
+    -webkit-mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle);
+    mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle);
+    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth)) 100%;
+    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth)) 100%;
+    -webkit-mask-position: right top, left top;
+    mask-position: right top, left top;
+    -webkit-mask-repeat: repeat-y, no-repeat;
+    mask-repeat: repeat-y, no-repeat;
+  }
+
+  /* Both edges — including a split bar rendered as one single piece, which is
+     simultaneously the first and the last piece. */
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-bar-body),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .wx-progress-wrapper),
+  .og-bases-gantt
+    :global(
+      .wx-bar.datestatus-zigzag-both
+        :is(.og-ghost-run, .og-instance).og-piece-first.og-piece-last
+    ) {
+    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end),
+      var(--og-zigzag-middle);
+    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end),
+      var(--og-zigzag-middle);
+    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth) * 2) 100%;
+    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
+      var(--og-zigzag-depth) var(--og-zigzag-period),
+      calc(100% - var(--og-zigzag-depth) * 2) 100%;
+    -webkit-mask-position: left top, right top, center top;
+    mask-position: left top, right top, center top;
+    -webkit-mask-repeat: repeat-y, repeat-y, no-repeat;
+    mask-repeat: repeat-y, repeat-y, no-repeat;
+  }
+
+  /*
    * U5/R7: TaskNotes progress mode is a read-only computed value, so hide the
    * bar's progress drag handle (`.wx-progress-marker`) and make the progress
    * region non-interactive. Date drag/resize (a different handle) is unaffected.
