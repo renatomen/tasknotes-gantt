@@ -830,13 +830,46 @@ describe("Gantt (OG) context-aware legend", () => {
         replicatedHatch: replicated ? getComputedStyle(replicated, '::after').backgroundImage : null,
         completedBackground: completed ? getComputedStyle(completed).backgroundColor : null,
         weekendBackground: weekend ? getComputedStyle(weekend).backgroundColor : null,
+        weekendSwatchImage: weekend ? getComputedStyle(weekend).backgroundImage : null,
         weekendCellBackground: weekendCell ? getComputedStyle(weekendCell).backgroundColor : null,
       };
     });
     expect(paint.replicatedBackground).toBe(paint.chartBackground);
     expect(paint.replicatedHatch).toContain("repeating-linear-gradient");
     expect(paint.completedBackground).toBe(paint.chartBackground);
-    expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
+    // The swatch became a strip of day cells: parity is band-to-cell now — the
+    // shaded middle pair must carry the chart weekend cell's exact tint, while
+    // the swatch's own canvas stays the chart canvas rather than the tint.
+    expect(paint.weekendSwatchImage).toContain(paint.weekendCellBackground!);
+    expect(paint.weekendBackground).not.toBe(paint.weekendCellBackground);
+  });
+
+  it("renders the shading swatches as day cells with a shaded middle pair", async () => {
+    await openLegend();
+
+    const swatches = await browser.execute(() => {
+      const read = (semanticId: string) => {
+        const el = document.querySelector<HTMLElement>(
+          '[data-semantic-id="' + semanticId + '"] .og-legend-shading',
+        );
+        const style = el ? getComputedStyle(el) : null;
+        return {
+          bgImage: style?.backgroundImage ?? "<absent>",
+          bgColor: style?.backgroundColor ?? "<absent>",
+        };
+      };
+      return { weekend: read("weekend-shading"), calendar: read("calendar-shading") };
+    });
+
+    for (const swatch of [swatches.weekend, swatches.calendar]) {
+      // Cells, not a lone tinted box: gridlines plus a shaded band, and a
+      // canvas colour of its own so the contrast never depends on the card.
+      expect(swatch.bgImage).toContain("repeating-linear-gradient");
+      // The band is a SECOND layer — 'repeating-linear-gradient' already contains
+      // the substring 'linear-gradient', so assert the layer separator instead.
+      expect(swatch.bgImage).toContain("), linear-gradient(");
+      expect(swatch.bgColor).not.toBe("rgba(0, 0, 0, 0)");
+    }
   });
 
   it("shows the torn-edge entry with a genuinely cut sample", async () => {
