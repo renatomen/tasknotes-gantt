@@ -16,6 +16,49 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
+### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
+Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
+(hover for a description naming what's wrong). Example warnings: subtask ends beyond
+its parent, subtask starts before its parent, finish-later-than-start against an FS
+dependency. **Swapped dates (start after due) are the first ERROR** and the walking
+skeleton for the whole seam: the one rule computable from a single task in isolation,
+yet forcing every layer end-to-end — rule → severity → badge → description → the
+"don't render the bar" consequence. Maintainer decision: inverted dates are *not
+supported*; the bar is suppressed and the row shows the badge ("not rendering this
+until you fix it"). This supersedes the U4 diagonal half-fill, whose branch was
+deleted unpushed after a vault screenshot showed it neither matched the intended
+design (one-cell diagonal, not whole-bar) nor kept the bar's extent legible.
+
+Settled design constraints (session 2026-08-10):
+- Badge renders **declaratively in `taskTemplate`** (`BarContent`), `position:absolute;
+  right:100%` + a clearance offset — verified live: `.wx-bar` computes
+  `overflow:visible`, and a template child rides SVAR's own positioning through
+  drag/zoom/re-render (an imperatively injected element demonstrably does not).
+- Clearance offset is a **named constant derived from SVAR's link-handle/elbow
+  offsets**, clearing the arrowhead + hover handle; the thin horizontal approach
+  segment of an incoming arrow will still pass behind the badge at any offset —
+  accepted, badge is opaque/rounded and sits above it. Probe-screenshot the worst
+  cases before shipping: incoming FS arrow, and a short predecessor gap (~30px).
+- **Unconditional** — not gated by "Show date-status indicators" (that toggle governs
+  the zigzag cosmetics; unrepresentable data is not a cosmetic).
+- Badge **replaces** the decorative status/priority chip on that row; explanation via
+  the badge's own `title` until the tooltip system is fixed; click-to-open stays (it
+  is the repair path); the suppressed-bar row is non-draggable on the timeline.
+- Icon: lucide `calendar-x` (red) covers the swapped case without a composite overlay.
+- A grid-side twin (for gantt-collapsed workspaces) reads the **same per-task
+  validation payload** later — one rule registry, two surfaces; fits the
+  semantic-descriptor-registry direction in the 2026-08-10 architecture audit.
+- U6's swapped-related deletions (orange/red constants, `datestatus-flagged` type and
+  its ~2× task-type registry bloat) ride this slice — deleting the treatment before
+  its replacement exists would break product coherence.
+
+Prerequisites, already queued as active work: tooltip root-cause (no `.wx-tooltip`
+ever renders), bar-hoverability re-measurement scoped to the active leaf, and the
+`test/probe` screenshot gate (validation is icon+tooltip UI — the exact class of work
+that shipped broken three times unverified this week).
+- Source: plan `docs/plans/2026-08-09-001-feat-missing-date-zigzag-semantics-plan.md`
+  (U4 superseded); audit `docs/reports/2026-08-10-svar-conformance-and-maintainability-audit.md`.
+
 ### P2 — Existence-only e2e assertions are the next tier down (2026-07-29)
 The assertion gate makes a case with NO assertion impossible; it says nothing about
 weak ones. Eleven `toBeGreaterThan(0)`-shaped checks remain across the calendar and

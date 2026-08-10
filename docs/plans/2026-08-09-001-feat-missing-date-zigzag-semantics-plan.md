@@ -315,3 +315,27 @@ flowchart TB
 - The legend shows exactly the two new date-status entries, context-gated.
 - No abandoned or experimental code from intermediate attempts remains in the final state.
 - Visual assets: a screenshot/GIF of the zigzag, the swapped half-fill, and the new legend entries added under `docs/media/` (feature-named, per the visual-assets convention), captured and committed in the U6 PR.
+
+## Deviations (2026-08-10, recorded at close)
+
+- **U1–U3 shipped** (#395, #397, #398) plus the legend/docs coherence fix (#402).
+- **U4 is superseded, branch deleted unpushed.** The implemented diagonal was
+  screenshot-verified in the sandbox vault for the first time and rejected: it
+  rendered a steep partial-width cut (the intent was a one-cell diagonal), and the
+  borderless empty half made the bar's extent invisible. Maintainer decision:
+  inverted dates are **not supported** — no bar is rendered; the row gets an error
+  badge instead, delivered as the first slice of the schedule-validation feature
+  (see `docs/backlog.md`, "Schedule validation"). R5/AE coverage tied to the
+  half-fill transfers to that slice.
+- **U5 partially delivered** by #402 (colour rows rescoped to reversed dates). The
+  torn-edge legend entry is still owed and proceeds independently.
+- **U6 rescoped**: the swapped-related deletions (legacy colour constants,
+  `datestatus-flagged` type and its registry cross-product) ride the validation
+  slice; deleting the treatment before its replacement exists would break
+  coherence. The stale `website/docs` fixes originally parked in U6 shipped early
+  in #402.
+- **Process finding that reshaped delivery**: the dependency-tooltip work (#401,
+  closed) and the diagonal both passed every non-visual gate while visually broken
+  or absent. Standing rule adopted: no visual change is *done* without a rendered
+  screenshot; the `test/probe` harness and the Obsidian CLI
+  (`dev:screenshot`/`dev:cdp`) are the loop.
