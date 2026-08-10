@@ -3295,35 +3295,29 @@
    * handles and the link-delete buttons as bar descendants positioned OUTSIDE
    * its border box, and paints hover/selection feedback on the host itself, so
    * a host-level mask would clip all of them away and break dependency
-   * authoring. Instead BarContent renders an inner `.og-bar-body` layer that
-   * mirrors the host's fill (`background-color: inherit`, so every fill source
-   * — default, status, priority, strip, calendar, parent role — comes along for
-   * free) and takes the cut in its place, while the host stops painting behind
-   * the teeth by clipping its own background to a content box inset by exactly
-   * the tooth depth. Under Split rendering the host paints nothing at all, so
-   * there the outermost pieces carry the cut instead.
-   *
-   * EACH PIXEL IS PAINTED ONCE. The host paints the content box its clip leaves
-   * it; the body paints ONLY the strips the clip took away, and carries the
-   * teeth there. If the body repainted the whole bar over the host, a fill with
-   * alpha would composite twice and the middle would render darker than the
-   * torn strips. The two areas meet exactly: the strip the body paints is as
-   * wide as the padding the host was clipped by.
+   * authoring. Instead a torn bar carries SVAR's own `wx-split` (stamped by
+   * BarContent's token observer), so the host paints NOTHING by the library's
+   * rule — no clipping, no clearing padding, no per-bar depth fitting. The
+   * painted surface is whichever layer owns the bar's body under split
+   * rendering: the `.og-bar-body` BarContent renders on a piece-less torn bar
+   * (and on an occupancy overlay, where it is the plain span the recorded
+   * pieces sit on), painting `--og-effective-fill`, or the outermost pieces of
+   * a ghost/envelope bar, which carry their own fills. Each such surface takes
+   * the teeth plus a solid middle; nothing paints beneath it, so no pixel
+   * composites twice.
    *
    * HOW THE TEETH ARE DRAWN. One alpha-only conic-gradient tile per edge, as
-   * wide as a tooth is deep and as tall as one period, repeated down that edge.
-   * Surfaces that span the WHOLE bar rather than a strip — the progress
-   * wrapper, the replication hatch, an outermost split piece — add a solid
-   * layer over the untouched middle. The layers simply add up, so an edge pair
-   * lists both tiles and needs no mask compositing.
+   * wide as a tooth is deep and as tall as one period, repeated down that edge,
+   * plus a solid layer over the untouched middle. The layers simply add up, so
+   * an edge pair lists both tiles and needs no mask compositing.
    */
   .og-bases-gantt {
     --og-zigzag-period: 8px;
     /*
-     * Half the period — how far the tile's 45° wedges reach into the body. This
-     * is the FULL-SIZE depth; BarContent republishes the property per bar,
-     * holding it inside the bar's own width so the host's clearing padding can
-     * never grow the rendered box past the width SVAR lays out from.
+     * Half the period — how far the tile's 45° wedges reach into the body.
+     * FIXED: nothing republishes it per bar. The host paints nothing under
+     * split rendering, so there is no padding to fit inside a width budget;
+     * narrow surfaces are held by the per-surface ceiling below instead.
      */
     --og-zigzag-depth: 4px;
     /*
@@ -3366,63 +3360,46 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background-color: inherit;
+    /* The body only renders on a torn (wx-split) bar, whose host paints
+       nothing — `inherit` would inherit that transparency, so it paints the
+       bar's published effective fill instead. */
+    background-color: var(--og-effective-fill);
     border-radius: inherit;
   }
 
-  .og-bases-gantt
-    :global(
-      .wx-bar:is(
-          .datestatus-zigzag-start,
-          .datestatus-zigzag-end,
-          .datestatus-zigzag-both
-        ):not(.wx-split)
-    ) {
-    background-clip: content-box !important;
-  }
   /*
-   * The padding is the depth BarContent fitted to this bar, which is why a
-   * percentage is not used here: percentages in `padding` resolve against the
-   * containing block, not the bar. Only a host that paints its own body needs
-   * it — a split host paints nothing and its pieces carry the cut instead.
-   */
-  .og-bases-gantt
-    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both):not(.wx-split)) {
-    padding-left: var(--og-zigzag-depth) !important;
-  }
-  .og-bases-gantt
-    :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both):not(.wx-split)) {
-    padding-right: var(--og-zigzag-depth) !important;
-  }
-  /*
-   * Clipping the background stops the FILL behind the teeth but not the border,
-   * and a border on the torn side would redraw the straight full-height edge the
-   * cut just removed — the silhouette would still read rectangular with a
-   * sawtooth behind a line. So the torn side loses its border; the intact sides
-   * keep theirs.
-   *
-   * This is NOT limited to a host that paints. A split host is transparent but
-   * can still border itself, and drawn across a torn side that border boxes in
-   * the very teeth the pieces beneath it just cut.
+   * A border on the torn side would redraw the straight full-height edge the
+   * cut just removed, and a rounded corner there rounds off the outermost
+   * tooth tip. The split host's border is already zeroed below; the radius
+   * zeroing still matters because the body inherits it.
    */
   .og-bases-gantt :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both)) {
-    border-left: 0 !important;
     border-top-left-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
   }
   .og-bases-gantt :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both)) {
-    border-right: 0 !important;
     border-top-right-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
   }
 
   /*
-   * The padding that stops the host painting behind the teeth also moves every
-   * in-flow and statically-placed child inward. SVAR's progress wrapper takes
-   * its position from the content box, and our piece wrapper is in flow, so
-   * both are re-pinned to the bar's own edges. The wrapper additionally has to
-   * sit ABOVE the body layer: SVAR emits it before the bar template, so without
-   * a lift the later body layer would paint over the progress fill.
+   * The host padding that used to inset the label past the teeth is gone, so
+   * the plain torn bar insets its label directly (piece-bearing bars keep the
+   * label inside their masked wrapper, which already holds it clear of the
+   * notch). The strip treatment's own 9px content inset outranks this.
+   */
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both) > .wx-content) {
+    padding-left: min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling));
+  }
+  .og-bases-gantt
+    :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both) > .wx-content) {
+    padding-right: min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling));
+  }
+
+  /*
+   * SVAR emits the progress wrapper before the bar template, so without a lift
+   * the later body layer would paint over the progress fill.
    */
   .og-bases-gantt
     :global(
@@ -3430,11 +3407,9 @@
           .datestatus-zigzag-start,
           .datestatus-zigzag-end,
           .datestatus-zigzag-both
-        ):not(.wx-split)
+        )
         > .wx-progress-wrapper
     ) {
-    left: 0 !important;
-    top: 0 !important;
     z-index: 1 !important;
   }
   .og-bases-gantt
@@ -3443,18 +3418,15 @@
           .datestatus-zigzag-start,
           .datestatus-zigzag-end,
           .datestatus-zigzag-both
-        ):not(.wx-split)
-        > .og-ghost-runs
+        )
+        > .og-ghost-runs.og-occupancy-overlay
     ) {
-    position: absolute;
-    left: 0;
-    top: 0;
     /*
-     * The wrapper is cut with the bar below (see the whole-bar surfaces), and a
-     * mask makes it a stacking context — so its children stop competing
-     * individually with the bar's other layers. Lifting the whole unit above
-     * SVAR's progress wrapper preserves the order they had while they competed
-     * one by one: pieces and label over the progress fill.
+     * The overlay wrapper is cut with the bar below (see the whole-bar
+     * surfaces), and a mask makes it a stacking context — so its children stop
+     * competing individually with the bar's other layers. Lifting the whole
+     * unit above SVAR's progress wrapper preserves the order they had while
+     * they competed one by one: pieces and label over the progress fill.
      */
     z-index: 2;
   }
@@ -3504,73 +3476,36 @@
   }
 
   /*
-   * THE BODY takes the teeth alone: it paints only the strip the host's clip
-   * gave up, so there is no middle layer to add and nothing paints twice.
+   * THE PAINTED SURFACES take the teeth plus a solid middle, sized with the
+   * per-surface ceiling: the torn body (plain and overlay bars), the progress
+   * wrapper above it, the replication hatch — a host-level pseudo-element
+   * spanning the bar, which would otherwise paint the notches back in exactly
+   * as the strip accent would — the OUTERMOST piece of a ghost/envelope bar,
+   * and the occupancy-overlay piece WRAPPER. The overlay's recorded pieces are
+   * never cut individually (a piece's own edge is rarely the bar's — the cut
+   * would grow a tooth column at the wrong x); its wrapper spans the bar, so
+   * the teeth land at the bar's own x and everything inside (pieces, spine,
+   * label) is held clear of the notch at once. The cut side also drops its
+   * corner radius, or the outermost tooth tip is rounded off.
    *
    * `!important` throughout: SVAR's own styles are Svelte-hashed and out-specify
    * a plain injected rule, so an unweighted mask longhand can be switched off by
    * a library or theme rule and take the whole signal with it.
    */
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-bar-body) {
-    -webkit-mask-image: var(--og-zigzag-teeth-start) !important;
-    mask-image: var(--og-zigzag-teeth-start) !important;
-    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    -webkit-mask-position: left top !important;
-    mask-position: left top !important;
-    -webkit-mask-repeat: repeat-y !important;
-    mask-repeat: repeat-y !important;
-  }
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-bar-body) {
-    -webkit-mask-image: var(--og-zigzag-teeth-end) !important;
-    mask-image: var(--og-zigzag-teeth-end) !important;
-    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    -webkit-mask-position: right top !important;
-    mask-position: right top !important;
-    -webkit-mask-repeat: repeat-y !important;
-    mask-repeat: repeat-y !important;
-  }
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-bar-body) {
-    -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end) !important;
-    mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end) !important;
-    -webkit-mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    mask-size: var(--og-zigzag-depth) var(--og-zigzag-period),
-      var(--og-zigzag-depth) var(--og-zigzag-period) !important;
-    -webkit-mask-position: left top, right top !important;
-    mask-position: left top, right top !important;
-    -webkit-mask-repeat: repeat-y, repeat-y !important;
-    mask-repeat: repeat-y, repeat-y !important;
-  }
-
-  /*
-   * WHOLE-BAR SURFACES take the teeth plus a solid middle: the progress wrapper
-   * above the body, the replication hatch — another host-level pseudo-element
-   * spanning the bar, which would otherwise paint the notches back in exactly as
-   * the strip accent would — and, under Split rendering where the host paints
-   * nothing, the OUTERMOST piece. The piece selectors carry `.wx-split` because
-   * pieces also render over an OPAQUE host (occupancy that did not replace the
-   * plain bar), and there the body already holds the tear: cutting the piece too
-   * would grow a second tooth column at a different x, since a piece's own edge
-   * is rarely the bar's. Those pieces still paint ABOVE the cut body though, so
-   * one reaching the bar's edge would fill the notch back in — hence the piece
-   * WRAPPER is cut instead on such a host: it spans the bar, so the teeth land
-   * at the bar's own x and everything inside (pieces, spine, label) is held
-   * clear of the notch at once. The cut side also drops its corner radius, or
-   * the outermost tooth tip is rounded off.
-   */
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-bar-body),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .wx-progress-wrapper),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start.og-replicated::after),
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start:not(.wx-split) > .og-ghost-runs),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-start > .og-ghost-runs.og-occupancy-overlay),
   .og-bases-gantt
     :global(
       .wx-bar.datestatus-zigzag-start.wx-split
+        .og-ghost-runs:not(.og-occupancy-overlay)
         :is(.og-ghost-run, .og-instance).og-piece-first
     ),
   .og-bases-gantt
     :global(
       .wx-bar.datestatus-zigzag-both.wx-split
+        .og-ghost-runs:not(.og-occupancy-overlay)
         :is(.og-ghost-run, .og-instance).og-piece-first:not(.og-piece-last)
     ) {
     -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-middle) !important;
@@ -3587,16 +3522,20 @@
     border-bottom-left-radius: 0 !important;
   }
 
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-bar-body),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .wx-progress-wrapper),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end.og-replicated::after),
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end:not(.wx-split) > .og-ghost-runs),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-end > .og-ghost-runs.og-occupancy-overlay),
   .og-bases-gantt
     :global(
-      .wx-bar.datestatus-zigzag-end.wx-split :is(.og-ghost-run, .og-instance).og-piece-last
+      .wx-bar.datestatus-zigzag-end.wx-split
+        .og-ghost-runs:not(.og-occupancy-overlay)
+        :is(.og-ghost-run, .og-instance).og-piece-last
     ),
   .og-bases-gantt
     :global(
       .wx-bar.datestatus-zigzag-both.wx-split
+        .og-ghost-runs:not(.og-occupancy-overlay)
         :is(.og-ghost-run, .og-instance).og-piece-last:not(.og-piece-first)
     ) {
     -webkit-mask-image: var(--og-zigzag-teeth-end), var(--og-zigzag-middle) !important;
@@ -3615,12 +3554,14 @@
 
   /* Both edges — including a split bar rendered as one single piece, which is
      simultaneously the first and the last piece. */
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-bar-body),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .wx-progress-wrapper),
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both.og-replicated::after),
-  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both:not(.wx-split) > .og-ghost-runs),
+  .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both > .og-ghost-runs.og-occupancy-overlay),
   .og-bases-gantt
     :global(
       .wx-bar.datestatus-zigzag-both.wx-split
+        .og-ghost-runs:not(.og-occupancy-overlay)
         :is(.og-ghost-run, .og-instance).og-piece-first.og-piece-last
     ) {
     -webkit-mask-image: var(--og-zigzag-teeth-start), var(--og-zigzag-teeth-end),
@@ -3751,8 +3692,40 @@
   .og-bases-gantt :global(.wx-bar.wx-split) {
     border: 0 !important;
   }
-  .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {
+  /*
+   * Ghost/envelope pieces replace the bar's body, so SVAR's full-span progress
+   * fill painted across their gaps would lie — hide it there. A torn bar with
+   * no piece surfaces (plain, or an occupancy OVERLAY whose pieces sit on the
+   * painted body) keeps SVAR's own progress: it renders above the cut body and
+   * carries the teeth mask like every whole-bar surface.
+   */
+  .og-bases-gantt
+    :global(.wx-bars .wx-bar.wx-split:has(> .og-ghost-runs:not(.og-occupancy-overlay)) > .wx-progress-wrapper) {
     display: none;
+  }
+  /*
+   * SVAR guards its hover shadow and selected border behind `:not(.wx-split)`,
+   * and the split border is zeroed above — so a torn (split) bar would lose
+   * both cues. Restore them from SVAR's own variable; the shadow needs no
+   * border width, so it survives the zeroed border.
+   */
+  .og-bases-gantt
+    :global(
+      .wx-bar.wx-split:is(
+          .datestatus-zigzag-start,
+          .datestatus-zigzag-end,
+          .datestatus-zigzag-both
+        ):hover
+    ),
+  .og-bases-gantt
+    :global(
+      .wx-bar.wx-split:is(
+          .datestatus-zigzag-start,
+          .datestatus-zigzag-end,
+          .datestatus-zigzag-both
+        ).wx-selected
+    ) {
+    box-shadow: var(--wx-gantt-bar-shadow);
   }
   .og-bases-gantt :global(.og-ghost-runs) {
     position: relative;

@@ -768,10 +768,16 @@ function stripContentPadRule(barSelector: string): string {
  * contrasting" case. The left border is covered by the strip's -1px overlay.
  */
 function stripBodyRule(barSelector: string): string {
+  // --og-ghost-fill: a torn (wx-split) strip bar's host is transparent, so its
+  // painted body re-reads the neutral surface through this inherited property.
+  // The outline moves onto that body too — the split host's border is zeroed —
+  // so the visibility guarantee survives the tear and takes the cut with it.
   return (
     `${barSelector} { background-color: ${STRIP_BODY_COLOR} !important; ` +
+    `--og-ghost-fill: ${STRIP_BODY_COLOR}; ` +
     `color: ${STRIP_TEXT_COLOR} !important; ` +
-    `border: 1px solid ${STRIP_BORDER_COLOR} !important; }`
+    `border: 1px solid ${STRIP_BORDER_COLOR} !important; }\n` +
+    `${barSelector} > .og-bar-body { border: 1px solid ${STRIP_BORDER_COLOR}; }`
   );
 }
 
@@ -793,7 +799,7 @@ function roleFillRules(barSelector: string, parentColor: string, childColor: str
   const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
     fillBodyRule(barSelector, childColor),
-    `${parentSel} { background-color: ${parentColor} !important; }`,
+    `${parentSel} { background-color: ${parentColor} !important; --og-ghost-fill: ${parentColor}; }`,
     progressFillRule(barSelector, progressColor(childColor)),
     progressFillRule(parentSel, progressColor(parentColor)),
   ];
@@ -811,7 +817,7 @@ function roleStripRules(barSelector: string, parentColor: string, childColor: st
     stripBodyRule(barSelector),
     // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
     // contrast-only). More specific than stripBodyRule() so it wins for parents.
-    `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
+    `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; --og-ghost-fill: ${STRIP_PARENT_BODY_COLOR}; }`,
     ...roleStripBeforeRules(barSelector, parentColor, childColor),
     // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
     progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),
