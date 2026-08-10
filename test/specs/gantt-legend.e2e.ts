@@ -856,7 +856,7 @@ describe("Gantt (OG) context-aware legend", () => {
 
     expect(torn.present).toBe(true);
     expect(torn.name).toBe("Torn edge");
-    expect(torn.meaning).toContain("never authored");
+    expect(torn.meaning).toContain("Left edge, missing start date");
     // The sample is genuinely cut, not merely labelled: the chart's teeth tile
     // must be part of the computed mask.
     expect(torn.mask).toContain("conic-gradient");

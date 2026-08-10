@@ -371,7 +371,7 @@ describe('buildLegendCatalog', () => {
 
   it('describes the torn edge for non-authored dates', () => {
     expect(entry(baseContext(), 'date-status-torn').meaning).toBe(
-      'A torn, zigzag edge marks a date that was never authored — inferred, or a placeholder at today.',
+      'A torn, zigzag edge marks a date that is empty. Left edge, missing start date. Right edge, missing end date.',
     );
     expect(entry(baseContext(), 'date-status-torn').name).toBe('Torn edge');
   });

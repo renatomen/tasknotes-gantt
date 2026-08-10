@@ -152,7 +152,7 @@ type LegendCatalogueRows = {
 export const LEGEND_CATALOGUE_ROWS = {
   'bar-treatment': ['bar', { name: 'Task bar', meaning: 'The configured fill, strip, and icon channels identify task attributes.' }],
   'bar-icon': ['icon', { name: 'Task icon', meaning: 'A configured glyph or dot shape identifies the selected status or priority.' }],
-  'date-status-torn': ['schedule-bar', { name: 'Torn edge', meaning: 'A torn, zigzag edge marks a date that was never authored — inferred, or a placeholder at today.' }],
+  'date-status-torn': ['schedule-bar', { name: 'Torn edge', meaning: 'A torn, zigzag edge marks a date that is empty. Left edge, missing start date. Right edge, missing end date.' }],
   'date-status-fill': ['schedule-bar', { name: 'Date fill', meaning: 'An orange fill marks a task whose start date falls after its due date.' }],
   'date-status-border': ['schedule-bar', { name: 'Date border', meaning: 'A red border marks a task whose start date falls after its due date.' }],
   progress: ['progress', { name: 'Progress', meaning: 'The contrasting portion of a bar shows completion progress.' }],
