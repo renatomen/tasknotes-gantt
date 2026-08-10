@@ -30,10 +30,10 @@ const CONTEXT: GanttLegendContext = {
   externalCalendarsEnabled: false,
 };
 
-async function mountLegend(): Promise<void> {
+async function mountLegend(overrides: Partial<GanttLegendContext> = {}): Promise<void> {
   render(GanttLegend, {
     props: {
-      groups: buildLegendCatalog(CONTEXT),
+      groups: buildLegendCatalog({ ...CONTEXT, ...overrides }),
       layout: 'right' as const,
       position: 'right' as const,
       onPositionChange: () => {},
@@ -52,7 +52,12 @@ async function scrollToEntry(semanticId: string): Promise<HTMLElement> {
 }
 
 test('the torn-edge legend swatch renders with teeth cut into both edges', async () => {
-  await mountLegend();
+  // A strip source too, so the sample carries the representative treatment the
+  // torn cue composes with on real bars.
+  await mountLegend({
+    barStripSource: 'priority',
+    priorityColors: [{ value: 'High', color: '#f97316' }],
+  });
   const entry = await scrollToEntry('date-status-torn');
 
   const bar = entry.querySelector('.og-legend-bar') as HTMLElement;
@@ -63,6 +68,8 @@ test('the torn-edge legend swatch renders with teeth cut into both edges', async
   expect(mask).toContain('linear-gradient');
   // The torn sides shed their radius as production bars do.
   expect(style.borderRadius).toBe('0px');
+  // The strip accent starts past the leading teeth instead of painting over them.
+  expect(getComputedStyle(bar, '::before').left).toBe('4px');
 
   await page.screenshot({ path: '__screenshots__/legend-torn-edge.png' });
 });

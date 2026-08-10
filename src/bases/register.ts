@@ -152,8 +152,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { shouldHideRow } from './rowVisibility';
-import { isNonAuthoredEdgeToken, resolveDateStatusStateToken } from './visualSemantics';
+import { hasNonAuthoredEdgeInstance } from './visualSemantics';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
@@ -1525,27 +1524,9 @@ class ObsidianGanttBasesView extends BasesView {
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
     const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
-    const rowVisibility = readRowVisibilityOptions((key) => this.config.get(key));
-    // Presence for the legend's torn-edge row, composed from the mechanisms
-    // that decide it on the chart: the state→token mapping that tears a bar,
-    // and the row filter that would hide the bar entirely. Hide-top and
-    // session-hidden sources are view state this snapshot can't see; erring
-    // toward presence there costs one surplus legend row, never a missing
-    // explanation.
-    const nonAuthoredEdgesVisible = instances.some((instance) => {
-      const token = resolveDateStatusStateToken(instance.dateStatus);
-      return (
-        isNonAuthoredEdgeToken(token ?? undefined) &&
-        !shouldHideRow(
-          { isTopLevelPlacement: false, dateStatus: instance.dateStatus },
-          {
-            hideTopLevel: false,
-            showUndated: rowVisibility.showUndatedTasks,
-            showPartial: rowVisibility.showPartialDateTasks,
-          },
-        )
-      );
-    });
+    const nonAuthoredEdgesPresent = hasNonAuthoredEdgeInstance(
+      instances.map((instance) => instance.dateStatus),
+    );
     const visibleCalendarEventColor =
       instances
         .map((instance) => instance.calendarItem?.color)
@@ -1569,7 +1550,7 @@ class ObsidianGanttBasesView extends BasesView {
       // #161: the show-undated/show-partial toggles flow through the store like
       // hide-top — a presentation filter over the stable instance set, never a
       // re-derivation — so a Bases config oscillation can't churn the chart.
-      ...rowVisibility,
+      ...readRowVisibilityOptions((key) => this.config.get(key)),
       maxHeight: this.getMaxHeight(),
       minHeight: this.getMinHeight(),
       contextOpacity: this.getContextOpacity(),
@@ -1619,7 +1600,7 @@ class ObsidianGanttBasesView extends BasesView {
         calendarMarkerColor: calendarShading.calendarMarkerColor,
         hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
         showDateIndicators,
-        hasNonAuthoredEdges: nonAuthoredEdgesVisible,
+        hasNonAuthoredEdges: nonAuthoredEdgesPresent,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:

@@ -430,33 +430,46 @@
    * corner radius exactly as production bars do.
    */
   .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar {
+    --og-legend-tooth: min(
+      var(--og-zigzag-depth, 4px),
+      var(--og-zigzag-surface-ceiling, 40%)
+    );
     border-radius: 0;
     -webkit-mask-image:
       var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
-      var(--og-zigzag-middle, linear-gradient(#000, #000)),
-      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg));
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000));
     mask-image:
       var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
-      var(--og-zigzag-middle, linear-gradient(#000, #000)),
-      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg));
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000));
     -webkit-mask-size:
-      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px),
-      calc(100% - var(--og-zigzag-depth, 4px) * 2) 100%,
-      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px);
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-legend-tooth) * 2) 100%;
     mask-size:
-      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px),
-      calc(100% - var(--og-zigzag-depth, 4px) * 2) 100%,
-      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px);
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-legend-tooth) * 2) 100%;
     -webkit-mask-position:
       left top,
-      center center,
-      right top;
+      right top,
+      center top;
     mask-position:
       left top,
-      center center,
-      right top;
-    -webkit-mask-repeat: repeat-y, no-repeat, repeat-y;
-    mask-repeat: repeat-y, no-repeat, repeat-y;
+      right top,
+      center top;
+    -webkit-mask-repeat: repeat-y, repeat-y, no-repeat;
+    mask-repeat: repeat-y, repeat-y, no-repeat;
+  }
+  /*
+   * The strip accent is a host-level `::before` that would paint straight over
+   * the leading teeth — the same collision production resolves by starting the
+   * accent at the tooth depth and capping it between the teeth.
+   */
+  .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar::before {
+    left: var(--og-zigzag-depth, 4px) !important;
+    max-width: calc(100% - var(--og-zigzag-depth, 4px) * 2) !important;
   }
 
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {

@@ -896,6 +896,22 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(torn.mask.split("conic-gradient(").length - 1).toBe(2);
     expect(torn.mask).toContain("linear-gradient");
     expect(torn.borderRadius).toBe("0px");
+
+    // The swatch consumes the chart's own variables, not copied literals:
+    // retune the production depth and the swatch's teeth must follow.
+    const retuned = await browser.execute(() => {
+      const bar = document.querySelector<HTMLElement>(
+        '[data-semantic-id="date-status-torn"] .og-legend-bar',
+      );
+      const root = bar?.closest<HTMLElement>(".og-bases-gantt");
+      if (!root || !bar) return null;
+      root.style.setProperty("--og-zigzag-depth", "6px");
+      const style = getComputedStyle(bar);
+      const size = style.maskSize || style.webkitMaskSize;
+      root.style.removeProperty("--og-zigzag-depth");
+      return size;
+    });
+    expect(retuned).toContain("6px");
   });
 
   it("constrains standalone occurrence samples to the bar track", async () => {
