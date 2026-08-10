@@ -26,7 +26,10 @@ export const config: Options.Testrunner = {
   specs: ["../specs/**/*.e2e.ts"],
   // The full-stack perf spec (`*.perf.e2e.ts`) is slow + generates a large vault;
   // it runs only via the scheduled perf job (wdio.perf.conf.mts), never per-PR (KD5).
-  exclude: ["../specs/**/*.perf.e2e.ts"],
+  // `_local-*` probes are gitignored personal capture/debug tools; excluding them
+  // here keeps a full local run CI-parity instead of sweeping them in (they still
+  // run when named explicitly via --spec).
+  exclude: ["../specs/**/*.perf.e2e.ts", "../specs/**/_local-*.e2e.ts"],
   maxInstances: 1,
   capabilities: [
     {

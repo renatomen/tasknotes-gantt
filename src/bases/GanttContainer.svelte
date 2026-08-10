@@ -3725,7 +3725,9 @@
    * A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split) host
    * the runs fill the content box inset by that border, leaving a 1px halo around
    * the pieces. Drop the border so the runs meet the bar's edge. A non-split
-   * strip bar keeps its outline regardless.
+   * strip bar keeps its outline regardless. Knowingly suppressed as a side
+   * effect: SVAR's split-bar selection feedback, which is drawn as a host
+   * border-colour change and so has no width to paint here.
    */
   .og-bases-gantt :global(.wx-bar.wx-split) {
     border: 0 !important;
