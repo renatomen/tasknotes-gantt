@@ -3361,9 +3361,11 @@
     z-index: 0;
     pointer-events: none;
     /* The body only renders on a torn (wx-split) bar, whose host paints
-       nothing — `inherit` would inherit that transparency, so it paints the
-       bar's published effective fill instead. */
-    background-color: var(--og-effective-fill);
+       nothing — `inherit` would inherit that transparency. So it paints what
+       the host WOULD have painted: the treatment's own body colour where one
+       differs from the piece fill (strip modes, parent overrides), else the
+       bar's published effective fill. */
+    background-color: var(--og-host-body-fill, var(--og-effective-fill));
     border-radius: inherit;
   }
 
