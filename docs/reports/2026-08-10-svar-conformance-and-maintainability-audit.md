@@ -1,5 +1,7 @@
 # SVAR conformance & maintainability audit
 
+> **Point-in-time snapshot.** This report records what was true on its date and is not amended afterwards. Live follow-up work is tracked in [docs/backlog.md](../backlog.md) and GitHub Issues only; where this report and the tracker disagree, the tracker wins.
+
 **Date:** 2026-08-10
 **Trigger:** a four-PR feature (missing-date zigzag semantics) consumed ~10 hours and shipped two user-visible defects. The maintainer's verdict: *"the hours spun and the bugs created prove our plugin maintainability is poor."*
 **Question asked:** does the plugin conform to the standing directive — *do not reinvent or hand-roll what SVAR provides; exceptions require explicit authorisation and must be elegant* — and where is the maintainability debt actually located?
