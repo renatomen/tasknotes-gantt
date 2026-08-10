@@ -79,15 +79,20 @@ Ghost rendering forces the host bar transparent (`.wx-bar.wx-split { background-
 return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
 ```
 
-and the piece rule in `GanttContainer.svelte` reads it with a chained fallback:
+and the effective fill is defined ONCE, on every consuming element in `GanttContainer.svelte`, with every piece rule deriving from it:
 
 ```css
+.og-bases-gantt :global(:is(.wx-bar, .og-ghost-run, .og-instance)) {
+  --og-effective-fill: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+}
 .og-bases-gantt :global(.og-ghost-run) {
-  background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+  background-color: var(--og-effective-fill);
 }
 ```
 
-**Rule: whenever a composite overlay must mirror its host's themed colour, set the paint decision as a custom property on the host and `var()` it on the pieces.**
+The definition must sit on the consuming elements, not on a bar/wrapper ancestor: legend occurrence samples are `.og-instance` elements with no `.wx-bar` or `.og-ghost-runs` ancestry, so a bar-or-wrapper-scoped definition leaves their `var(--og-effective-fill)` invalid-at-computed-value-time — transparent samples, silently.
+
+**Rule: whenever a composite overlay must mirror its host's themed colour, set the paint decision as a custom property on the host and `var()` it on the pieces — and state the fallback chain once (`--og-effective-fill`), never per consumer.** The deliberate non-derivers: the series spine (accent fallback is its point), the legend bar-sample default and `representativeBarColor()` (tail-only values), and the legend strip-only rule, which keeps a chart-equal fallback so a legend mounted outside a chart still paints — new chart-side consumers of `--og-effective-fill` are valid only under `.og-bases-gantt`.
 
 ## Why This Matters
 

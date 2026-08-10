@@ -531,7 +531,10 @@
   .og-legend-pieces :global(.og-piece-painted)::before { content: none !important; }
   .og-legend-pieces :global(.og-piece-painted.og-instance) { border: 0 !important; }
   .og-legend-pieces.og-legend-strip-only :global(.og-piece-painted.og-instance) {
-    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6)) !important;
+    background-color: var(
+      --og-effective-fill,
+      var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6))
+    ) !important;
   }
   .og-legend-pieces .og-legend-piece-envelope {
     position: absolute;

@@ -453,9 +453,18 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
       const bar = (Array.from(
         document.querySelectorAll(".og-bases-gantt .wx-bar.og-event"),
       ) as HTMLElement[]).find((b) => (b.getAttribute("data-id") ?? "").includes(seriesFragment));
-      return bar ? bar.querySelectorAll(".og-instance").length : -1;
+      if (!bar) return { count: -1, pieceColor: "" };
+      const instances = bar.querySelectorAll(".og-instance");
+      const first = instances[0] as HTMLElement | undefined;
+      return {
+        count: instances.length,
+        pieceColor: first ? window.getComputedStyle(first).backgroundColor : "",
+      };
     }, SERIES_ID_FRAGMENT);
-    expect(pieces).toBe(3);
+    expect(pieces.count).toBe(3);
+    // Each piece paints the series' own feed colour via the effective fill —
+    // the same source red the event bar itself carries.
+    expect(pieces.pieceColor).toBe("rgb(192, 57, 43)");
   });
 
   it("offers External events in the quick switcher and hides its rows instantly, display-only", async () => {
