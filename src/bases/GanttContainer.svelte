@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, MediaQueryListEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -1328,6 +1328,21 @@
   type GanttAPI = any;
 
   let api: GanttAPI = $state();
+
+  // SVAR suppresses every tooltip on hardware reporting any touch points —
+  // which includes a touchscreen laptop whose reader is hovering with a mouse.
+  // A tooltip is a hover affordance, so it is enabled exactly where hovering is
+  // possible; a touch-only device keeps the library's suppression. Tracked
+  // live, so docking or undocking a convertible flips it without a remount.
+  const hoverCapableQuery = window.matchMedia('(any-hover: hover)');
+  let tooltipHoverCapable = $state(hoverCapableQuery.matches);
+  $effect(() => {
+    const follow = (ev: MediaQueryListEvent): void => {
+      tooltipHoverCapable = ev.matches;
+    };
+    hoverCapableQuery.addEventListener('change', follow);
+    return () => hoverCapableQuery.removeEventListener('change', follow);
+  });
 
   // Bumped when the SVAR api re-binds (initGantt) and on teardown. The executor
   // treats a bump alone as a REMOUNT (post-persist data work continues), so
@@ -2668,11 +2683,11 @@
       <!-- tasks/links/taskTypes are seeded ONCE; data changes are applied as
            targeted api.exec actions (diff-sync $effect above) so SVAR never
            re-inits its store and the user's zoom/scroll/selection survive. -->
-      <!-- Tooltip surfaces each task's incoming dependencies (reltype + gap)
-           from custom.incomingDeps (U3); SVAR has no native link tooltip, so the
-           dependent task's tooltip is the surface. Falls back to the task name
-           for tasks with no dependencies. -->
-      <Tooltip {api} content={DependencyTooltip}>
+      <!-- Tooltip surfaces dependencies (reltype + gap) from custom.incomingDeps:
+           every incoming edge on the dependent task, and the single edge a
+           reader points at on that edge itself. Falls back to the task name for
+           tasks with no dependencies. -->
+      <Tooltip {api} content={DependencyTooltip} touch={tooltipHoverCapable}>
         <!-- taskTemplate renders the bar's content (text + optional icon chip via
              BarContent). Passed as a STABLE prop set once at mount — SVAR's
              reinitStore does not read taskTemplate, so this never re-inits the
