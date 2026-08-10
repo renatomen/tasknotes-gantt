@@ -411,11 +411,27 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     expect(row.pieceStates).not.toContain("og-instance-next");
     expect(row.pieceStates).not.toContain("og-instance-projected");
 
-    // The opt-in-off promise for everything else, read on the settled chart:
-    // no time-entry event rows, no spines (day zoom), and every piece on the
-    // chart belongs to the recurring row (families with no recorded data
-    // contribute nothing).
-    const footprint = await calendarItemFootprint();
+    // The opt-in-off promise for everything else: no time-entry event rows, no
+    // spines (day zoom), and every piece on the chart belongs to the recurring
+    // row. A late refresh can repaint the pieces between reads, so the
+    // footprint is waited into agreement rather than read once mid-transient.
+    let footprint = { pieces: -1, events: -1, spines: -1 };
+    try {
+      await browser.waitUntil(
+        async () => {
+          await activateBaseLeaf();
+          footprint = await calendarItemFootprint();
+          return (
+            footprint.events === 0 &&
+            footprint.spines === 0 &&
+            footprint.pieces === row.pieceStates.length
+          );
+        },
+        { timeout: 10000 },
+      );
+    } catch {
+      throw new Error(`footprint never settled; last: ${JSON.stringify(footprint)}`);
+    }
     expect(footprint.events).toBe(0);
     expect(footprint.spines).toBe(0);
     expect(footprint.pieces).toBe(row.pieceStates.length);
