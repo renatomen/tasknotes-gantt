@@ -71,7 +71,7 @@ datePolicy.ts (union)
 - `CONTRACT--earned-specificity-beats-SVAR-s-background---no--important-anywhere-1.png`
 - `the-outer-bar-is-blanked-while-the-segments-keep-their-fill-1.png`
 
-Those are precisely the propositions the zigzag work re-litigated through 1,664 lines of WDIO. The config header calls itself *"the throwaway SVAR feature probe (spike)"*; `npm run probe:svar` runs in no gate.
+Those are precisely the propositions the zigzag work re-litigated through 1,664 lines of WDIO. The config header called itself *"the throwaway SVAR feature probe (spike)"*; at audit time `npm run probe:svar` ran in no gate *(shipped to CI the same day as #405)*.
 
 ---
 
@@ -114,7 +114,9 @@ Ordered by (hours saved per future change) ÷ (effort). Each tier is independent
 | 1 | **D1** — correct the two legend rows | minutes |
 | 2 | **D2** — fix the tooltip prop shape + add the missing test | ~1 h |
 
-### Tier 1 — the two mechanisms that generate the hours · ~4 days
+### Tier 1 — the two mechanisms that generate the hours
+
+> **Status 2026-08-10 (same day): the probe-gate half SHIPPED as #405** — `npm run probe:svar` runs in CI, and it has since caught two defects reading alone missed (the touch suppression, the var-fallback invalidation). The GanttContainer extraction half remains open, and Tier 2 is no longer blocked on this tier. · ~4 days
 | | Item | Payoff |
 |---|---|---|
 | 3 | **Promote `test/probe/` to a real gate.** Un-label it as a spike, wire `probe:svar` into CI, move bar-visual regressions into it. Keep WDIO for Obsidian integration — writes, menus, Bases config — which is what it is for. | Replaces hundreds of WDIO lines with tens; turns a full-Obsidian inner loop into seconds. The maintainer's own report states a verification loop over five minutes is a design defect. |
@@ -136,7 +138,7 @@ Ordered by (hours saved per future change) ÷ (effort). Each tier is independent
 | 9 | **Rebind `--wx-gantt-task-color / -fill-color / -font-color / -border` per treatment class** instead of emitting literal declarations with `!important`. Custom properties on the bar element win by inheritance, with no specificity fight. | `barTreatment.ts` is 887 LOC / 13 commits — the worst churn×LOC of anything substitutable. Deletes most of the `!important` layer and the commentary explaining it. |
 
 ### Tier 4 — cheap cleanups · ~half a day
-- Delete `PropertyMappingService.ts` (289 LOC) and `rfcMapping.ts` (192 LOC) — **zero importers in `src/`**, both kept green by live unit tests proving code nobody runs. `PropertyMappingService` also declares a competing 3-member `dateStatus` union against the canonical 5-member one.
+- Delete `PropertyMappingService.ts` (289 LOC) — **zero importers in `src/`**, kept green by a live unit test proving code nobody runs, and declaring a competing 3-member `dateStatus` union against the canonical 5-member one. *(Correction: `rfcMapping.ts` was wrongly listed here — `docs/architecture/calendar-rfc-mapping.md` names it as the executable proof of lossless RFC 5545/7953 mapping; its lack of production importers is intentional. RETAIN it.)*
 - Retire `datestatus-flagged` from the task-type registry — stamped on every date-status bar, multiplying the registry combinatorially against SVAR's **linear per-bar scan**, with no production CSS rule at all.
 - Delete the dead scroll-reset at `GanttContainer.svelte:2118-2135` — a 200 ms timeout against six selectors, **three of which do not exist in SVAR 2.7.0**.
 - Rename the legend's `.wx-bar` / `.wx-progress-*` re-declarations to `og-*`; they duplicate SVAR's CSS on non-SVAR DOM and will drift on any SVAR restyle.
