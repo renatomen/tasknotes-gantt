@@ -74,6 +74,31 @@ test('the torn-edge legend swatch renders with teeth cut into both edges', async
   await page.screenshot({ path: '__screenshots__/legend-torn-edge.png' });
 });
 
+test('a strip-only occupancy sample paints its pieces a real colour', async () => {
+  // Standalone-legend contract for the effective-fill consolidation: with no
+  // chart stylesheet present, the strip-only piece rule's chart-equal
+  // fallback must still resolve a paint from the sample's inline ghost fill.
+  await mountLegend({
+    taskNotesPresent: true,
+    hasRecordedRecurringOccurrences: true,
+    barFillSource: 'none',
+    barStripSource: 'priority',
+    priorityColors: [{ value: 'High', color: '#f97316' }],
+  });
+  const entry = await scrollToEntry('occurrence-occupancy');
+
+  const piece = entry.querySelector('.og-piece-painted.og-instance') as HTMLElement;
+  expect(piece, 'strip-only painted piece not rendered').not.toBeNull();
+  // Pieces paint the BODY colour (the ghost fill — default task blue when no
+  // fill source is set); the priority colour goes to the envelope strip. The
+  // load-bearing claim is that the fallback chain resolves a real paint.
+  const background = getComputedStyle(piece).backgroundColor;
+  expect(background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(background).toBe('rgb(61, 141, 230)');
+
+  await page.screenshot({ path: '__screenshots__/legend-strip-only-occupancy.png' });
+});
+
 test('the shading swatches render day cells with a shaded middle band', async () => {
   await mountLegend();
   const entry = await scrollToEntry('weekend-shading');

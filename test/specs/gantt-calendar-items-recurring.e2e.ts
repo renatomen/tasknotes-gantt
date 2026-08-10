@@ -409,6 +409,27 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     expect(row.pieceStates).not.toContain("og-instance-next");
     expect(row.pieceStates).not.toContain("og-instance-projected");
 
+    // The plain-span piece paints the bar's effective fill — a real colour
+    // that matches the piece's own resolved --og-effective-fill, painted
+    // through a probe span so the comparison is colour-to-colour.
+    const plainPaint = await browser.execute(() => {
+      const piece = document.querySelector(
+        ".og-bases-gantt .wx-bar .og-instance.og-instance-plain",
+      ) as HTMLElement | null;
+      if (!piece) return null;
+      const background = window.getComputedStyle(piece).backgroundColor;
+      const resolved = window.getComputedStyle(piece).getPropertyValue("--og-effective-fill").trim();
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = resolved;
+      document.body.append(probe);
+      const resolvedColor = window.getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { background, resolvedColor };
+    });
+    expect(plainPaint).not.toBeNull();
+    expect(plainPaint!.background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(plainPaint!.background).toBe(plainPaint!.resolvedColor);
+
     // The opt-in-off promise for everything else: no time-entry event rows, no
     // spines (day zoom), and every piece on the chart belongs to the recurring
     // row. A late refresh can repaint the pieces between reads, so the
