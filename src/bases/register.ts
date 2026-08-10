@@ -152,6 +152,7 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
+import { hasNonAuthoredEdgeInstance } from './visualSemantics';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
@@ -1523,6 +1524,9 @@ class ObsidianGanttBasesView extends BasesView {
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
     const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
+    const nonAuthoredEdgesPresent = hasNonAuthoredEdgeInstance(
+      instances.map((instance) => instance.dateStatus),
+    );
     const visibleCalendarEventColor =
       instances
         .map((instance) => instance.calendarItem?.color)
@@ -1595,6 +1599,8 @@ class ObsidianGanttBasesView extends BasesView {
         calendarPalette: calendarShading.calendarPalette,
         calendarMarkerColor: calendarShading.calendarMarkerColor,
         hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
+        showDateIndicators,
+        hasNonAuthoredEdges: nonAuthoredEdgesPresent,
         calendarEventColor:
           visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
         externalOccurrenceColor:

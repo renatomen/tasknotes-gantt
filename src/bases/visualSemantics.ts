@@ -122,6 +122,19 @@ export function isNonAuthoredEdgeToken(token: string | undefined): boolean {
   return NON_AUTHORED_EDGE_CLASS_TOKENS.some((edgeToken) => edgeToken === token);
 }
 
+/**
+ * Whether any instance would carry a torn edge if rendered. Deliberately blind
+ * to row filters: SVAR's filterTree retains a hidden ancestor whose descendant
+ * passes, so a filtered-out instance can still render — erring toward presence
+ * costs one surplus legend row, never a missing explanation.
+ */
+export function hasNonAuthoredEdgeInstance(statuses: Iterable<DateStatus>): boolean {
+  for (const status of statuses) {
+    if (isNonAuthoredEdgeToken(resolveDateStatusStateToken(status) ?? undefined)) return true;
+  }
+  return false;
+}
+
 export const OCCURRENCE_STATE_CLASS_TOKENS = {
   next: GANTT_VISUAL_CLASS_TOKENS.occurrenceNext,
   projected: GANTT_VISUAL_CLASS_TOKENS.occurrenceProjected,

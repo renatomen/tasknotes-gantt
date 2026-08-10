@@ -423,39 +423,61 @@
     border-style: solid;
   }
   /*
-   * The torn-edge swatch cuts the chart's own teeth tile into the sample's
-   * trailing edge: a solid layer covers all but the last tooth-depth, and the
-   * chart's end-teeth wedge tiles down the strip left uncovered.
+   * The torn swatch consumes the chart's own teeth variables so any tuning of
+   * the production cut re-shapes this sample with it; the fallbacks mirror the
+   * chart's values for a legend rendered outside one. Both edges are torn
+   * because the entry's copy explains both, and the torn sides shed their
+   * corner radius exactly as production bars do.
    */
   .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar {
+    --og-legend-tooth: min(
+      var(--og-zigzag-depth, 4px),
+      var(--og-zigzag-surface-ceiling, 40%)
+    );
+    border-radius: 0;
     -webkit-mask-image:
-      linear-gradient(#000, #000),
-      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+      var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000));
     mask-image:
-      linear-gradient(#000, #000),
-      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+      var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000));
     -webkit-mask-size:
-      calc(100% - 4px) 100%,
-      4px 8px;
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-legend-tooth) * 2) 100%;
     mask-size:
-      calc(100% - 4px) 100%,
-      4px 8px;
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      var(--og-legend-tooth) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-legend-tooth) * 2) 100%;
     -webkit-mask-position:
-      left center,
-      right center;
+      left top,
+      right top,
+      center top;
     mask-position:
-      left center,
-      right center;
-    -webkit-mask-repeat: no-repeat, repeat-y;
-    mask-repeat: no-repeat, repeat-y;
+      left top,
+      right top,
+      center top;
+    -webkit-mask-repeat: repeat-y, repeat-y, no-repeat;
+    mask-repeat: repeat-y, repeat-y, no-repeat;
+  }
+  /*
+   * The strip accent is a host-level `::before` that would paint straight over
+   * the leading teeth — the same collision production resolves by starting the
+   * accent at the tooth depth and capping it between the teeth.
+   */
+  .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar::before {
+    left: var(--og-zigzag-depth, 4px) !important;
+    max-width: calc(100% - var(--og-zigzag-depth, 4px) * 2) !important;
   }
 
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {
-    background-color: var(--og-date-status-fill) !important;
+    background-color: var(--og-date-status-fill, #e67e22) !important;
     border: 0 !important;
   }
   .og-legend-entry[data-semantic-id='date-status-border'] .og-legend-bar {
-    border: 1px solid var(--og-date-status-border) !important;
+    border: 1px solid var(--og-date-status-border, #c0392b) !important;
   }
 
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }

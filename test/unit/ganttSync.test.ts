@@ -39,6 +39,7 @@ import { statusSlug, prioritySlug, calendarSlug, PARENT_ROLE_CLASS } from '../..
 import {
   DATE_STATUS_STATE_CLASS_TOKENS,
   GANTT_VISUAL_CLASS_TOKENS,
+  hasNonAuthoredEdgeInstance,
   isNonAuthoredEdgeToken,
   resolveDateStatusStateToken,
 } from '../../src/bases/visualSemantics';
@@ -123,6 +124,16 @@ describe('isNonAuthoredEdgeToken', () => {
     expect(isNonAuthoredEdgeToken(SWAPPED)).toBe(false);
     expect(isNonAuthoredEdgeToken(GANTT_VISUAL_CLASS_TOKENS.dateStatus)).toBe(false);
     expect(isNonAuthoredEdgeToken(undefined)).toBe(false);
+  });
+});
+
+describe('hasNonAuthoredEdgeInstance', () => {
+  it('finds a torn-capable status among any mix and stays blind to row filters', () => {
+    expect(hasNonAuthoredEdgeInstance(['complete', 'inferred-start'])).toBe(true);
+    expect(hasNonAuthoredEdgeInstance(['inferred-end'])).toBe(true);
+    expect(hasNonAuthoredEdgeInstance(['placeholder'])).toBe(true);
+    expect(hasNonAuthoredEdgeInstance(['complete', 'swapped'])).toBe(false);
+    expect(hasNonAuthoredEdgeInstance([])).toBe(false);
   });
 });
 

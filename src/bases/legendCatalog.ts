@@ -204,14 +204,30 @@ const GROUP_NAMES: Record<LegendGroupId, string> = {
 
 export function buildLegendCatalog(context: GanttLegendContext): LegendGroup[] {
   const icons = iconSamples(context);
-  const entries = GANTT_VISUAL_SEMANTIC_IDS.map((semanticId) =>
-    buildEntry(semanticId, LEGEND_CATALOGUE[semanticId], context, icons),
-  );
+  const entries = GANTT_VISUAL_SEMANTIC_IDS.filter((semanticId) =>
+    isEntryApplicable(semanticId, context),
+  ).map((semanticId) => buildEntry(semanticId, LEGEND_CATALOGUE[semanticId], context, icons));
 
   return LEGEND_GROUP_ORDER.flatMap((groupId) => {
     const grouped = entries.filter((candidate) => LEGEND_CATALOGUE[candidate.semanticId].group === groupId);
     return grouped.length > 0 ? [{ id: groupId, name: GROUP_NAMES[groupId], entries: grouped }] : [];
   });
+}
+
+/** A row whose cue cannot occur in the open Gantt is withheld, not explained. */
+function isEntryApplicable(
+  semanticId: GanttVisualSemanticId,
+  context: GanttLegendContext,
+): boolean {
+  switch (semanticId) {
+    case 'date-status-torn':
+      return context.showDateIndicators && context.hasNonAuthoredEdges;
+    case 'date-status-fill':
+    case 'date-status-border':
+      return context.showDateIndicators;
+    default:
+      return true;
+  }
 }
 
 function buildEntry(
@@ -346,7 +362,7 @@ function sampleFor(
 }
 
 function dateStatusSample(
-  semanticId: 'date-status-fill' | 'date-status-border',
+  semanticId: 'date-status-torn' | 'date-status-fill' | 'date-status-border',
   kind: LegendSampleKind,
   context: GanttLegendContext,
 ): LegendSampleDescriptor {
@@ -367,8 +383,9 @@ function dateStatusSample(
 
 function isDateStatusSemantic(
   semanticId: GanttVisualSemanticId,
-): semanticId is 'date-status-fill' | 'date-status-border' {
+): semanticId is 'date-status-torn' | 'date-status-fill' | 'date-status-border' {
   switch (semanticId) {
+    case 'date-status-torn':
     case 'date-status-fill':
     case 'date-status-border':
       return true;
