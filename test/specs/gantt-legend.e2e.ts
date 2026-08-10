@@ -757,11 +757,6 @@ describe("Gantt (OG) context-aware legend", () => {
       const chart = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Flagged.md"]',
       );
-      // The TOP edge, not the shorthand: a bar whose start or due was never
-      // authored drops the border on that side so the torn edge is not redrawn
-      // as a straight line, which makes the shorthand a four-value string. The
-      // top edge is never torn, so it is where a chart bar's border colour is
-      // readable.
       const fill = fillSample ? getComputedStyle(fillSample) : null;
       const chartStyle = chart ? getComputedStyle(chart) : null;
       const configuredFill = chartStyle?.getPropertyValue("--og-ghost-fill").trim() ?? "";

@@ -306,6 +306,37 @@ async function enableBases(): Promise<void> {
   });
 }
 
+/** One round-trip paint read per bar: fill, top border (all three parts), progress fill. */
+async function readBarPaint(notes: string[]): Promise<
+  Array<{
+    note: string;
+    backgroundColor: string;
+    borderTopColor: string;
+    borderTopStyle: string;
+    borderTopWidth: string;
+    progressColor: string | null;
+  }>
+> {
+  return browser.execute(
+    (names: string[]) =>
+      names.map((note) => {
+        const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
+        if (!bar) throw new Error(`bar not found: ${note}`);
+        const style = window.getComputedStyle(bar);
+        const progress = bar.querySelector(".wx-progress-percent");
+        return {
+          note,
+          backgroundColor: style.backgroundColor,
+          borderTopColor: style.borderTopColor,
+          borderTopStyle: style.borderTopStyle,
+          borderTopWidth: style.borderTopWidth,
+          progressColor: progress ? window.getComputedStyle(progress).backgroundColor : null,
+        };
+      }),
+    notes,
+  );
+}
+
 /** Detach any open leaves and open the named base in a fresh leaf. */
 async function openBase(basePath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, p) => {
@@ -391,24 +422,12 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // chosen to compose with, and an accent border would redraw the straight
       // edge the teeth removed — so a torn bar has to paint exactly as a
       // fully-dated one does.
-      const paint = await browser.execute(
-        (notes: string[]) =>
-          notes.map((note) => {
-            const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
-            if (!bar) throw new Error(`bar not found: ${note}`);
-            const style = window.getComputedStyle(bar);
-            const progress = bar.querySelector(".wx-progress-percent");
-            return {
-              note,
-              backgroundColor: style.backgroundColor,
-              borderTopColor: style.borderTopColor,
-              progressColor: progress
-                ? window.getComputedStyle(progress).backgroundColor
-                : null,
-            };
-          }),
-        ["Complete.md", "Due Only.md", "Start Only.md", "Dateless One.md"],
-      );
+      const paint = await readBarPaint([
+        "Complete.md",
+        "Due Only.md",
+        "Start Only.md",
+        "Dateless One.md",
+      ]);
 
       const complete = paint[0]!;
       // The reference bar really paints something, so "the same as complete" is
@@ -432,27 +451,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // bar's, asserted as equalities against the complete bar so a surviving
       // border-width or repaint declaration fails the value comparison rather
       // than slipping past a not-red check.
-      const bars = await browser.execute(
-        (notes: string[]) =>
-          notes.map((note) => {
-            const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
-            if (!bar) throw new Error(`bar not found: ${note}`);
-            const style = window.getComputedStyle(bar);
-            const progress = bar.querySelector(".wx-progress-percent");
-            return {
-              backgroundColor: style.backgroundColor,
-              borderTopColor: style.borderTopColor,
-              borderTopStyle: style.borderTopStyle,
-              borderTopWidth: style.borderTopWidth,
-              progressColor: progress
-                ? window.getComputedStyle(progress).backgroundColor
-                : null,
-            };
-          }),
-        ["Complete.md", "Swapped.md"],
-      );
-
-      const [complete, swapped] = bars;
+      const [complete, swapped] = await readBarPaint(["Complete.md", "Swapped.md"]);
       expect(swapped!.backgroundColor).toBe(SWAPPED_FILL);
       expect(swapped!.borderTopColor).toBe(complete!.borderTopColor);
       expect(swapped!.borderTopStyle).toBe(complete!.borderTopStyle);
