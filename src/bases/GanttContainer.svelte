@@ -9,10 +9,7 @@
   import DependencyTooltip from './DependencyTooltip.svelte';
   import GanttToolbar from './GanttToolbar.svelte';
   import { Notice, Scope, TFile } from 'obsidian';
-  import {
-    GANTT_DATE_STATUS_BORDER_COLOR,
-    GANTT_DATE_STATUS_FILL_COLOR,
-  } from './visualSemantics';
+  import { GANTT_DATE_STATUS_FILL_COLOR } from './visualSemantics';
   import { get } from 'svelte/store';
   import {
     isEffectiveDark,
@@ -2559,7 +2556,7 @@
 
 <div
   class="og-bases-gantt {treatmentScopeClass}"
-  style={`--og-date-status-fill:${GANTT_DATE_STATUS_FILL_COLOR};--og-date-status-border:${GANTT_DATE_STATUS_BORDER_COLOR};`}
+  style={`--og-date-status-fill:${GANTT_DATE_STATUS_FILL_COLOR};`}
   class:is-maximized={isMaximized}
   class:og-progress-readonly={progressReadonly}
   class:og-weekends-off={!highlightWeekends}
@@ -3283,17 +3280,10 @@
    */
   .og-bases-gantt :global(.wx-bar.datestatus-flagged) {
     background-color: var(--og-date-status-fill) !important;
-    border-color: var(--og-date-status-border) !important;
-    border-width: 1px !important;
-    border-style: solid !important;
   }
 
   .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-content) {
     color: white !important;
-  }
-
-  .og-bases-gantt :global(.wx-bar.datestatus-flagged .wx-progress-percent) {
-    background-color: #c0392b !important;
   }
 
   /*
@@ -3734,13 +3724,10 @@
   /*
    * A strip-mode bar carries stripBodyRule's 1px border; on a ghost (split) host
    * the runs fill the content box inset by that border, leaving a 1px halo around
-   * the pieces. Drop the border so the runs meet the bar's edge — but only when
-   * the bar is NOT date-status-flagged: a flagged bar's border IS its swapped-date
-   * cue (the `datestatus-flagged` rule colours this same border), so zeroing it
-   * would erase the only indicator on an otherwise transparent ghost host. A
-   * non-split strip bar keeps its outline regardless.
+   * the pieces. Drop the border so the runs meet the bar's edge. A non-split
+   * strip bar keeps its outline regardless.
    */
-  .og-bases-gantt :global(.wx-bar.wx-split:not(.datestatus-flagged)) {
+  .og-bases-gantt :global(.wx-bar.wx-split) {
     border: 0 !important;
   }
   .og-bases-gantt :global(.wx-bars .wx-bar.wx-split > .wx-progress-wrapper) {

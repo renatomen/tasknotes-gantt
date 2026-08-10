@@ -418,10 +418,6 @@
     inset-inline-end: var(--og-legend-estimate-end-inset, 2px);
   }
   .og-legend-bar :global(.og-bar-chip) { margin-left: 8px; }
-  .og-legend-sample :global(.wx-bar.datestatus-flagged) {
-    border-width: 1px;
-    border-style: solid;
-  }
   /*
    * The torn swatch consumes the chart's own teeth variables so any tuning of
    * the production cut re-shapes this sample with it; the fallbacks mirror the
@@ -475,9 +471,6 @@
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {
     background-color: var(--og-date-status-fill, #e67e22) !important;
     border: 0 !important;
-  }
-  .og-legend-entry[data-semantic-id='date-status-border'] .og-legend-bar {
-    border: 1px solid var(--og-date-status-border, #c0392b) !important;
   }
 
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }

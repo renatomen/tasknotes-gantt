@@ -154,7 +154,6 @@ export const LEGEND_CATALOGUE_ROWS = {
   'bar-icon': ['icon', { name: 'Task icon', meaning: 'A configured glyph or dot shape identifies the selected status or priority.' }],
   'date-status-torn': ['schedule-bar', { name: 'Torn edge', meaning: 'A torn, zigzag edge marks a date that is empty. Left edge, missing start date. Right edge, missing end date.' }],
   'date-status-fill': ['schedule-bar', { name: 'Date fill', meaning: 'An orange fill marks a task whose start date falls after its due date.' }],
-  'date-status-border': ['schedule-bar', { name: 'Date border', meaning: 'A red border marks a task whose start date falls after its due date.' }],
   progress: ['progress', { name: 'Progress', meaning: 'The contrasting portion of a bar shows completion progress.' }],
   'dependency-link': ['dependency', { name: 'Dependency', meaning: 'A connector shows the scheduling relationship between two tasks.' }],
   'weekend-shading': ['calendar-shading', { name: 'Weekend', meaning: 'Theme holiday shading marks the locale weekend.' }],
@@ -223,7 +222,6 @@ function isEntryApplicable(
     case 'date-status-torn':
       return context.showDateIndicators && context.hasNonAuthoredEdges;
     case 'date-status-fill':
-    case 'date-status-border':
       return context.showDateIndicators;
     default:
       return true;
@@ -362,7 +360,7 @@ function sampleFor(
 }
 
 function dateStatusSample(
-  semanticId: 'date-status-torn' | 'date-status-fill' | 'date-status-border',
+  semanticId: 'date-status-torn' | 'date-status-fill',
   kind: LegendSampleKind,
   context: GanttLegendContext,
 ): LegendSampleDescriptor {
@@ -383,11 +381,10 @@ function dateStatusSample(
 
 function isDateStatusSemantic(
   semanticId: GanttVisualSemanticId,
-): semanticId is 'date-status-torn' | 'date-status-fill' | 'date-status-border' {
+): semanticId is 'date-status-torn' | 'date-status-fill' {
   switch (semanticId) {
     case 'date-status-torn':
     case 'date-status-fill':
-    case 'date-status-border':
       return true;
     default:
       return false;
@@ -646,7 +643,6 @@ function representativeExternalEventTreatment(
 
 function semanticUsesRepresentativeTreatment(semanticId: GanttVisualSemanticId): boolean {
   return (
-    semanticId === 'date-status-border' ||
     semanticId === 'progress' ||
     semanticId === 'replicated-task' ||
     semanticId === 'context-task' ||
@@ -689,7 +685,6 @@ function classTokensFor(semanticId: GanttVisualSemanticId): string[] {
   switch (semanticId) {
     case 'date-status-torn':
     case 'date-status-fill':
-    case 'date-status-border':
       return [classes.bar];
     case 'progress':
       return [];
