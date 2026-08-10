@@ -11,7 +11,6 @@ export const GANTT_VISUAL_SEMANTIC_IDS = [
   'bar-icon',
   'date-status-torn',
   'date-status-fill',
-  'date-status-border',
   'progress',
   'dependency-link',
   'weekend-shading',
@@ -36,7 +35,6 @@ export const GANTT_VISUAL_SEMANTIC_IDS = [
 ] as const;
 
 export const GANTT_DATE_STATUS_FILL_COLOR = '#e67e22';
-export const GANTT_DATE_STATUS_BORDER_COLOR = '#c0392b';
 
 export type GanttVisualSemanticId = (typeof GANTT_VISUAL_SEMANTIC_IDS)[number];
 
@@ -100,7 +98,7 @@ export const DATE_STATUS_STATE_CLASS_TOKENS: Record<
  * The per-state class token a bar carries (`null` for `complete` — no
  * indicator). For a non-authored edge the token is the whole signal; only
  * inverted dates still also carry the shared `datestatus-flagged` colour
- * treatment, until the diagonal replaces it.
+ * treatment, until schedule validation replaces it with an error badge.
  */
 export function resolveDateStatusStateToken(status: DateStatus): GanttVisualClassToken | null {
   if (status === 'complete') return null;

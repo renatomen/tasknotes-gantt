@@ -384,7 +384,6 @@ describe('buildLegendCatalog', () => {
     );
     expect(semanticIds).not.toContain('date-status-torn');
     expect(semanticIds).not.toContain('date-status-fill');
-    expect(semanticIds).not.toContain('date-status-border');
   });
 
   it('withholds the torn entry when no rendered bar carries a non-authored edge', () => {
@@ -407,17 +406,14 @@ describe('buildLegendCatalog', () => {
     expect(torn.sample.classTokens.length).toBeGreaterThan(1);
   });
 
-  it('scopes the fill and border cues to reversed dates alone', () => {
+  it('scopes the fill cue to reversed dates alone and emits no border entry', () => {
     expect(entry(baseContext(), 'date-status-fill').meaning).toBe(
       'An orange fill marks a task whose start date falls after its due date.',
     );
-    expect(entry(baseContext(), 'date-status-border').meaning).toBe(
-      'A red border marks a task whose start date falls after its due date.',
-    );
     expect(entry(baseContext(), 'date-status-fill').sample.cssVariables).toBeUndefined();
-    expect(entry(baseContext(), 'date-status-border').sample.cssVariables).toEqual({
-      '--og-ghost-fill': '#1f6feb',
-    });
+    expect(entries(baseContext()).map((candidate) => candidate.semanticId)).not.toContain(
+      'date-status-border',
+    );
   });
 
   it('uses the external occurrence colour for external-only pieces and series spines', () => {
@@ -799,7 +795,6 @@ describe('legend semantic exhaustiveness', () => {
       'bar-icon': { group: 'bars', sampleKind: 'icon-set' },
       'date-status-torn': { group: 'schedule', sampleKind: 'bar' },
       'date-status-fill': { group: 'schedule', sampleKind: 'bar' },
-      'date-status-border': { group: 'schedule', sampleKind: 'bar' },
       progress: { group: 'schedule', sampleKind: 'progress' },
       'dependency-link': { group: 'dependencies', sampleKind: 'link' },
       'weekend-shading': { group: 'calendars', sampleKind: 'shading' },

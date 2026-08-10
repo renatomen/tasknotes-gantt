@@ -48,9 +48,13 @@ Settled design constraints (session 2026-08-10):
 - A grid-side twin (for gantt-collapsed workspaces) reads the **same per-task
   validation payload** later — one rule registry, two surfaces; fits the
   semantic-descriptor-registry direction in the 2026-08-10 architecture audit.
-- U6's swapped-related deletions (orange/red constants, `datestatus-flagged` type and
-  its ~2× task-type registry bloat) ride this slice — deleting the treatment before
-  its replacement exists would break product coherence.
+- U6's remaining swapped-related deletions (the orange fill constant, `datestatus-flagged`
+  type and its ~2× task-type registry bloat) ride this slice — deleting the treatment
+  before its replacement exists would break product coherence. The red-border half
+  shipped early by maintainer direction; until this slice lands, a swapped bar under
+  Split rendering shows no visible cue (transparent host, no border — accepted interim
+  gap; an orange outline was considered and declined because an undocumented cue
+  variant recreates the legend-incoherence defect class).
 
 Prerequisites — status at parking time: tooltip root-cause SHIPPED (#404: the
 library suppressed all tooltips on touch-point-reporting hardware; fixed and

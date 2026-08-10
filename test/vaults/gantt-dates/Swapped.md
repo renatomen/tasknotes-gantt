@@ -1,7 +1,7 @@
 ---
 start: 2026-04-24
 due: 2026-04-16
-progress: 0
+progress: 40
 ---
 
 # Swapped
