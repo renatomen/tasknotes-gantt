@@ -5,6 +5,8 @@ date: 2026-08-09
 topic: missing-date-zigzag-semantics
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
+# 2026-08-10: partially superseded — U4/R5/AE4/AE8 and the half-fill DoD items are
+# retired by the Deviations section; the remaining units shipped.
 product_contract_source: ce-brainstorm
 execution: code
 ---
@@ -37,7 +39,7 @@ Today every non-complete date status renders the same way: a hardcoded orange fi
 - **Shape over color.** (session-settled: user-directed — chosen over the hardcoded orange/red treatment: color is overridable by other settings and collides with user palettes.) Governs R2, R8.
 - **One unified signal for non-authored edges.** A zigzag edge means "this edge was not authored", covering both today's missing-date fill and today's inferred-date border. (session-settled: user-approved — chosen over keeping missing and inferred visually distinct: both describe an edge the user did not author.) Governs R1.
 - **Zigzag as a CSS mask carved into the bar.** The teeth are cut out of the bar's own painted body rather than drawn over it, so the signal composes with any fill. (session-settled: user-directed — chosen over overlay or border approaches: the user supplied the conic-gradient mask technique; see Sources.) The mask carrier is an inner body layer, not the host element — KTD2 — so dependency controls and hover feedback stay outside the cut. Governs R2.
-- **Swapped dates render as a full-bar diagonal half-fill.** (session-settled: user-directed — chosen over a small half-filled square icon chip: no contention for the single chip slot, legible at any bar width, and icon chips render above it.) Governs R5. Conflict note from planning review: one evidence-based exception is recorded on R5 — split pieces whose rendering carries an occurrence-state cue (background-borne or hollow-interior) keep the cue instead of their diagonal slice.
+- **[SUPERSEDED 2026-08-10 — see Deviations: inverted dates render no bar; a validation error badge replaces this. Do not implement or validate.]** **Swapped dates render as a full-bar diagonal half-fill.** (session-settled: user-directed — chosen over a small half-filled square icon chip: no contention for the single chip slot, legible at any bar width, and icon chips render above it.) Governs R5. Conflict note from planning review: one evidence-based exception is recorded on R5 — split pieces whose rendering carries an occurrence-state cue (background-borne or hollow-interior) keep the cue instead of their diagonal slice.
 - **Zigzag everywhere, including one-cell bars.** (session-settled: user-directed — chosen over a dashed-outline fallback below a width threshold: one visual language, consistent semantics.) Governs R3. Conflict note from implementation review: one evidence-based exception is recorded on R3 — a tooth too deep for its bar makes the rendered box wider than its laid-out width, so the tooth scales there. The visual language is unchanged; only its size follows the bar.
 - **The signal survives Split rendering.** (session-settled: user-approved — chosen over continuous-bars-only: the missing-edge signal is semantics, not decoration.) Governs R4. Conflict note from planning review: one evidence-based exception is recorded on R4 — the spine-only coarse-zoom envelope exposes no maskable surface, so that single flavor drops the zigzag at that zoom.
 
@@ -62,7 +64,7 @@ The resulting state-to-treatment mapping:
 
 **Swapped indicator**
 
-- R5. A bar with swapped dates renders a borderless diagonal half-fill across the whole bar area — one triangle in the bar's fill color, the other transparent — with any icon chip rendered above it, and receives no zigzag. One planning-time exception: a split piece whose rendering is itself an occurrence-state cue — a cue-bearing background (state color, hatching) or a deliberately hollow outlined interior — keeps that rendering instead of its diagonal slice; the half-fill reads from the plain slices.
+- R5. **[SUPERSEDED 2026-08-10 — see Deviations: inverted dates render no bar; a validation error badge replaces this. Do not implement or validate.]** A bar with swapped dates renders a borderless diagonal half-fill across the whole bar area — one triangle in the bar's fill color, the other transparent — with any icon chip rendered above it, and receives no zigzag. One planning-time exception: a split piece whose rendering is itself an occurrence-state cue — a cue-bearing background (state color, hatching) or a deliberately hollow outlined interior — keeps that rendering instead of its diagonal slice; the half-fill reads from the plain slices.
 
 **Legend**
 
@@ -81,11 +83,11 @@ No Key Flows section: the change has no multi-step behavior — it restyles exis
 - AE1. **Covers R1, R2, R8.** Given a task with only a due date, when indicators are on, then the bar shows a zigzag left edge over its normal fill, and no orange fill or red border anywhere.
 - AE2. **Covers R1.** Given a task with only a start date, then the bar shows a zigzag right edge.
 - AE3. **Covers R1.** Given a task with neither date, then the bar renders at today with zigzag on both edges.
-- AE4. **Covers R5.** Given a task whose start is after its due, then the bar has no zigzag and no border, and renders a diagonal half-fill in the bar's fill color.
+- AE4. **[SUPERSEDED 2026-08-10 — see Deviations: inverted dates render no bar; a validation error badge replaces this. Do not implement or validate.]** **Covers R5.** Given a task whose start is after its due, then the bar has no zigzag and no border, and renders a diagonal half-fill in the bar's fill color.
 - AE5. **Covers R9, R7.** Given the date-status indicator option is off, then no bar shows a zigzag or diagonal half-fill and the two new legend entries are absent.
 - AE6. **Covers R4.** Given Split rendering with ghost runs and a task whose due is inferred, then the outermost right piece carries the teeth on its right edge.
 - AE7. **Covers R3.** Given a one-cell bar with neither date at a zoom where a standard tooth fits, then both-edge teeth are applied at the standard tooth size; at a zoom too coarse for that, the teeth scale with the bar and the bar still renders at the width it was laid out at.
-- AE8. **Covers R5.** Given a swapped task that also has a status or priority icon configured, then the icon chip renders above the diagonal half-fill and both stay visible.
+- AE8. **[SUPERSEDED 2026-08-10 — see Deviations: inverted dates render no bar; a validation error badge replaces this. Do not implement or validate.]** **Covers R5.** Given a swapped task that also has a status or priority icon configured, then the icon chip renders above the diagonal half-fill and both stay visible.
 
 ### Scope Boundaries
 
@@ -237,7 +239,7 @@ flowchart TB
   - Legend spec's chart-side assertions pass against the new tokens.
 - **Verification:** Full jest; `npm run e2e:local` for all six touched specs.
 
-### U4. Swapped diagonal half-fill
+### U4. Swapped diagonal half-fill — SUPERSEDED (see Deviations)
 
 - **Goal:** Swapped bars render the borderless diagonal half-fill in their own fill color with icon chips above; nothing assigns `datestatus-flagged` anymore and the legacy color CSS is deleted.
 - **Requirements:** R5, R8 (bar surface); KTD4.
@@ -314,7 +316,7 @@ flowchart TB
 - Legacy references grep to zero (U6 check).
 - The legend shows exactly the two new date-status entries, context-gated.
 - No abandoned or experimental code from intermediate attempts remains in the final state.
-- Visual assets: a screenshot/GIF of the zigzag, the swapped half-fill, and the new legend entries added under `docs/media/` (feature-named, per the visual-assets convention), captured and committed in the U6 PR.
+- Visual assets: a screenshot/GIF of the zigzag and the new legend entries (the swapped half-fill is superseded — see Deviations) added under `docs/media/` (feature-named, per the visual-assets convention), captured and committed in the U6 PR.
 
 ## Deviations (2026-08-10, recorded at close)
 
