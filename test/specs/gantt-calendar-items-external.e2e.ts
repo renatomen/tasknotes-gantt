@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * External-calendar calendar-item spec: events from a TaskNotes LOCAL ICS
@@ -96,13 +97,14 @@ async function missingBars(): Promise<string[]> {
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
 async function ensureGanttReady(): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await browser.waitUntil(
+  await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf();
       missing = await missingBars();
       return missing.length === 0;
     },
-    { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
+    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+    { timeout: 90000 },
   );
 }
 
@@ -320,7 +322,7 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
     // subscription is registered AND its local-file fetch warmed the cache
     // with every expanded event (2 singles + 3 series occurrences).
     let lastIcsFacts = "<never polled>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         lastIcsFacts = await browser.executeObsidian(
           ({ app }, subId, wantedEvents) => {
@@ -351,10 +353,8 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
         );
         return lastIcsFacts === "ok";
       },
-      {
-        timeout: 60000,
-        timeoutMsg: () => `TaskNotes never served the fixture ICS feed; last: ${lastIcsFacts}`,
-      },
+      () => `TaskNotes never served the fixture ICS feed; last: ${lastIcsFacts}`,
+      { timeout: 60000 },
     );
 
     await ensureGanttReady();
@@ -377,17 +377,15 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
     expect(fired.set && fired.configChanged).toBe(true);
 
     let ids: string[] = [];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         ids = await externalBarIds();
         return ids.length === EXPECTED_EXTERNAL_ROWS;
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () =>
-          `expected ${EXPECTED_EXTERNAL_ROWS} external rows after the feed toggle; last: ${JSON.stringify(ids)}`,
-      },
+      () =>
+        `expected ${EXPECTED_EXTERNAL_ROWS} external rows after the feed toggle; last: ${JSON.stringify(ids)}`,
+      { timeout: 20000 },
     );
     expect(ids).toHaveLength(EXPECTED_EXTERNAL_ROWS);
 
@@ -480,15 +478,13 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
     // Uncheck: the three rows hide INSTANTLY (display filter, no refresh).
     expect(await toggleSwitcherRow("External events")).toBe(true);
     let ids: string[] = [];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         ids = await externalBarIds();
         return ids.length === 0;
       },
-      {
-        timeout: 3000,
-        timeoutMsg: () => `external rows did not hide instantly; last: ${JSON.stringify(ids)}`,
-      },
+      () => `external rows did not hide instantly; last: ${JSON.stringify(ids)}`,
+      { timeout: 3000 },
     );
     expect(await missingBars()).toEqual([]);
 
@@ -499,15 +495,13 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
 
     // Re-check restores the rows, then close the modal.
     expect(await toggleSwitcherRow("External events")).toBe(true);
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         ids = await externalBarIds();
         return ids.length === EXPECTED_EXTERNAL_ROWS;
       },
-      {
-        timeout: 3000,
-        timeoutMsg: () => `external rows did not restore; last: ${JSON.stringify(ids)}`,
-      },
+      () => `external rows did not restore; last: ${JSON.stringify(ids)}`,
+      { timeout: 3000 },
     );
     await closeModal();
   });
@@ -536,17 +530,15 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
     // The switcher command still runs and reports no active sources.
     expect(await runQuickSwitcherCommand()).toBe(true);
     let emptyText = "";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         emptyText = await browser.execute(
           () => (document.querySelector(".modal-container .modal") as HTMLElement | null)?.textContent ?? "",
         );
         return emptyText.includes("No calendar-item sources are active");
       },
-      {
-        timeout: 10000,
-        timeoutMsg: () => `switcher empty state never shown; modal text: ${emptyText}`,
-      },
+      () => `switcher empty state never shown; modal text: ${emptyText}`,
+      { timeout: 10000 },
     );
     await closeModal();
   });

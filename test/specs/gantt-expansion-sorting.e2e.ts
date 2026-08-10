@@ -1,4 +1,5 @@
 import { browser, expect } from "@wdio/globals";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -231,31 +232,30 @@ describe("Gantt (OG) companion expansion + sorting", () => {
 
   it("expands subtasks recursively under Show-all (AE2)", async () => {
     let missing: string[] = ["<unobserved>"];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         const state = await readGanttState();
         missing = missingNames(state.ids);
         return state.mounted && missing.length === 0;
       },
-      { timeout: 15000, timeoutMsg: () => `Instances missing/miscounted: ${JSON.stringify(missing)}` },
+      () => `Instances missing/miscounted: ${JSON.stringify(missing)}`,
+      { timeout: 15000 },
     );
     expect(missing).toEqual([]);
   });
 
   it("renders a multi-parent task once per parent, each with the replicated cue", async () => {
     let state: GanttState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         state = await readGanttState();
         return state.mounted && instancesOf(state.ids, "Shared.md") === 2 && state.replicated === 2;
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () =>
-          `Expected 2 Shared instances + 2 replicated bars; saw ${state ? instancesOf(state.ids, "Shared.md") : "?"} / ${state?.replicated ?? "?"}`,
-      },
+      () =>
+        `Expected 2 Shared instances + 2 replicated bars; saw ${state ? instancesOf(state.ids, "Shared.md") : "?"} / ${state?.replicated ?? "?"}`,
+      { timeout: 15000 },
     );
     // Exactly the two Shared instances are the replicated ones (nothing else dups).
     expect(instancesOf(state!.ids, "Shared.md")).toBe(2);
@@ -266,16 +266,14 @@ describe("Gantt (OG) companion expansion + sorting", () => {
     // Fetched under Show-all: Sub A1, Sub A1a, Shared×2 = 4 context bars.
     // Project A and Project B match the `project` filter → never context.
     let state: GanttState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         state = await readGanttState();
         return state.mounted && state.context === 4 && !state.projectHasContext;
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `Expected 4 context bars and no project context; saw ${state?.context ?? "?"} / projectHasContext=${state?.projectHasContext}`,
-      },
+      () => `Expected 4 context bars and no project context; saw ${state?.context ?? "?"} / projectHasContext=${state?.projectHasContext}`,
+      { timeout: 15000 },
     );
     expect(state!.context).toBe(4);
     expect(state!.projectHasContext).toBe(false);
@@ -297,7 +295,7 @@ describe("Gantt (OG) companion expansion + sorting", () => {
     // baseline proves the context columns fill, without depending on the exact
     // rendered date format. `.og-grid-cell` is PropertyCell's span.
     let populated = -1;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         populated = await browser.execute(() => {
@@ -309,7 +307,8 @@ describe("Gantt (OG) companion expansion + sorting", () => {
         });
         return populated >= 8;
       },
-      { timeout: 15000, timeoutMsg: () => `Expected context rows to populate grid cells; saw ${populated} non-empty` },
+      () => `Expected context rows to populate grid cells; saw ${populated} non-empty`,
+      { timeout: 15000 },
     );
     expect(populated).toBeGreaterThanOrEqual(8);
   });
@@ -415,7 +414,7 @@ describe("Gantt (OG) standalone mode does not expand", () => {
 
   it("renders only the two filter-matched projects (no fetched subtasks)", async () => {
     let ids: string[] = [];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         const state = await readGanttState();
@@ -426,7 +425,8 @@ describe("Gantt (OG) standalone mode does not expand", () => {
           instancesOf(ids, "Project B.md") === 1
         );
       },
-      { timeout: 60000, timeoutMsg: () => `Standalone projects did not render; saw ${JSON.stringify(ids)}` },
+      () => `Standalone projects did not render; saw ${JSON.stringify(ids)}`,
+      { timeout: 60000 },
     );
     // Standalone shows ONLY matched rows — no subtasks were fetched.
     expect(instancesOf(ids, "Sub A1.md")).toBe(0);

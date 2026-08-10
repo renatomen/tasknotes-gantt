@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * Inline cell-edit spec (cell editability).
@@ -582,15 +583,13 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(immediateText).toBe("Deep work");
 
     let lastEffort: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         lastEffort = await frontmatterValue(TASK_ROW, "effort");
         return lastEffort === "Deep work";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `frontmatter effort not updated; saw: ${JSON.stringify(lastEffort)}`,
-      },
+      () => `frontmatter effort not updated; saw: ${JSON.stringify(lastEffort)}`,
+      { timeout: 15000 },
     );
 
     // The persisted write flows back through the normal refresh; the cell
@@ -678,15 +677,13 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(await commitEditorValue("10.04.2026")).toBe(true);
 
     let lastDue: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         lastDue = await frontmatterValue(TASK_ROW, "due");
         return lastDue === "2026-04-10";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `frontmatter due not updated to 2026-04-10; saw: ${JSON.stringify(lastDue)}`,
-      },
+      () => `frontmatter due not updated to 2026-04-10; saw: ${JSON.stringify(lastDue)}`,
+      { timeout: 15000 },
     );
 
     await browser.waitUntil(
@@ -750,15 +747,13 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(await pickPickerItem("Done")).toBe(true);
 
     let lastStatus: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         lastStatus = await frontmatterValue(TASK_ROW, "status");
         return lastStatus === "done";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `frontmatter status not updated to 'done'; saw: ${JSON.stringify(lastStatus)}`,
-      },
+      () => `frontmatter status not updated to 'done'; saw: ${JSON.stringify(lastStatus)}`,
+      { timeout: 15000 },
     );
   });
 
@@ -799,12 +794,13 @@ describe("Gantt (OG) inline cell editing", () => {
     expect(await removeChipByLabel("Manual entry")).toBe(true);
     await clickOutsideEditor();
     let ws: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         ws = await frontmatterValue(TASK_ROW, "workstream");
         return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]"]);
       },
-      { timeout: 15000, timeoutMsg: () => `remove did not restore the kept link; saw: ${JSON.stringify(ws)}` },
+      () => `remove did not restore the kept link; saw: ${JSON.stringify(ws)}`,
+      { timeout: 15000 },
     );
   });
 
@@ -833,15 +829,13 @@ describe("Gantt (OG) inline cell editing", () => {
 
     await clickOutsideEditor();
     let ws: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         ws = await frontmatterValue(TASK_ROW, "workstream");
         return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]", "[[WS Beta]]"]);
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `picked wikilink not committed as a chip; saw: ${JSON.stringify(ws)}`,
-      },
+      () => `picked wikilink not committed as a chip; saw: ${JSON.stringify(ws)}`,
+      { timeout: 15000 },
     );
 
     // Restore: re-open and remove WS Beta so the suite stays at ["[[WS Alpha]]"].
@@ -885,12 +879,13 @@ describe("Gantt (OG) inline cell editing", () => {
       timeoutMsg: "Tab did not close the chips editor",
     });
     let ws: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         ws = await frontmatterValue(TASK_ROW, "workstream");
         return JSON.stringify(ws) === JSON.stringify(["[[WS Alpha]]", "Tabbed entry"]);
       },
-      { timeout: 15000, timeoutMsg: () => `Tab did not commit the chip list; saw: ${JSON.stringify(ws)}` },
+      () => `Tab did not commit the chip list; saw: ${JSON.stringify(ws)}`,
+      { timeout: 15000 },
     );
 
     // Restore ["[[WS Alpha]]"] for suite idempotence.
@@ -922,15 +917,13 @@ describe("Gantt (OG) inline cell editing", () => {
     await browser.keys(["Tab"]);
 
     let committed: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         committed = await frontmatterValue(TASK_ROW, "effort");
         return committed === "tabbed edit";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `Tab did not commit the typed text; frontmatter effort: ${JSON.stringify(committed)}`,
-      },
+      () => `Tab did not commit the typed text; frontmatter effort: ${JSON.stringify(committed)}`,
+      { timeout: 15000 },
     );
 
     // Tab may have opened the next cell's editor — close it so the next test's
@@ -963,15 +956,13 @@ describe("Gantt (OG) inline cell editing", () => {
     });
 
     let committed: unknown = "<unread>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         committed = await frontmatterValue(TASK_ROW, "effort");
         return committed === "note [[Zzq";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `no-match Enter did not commit the typed text; frontmatter: ${JSON.stringify(committed)}`,
-      },
+      () => `no-match Enter did not commit the typed text; frontmatter: ${JSON.stringify(committed)}`,
+      { timeout: 15000 },
     );
   });
 
@@ -1031,15 +1022,13 @@ describe("Gantt (OG) inline cell editing", () => {
     // Suggestions come from the VAULT (the fixture's Q3 notes), not TaskNotes —
     // TaskNotes' helper is unreachable in the harness, so this proves R2.
     let items: string[] = [];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         items = await readSuggestItems();
         return items.includes(ROADMAP_LABEL) && items.includes(RETRO_LABEL);
       },
-      {
-        timeout: 10000,
-        timeoutMsg: () => `vault [[ suggestions did not appear; saw: ${JSON.stringify(items)}`,
-      },
+      () => `vault [[ suggestions did not appear; saw: ${JSON.stringify(items)}`,
+      { timeout: 10000 },
     );
 
     expect(await pickSuggestItem(ROADMAP_LABEL)).toBe(true);
@@ -1048,15 +1037,13 @@ describe("Gantt (OG) inline cell editing", () => {
     // preserved) AND the editor is STILL OPEN — the portal'd-dropdown click was
     // not lost to the wrapper's clickOutside → commit.
     let inputValue: string | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         inputValue = await readEditorInputValue();
         return inputValue === "see [[Q3 Roadmap]] later";
       },
-      {
-        timeout: 5000,
-        timeoutMsg: () => `pick did not splice at the caret; input: ${JSON.stringify(inputValue)}`,
-      },
+      () => `pick did not splice at the caret; input: ${JSON.stringify(inputValue)}`,
+      { timeout: 5000 },
     );
     expect((await readEditState()).editorOpen).toBe(true);
 
@@ -1082,16 +1069,14 @@ describe("Gantt (OG) inline cell editing", () => {
     // `<strong>` appears only after the async confirming data pass — so POLL for
     // it rather than asserting synchronously post-commit.
     let boldText: string | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         boldText = await readCellStrongText(TASK_ROW, EFFORT_COL);
         return boldText === "ship";
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `effort cell did not render <strong>ship</strong>; saw: ${JSON.stringify(boldText)}`,
-      },
+      () => `effort cell did not render <strong>ship</strong>; saw: ${JSON.stringify(boldText)}`,
+      { timeout: 15000 },
     );
   });
 
@@ -1122,16 +1107,14 @@ describe("Gantt (OG) inline cell editing", () => {
     });
 
     let rendered: string | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         rendered = await readCellRenderedText(TASK_ROW, EFFORT_COL);
         return rendered !== null && rendered.includes("Q3 Roadmap");
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () => `outside click did not commit the splice; cell shows: ${JSON.stringify(rendered)}`,
-      },
+      () => `outside click did not commit the splice; cell shows: ${JSON.stringify(rendered)}`,
+      { timeout: 15000 },
     );
   });
 

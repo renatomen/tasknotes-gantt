@@ -1,4 +1,5 @@
 import { browser, expect } from "@wdio/globals";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -319,17 +320,15 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await clickColumnHeader(SORT_COLUMN_ID); // second click → descending
 
     let state: SortState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         state = await readSortState();
         return state.mounted && idx(state.ids, "Project B.md") >= 0 &&
           idx(state.ids, "Project B.md") < idx(state.ids, "Project A.md");
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () =>
-          `Expected B before A on due-desc; saw A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
-      },
+      () =>
+        `Expected B before A on due-desc; saw A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
+      { timeout: 15000 },
     );
     // Nesting preserved: all six instances still render after the sort.
     expect(missingNames(state!.ids)).toEqual([]);
@@ -357,17 +356,15 @@ describe("Gantt (OG) ephemeral column sort", () => {
     // Third click → cleared: pill hidden, sort cue gone, Base order restored (A before B).
     await clickColumnHeader(SORT_COLUMN_ID);
     let state: SortState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         state = await readSortState();
         return !state.resetPill && !state.sorted &&
           idx(state.ids, "Project A.md") < idx(state.ids, "Project B.md");
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () =>
-          `Third click should clear to Base order; saw resetPill=${state?.resetPill} sorted=${state?.sorted} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
-      },
+      () =>
+        `Third click should clear to Base order; saw resetPill=${state?.resetPill} sorted=${state?.sorted} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
+      { timeout: 15000 },
     );
     expect(state!.resetPill).toBe(false);
   });
@@ -389,16 +386,14 @@ describe("Gantt (OG) ephemeral column sort", () => {
     });
 
     let state: SortState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         state = await readSortState();
         return !state.resetPill && idx(state.ids, "Project A.md") < idx(state.ids, "Project B.md");
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () =>
-          `Reset pill should restore Base order; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
-      },
+      () =>
+        `Reset pill should restore Base order; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
+      { timeout: 15000 },
     );
     expect(state!.resetPill).toBe(false);
   });
@@ -447,17 +442,15 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
     // The sort must hold (B still before A) and the host must not clip.
     let state: SortState | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         state = await readSortState();
         return state.mounted && state.resetPill &&
           idx(state.ids, "Project B.md") < idx(state.ids, "Project A.md");
       },
-      {
-        timeout: 15000,
-        timeoutMsg: () =>
-          `Sort should survive a refresh; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
-      },
+      () =>
+        `Sort should survive a refresh; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
+      { timeout: 15000 },
     );
     expect(state!.hostHeight).toBeGreaterThanOrEqual(112);
   });

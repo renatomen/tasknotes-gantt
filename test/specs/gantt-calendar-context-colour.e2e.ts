@@ -1,4 +1,5 @@
 import { browser, expect } from "@wdio/globals";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -112,13 +113,14 @@ describe("Gantt (OG) calendar colour on fetched context rows", () => {
   it("gives a fetched subtask its own calendar's colour, not the default", async () => {
     // The subtask has no Bases entry — its association is only visible through the
     // rendered instance, which is what the shading now reads.
-    await browser.waitUntil(
-      async () => forTask(await barColors(), "Sub A1") === NZ_COLOR,
-      {
-        timeout: 30000,
-        timeoutMsg: async () =>
-          `fetched bar never took the calendar colour; saw ${JSON.stringify(await barColors())}`,
+    let lastColors: Record<string, string> = {};
+    await waitUntilOrExplain(
+      async () => {
+        lastColors = await barColors();
+        return forTask(lastColors, "Sub A1") === NZ_COLOR;
       },
+      () => `fetched bar never took the calendar colour; saw ${JSON.stringify(lastColors)}`,
+      { timeout: 30000 },
     );
     expect(forTask(await barColors(), "Sub A1")).toBe(NZ_COLOR);
   });
@@ -144,13 +146,14 @@ describe("Gantt (OG) calendar colour on fetched context rows", () => {
       });
     });
 
-    await browser.waitUntil(
-      async () => forTask(await barColors(), "Sub A1") === AU_COLOR,
-      {
-        timeout: 30000,
-        timeoutMsg: async () =>
-          `the fetched bar never followed its edited association; saw ${JSON.stringify(await barColors())}`,
+    let lastColors: Record<string, string> = {};
+    await waitUntilOrExplain(
+      async () => {
+        lastColors = await barColors();
+        return forTask(lastColors, "Sub A1") === AU_COLOR;
       },
+      () => `the fetched bar never followed its edited association; saw ${JSON.stringify(lastColors)}`,
+      { timeout: 30000 },
     );
     expect(forTask(await barColors(), "Sub A1")).toBe(AU_COLOR);
   });

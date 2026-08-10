@@ -33,8 +33,22 @@ interface Run {
   stderr: string;
 }
 
+// Nearly every test here spawns a node or git child; process start-up on a
+// loaded machine can alone exceed jest's 5s default, so the whole file gets a
+// generous budget — a deliberate granularity trade (per-test annotation on
+// nearly every test is noise) at the cost of slower worst-case hang detection.
+jest.setTimeout(30_000);
+
+// Children get a scrubbed env: inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
+// (e.g. under a git hook) would silently retarget the temp-repo git calls at
+// the real repository.
+const childEnv = { ...process.env };
+delete childEnv.GIT_DIR;
+delete childEnv.GIT_WORK_TREE;
+delete childEnv.GIT_INDEX_FILE;
+
 function git(args: string[], cwd = repo): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, { cwd, encoding: 'utf8', env: childEnv }).trim();
 }
 
 function commitFile(path: string, body: string, message: string): string {
@@ -58,8 +72,8 @@ const clean = (): Record<string, string> =>
 function runScript(args: string[], stdin: string | number = ''): Run {
   const options =
     typeof stdin === 'number'
-      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const }
-      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const };
+      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const, env: childEnv }
+      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const, env: childEnv };
   try {
     const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
@@ -92,10 +106,12 @@ beforeAll(() => {
   // Tagged in setup, not in a test, so no case depends on another having run.
   git(['tag', '-a', '-m', 'probe', 'probe-tag', codeCommit]);
   tagObject = git(['rev-parse', 'refs/tags/probe-tag']);
-});
+}, 30_000);
 
 afterAll(() => {
-  rmSync(repo, { recursive: true, force: true });
+  // Retries: freshly-written git objects are prime AV-handle-holding targets
+  // on a loaded Windows machine, and a retry-less rm throws EBUSY.
+  rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 beforeEach(() => writeReceipts({}));
