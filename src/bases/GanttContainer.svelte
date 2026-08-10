@@ -1329,6 +1329,12 @@
 
   let api: GanttAPI = $state();
 
+  // SVAR suppresses every tooltip on hardware reporting any touch points —
+  // which includes a touchscreen laptop whose reader is hovering with a mouse.
+  // A tooltip is a hover affordance, so it is enabled exactly where hovering is
+  // possible; a touch-only device keeps the library's suppression.
+  const tooltipHoverCapable = window.matchMedia('(any-hover: hover)').matches;
+
   // Bumped when the SVAR api re-binds (initGantt) and on teardown. The executor
   // treats a bump alone as a REMOUNT (post-persist data work continues), so
   // teardown also sets `destroyed` — `api` stays assigned, alive-looking.
@@ -2672,7 +2678,7 @@
            every incoming edge on the dependent task, and the single edge a
            reader points at on that edge itself. Falls back to the task name for
            tasks with no dependencies. -->
-      <Tooltip {api} content={DependencyTooltip}>
+      <Tooltip {api} content={DependencyTooltip} touch={tooltipHoverCapable}>
         <!-- taskTemplate renders the bar's content (text + optional icon chip via
              BarContent). Passed as a STABLE prop set once at mount — SVAR's
              reinitStore does not read taskTemplate, so this never re-inits the
