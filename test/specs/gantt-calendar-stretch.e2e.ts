@@ -84,6 +84,28 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(workingPieces.length).toBeGreaterThan(0);
   });
 
+  it("paints ghost pieces the host bar's effective fill", async () => {
+    // Pins BOTH ends of the fill chain: the host .wx-bar must define
+    // --og-effective-fill (a probe span inside the bar inherits it and paints
+    // it), and the .og-ghost-run piece must paint that same value. Dropping
+    // either element from the definition selector turns its side transparent
+    // and breaks the equality — geometry-only assertions never see that.
+    const fill = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector) as HTMLElement | null;
+      const piece = bar?.querySelector(".og-ghost-run:not(.og-ghost-blocked)");
+      if (!bar || !piece) throw new Error(`bar or working piece not found: ${selector}`);
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--og-effective-fill)";
+      bar.appendChild(probe);
+      const barFill = window.getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { barFill, pieceFill: window.getComputedStyle(piece).backgroundColor };
+    }, STRETCH_BAR);
+
+    expect(fill.barFill).not.toBe("rgba(0, 0, 0, 0)");
+    expect(fill.pieceFill).toBe(fill.barFill);
+  });
+
   it("stamps SVAR's own wx-split class on the host bar", async () => {
     const barClass = await browser.execute((selector: string) => {
       return document.querySelector(selector)?.className ?? null;

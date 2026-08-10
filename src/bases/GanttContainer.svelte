@@ -3677,9 +3677,10 @@
    * root-level declaration would freeze the no-treatment default into every
    * bar, while each of these elements carries (or inherits from an ancestor
    * that carries) its own --og-ghost-fill. The piece selectors matter: legend
-   * occurrence samples are .og-instance elements with their ghost fill set
-   * inline on themselves and no .wx-bar in their ancestry, so a bar-only
-   * definition would leave them invalid-at-computed-value-time. Contract for
+   * occurrence samples are .og-instance elements with their ghost fill inline
+   * on themselves (bar-kind) or inherited from their pieces wrapper, with no
+   * .wx-bar in their ancestry, so a bar-only definition would leave them
+   * invalid-at-computed-value-time. Contract for
    * consumers: "the colour a surface paints when it paints this bar's body"
    * — valid only under .og-bases-gantt. Deliberate non-derivers: the series
    * spine (the accent fallback is its point), the legend bar-sample default
