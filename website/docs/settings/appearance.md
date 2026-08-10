@@ -35,9 +35,14 @@ A small icon on each bar. **Default:** None.
 
 ## Show date-status indicators on bars
 
-Gives a distinct **orange** treatment to bars whose dates aren't fully specified —
-one date missing (inferred), no dates (placeholder), or start/end swapped. A fully
-dated task is never flagged (there's no overdue marker). **Default:** on.
+Signals bars with an **incomplete or reversed** date range. A bar with **one date
+missing** (the other inferred) or **no dates at all** (placed at today as a
+placeholder) gets a **torn, zigzag edge** on the side that was never authored. A
+bar whose **start falls after its due date** gets a distinct **orange** treatment
+instead. A task carrying both dates in chronological order is never flagged
+(there's no overdue marker). The teeth are capped by the bar's own width, so a
+short task at a coarse zoom may be too narrow to show them — zoom in to be sure.
+**Default:** on.
 
 ## Show toolbar
 
