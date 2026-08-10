@@ -126,10 +126,11 @@
   // branch and the occupancy overlay (envelope off — the body is the plain span
   // the recorded pieces overlay). Ghost runs and envelope pieces paint
   // themselves; the cut lands on their outermost pieces instead.
+  // Mirrors the template's own branch order (occupancy wins over ghost runs),
+  // so a row carrying BOTH still gets the body its rendered branch needs.
   const paintedTornBody = $derived(
     tornBody &&
-      !ghostPieces &&
-      !(occupancyView && data?.custom?.occupancyEnvelope === true),
+      (occupancyView ? data?.custom?.occupancyEnvelope !== true : !ghostPieces),
   );
 
   const pct = (fraction: number): string => `${(fraction * 100).toFixed(4)}%`;

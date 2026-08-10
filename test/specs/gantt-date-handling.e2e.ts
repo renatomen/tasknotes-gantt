@@ -1,4 +1,4 @@
-/* global Image, requestAnimationFrame */
+/* global Image, requestAnimationFrame, CSSStyleDeclaration */
 import { browser, expect, $, $$ } from "@wdio/globals";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -102,6 +102,19 @@ const ZIGZAG_TOOTH = `min(0% + ${ZIGZAG_DEPTH}, ${ZIGZAG_SURFACE_CEILING} + 0px)
 const ZIGZAG_TOOTH_SIZE = `${ZIGZAG_TOOTH} ${ZIGZAG_PERIOD}`;
 const ZIGZAG_MIDDLE_SIZE_ONE = `calc(100% + 0px - ${ZIGZAG_TOOTH}) 100%`;
 const ZIGZAG_MIDDLE_SIZE_BOTH = `calc(100% + 0px - (${ZIGZAG_TOOTH} * 2)) 100%`;
+
+/**
+ * The ordinary chip inset EVERY bar's `.wx-content` carries
+ * (`--og-bar-content-pad`), and the leading inset of a torn one. The tooth
+ * clearance ADDS to the ordinary inset rather than replacing it, so the chip on
+ * a torn bar never sits closer to the leading edge than an untorn bar's — the
+ * relation is asserted alongside the value, since only the relation survives a
+ * future change to either term.
+ */
+const BAR_CONTENT_PAD = "7px";
+const ZIGZAG_LABEL_PAD_LEFT = `${
+  Number.parseFloat(BAR_CONTENT_PAD) + Number.parseFloat(ZIGZAG_DEPTH)
+}px`;
 
 /** Computed facts for a bar under the split-rendered torn treatment. */
 interface ZigzagProbe {
@@ -517,8 +530,18 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(probe.hostPaddingLeft).toBe("0px");
       expect(probe.hostPaddingRight).toBe("0px");
       // The label steps clear of the notches by the same min() the mask cuts
-      // by — resolved here to the full depth, since a day-zoom bar is wide.
-      expect(probe.labelPaddingLeft).toBe(ZIGZAG_DEPTH);
+      // by — resolved here to the full depth, since a day-zoom bar is wide —
+      // ADDED to the ordinary chip inset every bar already carries.
+      expect(probe.labelPaddingLeft).toBe(ZIGZAG_LABEL_PAD_LEFT);
+      // The relation, not just the sum: an untorn bar is the baseline, and the
+      // torn one has to clear the notch on top of it. A future change that
+      // swapped the addition back for a bare depth would shrink the torn inset
+      // BELOW the untorn one and fail here even if both pins were re-fitted.
+      const untorn = await readZigzag("Complete.md");
+      expect(untorn.labelPaddingLeft).toBe(BAR_CONTENT_PAD);
+      expect(Number.parseFloat(probe.labelPaddingLeft)).toBeGreaterThan(
+        Number.parseFloat(untorn.labelPaddingLeft),
+      );
     });
 
     it("paints the cut body in the bar's published effective fill", async () => {
@@ -556,7 +579,9 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       );
       expect(probe.bodyMaskRepeat).toBe("repeat-y, repeat-y, no-repeat");
       expect(probe.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
-      expect(probe.labelPaddingLeft).toBe(ZIGZAG_DEPTH);
+      // Leading side: tooth clearance ADDED to the ordinary chip inset;
+      // trailing side: the bare clearance (nothing is seated against that edge).
+      expect(probe.labelPaddingLeft).toBe(ZIGZAG_LABEL_PAD_LEFT);
       expect(probe.labelPaddingRight).toBe(ZIGZAG_DEPTH);
     });
 
@@ -913,21 +938,47 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     });
 
     it("paints a translucent fill at one strength across the whole bar", async () => {
-      // The host and the inner body both paint the bar. If they overlapped, a
-      // fill with alpha would composite TWICE where they do and the middle would
-      // come out darker than the torn strip — invisible under an opaque fill
-      // today, and a trap for every alpha palette colour. Each has to own its
-      // own area: the host the content box, the body the strip the clip gave up.
-      await browser.execute((selector: string) => {
+      // The teeth tile and the solid middle are two mask LAYERS on one body,
+      // and mask layers composite by adding their alphas. If their bands
+      // overlapped, a fill with alpha would come out stronger where they do —
+      // invisible under an opaque fill today, and a trap for every alpha
+      // palette colour. Each layer has to own its own band: the tile the tooth
+      // depth, the middle everything past it.
+      //
+      // The alpha must arrive through the channel the BODY reads or the test
+      // proves nothing. The body paints
+      // `var(--og-host-body-fill, var(--og-effective-fill))` and the default
+      // fill treatment publishes --og-host-body-fill on every bar, so clear
+      // that first (a custom property set to `initial` is guaranteed-invalid,
+      // and the var() falls through to its fallback) and drive --og-ghost-fill,
+      // which the effective fill derives from. An inline HOST background would
+      // be painted straight over by the body and make both columns agree by
+      // construction. The label is hidden while sampling: its glyphs would land
+      // in the middle column and skew the dominant colour.
+      const barSelector = `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`;
+      const staged = await browser.execute((selector: string) => {
         const bar = document.querySelector(selector) as HTMLElement;
         if (!bar) throw new Error(`bar not found: ${selector}`);
-        // `!important` because the date-status fill rule carries it too.
-        bar.style.setProperty("background-color", "rgba(0, 0, 255, 0.5)", "important");
-      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+        bar.style.setProperty("--og-host-body-fill", "initial");
+        bar.style.setProperty("--og-ghost-fill", "rgba(0, 0, 255, 0.5)");
+        const label = bar.querySelector(".wx-content") as HTMLElement | null;
+        if (label) label.style.visibility = "hidden";
+        const body = bar.querySelector(".og-bar-body");
+        return {
+          bodyBackgroundColor: body ? window.getComputedStyle(body).backgroundColor : null,
+          hostBackgroundColor: window.getComputedStyle(bar).backgroundColor,
+        };
+      }, barSelector);
+
+      // The body really took the translucent fill through that channel, and the
+      // split host still paints nothing — so the two columns below differ only
+      // by which mask layer covers them.
+      expect(staged.bodyBackgroundColor).toBe("rgba(0, 0, 255, 0.5)");
+      expect(staged.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
 
       // Just inside the tooth depth the tooth is opaque for most of its period,
-      // so the column's dominant colour is the fill as the BODY paints it; well
-      // past it, the fill as the HOST paints it.
+      // so the column's dominant colour is the fill under the TILE; well past
+      // it, the fill under the MIDDLE layer.
       const dominant = (column: string[]): string =>
         [...column].sort(
           (a, b) =>
@@ -937,15 +988,17 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       const middle = dominant(await sampleBarColumn("Due Only.md", 12));
 
       await browser.execute((selector: string) => {
-        (document.querySelector(selector) as HTMLElement).style.removeProperty(
-          "background-color",
-        );
-      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+        const bar = document.querySelector(selector) as HTMLElement;
+        bar.style.removeProperty("--og-host-body-fill");
+        bar.style.removeProperty("--og-ghost-fill");
+        const label = bar.querySelector(".wx-content") as HTMLElement | null;
+        if (label) label.style.removeProperty("visibility");
+      }, barSelector);
 
-      // The translucent fill really reached the screen (a doubled composite is
-      // only interesting if the row shows through at all)…
+      // The translucent fill really reached the screen — the row shows through
+      // it, so a doubled alpha would be visible at all…
       expect(strip).not.toBe("#0000ff");
-      // …and the two areas came out the same colour, so neither was painted twice.
+      // …and the two bands came out the same strength, so neither composited twice.
       expect(middle).toBe(strip);
     });
 
@@ -1056,6 +1109,34 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(band.background).not.toBe("rgba(0, 0, 0, 0)");
       const barBox = await bar.getSize();
       expect(band.width).toBeGreaterThan(barBox.width * 2);
+
+      // The cue rule restores BOTH of the cues SVAR guards behind
+      // `:not(.wx-split)`, but only the hover half can fire from a pointer
+      // here: the chart marks the row BAND selected, never the bar. So stage
+      // the class the rule names — the way the dependency spec stages
+      // `wx-selected` on a link handle — and pin the second half by value.
+      // The pointer is parked off the bar first, so `:hover` cannot supply the
+      // shadow and let a deleted `.wx-selected` selector pass unnoticed.
+      await browser.action("pointer").move({ x: 3, y: 3 }).perform();
+      const staged = await browser.execute((selector: string) => {
+        const target = document.querySelector(selector) as HTMLElement;
+        if (!target) throw new Error(`bar not found: ${selector}`);
+        const read = (): string => window.getComputedStyle(target).boxShadow;
+        const before = read();
+        target.classList.add("wx-selected");
+        const withClass = read();
+        target.classList.remove("wx-selected");
+        return { before, withClass, after: read() };
+      }, selector);
+
+      // Unhovered and unselected the bar carries no shadow, so the value below
+      // is the staged class's own doing…
+      expect(staged.before).toBe("none");
+      // …it is a real shadow, identical to the hover cue the same rule paints…
+      expect(staged.withClass).not.toBe("none");
+      expect(staged.withClass).toBe(hovered.barShadow);
+      // …and the staging left nothing behind for the next test.
+      expect(staged.after).toBe("none");
     });
   });
 
@@ -1339,10 +1420,102 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(narrow.depth).toBe(ZIGZAG_DEPTH);
       // The bar really is too narrow to seat the accent as authored…
       expect(narrow.accentLeft + narrow.wideWidth).toBeGreaterThan(narrow.barWidth);
-      // …so the cap trims it to exactly the room past the leading teeth.
-      expect(narrow.accentLeft).toBe(4);
-      expect(narrow.accentWidth).toBe(4);
+      // …and it is narrow enough that the per-surface ceiling, not the depth,
+      // decides the offset — the same `min()` the teeth are cut by, so the
+      // accent starts exactly where this bar's shallower tooth ends rather
+      // than at the full depth it has no room for.
+      // (Tolerances are a twentieth of a pixel — device-pixel snapping moves
+      // a used length by hundredths here, while dropping the ceiling would
+      // move the offset by the better part of a pixel.)
+      expect(narrow.accentLeft).toBeLessThan(Number.parseFloat(ZIGZAG_DEPTH));
+      expect(narrow.accentLeft).toBeCloseTo(
+        narrow.barWidth * (Number.parseFloat(ZIGZAG_SURFACE_CEILING) / 100),
+        1,
+      );
+      // The cap then trims the accent to exactly the room left past it, so the
+      // pair fills the bar and overflows nothing.
+      expect(narrow.accentWidth).toBeCloseTo(narrow.barWidth - narrow.accentLeft, 1);
       expect(narrow.accentLeft + narrow.accentWidth).toBeLessThanOrEqual(narrow.barWidth + 0.01);
+    });
+  });
+
+  describe("strip-ONLY treatment over a torn edge", () => {
+    // The strip channel alone (`tngantt_barFillSource: none`) is the only
+    // config where the bar's body colour and its PIECE colour differ: the
+    // neutral strip surface is published as --og-host-body-fill while the
+    // pieces are deliberately left on the default task colour. With both
+    // channels lit (DatesStrip.base) the fill rule publishes the same colour
+    // through both properties, so a body reading the wrong one still looks
+    // right — this fixture is what makes the two distinguishable.
+    before(async () => {
+      await openBase("DatesStripOnly.base");
+      await waitForStamp("Due Only.md", "datestatus-zigzag-start");
+    });
+
+    it("paints the torn body the neutral strip surface, not the piece colour", async () => {
+      const paint = await browser.execute((selector: string, untornSelector: string) => {
+        const bar = document.querySelector(selector) as HTMLElement;
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const untorn = document.querySelector(untornSelector);
+        if (!untorn) throw new Error(`bar not found: ${untornSelector}`);
+        const widths = (style: CSSStyleDeclaration): string[] => [
+          style.borderTopWidth,
+          style.borderRightWidth,
+          style.borderBottomWidth,
+          style.borderLeftWidth,
+        ];
+        const body = bar.querySelector(".og-bar-body");
+        if (!body) throw new Error("torn bar rendered no body layer");
+        // Both custom properties compute to token streams, not rgb() colours,
+        // so resolve each the way a painter would: on a scratch child of the
+        // bar, which inherits whatever the bar publishes.
+        const resolve = (value: string): string => {
+          const scratch = document.createElement("div");
+          scratch.style.backgroundColor = value;
+          bar.appendChild(scratch);
+          const color = window.getComputedStyle(scratch).backgroundColor;
+          scratch.remove();
+          return color;
+        };
+        const bodyStyle = window.getComputedStyle(body);
+        const hostStyle = window.getComputedStyle(bar);
+        return {
+          bodyBackgroundColor: bodyStyle.backgroundColor,
+          stripBodyFill: resolve("var(--og-host-body-fill)"),
+          pieceFill: resolve("var(--og-effective-fill)"),
+          bodyBorderWidths: widths(bodyStyle),
+          // The outline an UNTORN strip bar wears on its host: the same 1px
+          // declaration, so it snaps to device pixels identically and gives
+          // the body's outline a reference to match instead of a raw "1px"
+          // that only holds at one device-pixel ratio.
+          untornHostBorderWidths: widths(window.getComputedStyle(untorn)),
+          bodyBorderStyle: bodyStyle.borderTopStyle,
+          bodyBorderColor: bodyStyle.borderTopColor,
+          hostBorderTopWidth: hostStyle.borderTopWidth,
+          hostBackgroundColor: hostStyle.backgroundColor,
+        };
+      },
+      `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
+      `.og-bases-gantt .wx-bar[data-id$="Complete.md"]`);
+
+      // The two channels really are distinguishable here — otherwise the
+      // equality below would hold no matter which property the body read.
+      expect(paint.stripBodyFill).not.toBe("rgba(0, 0, 0, 0)");
+      expect(paint.pieceFill).not.toBe(paint.stripBodyFill);
+      // The split host paints nothing, so the body IS the bar's surface, and it
+      // has to be the neutral strip one.
+      expect(paint.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(paint.bodyBackgroundColor).toBe(paint.stripBodyFill);
+      // Strip mode's visibility guarantee is its outline, and the split host's
+      // border is zeroed — so the outline has to live on the body, where it
+      // takes the same cut as the surface it bounds.
+      expect(paint.hostBorderTopWidth).toBe("0px");
+      // The reference outline is really painted, so matching it is a claim
+      // about a border rather than about two absent ones.
+      expect(Number.parseFloat(paint.untornHostBorderWidths[0]!)).toBeGreaterThan(0);
+      expect(paint.bodyBorderWidths).toEqual(paint.untornHostBorderWidths);
+      expect(paint.bodyBorderStyle).toBe("solid");
+      expect(paint.bodyBorderColor).not.toBe("rgba(0, 0, 0, 0)");
     });
   });
 });

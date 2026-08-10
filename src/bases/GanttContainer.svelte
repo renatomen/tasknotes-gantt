@@ -3312,6 +3312,9 @@
    * an edge pair lists both tiles and needs no mask compositing.
    */
   .og-bases-gantt {
+    /* The chip's clearance from the bar's leading edge, named so the torn
+       inset can add to it instead of silently replacing it. */
+    --og-bar-content-pad: 7px;
     --og-zigzag-period: 8px;
     /*
      * Half the period — how far the tile's 45° wedges reach into the body.
@@ -3388,11 +3391,16 @@
    * The host padding that used to inset the label past the teeth is gone, so
    * the plain torn bar insets its label directly (piece-bearing bars keep the
    * label inside their masked wrapper, which already holds it clear of the
-   * notch). The strip treatment's own 9px content inset outranks this.
+   * notch). The tooth clearance ADDS to the ordinary chip inset rather than
+   * replacing it — this rule out-specifies the base one, and a bare depth
+   * would pull the chip closer to the edge than an untorn bar's. The strip
+   * treatment's own 9px content inset outranks both.
    */
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both) > .wx-content) {
-    padding-left: min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling));
+    padding-left: calc(
+      var(--og-bar-content-pad) + min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling))
+    );
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both) > .wx-content) {
@@ -3447,7 +3455,7 @@
    */
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both)::before) {
-    left: var(--og-zigzag-depth) !important;
+    left: min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling)) !important;
   }
   /*
    * The accent and the duplicate-row hatch are host-level painters the piece
@@ -3471,10 +3479,10 @@
   }
   .og-bases-gantt
     :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-end)::before) {
-    max-width: calc(100% - var(--og-zigzag-depth)) !important;
+    max-width: calc(100% - min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling))) !important;
   }
   .og-bases-gantt :global(.wx-bar.datestatus-zigzag-both::before) {
-    max-width: calc(100% - var(--og-zigzag-depth) * 2) !important;
+    max-width: calc(100% - min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling)) * 2) !important;
   }
 
   /*
@@ -3693,6 +3701,12 @@
    */
   .og-bases-gantt :global(.wx-bar.wx-split) {
     border: 0 !important;
+    /* SVAR supplies the label colour from the same `:not(.wx-split)` rule as
+       the background it steps aside from, so a split bar with no treatment
+       colour of its own would fall back to the chart's text colour on a
+       coloured body. Unweighted, so every treatment's own `!important`
+       colour still wins. */
+    color: var(--wx-gantt-task-font-color);
   }
   /*
    * Ghost/envelope pieces replace the bar's body, so SVAR's full-span progress
@@ -3917,7 +3931,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-left: 7px;
+    padding-left: var(--og-bar-content-pad);
   }
   .og-bases-gantt :global(.og-bar-text) {
     overflow: hidden;

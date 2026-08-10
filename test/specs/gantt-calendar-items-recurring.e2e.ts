@@ -34,7 +34,11 @@ import { waitUntilOrExplain } from "./helpers/waitReady";
  *  5. time entries ON → read-only `og-event` rows; a drag gesture on one leaves
  *                       its geometry unchanged and its mutating affordances hidden;
  *  6. month scale     → the recurring row shows the dashed series spine, no
- *                       per-day pieces (separate base pinned at month zoom).
+ *                       per-day pieces (separate base pinned at month zoom);
+ *  7. torn overlay    → a row that is BOTH an occupancy overlay and torn takes
+ *                       the cut on its piece wrapper (`og-occupancy-overlay`),
+ *                       leaves its recorded pieces whole, and keeps SVAR's
+ *                       progress fill (separate base + fixture note).
  *
  * SELECTOR NOTES (owned by this plugin unless stated):
  *  - `.wx-bar` (SVAR) carries our cue classes: `og-recurring` (occupancy
@@ -51,12 +55,24 @@ const fixtureVault = path.resolve(__dirname, "../vaults/gantt-calendar-items");
 
 const DAY_BASE = "CalendarItems.base";
 const MONTH_BASE = "CalendarItemsMonth.base";
+const TORN_BASE = "CalendarItemsTorn.base";
 const RECURRING_NOTE = "Weekly Standup.md";
+const TORN_OVERLAY_NOTE = "Torn Overlay.md";
 const OCCURRENCE_NOTE = "Standup 2026-03-23.md";
 const TRACKED_NOTE = "Tracked Work.md";
 const TASK_NOTES = [RECURRING_NOTE, OCCURRENCE_NOTE, TRACKED_NOTE];
 
 let currentBase = DAY_BASE;
+
+/**
+ * The trailing-edge teeth serialization Chromium reports for any surface the
+ * torn treatment cuts: one tile sized `min(depth, per-surface ceiling)` by the
+ * period, then a solid middle over the rest. Percentages in `mask-size` resolve
+ * per surface at paint time, so the computed longhand keeps the unresolved
+ * `min()`/`calc()`. Same shape the date-handling spec pins.
+ */
+const ZIGZAG_TOOTH = "min(0% + 4px, 40% + 0px)";
+const ZIGZAG_END_MASK_SIZE = `${ZIGZAG_TOOTH} 8px, calc(100% + 0px - ${ZIGZAG_TOOTH}) 100%`;
 
 /**
  * Force the OG Gantt to be the ACTIVE, visible leaf.
@@ -217,6 +233,64 @@ async function recurringRowState(): Promise<RecurringRowState> {
       spineCount: bar.querySelectorAll(".og-series-spine").length,
     };
   }, RECURRING_NOTE);
+}
+
+/** How the one torn occupancy-OVERLAY row composes its two treatments. */
+interface TornOverlayRow {
+  found: boolean;
+  torn: boolean;
+  split: boolean;
+  bodyRendered: boolean;
+  wrapperClass: string;
+  wrapperMaskImage: string;
+  wrapperMaskSize: string;
+  pieceMaskImages: string[];
+  progressRendered: boolean;
+  progressDisplay: string;
+}
+
+const ABSENT_TORN_OVERLAY_ROW: TornOverlayRow = {
+  found: false,
+  torn: false,
+  split: false,
+  bodyRendered: false,
+  wrapperClass: "<no bar>",
+  wrapperMaskImage: "",
+  wrapperMaskSize: "",
+  pieceMaskImages: [],
+  progressRendered: false,
+  progressDisplay: "<no bar>",
+};
+
+async function tornOverlayRow(): Promise<TornOverlayRow> {
+  return browser.execute(
+    (noteName: string, absent: TornOverlayRow) => {
+      const root = document.querySelector(".og-bases-gantt");
+      const bar = (Array.from(root?.querySelectorAll(".wx-bar") ?? []) as HTMLElement[]).find(
+        (candidate) => (candidate.getAttribute("data-id") ?? "").endsWith(noteName),
+      );
+      if (!bar) return absent;
+      const wrapper = bar.querySelector(".og-ghost-runs");
+      const wrapperStyle = wrapper ? window.getComputedStyle(wrapper) : null;
+      const progress = bar.querySelector(".wx-progress-wrapper");
+      return {
+        found: true,
+        torn: bar.classList.contains("datestatus-zigzag-end"),
+        split: bar.classList.contains("wx-split"),
+        bodyRendered: bar.querySelector(".og-bar-body") !== null,
+        wrapperClass: wrapper?.className ?? "<no wrapper>",
+        wrapperMaskImage: wrapperStyle?.maskImage ?? "",
+        wrapperMaskSize: wrapperStyle?.maskSize ?? "",
+        pieceMaskImages: (Array.from(bar.querySelectorAll(".og-instance")) as HTMLElement[]).map(
+          (piece) => window.getComputedStyle(piece).maskImage,
+        ),
+        progressRendered: progress !== null,
+        progressDisplay: progress ? window.getComputedStyle(progress).display : "<not rendered>",
+      };
+    },
+    TORN_OVERLAY_NOTE,
+    ABSENT_TORN_OVERLAY_ROW,
+  );
 }
 
 /** Whole-chart calendar-item footprint (the default-off assertion's subject). */
@@ -685,5 +759,57 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     expect(row.spineCount).toBeGreaterThan(0);
     expect(row.pieceStates).toEqual([]);
     expect(row.hasRecurringCue).toBe(true);
+  });
+
+  it("cuts a torn occupancy-OVERLAY row at its wrapper and keeps its progress", async () => {
+    // `og-occupancy-overlay` is what tells the torn treatment that this piece
+    // wrapper spans the bar: it takes the cut on the wrapper (so the teeth land
+    // at the BAR's edges, not a recorded piece's), and it exempts the row from
+    // the progress suppression that piece-bearing bars get. Every other test
+    // that touches the class builds a synthetic wrapper by hand, so deleting
+    // the binding from the bar template leaves them all green while real
+    // overlay rows lose their cut, hide their progress and grow mid-bar teeth.
+    //
+    // `Torn Overlay.md` is the only fixture that composes both halves: a
+    // recurring row whose one recorded occurrence sits inside its plain span
+    // (no envelope is derived, so the pieces overlay an ordinary bar) and which
+    // authors no due date (so the same bar is torn on its trailing edge). It
+    // has its own base — the other two filter it out so their censuses stay
+    // about the Weekly Standup row.
+    await switchBase(TORN_BASE);
+
+    let row: TornOverlayRow = ABSENT_TORN_OVERLAY_ROW;
+    await waitUntilOrExplain(
+      async () => {
+        await activateBaseLeaf();
+        row = await tornOverlayRow();
+        return row.found && row.torn && row.pieceMaskImages.length > 0;
+      },
+      () => `torn occupancy-overlay row never settled; last: ${JSON.stringify(row)}`,
+      { timeout: 30000 },
+    );
+
+    // The row really is the composition under test — torn, split, painting a
+    // body of its own, and carrying recorded pieces.
+    expect(row.torn).toBe(true);
+    expect(row.split).toBe(true);
+    expect(row.bodyRendered).toBe(true);
+    expect(row.pieceMaskImages.length).toBeGreaterThan(0);
+
+    // The binding, read off the wrapper the template actually rendered.
+    expect(row.wrapperClass).toContain("og-occupancy-overlay");
+
+    // The cut lands on the wrapper, at the bar's own trailing edge…
+    expect(row.wrapperMaskImage).toContain("conic-gradient");
+    expect(row.wrapperMaskSize).toBe(ZIGZAG_END_MASK_SIZE);
+    // …and never on a recorded piece, whose edge is rarely the bar's — a piece
+    // cut would grow a tooth column in the middle of the span.
+    for (const mask of row.pieceMaskImages) expect(mask).toBe("none");
+
+    // The pieces sit ON the painted body rather than replacing it, so SVAR's
+    // whole-span progress fill still tells the truth and must survive. (The
+    // stretch spec pins the other half: a piece-bearing bar hides it.)
+    expect(row.progressRendered).toBe(true);
+    expect(row.progressDisplay).toBe("block");
   });
 });

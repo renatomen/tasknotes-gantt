@@ -727,7 +727,10 @@ function fillBodyRule(selector: string, color: string): string {
   // renders as ghost pieces (wx-split), so the pieces re-read the treatment
   // colour through this inherited property — a stretched bar keeps its
   // status/priority/theme fill instead of reverting to the default colour.
-  return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
+  // --og-host-body-fill: the same colour for a torn bar's painted body. Every
+  // rule that paints a body publishes it, so it tracks the host's paint by
+  // construction rather than by which rule happens to come last.
+  return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; --og-host-body-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
 }
 
 /**
