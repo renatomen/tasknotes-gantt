@@ -219,10 +219,15 @@ function isEntryApplicable(
   semanticId: GanttVisualSemanticId,
   context: GanttLegendContext,
 ): boolean {
-  if (semanticId === 'date-status-torn') {
-    return context.showDateIndicators && context.hasNonAuthoredEdges;
+  switch (semanticId) {
+    case 'date-status-torn':
+      return context.showDateIndicators && context.hasNonAuthoredEdges;
+    case 'date-status-fill':
+    case 'date-status-border':
+      return context.showDateIndicators;
+    default:
+      return true;
   }
-  return true;
 }
 
 function buildEntry(

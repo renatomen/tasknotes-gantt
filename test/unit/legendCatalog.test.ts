@@ -378,11 +378,13 @@ describe('buildLegendCatalog', () => {
     expect(entry(baseContext(), 'date-status-torn').name).toBe('Torn edge');
   });
 
-  it('withholds the torn entry when date indicators are off', () => {
-    const context = baseContext({ showDateIndicators: false });
-    expect(entries(context).map((candidate) => candidate.semanticId)).not.toContain(
-      'date-status-torn',
+  it('withholds every date-status entry when date indicators are off', () => {
+    const semanticIds = entries(baseContext({ showDateIndicators: false })).map(
+      (candidate) => candidate.semanticId,
     );
+    expect(semanticIds).not.toContain('date-status-torn');
+    expect(semanticIds).not.toContain('date-status-fill');
+    expect(semanticIds).not.toContain('date-status-border');
   });
 
   it('withholds the torn entry when no rendered bar carries a non-authored edge', () => {
