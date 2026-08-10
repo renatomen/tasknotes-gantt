@@ -52,6 +52,11 @@ jobs:
         # Covers production-scale render invariants and incremental sync behavior
         # against the real GanttContainer and SVAR components.
         run: npm run perf:isolated
+      - name: SVAR probe gate (real components, real pointer)
+        # Bar-visual and tooltip contracts proven by mounting the real SVAR
+        # components in Chromium and driving real pointer events — the level
+        # where three defects shipped past a fully green jest suite.
+        run: npm run probe:svar
       - name: Upload perf trend (isolated)
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
