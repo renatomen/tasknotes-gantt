@@ -125,7 +125,7 @@ Ordered by (hours saved per future change) ÷ (effort). Each tier is independent
 ### Tier 2 — reuse instead of imitate · ~3 days
 | | Item | Deletes |
 |---|---|---|
-| 5 | **One `stampOnHostBar({ token, observeStyle })` primitive**; rewrite all four callers. | Half a day, jsdom-unit-testable, fixes the two non-re-asserting variants. |
+| 5 | **One `stampOnHostBar({ token, observeStyle })` primitive** for the two class stampers (`markBarSplit`, `markBarDateStatus`). The other two attachments share only the host-walk - `colorCalendarItemBar` saves/restores custom properties and `markBarOverridden` appends a titled element - so they get a shared `findHostBar` helper, not the stamping primitive. | Half a day, jsdom-unit-testable; the re-assertion gap in the property/element attachments is a separate judgement call, not a free fix. |
 | 6 | **Re-seat the zigzag on `wx-split`.** *(The swapped diagonal is SUPERSEDED — inverted dates render no bar and get a validation error badge instead; see docs/backlog.md "Schedule validation". Do not re-seat or resurrect it.)* The tooth-depth fitting exists *only* because host padding can widen the border box; under `wx-split` there is no host padding, so `fitToothDepth`, `measureSurvivingBorder`, `countTornSides` and the progress-wrapper re-pinning all disappear. | **~180 CSS + ~70 TS lines; ~50 of 71 `!important`s; the observer's `style` filter.** |
 | 7 | **Define the fill chain once** as `--og-effective-fill` on `.wx-bar`; have all 9 sites read it. | ~2 h, mechanical, screenshot-verifiable under Tier 1. |
 
