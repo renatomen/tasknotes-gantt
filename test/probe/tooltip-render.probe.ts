@@ -21,12 +21,12 @@ const TASKS = [
     // the id of the drawn link it describes.
     custom: {
       incomingDeps: [
-        { reltype: 'FINISHTOSTART', gap: 'P1D', predecessorName: 'Draft docs', linkId: 'a->b:e2s:' },
+        { reltype: 'FINISHTOSTART', gap: 'P1D', predecessorName: 'Draft docs', linkId: 'a->b:e2s:P1D' },
       ],
     },
   },
 ];
-const LINKS = [{ id: 'a->b:e2s:', source: 'a', target: 'b', type: 'e2s' }];
+const LINKS = [{ id: 'a->b:e2s:P1D', source: 'a', target: 'b', type: 'e2s' }];
 
 async function mount(): Promise<HTMLElement> {
   const screen = render(TooltipProbeHost, { props: { tasks: TASKS, links: LINKS } });
@@ -65,7 +65,7 @@ test('hovering a task bar shows its tooltip', async () => {
   await userEvent.hover(bar);
   await new Promise((r) => setTimeout(r, 900));
   report('task-hover', container);
-  await page.screenshot({ path: 'test/probe/__screenshots__/tooltip-task-hover.png' });
+  await page.screenshot({ path: '__screenshots__/tooltip-task-hover.png' });
 
   expect(document.querySelector('.og-gantt-tooltip')?.textContent ?? '').toContain('Draft docs');
 });
@@ -85,7 +85,7 @@ test('hovering a dependency arrow shows that edge', async () => {
   arrow.dispatchEvent(new MouseEvent('mousemove', opts));
   await new Promise((r2) => setTimeout(r2, 900));
   report('arrow-hover', container);
-  await page.screenshot({ path: 'test/probe/__screenshots__/tooltip-arrow-hover.png' });
+  await page.screenshot({ path: '__screenshots__/tooltip-arrow-hover.png' });
 
   expect(document.querySelector('.og-gantt-tooltip')?.textContent ?? '').toContain('Ship the release');
 });
