@@ -1,10 +1,15 @@
 /**
- * Vitest browser-mode config for the throwaway SVAR feature probe (spike).
- * Mirrors the perf isolated config's svelte(runes) + playwright/chromium setup so
- * the RAW SVAR <Gantt> compiles exactly as in production, but scopes to
- * test/probe/**\/*.probe.ts and drops the `obsidian` alias — the raw probe host
- * imports only `@svar-ui/svelte-gantt`, never `obsidian`. The perf config's
- * include (`test/perf/isolated/**\/*.perf.ts`) does not match these files, so a
+ * Vitest browser-mode config for the SVAR probe gate: real SVAR components
+ * mounted in headless Chromium and driven by real pointer events, gated in CI.
+ * This is the fastest honest level for bar-visual and tooltip contracts — the
+ * level where defects shipped past a fully green jest suite, because jest's
+ * testMatch never reaches a component.
+ *
+ * Mirrors the perf isolated config's svelte(runes) + playwright/chromium setup
+ * so the RAW SVAR <Gantt> compiles exactly as in production, but scopes to
+ * test/probe/**\/*.probe.ts and drops the `obsidian` alias — probe hosts import
+ * only `@svar-ui/svelte-gantt`, never `obsidian`. The perf config's include
+ * (`test/perf/isolated/**\/*.perf.ts`) does not match these files, so a
  * dedicated config is required rather than reusing it.
  */
 import { defineConfig } from 'vitest/config';
