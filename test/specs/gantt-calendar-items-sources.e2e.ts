@@ -441,11 +441,22 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     // filtered out of this view's query, so it must contribute nothing.
     expect(census.propertyIds.some((id) => id.includes("Excluded Event.md"))).toBe(false);
 
-    // The title picker resolved `eventTitle` (not the file basename).
-    const showsTitle = await browser.execute(() =>
-      (document.querySelector(".og-bases-gantt") as HTMLElement | null)?.textContent?.includes(
-        "March Conference",
-      ) ?? false,
+    // The title picker resolved `eventTitle` (not the file basename). The
+    // resolution can land a beat after the bar itself renders, so the check
+    // waits for the title rather than racing it — three CI runs and one local
+    // run lost that race before this settled.
+    let showsTitle = false;
+    await browser.waitUntil(
+      async () => {
+        showsTitle = await browser.execute(
+          () =>
+            (document.querySelector(".og-bases-gantt") as HTMLElement | null)?.textContent?.includes(
+              "March Conference",
+            ) ?? false,
+        );
+        return showsTitle;
+      },
+      { timeout: 10000, timeoutMsg: "property event title never resolved into the view" },
     );
     expect(showsTitle).toBe(true);
   });

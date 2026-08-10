@@ -34,7 +34,7 @@ The internal query boundary that answers "is this date blocked?" without a consu
 A bar edge (start or due) whose date the user did not author — inferred from the other edge and an estimate, or, when neither date exists, given by a placeholder span anchored at today. Signaled by a zigzag cut into that side of the bar; one signal replaces the single color treatment that previously covered every non-complete date status.
 
 ### Swapped dates
-The date-status state in which both dates are authored but inverted (start after due). Not a missing edge: it is signaled by the shared date-status colour treatment (orange fill and red border) — never by the zigzag. Slated to become the first Error of schedule validation, which will replace the colour treatment with an error badge and stop rendering the bar.
+The date-status state in which both dates are authored but inverted (start after due). Not a missing edge, and never signaled by the zigzag: today it carries the legacy colour treatment (orange fill, red border) over a display range corrected by swapping. Slated to become the first *error* of the schedule-validation feature, which suppresses the bar and marks the row with a badge instead — inverted dates are data to fix, not a range to draw.
 
 ## Drag commit
 
