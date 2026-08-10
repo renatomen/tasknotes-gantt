@@ -411,6 +411,7 @@ export function buildSvarTasks(input: SvarTaskInputs): SvarTask[] {
       reltype: link.reltype,
       gap: link.gap,
       predecessorName: idToText.get(link.source) ?? link.source,
+      linkId: link.id,
     });
     incomingByTargetId.set(link.target, list);
   }
@@ -751,7 +752,12 @@ function ghostRunsKey(runs: ReadonlyArray<{ startDate: string; days: number }> |
 
 /** Deterministic fingerprint of a task's incoming dependency edges. */
 function incomingDepsKey(deps: IncomingDep[]): string {
-  return deps.map((d) => `${d.predecessorName}:${d.reltype}:${d.gap ?? ''}`).join('|');
+  // The edge id rides along because the tooltip matches on it: an edge whose id
+  // moved but whose wording did not must still re-issue its row, or the bar
+  // keeps an id no arrow carries and the hovered edge resolves to nothing.
+  return deps
+    .map((d) => `${d.linkId}:${d.predecessorName}:${d.reltype}:${d.gap ?? ''}`)
+    .join('|');
 }
 
 /** Deterministic fingerprint of a task's displayed property values. */

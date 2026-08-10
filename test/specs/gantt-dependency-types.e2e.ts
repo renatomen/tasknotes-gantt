@@ -381,10 +381,11 @@ describe("Gantt (OG) dependency read fidelity", () => {
     }
   });
 
-  // NOTE: the U3 dependency tooltip is intentionally NOT asserted here. SVAR's
-  // tooltip is debounced and portal-rendered, making its popup DOM brittle to
-  // assert headlessly. The tooltip's content (reltype labels, gap formatting,
-  // ordering, empty state) is fully unit-covered in
-  // test/unit/dependencyTooltip.test.ts, and the link→task data wiring in
-  // test/unit/ganttSync.test.ts. The rendered popup is a manual in-vault check.
+  // NOTE: the dependency tooltip is not asserted here — SVAR's tooltip is
+  // debounced and portal-rendered, so its popup DOM is brittle to assert
+  // headlessly. Unit coverage of the text formatting is NOT a substitute: the
+  // tooltip once rendered empty for every task while that formatting was fully
+  // covered, because nothing exercised the component against the payload the
+  // library actually passes. Mounting the component is the level that closes
+  // this, not another spec here.
 });
