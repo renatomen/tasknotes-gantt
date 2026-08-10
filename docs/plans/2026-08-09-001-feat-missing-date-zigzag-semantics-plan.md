@@ -329,8 +329,8 @@ flowchart TB
   badge instead, delivered as the first slice of the schedule-validation feature
   (see `docs/backlog.md`, "Schedule validation"). R5/AE coverage tied to the
   half-fill transfers to that slice.
-- **U5 partially delivered** by #402 (colour rows rescoped to reversed dates). The
-  torn-edge legend entry is still owed and proceeds independently.
+- **U5 delivered** across #402 (colour rows rescoped to reversed dates) and #406
+  (the torn-edge legend entry, maintainer-authored copy, probe + e2e covered).
 - **U6 rescoped**: the swapped-related deletions (legacy colour constants,
   `datestatus-flagged` type and its registry cross-product) ride the validation
   slice; deleting the treatment before its replacement exists would break

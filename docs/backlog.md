@@ -52,10 +52,12 @@ Settled design constraints (session 2026-08-10):
   its ~2× task-type registry bloat) ride this slice — deleting the treatment before
   its replacement exists would break product coherence.
 
-Prerequisites, already queued as active work: tooltip root-cause (no `.wx-tooltip`
-ever renders), bar-hoverability re-measurement scoped to the active leaf, and the
-`test/probe` screenshot gate (validation is icon+tooltip UI — the exact class of work
-that shipped broken three times unverified this week).
+Prerequisites — status at parking time: tooltip root-cause SHIPPED (#404: the
+library suppressed all tooltips on touch-point-reporting hardware; fixed and
+covered by probe + unit + e2e), `test/probe` screenshot gate SHIPPED (#405: runs
+in CI). Still open: bar-hoverability re-measurement scoped to the active leaf,
+and live-vault hover confirmation is human-or-WDIO only (injected events do not
+drive hover UI there).
 - Source: plan `docs/plans/2026-08-09-001-feat-missing-date-zigzag-semantics-plan.md`
   (U4 superseded); audit `docs/reports/2026-08-10-svar-conformance-and-maintainability-audit.md`.
 

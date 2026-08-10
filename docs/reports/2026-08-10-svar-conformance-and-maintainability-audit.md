@@ -104,6 +104,11 @@ Mechanisms 3 and 4 were written *knowing* mechanism 1 existed — the CSS litera
 Ordered by (hours saved per future change) ÷ (effort). Each tier is independently shippable.
 
 ### Tier 0 — shipped defects · hours
+
+> **Status 2026-08-10 (same day, post-audit): both RESOLVED.** D1 shipped as #402;
+> D2 shipped as #404 — whose root cause went deeper than the payload shape: the
+> tooltip library suppresses every tooltip on touch-point-reporting hardware.
+> Retained below as findings, not as live work.
 | | Item | Effort |
 |---|---|---|
 | 1 | **D1** — correct the two legend rows | minutes |
@@ -119,7 +124,7 @@ Ordered by (hours saved per future change) ÷ (effort). Each tier is independent
 | | Item | Deletes |
 |---|---|---|
 | 5 | **One `stampOnHostBar({ token, observeStyle })` primitive**; rewrite all four callers. | Half a day, jsdom-unit-testable, fixes the two non-re-asserting variants. |
-| 6 | **Re-seat the zigzag and the swapped diagonal on `wx-split`.** The tooth-depth fitting exists *only* because host padding can widen the border box; under `wx-split` there is no host padding, so `fitToothDepth`, `measureSurvivingBorder`, `countTornSides` and the progress-wrapper re-pinning all disappear. | **~180 CSS + ~70 TS lines; ~50 of 71 `!important`s; the observer's `style` filter.** |
+| 6 | **Re-seat the zigzag on `wx-split`.** *(The swapped diagonal is SUPERSEDED — inverted dates render no bar and get a validation error badge instead; see docs/backlog.md "Schedule validation". Do not re-seat or resurrect it.)* The tooth-depth fitting exists *only* because host padding can widen the border box; under `wx-split` there is no host padding, so `fitToothDepth`, `measureSurvivingBorder`, `countTornSides` and the progress-wrapper re-pinning all disappear. | **~180 CSS + ~70 TS lines; ~50 of 71 `!important`s; the observer's `style` filter.** |
 | 7 | **Define the fill chain once** as `--og-effective-fill` on `.wx-bar`; have all 9 sites read it. | ~2 h, mechanical, screenshot-verifiable under Tier 1. |
 
 **Caveat on #6:** adopting `wx-split` changes selection/link-handle styling slightly (handles take `--wx-gantt-task-border-color` instead of `inherit`), and its effect on host hover/focus outline was reasoned about, not run. This needs the Tier-1 probe harness first — which is why Tier 1 precedes Tier 2.
