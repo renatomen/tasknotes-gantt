@@ -50,4 +50,12 @@ test('the torn-edge legend swatch renders with the teeth cut into it', async () 
   expect(mask).toContain('conic-gradient');
 
   await page.screenshot({ path: '__screenshots__/legend-torn-edge.png' });
+
+  const weekend = document.querySelector('[data-semantic-id="weekend-shading"]') as HTMLElement;
+  expect(weekend, 'weekend legend entry not rendered').not.toBeNull();
+  weekend.scrollIntoView({ block: 'center' });
+  await new Promise((s2) => setTimeout(s2, 200));
+  const strip = weekend.querySelector('.og-legend-shading') as HTMLElement;
+  expect(getComputedStyle(strip).backgroundImage).toContain('repeating-linear-gradient');
+  await page.screenshot({ path: '__screenshots__/legend-shading-swatch.png' });
 });
