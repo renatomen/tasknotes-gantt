@@ -423,31 +423,40 @@
     border-style: solid;
   }
   /*
-   * The torn-edge swatch cuts the chart's own teeth tile into the sample's
-   * trailing edge: a solid layer covers all but the last tooth-depth, and the
-   * chart's end-teeth wedge tiles down the strip left uncovered.
+   * The torn swatch consumes the chart's own teeth variables so any tuning of
+   * the production cut re-shapes this sample with it; the fallbacks mirror the
+   * chart's values for a legend rendered outside one. Both edges are torn
+   * because the entry's copy explains both, and the torn sides shed their
+   * corner radius exactly as production bars do.
    */
   .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar {
+    border-radius: 0;
     -webkit-mask-image:
-      linear-gradient(#000, #000),
-      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+      var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000)),
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg));
     mask-image:
-      linear-gradient(#000, #000),
-      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+      var(--og-zigzag-teeth-start, conic-gradient(from 0deg at 0px 50%, #0000 0deg 45deg, #000 45deg 135deg, #0000 135deg 360deg)),
+      var(--og-zigzag-middle, linear-gradient(#000, #000)),
+      var(--og-zigzag-teeth-end, conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg));
     -webkit-mask-size:
-      calc(100% - 4px) 100%,
-      4px 8px;
+      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-zigzag-depth, 4px) * 2) 100%,
+      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px);
     mask-size:
-      calc(100% - 4px) 100%,
-      4px 8px;
+      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px),
+      calc(100% - var(--og-zigzag-depth, 4px) * 2) 100%,
+      var(--og-zigzag-depth, 4px) var(--og-zigzag-period, 8px);
     -webkit-mask-position:
-      left center,
-      right center;
+      left top,
+      center center,
+      right top;
     mask-position:
-      left center,
-      right center;
-    -webkit-mask-repeat: no-repeat, repeat-y;
-    mask-repeat: no-repeat, repeat-y;
+      left top,
+      center center,
+      right top;
+    -webkit-mask-repeat: repeat-y, no-repeat, repeat-y;
+    mask-repeat: repeat-y, no-repeat, repeat-y;
   }
 
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {

@@ -20,6 +20,8 @@ const CONTEXT: GanttLegendContext = {
   calendarPalette: [],
   calendarMarkerColor: undefined,
   hasRecordedRecurringOccurrences: false,
+  showDateIndicators: true,
+  hasNonAuthoredEdges: true,
   calendarEventColor: null,
   externalOccurrenceColor: null,
   estimateMeaning: 'calendar-days',
@@ -49,13 +51,18 @@ async function scrollToEntry(semanticId: string): Promise<HTMLElement> {
   return entry;
 }
 
-test('the torn-edge legend swatch renders with the teeth cut into it', async () => {
+test('the torn-edge legend swatch renders with teeth cut into both edges', async () => {
   await mountLegend();
   const entry = await scrollToEntry('date-status-torn');
 
   const bar = entry.querySelector('.og-legend-bar') as HTMLElement;
-  const mask = getComputedStyle(bar).maskImage || getComputedStyle(bar).webkitMaskImage;
-  expect(mask).toContain('conic-gradient');
+  const style = getComputedStyle(bar);
+  const mask = style.maskImage || style.webkitMaskImage;
+  // One teeth tile per edge plus the solid middle — the production layer model.
+  expect(mask.split('conic-gradient(').length - 1).toBe(2);
+  expect(mask).toContain('linear-gradient');
+  // The torn sides shed their radius as production bars do.
+  expect(style.borderRadius).toBe('0px');
 
   await page.screenshot({ path: '__screenshots__/legend-torn-edge.png' });
 });

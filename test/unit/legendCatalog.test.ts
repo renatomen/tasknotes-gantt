@@ -26,6 +26,8 @@ const baseContext = (overrides: Partial<GanttLegendContext> = {}): GanttLegendCo
   calendarPalette: [],
   calendarMarkerColor: undefined,
   hasRecordedRecurringOccurrences: false,
+  showDateIndicators: true,
+  hasNonAuthoredEdges: true,
   calendarEventColor: null,
   externalOccurrenceColor: null,
   estimateMeaning: 'calendar-days',
@@ -374,6 +376,33 @@ describe('buildLegendCatalog', () => {
       'A torn, zigzag edge marks a date that is empty. Left edge, missing start date. Right edge, missing end date.',
     );
     expect(entry(baseContext(), 'date-status-torn').name).toBe('Torn edge');
+  });
+
+  it('withholds the torn entry when date indicators are off', () => {
+    const context = baseContext({ showDateIndicators: false });
+    expect(entries(context).map((candidate) => candidate.semanticId)).not.toContain(
+      'date-status-torn',
+    );
+  });
+
+  it('withholds the torn entry when no rendered bar carries a non-authored edge', () => {
+    const context = baseContext({ hasNonAuthoredEdges: false });
+    expect(entries(context).map((candidate) => candidate.semanticId)).not.toContain(
+      'date-status-torn',
+    );
+  });
+
+  it('routes the torn sample through the representative treatment', () => {
+    const context = baseContext({
+      barFillSource: 'status',
+      statusColors: [{ value: 'Open', color: '#7c3aed', isCompleted: false }],
+    });
+    const torn = entry(context, 'date-status-torn');
+    expect(torn.sample.paints).toMatchObject({
+      fill: { source: 'status', value: 'Open', color: '#7c3aed' },
+    });
+    expect(torn.sample.classTokens).toContain('wx-bar');
+    expect(torn.sample.classTokens.length).toBeGreaterThan(1);
   });
 
   it('scopes the fill and border cues to reversed dates alone', () => {

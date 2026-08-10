@@ -44,6 +44,10 @@ export interface GanttLegendContext {
   calendarMarkerColor: string | undefined;
   /** True when a rendered recurring task has a recorded or materialized occurrence. */
   hasRecordedRecurringOccurrences: boolean;
+  /** Live "Show date indicators" toggle — no date-status cue renders when off. */
+  showDateIndicators: boolean;
+  /** True when an instance that survives the date row filters carries a torn (non-authored) edge. */
+  hasNonAuthoredEdges: boolean;
   /** Representative paint for enabled read-only event-row families and feeds. */
   calendarEventColor: string | null;
   /** Representative paint owned specifically by enabled external occurrence feeds. */

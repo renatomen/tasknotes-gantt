@@ -884,15 +884,18 @@ describe("Gantt (OG) context-aware legend", () => {
         name: entry?.querySelector("h3")?.textContent ?? null,
         meaning: entry?.querySelector("p")?.textContent ?? null,
         mask: style ? style.maskImage || style.webkitMaskImage : "",
+        borderRadius: style?.borderRadius ?? "",
       };
     });
 
     expect(torn.present).toBe(true);
     expect(torn.name).toBe("Torn edge");
     expect(torn.meaning).toContain("Left edge, missing start date");
-    // The sample is genuinely cut, not merely labelled: the chart's teeth tile
-    // must be part of the computed mask.
-    expect(torn.mask).toContain("conic-gradient");
+    // The sample is genuinely cut, not merely labelled: one teeth tile per
+    // torn edge plus the solid middle, with the radius shed as on chart bars.
+    expect(torn.mask.split("conic-gradient(").length - 1).toBe(2);
+    expect(torn.mask).toContain("linear-gradient");
+    expect(torn.borderRadius).toBe("0px");
   });
 
   it("constrains standalone occurrence samples to the bar track", async () => {
