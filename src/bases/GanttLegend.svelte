@@ -420,6 +420,34 @@
     border-width: 1px;
     border-style: solid;
   }
+  /*
+   * The torn-edge swatch cuts the chart's own teeth tile into the sample's
+   * trailing edge: a solid layer covers all but the last tooth-depth, and the
+   * chart's end-teeth wedge tiles down the strip left uncovered.
+   */
+  .og-legend-entry[data-semantic-id='date-status-torn'] .og-legend-bar {
+    -webkit-mask-image:
+      linear-gradient(#000, #000),
+      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+    mask-image:
+      linear-gradient(#000, #000),
+      conic-gradient(from 0deg at 100% 50%, #0000 0deg 225deg, #000 225deg 315deg, #0000 315deg 360deg);
+    -webkit-mask-size:
+      calc(100% - 4px) 100%,
+      4px 8px;
+    mask-size:
+      calc(100% - 4px) 100%,
+      4px 8px;
+    -webkit-mask-position:
+      left center,
+      right center;
+    mask-position:
+      left center,
+      right center;
+    -webkit-mask-repeat: no-repeat, repeat-y;
+    mask-repeat: no-repeat, repeat-y;
+  }
+
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {
     background-color: var(--og-date-status-fill) !important;
     border: 0 !important;

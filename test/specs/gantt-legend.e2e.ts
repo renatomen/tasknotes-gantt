@@ -839,6 +839,29 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(paint.weekendBackground).toBe(paint.weekendCellBackground);
   });
 
+  it("shows the torn-edge entry with a genuinely cut sample", async () => {
+    await openLegend();
+
+    const torn = await browser.execute(() => {
+      const entry = document.querySelector<HTMLElement>('[data-semantic-id="date-status-torn"]');
+      const bar = entry?.querySelector<HTMLElement>(".og-legend-bar");
+      const style = bar ? getComputedStyle(bar) : null;
+      return {
+        present: !!entry,
+        name: entry?.querySelector("h3")?.textContent ?? null,
+        meaning: entry?.querySelector("p")?.textContent ?? null,
+        mask: style ? style.maskImage || style.webkitMaskImage : "",
+      };
+    });
+
+    expect(torn.present).toBe(true);
+    expect(torn.name).toBe("Torn edge");
+    expect(torn.meaning).toContain("never authored");
+    // The sample is genuinely cut, not merely labelled: the chart's teeth tile
+    // must be part of the computed mask.
+    expect(torn.mask).toContain("conic-gradient");
+  });
+
   it("constrains standalone occurrence samples to the bar track", async () => {
     await openLegend();
 
