@@ -37,9 +37,20 @@ import { fileURLToPath } from "node:url";
  * `wx-`-prefixes the built-in task/summary/milestone types). The per-state
  * `.datestatus-*` classes are NOT task types — the bar template stamps them
  * from per-instance data — but they land as bare classes on the same element.
- * The teeth themselves are read off `.og-bar-body`, the inner layer the bar
- * template renders to take the mask — the host must stay unmasked, because SVAR
- * hangs the dependency link handles and hover feedback off it.
+ *
+ * MECHANISM NOTE: a torn bar rides SVAR's own split rendering. The observer
+ * that stamps the state class stamps `wx-split` beside it, so the host paints
+ * nothing by the library's rule — transparent, no border, no padding, and
+ * never masked, because SVAR hangs the dependency link handles and hover
+ * feedback off it. The painted surface is the inner `.og-bar-body` the bar
+ * template renders (on piece-less torn bars and occupancy overlays), which
+ * paints the published `--og-effective-fill` under a teeth-plus-middle mask:
+ * one tooth tile per torn edge at the fixed 4px depth, capped per surface by
+ * the 40% ceiling, plus a solid layer over the intact middle. SVAR's progress
+ * wrapper stays visible above the body and carries the same mask. Hover and
+ * selection cues are restored by our own `box-shadow` rule (SVAR guards its
+ * cues behind `:not(.wx-split)`), and the label steps clear of the notches
+ * via a `.wx-content` inset on each torn side.
  * Verified against @svar-ui/svelte-gantt v2.7.0.
  *
  * PLACEMENT NOTE: the fixture's dated tasks sit in April 2026, before any
@@ -73,38 +84,56 @@ const DUE_ONLY_FIXTURE_DUE = "2026-04-20";
 const SWAPPED_FILL = "rgb(230, 126, 34)";
 
 /**
- * Tooth period the view stylesheet publishes, and the full-size depth — half the
- * period. The bar template republishes the depth per bar, never letting one
- * tooth take more than this share of the bar's own width.
+ * Tooth period and full-size depth (half the period) the view stylesheet
+ * publishes — fixed on the chart root; nothing republishes them per bar. Every
+ * cut surface sizes its teeth as `min(depth, ceiling)`: the 40% per-surface
+ * ceiling keeps a solid middle on a surface narrower than two full teeth.
+ * Percentages in `mask-size` resolve against each surface at paint time, so
+ * the computed longhands keep the `min()`/`calc()` unresolved — the strings
+ * below are the exact serializations Chromium reports, which normalize each
+ * math argument to a mixed `<percent> + <length>` pair. (The `.wx-content`
+ * label inset uses the same `min()`, but padding longhands compute to the
+ * USED length, so those pins are plain pixels instead.)
  */
 const ZIGZAG_PERIOD = "8px";
 const ZIGZAG_DEPTH = "4px";
-const ZIGZAG_TOOTH_MAX_WIDTH_SHARE = 0.3;
-const ZIGZAG_TOOTH_SIZE = `${ZIGZAG_DEPTH} ${ZIGZAG_PERIOD}`;
+const ZIGZAG_SURFACE_CEILING = "40%";
+const ZIGZAG_TOOTH = `min(0% + ${ZIGZAG_DEPTH}, ${ZIGZAG_SURFACE_CEILING} + 0px)`;
+const ZIGZAG_TOOTH_SIZE = `${ZIGZAG_TOOTH} ${ZIGZAG_PERIOD}`;
+const ZIGZAG_MIDDLE_SIZE_ONE = `calc(100% + 0px - ${ZIGZAG_TOOTH}) 100%`;
+const ZIGZAG_MIDDLE_SIZE_BOTH = `calc(100% + 0px - (${ZIGZAG_TOOTH} * 2)) 100%`;
 
-/** Computed mask facts for a bar: the inner body layer plus its host. */
+/** Computed facts for a bar under the split-rendered torn treatment. */
 interface ZigzagProbe {
-  /** Whether the bar renders the inner mask carrier at all. */
+  /** Whether the bar renders the inner mask-carrying body layer at all. */
   body: boolean;
   bodyMaskImage: string;
   bodyMaskSize: string;
   bodyMaskPosition: string;
-  /** The body layer mirrors the host's fill instead of re-deriving it. */
+  bodyMaskRepeat: string;
+  /** The body paints the published effective fill — the host paints nothing. */
   bodyBackgroundColor: string;
+  /** `var(--og-effective-fill)` resolved on the host, as an rgb colour. */
+  effectiveFill: string;
+  /** Transparent on a torn bar: `wx-split` hands the painting to the body. */
   hostBackgroundColor: string;
-  /** How the host stops painting behind the teeth it just cut. */
   hostBackgroundClip: string;
   hostPaddingLeft: string;
   hostPaddingRight: string;
-  /** A border across a torn side would re-draw the straight edge the cut removed. */
   hostBorderLeftWidth: string;
   hostBorderRightWidth: string;
   /** The host must never be masked — SVAR hangs link handles off it. */
   hostMaskImage: string;
+  /** A rounded corner on a torn side would round off the outermost tooth tip. */
+  hostRadiusTopLeft: string;
+  hostRadiusTopRight: string;
+  /** `.wx-content` insets — how the label steps clear of the notches. */
+  labelPaddingLeft: string;
+  labelPaddingRight: string;
   period: string;
 }
 
-/** Read the zigzag mask state of the bar whose `data-id` ends with `note`. */
+/** Read the torn-treatment state of the bar whose `data-id` ends with `note`. */
 async function readZigzag(note: string): Promise<ZigzagProbe> {
   return browser.execute((selector: string) => {
     const bar = document.querySelector(selector);
@@ -112,12 +141,24 @@ async function readZigzag(note: string): Promise<ZigzagProbe> {
     const host = window.getComputedStyle(bar);
     const body = bar.querySelector(".og-bar-body");
     const bodyStyle = body ? window.getComputedStyle(body) : null;
+    const label = bar.querySelector(".wx-content");
+    const labelStyle = label ? window.getComputedStyle(label) : null;
+    // The custom property computes to a token stream, not an rgb() colour, so
+    // resolve it the way the body does: paint it on a scratch child of the
+    // host and read the colour the browser derives there.
+    const scratch = document.createElement("div");
+    scratch.style.backgroundColor = "var(--og-effective-fill)";
+    bar.appendChild(scratch);
+    const effectiveFill = window.getComputedStyle(scratch).backgroundColor;
+    scratch.remove();
     return {
       body: body !== null,
       bodyMaskImage: bodyStyle?.maskImage ?? "",
       bodyMaskSize: bodyStyle?.maskSize ?? "",
       bodyMaskPosition: bodyStyle?.maskPosition ?? "",
+      bodyMaskRepeat: bodyStyle?.maskRepeat ?? "",
       bodyBackgroundColor: bodyStyle?.backgroundColor ?? "",
+      effectiveFill,
       hostBackgroundColor: host.backgroundColor,
       hostBackgroundClip: host.backgroundClip,
       hostPaddingLeft: host.paddingLeft,
@@ -125,6 +166,10 @@ async function readZigzag(note: string): Promise<ZigzagProbe> {
       hostBorderLeftWidth: host.borderLeftWidth,
       hostBorderRightWidth: host.borderRightWidth,
       hostMaskImage: host.maskImage,
+      hostRadiusTopLeft: host.borderTopLeftRadius,
+      hostRadiusTopRight: host.borderTopRightRadius,
+      labelPaddingLeft: labelStyle?.paddingLeft ?? "",
+      labelPaddingRight: labelStyle?.paddingRight ?? "",
       period: host.getPropertyValue("--og-zigzag-period").trim(),
     };
   }, `.og-bases-gantt .wx-bar[data-id$="${note}"]`);
@@ -212,51 +257,6 @@ async function bringBarIntoView(note: string): Promise<void> {
   }, `.og-bases-gantt .wx-bar[data-id$="${note}"]`);
 }
 
-/** Everything the torn treatment spends of a bar's laid-out width. */
-interface BarGeometry {
-  /** The width SVAR laid the bar out at, from its inline style. */
-  laidOut: number;
-  /** What the browser actually gives the border box. */
-  rendered: number;
-  /** The tooth depth the bar template fitted to this bar. */
-  depth: number;
-  paddingTotal: number;
-  borderTotal: number;
-}
-
-/**
- * Read how much of `note`'s laid-out width the torn treatment is spending,
- * optionally rewriting the bar's inline width first — the way SVAR does on
- * every zoom step and every drag frame.
- *
- * The bar's observer is delivered on the microtask queued by the mutation
- * itself, so one hop lands after it and before any later task could re-render
- * the bar and hide a depth that never refitted.
- */
-async function readBarGeometry(note: string, rewriteWidth?: string): Promise<BarGeometry> {
-  return browser.executeObsidian(
-    async (_obsidian, selector: string, width: string | null) => {
-      const bar = document.querySelector(selector) as HTMLElement | null;
-      if (!bar) throw new Error(`bar not found: ${selector}`);
-      if (width !== null) {
-        bar.style.width = width;
-        await Promise.resolve();
-      }
-      const style = window.getComputedStyle(bar);
-      const px = (value: string): number => Number.parseFloat(value) || 0;
-      return {
-        laidOut: px(bar.style.width),
-        rendered: bar.getBoundingClientRect().width,
-        depth: px(bar.style.getPropertyValue("--og-zigzag-depth")),
-        paddingTotal: px(style.paddingLeft) + px(style.paddingRight),
-        borderTotal: px(style.borderLeftWidth) + px(style.borderRightWidth),
-      };
-    },
-    `.og-bases-gantt .wx-bar[data-id$="${note}"]`,
-    rewriteWidth ?? null,
-  );
-}
-
 /** The `class` attribute of the bar whose `data-id` ends with `note`. */
 async function barClass(note: string): Promise<string> {
   const bar = await $(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
@@ -306,11 +306,16 @@ async function enableBases(): Promise<void> {
   });
 }
 
-/** One round-trip paint read per bar: fill, top border (all three parts), progress fill. */
+/**
+ * One round-trip paint read per bar: host fill, the inner body's fill (null
+ * when the bar renders no body — a torn bar's painted surface under split
+ * rendering), top border (all three parts), progress fill.
+ */
 async function readBarPaint(notes: string[]): Promise<
   Array<{
     note: string;
     backgroundColor: string;
+    bodyBackgroundColor: string | null;
     borderTopColor: string;
     borderTopStyle: string;
     borderTopWidth: string;
@@ -323,10 +328,12 @@ async function readBarPaint(notes: string[]): Promise<
         const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
         if (!bar) throw new Error(`bar not found: ${note}`);
         const style = window.getComputedStyle(bar);
+        const body = bar.querySelector(".og-bar-body");
         const progress = bar.querySelector(".wx-progress-percent");
         return {
           note,
           backgroundColor: style.backgroundColor,
+          bodyBackgroundColor: body ? window.getComputedStyle(body).backgroundColor : null,
           borderTopColor: style.borderTopColor,
           borderTopStyle: style.borderTopStyle,
           borderTopWidth: style.borderTopWidth,
@@ -419,9 +426,9 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
     it("leaves a torn bar the ordinary fill instead of the date-status colours (AE1)", async () => {
       // An accent fill would compete with the very fill channels the cut was
-      // chosen to compose with, and an accent border would redraw the straight
-      // edge the teeth removed — so a torn bar has to paint exactly as a
-      // fully-dated one does.
+      // chosen to compose with — so a torn bar's painted surface (its body,
+      // since the split host paints nothing) has to show exactly the colour a
+      // fully-dated bar's host does.
       const paint = await readBarPaint([
         "Complete.md",
         "Due Only.md",
@@ -431,12 +438,11 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
       const complete = paint[0]!;
       // The reference bar really paints something, so "the same as complete" is
-      // a claim about a colour rather than about two transparent bars.
+      // a claim about a colour rather than about two transparent surfaces.
       expect(complete.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
       for (const bar of paint.slice(1)) {
-        expect(bar.backgroundColor).toBe(complete.backgroundColor);
-        expect(bar.borderTopColor).toBe(complete.borderTopColor);
-        expect(bar.backgroundColor).not.toBe(SWAPPED_FILL);
+        expect(bar.bodyBackgroundColor).toBe(complete.backgroundColor);
+        expect(bar.bodyBackgroundColor).not.toBe(SWAPPED_FILL);
       }
       // Read the progress fill on the one torn bar that HAS one; the others
       // render no such element and would compare a colour against nothing.
@@ -499,27 +505,29 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(probe.body).toBe(true);
       expect(probe.bodyMaskImage).toContain("conic-gradient");
       expect(probe.period).toBe(ZIGZAG_PERIOD);
-      // One layer: the teeth tile pinned to the leading edge, and nothing else —
-      // the body paints only the strip the host's clip gave up, so a middle
-      // layer would repaint the host's own middle a second time.
-      const layers = maskLayerPositions(probe);
-      expect(layers).toHaveLength(1);
-      expect(layers[0]).toBe("0% 0%");
-      expect(probe.bodyMaskSize.split(", ")[0]).toBe(ZIGZAG_TOOTH_SIZE);
-      // Cutting the body only shows through if the host stops painting behind
-      // the teeth: it clips its own background to a content box inset by the
-      // tooth depth on the torn side, and by nothing on the intact side.
-      expect(probe.hostBackgroundClip).toBe("content-box");
-      expect(probe.hostPaddingLeft).toBe(ZIGZAG_DEPTH);
+      // Two layers: the teeth tile pinned to the leading edge, plus the solid
+      // middle over everything past the tooth depth — the split host paints
+      // nothing, so the body must cover the intact area itself.
+      expect(maskLayerPositions(probe)).toEqual(["0% 0%", "100% 0%"]);
+      expect(probe.bodyMaskSize).toBe(`${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_ONE}`);
+      expect(probe.bodyMaskRepeat).toBe("repeat-y, no-repeat");
+      // The cut shows the row because the host paints nothing at all — SVAR's
+      // own split transparency, with no clearing padding left on either side.
+      expect(probe.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(probe.hostPaddingLeft).toBe("0px");
       expect(probe.hostPaddingRight).toBe("0px");
+      // The label steps clear of the notches by the same min() the mask cuts
+      // by — resolved here to the full depth, since a day-zoom bar is wide.
+      expect(probe.labelPaddingLeft).toBe(ZIGZAG_DEPTH);
     });
 
-    it("paints the cut body in the host's own fill rather than re-deriving it", async () => {
-      // The body layer inherits its colour, so every fill source — here the
-      // default task fill — reaches it without the treatment code knowing.
+    it("paints the cut body in the bar's published effective fill", async () => {
+      // The split host paints nothing, so `inherit` would inherit transparency:
+      // the body must re-read the fill every treatment publishes through
+      // --og-effective-fill, and really paint it.
       const probe = await readZigzag("Due Only.md");
 
-      expect(probe.bodyBackgroundColor).toBe(probe.hostBackgroundColor);
+      expect(probe.bodyBackgroundColor).toBe(probe.effectiveFill);
       expect(probe.bodyBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     });
 
@@ -528,31 +536,28 @@ describe("Gantt (OG) missing/partial-date handling", () => {
 
       expect(probe.body).toBe(true);
       expect(probe.bodyMaskImage).toContain("conic-gradient");
-      const layers = maskLayerPositions(probe);
-      expect(layers).toHaveLength(1);
-      expect(layers[0]).toBe("100% 0%");
-      expect(probe.bodyMaskSize.split(", ")[0]).toBe(ZIGZAG_TOOTH_SIZE);
-      expect(probe.hostBackgroundClip).toBe("content-box");
-      expect(probe.hostPaddingRight).toBe(ZIGZAG_DEPTH);
-      expect(probe.hostPaddingLeft).toBe("0px");
+      expect(maskLayerPositions(probe)).toEqual(["100% 0%", "0% 0%"]);
+      expect(probe.bodyMaskSize).toBe(`${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_ONE}`);
+      expect(probe.bodyMaskRepeat).toBe("repeat-y, no-repeat");
+      expect(probe.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(probe.labelPaddingRight).toBe(ZIGZAG_DEPTH);
     });
 
     it("cuts both edges of a one-cell dateless bar at the standard tooth size (AE3, AE7)", async () => {
       // Dateless One is a single-day placeholder, so this is also the one-cell
-      // case: the teeth keep their absolute size instead of scaling with width.
+      // case: at day zoom the cell is wider than 10px, so the 4px depth still
+      // beats the 40% ceiling and the teeth keep their absolute size.
       const probe = await readZigzag("Dateless One.md");
 
       expect(probe.body).toBe(true);
-      const layers = maskLayerPositions(probe);
-      expect(layers).toHaveLength(2);
-      expect(layers[0]).toBe("0% 0%");
-      expect(layers[1]).toBe("100% 0%");
-      const sizes = probe.bodyMaskSize.split(", ");
-      expect(sizes[0]).toBe(ZIGZAG_TOOTH_SIZE);
-      expect(sizes[1]).toBe(ZIGZAG_TOOTH_SIZE);
-      expect(probe.hostBackgroundClip).toBe("content-box");
-      expect(probe.hostPaddingLeft).toBe(ZIGZAG_DEPTH);
-      expect(probe.hostPaddingRight).toBe(ZIGZAG_DEPTH);
+      expect(maskLayerPositions(probe)).toEqual(["0% 0%", "100% 0%", "50% 0%"]);
+      expect(probe.bodyMaskSize).toBe(
+        `${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_BOTH}`,
+      );
+      expect(probe.bodyMaskRepeat).toBe("repeat-y, repeat-y, no-repeat");
+      expect(probe.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(probe.labelPaddingLeft).toBe(ZIGZAG_DEPTH);
+      expect(probe.labelPaddingRight).toBe(ZIGZAG_DEPTH);
     });
 
     it("never masks the host bar, so its hover and selection feedback stays whole", async () => {
@@ -607,23 +612,24 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect((await readZigzag("Swapped.md")).body).toBe(false);
     });
 
-    it("drops the bar's border on the torn side and keeps it on the intact side", async () => {
-      // Clipping the background to the content box stops the FILL behind the
-      // teeth but not the border, so a bordered bar would still outline all four
-      // sides and the sawtooth would sit behind a straight full-height line —
-      // the silhouette stays rectangular and the cut says nothing.
+    it("squares the torn corners and keeps the intact side rounded", async () => {
+      // The split host paints no border on EITHER side, so the straight-edge
+      // threat left is the corner radius: the body inherits it, and a rounded
+      // torn corner would round off the outermost tooth tip. Only the torn
+      // side gives up its rounding.
+      const complete = await readZigzag("Complete.md");
       const dueOnly = await readZigzag("Due Only.md");
       const startOnly = await readZigzag("Start Only.md");
       const dateless = await readZigzag("Dateless One.md");
 
-      // Device-pixel snapping makes the kept border's own width theme- and
-      // DPI-dependent, so the assertion is gone vs present, not an exact px.
-      expect(dueOnly.hostBorderLeftWidth).toBe("0px");
-      expect(Number.parseFloat(dueOnly.hostBorderRightWidth)).toBeGreaterThan(0);
-      expect(startOnly.hostBorderRightWidth).toBe("0px");
-      expect(Number.parseFloat(startOnly.hostBorderLeftWidth)).toBeGreaterThan(0);
-      expect(dateless.hostBorderLeftWidth).toBe("0px");
-      expect(dateless.hostBorderRightWidth).toBe("0px");
+      // The reference bar really is rounded, so the "0px" pins are removals.
+      expect(Number.parseFloat(complete.hostRadiusTopLeft)).toBeGreaterThan(0);
+      expect(dueOnly.hostRadiusTopLeft).toBe("0px");
+      expect(dueOnly.hostRadiusTopRight).toBe(complete.hostRadiusTopRight);
+      expect(startOnly.hostRadiusTopRight).toBe("0px");
+      expect(startOnly.hostRadiusTopLeft).toBe(complete.hostRadiusTopLeft);
+      expect(dateless.hostRadiusTopLeft).toBe("0px");
+      expect(dateless.hostRadiusTopRight).toBe("0px");
     });
 
     it("keeps every mask longhand weighted against SVAR's own scoped styles", async () => {
@@ -661,107 +667,21 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       }, `.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
 
       expect(contested.maskImage).toContain("conic-gradient");
-      expect(contested.maskSize).toBe(`${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_TOOTH_SIZE}`);
-      expect(contested.maskPosition).toBe("0% 0%, 100% 0%");
-      expect(contested.maskRepeat).toBe("repeat-y, repeat-y");
-    });
-
-    it("re-fits the tooth every time the bar's width is rewritten under it", async () => {
-      // SVAR rewrites a bar's inline width on every zoom step and on every frame
-      // of a drag or resize, without remounting it — so a depth fitted once at
-      // mount goes stale the moment the bar changes size, and a bar dragged from
-      // wide to narrow would keep teeth deeper than its own width. Rewriting the
-      // width directly is that rewrite in miniature; the guard is that the depth
-      // follows every step, in both directions, and is cleaned up at teardown.
-      const before = await readBarGeometry("Dateless One.md");
-      const original = `${before.laidOut}px`;
-
-      // Wide enough for a full-size tooth, so the depth is genuinely re-derived
-      // rather than sitting at a value it happened to already hold.
-      const wide = await readBarGeometry("Dateless One.md", "60px");
-      const narrow = await readBarGeometry("Dateless One.md", "6px");
-      const wideAgain = await readBarGeometry("Dateless One.md", "60px");
-      await readBarGeometry("Dateless One.md", original);
-
-      expect(wide.depth).toBeCloseTo(Number.parseFloat(ZIGZAG_DEPTH), 3);
-      // Narrower than two full teeth → the depth is the bar's own share, and the
-      // padding it drives shrank with it instead of keeping the stale value.
-      expect(narrow.depth).toBeCloseTo(6 * ZIGZAG_TOOTH_MAX_WIDTH_SHARE, 3);
-      expect(narrow.paddingTotal).toBeCloseTo(6 * ZIGZAG_TOOTH_MAX_WIDTH_SHARE * 2, 3);
-      // …and widening again restores the full tooth: the fit tracks, it does not
-      // ratchet down once.
-      expect(wideAgain.depth).toBeCloseTo(Number.parseFloat(ZIGZAG_DEPTH), 3);
-    });
-
-    it("re-measures the surviving border when the bar's treatment changes under it", async () => {
-      // The tooth budget is the bar's width MINUS the border its intact side
-      // still paints, and which rule paints that border is a treatment choice:
-      // strip mode outlines the body, fill mode leaves the theme's. A live Bar
-      // Fill / Strip change reaches the bar as a class rewrite that swaps
-      // between them, so a border read once at mount goes stale exactly where it
-      // matters — on a bar narrow enough for the border to be most of its width,
-      // a stale budget pushes the rendered box past the width SVAR laid out.
-      const before = await readBarGeometry("Due Only.md");
-      const original = `${before.laidOut}px`;
-      const PROBE_WIDTH = 8;
-      const PROBE_BORDER = 7;
-
-      const fitted = await browser.executeObsidian(
-        async (_obsidian, selector: string, width: number, border: number) => {
-          const bar = document.querySelector(selector) as HTMLElement | null;
-          if (!bar) throw new Error(`bar not found: ${selector}`);
-          const px = (value: string): number => Number.parseFloat(value) || 0;
-          const fit = (): { depth: number; border: number; rendered: number } => ({
-            depth: px(bar.style.getPropertyValue("--og-zigzag-depth")),
-            border: px(window.getComputedStyle(bar).borderRightWidth),
-            rendered: bar.getBoundingClientRect().width,
-          });
-          // The bar's observer is delivered on the microtask queued by the
-          // mutation itself, so one hop lands after it and before any later task.
-          bar.style.width = `${width}px`;
-          await Promise.resolve();
-          const themed = fit();
-          const sheet = document.createElement("style");
-          // Repeated classes are the portable way to out-specify the view's own
-          // scoped rules without an id — the same trick the mask-longhand test
-          // uses to stand in for a library or theme rule.
-          sheet.textContent =
-            ".og-bases-gantt.og-bases-gantt .wx-bar.wx-bar.wx-bar.og-border-probe {" +
-            `  border-right-width: ${border}px !important;` +
-            "  border-right-style: solid !important; }";
-          document.head.appendChild(sheet);
-          bar.classList.add("og-border-probe");
-          await Promise.resolve();
-          const retreated = fit();
-          bar.classList.remove("og-border-probe");
-          sheet.remove();
-          return { themed, retreated };
-        },
-        `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
-        PROBE_WIDTH,
-        PROBE_BORDER,
+      expect(contested.maskSize).toBe(
+        `${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_BOTH}`,
       );
-      await readBarGeometry("Due Only.md", original);
-
-      // The rewrite really did fatten the border under the bar. Device-pixel
-      // snapping makes the rendered width DPI-dependent, so the claim is that it
-      // grew — the arithmetic below reads the width the machine actually gave it.
-      expect(fitted.retreated.border).toBeGreaterThan(fitted.themed.border + 1);
-      // The tooth started at the share of a bar whose border cost almost
-      // nothing, so the two candidate depths are far apart…
-      expect(fitted.themed.depth).toBeCloseTo(PROBE_WIDTH * ZIGZAG_TOOTH_MAX_WIDTH_SHARE, 2);
-      // …and it gave way to the fatter border instead of holding a stale budget.
-      expect(fitted.retreated.depth).toBeCloseTo(PROBE_WIDTH - fitted.retreated.border, 2);
-      // The consequence a stale budget produces: a box wider than its layout.
-      expect(fitted.retreated.rendered).toBeLessThanOrEqual(PROBE_WIDTH + 0.01);
+      expect(contested.maskPosition).toBe("0% 0%, 100% 0%, 50% 0%");
+      expect(contested.maskRepeat).toBe("repeat-y, repeat-y, no-repeat");
     });
 
     it("leaves no torn-state residue once a bar's dates are authored", async () => {
-      // The fitted depth, the state class and the mask carrier are all stamped
-      // onto a bar SVAR owns; authoring both dates makes the status complete and
-      // every one of them has to go, or a bar that cuts nothing keeps the
-      // padding that insets its fill.
+      // The state class, SVAR's `wx-split` and the mask-carrying body are all
+      // stamped onto a bar SVAR owns; authoring both dates makes the status
+      // complete and every one of them has to go, or the bar keeps a
+      // transparent host with nothing left painting its body.
       try {
+        // The split really was on, so its absence below is the teardown's work.
+        expect(await barClass("Dateless Two.md")).toContain("wx-split");
         await setDates("Dateless Two.md", { start: "2026-04-10", due: "2026-04-12" });
         await browser.waitUntil(
           async () => !(await barClass("Dateless Two.md")).includes("datestatus-zigzag-both"),
@@ -769,9 +689,9 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         );
         const cleared = await readZigzag("Dateless Two.md");
         expect(cleared.body).toBe(false);
-        expect(cleared.hostPaddingLeft).toBe("0px");
-        expect(cleared.hostPaddingRight).toBe("0px");
-        expect((await readBarGeometry("Dateless Two.md")).depth).toBe(0);
+        expect(await barClass("Dateless Two.md")).not.toContain("wx-split");
+        // Un-split, the host paints its own fill again.
+        expect(cleared.hostBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
       } finally {
         await setDates("Dateless Two.md", { start: undefined, due: undefined });
       }
@@ -792,36 +712,76 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(complete.hostBorderLeftWidth).toBe(complete.hostBorderRightWidth);
     });
 
-    it("cuts the teeth once when pieces render on a host that never went split", async () => {
-      // Occupancy pieces render over an OPAQUE host whenever the envelope did
-      // not replace the plain bar, and there the host's own body carries the
-      // tear. A piece that cut a second sawtooth at its own edge would show two
-      // tooth columns at different x. The piece cut belongs to split hosts only,
-      // so the piece is stamped here and removed inside the same page turn.
-      const masks = await browser.execute((selector: string) => {
+    it("keeps a torn bar split so the cut rides its one body layer", async () => {
+      // Torn ⇒ split, unconditionally: the token observer stamps SVAR's own
+      // `wx-split` beside the state class, the host stops painting by the
+      // library's rule, and exactly one body layer carries the cut in its
+      // place — a second carrier would cut a second tooth column at its own
+      // edge. (Piece surfaces cut only inside piece wrappers; the coarse-zoom
+      // split-piece test pins that side.)
+      const probe = await browser.execute((selector: string) => {
         const bar = document.querySelector(selector);
         if (!bar) throw new Error(`bar not found: ${selector}`);
-        const piece = document.createElement("div");
-        piece.className = "og-instance og-piece-first og-piece-last";
-        bar.appendChild(piece);
-        const opaqueHost = window.getComputedStyle(piece).maskImage;
-        bar.classList.add("wx-split");
-        const splitHost = window.getComputedStyle(piece).maskImage;
-        bar.classList.remove("wx-split");
-        piece.remove();
-        const body = bar.querySelector(".og-bar-body");
+        const bodies = bar.querySelectorAll(".og-bar-body");
         return {
-          opaqueHost,
-          splitHost,
-          bodyMaskImage: body ? window.getComputedStyle(body).maskImage : "",
+          hostClass: bar.getAttribute("class") ?? "",
+          hostBackgroundColor: window.getComputedStyle(bar).backgroundColor,
+          bodyCount: bodies.length,
+          bodyMaskImage: bodies[0] ? window.getComputedStyle(bodies[0]).maskImage : "",
         };
       }, `.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
 
-      // The host's own body is cut, so the piece must not be.
-      expect(masks.bodyMaskImage).toContain("conic-gradient");
-      expect(masks.opaqueHost).toBe("none");
-      // On a split host the host paints nothing, so the piece takes the cut.
-      expect(masks.splitHost).toContain("conic-gradient");
+      expect(probe.hostClass).toContain("wx-split");
+      expect(probe.hostBackgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(probe.bodyCount).toBe(1);
+      expect(probe.bodyMaskImage).toContain("conic-gradient");
+    });
+
+    it("cuts a mid-bar recorded-piece overlay at the wrapper, never the piece", async () => {
+      // The occupancy overlay (envelope off) is the plain span the recorded
+      // pieces sit on: the teeth belong to the BAR's edges, so the cut lands
+      // on the piece WRAPPER — a recorded piece's own edge is rarely the
+      // bar's, and cutting a mid-bar piece would grow a tooth column at the
+      // wrong x. The same piece inside a plain pieces wrapper (the
+      // ghost/envelope path) DOES take the cut, and that contrast is what
+      // makes the overlay exclusion detectable rather than a selector that
+      // matches nothing. Both wrappers are stamped and removed in one page
+      // turn, prepended because a split bar lays out block and the template's
+      // wrapper owns the bar's box.
+      const masks = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const probeWrapper = (overlay: boolean) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = overlay ? "og-ghost-runs og-occupancy-overlay" : "og-ghost-runs";
+          const piece = document.createElement("div");
+          piece.className = "og-instance og-piece-first og-piece-last";
+          // Mid-bar: the recorded piece reaches neither edge of the span.
+          piece.style.cssText = "left:30%;width:40%;";
+          wrapper.appendChild(piece);
+          bar.prepend(wrapper);
+          const read = {
+            wrapperMaskImage: window.getComputedStyle(wrapper).maskImage,
+            wrapperMaskSize: window.getComputedStyle(wrapper).maskSize,
+            pieceMaskImage: window.getComputedStyle(piece).maskImage,
+          };
+          wrapper.remove();
+          return read;
+        };
+        return { overlay: probeWrapper(true), plain: probeWrapper(false) };
+      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+
+      // Overlay: the wrapper carries the bar's own leading cut at full span…
+      expect(masks.overlay.wrapperMaskImage).toContain("conic-gradient");
+      expect(masks.overlay.wrapperMaskSize).toBe(
+        `${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_ONE}`,
+      );
+      // …and its recorded piece stays whole: no mid-bar tooth column.
+      expect(masks.overlay.pieceMaskImage).toBe("none");
+      // Without the overlay class the roles swap: the wrapper stays whole and
+      // the outermost piece takes the cut, exactly the ghost/envelope rule.
+      expect(masks.plain.wrapperMaskImage).toBe("none");
+      expect(masks.plain.pieceMaskImage).toContain("conic-gradient");
     });
 
     it("cuts the replicated hatch overlay along the same teeth", async () => {
@@ -927,10 +887,21 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // or inverted tile satisfies just as well. This one reads the screen: at
       // the bar's leading edge the mask leaves only the tooth tips, so that
       // column is mostly NOT the bar's fill, while a column past the tooth depth
-      // is solid fill. The comparison catches both failure modes at once.
-      const fill = toHex((await readZigzag("Due Only.md")).hostBackgroundColor);
+      // is solid fill. The comparison catches both failure modes at once. The
+      // reference colour is the BODY's — the split host paints nothing. The
+      // label is hidden while sampling: its inset is exactly the tooth depth,
+      // so glyph pixels would land in the inside column and read as "not fill"
+      // when the claim under test is the mask geometry alone.
+      const fill = toHex((await readZigzag("Due Only.md")).bodyBackgroundColor);
+      const setLabelHidden = (selector: string, hidden: string) => {
+        const label = document.querySelector(`${selector} .wx-content`);
+        if (label) (label as HTMLElement).style.visibility = hidden;
+      };
+      const barSelector = `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`;
+      await browser.execute(setLabelHidden, barSelector, "hidden");
       const edge = await sampleBarColumn("Due Only.md", 0.5);
       const inside = await sampleBarColumn("Due Only.md", 8);
+      await browser.execute(setLabelHidden, barSelector, "");
 
       const countFill = (column: string[]): number =>
         column.filter((pixel) => pixel === fill).length;
@@ -979,12 +950,12 @@ describe("Gantt (OG) missing/partial-date handling", () => {
     });
 
     it("keeps the notch open under occupancy pieces that reach the bar's edge", async () => {
-      // Recurring occupancy renders pieces INSIDE an opaque host — the flavour
-      // where the envelope did not replace the plain bar — and those pieces
-      // paint above the cut body. A piece whose span reaches the torn edge would
-      // fill the notch straight back in, so the row stops showing through and
-      // the bar reads whole again. Only the pixels can tell: the piece carries
-      // no mask of its own here, and every style read would look correct.
+      // Recurring occupancy pieces paint above the torn bar's cut body. A piece
+      // whose span reaches the torn edge would fill the notch straight back in,
+      // so the row stops showing through and the bar reads whole again — unless
+      // the piece surface carries the same cut. Only the pixels can prove the
+      // composition: every per-surface style read would look correct while an
+      // uncut surface above repaints the notch.
       const OVERLAY = "#ff00ff";
       await browser.execute(
         (selector: string, color: string) => {
@@ -999,7 +970,10 @@ describe("Gantt (OG) missing/partial-date handling", () => {
           // the middle and the strip the teeth were cut from.
           piece.style.cssText = `left:0;width:100%;border:0;background-color:${color};`;
           wrapper.appendChild(piece);
-          bar.appendChild(wrapper);
+          // Prepended: a split bar lays out block, and the template's real
+          // wrapper owns the bar's box (the content renders inside it) — an
+          // appended sibling would stack BELOW `.wx-content`, outside the bar.
+          bar.prepend(wrapper);
         },
         `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
         OVERLAY,
@@ -1090,13 +1064,12 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       await openBase("DatesCoarse.base");
     });
 
-    it("never renders a placeholder wider than the width SVAR laid out", async () => {
+    it("keeps a narrow placeholder's box exactly the width SVAR laid out", async () => {
       // A dateless placeholder is a one-day bar, so at month zoom it is only a
-      // few pixels wide — narrower than the padding that clears its two teeth.
-      // Padding wider than the bar grows the rendered box (border-box floors the
-      // CONTENT at zero, not the box), and SVAR keeps positioning dependency
-      // arrows, link handles and drag maths from its own width, so the rendered
-      // box must never exceed it: the tooth depth is fitted to the bar instead.
+      // few pixels wide. SVAR keeps positioning dependency arrows, link handles
+      // and drag maths from the width it laid out, and nothing of ours may
+      // widen the box: the treatment spends no host padding and no host border
+      // at all — the narrow case is held inside the mask, not the box model.
       const geometry = await browser.execute((selector: string) => {
         const bar = document.querySelector(selector) as HTMLElement;
         if (!bar) throw new Error(`bar not found: ${selector}`);
@@ -1105,27 +1078,28 @@ describe("Gantt (OG) missing/partial-date handling", () => {
           rendered: bar.getBoundingClientRect().width,
           laidOut: Number.parseFloat(bar.style.width),
           boxSizing: style.boxSizing,
-          padding:
-            Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight),
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+          borderLeftWidth: style.borderLeftWidth,
+          borderRightWidth: style.borderRightWidth,
         };
       }, `.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
 
       // The bar really is narrower than two full teeth, or the case is untested.
       expect(geometry.laidOut).toBeLessThan(8);
       expect(geometry.boxSizing).toBe("border-box");
-      expect(geometry.rendered).toBeCloseTo(geometry.laidOut, 0);
-      // And the middle survives: the two teeth together leave the bar something
-      // solid to be, instead of collapsing it into a column of tooth tips.
-      expect(geometry.padding).toBeCloseTo(
-        geometry.laidOut * ZIGZAG_TOOTH_MAX_WIDTH_SHARE * 2,
-        0,
-      );
-      expect(geometry.padding).toBeLessThan(geometry.laidOut);
+      expect(geometry.paddingLeft).toBe("0px");
+      expect(geometry.paddingRight).toBe("0px");
+      expect(geometry.borderLeftWidth).toBe("0px");
+      expect(geometry.borderRightWidth).toBe("0px");
+      expect(geometry.rendered).toBeCloseTo(geometry.laidOut, 1);
     });
 
-    it("shrinks the teeth to match, rather than dropping them", async () => {
-      // Fitting the depth must scale the teeth down, not switch them off: the
-      // computed tile resolves the fitted depth, so it says what is on screen.
+    it("caps the teeth by the surface ceiling so a solid middle survives", async () => {
+      // A both-torn bar narrower than two full teeth would mask down to a
+      // column of tooth tips if each tooth kept its absolute 4px. The ceiling
+      // is per surface — each tooth tile sizes to min(4px, 40%), so the middle
+      // layer keeps calc(100% - 40% * 2) = a fifth of the surface, solid.
       // (Pixels are not sampled here — a placeholder sits under the today
       // marker, and a three-pixel bar is mostly antialiasing.)
       const probe = await readZigzag("Dateless One.md");
@@ -1135,83 +1109,89 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         `.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`,
       );
 
+      // The ceiling really is the binding term: 40% of this bar is under 4px.
+      expect(laidOut * 0.4).toBeLessThan(Number.parseFloat(ZIGZAG_DEPTH));
       expect(probe.body).toBe(true);
       expect(probe.bodyMaskImage).toContain("conic-gradient");
-      const [toothWidth, toothHeight] = probe.bodyMaskSize.split(", ")[0]!.split(" ");
-      expect(Number.parseFloat(toothWidth!)).toBeCloseTo(
-        laidOut * ZIGZAG_TOOTH_MAX_WIDTH_SHARE,
-        1,
+      // Percentages in mask-size resolve against the surface at paint time, so
+      // the computed tile keeps the min() — the same declaration serves every
+      // width, and no script ever measures this bar.
+      expect(probe.bodyMaskSize).toBe(
+        `${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_BOTH}`,
       );
-      expect(toothHeight).toBe(ZIGZAG_PERIOD);
     });
 
-    it("holds a single-torn bar inside its width when the border alone nearly fills it", async () => {
-      // A bar torn on one side KEEPS the border on the other, and with
-      // border-box sizing the used width floors at border + padding — so the
-      // border is part of the same budget the tooth is fitted out of. The
-      // both-torn case cannot catch this: it drops both borders.
-      // The overflow threshold is where the tooth's share plus the surviving
-      // border exceed the width. Deriving the probe width from the border this
-      // machine actually renders (device-pixel snapping makes it DPI-dependent)
-      // aims the test at that threshold on any display, instead of hoping the
-      // zoom ladder happens to land inside it here.
-      const before = await readBarGeometry("Due Only.md");
-      const original = `${before.laidOut}px`;
-      const overflowWidth = before.borderTotal / (1 - ZIGZAG_TOOTH_MAX_WIDTH_SHARE);
+    it("spends no box-model width on a bar torn on one side only", async () => {
+      // A single-torn bar KEEPS an intact side, which under the old opaque-host
+      // mechanism kept a border that competed with the tooth for the bar's few
+      // pixels. Under split rendering the host paints no border on either side
+      // and no padding anywhere, so the box is exactly SVAR's — the intact
+      // side's straight edge is the body's own unmasked edge.
+      const geometry = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector) as HTMLElement;
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const style = window.getComputedStyle(bar);
+        return {
+          rendered: bar.getBoundingClientRect().width,
+          laidOut: Number.parseFloat(bar.style.width),
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+          borderLeftWidth: style.borderLeftWidth,
+          borderRightWidth: style.borderRightWidth,
+          maskSize: (() => {
+            const body = bar.querySelector(".og-bar-body");
+            return body ? window.getComputedStyle(body).maskSize : "";
+          })(),
+        };
+      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
 
-      const squeezed = await readBarGeometry("Due Only.md", `${overflowWidth * 0.9}px`);
-      await readBarGeometry("Due Only.md", original);
-
-      // The probe really is inside the danger zone: an unfitted share alone
-      // would already have overflowed with the border added.
-      expect(squeezed.laidOut * ZIGZAG_TOOTH_MAX_WIDTH_SHARE + squeezed.borderTotal)
-        .toBeGreaterThan(squeezed.laidOut);
-      // …and the bar still fits: the padding gave way to the border.
-      expect(squeezed.paddingTotal + squeezed.borderTotal).toBeLessThanOrEqual(
-        squeezed.laidOut + 0.01,
-      );
-      expect(squeezed.rendered).toBeLessThanOrEqual(squeezed.laidOut + 0.01);
+      // The bar really is in the narrow regime where the old budget overflowed.
+      expect(geometry.laidOut).toBeLessThan(10);
+      expect(geometry.paddingLeft).toBe("0px");
+      expect(geometry.paddingRight).toBe("0px");
+      expect(geometry.borderLeftWidth).toBe("0px");
+      expect(geometry.borderRightWidth).toBe("0px");
+      expect(geometry.rendered).toBeCloseTo(geometry.laidOut, 1);
+      // The single torn edge is held by the same ceiling-held tile.
+      expect(geometry.maskSize).toBe(`${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_ONE}`);
     });
 
-    it("cuts a split piece to the bar's own fitted tooth, not the full-size one", async () => {
-      // Every surface that carries the tear has to carry the SAME tooth: the one
-      // fitted to this bar. A surface that re-derives the tooth from the
-      // stylesheet's full-size default instead would cut deeper than the host's
-      // own padding, so a split bar's pieces and a continuous bar's body would
-      // disagree about where the bar ends. The piece is stamped and removed
-      // inside one page turn, and is given a width of its own so a per-surface
-      // cap and the per-bar depth cannot be confused for each other.
+    it("cuts a split piece with the same ceiling-held tooth as the bar's body", async () => {
+      // Every surface that carries the tear cuts by the same declaration:
+      // min(4px, 40%), resolved against ITS OWN width at paint time. A wide
+      // recorded piece on this narrow bar therefore cuts full-size 4px teeth
+      // while the bar's own three-pixel body is held by the 40% ceiling — no
+      // script fits either of them, so the computed serialization must keep
+      // the min() rather than any inline-fitted length. The piece is stamped
+      // inside a piece wrapper (where the piece cuts are scoped) and removed
+      // in the same page turn.
       const probe = await browser.execute((selector: string) => {
         const bar = document.querySelector(selector) as HTMLElement;
         if (!bar) throw new Error(`bar not found: ${selector}`);
-        const depth = bar.style.getPropertyValue("--og-zigzag-depth");
+        const wrapper = document.createElement("div");
+        wrapper.className = "og-ghost-runs";
         const piece = document.createElement("div");
         piece.className = "og-instance og-piece-first og-piece-last";
         piece.style.cssText = "position:absolute;left:0;top:0;width:40px;height:10px";
-        bar.appendChild(piece);
-        bar.classList.add("wx-split");
-        const maskSize = window.getComputedStyle(piece).maskSize;
-        bar.classList.remove("wx-split");
-        piece.remove();
-        return { depth: Number.parseFloat(depth), maskSize };
+        wrapper.appendChild(piece);
+        bar.appendChild(wrapper);
+        const pieceStyle = window.getComputedStyle(piece);
+        const result = {
+          maskImage: pieceStyle.maskImage,
+          maskSize: pieceStyle.maskSize,
+          hostInlineDepth: bar.style.getPropertyValue("--og-zigzag-depth"),
+        };
+        wrapper.remove();
+        return result;
       }, `.og-bases-gantt .wx-bar[data-id$="Dateless One.md"]`);
 
-      // The bar is narrow, so its fitted tooth is well under the full size — the
-      // two candidate answers are far apart.
-      expect(probe.depth).toBeLessThan(Number.parseFloat(ZIGZAG_DEPTH));
-      // A percentage in `mask-size` resolves against the surface at paint time,
-      // so the computed value keeps the `min()` unresolved; the LENGTHS in it are
-      // what says which tooth the surface was told to cut.
-      const lengths = [...(probe.maskSize.split(", ")[0] ?? "").matchAll(/([\d.]+)px/g)].map(
-        (match) => Number(match[1]),
+      expect(probe.maskImage).toContain("conic-gradient");
+      expect(probe.maskSize).toBe(
+        `${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_TOOTH_SIZE}, ${ZIGZAG_MIDDLE_SIZE_BOTH}`,
       );
-      const nearest = lengths.reduce(
-        (best, value) =>
-          Math.abs(value - probe.depth) < Math.abs(best - probe.depth) ? value : best,
-        Number.POSITIVE_INFINITY,
-      );
-      expect(nearest).toBeCloseTo(probe.depth, 2);
-      expect(lengths).not.toContain(Number.parseFloat(ZIGZAG_DEPTH));
+      // Nothing writes a per-bar depth any more; the min() above is the whole
+      // narrow-bar story.
+      expect(probe.hostInlineDepth).toBe("");
     });
   });
 
@@ -1291,7 +1271,7 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       // The offset arrives with the per-state class, which a post-mount
       // attachment stamps — reading before that lands sees the un-offset value.
       await waitForStamp("Due Only.md", "datestatus-zigzag-start");
-      const accent = await browser.execute((selector: string) => {
+      const readAccent = (selector: string) => {
         const bar = document.querySelector(selector);
         if (!bar) throw new Error(`bar not found: ${selector}`);
         const before = window.getComputedStyle(bar, "::before");
@@ -1299,61 +1279,70 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         return {
           left: before.left,
           backgroundColor: before.backgroundColor,
-          borderLeftWidth: host.borderLeftWidth,
-          borderRightWidth: host.borderRightWidth,
+          hostBorderLeftWidth: host.borderLeftWidth,
+          hostBorderRightWidth: host.borderRightWidth,
           torn: bar.querySelector(".og-bar-body") !== null,
         };
-      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
+      };
+      const accent = await browser.execute(
+        readAccent,
+        `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
+      );
+      const untorn = await browser.execute(
+        readAccent,
+        `.og-bases-gantt .wx-bar[data-id$="Complete.md"]`,
+      );
 
       expect(accent.torn).toBe(true);
       // The accent is really painted (a stripless bar would report no colour),
       // and it starts at the tooth depth instead of the bar's edge.
       expect(accent.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
       expect(accent.left).toBe(ZIGZAG_DEPTH);
-      // Strip mode outlines the bar body, and that outline would redraw the
-      // straight leading edge the teeth just removed — so the torn side loses
-      // it while the intact side keeps it.
-      expect(accent.borderLeftWidth).toBe("0px");
-      expect(Number.parseFloat(accent.borderRightWidth)).toBeGreaterThan(0);
+      // The split host paints no border on EITHER side — a border across the
+      // torn side would redraw the straight edge the teeth removed. The untorn
+      // bar beside it keeps its theme border, so the zeroes are the split
+      // rule's own work rather than a theme without bar borders.
+      expect(untorn.torn).toBe(false);
+      expect(Number.parseFloat(untorn.hostBorderLeftWidth)).toBeGreaterThan(0);
+      expect(accent.hostBorderLeftWidth).toBe("0px");
+      expect(accent.hostBorderRightWidth).toBe("0px");
     });
 
     it("holds the strip accent inside a bar too narrow to seat it", async () => {
-      // The accent is a fixed-width block while everything else about the torn
-      // treatment is fitted to the bar. Offset by the tooth depth on a bar
-      // narrower than the accent, it runs off the end of the box SVAR laid out —
-      // over the trailing notch on a both-torn bar, and past the bar entirely.
+      // The accent is a fixed-width block offset by the fixed tooth depth, so
+      // on a bar narrower than offset + accent it would run off the end of the
+      // box SVAR laid out — a calc cap trims it to the room left past the
+      // leading teeth. Narrowing the inline width directly is SVAR's own zoom
+      // rewrite in miniature; pure CSS re-fits, no script runs.
       await waitForStamp("Due Only.md", "datestatus-zigzag-start");
-      const before = await readBarGeometry("Due Only.md");
-      const original = `${before.laidOut}px`;
+      const narrow = await browser.execute((selector: string) => {
+        const bar = document.querySelector(selector) as HTMLElement;
+        if (!bar) throw new Error(`bar not found: ${selector}`);
+        const px = (v: string): number => Number.parseFloat(v) || 0;
+        const wideWidth = px(window.getComputedStyle(bar, "::before").width);
+        const original = bar.style.width;
+        bar.style.width = "8px";
+        const accent = window.getComputedStyle(bar, "::before");
+        const result = {
+          wideWidth,
+          depth: window.getComputedStyle(bar).getPropertyValue("--og-zigzag-depth").trim(),
+          accentLeft: px(accent.left),
+          accentWidth: px(accent.width),
+          barWidth: bar.getBoundingClientRect().width,
+        };
+        bar.style.width = original;
+        return result;
+      }, `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`);
 
-      const narrow = await browser.executeObsidian(
-        async (_obsidian, selector: string) => {
-          const bar = document.querySelector(selector) as HTMLElement;
-          if (!bar) throw new Error(`bar not found: ${selector}`);
-          bar.style.width = "8px";
-          await Promise.resolve();
-          const accent = window.getComputedStyle(bar, "::before");
-          const host = window.getComputedStyle(bar);
-          const px = (v: string): number => Number.parseFloat(v) || 0;
-          return {
-            accentLeft: px(accent.left),
-            accentWidth: px(accent.width),
-            // The accent is placed against the bar's padding box, so that is the
-            // box it has to stay inside.
-            innerWidth: bar.getBoundingClientRect().width - px(host.borderLeftWidth) - px(host.borderRightWidth),
-            depth: px(bar.style.getPropertyValue("--og-zigzag-depth")),
-          };
-        },
-        `.og-bases-gantt .wx-bar[data-id$="Due Only.md"]`,
-      );
-      await readBarGeometry("Due Only.md", original);
-
+      // The depth is the fixed stylesheet value resolved from the chart root —
+      // no bar republishes it.
+      expect(narrow.depth).toBe(ZIGZAG_DEPTH);
       // The bar really is too narrow to seat the accent as authored…
-      expect(narrow.depth).toBeGreaterThan(0);
-      expect(narrow.innerWidth).toBeLessThan(8);
-      // …and the accent still ends inside the bar, clear of the teeth.
-      expect(narrow.accentLeft).toBeCloseTo(narrow.depth, 2);
-      expect(narrow.accentLeft + narrow.accentWidth).toBeLessThanOrEqual(narrow.innerWidth + 0.01);
+      expect(narrow.accentLeft + narrow.wideWidth).toBeGreaterThan(narrow.barWidth);
+      // …so the cap trims it to exactly the room past the leading teeth.
+      expect(narrow.accentLeft).toBe(4);
+      expect(narrow.accentWidth).toBe(4);
+      expect(narrow.accentLeft + narrow.accentWidth).toBeLessThanOrEqual(narrow.barWidth + 0.01);
     });
   });
 });

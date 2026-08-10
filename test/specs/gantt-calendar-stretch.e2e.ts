@@ -137,6 +137,56 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(await hasSplit()).toBe(true);
   });
 
+  it("re-converges both classes when the torn owner's stamp is stripped whole (R1 co-ownership)", async () => {
+    // The stretched bar derives its end, so it is torn AND stretched: wx-split
+    // has TWO owners — the token observer (which stamps the state class beside
+    // it) and the ghost-run observer above. Stripping the token class and
+    // wx-split together is the torn attach's teardown in miniature, and the
+    // surviving owners must converge the bar back: either observer re-adds
+    // wx-split (contains-guarded, so double ownership never fights), the
+    // still-live token attach re-stamps its class, and the pieces stay
+    // rendered throughout. The pre-strip read rides the same page turn, so
+    // the guards prove the classes were really there to strip.
+    const stripped = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      const before = {
+        torn: bar.classList.contains("datestatus-zigzag-end"),
+        split: bar.classList.contains("wx-split"),
+      };
+      bar.classList.remove("datestatus-zigzag-end");
+      bar.classList.remove("wx-split");
+      return before;
+    }, STRETCH_BAR);
+    expect(stripped.torn).toBe(true);
+    expect(stripped.split).toBe(true);
+
+    const readConvergence = async (): Promise<{ torn: boolean; split: boolean; pieces: number }> =>
+      browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        return {
+          torn: bar?.classList.contains("datestatus-zigzag-end") ?? false,
+          split: bar?.classList.contains("wx-split") ?? false,
+          pieces: bar?.querySelectorAll(".og-ghost-run").length ?? 0,
+        };
+      }, STRETCH_BAR);
+    await browser.waitUntil(
+      async () => {
+        const state = await readConvergence();
+        return state.torn && state.split;
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "the surviving owners never converged the stripped classes back",
+      },
+    );
+
+    const converged = await readConvergence();
+    expect(converged.torn).toBe(true);
+    expect(converged.split).toBe(true);
+    expect(converged.pieces).toBeGreaterThan(0);
+  });
+
   it("cuts the torn edge into the outermost piece only (AE6)", async () => {
     // The stretched task authors a start and derives its end from the estimate,
     // so its bar carries the trailing-edge tear. Under Split rendering the host
