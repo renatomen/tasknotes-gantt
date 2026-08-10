@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * Calendar-item sources spec: property-based events, timeblocks, the quick
@@ -110,13 +111,14 @@ async function missingBars(): Promise<string[]> {
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
 async function ensureGanttReady(): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await browser.waitUntil(
+  await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf();
       missing = await missingBars();
       return missing.length === 0;
     },
-    { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
+    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+    { timeout: 90000 },
   );
 }
 
@@ -424,16 +426,14 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     // Readiness keyed on the exact rows the assertions consume: exactly the
     // Conference event, never the query-excluded note.
     let census: EventBarCensus = { propertyIds: [], timeblockIds: [], externalIds: [], total: -1 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         census = await eventBars();
         return census.propertyIds.some((id) => id.endsWith("property-event/Conference.md"));
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `Conference property event never rendered; last: ${JSON.stringify(census)}`,
-      },
+      () => `Conference property event never rendered; last: ${JSON.stringify(census)}`,
+      { timeout: 20000 },
     );
     expect(census.propertyIds).toHaveLength(1);
     expect(census.propertyIds[0].endsWith("property-event/Conference.md")).toBe(true);
@@ -467,7 +467,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
 
     // Readiness keyed on the exact rows: both fixture blocks of 2026-03-11.
     let census: EventBarCensus = { propertyIds: [], timeblockIds: [], externalIds: [], total: -1 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         census = await eventBars();
@@ -476,10 +476,8 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
           && census.timeblockIds.some((id) => id.endsWith("@tb-afternoon"))
         );
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `fixture timeblocks never rendered; last: ${JSON.stringify(census)}`,
-      },
+      () => `fixture timeblocks never rendered; last: ${JSON.stringify(census)}`,
+      { timeout: 20000 },
     );
     expect(census.timeblockIds).toHaveLength(2);
     expect(census.timeblockIds.every((id) => id.includes(`timeblock/${DAILY_NOTE}`))).toBe(true);
@@ -507,17 +505,15 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     // The repaint budget: metadata index + watch settle (500ms) + refresh
     // debounce (500ms) + render. The waitUntil timeout IS the budget.
     const editStarted = Date.now();
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         census = await eventBars();
         return census.timeblockIds.some((id) => id.endsWith("@tb-added"));
       },
-      {
-        timeout: REPAINT_BUDGET_MS,
-        timeoutMsg: () =>
-          `edited timeblock never repainted within ${REPAINT_BUDGET_MS}ms; last: ${JSON.stringify(census)}`,
-      },
+      () =>
+        `edited timeblock never repainted within ${REPAINT_BUDGET_MS}ms; last: ${JSON.stringify(census)}`,
+      { timeout: REPAINT_BUDGET_MS },
     );
     const repaintMs = Date.now() - editStarted;
     expect(repaintMs).toBeLessThanOrEqual(REPAINT_BUDGET_MS);
@@ -550,15 +546,13 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     // refresh cycle) while the property event and the task bars stay.
     expect(await toggleSwitcherRow("Timeblocks")).toBe(true);
     let census: EventBarCensus = { propertyIds: [], timeblockIds: [], externalIds: [], total: -1 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         census = await eventBars();
         return census.timeblockIds.length === 0;
       },
-      {
-        timeout: 3000,
-        timeoutMsg: () => `timeblock rows did not hide instantly; last: ${JSON.stringify(census)}`,
-      },
+      () => `timeblock rows did not hide instantly; last: ${JSON.stringify(census)}`,
+      { timeout: 3000 },
     );
     expect(census.timeblockIds).toEqual([]);
     expect(census.propertyIds).toHaveLength(1);
@@ -571,15 +565,13 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
 
     // Re-check restores the rows (same instant path), then close the modal.
     expect(await toggleSwitcherRow("Timeblocks")).toBe(true);
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         census = await eventBars();
         return census.timeblockIds.length === 3;
       },
-      {
-        timeout: 3000,
-        timeoutMsg: () => `timeblock rows did not restore; last: ${JSON.stringify(census)}`,
-      },
+      () => `timeblock rows did not restore; last: ${JSON.stringify(census)}`,
+      { timeout: 3000 },
     );
     await closeModal();
   });
@@ -593,7 +585,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     let tasks: string[] = [];
     let census: EventBarCensus = { propertyIds: [], timeblockIds: [], externalIds: [], total: -1 };
     let search = { value: "<never read>", count: "" };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         tasks = await presentTaskBars();
@@ -601,12 +593,12 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         search = await searchState();
         return tasks.length === 1 && census.propertyIds.length === 0;
       },
+      () =>
+        `search never narrowed entry-derived rows; tasks=${JSON.stringify(tasks)} census=${JSON.stringify(census)} search=${JSON.stringify(search)}`,
       {
         // The R-changing search path settles through readiness re-checks with
         // backoff, so it lands well after a plain config refresh would.
         timeout: 45000,
-        timeoutMsg: () =>
-          `search never narrowed entry-derived rows; tasks=${JSON.stringify(tasks)} census=${JSON.stringify(census)} search=${JSON.stringify(search)}`,
       },
     );
     expect(tasks).toEqual([TRACKED_NOTE]);
@@ -615,7 +607,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
 
     // Clearing restores every entry-derived row (settled, no storm).
     await clearSearch();
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         tasks = await presentTaskBars();
@@ -623,11 +615,9 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         search = await searchState();
         return tasks.length === TASK_NOTES.length && census.propertyIds.length === 1;
       },
-      {
-        timeout: 45000,
-        timeoutMsg: () =>
-          `clear never restored rows; tasks=${JSON.stringify(tasks)} census=${JSON.stringify(census)} search=${JSON.stringify(search)}`,
-      },
+      () =>
+        `clear never restored rows; tasks=${JSON.stringify(tasks)} census=${JSON.stringify(census)} search=${JSON.stringify(search)}`,
+      { timeout: 45000 },
     );
     expect(tasks).toEqual(TASK_NOTES);
     expect(census.timeblockIds).toHaveLength(3);

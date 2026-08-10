@@ -1,5 +1,6 @@
 /* global MouseEvent, EventTarget, Node */
 import { browser, expect, $, $$ } from "@wdio/globals";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -155,13 +156,14 @@ async function missingBars(): Promise<string[]> {
  */
 async function ensureGanttReady(): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await browser.waitUntil(
+  await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf();
       missing = await missingBars();
       return missing.length === 0;
     },
-    { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
+    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+    { timeout: 90000 },
   );
 }
 
@@ -356,15 +358,20 @@ async function waitForBar(notePath: string): Promise<{ width: number; classes: s
  */
 async function waitForPrompt(notePath?: string) {
   const modal = await $(".modal");
-  await modal.waitForDisplayed({
-    timeout: 20000,
-    // A silent write means the gate did not engage (dropped gesture, or a
-    // non-inferred edge); an unchanged note means the drag never committed at all.
-    timeoutMsg: async () =>
+  // A silent write means the gate did not engage (dropped gesture, or a
+  // non-inferred edge); an unchanged note means the drag never committed at all.
+  let lastNoteCapture = "<unread>";
+  await waitUntilOrExplain(
+    async () => {
+      if (notePath) lastNoteCapture = await readNote(notePath);
+      return modal.isDisplayed();
+    },
+    () =>
       `the inferred-edge drag prompt never opened${
-        notePath ? ` — ${notePath} is now: ${await readNote(notePath)}` : ""
+        notePath ? ` — ${notePath} is now: ${lastNoteCapture}` : ""
       }`,
-  });
+    { timeout: 20000 },
+  );
   const button = await modal.$("button=Estimate only");
   await button.waitForDisplayed({ timeout: 10000, timeoutMsg: "the prompt has no action buttons" });
   return button;
@@ -559,13 +566,14 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     await waitForPrompt(lastDragged);
     await chooseAction("Estimate only");
 
-    await browser.waitUntil(
-      async () => /timeEstimate:\s*7200/.test(await readNote("Seam Only.md")),
-      {
-        timeout: 20000,
-        timeoutMsg: async () =>
-          `the working-day estimate was not saved — note is now: ${await readNote("Seam Only.md")}`,
+    let lastNote = "<unread>";
+    await waitUntilOrExplain(
+      async () => {
+        lastNote = await readNote("Seam Only.md");
+        return /timeEstimate:\s*7200/.test(lastNote);
       },
+      () => `the working-day estimate was not saved — note is now: ${lastNote}`,
+      { timeout: 20000 },
     );
     const saved = await readNote("Seam Only.md");
     expect(saved).not.toMatch(/due:/); // the derived end stayed derived
@@ -580,24 +588,24 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     // Both placements land on the derived five-day span — the echo carries the
     // authority's geometry to every instance, not just the dragged row.
     const derivedWidth = 5 * pxPerDay;
-    await browser.waitUntil(
+    let lastDraggedInfo: Awaited<ReturnType<typeof barInfo>> = null;
+    let lastDuplicateInfo: Awaited<ReturnType<typeof barInfo>> = null;
+    await waitUntilOrExplain(
       async () => {
-        const dragged = await barInfo("Seam Only.md");
-        const duplicate = await barInfo(duplicateId);
+        lastDraggedInfo = await barInfo("Seam Only.md");
+        lastDuplicateInfo = await barInfo(duplicateId);
         return (
-          dragged !== null &&
-          duplicate !== null &&
-          Math.abs(dragged.width - derivedWidth) < pxPerDay / 2 &&
-          Math.abs(duplicate.width - derivedWidth) < pxPerDay / 2
+          lastDraggedInfo !== null &&
+          lastDuplicateInfo !== null &&
+          Math.abs(lastDraggedInfo.width - derivedWidth) < pxPerDay / 2 &&
+          Math.abs(lastDuplicateInfo.width - derivedWidth) < pxPerDay / 2
         );
       },
-      {
-        timeout: 15000,
-        timeoutMsg: async () =>
-          `an instance is not on the derived span — expected ~${derivedWidth}px, ` +
-          `dragged ${JSON.stringify(await barInfo("Seam Only.md"))}, ` +
-          `duplicate ${JSON.stringify(await barInfo(duplicateId))}`,
-      },
+      () =>
+        `an instance is not on the derived span — expected ~${derivedWidth}px, ` +
+        `dragged ${JSON.stringify(lastDraggedInfo)}, ` +
+        `duplicate ${JSON.stringify(lastDuplicateInfo)}`,
+      { timeout: 15000 },
     );
 
     // The echo is written under the echo-guard and must stay invisible to the

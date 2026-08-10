@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * Calendar-item slice-1 spec: recurring-instance occupancy + time-entry event
@@ -109,13 +110,14 @@ async function missingBars(): Promise<string[]> {
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
 async function ensureGanttReady(): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await browser.waitUntil(
+  await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf();
       missing = await missingBars();
       return missing.length === 0;
     },
-    { timeout: 90000, timeoutMsg: () => `Gantt bars missing: ${JSON.stringify(missing)}` },
+    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+    { timeout: 90000 },
   );
 }
 
@@ -334,7 +336,7 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // the materialized occurrence's parent reference, and both FINISHED time
     // entries. Once these hold, every assertion below reads settled facts.
     let lastTaskFacts = "<never polled>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         lastTaskFacts = await browser.executeObsidian(async ({ app }, names) => {
           const tn = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins?.getPlugin?.("tasknotes") as
@@ -363,10 +365,8 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
         }, { recurring: RECURRING_NOTE, occurrence: OCCURRENCE_NOTE, tracked: TRACKED_NOTE });
         return lastTaskFacts === "ok";
       },
-      {
-        timeout: 60000,
-        timeoutMsg: () => `TaskNotes never served the fixture's calendar-item facts; last: ${lastTaskFacts}`,
-      },
+      () => `TaskNotes never served the fixture's calendar-item facts; last: ${lastTaskFacts}`,
+      { timeout: 60000 },
     );
 
     await ensureGanttReady();
@@ -393,16 +393,14 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
       "og-instance-materialized",
     ];
     let row: RecurringRowState = { found: false, hasRecurringCue: false, hasEnvelope: false, pieceStates: [], spineCount: 0 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         row = await recurringRowState();
         return row.found && row.hasEnvelope && wanted.every((state) => row.pieceStates.includes(state));
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `default-view recorded pieces never settled; last: ${JSON.stringify(row)}`,
-      },
+      () => `default-view recorded pieces never settled; last: ${JSON.stringify(row)}`,
+      { timeout: 20000 },
     );
     expect(row.hasRecurringCue).toBe(true);
     expect(row.hasEnvelope).toBe(true);
@@ -457,16 +455,14 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
       "og-instance-skipped",
       "og-instance-materialized",
     ];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         row = await recurringRowState();
         return row.found && wanted.every((state) => row.pieceStates.includes(state));
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `recurring instance pieces never settled; last: ${JSON.stringify(row)}`,
-      },
+      () => `recurring instance pieces never settled; last: ${JSON.stringify(row)}`,
+      { timeout: 20000 },
     );
     for (const state of wanted) expect(row.pieceStates).toContain(state);
 
@@ -491,7 +487,7 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // outside the plain scheduled→due span, so the row RETAINS the union
     // envelope; only the suppression — and with it the virtual pieces — ends.
     let row: RecurringRowState = { found: false, hasRecurringCue: false, hasEnvelope: false, pieceStates: [], spineCount: 0 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         row = await recurringRowState();
@@ -502,10 +498,8 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
           && !row.pieceStates.includes("og-instance-projected")
         );
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `recurring disable never settled; last: ${JSON.stringify(row)}`,
-      },
+      () => `recurring disable never settled; last: ${JSON.stringify(row)}`,
+      { timeout: 20000 },
     );
 
     // The union envelope stays (wx-split): the plain scheduled→due bar rides
@@ -528,7 +522,7 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // envelope, but occupancyRuns still present — the exact regression case.
     await setRecurringDue("2026-03-24");
     let row: RecurringRowState = { found: false, hasRecurringCue: false, hasEnvelope: true, pieceStates: [], spineCount: 0 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         row = await recurringRowState();
@@ -540,10 +534,8 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
           && row.pieceStates.includes("og-instance-materialized")
         );
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `recorded pieces never became authored-span overlays; last: ${JSON.stringify(row)}`,
-      },
+      () => `recorded pieces never became authored-span overlays; last: ${JSON.stringify(row)}`,
+      { timeout: 20000 },
     );
     expect(await recurringDue()).toBe("2026-03-24");
 
@@ -551,16 +543,13 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     expect(drag.pxPerDay).toBeGreaterThan(0);
     expect(drag.beforeWidth).toBeGreaterThan(0);
     let due: string | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         due = await recurringDue();
         return due === "2026-03-26";
       },
-      {
-        timeout: 15000,
-        interval: 300,
-        timeoutMsg: () => `authored overlay resize did not persist: due=${JSON.stringify(due)}`,
-      },
+      () => `authored overlay resize did not persist: due=${JSON.stringify(due)}`,
+      { timeout: 15000, interval: 300 },
     );
     expect(due).toBe("2026-03-26");
   });
@@ -572,13 +561,14 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // Readiness keyed on the exact rows this journey consumes: the fixture's two
     // FINISHED entries, each a `.wx-bar.og-event` row.
     let events = -1;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         events = (await calendarItemFootprint()).events;
         return events === 2;
       },
-      { timeout: 20000, timeoutMsg: () => `expected 2 og-event rows, saw ${events}` },
+      () => `expected 2 og-event rows, saw ${events}`,
+      { timeout: 20000 },
     );
     expect(events).toBe(2);
 
@@ -631,7 +621,7 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // to be EXACTLY where it was for two consecutive reads.
     let stableReads = 0;
     let after: { left: number; width: number } | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         after = await browser.execute(() => {
           const bar = document.querySelector(".og-bases-gantt .wx-bar.og-event") as HTMLElement | null;
@@ -646,12 +636,9 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
         stableReads = unchanged ? stableReads + 1 : 0;
         return stableReads >= 2;
       },
-      {
-        timeout: 10000,
-        interval: 400,
-        timeoutMsg: () =>
-          `event bar moved after a drag gesture: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
-      },
+      () =>
+        `event bar moved after a drag gesture: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+      { timeout: 10000, interval: 400 },
     );
     expect(after).toEqual(before);
   });
@@ -665,16 +652,14 @@ describe("Gantt (OG) calendar items — recurring occupancy + time-entry rows", 
     // Readiness keyed on the spine itself — the exact element this assertion
     // consumes — then assert pieces are absent on the same observed state.
     let row: RecurringRowState = { found: false, hasRecurringCue: false, hasEnvelope: false, pieceStates: [], spineCount: 0 };
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         row = await recurringRowState();
         return row.found && row.spineCount > 0;
       },
-      {
-        timeout: 20000,
-        timeoutMsg: () => `series spine never rendered at month scale; last: ${JSON.stringify(row)}`,
-      },
+      () => `series spine never rendered at month scale; last: ${JSON.stringify(row)}`,
+      { timeout: 20000 },
     );
     expect(row.spineCount).toBeGreaterThan(0);
     expect(row.pieceStates).toEqual([]);

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * Dependency read-fidelity spec (plan 004, M1; closes the e2e gap from #93).
@@ -255,14 +256,15 @@ describe("Gantt (OG) dependency read fidelity", () => {
     // absent. Retrying absorbs that without weakening the assertion — it still
     // fails if a bar never appears.
     let missing: string[] = ["<unobserved>"];
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf(); // re-front the base in case a steal fired mid-test
         const state = await readGanttState();
         missing = state.missing;
         return state.mounted && missing.length === 0;
       },
-      { timeout: 15000, timeoutMsg: () => `Task bars missing: ${JSON.stringify(missing)}` }
+      () => `Task bars missing: ${JSON.stringify(missing)}`,
+      { timeout: 15000 }
     );
     expect(missing).toEqual([]);
   });
@@ -273,14 +275,15 @@ describe("Gantt (OG) dependency read fidelity", () => {
     // → CompositeSource enrichment → controller reltype→SVAR-type → SVAR links.
     // waitUntil for the same transient-re-render reason as the bar-count test.
     let arrowCount = -1;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         const state = await readGanttState();
         arrowCount = state.arrows;
         return state.mounted && arrowCount === 4;
       },
-      { timeout: 15000, timeoutMsg: () => `Expected 4 arrows, saw ${arrowCount}` }
+      () => `Expected 4 arrows, saw ${arrowCount}`,
+      { timeout: 15000 }
     );
     expect(arrowCount).toBe(4);
   });
@@ -291,7 +294,7 @@ describe("Gantt (OG) dependency read fidelity", () => {
     // type appears: e2s=FINISHTOSTART, s2s=STARTTOSTART, e2e=FINISHTOFINISH,
     // s2e=STARTTOFINISH. waitUntil for the same transient-re-render reason.
     let joined = "";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         joined = await browser.execute(() => {
@@ -301,7 +304,8 @@ describe("Gantt (OG) dependency read fidelity", () => {
         });
         return [":e2s:", ":s2s:", ":e2e:", ":s2e:"].every((t) => joined.includes(t));
       },
-      { timeout: 15000, timeoutMsg: () => `Missing reltype(s); saw: ${joined}` }
+      () => `Missing reltype(s); saw: ${joined}`,
+      { timeout: 15000 }
     );
     expect(joined).toContain(":e2s:");
     expect(joined).toContain(":s2s:");
@@ -330,7 +334,7 @@ describe("Gantt (OG) dependency read fidelity", () => {
     // steal could unmount `.og-bases-gantt` between `beforeEach` and this body,
     // leaving nothing to probe. activateBaseLeaf re-mounts it.
     let bg: string | null = null;
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         bg = await browser.execute(() => {
@@ -345,7 +349,8 @@ describe("Gantt (OG) dependency read fidelity", () => {
         });
         return typeof bg === "string" && bg !== "none" && bg.length > 0;
       },
-      { timeout: 15000, timeoutMsg: () => `delete-button glyph background-image not applied; saw: ${bg}` }
+      () => `delete-button glyph background-image not applied; saw: ${bg}`,
+      { timeout: 15000 }
     );
     expect(bg).toBeTruthy();
     expect(bg).not.toBe("none");
@@ -358,13 +363,14 @@ describe("Gantt (OG) dependency read fidelity", () => {
     // box, so a mask on `.wx-bar` itself would cut them away and dependency
     // authoring would silently die. The cut must be on the inner body layer.
     let observed = "<unobserved>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
         observed = JSON.stringify(await readHandleState());
         return (await readHandleState()).torn;
       },
-      { timeout: 30000, timeoutMsg: () => `torn-edge bar never rendered; saw: ${observed}` }
+      () => `torn-edge bar never rendered; saw: ${observed}`,
+      { timeout: 30000 }
     );
 
     const state = await readHandleState();
@@ -407,7 +413,7 @@ describe("Gantt (OG) dependency read fidelity", () => {
       .perform();
 
     let observed = "<no tooltip>";
-    await browser.waitUntil(
+    await waitUntilOrExplain(
       async () => {
         observed =
           (await browser.execute(
@@ -415,7 +421,8 @@ describe("Gantt (OG) dependency read fidelity", () => {
           )) ?? "<no tooltip>";
         return observed.includes("Blocked by Spec");
       },
-      { timeout: 15000, timeoutMsg: () => `dependency tooltip never showed; saw: ${observed}` },
+      () => `dependency tooltip never showed; saw: ${observed}`,
+      { timeout: 15000 },
     );
 
     // The hovered task's name plus its one incoming edge, reltype labelled.
