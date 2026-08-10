@@ -426,7 +426,7 @@ describe('buildSvarTasks', () => {
     expect(tasks.every((t) => t.custom.showHasDeps === false)).toBe(true);
   });
 
-  it('attaches incoming dependency edges to the target task with the predecessor name resolved (U3)', () => {
+  it('attaches incoming dependency edges to the target task with the predecessor named and identified', () => {
     const instances = [
       inst({ id: 'pred', sourcePath: 'pred.md', text: 'Draft docs' }),
       inst({ id: 'dep', sourcePath: 'dep.md', text: 'Review docs' }),
@@ -436,7 +436,7 @@ describe('buildSvarTasks', () => {
     ];
     const tasks = buildSvarTasks(inputs({ instances, links }));
     expect(tasks.find((t) => t.id === 'dep')!.custom.incomingDeps).toEqual([
-      { reltype: 'STARTTOSTART', gap: 'P1D', predecessorName: 'Draft docs' },
+      { reltype: 'STARTTOSTART', gap: 'P1D', predecessorName: 'Draft docs', linkId: 'L1' },
     ]);
     // The predecessor (source) task has no incoming edges.
     expect(tasks.find((t) => t.id === 'pred')!.custom.incomingDeps).toEqual([]);
@@ -460,6 +460,27 @@ describe('buildSvarTasks', () => {
       return taskStateKey(dep);
     };
     expect(keyOf(null)).not.toBe(keyOf('P1D'));
+  });
+
+  it('taskStateKey changes when an edge keeps its wording but moves to a new id', () => {
+    const keyOf = (predecessorId: string): string => {
+      const instances = [inst({ id: predecessorId, text: 'Draft docs' }), inst({ id: 'dep' })];
+      const links: RenderLink[] = [
+        {
+          id: `${predecessorId}->dep:e2s:`,
+          source: predecessorId,
+          target: 'dep',
+          type: 'e2s',
+          reltype: 'FINISHTOSTART',
+          gap: null,
+        },
+      ];
+      return taskStateKey(buildSvarTasks(inputs({ instances, links })).find((t) => t.id === 'dep')!);
+    };
+    // Reparenting a predecessor rebuilds its instance id, and the edge id with
+    // it, while the name, relationship and gap all read the same. The blocked
+    // row must still re-issue, or it keeps an edge id no drawn arrow carries.
+    expect(keyOf('pred#a')).not.toBe(keyOf('pred#b'));
   });
 });
 

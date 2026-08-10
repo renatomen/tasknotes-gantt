@@ -9,6 +9,7 @@ import type { DateStatus } from '../controller/datePolicy';
 export const GANTT_VISUAL_SEMANTIC_IDS = [
   'bar-treatment',
   'bar-icon',
+  'date-status-torn',
   'date-status-fill',
   'date-status-border',
   'progress',

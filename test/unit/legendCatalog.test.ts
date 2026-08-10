@@ -369,6 +369,13 @@ describe('buildLegendCatalog', () => {
     );
   });
 
+  it('describes the torn edge for non-authored dates', () => {
+    expect(entry(baseContext(), 'date-status-torn').meaning).toBe(
+      'A torn, zigzag edge marks a date that is empty. Left edge, missing start date. Right edge, missing end date.',
+    );
+    expect(entry(baseContext(), 'date-status-torn').name).toBe('Torn edge');
+  });
+
   it('scopes the fill and border cues to reversed dates alone', () => {
     expect(entry(baseContext(), 'date-status-fill').meaning).toBe(
       'An orange fill marks a task whose start date falls after its due date.',
@@ -759,6 +766,7 @@ describe('legend semantic exhaustiveness', () => {
     > = {
       'bar-treatment': { group: 'bars', sampleKind: 'bar' },
       'bar-icon': { group: 'bars', sampleKind: 'icon-set' },
+      'date-status-torn': { group: 'schedule', sampleKind: 'bar' },
       'date-status-fill': { group: 'schedule', sampleKind: 'bar' },
       'date-status-border': { group: 'schedule', sampleKind: 'bar' },
       progress: { group: 'schedule', sampleKind: 'progress' },

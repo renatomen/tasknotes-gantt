@@ -381,10 +381,45 @@ describe("Gantt (OG) dependency read fidelity", () => {
     }
   });
 
-  // NOTE: the U3 dependency tooltip is intentionally NOT asserted here. SVAR's
-  // tooltip is debounced and portal-rendered, making its popup DOM brittle to
-  // assert headlessly. The tooltip's content (reltype labels, gap formatting,
-  // ordering, empty state) is fully unit-covered in
-  // test/unit/dependencyTooltip.test.ts, and the link→task data wiring in
-  // test/unit/ganttSync.test.ts. The rendered popup is a manual in-vault check.
+  it("shows the dependency tooltip when a real pointer hovers a blocked bar", async () => {
+    // The tooltip has two ways to silently die that unit coverage cannot see:
+    // the library suppresses ALL tooltips on hardware reporting touch points
+    // unless the view opts hover-capable devices back in, and its content
+    // component must unwrap the payload the library actually passes. Only a
+    // real pointer over the real composition proves both at once.
+    await ensureGanttReady();
+
+    const center = await browser.execute(() => {
+      const bar = document.querySelector(
+        '.og-bases-gantt .wx-bar[data-task-id$="Build FS.md"]',
+      );
+      if (!bar) return null;
+      const r = bar.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    expect(center).not.toBeNull();
+
+    await browser
+      .action("pointer")
+      .move({ x: center!.x, y: center!.y })
+      .pause(150)
+      .move({ x: center!.x + 3, y: center!.y })
+      .perform();
+
+    let observed = "<no tooltip>";
+    await browser.waitUntil(
+      async () => {
+        observed =
+          (await browser.execute(
+            () => document.querySelector(".og-gantt-tooltip")?.textContent ?? null,
+          )) ?? "<no tooltip>";
+        return observed.includes("Blocked by Spec");
+      },
+      { timeout: 15000, timeoutMsg: () => `dependency tooltip never showed; saw: ${observed}` },
+    );
+
+    // The hovered task's name plus its one incoming edge, reltype labelled.
+    expect(observed).toContain("Build FS");
+    expect(observed).toContain("Blocked by Spec — FS");
+  });
 });
