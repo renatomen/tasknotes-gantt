@@ -228,6 +228,8 @@
   {:else if descriptor.kind === 'shading'}
     <div
       class={`og-legend-shading og-legend-${semanticId} ${className(descriptor.classTokens)}`}
+      class:og-legend-shading-cells={semanticId === 'weekend-shading' ||
+        semanticId === 'calendar-shading'}
       style={descriptorStyle(descriptor)}
     ></div>
   {:else if descriptor.kind === 'marker'}
@@ -477,6 +479,31 @@
     height: 100%;
     border: 1px solid var(--background-modifier-border);
     background: var(--og-legend-shading-background, var(--background-secondary));
+  }
+
+  /*
+   * A tint only reads next to untinted neighbours, so these swatches are a
+   * strip of four day cells whose middle pair carries the chart's own shading
+   * over the chart's own canvas — a miniature of the chart in any theme,
+   * instead of a lone tinted box whose visibility depends on the card behind
+   * it. The conflict swatch keeps its stripes and is untouched. The class is a
+   * class: directive rather than part of the dynamic class string, which some
+   * compile pipelines cannot see through and prune the selector for.
+   */
+  .og-legend-shading-cells {
+    background-color: var(--wx-background, var(--background-primary, #ffffff));
+    background-image:
+      repeating-linear-gradient(
+        to right,
+        transparent 0 calc(25% - 1px),
+        var(--background-modifier-border, rgba(128, 128, 128, 0.35)) calc(25% - 1px) 25%
+      ),
+      linear-gradient(
+        to right,
+        transparent 0 25%,
+        var(--og-legend-shading-background, var(--background-secondary, rgba(128, 128, 128, 0.2))) 25% 75%,
+        transparent 75%
+      );
   }
 
   .og-legend-marker-frame,

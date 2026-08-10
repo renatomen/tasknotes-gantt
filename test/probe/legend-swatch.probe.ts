@@ -1,7 +1,6 @@
 /**
  * Renders the real GanttLegend over the real catalogue and screenshots it, so a
- * swatch's paint is seen, not inferred from computed style. Pins the torn-edge
- * sample: its mask must actually cut the teeth tile into the bar.
+ * swatch's paint is seen, not inferred from computed style.
  */
 /* global getComputedStyle */
 import { test, expect } from 'vitest';
@@ -29,7 +28,7 @@ const CONTEXT: GanttLegendContext = {
   externalCalendarsEnabled: false,
 };
 
-test('the torn-edge legend swatch renders with the teeth cut into it', async () => {
+async function mountLegend(): Promise<void> {
   render(GanttLegend, {
     props: {
       groups: buildLegendCatalog(CONTEXT),
@@ -40,14 +39,37 @@ test('the torn-edge legend swatch renders with the teeth cut into it', async () 
     },
   });
   await new Promise((s) => setTimeout(s, 300));
+}
 
-  const entry = document.querySelector('[data-semantic-id="date-status-torn"]') as HTMLElement;
-  expect(entry, 'torn-edge legend entry not rendered').not.toBeNull();
+async function scrollToEntry(semanticId: string): Promise<HTMLElement> {
+  const entry = document.querySelector(`[data-semantic-id="${semanticId}"]`) as HTMLElement;
+  expect(entry, `${semanticId} legend entry not rendered`).not.toBeNull();
   entry.scrollIntoView({ block: 'center' });
+  await new Promise((s) => setTimeout(s, 200));
+  return entry;
+}
+
+test('the torn-edge legend swatch renders with the teeth cut into it', async () => {
+  await mountLegend();
+  const entry = await scrollToEntry('date-status-torn');
 
   const bar = entry.querySelector('.og-legend-bar') as HTMLElement;
   const mask = getComputedStyle(bar).maskImage || getComputedStyle(bar).webkitMaskImage;
   expect(mask).toContain('conic-gradient');
 
   await page.screenshot({ path: '__screenshots__/legend-torn-edge.png' });
+});
+
+test('the shading swatches render day cells with a shaded middle band', async () => {
+  await mountLegend();
+  const entry = await scrollToEntry('weekend-shading');
+
+  const strip = entry.querySelector('.og-legend-shading') as HTMLElement;
+  const image = getComputedStyle(strip).backgroundImage;
+  expect(image).toContain('repeating-linear-gradient');
+  // The band is a SECOND layer — 'repeating-linear-gradient' already contains
+  // the substring 'linear-gradient', so assert the layer separator instead.
+  expect(image).toContain('), linear-gradient(');
+
+  await page.screenshot({ path: '__screenshots__/legend-shading-swatch.png' });
 });
