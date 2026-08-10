@@ -366,8 +366,9 @@ describe("Gantt (OG) dependency read fidelity", () => {
     await waitUntilOrExplain(
       async () => {
         await activateBaseLeaf();
-        observed = JSON.stringify(await readHandleState());
-        return (await readHandleState()).torn;
+        const state = await readHandleState();
+        observed = JSON.stringify(state);
+        return state.torn;
       },
       () => `torn-edge bar never rendered; saw: ${observed}`,
       { timeout: 30000 }

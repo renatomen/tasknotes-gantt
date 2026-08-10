@@ -12,10 +12,11 @@ import { browser } from "@wdio/globals";
  * browser calls — always carries the last-observed state into the failure.
  *
  * Contract caveats encoded here: the wait must ALWAYS throw for not-ready (a
- * falsy final tick would fall back to the generic message), and the message
- * must never equal wdio's bare `timeout` sentinel — the non-empty prefix wdio
- * wraps around thrown messages plus the site text make that unreachable, and
- * an empty explain() is padded defensively.
+ * falsy final tick would fall back to the generic message), and the thrown
+ * message must never equal wdio's bare `timeout` sentinel — wdio compares the
+ * message BEFORE wrapping it, so the unconditional "not ready:" prefix below
+ * is what makes the sentinel structurally unreachable (it also pads an empty
+ * explain()).
  */
 export async function waitUntilOrExplain(
   condition: () => boolean | Promise<boolean>,
@@ -24,6 +25,6 @@ export async function waitUntilOrExplain(
 ): Promise<void> {
   await browser.waitUntil(async () => {
     if (await condition()) return true;
-    throw new Error(explain() || "condition not met (empty diagnostic)");
+    throw new Error(`not ready: ${explain()}`);
   }, options);
 }

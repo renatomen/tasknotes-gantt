@@ -35,8 +35,8 @@ interface Run {
 
 // Nearly every test here spawns a node or git child; process start-up on a
 // loaded machine can alone exceed jest's 5s default, so the whole file gets a
-// generous budget — a deliberate granularity trade (per-test annotation across
-// 33 tests is noise) at the cost of slower worst-case hang detection here.
+// generous budget — a deliberate granularity trade (per-test annotation on
+// nearly every test is noise) at the cost of slower worst-case hang detection.
 jest.setTimeout(30_000);
 
 // Children get a scrubbed env: inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
