@@ -66,11 +66,11 @@ const STATE_CLASSES = [...new Set(Object.values(STATE_CLASS_BY_NOTE))];
 const DUE_ONLY_FIXTURE_DUE = "2026-04-20";
 
 /**
- * The colour treatment every non-`complete` bar used to carry, now down to the
- * swapped bar alone: the torn edge is the whole signal for a non-authored one.
+ * The orange fill the swapped bar still carries — the one survivor of the
+ * legacy colour treatment, interim until schedule validation's error badge.
+ * The red border half is retired entirely.
  */
-const RETIRED_FILL = "rgb(230, 126, 34)";
-const RETIRED_BORDER = "rgb(192, 57, 43)";
+const SWAPPED_FILL = "rgb(230, 126, 34)";
 
 /**
  * Tooth period the view stylesheet publishes, and the full-size depth — half the
@@ -417,31 +417,48 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       for (const bar of paint.slice(1)) {
         expect(bar.backgroundColor).toBe(complete.backgroundColor);
         expect(bar.borderTopColor).toBe(complete.borderTopColor);
-        expect(bar.backgroundColor).not.toBe(RETIRED_FILL);
-        expect(bar.borderTopColor).not.toBe(RETIRED_BORDER);
+        expect(bar.backgroundColor).not.toBe(SWAPPED_FILL);
       }
-      // The flag repainted the progress fill too, in the same retired red — so
-      // read it on the one torn bar that HAS a progress fill; the others render
-      // no such element and would compare a colour against nothing.
+      // Read the progress fill on the one torn bar that HAS one; the others
+      // render no such element and would compare a colour against nothing.
       const withProgress = paint.find((bar) => bar.note === "Start Only.md");
       expect(withProgress?.progressColor).not.toBeNull();
       expect(withProgress?.progressColor).toBe(complete.progressColor);
     });
 
-    it("keeps the legacy colour treatment on the swapped bar", async () => {
-      // Swapped dates are the flag's last consumer: retiring the colour for the
-      // torn states does not strip the one state whose own treatment is still
-      // to come. (Separately, a surface too small to carry a tooth has no
-      // signal at all — an accepted limit of a shape-based cue, not this.)
-      const swapped = await browser.execute((selector: string) => {
-        const bar = document.querySelector(selector);
-        if (!bar) throw new Error(`bar not found: ${selector}`);
-        const style = window.getComputedStyle(bar);
-        return { backgroundColor: style.backgroundColor, borderTopColor: style.borderTopColor };
-      }, `.og-bases-gantt .wx-bar[data-id$="Swapped.md"]`);
+    it("keeps the orange fill, and only the fill, on the swapped bar", async () => {
+      // Swapped dates are the flag's last consumer, and the fill is now the
+      // whole treatment: border and progress paint exactly as an ordinary
+      // bar's, asserted as equalities against the complete bar so a surviving
+      // border-width or repaint declaration fails the value comparison rather
+      // than slipping past a not-red check.
+      const bars = await browser.execute(
+        (notes: string[]) =>
+          notes.map((note) => {
+            const bar = document.querySelector(`.og-bases-gantt .wx-bar[data-id$="${note}"]`);
+            if (!bar) throw new Error(`bar not found: ${note}`);
+            const style = window.getComputedStyle(bar);
+            const progress = bar.querySelector(".wx-progress-percent");
+            return {
+              backgroundColor: style.backgroundColor,
+              borderTopColor: style.borderTopColor,
+              borderTopStyle: style.borderTopStyle,
+              borderTopWidth: style.borderTopWidth,
+              progressColor: progress
+                ? window.getComputedStyle(progress).backgroundColor
+                : null,
+            };
+          }),
+        ["Complete.md", "Swapped.md"],
+      );
 
-      expect(swapped.backgroundColor).toBe(RETIRED_FILL);
-      expect(swapped.borderTopColor).toBe(RETIRED_BORDER);
+      const [complete, swapped] = bars;
+      expect(swapped!.backgroundColor).toBe(SWAPPED_FILL);
+      expect(swapped!.borderTopColor).toBe(complete!.borderTopColor);
+      expect(swapped!.borderTopStyle).toBe(complete!.borderTopStyle);
+      expect(swapped!.borderTopWidth).toBe(complete!.borderTopWidth);
+      expect(swapped!.progressColor).not.toBeNull();
+      expect(swapped!.progressColor).toBe(complete!.progressColor);
     });
 
     it("stamps each flagged bar with the per-state class for its own date status", async () => {

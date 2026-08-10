@@ -737,9 +737,9 @@ describe("Gantt (OG) context-aware legend", () => {
   it("leaves a non-authored-edge bar its configured priority fill instead of the date colours", async () => {
     // The date-status colours no longer outrank the fill channels on a bar whose
     // edge was never authored — that state is signalled by the torn edge, which
-    // composes with whatever colour the user configured. The legend's own two
-    // colour swatches are still the old ones; they are replaced with their own
-    // entries separately, so this asserts the CHART side of the divergence.
+    // composes with whatever colour the user configured. The fill swatch is the
+    // one legend colour left; the border row is retired outright, asserted
+    // absent from a panel that provably rendered its sibling.
     await setFixtureBarChannels("priority", "none");
     await openLegend();
     await browser.waitUntil(
@@ -753,9 +753,7 @@ describe("Gantt (OG) context-aware legend", () => {
       const fillSample = document.querySelector<HTMLElement>(
         '[data-semantic-id="date-status-fill"] .og-legend-bar',
       );
-      const borderSample = document.querySelector<HTMLElement>(
-        '[data-semantic-id="date-status-border"] .og-legend-bar',
-      );
+      const borderEntry = document.querySelector('[data-semantic-id="date-status-border"]');
       const chart = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Flagged.md"]',
       );
@@ -763,17 +761,7 @@ describe("Gantt (OG) context-aware legend", () => {
       // authored drops the border on that side so the torn edge is not redrawn
       // as a straight line, which makes the shorthand a four-value string. The
       // top edge is never torn, so it is where a chart bar's border colour is
-      // comparable with a legend swatch's.
-      const snapshot = (element: HTMLElement | null) => {
-        const style = element ? getComputedStyle(element) : null;
-        return style
-          ? {
-              color: style.borderTopColor,
-              style: style.borderTopStyle,
-              width: Number.parseFloat(style.borderTopWidth),
-            }
-          : null;
-      };
+      // readable.
       const fill = fillSample ? getComputedStyle(fillSample) : null;
       const chartStyle = chart ? getComputedStyle(chart) : null;
       const configuredFill = chartStyle?.getPropertyValue("--og-ghost-fill").trim() ?? "";
@@ -788,31 +776,27 @@ describe("Gantt (OG) context-aware legend", () => {
         fill: fill
           ? { background: fill.backgroundColor, borderWidth: Number.parseFloat(fill.borderWidth) }
           : null,
-        border: snapshot(borderSample),
+        borderEntryPresent: borderEntry !== null,
         chartBackground: chartStyle?.backgroundColor ?? null,
         configuredFillColor,
         chartHasPriorityClass:
           chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
         chartIsFlagged: chart?.classList.contains("datestatus-flagged") ?? null,
-        chart: snapshot(chart),
       };
     });
 
-    // The legend still projects the retired colours, so they are a live
-    // comparison rather than two absent values matching by accident.
+    // The fill swatch is a live comparison anchor: it really paints the orange,
+    // so the border row's absence below is read off a panel that rendered.
     expect(dateStatus.fill?.background).toBe("rgb(230, 126, 34)");
     expect(dateStatus.fill?.borderWidth).toBe(0);
-    expect(dateStatus.border?.color).toBe("rgb(192, 57, 43)");
-    expect(dateStatus.border?.style).toBe("solid");
-    expect(dateStatus.border?.width).toBeGreaterThan(0);
+    expect(dateStatus.borderEntryPresent).toBe(false);
     // The chart bar really is on the priority channel…
     expect(dateStatus.chartHasPriorityClass).toBe(true);
     expect(dateStatus.configuredFillColor).not.toBeNull();
     expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
-    // …and it paints THAT colour, with neither the flag nor its border colour.
+    // …and it paints THAT colour, without the flag.
     expect(dateStatus.chartIsFlagged).toBe(false);
     expect(dateStatus.chartBackground).toBe(dateStatus.configuredFillColor);
-    expect(dateStatus.chart?.color).not.toBe(dateStatus.border?.color);
   });
 
   it("reuses production shading and treatment paint for secondary semantics", async () => {
