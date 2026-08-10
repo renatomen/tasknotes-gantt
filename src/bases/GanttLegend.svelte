@@ -491,7 +491,7 @@
    * compile pipelines cannot see through and prune the selector for.
    */
   .og-legend-shading-cells {
-    background-color: var(--background-primary, #ffffff);
+    background-color: var(--wx-background, var(--background-primary, #ffffff));
     background-image:
       repeating-linear-gradient(
         to right,

@@ -865,7 +865,9 @@ describe("Gantt (OG) context-aware legend", () => {
       // Cells, not a lone tinted box: gridlines plus a shaded band, and a
       // canvas colour of its own so the contrast never depends on the card.
       expect(swatch.bgImage).toContain("repeating-linear-gradient");
-      expect(swatch.bgImage).toContain("linear-gradient");
+      // The band is a SECOND layer — 'repeating-linear-gradient' already contains
+      // the substring 'linear-gradient', so assert the layer separator instead.
+      expect(swatch.bgImage).toContain("), linear-gradient(");
       expect(swatch.bgColor).not.toBe("rgba(0, 0, 0, 0)");
     }
   });
