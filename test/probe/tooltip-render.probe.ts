@@ -1,9 +1,17 @@
 /**
  * Does the dependency tooltip actually appear? Mounts the real SVAR <Tooltip>
- * around a real <Gantt> with the plugin's own DependencyTooltip as content, then
- * hovers a bar and an arrow the way a reader does. Records what the DOM shows.
+ * around a real <Gantt> with the plugin's own DependencyTooltip as content,
+ * hovers a bar with a real pointer, and drives the edge branch with the same
+ * events a pointer would produce. Records what the DOM shows.
+ *
+ * The library suppresses all tooltips on hardware reporting touch points, so
+ * touch capability is pinned rather than inherited from the machine running
+ * the suite — on a touchless runner the guard would never fire and these
+ * tests would pass with or without the fix they exist to hold.
  */
-/* global MouseEvent */
+/* global MouseEvent, navigator */
+
+Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 20, configurable: true });
 import { test, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page, userEvent } from 'vitest/browser';

@@ -1,5 +1,5 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
+  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, MouseEvent, MediaQueryListEvent, KeyboardEvent, ResizeObserver, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -1332,8 +1332,17 @@
   // SVAR suppresses every tooltip on hardware reporting any touch points —
   // which includes a touchscreen laptop whose reader is hovering with a mouse.
   // A tooltip is a hover affordance, so it is enabled exactly where hovering is
-  // possible; a touch-only device keeps the library's suppression.
-  const tooltipHoverCapable = window.matchMedia('(any-hover: hover)').matches;
+  // possible; a touch-only device keeps the library's suppression. Tracked
+  // live, so docking or undocking a convertible flips it without a remount.
+  const hoverCapableQuery = window.matchMedia('(any-hover: hover)');
+  let tooltipHoverCapable = $state(hoverCapableQuery.matches);
+  $effect(() => {
+    const follow = (ev: MediaQueryListEvent): void => {
+      tooltipHoverCapable = ev.matches;
+    };
+    hoverCapableQuery.addEventListener('change', follow);
+    return () => hoverCapableQuery.removeEventListener('change', follow);
+  });
 
   // Bumped when the SVAR api re-binds (initGantt) and on teardown. The executor
   // treats a bump alone as a REMOUNT (post-persist data work continues), so

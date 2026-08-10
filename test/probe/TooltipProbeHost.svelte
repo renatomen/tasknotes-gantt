@@ -10,15 +10,16 @@
   import { Gantt, Tooltip, Willow } from '@svar-ui/svelte-gantt';
   import DependencyTooltip from '../../src/bases/DependencyTooltip.svelte';
 
-  /* eslint-disable @typescript-eslint/no-explicit-any */
+  import type { IApi, ILink, ITask } from '@svar-ui/svelte-gantt';
+
   interface Props {
-    tasks: any[];
-    links?: any[];
+    tasks: Partial<ITask>[];
+    links?: ILink[];
   }
   const { tasks, links = [] }: Props = $props();
 
   let hostEl: HTMLElement;
-  let api: any = $state();
+  let api: IApi | undefined = $state();
 
   const STABLE_FRAMES = 2;
   const MAX_FRAMES = 600;
@@ -48,9 +49,9 @@
   <Willow>
     <Tooltip {api} content={DependencyTooltip} touch={window.matchMedia('(any-hover: hover)').matches}>
       <Gantt
-        init={(a: any) => {
+        init={(a: IApi) => {
           api = a;
-          (window as any).__probeApi = a;
+          (window as { __probeApi?: IApi }).__probeApi = a;
         }}
         {tasks}
         {links}
