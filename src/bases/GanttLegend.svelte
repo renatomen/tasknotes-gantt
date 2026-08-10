@@ -460,11 +460,11 @@
   }
 
   .og-legend-entry[data-semantic-id='date-status-fill'] .og-legend-bar {
-    background-color: var(--og-date-status-fill) !important;
+    background-color: var(--og-date-status-fill, #e67e22) !important;
     border: 0 !important;
   }
   .og-legend-entry[data-semantic-id='date-status-border'] .og-legend-bar {
-    border: 1px solid var(--og-date-status-border) !important;
+    border: 1px solid var(--og-date-status-border, #c0392b) !important;
   }
 
   .og-legend-sample :global(.wx-progress-wrapper) { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
