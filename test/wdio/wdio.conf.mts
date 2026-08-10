@@ -32,7 +32,9 @@ export const config: Options.Testrunner = {
   // to `--spec` selections.
   exclude: [
     "../specs/**/*.perf.e2e.ts",
-    ...(process.argv.includes("--spec") ? [] : ["../specs/**/_local-*.e2e.ts"]),
+    ...(process.argv.some((arg) => arg === "--spec" || arg.startsWith("--spec="))
+      ? []
+      : ["../specs/**/_local-*.e2e.ts"]),
   ],
   maxInstances: 1,
   capabilities: [
