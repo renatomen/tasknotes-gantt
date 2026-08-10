@@ -3670,11 +3670,29 @@
     display: none !important;
   }
 
+  /*
+   * The bar's effective fill, defined once; every surface that paints a bar's
+   * body derives from it. Declared on the consuming elements themselves — NOT
+   * on the root — because var() substitutes at the declaring element: a
+   * root-level declaration would freeze the no-treatment default into every
+   * bar, while each of these elements carries (or inherits from an ancestor
+   * that carries) its own --og-ghost-fill. The piece selectors matter: legend
+   * occurrence samples are .og-instance elements with their ghost fill set
+   * inline on themselves and no .wx-bar in their ancestry, so a bar-only
+   * definition would leave them invalid-at-computed-value-time. Contract for
+   * consumers: "the colour a surface paints when it paints this bar's body"
+   * — valid only under .og-bases-gantt. Deliberate non-derivers: the series
+   * spine (the accent fallback is its point), the legend bar-sample default
+   * and the representative-colour string (tail-only values), and the legend
+   * strip-only rule, which keeps a chart-equal fallback so a legend mounted
+   * outside a chart still paints.
+   */
+  .og-bases-gantt :global(:is(.wx-bar, .og-ghost-run, .og-instance)) {
+    --og-effective-fill: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+  }
+
   .og-bases-gantt :global(.wx-bar.og-event) {
-    background-color: var(
-      --og-event-color,
-      var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6))
-    ) !important;
+    background-color: var(--og-event-color, var(--og-effective-fill)) !important;
     cursor: default !important;
   }
 
@@ -3747,7 +3765,7 @@
     box-sizing: border-box;
     /* Inherit the fill treatment's colour when one applies (set as
        --og-ghost-fill on the treated bar); default task colour otherwise. */
-    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    background-color: var(--og-effective-fill);
     border-radius: var(--wx-gantt-bar-border-radius, 2px);
   }
   /* Blocked stretches: the 15% ghost — the shaded background reads through. */
@@ -3772,7 +3790,7 @@
     height: 100%;
     box-sizing: border-box;
     border-radius: var(--wx-gantt-bar-border-radius, 2px);
-    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    background-color: var(--og-effective-fill);
     z-index: 1;
   }
   /* Next: the one upcoming instance — solid accent, the row's anchor. */
@@ -3819,7 +3837,7 @@
    * --og-ghost-fill exactly as on the ghost pieces.
    */
   .og-bases-gantt :global(.og-instance-plain) {
-    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    background-color: var(--og-effective-fill);
   }
   /*
    * External: one occurrence of a multi-occurrence series event row — a plain
@@ -3828,7 +3846,7 @@
    * (the ghost-piece convention), defaulting to the task colour.
    */
   .og-bases-gantt :global(.og-instance-external) {
-    background-color: var(--og-ghost-fill, var(--wx-gantt-task-color, #3d8de6));
+    background-color: var(--og-effective-fill);
   }
   /*
    * Coarse-zoom fallback: a dashed series spine spanning first→last
