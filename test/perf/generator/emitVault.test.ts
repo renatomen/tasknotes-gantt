@@ -139,7 +139,10 @@ describe('serializeBaseFile — filter expression', () => {
 describe('emitVault — write behavior', () => {
   const tmpRoots: string[] = [];
   afterAll(async () => {
-    for (const dir of tmpRoots) await fs.rm(dir, { recursive: true, force: true });
+    // Retries: on a loaded Windows machine the AV scanner can briefly hold
+    // handles on just-written files, and a retry-less rm throws EBUSY.
+    for (const dir of tmpRoots)
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   async function freshDir(): Promise<string> {
@@ -153,6 +156,9 @@ describe('emitVault — write behavior', () => {
     await expect(emitVault(graph, { outDir: '' })).rejects.toThrow();
   });
 
+  // The two disk-writing tests get their own generous budget (~80 files each
+  // under possible AV scanning on a loaded machine); the pure-logic tests in
+  // this file keep the strict 5s default.
   it('writes every task + filler note and the base, all under the output dir', async () => {
     const graph = generate(baseGraphParams());
     const outDir = await freshDir();
@@ -163,7 +169,7 @@ describe('emitVault — write behavior', () => {
     // Base exists where reported, inside the output dir.
     expect(result.basePath.startsWith(outDir)).toBe(true);
     await expect(fs.stat(result.basePath)).resolves.toBeTruthy();
-  });
+  }, 30_000);
 
   it('round-trips an emitted task note from disk (edges + dates + status preserved)', async () => {
     const graph = generate(baseGraphParams());
@@ -182,7 +188,7 @@ describe('emitVault — write behavior', () => {
     expect(fm.due).toBe(formatDate((sample as GraphTask).due as Date));
     expect(fm.status).toBe((sample as GraphTask).status);
     expect(fm.projects as string[]).toHaveLength((sample as GraphTask).parents.length);
-  });
+  }, 30_000);
 });
 
 /** A compact graph for the write tests. */
