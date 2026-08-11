@@ -1,6 +1,8 @@
 import type { RenderLink } from '../controller/InstanceExpansion';
 import {
+  planLinkSync,
   planReorder,
+  planTaskSync,
   type EchoTaskUpdate,
   type LinkSyncPlan,
   type SvarTask,
@@ -189,4 +191,51 @@ export function applyIncrementalGanttSync(
   state.orderKey = plan.orderKey;
   state.baseSortKey = plan.baseSortKey;
   return { reorderMoves };
+}
+
+export interface PlanGanttSyncOptions {
+  /** The rows the data now implies, already built for SVAR. */
+  next: SvarTask[];
+  links: RenderLink[];
+  applied: AppliedGanttSyncState;
+  /** The Base's current sort descriptor, or '' when no Base sort is active. */
+  baseSortKey: string;
+}
+
+/**
+ * Diff the incoming rows and links against what the chart is already showing.
+ *
+ * `next` arrives built rather than derived here: turning view data into SVAR
+ * rows needs the view's own options and column config, which belong to the
+ * component. What belongs here is the comparison.
+ */
+export function planGanttSync(options: PlanGanttSyncOptions): GanttSyncPlan {
+  const { next, links, applied, baseSortKey } = options;
+  return {
+    next,
+    taskPlan: planTaskSync(applied.tasks, next),
+    linkPlan: planLinkSync(applied.links, links),
+    orderKey: ganttOrderFingerprint(next),
+    baseSortKey,
+    baseSortChanged: baseSortKey !== applied.baseSortKey,
+  };
+}
+
+/**
+ * Whether applying `plan` would change nothing on screen.
+ *
+ * The order fingerprint and the Base-sort flag are load-bearing beside the
+ * add/update/delete counts: a pure REORDER produces none of those, and so does
+ * a Base re-sort over identical rows. Dropping either check turns both into
+ * silent no-ops that leave the chart in the previous order.
+ */
+export function isGanttSyncNoop(plan: GanttSyncPlan, applied: AppliedGanttSyncState): boolean {
+  return plan.taskPlan.moves.length === 0
+    && plan.taskPlan.updates.length === 0
+    && plan.taskPlan.deletes.length === 0
+    && plan.taskPlan.adds.length === 0
+    && plan.linkPlan.deletes.length === 0
+    && plan.linkPlan.adds.length === 0
+    && plan.orderKey === applied.orderKey
+    && !plan.baseSortChanged;
 }

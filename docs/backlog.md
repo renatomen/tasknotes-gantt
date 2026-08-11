@@ -506,3 +506,19 @@ derived from the view default, so the undo writes an explicit estimate equal to 
 was implicit — the appearance is restored exactly, the authorship is not. Restoring
 absence needs a patch path that can *clear* a field (today `applyEstimateWrite`
 only writes numbers, and TaskNotes-field clearing semantics are unverified).
+
+## Test code is never typechecked
+
+Source: the cross-model peer layer, on its first review of product code.
+`tsconfig.json` includes only `src` and `**/*.svelte`, and jest transpiles via
+SWC without type information, so a test can call a two-argument function with
+one argument and pass. That happened here: four new coordinator tests omitted
+`createAppliedGanttSyncState`'s required `baseSortKey`, and two of them went on
+to exercise `baseSortKey === undefined` — a state the view cannot produce, since
+"no Base sort" is `''`. The tests were green throughout.
+
+The fix is to typecheck `test/` (its own tsconfig, or widening `include`), which
+will surface an unknown number of existing arity/shape drifts in 160+ suites —
+too large to fold into an unrelated refactor, and worth its own pass. Until then,
+a test asserting against a stale signature fails silently in exactly the way a
+test is supposed to prevent.

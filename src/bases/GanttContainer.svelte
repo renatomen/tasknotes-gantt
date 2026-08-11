@@ -47,8 +47,6 @@
     buildSvarTasks,
     buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
-    planTaskSync,
-    planLinkSync,
     planReorder,
     baseSortDescriptor,
     echoTaskPatch,
@@ -63,6 +61,8 @@
     createAppliedGanttSyncState,
     createGanttSeedSnapshot,
     ganttOrderFingerprint,
+    isGanttSyncNoop,
+    planGanttSync,
     replaceAppliedGanttData,
     type AppliedGanttSyncState,
     type GanttSyncPlan,
@@ -1058,31 +1058,13 @@
     applyPersistedGridWidth();
   }
 
-  function planGanttSync(d: GanttData): GanttSyncPlan {
-    const next = buildSvarTasks(toInputs(d));
-    const taskPlan = planTaskSync(appliedSyncState.tasks, next);
-    const linkPlan = planLinkSync(appliedSyncState.links, d.links);
-    const orderKey = ganttOrderFingerprint(next);
-    const baseSortKey = baseSortDescriptor(config?.getSort?.());
-    return {
-      next,
-      taskPlan,
-      linkPlan,
-      orderKey,
-      baseSortKey,
-      baseSortChanged: baseSortKey !== appliedSyncState.baseSortKey,
-    };
-  }
-
-  function isGanttSyncNoop(plan: GanttSyncPlan): boolean {
-    return plan.taskPlan.moves.length === 0
-      && plan.taskPlan.updates.length === 0
-      && plan.taskPlan.deletes.length === 0
-      && plan.taskPlan.adds.length === 0
-      && plan.linkPlan.deletes.length === 0
-      && plan.linkPlan.adds.length === 0
-      && plan.orderKey === appliedSyncState.orderKey
-      && !plan.baseSortChanged;
+  function planSyncFromData(d: GanttData): GanttSyncPlan {
+    return planGanttSync({
+      next: buildSvarTasks(toInputs(d)),
+      links: d.links,
+      applied: appliedSyncState,
+      baseSortKey: baseSortDescriptor(config?.getSort?.()),
+    });
   }
 
   function clearEphemeralSortForBaseChange(baseSortChanged: boolean): void {
@@ -1162,8 +1144,8 @@
     if (reseedColumnsIfNeeded(d)) return;
     applyChangedGridWidth(d);
 
-    const plan = planGanttSync(d);
-    if (isGanttSyncNoop(plan)) {
+    const plan = planSyncFromData(d);
+    if (isGanttSyncNoop(plan, appliedSyncState)) {
       dlog('[OGDBG] sync NOOP');
       return;
     }
