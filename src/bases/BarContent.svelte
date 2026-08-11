@@ -22,7 +22,7 @@
   //
   // Passed once as a stable prop to `<Gantt>` (see GanttContainer) — SVAR's
   // reinitStore does not read taskTemplate, so this never re-inits the store.
-  /* global Element, HTMLElement, MutationObserver, Event */
+  /* global Element, HTMLElement, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
   import { lucideIcon } from './lucideIconAction';
   import type { IconSpec } from './barTreatment';
@@ -38,6 +38,7 @@
     type OccupancyRunSpan,
   } from '../render/segmentLayout';
   import { resolveOccupancyActivationPath } from './occupancyDisplay';
+  import { findHostBar, stampOnHostBar } from './hostBarStamp';
   import {
     GANTT_VISUAL_CLASS_TOKENS as visualClasses,
     isNonAuthoredEdgeToken,
@@ -179,25 +180,14 @@
    * `.wx-task:not(.wx-split)` fill rule steps aside and its transparent rule
    * applies — no `!important` contest with the library's scoped styles.
    *
-   * SVAR re-applies a bar's whole class list from its `task.type` on an
-   * `update-task` (e.g. a Bar Fill / Strip source change re-issues the task with
-   * a new treatment class), which drops this imperatively-added class — leaving
-   * the body opaque so the ghost pieces blend over it until a remount. A
-   * MutationObserver re-asserts it whenever it is stripped while the pieces are
-   * mounted, so the split survives a live re-colour without a re-render.
+   * The wrapper is a direct child of the bar here, and the stricter walk is
+   * deliberate: it is the pieces' own host that must go split, never some
+   * ancestor bar a future nesting change might introduce.
    */
   function markBarSplit(node: Element): (() => void) | undefined {
     const bar = node.parentElement;
     if (!bar?.classList.contains(visualClasses.bar)) return undefined;
-    bar.classList.add('wx-split');
-    const observer = new MutationObserver(() => {
-      if (!bar.classList.contains('wx-split')) bar.classList.add('wx-split');
-    });
-    observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
-    return () => {
-      observer.disconnect();
-      bar.classList.remove('wx-split');
-    };
+    return stampOnHostBar(bar, ['wx-split']);
   }
 
   /**
@@ -213,7 +203,10 @@
   function colorCalendarItemBar(color: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!color) return undefined;
-      const bar = node.closest(`.${visualClasses.bar}`);
+      // Narrowed here, not in findHostBar: this attachment is the only one that
+      // needs `.style`, and a realm-bound instanceof in the shared walk would
+      // no-op every caller inside an Obsidian pop-out window.
+      const bar = findHostBar(node, visualClasses.bar);
       if (!(bar instanceof HTMLElement)) return undefined;
       const eventColor = bar.style.getPropertyValue('--og-event-color');
       const ghostFill = bar.style.getPropertyValue('--og-ghost-fill');
@@ -242,32 +235,17 @@
    *
    * A torn token also stamps SVAR's own `wx-split` — the host stops painting by
    * the library's rule and the torn `.og-bar-body` paints the cut body instead.
-   * Both classes ride ONE observer: SVAR re-applies a bar's whole class list
-   * from `task.type` on an `update-task` (a Bar Fill / Strip source change
-   * re-issues the task with a new treatment class), and the observer re-asserts
-   * them, exactly as {@link markBarSplit} does. On a torn bar that is also
-   * stretched or enveloped, `wx-split` is co-owned with {@link markBarSplit}'s
-   * observer: either teardown may remove it and the surviving owner re-asserts
-   * it (contains-guarded adds) — never "fix" that by removing it harder.
+   * Both classes ride one stamp, so they are re-asserted together; on a bar
+   * that is also stretched or enveloped, `wx-split` is co-owned with
+   * {@link markBarSplit} (see the stamping module for why that converges).
    */
   function markBarDateStatus(token: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!token) return undefined;
-      const bar = node.closest(`.${visualClasses.bar}`);
+      const bar = findHostBar(node, visualClasses.bar);
       if (!bar) return undefined;
-      const torn = isNonAuthoredEdgeToken(token);
-      const stamp = (): void => {
-        if (!bar.classList.contains(token)) bar.classList.add(token);
-        if (torn && !bar.classList.contains('wx-split')) bar.classList.add('wx-split');
-      };
-      stamp();
-      const observer = new MutationObserver(stamp);
-      observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
-      return () => {
-        observer.disconnect();
-        bar.classList.remove(token);
-        if (torn) bar.classList.remove('wx-split');
-      };
+      const tokens = isNonAuthoredEdgeToken(token) ? [token, 'wx-split'] : [token];
+      return stampOnHostBar(bar, tokens);
     };
   }
 
@@ -282,7 +260,7 @@
   function markBarOverridden(tooltip: string | null) {
     return (node: Element): (() => void) | undefined => {
       if (!tooltip) return undefined;
-      const bar = node.closest(`.${visualClasses.bar}`);
+      const bar = findHostBar(node, visualClasses.bar);
       if (!bar) return undefined;
       const dot = document.createElement('span');
       dot.className = visualClasses.overrideDot;
