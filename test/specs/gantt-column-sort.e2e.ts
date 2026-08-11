@@ -197,15 +197,7 @@ function idx(ids: string[], sourcePath: string): number {
   return ids.findIndex((id) => id.startsWith(sourcePath));
 }
 
-/**
- * True only when BOTH rows are rendered and `first` precedes `second`.
- *
- * Comparing raw `idx` results silently accepts an ABSENT row: findIndex returns
- * -1, so "B before A" holds whenever B has not rendered yet. A wait written that
- * way is satisfied by the row missing, and the failure surfaces later in
- * whichever step needs the row to exist — which is how a CI run reached the
- * reset step reporting A@0 B@-1.
- */
+/** Comparing raw `idx` accepts an absent row: -1 orders before everything. */
 function orderedBefore(ids: string[], first: string, second: string): boolean {
   const a = idx(ids, first);
   const b = idx(ids, second);
