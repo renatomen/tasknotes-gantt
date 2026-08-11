@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * U14 — calendar-note editor routing shell.
@@ -999,25 +1000,88 @@ describe("Gantt (OG) calendar editor routing", () => {
       return file ? ((await app.vault.read(file as never)) as string) : null;
     }, path);
 
-  it("creates a calendar via the command and opens it in the editor", async () => {
-    await runCommand("tasknotes-gantt:create-calendar");
-    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
-      timeout: 20000,
-      timeoutMsg: "the created calendar did not open in the editor",
+  /** What the create folder actually holds — the diagnostic for a note that never landed. */
+  const listCreateFolder = async (): Promise<string> =>
+    browser.executeObsidian(({ app }) =>
+      app.vault
+        .getFiles()
+        .map((f) => f.path)
+        .filter((p) => p.startsWith("Calendars/"))
+        .join(", ") || "<no files under Calendars/>",
+    );
+
+  /**
+   * Run a create command and wait until ITS note is both written and showing.
+   *
+   * The command writes before it opens (`vault.create` then `leaf.openFile`), so
+   * the note existing is not the racy part — the view check was. An editor leaf
+   * left open by an earlier test satisfies "an editor is active" on the first
+   * tick, before this command has done anything, so the old wait proved nothing
+   * and the read that followed raced the write. Closing the editors first makes
+   * the active leaf necessarily this command's, and waiting for that leaf to be
+   * showing this path ties the assertion to the command's own output.
+   *
+   * The editor TYPE belongs inside the wait, not after it: when indexing
+   * outruns the command's own wait the note opens as Markdown and reroutes
+   * asynchronously, so a single check after the path matches fails a reroute
+   * that was still on its way. A timeout reports which of the three conditions
+   * was unmet, and what the folder held while the note was still missing.
+   */
+  /** The path the active leaf is showing, or null when no leaf is active. */
+  const activeLeafPath = async (): Promise<string | null> =>
+    browser.executeObsidian(({ app }) => {
+      const state = app.workspace.activeLeaf?.getViewState() as
+        | { state?: { file?: string } }
+        | undefined;
+      return state?.state?.file ?? null;
     });
-    const created = await readNoteOrNull("Calendars/New Calendar.md");
-    expect(created).not.toBeNull();
-    expect(created).toContain("tngantt: calendar");
+
+  const runCreateCommand = async (commandId: string, notePath: string): Promise<string> => {
+    // Reuse openNote's reason for detaching: a leaf left over from an earlier
+    // test is indistinguishable from one this command opened.
+    await browser.executeObsidian(({ app }) => {
+      app.workspace.detachLeavesOfType("tngantt-calendar-editor");
+      app.workspace.detachLeavesOfType("markdown");
+    });
+    await runCommand(commandId);
+
+    let body: string | null = null;
+    let showing: string | null = null;
+    let viewType: string | null = null;
+    let folder = "";
+    await waitUntilOrExplain(
+      async () => {
+        body = await readNoteOrNull(notePath);
+        showing = await activeLeafPath();
+        viewType = await activeViewType();
+        // Only meaningful while the note is missing, and it costs a round trip
+        // per tick — refreshed exactly when it is the thing worth reporting.
+        folder = body === null ? await listCreateFolder() : "";
+        return body !== null && showing === notePath && viewType === EDITOR_VIEW;
+      },
+      () =>
+        `${notePath}: readable=${body !== null} showing=${showing} view=${viewType}` +
+        (body === null ? `; Calendars/ held: ${folder}` : ""),
+      { timeout: 20000 },
+    );
+    return body as unknown as string;
+  };
+
+  it("creates a calendar via the command and opens it in the editor", async () => {
+    const created = await runCreateCommand(
+      "tasknotes-gantt:create-calendar",
+      "Calendars/New Calendar.md",
+    );
+    // The newline discriminates: "tngantt: calendar" is a prefix of the SET
+    // marker, so without it the set skeleton would satisfy this too.
+    expect(created).toContain("tngantt: calendar\n");
   });
 
   it("creates a calendar set via the command and opens it in the editor", async () => {
-    await runCommand("tasknotes-gantt:create-calendar-set");
-    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
-      timeout: 20000,
-      timeoutMsg: "the created calendar set did not open in the editor",
-    });
-    const created = await readNoteOrNull("Calendars/New Calendar Set.md");
-    expect(created).not.toBeNull();
+    const created = await runCreateCommand(
+      "tasknotes-gantt:create-calendar-set",
+      "Calendars/New Calendar Set.md",
+    );
     expect(created).toContain("tngantt: calendar-set");
   });
 
