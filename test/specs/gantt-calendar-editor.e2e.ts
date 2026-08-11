@@ -1010,23 +1010,6 @@ describe("Gantt (OG) calendar editor routing", () => {
         .join(", ") || "<no files under Calendars/>",
     );
 
-  /**
-   * Run a create command and wait until ITS note is both written and showing.
-   *
-   * The command writes before it opens (`vault.create` then `leaf.openFile`), so
-   * the note existing is not the racy part — the view check was. An editor leaf
-   * left open by an earlier test satisfies "an editor is active" on the first
-   * tick, before this command has done anything, so the old wait proved nothing
-   * and the read that followed raced the write. Closing the editors first makes
-   * the active leaf necessarily this command's, and waiting for that leaf to be
-   * showing this path ties the assertion to the command's own output.
-   *
-   * The editor TYPE belongs inside the wait, not after it: when indexing
-   * outruns the command's own wait the note opens as Markdown and reroutes
-   * asynchronously, so a single check after the path matches fails a reroute
-   * that was still on its way. A timeout reports which of the three conditions
-   * was unmet, and what the folder held while the note was still missing.
-   */
   /** The path the active leaf is showing, or null when no leaf is active. */
   const activeLeafPath = async (): Promise<string | null> =>
     browser.executeObsidian(({ app }) => {
@@ -1037,8 +1020,8 @@ describe("Gantt (OG) calendar editor routing", () => {
     });
 
   const runCreateCommand = async (commandId: string, notePath: string): Promise<string> => {
-    // Reuse openNote's reason for detaching: a leaf left over from an earlier
-    // test is indistinguishable from one this command opened.
+    // A leaf left open by an earlier test is indistinguishable from one this
+    // command opened, and would satisfy the view wait before the command runs.
     await browser.executeObsidian(({ app }) => {
       app.workspace.detachLeavesOfType("tngantt-calendar-editor");
       app.workspace.detachLeavesOfType("markdown");
@@ -1054,9 +1037,10 @@ describe("Gantt (OG) calendar editor routing", () => {
         body = await readNoteOrNull(notePath);
         showing = await activeLeafPath();
         viewType = await activeViewType();
-        // Only meaningful while the note is missing, and it costs a round trip
-        // per tick — refreshed exactly when it is the thing worth reporting.
         folder = body === null ? await listCreateFolder() : "";
+        // Indexing can outrun the command's own budget, which opens the note
+        // as Markdown and reroutes asynchronously — so the view type is waited
+        // for rather than checked once after the path matches.
         return body !== null && showing === notePath && viewType === EDITOR_VIEW;
       },
       () =>
