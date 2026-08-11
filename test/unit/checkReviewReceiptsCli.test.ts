@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -65,15 +65,25 @@ function writeReceipts(receipts: Record<string, Record<string, string>>): void {
   writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts }, null, 2));
 }
 
+/** The receipt store as written on disk — the only proof a write did NOT happen. */
+function storedReceipts(): Record<string, Record<string, string>> {
+  return JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).receipts;
+}
+
 const clean = (): Record<string, string> =>
   Object.fromEntries(LAYERS.map((layer) => [layer, '2026-07-29T00:00:00.000Z']));
 
 /** `stdin` as text, or a raw descriptor when the point is how the read behaves. */
-function runScript(args: string[], stdin: string | number = ''): Run {
+function runScript(
+  args: string[],
+  stdin: string | number = '',
+  extraEnv: Record<string, string> = {},
+): Run {
+  const env = { ...childEnv, ...extraEnv };
   const options =
     typeof stdin === 'number'
-      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const, env: childEnv }
-      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const, env: childEnv };
+      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const, env }
+      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const, env };
   try {
     const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
@@ -84,7 +94,15 @@ function runScript(args: string[], stdin: string | number = ''): Run {
 }
 
 const runCheck = (stdin: string | number): Run => runScript(['check'], stdin);
-const runRecord = (layer: string): Run => runScript(['record', layer]);
+/**
+ * Record `layer`, attesting for the peer layer the way its wrapper does — the
+ * peer receipt is deliberately unreachable without that attestation.
+ */
+const runRecord = (layer: string, sha?: string): Run => {
+  const target = sha ?? git(['rev-parse', 'HEAD']);
+  const attest = layer === 'cross-model-peer' ? { OG_PEER_REVIEW_ATTESTED_SHA: target } : {};
+  return runScript(sha ? ['record', layer, sha] : ['record', layer], '', attest);
+};
 
 const refLine = (local: string, remote: string, ref = 'refs/heads/probe'): string =>
   `${ref} ${local} ${ref} ${remote}\n`;
@@ -307,6 +325,71 @@ describe('check-review-receipts check', () => {
     }
 
     expect(runCheck('').status).toBe(0);
+  });
+
+  it('records against an explicitly named commit, not whatever HEAD became', () => {
+    // A long review outlives its subject: the reviewer finishes, another
+    // commit lands, and re-reading HEAD would stamp the clean verdict onto
+    // work nobody read. The reviewed sha is passed in for exactly that reason.
+    const reviewed = git(['rev-parse', 'HEAD']);
+    const moved = commitFile('drift.md', 'landed while the review ran\n', 'drift');
+    expect(moved).not.toBe(reviewed);
+
+    for (const layer of LAYERS) {
+      const record = runRecord(layer, reviewed);
+      expect(record.status).toBe(0);
+      expect(record.stdout).toContain(`recorded clean ${layer} receipt for ${reviewed.slice(0, 7)}`);
+    }
+
+    // The receipt covers the reviewed commit, and the one that landed after it
+    // is still ungated.
+    expect(runCheck(refLine(reviewed, ZERO, 'refs/heads/main')).status).toBe(0);
+    expect(runCheck(refLine(moved, ZERO, 'refs/heads/main')).status).toBe(1);
+  });
+
+  it('refuses a hand-stamped peer receipt, and points at the wrapper instead', () => {
+    // The layer exists to prove an independent review ran. While `record
+    // cross-model-peer` was a bare command — printed by the refusal message as
+    // the fix — five PRs were receipted with no peer review at all.
+    const sha = git(['rev-parse', 'HEAD']);
+    // Layer one recorded FIRST, so the peer receipt is the only thing standing
+    // between this commit and a passing gate. Without that, neither layer is
+    // present and "no peer receipt" holds no matter what the command did —
+    // the assertion would pass on a write-before-validation regression.
+    expect(runRecord('ce-code-review', sha).status).toBe(0);
+
+    const run = runScript(['record', 'cross-model-peer', sha]);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('recorded BY the review');
+    expect(run.stderr).toContain('cross-model-peer-review.sh');
+    expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+    // And the gate still refuses the push, naming the layer it is missing.
+    const gate = runCheck(refLine(sha, ZERO, 'refs/heads/main'));
+    expect(gate.status).toBe(1);
+    expect(gate.stderr).toContain('cross-model-peer');
+  });
+
+  it('accepts the peer receipt when the wrapper attests the reviewed sha', () => {
+    // The other half: a gate nothing can pass gets routed around. This one HAS
+    // to admit a real review — that failure mode has already cost a day.
+    const sha = git(['rev-parse', 'HEAD']);
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', {
+      OG_PEER_REVIEW_ATTESTED_SHA: sha,
+    });
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('recorded clean cross-model-peer receipt');
+  });
+
+  it('refuses a sha that is not a full object name', () => {
+    const short = git(['rev-parse', '--short', 'HEAD']);
+
+    const run = runScript(['record', 'cross-model-peer', short]);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invalid commit sha');
   });
 
   it('rejects the retired model-specific layer name', () => {
