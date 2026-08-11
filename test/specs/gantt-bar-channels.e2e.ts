@@ -44,6 +44,16 @@ const PRIORITY_HIGH = "#ff0000"; // priority "high"
 // authoritative even when SVAR omits off-screen scale-header cells.
 const DAY_SCALE_CELL_WIDTH_PX = 30;
 const BAR_CONTENT_GAP_PX = 6;
+/**
+ * The chip's clearance from the bar's leading edge. The fixture rows this spec
+ * measures render as torn placeholders (the base maps date properties they do
+ * not carry), and a torn bar adds its tooth depth to the ordinary 7px so the
+ * label clears the notches — the same total offset the host's clearing padding
+ * used to produce, now carried by the content box alone.
+ */
+const BAR_CONTENT_PAD_PX = 7;
+const ZIGZAG_TOOTH_DEPTH_PX = 4;
+const TORN_CONTENT_PAD_PX = BAR_CONTENT_PAD_PX + ZIGZAG_TOOTH_DEPTH_PX;
 const BAR_ICON_CHIP_WIDTH_PX = 20;
 // The neutral strip-mode body (mixNeutral(16) in barTreatment.ts): a strip laid
 // over a calm body emits this, a fill never does.
@@ -310,7 +320,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
 
       expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
       expect(layout.chipTranslationX).toBe(0);
-      expect(layout.contentPaddingLeft).toBe(7);
+      expect(layout.contentPaddingLeft).toBe(TORN_CONTENT_PAD_PX);
       expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
       expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
       expect(layout.textInset).toBeCloseTo(
@@ -398,7 +408,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
         );
         return content ? Number.parseFloat(getComputedStyle(content).paddingLeft) : null;
       });
-      expect(paddingLeft).toBe(7);
+      expect(paddingLeft).toBe(TORN_CONTENT_PAD_PX);
     });
   });
 
