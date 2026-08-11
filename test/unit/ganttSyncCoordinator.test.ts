@@ -7,6 +7,8 @@ import {
   createAppliedGanttSyncState,
   createGanttSeedSnapshot,
   ganttOrderFingerprint,
+  isGanttSyncNoop,
+  planGanttSync,
   replaceAppliedGanttData,
   type AppliedGanttSyncState,
   type GanttSyncPlan,
@@ -534,5 +536,79 @@ describe('applyIncrementalGanttSync', () => {
     expect(state.tasks.get(after.id)).toBe(after);
     expect(state.orderKey).toBe('applied-order');
     expect(state.baseSortKey).toBe('applied-base-sort');
+  });
+});
+
+describe('planGanttSync', () => {
+  it('reports no change when the rows, links, order and Base sort all match', () => {
+    const rows = [task('a'), task('b')];
+    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] });
+    applied.baseSortKey = 'file.name:asc';
+
+    const plan = planGanttSync({
+      next: rows,
+      links: [],
+      applied,
+      baseSortKey: 'file.name:asc',
+    });
+
+    expect(plan.baseSortChanged).toBe(false);
+    expect(plan.orderKey).toBe(ganttOrderFingerprint(rows));
+    expect(isGanttSyncNoop(plan, applied)).toBe(true);
+  });
+
+  it('is not a no-op when the Base sort changed, even with identical rows', () => {
+    // The rows are byte-identical, so every task/link/order comparison agrees;
+    // only the Base sort descriptor moved. Treating that as a no-op would leave
+    // the chart holding the previous Base order.
+    const rows = [task('a'), task('b')];
+    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] });
+    applied.baseSortKey = 'file.name:asc';
+
+    const plan = planGanttSync({
+      next: rows,
+      links: [],
+      applied,
+      baseSortKey: 'note.due:desc',
+    });
+
+    expect(plan.baseSortChanged).toBe(true);
+    expect(isGanttSyncNoop(plan, applied)).toBe(false);
+  });
+
+  it('is not a no-op when only the row ORDER changed', () => {
+    // Same ids, same contents: the task diff produces no adds/updates/deletes,
+    // so the order fingerprint is the only thing standing between a reorder and
+    // a silently dropped one.
+    const applied = createAppliedGanttSyncState({
+      tasks: [task('a'), task('b')],
+      links: [],
+    });
+
+    const plan = planGanttSync({
+      next: [task('b'), task('a')],
+      links: [],
+      applied,
+      baseSortKey: applied.baseSortKey,
+    });
+
+    expect(plan.taskPlan.adds).toHaveLength(0);
+    expect(plan.taskPlan.deletes).toHaveLength(0);
+    expect(plan.orderKey).not.toBe(applied.orderKey);
+    expect(isGanttSyncNoop(plan, applied)).toBe(false);
+  });
+
+  it('carries an added row through to the task plan', () => {
+    const applied = createAppliedGanttSyncState({ tasks: [task('a')], links: [] });
+
+    const plan = planGanttSync({
+      next: [task('a'), task('b')],
+      links: [],
+      applied,
+      baseSortKey: applied.baseSortKey,
+    });
+
+    expect(plan.taskPlan.adds.map((add) => add.id)).toEqual(['b']);
+    expect(isGanttSyncNoop(plan, applied)).toBe(false);
   });
 });
