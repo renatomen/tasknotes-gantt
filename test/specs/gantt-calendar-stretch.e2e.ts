@@ -191,6 +191,25 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(converged.pieces).toBeGreaterThan(0);
   });
 
+  it("clears the teeth for a label nested inside the piece wrapper", async () => {
+    // A piece-bearing bar renders its label inside .og-ghost-runs, not as a
+    // direct child of the bar. The wrapper's mask clips PAINT at the notch but
+    // never moves the label, and the strip accent is a host pseudo-element
+    // painted above the wrapper — so the nested label needs the same tooth
+    // clearance a plain torn bar gets, or it sits under the cut edge.
+    const inset = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      const content = bar?.querySelector(".og-ghost-runs .wx-content");
+      if (!content) throw new Error(`nested bar content not found: ${selector}`);
+      const style = window.getComputedStyle(content);
+      return { paddingRight: style.paddingRight, nested: true };
+    }, STRETCH_BAR);
+
+    // This bar derives its END, so the trailing edge is the torn one.
+    expect(inset.nested).toBe(true);
+    expect(inset.paddingRight).toBe("4px");
+  });
+
   it("cuts the torn edge into the outermost piece only (AE6)", async () => {
     // The stretched task authors a start and derives its end from the estimate,
     // so its bar carries the trailing-edge tear. Under Split rendering the host

@@ -3388,22 +3388,24 @@
   }
 
   /*
-   * The host padding that used to inset the label past the teeth is gone, so
-   * the plain torn bar insets its label directly (piece-bearing bars keep the
-   * label inside their masked wrapper, which already holds it clear of the
-   * notch). The tooth clearance ADDS to the ordinary chip inset rather than
-   * replacing it — this rule out-specifies the base one, and a bare depth
-   * would pull the chip closer to the edge than an untorn bar's. The strip
-   * treatment's own 9px content inset outranks both.
+   * The host padding that used to inset the label past the teeth is gone, so a
+   * torn bar insets its label itself. This reaches the label wherever the
+   * branch puts it — a piece-bearing bar nests it inside the piece wrapper,
+   * and the wrapper's mask does NOT stand in for the inset: a mask clips paint
+   * at the notch but never moves the label, and the strip accent is a host
+   * pseudo-element painted above the wrapper entirely. The clearance ADDS to
+   * the ordinary chip inset (published as the content-pad property, so the
+   * strip treatment's wider inset composes instead of competing) — a bare
+   * depth would pull the chip closer to the edge than an untorn bar's.
    */
   .og-bases-gantt
-    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both) > .wx-content) {
+    :global(.wx-bar:is(.datestatus-zigzag-start, .datestatus-zigzag-both) .wx-content) {
     padding-left: calc(
       var(--og-bar-content-pad) + min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling))
     );
   }
   .og-bases-gantt
-    :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both) > .wx-content) {
+    :global(.wx-bar:is(.datestatus-zigzag-end, .datestatus-zigzag-both) .wx-content) {
     padding-right: min(var(--og-zigzag-depth), var(--og-zigzag-surface-ceiling));
   }
 
