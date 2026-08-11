@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
  * U14 — calendar-note editor routing shell.
@@ -999,25 +1000,72 @@ describe("Gantt (OG) calendar editor routing", () => {
       return file ? ((await app.vault.read(file as never)) as string) : null;
     }, path);
 
-  it("creates a calendar via the command and opens it in the editor", async () => {
-    await runCommand("tasknotes-gantt:create-calendar");
-    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
-      timeout: 20000,
-      timeoutMsg: "the created calendar did not open in the editor",
+  /** What the create folder actually holds — the diagnostic for a note that never landed. */
+  const listCreateFolder = async (): Promise<string> =>
+    browser.executeObsidian(({ app }) =>
+      app.vault
+        .getFiles()
+        .map((f) => f.path)
+        .filter((p) => p.startsWith("Calendars/"))
+        .join(", ") || "<no files under Calendars/>",
+    );
+
+  /** The path the active leaf is showing, or null when no leaf is active. */
+  const activeLeafPath = async (): Promise<string | null> =>
+    browser.executeObsidian(({ app }) => {
+      const state = app.workspace.activeLeaf?.getViewState() as
+        | { state?: { file?: string } }
+        | undefined;
+      return state?.state?.file ?? null;
     });
-    const created = await readNoteOrNull("Calendars/New Calendar.md");
-    expect(created).not.toBeNull();
-    expect(created).toContain("tngantt: calendar");
+
+  const runCreateCommand = async (commandId: string, notePath: string): Promise<string> => {
+    // A leaf left open by an earlier test is indistinguishable from one this
+    // command opened, and would satisfy the view wait before the command runs.
+    await browser.executeObsidian(({ app }) => {
+      app.workspace.detachLeavesOfType("tngantt-calendar-editor");
+      app.workspace.detachLeavesOfType("markdown");
+    });
+    await runCommand(commandId);
+
+    let body: string | null = null;
+    let showing: string | null = null;
+    let viewType: string | null = null;
+    let folder = "";
+    await waitUntilOrExplain(
+      async () => {
+        body = await readNoteOrNull(notePath);
+        showing = await activeLeafPath();
+        viewType = await activeViewType();
+        folder = body === null ? await listCreateFolder() : "";
+        // Indexing can outrun the command's own budget, which opens the note
+        // as Markdown and reroutes asynchronously — so the view type is waited
+        // for rather than checked once after the path matches.
+        return body !== null && showing === notePath && viewType === EDITOR_VIEW;
+      },
+      () =>
+        `${notePath}: readable=${body !== null} showing=${showing} view=${viewType}` +
+        (body === null ? `; Calendars/ held: ${folder}` : ""),
+      { timeout: 20000 },
+    );
+    return body as unknown as string;
+  };
+
+  it("creates a calendar via the command and opens it in the editor", async () => {
+    const created = await runCreateCommand(
+      "tasknotes-gantt:create-calendar",
+      "Calendars/New Calendar.md",
+    );
+    // The newline discriminates: "tngantt: calendar" is a prefix of the SET
+    // marker, so without it the set skeleton would satisfy this too.
+    expect(created).toContain("tngantt: calendar\n");
   });
 
   it("creates a calendar set via the command and opens it in the editor", async () => {
-    await runCommand("tasknotes-gantt:create-calendar-set");
-    await browser.waitUntil(async () => (await activeViewType()) === EDITOR_VIEW, {
-      timeout: 20000,
-      timeoutMsg: "the created calendar set did not open in the editor",
-    });
-    const created = await readNoteOrNull("Calendars/New Calendar Set.md");
-    expect(created).not.toBeNull();
+    const created = await runCreateCommand(
+      "tasknotes-gantt:create-calendar-set",
+      "Calendars/New Calendar Set.md",
+    );
     expect(created).toContain("tngantt: calendar-set");
   });
 

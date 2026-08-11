@@ -280,10 +280,25 @@ describe("Gantt (OG) companion expansion + sorting", () => {
   });
 
   it("orders top-level rows by the Base toolbar sort (file.name → A before B)", async () => {
-    const state = await readGanttState();
-    const idxA = state.ids.findIndex((id) => id.startsWith("Project A.md"));
-    const idxB = state.ids.findIndex((id) => id.startsWith("Project B.md"));
-    expect(idxA).toBeGreaterThanOrEqual(0);
+    let idxA = -1;
+    let idxB = -1;
+    // Wait for both rows to EXIST, never for them to be in order: waiting on the
+    // ordering itself would let a genuine sort regression poll until it happened
+    // to look right, or time out reporting the wrong thing.
+    await waitUntilOrExplain(
+      async () => {
+        await activateBaseLeaf();
+        const state = await readGanttState();
+        idxA = state.ids.findIndex((id) => id.startsWith("Project A.md"));
+        idxB = state.ids.findIndex((id) => id.startsWith("Project B.md"));
+        return idxA >= 0 && idxB >= 0;
+      },
+      () => `Expected both project rows to be rendered; saw idxA=${idxA} idxB=${idxB}`,
+      { timeout: 15000 },
+    );
+
+    // Existence is the wait's job; this asserts only the ORDER, which the wait
+    // deliberately does not establish.
     expect(idxB).toBeGreaterThan(idxA);
   });
 
