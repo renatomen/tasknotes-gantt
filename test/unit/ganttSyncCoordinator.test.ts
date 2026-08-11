@@ -539,11 +539,13 @@ describe('applyIncrementalGanttSync', () => {
   });
 });
 
+/** What the view passes when the Base has no active sort — never undefined. */
+const NO_BASE_SORT = '';
+
 describe('planGanttSync', () => {
   it('reports no change when the rows, links, order and Base sort all match', () => {
     const rows = [task('a'), task('b')];
-    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] });
-    applied.baseSortKey = 'file.name:asc';
+    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] }, 'file.name:asc');
 
     const plan = planGanttSync({
       next: rows,
@@ -562,8 +564,7 @@ describe('planGanttSync', () => {
     // only the Base sort descriptor moved. Treating that as a no-op would leave
     // the chart holding the previous Base order.
     const rows = [task('a'), task('b')];
-    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] });
-    applied.baseSortKey = 'file.name:asc';
+    const applied = createAppliedGanttSyncState({ tasks: rows, links: [] }, 'file.name:asc');
 
     const plan = planGanttSync({
       next: rows,
@@ -580,10 +581,7 @@ describe('planGanttSync', () => {
     // Same ids, same contents: the task diff produces no adds/updates/deletes,
     // so the order fingerprint is the only thing standing between a reorder and
     // a silently dropped one.
-    const applied = createAppliedGanttSyncState({
-      tasks: [task('a'), task('b')],
-      links: [],
-    });
+    const applied = createAppliedGanttSyncState({ tasks: [task('a'), task('b')], links: [] }, NO_BASE_SORT);
 
     const plan = planGanttSync({
       next: [task('b'), task('a')],
@@ -599,7 +597,7 @@ describe('planGanttSync', () => {
   });
 
   it('carries an added row through to the task plan', () => {
-    const applied = createAppliedGanttSyncState({ tasks: [task('a')], links: [] });
+    const applied = createAppliedGanttSyncState({ tasks: [task('a')], links: [] }, NO_BASE_SORT);
 
     const plan = planGanttSync({
       next: [task('a'), task('b')],
