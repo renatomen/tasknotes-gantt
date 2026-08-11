@@ -610,6 +610,8 @@ describe("Gantt (OG) missing/partial-date handling", () => {
         const label = bar.querySelector(".og-bar-text");
         const body = bar.querySelector(".og-bar-body");
         const wrapperStyle = wrapper ? window.getComputedStyle(wrapper) : null;
+        const content = bar.querySelector(".wx-content");
+        const contentStyle = content ? window.getComputedStyle(content) : null;
         return {
           labelWidth: (label as HTMLElement | null)?.offsetWidth ?? 0,
           fillWidth: (bar.querySelector(".wx-progress-percent") as HTMLElement | null)?.offsetWidth ?? 0,
@@ -617,6 +619,8 @@ describe("Gantt (OG) missing/partial-date handling", () => {
           wrapperZIndex: wrapperStyle?.zIndex ?? "",
           wrapperMaskImage: wrapperStyle?.maskImage ?? "",
           bodyZIndex: body ? window.getComputedStyle(body).zIndex : "",
+          contentPosition: contentStyle?.position ?? "",
+          contentZIndex: contentStyle?.zIndex ?? "",
         };
       }, `.og-bases-gantt .wx-bar[data-id$="Start Only.md"]`);
 
@@ -625,6 +629,13 @@ describe("Gantt (OG) missing/partial-date handling", () => {
       expect(painted.wrapperLeft).toBe("0px");
       expect(painted.wrapperZIndex).toBe("1");
       expect(painted.bodyZIndex).toBe("0");
+      // A measurable label is not a VISIBLE one: the body is an opaque,
+      // absolutely-positioned layer covering the whole bar, so the label only
+      // survives because SVAR positions .wx-content and lifts it above. That is
+      // a borrowed library guarantee — pin it here, or a SVAR change silently
+      // paints the body over every torn bar's text.
+      expect(painted.contentPosition).toBe("relative");
+      expect(painted.contentZIndex).toBe("2");
       // The progress fill reaches the same edge as the body, so it carries the
       // same cut — otherwise it would paint over the teeth.
       expect(painted.wrapperMaskImage).toContain("conic-gradient");

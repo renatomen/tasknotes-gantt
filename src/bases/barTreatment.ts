@@ -755,11 +755,14 @@ function stripRule(color: string): string {
 
 /**
  * Widen `.wx-content`'s left inset in strip mode so the chip/text clears the strip.
- * `!important` because the component's scoped base rule (`.wx-content` padding) carries
- * Svelte's hash class and thus higher specificity than this injected stylesheet.
+ * Published as the inset PROPERTY the component's own content rule reads, not as a
+ * competing `padding-left`: a custom property has no specificity contest to win
+ * (which is why the declaration form needed `!important` against the component's
+ * hash-scoped base rule), and it lets a torn bar ADD its tooth clearance to this
+ * inset rather than lose to it and let the accent overlap the chip.
  */
 function stripContentPadRule(barSelector: string): string {
-  return `${barSelector} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
+  return `${barSelector} { --og-bar-content-pad: ${STRIP_CONTENT_PADDING_PX}px; }`;
 }
 
 /**
