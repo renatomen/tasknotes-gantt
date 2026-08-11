@@ -757,8 +757,12 @@ describe("Gantt (OG) context-aware legend", () => {
       const chart = document.querySelector<HTMLElement>(
         '.og-bases-gantt .wx-bar[data-id$="Legend Flagged.md"]',
       );
+      // A torn bar renders split, so the host paints nothing and its body
+      // layer carries the fill — that layer is what the user sees.
+      const chartPaint = chart?.querySelector<HTMLElement>(".og-bar-body") ?? chart;
       const fill = fillSample ? getComputedStyle(fillSample) : null;
       const chartStyle = chart ? getComputedStyle(chart) : null;
+      const chartPaintStyle = chartPaint ? getComputedStyle(chartPaint) : null;
       const configuredFill = chartStyle?.getPropertyValue("--og-ghost-fill").trim() ?? "";
       const colorProbe = document.createElement("span");
       colorProbe.style.backgroundColor = configuredFill;
@@ -772,7 +776,8 @@ describe("Gantt (OG) context-aware legend", () => {
           ? { background: fill.backgroundColor, borderWidth: Number.parseFloat(fill.borderWidth) }
           : null,
         borderEntryPresent: borderEntry !== null,
-        chartBackground: chartStyle?.backgroundColor ?? null,
+        chartBackground: chartPaintStyle?.backgroundColor ?? null,
+        chartPaintsOnItsBody: chartPaint !== chart,
         configuredFillColor,
         chartHasPriorityClass:
           chart !== null && [...chart.classList].some((token) => token.startsWith("og-prio-")),
@@ -789,8 +794,9 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(dateStatus.chartHasPriorityClass).toBe(true);
     expect(dateStatus.configuredFillColor).not.toBeNull();
     expect(dateStatus.configuredFillColor).not.toBe(dateStatus.fill?.background);
-    // …and it paints THAT colour, without the flag.
+    // …and it paints THAT colour on its cut body, without the flag.
     expect(dateStatus.chartIsFlagged).toBe(false);
+    expect(dateStatus.chartPaintsOnItsBody).toBe(true);
     expect(dateStatus.chartBackground).toBe(dateStatus.configuredFillColor);
   });
 

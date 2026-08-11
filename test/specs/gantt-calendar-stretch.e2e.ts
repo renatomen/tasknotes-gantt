@@ -21,7 +21,11 @@ import { fileURLToPath } from "node:url";
  *   3b. the derived (non-authored) end renders as a zigzag torn edge cut into
  *      the OUTERMOST piece — the split half of the non-authored-edge signal;
  *   4. a task without an associated calendar renders as a plain continuous
- *      bar with no ghost pieces (upgrade-invisible regression).
+ *      bar with no ghost pieces (upgrade-invisible regression);
+ *   5. SVAR's whole-span progress fill is HIDDEN on the piece-bearing bar (the
+ *      gaps between pieces are days the bar does not claim) — the preserved
+ *      half of a rule that deliberately keeps the fill on a torn bar carrying
+ *      no pieces of its own.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -137,6 +141,75 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     expect(await hasSplit()).toBe(true);
   });
 
+  it("re-converges both classes when the torn owner's stamp is stripped whole (R1 co-ownership)", async () => {
+    // The stretched bar derives its end, so it is torn AND stretched: wx-split
+    // has TWO owners — the token observer (which stamps the state class beside
+    // it) and the ghost-run observer above. Stripping the token class and
+    // wx-split together is the torn attach's teardown in miniature, and the
+    // surviving owners must converge the bar back: either observer re-adds
+    // wx-split (contains-guarded, so double ownership never fights), the
+    // still-live token attach re-stamps its class, and the pieces stay
+    // rendered throughout. The pre-strip read rides the same page turn, so
+    // the guards prove the classes were really there to strip.
+    const stripped = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      const before = {
+        torn: bar.classList.contains("datestatus-zigzag-end"),
+        split: bar.classList.contains("wx-split"),
+      };
+      bar.classList.remove("datestatus-zigzag-end");
+      bar.classList.remove("wx-split");
+      return before;
+    }, STRETCH_BAR);
+    expect(stripped.torn).toBe(true);
+    expect(stripped.split).toBe(true);
+
+    const readConvergence = async (): Promise<{ torn: boolean; split: boolean; pieces: number }> =>
+      browser.execute((selector: string) => {
+        const bar = document.querySelector(selector);
+        return {
+          torn: bar?.classList.contains("datestatus-zigzag-end") ?? false,
+          split: bar?.classList.contains("wx-split") ?? false,
+          pieces: bar?.querySelectorAll(".og-ghost-run").length ?? 0,
+        };
+      }, STRETCH_BAR);
+    await browser.waitUntil(
+      async () => {
+        const state = await readConvergence();
+        return state.torn && state.split;
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "the surviving owners never converged the stripped classes back",
+      },
+    );
+
+    const converged = await readConvergence();
+    expect(converged.torn).toBe(true);
+    expect(converged.split).toBe(true);
+    expect(converged.pieces).toBeGreaterThan(0);
+  });
+
+  it("clears the teeth for a label nested inside the piece wrapper", async () => {
+    // A piece-bearing bar renders its label inside .og-ghost-runs, not as a
+    // direct child of the bar. The wrapper's mask clips PAINT at the notch but
+    // never moves the label, and the strip accent is a host pseudo-element
+    // painted above the wrapper — so the nested label needs the same tooth
+    // clearance a plain torn bar gets, or it sits under the cut edge.
+    const inset = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      const content = bar?.querySelector(".og-ghost-runs .wx-content");
+      if (!content) throw new Error(`nested bar content not found: ${selector}`);
+      const style = window.getComputedStyle(content);
+      return { paddingRight: style.paddingRight, nested: true };
+    }, STRETCH_BAR);
+
+    // This bar derives its END, so the trailing edge is the torn one.
+    expect(inset.nested).toBe(true);
+    expect(inset.paddingRight).toBe("4px");
+  });
+
   it("cuts the torn edge into the outermost piece only (AE6)", async () => {
     // The stretched task authors a start and derives its end from the estimate,
     // so its bar carries the trailing-edge tear. Under Split rendering the host
@@ -172,6 +245,37 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
       expect(piece.maskImage).toBe("none");
     }
     expect(pieces[0]!.classes).toContain("og-piece-first");
+  });
+
+  it("hides SVAR's whole-span progress fill on a piece-bearing bar", async () => {
+    // The pieces ARE the bar's body, and gaps between them are days the bar
+    // does not claim — so SVAR's full-span progress fill painted straight
+    // across those gaps would lie. The suppression is one half of a rule whose
+    // other half deliberately KEEPS the progress on a torn bar that carries no
+    // pieces of its own (a plain bar, or an occupancy overlay); without a pin
+    // on this half the `:has(> .og-ghost-runs:not(.og-occupancy-overlay))`
+    // guard could be widened to everything and nothing would notice.
+    const progress = await browser.execute((selector: string) => {
+      const bar = document.querySelector(selector);
+      if (!bar) throw new Error(`bar not found: ${selector}`);
+      const wrapper = bar.querySelector(".wx-progress-wrapper");
+      return {
+        // SVAR renders the wrapper only for a task that HAS progress, so its
+        // presence is what makes `display: none` a suppression rather than an
+        // assertion about an element that was never going to exist.
+        rendered: wrapper !== null,
+        display: wrapper ? window.getComputedStyle(wrapper).display : "<not rendered>",
+        pieces: bar.querySelectorAll(".og-ghost-run").length,
+        overlayWrappers: bar.querySelectorAll(".og-ghost-runs.og-occupancy-overlay").length,
+      };
+    }, STRETCH_BAR);
+
+    expect(progress.rendered).toBe(true);
+    expect(progress.pieces).toBeGreaterThan(0);
+    // The wrapper this bar carries is a piece wrapper, NOT an occupancy
+    // overlay — the case the same rule exempts.
+    expect(progress.overlayWrappers).toBe(0);
+    expect(progress.display).toBe("none");
   });
 
   it("never uses the split-task segment vocabulary for calendar ghosts (AE6)", async () => {

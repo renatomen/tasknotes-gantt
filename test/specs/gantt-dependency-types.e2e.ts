@@ -388,6 +388,41 @@ describe("Gantt (OG) dependency read fidelity", () => {
     }
   });
 
+  it("paints a selected link handle on a torn-edge bar in a real colour", async () => {
+    // A torn bar renders split, and SVAR sources a SELECTED handle's border
+    // from its own task-border-colour variable there instead of inheriting the
+    // bar's — which on a host we deliberately leave border-less could have
+    // resolved to nothing and made the mid-drag handle invisible. Selection is
+    // a transient drag state, so it is staged directly on the handle.
+    await waitUntilOrExplain(
+      async () => {
+        await activateBaseLeaf();
+        return (await readHandleState()).torn;
+      },
+      () => "torn-edge bar never rendered",
+      { timeout: 30000 }
+    );
+
+    const selectedPaint = await browser.execute(() => {
+      const handle = document.querySelector(
+        '.og-bases-gantt .wx-bar[data-id$="Build Partial.md"] .wx-link',
+      );
+      if (!handle) throw new Error("no link handle on the torn bar");
+      handle.classList.add("wx-selected");
+      const inner = handle.querySelector(".wx-inner");
+      const paint = {
+        handle: window.getComputedStyle(handle).borderColor,
+        inner: inner ? window.getComputedStyle(inner).borderColor : null,
+      };
+      handle.classList.remove("wx-selected");
+      return paint;
+    });
+
+    expect(selectedPaint.handle).not.toBe("rgba(0, 0, 0, 0)");
+    expect(selectedPaint.inner).not.toBe("rgba(0, 0, 0, 0)");
+    expect(selectedPaint.handle).toBe(selectedPaint.inner);
+  });
+
   it("shows the dependency tooltip when a real pointer hovers a blocked bar", async () => {
     // The tooltip has two ways to silently die that unit coverage cannot see:
     // the library suppresses ALL tooltips on hardware reporting touch points

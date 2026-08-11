@@ -2,13 +2,15 @@ filters:
   and:
     - 'file.ext == "md"'
     - 'file.name != "Excluded Event"'
-    - 'file.name != "Torn Overlay"'
 views:
   - type: obsidianGantt
-    name: "Gantt Calendar Items"
+    name: "Gantt Calendar Items (torn occupancy overlay)"
     tngantt_startDateProperty: note.scheduled
     tngantt_endDateProperty: note.due
+    tngantt_progressProperty: note.progress
     tngantt_defaultScale: day
+    tngantt_defaultDuration: 1
+    tngantt_showDateIndicators: true
     order:
       - file.name
       - note.scheduled

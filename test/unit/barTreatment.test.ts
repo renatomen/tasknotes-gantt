@@ -64,6 +64,9 @@ describe('representative bar body paint', () => {
     expect(
       resolveRepresentativeBarBodyPaint({ fillSource: 'none', stripSource: 'status', palettes }),
     ).toBeNull();
+    // Strip mode publishes its neutral body as --og-host-body-fill, never as
+    // --og-ghost-fill: pieces stay on the default task colour, which is what
+    // the legend's strip-only occupancy sample also shows.
     expect(styleFor({ fillSource: 'none', stripSource: 'status', palettes })).not.toContain(
       '--og-ghost-fill:',
     );
@@ -86,11 +89,11 @@ describe('representative bar body paint', () => {
     });
     expect(dualChannelStyle).toBe(
       [
-        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} { background-color: #f8312f !important; --og-ghost-fill: #f8312f; --og-host-body-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
         `.og-bases-gantt .wx-bar.${statusSlug('11🟥Active = Now')} .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }`,
-        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} { background-color: #00d26a !important; --og-ghost-fill: #00d26a; --og-host-body-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
         `.og-bases-gantt .wx-bar.${statusSlug('41🟩Done = Recent')} .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }`,
-        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} { background-color: #123456 !important; --og-ghost-fill: #123456; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
+        `.og-bases-gantt .wx-bar.${statusSlug('Unused')} { background-color: #123456 !important; --og-ghost-fill: #123456; --og-host-body-fill: #123456; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }`,
         `.og-bases-gantt .wx-bar.${statusSlug('Unused')} .wx-progress-percent { background-color: color-mix(in srgb, #123456, var(--text-normal) 30%) !important; }`,
         `.og-bases-gantt .wx-bar.${prioritySlug('high')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #ff0000; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
         `.og-bases-gantt .wx-bar.${prioritySlug('low')}::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #00aaff; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }`,
@@ -291,11 +294,48 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('border-top-left-radius:'); // conforms to the bar's rounded left corner
     expect(css).not.toContain('#f8312f !important'); // strip accent is not a !important fill
     // Strip mode widens the content inset so the chip/text clears the strip.
-    expect(css).toContain('.og-bases-gantt .wx-bar .wx-content { padding-left: 9px !important; }');
+    // Published as data, not as a competing declaration: the component's own
+    // content rule reads the property, so a torn bar can ADD its tooth
+    // clearance to the strip inset instead of losing to an !important.
+    expect(css).toContain('.og-bases-gantt .wx-bar { --og-bar-content-pad: 9px; }');
     // Strip body: readable text (!important beats SVAR's scoped white) + a visible,
     // theme-independent outline (color-mix guarantees a delta in low-contrast themes).
     expect(css).toContain('color: var(--text-normal) !important');
     expect(css).toContain('border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important');
+  });
+
+  it('publishes the strip-mode neutral body as the host body fill', () => {
+    // A torn (wx-split) strip bar's own background is transparent; its painted
+    // body re-reads the neutral surface through this inherited property, or the
+    // bar silently reverts to the default task blue.
+    const css = styleFor({ fillSource: 'none', stripSource: 'status', palettes });
+    expect(css).toContain(
+      '--og-host-body-fill: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary));',
+    );
+  });
+
+  it('moves the strip outline onto the torn body, where the split host cannot carry it', () => {
+    // A torn strip bar is wx-split: the host border is zeroed, so the 1px
+    // outline that guarantees visibility in low-contrast themes re-draws on
+    // the painted body layer (and takes the teeth cut with it).
+    const css = styleFor({ fillSource: 'none', stripSource: 'status', palettes });
+    expect(css).toContain(
+      '.og-bases-gantt .wx-bar > .og-bar-body { border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)); }',
+    );
+  });
+
+  it('publishes the fill-role parent override as the host body fill', () => {
+    const css = styleFor({ fillSource: 'theme', stripSource: 'none', palettes: { status: [], priority: [] } });
+    expect(css).toContain(
+      `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%) !important; --og-host-body-fill: color-mix(in srgb, var(--interactive-accent), var(--text-normal) 30%); }`,
+    );
+  });
+
+  it('publishes the strip-role parent body as the host body fill', () => {
+    const css = styleFor({ fillSource: 'none', stripSource: 'theme', palettes });
+    expect(css).toContain(
+      `.wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)); }`,
+    );
   });
 
   it('keys fill and strip on the priority palette independently', () => {
@@ -333,7 +373,7 @@ describe('buildTreatmentStyle', () => {
     expect(css).toContain('.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important;');
     // ...and a more prominent parent body override (30%), contrast-only (no opacity).
     expect(css).toContain(
-      `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }`,
+      `.og-bases-gantt .wx-bar.${PARENT_ROLE_CLASS} { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)); }`,
     );
     expect(css).not.toContain('opacity');
   });
@@ -511,22 +551,22 @@ describe('buildTreatmentStyle fidelity (legacy configs preserve rendering semant
     ],
   };
   const GOLDEN_FILL_STATUS =
-    '.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 { background-color: #f8312f !important; --og-ghost-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 { background-color: #00d26a !important; --og-ghost-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }';
+    '.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 { background-color: #f8312f !important; --og-ghost-fill: #f8312f; --og-host-body-fill: #f8312f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9 .wx-progress-percent { background-color: color-mix(in srgb, #f8312f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 { background-color: #00d26a !important; --og-ghost-fill: #00d26a; --og-host-body-fill: #00d26a; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3 .wx-progress-percent { background-color: color-mix(in srgb, #00d26a, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_STATUS =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 9px !important; }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #f8312f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #00d26a; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)); color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar > .og-bar-body { border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)); }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar { --og-bar-content-pad: 9px; }\n.og-bases-gantt .wx-bar.og-status-11-active-now-85dpg9::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #f8312f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-status-41-done-recent-3ulrx3::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #00d26a; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
 
   const GOLDEN_FILL_DEFAULT =
-    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }';
+    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; --og-host-body-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; --og-host-body-fill: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_DEFAULT =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 9px !important; }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)); color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar > .og-bar-body { border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)); }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)); }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar { --og-bar-content-pad: 9px; }';
 
   const GOLDEN_FILL_CALENDAR =
-    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk { background-color: #2a9d8f !important; --og-ghost-fill: #2a9d8f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk .wx-progress-percent { background-color: color-mix(in srgb, #2a9d8f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t { background-color: #e76f51 !important; --og-ghost-fill: #e76f51; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t .wx-progress-percent { background-color: color-mix(in srgb, #e76f51, var(--text-normal) 30%) !important; }';
+    '.og-bases-gantt .wx-bar { background-color: #1f6feb !important; --og-ghost-fill: #1f6feb; --og-host-body-fill: #1f6feb; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-parent { background-color: #2ea043 !important; --og-host-body-fill: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, #1f6feb, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-parent .wx-progress-percent { background-color: color-mix(in srgb, #2ea043, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk { background-color: #2a9d8f !important; --og-ghost-fill: #2a9d8f; --og-host-body-fill: #2a9d8f; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk .wx-progress-percent { background-color: color-mix(in srgb, #2a9d8f, var(--text-normal) 30%) !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t { background-color: #e76f51 !important; --og-ghost-fill: #e76f51; --og-host-body-fill: #e76f51; color: var(--text-on-accent, #fff) !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t .wx-progress-percent { background-color: color-mix(in srgb, #e76f51, var(--text-normal) 30%) !important; }';
 
   const GOLDEN_STRIP_CALENDAR =
-    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar .wx-content { padding-left: 9px !important; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #2a9d8f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #e76f51; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
+    '.og-bases-gantt .wx-bar { background-color: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 16%, var(--background-primary)); color: var(--text-normal) !important; border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar > .og-bar-body { border: 1px solid color-mix(in srgb, var(--text-normal) 38%, var(--background-primary)); }\n.og-bases-gantt .wx-bar.og-parent { background-color: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)) !important; --og-host-body-fill: color-mix(in srgb, var(--text-normal) 30%, var(--background-primary)); }\n.og-bases-gantt .wx-bar::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #1f6feb; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-parent::before { background-color: #2ea043; }\n.og-bases-gantt .wx-bar .wx-progress-percent { background-color: color-mix(in srgb, var(--text-normal) 45%, var(--background-primary)) !important; }\n.og-bases-gantt .wx-bar { --og-bar-content-pad: 9px; }\n.og-bases-gantt .wx-bar.og-calendar-calendars-nz-md-1ni9xhk::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #2a9d8f; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }\n.og-bases-gantt .wx-bar.og-calendar-calendars-apac-md-nzt72t::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; z-index: 2; width: 6px; background-color: #e76f51; border-top-left-radius: var(--wx-gantt-bar-border-radius, 4px); border-bottom-left-radius: var(--wx-gantt-bar-border-radius, 4px); }';
 
   it('fill=status,strip=none == legacy mode=fill,source=status', () => {
     expect(

@@ -44,6 +44,18 @@ const PRIORITY_HIGH = "#ff0000"; // priority "high"
 // authoritative even when SVAR omits off-screen scale-header cells.
 const DAY_SCALE_CELL_WIDTH_PX = 30;
 const BAR_CONTENT_GAP_PX = 6;
+/**
+ * The chip's clearance from the bar's leading edge. The fixture rows this spec
+ * measures render as torn placeholders (the base maps date properties they do
+ * not carry), and a torn bar adds its tooth depth to the ordinary 7px so the
+ * label clears the notches — the same total offset the host's clearing padding
+ * used to produce, now carried by the content box alone.
+ */
+const BAR_CONTENT_PAD_PX = 7;
+const ZIGZAG_TOOTH_DEPTH_PX = 4;
+const TORN_CONTENT_PAD_PX = BAR_CONTENT_PAD_PX + ZIGZAG_TOOTH_DEPTH_PX;
+/** Strip mode widens the inset so the chip clears the 6px accent. */
+const STRIP_CONTENT_PAD_PX = 9;
 const BAR_ICON_CHIP_WIDTH_PX = 20;
 // The neutral strip-mode body (mixNeutral(16) in barTreatment.ts): a strip laid
 // over a calm body emits this, a fill never does.
@@ -56,6 +68,9 @@ interface BarIconLayout {
   contentGap: number;
   chipWidth: number;
   textInset: number;
+  /** Where the strip accent ends, and where the chip starts — both from the bar's edge. */
+  accentRight: number;
+  chipLeft: number;
 }
 
 interface BarIconLayoutProbe {
@@ -234,15 +249,23 @@ async function readBarIconLayout(): Promise<BarIconLayoutProbe> {
     const transformMatrix = new DOMMatrixReadOnly(chipTransform === "none" ? undefined : chipTransform);
     const contentBounds = content.getBoundingClientRect();
     const textBounds = text.getBoundingClientRect();
+    const barBounds = bar.getBoundingClientRect();
+    // The strip accent is a host `::before`, so it has no box of its own to
+    // measure — read its geometry off the computed pseudo-element style.
+    const accentStyle = getComputedStyle(bar, "::before");
+    const accentLeft = Number.parseFloat(accentStyle.left);
+    const accentWidth = Number.parseFloat(accentStyle.width);
 
     return {
       layout: {
-        barWidth: bar.getBoundingClientRect().width,
+        barWidth: barBounds.width,
         chipTranslationX: transformMatrix.m41,
         contentPaddingLeft: Number.parseFloat(contentStyle.paddingLeft),
         contentGap: Number.parseFloat(contentStyle.gap),
         chipWidth: chip.getBoundingClientRect().width,
         textInset: textBounds.left - contentBounds.left,
+        accentRight: Number.isFinite(accentLeft + accentWidth) ? accentLeft + accentWidth : 0,
+        chipLeft: chip.getBoundingClientRect().left - barBounds.left,
       },
       missing: [],
     };
@@ -310,7 +333,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
 
       expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
       expect(layout.chipTranslationX).toBe(0);
-      expect(layout.contentPaddingLeft).toBe(7);
+      expect(layout.contentPaddingLeft).toBe(TORN_CONTENT_PAD_PX);
       expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
       expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
       expect(layout.textInset).toBeCloseTo(
@@ -331,13 +354,29 @@ describe("Gantt (OG) independent bar treatment channels", () => {
 
       expect(layout.barWidth).toBeCloseTo(DAY_SCALE_CELL_WIDTH_PX, 0);
       expect(layout.chipTranslationX).toBe(0);
-      expect(layout.contentPaddingLeft).toBe(9);
+      // These fixture rows render torn, so the strip inset and the tooth
+      // clearance COMPOSE — the chip clears both, as it did when the host
+      // carried the tooth depth as padding of its own.
+      expect(layout.contentPaddingLeft).toBe(STRIP_CONTENT_PAD_PX + ZIGZAG_TOOTH_DEPTH_PX);
       expect(layout.contentGap).toBe(BAR_CONTENT_GAP_PX);
       expect(layout.chipWidth).toBe(BAR_ICON_CHIP_WIDTH_PX);
       expect(layout.textInset).toBeCloseTo(
         layout.contentPaddingLeft + layout.chipWidth + layout.contentGap,
         0,
       );
+    });
+
+    it("keeps the strip accent clear of the chip on a torn bar", async () => {
+      // The accent is shifted right by the tooth depth so it does not paint
+      // over the leading teeth. If the content inset did not compose with that
+      // shift, the accent would run under the chip — the number above would
+      // still look plausible while the bar rendered wrong, so assert the
+      // relationship, not just the inset.
+      await waitForTreatmentCss(STATUS_OPEN);
+      const layout = await waitForBarIconLayout();
+
+      expect(layout.accentRight).toBeGreaterThan(0);
+      expect(layout.chipLeft).toBeGreaterThanOrEqual(layout.accentRight);
     });
   });
 
@@ -398,7 +437,7 @@ describe("Gantt (OG) independent bar treatment channels", () => {
         );
         return content ? Number.parseFloat(getComputedStyle(content).paddingLeft) : null;
       });
-      expect(paddingLeft).toBe(7);
+      expect(paddingLeft).toBe(TORN_CONTENT_PAD_PX);
     });
   });
 

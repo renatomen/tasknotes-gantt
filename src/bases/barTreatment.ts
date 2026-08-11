@@ -727,7 +727,10 @@ function fillBodyRule(selector: string, color: string): string {
   // renders as ghost pieces (wx-split), so the pieces re-read the treatment
   // colour through this inherited property — a stretched bar keeps its
   // status/priority/theme fill instead of reverting to the default colour.
-  return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
+  // --og-host-body-fill: the same colour for a torn bar's painted body. Every
+  // rule that paints a body publishes it, so it tracks the host's paint by
+  // construction rather than by which rule happens to come last.
+  return `${selector} { background-color: ${color} !important; --og-ghost-fill: ${color}; --og-host-body-fill: ${color}; color: ${FILL_TEXT_COLOR} !important; text-shadow: ${FILL_TEXT_SHADOW}; }`;
 }
 
 /**
@@ -752,11 +755,14 @@ function stripRule(color: string): string {
 
 /**
  * Widen `.wx-content`'s left inset in strip mode so the chip/text clears the strip.
- * `!important` because the component's scoped base rule (`.wx-content` padding) carries
- * Svelte's hash class and thus higher specificity than this injected stylesheet.
+ * Published as the inset PROPERTY the component's own content rule reads, not as a
+ * competing `padding-left`: a custom property has no specificity contest to win
+ * (which is why the declaration form needed `!important` against the component's
+ * hash-scoped base rule), and it lets a torn bar ADD its tooth clearance to this
+ * inset rather than lose to it and let the accent overlap the chip.
  */
 function stripContentPadRule(barSelector: string): string {
-  return `${barSelector} .wx-content { padding-left: ${STRIP_CONTENT_PADDING_PX}px !important; }`;
+  return `${barSelector} { --og-bar-content-pad: ${STRIP_CONTENT_PADDING_PX}px; }`;
 }
 
 /**
@@ -768,10 +774,18 @@ function stripContentPadRule(barSelector: string): string {
  * contrasting" case. The left border is covered by the strip's -1px overlay.
  */
 function stripBodyRule(barSelector: string): string {
+  // --og-host-body-fill: a torn (wx-split) bar's host is transparent, so its
+  // painted body re-reads the neutral surface through this inherited property.
+  // NOT --og-ghost-fill: that one is the colour PIECES take, and strip mode
+  // deliberately leaves pieces on the default task colour. The outline moves
+  // onto the body too — the split host's border is zeroed — so the visibility
+  // guarantee survives the tear and takes the cut with it.
   return (
     `${barSelector} { background-color: ${STRIP_BODY_COLOR} !important; ` +
+    `--og-host-body-fill: ${STRIP_BODY_COLOR}; ` +
     `color: ${STRIP_TEXT_COLOR} !important; ` +
-    `border: 1px solid ${STRIP_BORDER_COLOR} !important; }`
+    `border: 1px solid ${STRIP_BORDER_COLOR} !important; }\n` +
+    `${barSelector} > .og-bar-body { border: 1px solid ${STRIP_BORDER_COLOR}; }`
   );
 }
 
@@ -793,7 +807,7 @@ function roleFillRules(barSelector: string, parentColor: string, childColor: str
   const parentSel = `${barSelector}.${PARENT_ROLE_CLASS}`;
   return [
     fillBodyRule(barSelector, childColor),
-    `${parentSel} { background-color: ${parentColor} !important; }`,
+    `${parentSel} { background-color: ${parentColor} !important; --og-host-body-fill: ${parentColor}; }`,
     progressFillRule(barSelector, progressColor(childColor)),
     progressFillRule(parentSel, progressColor(parentColor)),
   ];
@@ -811,7 +825,7 @@ function roleStripRules(barSelector: string, parentColor: string, childColor: st
     stripBodyRule(barSelector),
     // Parent body is a higher-contrast neutral than the child body (hierarchy cue,
     // contrast-only). More specific than stripBodyRule() so it wins for parents.
-    `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; }`,
+    `${parentSel} { background-color: ${STRIP_PARENT_BODY_COLOR} !important; --og-host-body-fill: ${STRIP_PARENT_BODY_COLOR}; }`,
     ...roleStripBeforeRules(barSelector, parentColor, childColor),
     // Progress follows the shared NEUTRAL body, not the parent/child strip accents.
     progressFillRule(barSelector, NEUTRAL_PROGRESS_COLOR),

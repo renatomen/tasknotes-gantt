@@ -74,9 +74,9 @@
   // The torn-edge treatment cuts an alpha mask out of the bar's painted body.
   // The host cannot carry that mask: SVAR hangs the dependency link handles,
   // the link-delete buttons and the hover/selection feedback off it, and a
-  // host-level mask would clip them all away. So a bar whose start or due was
-  // never authored renders one extra layer that mirrors the host's fill and
-  // takes the cut in its place.
+  // host-level mask would clip them all away. So a torn bar goes wx-split (the
+  // host stops painting by SVAR's own rule) and renders one extra layer that
+  // paints the bar's effective fill and takes the cut in its place.
   const tornBody = $derived(isNonAuthoredEdgeToken(data?.custom?.dateStatusToken));
 
   // The per-task override dot (R11): a tooltip only when this task's effective
@@ -121,6 +121,17 @@
     if (!snapshot) return null;
     return occupancyRender(runs, data.start, data.end, snapshot);
   });
+
+  // Where the torn body actually paints (matrix in the re-seat plan): the plain
+  // branch and the occupancy overlay (envelope off — the body is the plain span
+  // the recorded pieces overlay). Ghost runs and envelope pieces paint
+  // themselves; the cut lands on their outermost pieces instead.
+  // Mirrors the template's own branch order (occupancy wins over ghost runs),
+  // so a row carrying BOTH still gets the body its rendered branch needs.
+  const paintedTornBody = $derived(
+    tornBody &&
+      (occupancyView ? data?.custom?.occupancyEnvelope !== true : !ghostPieces),
+  );
 
   const pct = (fraction: number): string => `${(fraction * 100).toFixed(4)}%`;
 
@@ -222,71 +233,6 @@
     };
   }
 
-  /** Tooth depth at full size, and the largest share of a bar one tooth may take. */
-  const ZIGZAG_TOOTH_DEPTH_PX = 4;
-  const ZIGZAG_TOOTH_MAX_WIDTH_SHARE = 0.3;
-  const ZIGZAG_DEPTH_PROPERTY = '--og-zigzag-depth';
-
-  /** How many sides of the bar `token` tears — both edges, one, or none. */
-  function countTornSides(token: string | undefined): number {
-    if (token === visualClasses.dateStatusZigzagBoth) return 2;
-    return isNonAuthoredEdgeToken(token) ? 1 : 0;
-  }
-
-  /**
-   * The torn sides drop their border — one there would redraw the straight edge
-   * the teeth removed — so only the intact sides still carry one, and it eats
-   * the same width budget the tooth is fitted out of. Read after the state
-   * class has landed, or the torn sides are still counted.
-   */
-  function measureSurvivingBorder(bar: HTMLElement): number {
-    const style = window.getComputedStyle(bar);
-    return (
-      (Number.parseFloat(style.borderLeftWidth) || 0) +
-      (Number.parseFloat(style.borderRightWidth) || 0)
-    );
-  }
-
-  /**
-   * Hold the torn bar's tooth depth inside its own width.
-   *
-   * The host clears the teeth with padding, and a border box never shrinks below
-   * its own border plus padding — so a tooth wider than the room left over grows
-   * the rendered box past the width SVAR lays out from. Dependency arrows, link
-   * handles and the drag maths all keep using SVAR's width, so the box must
-   * never exceed it, and the budget the teeth divide is the width MINUS the
-   * border the intact sides still paint. Sizing the tooth off the bar's own
-   * width also keeps a solid middle on a bar narrower than two full teeth (a
-   * one-day placeholder at week or month zoom), which would otherwise render as
-   * a column of tooth tips.
-   *
-   * Sub-pixel is deliberate: below a few pixels of bar the tooth fades out with
-   * the bar rather than being floored to a legible minimum. A floor there would
-   * spend the bar's whole width on two teeth and leave no body to tear.
-   */
-  function fitToothDepth(bar: HTMLElement, tornSides: number, keptBorderPx: number): void {
-    // Only a pixel width is a width in the tooth's own units; anything else
-    // (unset, or a relative unit) leaves the tooth at full size.
-    const width = bar.style.width.endsWith('px')
-      ? Number.parseFloat(bar.style.width)
-      : Number.NaN;
-    const depth = Number.isFinite(width)
-      ? Math.max(
-          0,
-          Math.min(
-            ZIGZAG_TOOTH_DEPTH_PX,
-            width * ZIGZAG_TOOTH_MAX_WIDTH_SHARE,
-            (width - keptBorderPx) / tornSides,
-          ),
-        )
-      : ZIGZAG_TOOTH_DEPTH_PX;
-    const fitted = `${depth}px`;
-    // Writing unconditionally would re-enter through the style observer below.
-    if (bar.style.getPropertyValue(ZIGZAG_DEPTH_PROPERTY) !== fitted) {
-      bar.style.setProperty(ZIGZAG_DEPTH_PROPERTY, fitted);
-    }
-  }
-
   /**
    * Stamp the row's per-state date-status class on the host bar, so each
    * inferred/placeholder/swapped state can be styled distinctly. The state rides
@@ -294,45 +240,33 @@
    * whole-string-matches against a pre-registered set — a per-state type id
    * would multiply that set.
    *
-   * Because the class is added imperatively, SVAR drops it whenever it
-   * re-applies a bar's whole class list from `task.type` on an `update-task`
-   * (a Bar Fill / Strip source change re-issues the task with a new treatment
-   * class). A MutationObserver re-asserts it, exactly as {@link markBarSplit}
-   * does, so the cue survives a live re-colour without a re-render. A torn bar
-   * watches its inline style too: SVAR rewrites the bar's width there on every
-   * zoom and reflow, and the tooth depth is fitted to that width.
+   * A torn token also stamps SVAR's own `wx-split` — the host stops painting by
+   * the library's rule and the torn `.og-bar-body` paints the cut body instead.
+   * Both classes ride ONE observer: SVAR re-applies a bar's whole class list
+   * from `task.type` on an `update-task` (a Bar Fill / Strip source change
+   * re-issues the task with a new treatment class), and the observer re-asserts
+   * them, exactly as {@link markBarSplit} does. On a torn bar that is also
+   * stretched or enveloped, `wx-split` is co-owned with {@link markBarSplit}'s
+   * observer: either teardown may remove it and the surviving owner re-asserts
+   * it (contains-guarded adds) — never "fix" that by removing it harder.
    */
   function markBarDateStatus(token: string | undefined) {
     return (node: Element): (() => void) | undefined => {
       if (!token) return undefined;
       const bar = node.closest(`.${visualClasses.bar}`);
-      if (!(bar instanceof HTMLElement)) return undefined;
-      const tornSides = countTornSides(token);
-      // The surviving border moves only when the bar's classes do — the strip
-      // treatment paints its own outline where the fill treatment leaves the
-      // theme's, and a live Bar Fill / Strip change rewrites the class list to
-      // swap between them. So it is measured once and re-measured on a class
-      // rewrite, rather than on the width rewrites that arrive every drag frame.
-      let keptBorderPx: number | null = null;
-      const restamp = (classesRewritten: boolean): void => {
-        if (classesRewritten) keptBorderPx = null;
+      if (!bar) return undefined;
+      const torn = isNonAuthoredEdgeToken(token);
+      const stamp = (): void => {
         if (!bar.classList.contains(token)) bar.classList.add(token);
-        if (!tornSides) return;
-        keptBorderPx ??= measureSurvivingBorder(bar);
-        fitToothDepth(bar, tornSides, keptBorderPx);
+        if (torn && !bar.classList.contains('wx-split')) bar.classList.add('wx-split');
       };
-      restamp(true);
-      const observer = new MutationObserver((mutations) =>
-        restamp(mutations.some((record) => record.attributeName === 'class')),
-      );
-      observer.observe(bar, {
-        attributes: true,
-        attributeFilter: tornSides ? ['class', 'style'] : ['class'],
-      });
+      stamp();
+      const observer = new MutationObserver(stamp);
+      observer.observe(bar, { attributes: true, attributeFilter: ['class'] });
       return () => {
         observer.disconnect();
         bar.classList.remove(token);
-        bar.style.removeProperty(ZIGZAG_DEPTH_PROPERTY);
+        if (torn) bar.classList.remove('wx-split');
       };
     };
   }
@@ -392,12 +326,17 @@
   </div>
 {/snippet}
 
-{#if tornBody}
+{#if paintedTornBody}
+  <!-- Painted only where the bar has no piece surfaces of its own: on a plain
+       torn bar it IS the body; on an occupancy overlay it is the plain span the
+       recorded pieces sit on. Ghost/envelope pieces carry their own paints — an
+       opaque body under them would flood the piece gaps. -->
   <div class="og-bar-body"></div>
 {/if}
 {#if occupancyView}
   <div
     class="og-ghost-runs"
+    class:og-occupancy-overlay={data?.custom?.occupancyEnvelope !== true}
     {@attach markBarSplitWhen(data?.custom?.occupancyEnvelope === true)}
   >
     {#if occupancyView.kind === 'pieces'}
