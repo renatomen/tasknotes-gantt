@@ -196,6 +196,21 @@ async function sortByColumn(columnId: string): Promise<void> {
 function idx(ids: string[], sourcePath: string): number {
   return ids.findIndex((id) => id.startsWith(sourcePath));
 }
+
+/**
+ * True only when BOTH rows are rendered and `first` precedes `second`.
+ *
+ * Comparing raw `idx` results silently accepts an ABSENT row: findIndex returns
+ * -1, so "B before A" holds whenever B has not rendered yet. A wait written that
+ * way is satisfied by the row missing, and the failure surfaces later in
+ * whichever step needs the row to exist — which is how a CI run reached the
+ * reset step reporting A@0 B@-1.
+ */
+function orderedBefore(ids: string[], first: string, second: string): boolean {
+  const a = idx(ids, first);
+  const b = idx(ids, second);
+  return a >= 0 && b >= 0 && a < b;
+}
 function instancesOf(ids: string[], sourcePath: string): number {
   return ids.filter((id) => id.startsWith(sourcePath)).length;
 }
@@ -323,8 +338,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await waitUntilOrExplain(
       async () => {
         state = await readSortState();
-        return state.mounted && idx(state.ids, "Project B.md") >= 0 &&
-          idx(state.ids, "Project B.md") < idx(state.ids, "Project A.md");
+        return state.mounted && orderedBefore(state.ids, "Project B.md", "Project A.md");
       },
       () =>
         `Expected B before A on due-desc; saw A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
@@ -360,7 +374,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
       async () => {
         state = await readSortState();
         return !state.resetPill && !state.sorted &&
-          idx(state.ids, "Project A.md") < idx(state.ids, "Project B.md");
+          orderedBefore(state.ids, "Project A.md", "Project B.md");
       },
       () =>
         `Third click should clear to Base order; saw resetPill=${state?.resetPill} sorted=${state?.sorted} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
@@ -376,7 +390,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
-        return s.resetPill && idx(s.ids, "Project B.md") < idx(s.ids, "Project A.md");
+        return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before reset" },
     );
@@ -389,7 +403,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await waitUntilOrExplain(
       async () => {
         state = await readSortState();
-        return !state.resetPill && idx(state.ids, "Project A.md") < idx(state.ids, "Project B.md");
+        return !state.resetPill && orderedBefore(state.ids, "Project A.md", "Project B.md");
       },
       () =>
         `Reset pill should restore Base order; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
@@ -405,7 +419,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
-        return s.resetPill && idx(s.ids, "Project B.md") < idx(s.ids, "Project A.md");
+        return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before reopen" },
     );
@@ -415,7 +429,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     // The remount seeds ephemeralSort=null → no pill, Base order (A before B).
     const state = await readSortState();
     expect(state.resetPill).toBe(false);
-    expect(idx(state.ids, "Project A.md")).toBeLessThan(idx(state.ids, "Project B.md"));
+    expect(orderedBefore(state.ids, "Project A.md", "Project B.md")).toBe(true);
   });
 
   it("keeps an active sort across a data refresh and stays above min height (AE6/R8)", async () => {
@@ -425,7 +439,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await browser.waitUntil(
       async () => {
         const s = await readSortState();
-        return s.resetPill && idx(s.ids, "Project B.md") < idx(s.ids, "Project A.md");
+        return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before refresh" },
     );
@@ -446,7 +460,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
       async () => {
         state = await readSortState();
         return state.mounted && state.resetPill &&
-          idx(state.ids, "Project B.md") < idx(state.ids, "Project A.md");
+          orderedBefore(state.ids, "Project B.md", "Project A.md");
       },
       () =>
         `Sort should survive a refresh; saw resetPill=${state?.resetPill} A@${state ? idx(state.ids, "Project A.md") : "?"} B@${state ? idx(state.ids, "Project B.md") : "?"}`,
