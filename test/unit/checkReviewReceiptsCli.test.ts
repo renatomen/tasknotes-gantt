@@ -383,6 +383,26 @@ describe('check-review-receipts check', () => {
     expect(run.stdout).toContain('recorded clean cross-model-peer receipt');
   });
 
+  it('refuses an attestation that names a different commit than the one being recorded', () => {
+    // The attestation has to match the SUBJECT, not merely exist. A review of
+    // an earlier commit leaves its sha exported in the shell; the next commit
+    // would then inherit a receipt for a review that never saw it. Nothing
+    // else in this file distinguishes "attested" from "attested for THIS
+    // commit" — weaken the comparison to a presence check and every other
+    // test here still passes.
+    const reviewed = git(['rev-parse', 'HEAD']);
+    const unreviewed = commitFile('later.md', 'landed after the peer review\n', 'later');
+    expect(unreviewed).not.toBe(reviewed);
+
+    const run = runScript(['record', 'cross-model-peer', unreviewed], '', {
+      OG_PEER_REVIEW_ATTESTED_SHA: reviewed,
+    });
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('recorded BY the review');
+    expect(storedReceipts()[unreviewed]?.['cross-model-peer']).toBeUndefined();
+  });
+
   it('refuses a sha that is not a full object name', () => {
     const short = git(['rev-parse', '--short', 'HEAD']);
 
