@@ -134,6 +134,13 @@ if printf '%s' "$DIFF" | grep -aq '^Binary files .* differ$'; then
   echo "diff contains binary/suppressed hunks — their contents never reach the reviewer; refusing" >&2
   exit 14
 fi
+# A gitlink moves a whole submodule with two lines of hex and no source at all,
+# so it slips past the check above while changing arbitrarily much code. Mode
+# 160000 in the raw diff is what names one.
+if git_nr diff --raw --no-ext-diff "$BASE_SHA".."$REVIEWED_SHA" | grep -q '160000'; then
+  echo "diff moves a submodule pointer — the reviewer would see two hashes, not the code they stand for; refusing" >&2
+  exit 14
+fi
 
 SENTINEL="PEER-$(git_nr rev-parse --short HEAD)-${RANDOM}"
 # The echo tripwire needs a token the reviewer will never legitimately write.
@@ -250,8 +257,22 @@ if [ "$RECORD" = "--record" ]; then
   fi
   refresh_upstream || { echo "cannot fetch the upstream before recording — the pushed state is unknown" >&2; exit 19; }
   now_base=$(default_base | head -1)
-  if [ -n "${now_base:-}" ] && ! git_nr merge-base --is-ancestor "$now_base" "$REVIEWED_SHA"; then
+  if [ -z "${now_base:-}" ]; then
+    echo "the last pushed state became unknown during the review — refusing to record" >&2
+    exit 18
+  fi
+  if ! git_nr merge-base --is-ancestor "$now_base" "$REVIEWED_SHA"; then
     echo "the remote moved during the review (${now_base:0:9} is no longer an ancestor of ${REVIEWED_SHA:0:9}) — the review omits work that has since been pushed" >&2
+    exit 16
+  fi
+  # Forward movement is not the only way the remote breaks the range. Reset it
+  # BACKWARDS mid-review — upstream B2 rolled back to its ancestor B1 while the
+  # review covered B2..H — and the check above still passes, because B1 is an
+  # ancestor of H. The push from B1 then carries B1..B2, which nobody read, under
+  # a tip receipt that claims otherwise. The reviewed base must therefore still
+  # be an ancestor of the upstream, not merely of the commit.
+  if ! git_nr merge-base --is-ancestor "$BASE_SHA" "$now_base"; then
+    echo "the upstream moved BACKWARDS during the review (${BASE_SHA:0:9} is no longer an ancestor of ${now_base:0:9}) — a push would carry commits the review never covered" >&2
     exit 16
   fi
   OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" || {
