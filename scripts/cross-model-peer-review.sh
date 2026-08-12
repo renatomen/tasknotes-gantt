@@ -303,7 +303,11 @@ if [ "$RECORD" = "--record" ]; then
   # it cannot be reused for a later, different set of findings.
   ack_args=()
   if [ "$verdict" != "VERDICT:CLEAN" ]; then
-    digest=$(sha256sum "$OUT" | cut -d' ' -f1) || {
+    # Read on stdin, not by name: coreutils escapes a filename containing a
+    # backslash by prefixing the whole line with one, and every path on Windows
+    # has them — the digest came back as \65e99df0... and was rejected. With no
+    # filename in the output there is nothing to escape.
+    digest=$(sha256sum < "$OUT" | cut -d' ' -f1) || {
       echo "cannot digest the review output — refusing to acknowledge findings it cannot name" >&2
       exit 20
     }
