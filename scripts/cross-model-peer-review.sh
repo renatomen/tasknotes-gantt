@@ -307,10 +307,18 @@ if [ "$RECORD" = "--record" ]; then
     # backslash by prefixing the whole line with one, and every path on Windows
     # has them — the digest came back as \65e99df0... and was rejected. With no
     # filename in the output there is nothing to escape.
-    digest=$(sha256sum < "$OUT" | cut -d' ' -f1) || {
+    # Not a pipeline: its status would be cut's, so a missing sha256sum (macOS
+    # has none) would pass an EMPTY digest on and the findings would be recorded
+    # as clean. Captured, checked, and checked again for emptiness.
+    digest_line=$(sha256sum < "$OUT") || {
       echo "cannot digest the review output — refusing to acknowledge findings it cannot name" >&2
       exit 20
     }
+    digest=${digest_line%% *}
+    if [ -z "$digest" ]; then
+      echo "digest of the review output came back empty — refusing to acknowledge findings it cannot name" >&2
+      exit 20
+    fi
     ack_args=(--acknowledged "$digest")
     echo "acknowledging findings; read them in $OUT" >&2
   fi

@@ -435,6 +435,22 @@ describe('check-review-receipts check', () => {
       expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
     });
 
+    it('refuses an EMPTY acknowledgement rather than silently calling it clean', () => {
+      // `?? 'missing'` does not catch an empty string, so `--acknowledged ""`
+      // fell through to the clean-receipt branch: a review that found things,
+      // stored as one that found none. The wrapper could produce exactly that
+      // empty value whenever its digest step failed.
+      const sha = git(['rev-parse', 'HEAD']);
+
+      const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', ''], '', {
+        OG_PEER_REVIEW_ATTESTED_SHA: sha,
+      });
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('review digest');
+      expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+    });
+
     it('refuses an acknowledgement that names no review text', () => {
       // The digest is what binds the acknowledgement to a review that ran;
       // without it this is just a clean receipt wearing a different word.

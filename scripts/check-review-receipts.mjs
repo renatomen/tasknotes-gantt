@@ -159,10 +159,15 @@ function record(layer, sha = headSha(), findings = '') {
  * stamps only on a clean verdict is one no change can pass — and an unpassable
  * gate gets bypassed with --no-verify, which is worse than the honour system it
  * replaced. This is the third state, and it is deliberately narrow: the review
- * still has to have RUN (the wrapper's attestation is unchanged), and the
- * acknowledgement carries the digest of the review text it accepted, so it
- * cannot be minted for a review nobody read and cannot silently outlive the
- * findings it was granted for.
+ * still has to have RUN — that is the wrapper's attestation, and it is what
+ * makes this unforgeable, not the digest.
+ *
+ * The digest is a LABEL, and worth being precise about: it names the review
+ * text that was accepted so two acknowledgements can be told apart and a stale
+ * one is visible. Nothing re-hashes it later, because the review output is a
+ * temp file this gate does not retain — so it identifies, it does not verify.
+ * Claiming otherwise would be the same overclaim as a read-proof that matched
+ * our own prompt.
  */
 export function acknowledgedFindings(store, shas, requiredLayers = REQUIRED_LAYERS) {
   const accepted = [];
@@ -272,7 +277,11 @@ const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
 if (isDirectRun) {
   const [, , command, layer, sha] = process.argv;
   const ackIndex = process.argv.indexOf('--acknowledged');
-  const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] ?? 'missing');
+  // `||`, not `??`: an EMPTY value is the dangerous one. `??` let it through
+  // as '' — falsy, so record() took the clean-receipt branch and a review that
+  // found things was stored as one that found none. The sentinel routes every
+  // unusable value into the digest guard instead.
+  const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] || 'missing');
   if (command === 'record') record(layer, sha ?? headSha(), findings);
   else if (command === 'check') check();
   else {
