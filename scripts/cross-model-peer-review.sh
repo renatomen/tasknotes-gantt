@@ -136,8 +136,19 @@ if printf '%s' "$DIFF" | grep -aq '^Binary files .* differ$'; then
 fi
 # A gitlink moves a whole submodule with two lines of hex and no source at all,
 # so it slips past the check above while changing arbitrarily much code. Mode
-# 160000 in the raw diff is what names one.
-if git_nr diff --raw --no-ext-diff "$BASE_SHA".."$REVIEWED_SHA" | grep -q '160000'; then
+# 160000 in the raw diff names one — anchored to the two mode columns, because
+# unanchored it also matches an abbreviated blob sha or a path like
+# `docs/160000-notes.md`, and refusing an innocent change is the same class of
+# usability failure as the exit-17 bug this branch already fixed.
+# Captured rather than piped: the pipeline's status is grep's, so a git that
+# died would report "no submodule" and the guard would fail OPEN.
+RAW_DIFF=$(git_nr diff --raw --no-ext-diff "$BASE_SHA".."$REVIEWED_SHA")
+raw_status=$?
+if [ "$raw_status" -ne 0 ]; then
+  echo "git diff --raw failed (exit $raw_status) — cannot rule out a submodule pointer move; refusing" >&2
+  exit 10
+fi
+if printf '%s' "$RAW_DIFF" | grep -aqE '^:160000 |^:[0-7][0-9]{5} 160000 '; then
   echo "diff moves a submodule pointer — the reviewer would see two hashes, not the code they stand for; refusing" >&2
   exit 14
 fi
