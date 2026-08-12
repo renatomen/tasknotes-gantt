@@ -2,9 +2,15 @@
 # Independent cross-model peer review — layer two of the pre-push receipt gate.
 #
 #   bash scripts/cross-model-peer-review.sh <base-ref> [out-file] [--record]
+#                                                        [--acknowledge]
 #
 # Reviews <base-ref>..HEAD with the Codex CLI and, with --record, stamps the
 # cross-model-peer receipt only after a clean verdict on the reviewed commit.
+# --acknowledge additionally accepts a FINDINGS verdict, recording the digest of
+# the review text instead of pretending it was clean: a reviewer asked to find
+# things always will, and a gate no change can pass is one that gets bypassed.
+# Every guard below still runs first, so an acknowledgement is only reachable
+# for a review that demonstrably happened.
 # Run it in the background; a real review outlasts a foreground tool call.
 #
 # INDEPENDENCE IS THE CALLER'S: this always runs Codex. Run layer one
@@ -22,8 +28,13 @@
 set -u
 RECORD=""
 POSITIONAL=()
+ACKNOWLEDGE=""
 for arg in "$@"; do
-  if [ "$arg" = "--record" ]; then RECORD="--record"; else POSITIONAL+=("$arg"); fi
+  case "$arg" in
+    --record) RECORD="--record" ;;
+    --acknowledge) RECORD="--record"; ACKNOWLEDGE="--acknowledge" ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
 done
 BASE="${POSITIONAL[0]:-}"
 OUT="${POSITIONAL[1]:-$(mktemp -t peer-review-XXXXXX.md)}"
@@ -250,7 +261,9 @@ if [ -z "$verdict" ]; then
   exit 4
 fi
 echo "$verdict"
-[ "$verdict" = "VERDICT:CLEAN" ] || exit 5
+if [ "$verdict" != "VERDICT:CLEAN" ] && [ -z "$ACKNOWLEDGE" ]; then
+  exit 5
+fi
 
 if [ "$RECORD" = "--record" ]; then
   # All three re-checked because a background review outlives the state it
@@ -286,8 +299,19 @@ if [ "$RECORD" = "--record" ]; then
     echo "the upstream moved BACKWARDS during the review (${BASE_SHA:0:9} is no longer an ancestor of ${now_base:0:9}) — a push would carry commits the review never covered" >&2
     exit 16
   fi
-  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" || {
-    echo "receipt recording FAILED — the review was clean but the gate was not updated" >&2
+  # The digest binds the acknowledgement to the exact review text accepted, so
+  # it cannot be reused for a later, different set of findings.
+  ack_args=()
+  if [ "$verdict" != "VERDICT:CLEAN" ]; then
+    digest=$(sha256sum "$OUT" | cut -d' ' -f1) || {
+      echo "cannot digest the review output — refusing to acknowledge findings it cannot name" >&2
+      exit 20
+    }
+    ack_args=(--acknowledged "$digest")
+    echo "acknowledging findings; read them in $OUT" >&2
+  fi
+  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]}" || {
+    echo "receipt recording FAILED — the review ran but the gate was not updated" >&2
     exit 7
   }
 fi

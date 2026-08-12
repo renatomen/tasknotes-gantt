@@ -403,6 +403,69 @@ describe('check-review-receipts check', () => {
     expect(storedReceipts()[unreviewed]?.['cross-model-peer']).toBeUndefined();
   });
 
+  describe('acknowledged findings', () => {
+    // A reviewer whose job is to find things will find something, so a gate that
+    // stamps only on a clean verdict is a gate no change can pass — and an
+    // unpassable gate gets bypassed with --no-verify, which is worse than the
+    // honour system this one replaced. The third state keeps the review
+    // mandatory while letting the maintainer accept what it found.
+    const DIGEST = 'a'.repeat(64);
+
+    it('records a receipt for findings the reviewer actually produced', () => {
+      const sha = git(['rev-parse', 'HEAD']);
+
+      const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', DIGEST], '', {
+        OG_PEER_REVIEW_ATTESTED_SHA: sha,
+      });
+
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain('acknowledged');
+      expect(storedReceipts()[sha]?.['cross-model-peer']).toBeDefined();
+    });
+
+    it('still refuses an acknowledgement the wrapper did not attest', () => {
+      // The third state must not become the hand-stamp door reopened.
+      const sha = git(['rev-parse', 'HEAD']);
+      expect(runRecord('ce-code-review', sha).status).toBe(0);
+
+      const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', DIGEST]);
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('recorded BY the review');
+      expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+    });
+
+    it('refuses an acknowledgement that names no review text', () => {
+      // The digest is what binds the acknowledgement to a review that ran;
+      // without it this is just a clean receipt wearing a different word.
+      const sha = git(['rev-parse', 'HEAD']);
+
+      const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', 'not-a-digest'], '', {
+        OG_PEER_REVIEW_ATTESTED_SHA: sha,
+      });
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('review digest');
+      expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+    });
+
+    it('names the accepted findings on every push, so they cannot be forgotten', () => {
+      const sha = git(['rev-parse', 'HEAD']);
+      expect(runRecord('ce-code-review', sha).status).toBe(0);
+      expect(
+        runScript(['record', 'cross-model-peer', sha, '--acknowledged', DIGEST], '', {
+          OG_PEER_REVIEW_ATTESTED_SHA: sha,
+        }).status,
+      ).toBe(0);
+
+      const gate = runCheck(refLine(sha, ZERO, 'refs/heads/main'));
+
+      expect(gate.status).toBe(0);
+      expect(gate.stdout + gate.stderr).toContain(DIGEST.slice(0, 12));
+      expect(gate.stdout + gate.stderr).toContain('accepted findings');
+    });
+  });
+
   it('refuses a sha that is not a full object name', () => {
     const short = git(['rev-parse', '--short', 'HEAD']);
 

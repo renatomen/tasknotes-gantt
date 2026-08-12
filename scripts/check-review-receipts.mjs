@@ -45,6 +45,7 @@ const PEER_ATTESTATION_ENV = 'OG_PEER_REVIEW_ATTESTED_SHA';
 const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
 function isDeletion(sha) {
   return /^0+$/.test(sha);
@@ -125,7 +126,7 @@ export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) 
  * whatever commit exists when recording happens, which is how a clean verdict
  * lands on unreviewed work. Callers that reviewed HEAD may omit it.
  */
-function record(layer, sha = headSha()) {
+function record(layer, sha = headSha(), findings = '') {
   if (!REQUIRED_LAYERS.includes(layer)) {
     console.error(`unknown review layer "${layer}" — expected one of: ${REQUIRED_LAYERS.join(', ')}`);
     process.exit(1);
@@ -134,15 +135,46 @@ function record(layer, sha = headSha()) {
     console.error(`invalid commit sha "${sha}" — expected a full object name`);
     process.exit(1);
   }
+  if (findings && !DIGEST_PATTERN.test(findings)) {
+    console.error(`invalid review digest "${findings}" — expected a sha256 of the review output`);
+    process.exit(1);
+  }
   if (layer === PEER_LAYER && process.env[PEER_ATTESTATION_ENV] !== sha) {
     console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
     console.error(`  ${PEER_WRAPPER}`);
     process.exit(1);
   }
   const store = readReceipts();
-  store.receipts[sha] = { ...store.receipts[sha], [layer]: new Date().toISOString() };
+  const entry = findings ? { at: new Date().toISOString(), findings } : new Date().toISOString();
+  store.receipts[sha] = { ...store.receipts[sha], [layer]: entry };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
-  console.log(`recorded clean ${layer} receipt for ${sha.slice(0, 7)}`);
+  const kind = findings ? `acknowledged (findings ${findings.slice(0, 12)})` : 'clean';
+  console.log(`recorded ${kind} ${layer} receipt for ${sha.slice(0, 7)}`);
+}
+
+/**
+ * Findings a review produced and the maintainer accepted, rather than fixed.
+ *
+ * A reviewer whose job is to find things will find something, so a gate that
+ * stamps only on a clean verdict is one no change can pass — and an unpassable
+ * gate gets bypassed with --no-verify, which is worse than the honour system it
+ * replaced. This is the third state, and it is deliberately narrow: the review
+ * still has to have RUN (the wrapper's attestation is unchanged), and the
+ * acknowledgement carries the digest of the review text it accepted, so it
+ * cannot be minted for a review nobody read and cannot silently outlive the
+ * findings it was granted for.
+ */
+export function acknowledgedFindings(store, shas, requiredLayers = REQUIRED_LAYERS) {
+  const accepted = [];
+  for (const sha of shas) {
+    for (const layer of requiredLayers) {
+      const entry = store.receipts?.[sha]?.[layer];
+      if (entry && typeof entry === 'object' && entry.findings) {
+        accepted.push({ sha, layer, findings: entry.findings });
+      }
+    }
+  }
+  return accepted;
 }
 
 /**
@@ -198,6 +230,17 @@ function reportCleanReceipts(shas) {
   console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
 }
 
+/**
+ * Printed on every push that rides on an acknowledgement, because the cost of
+ * the third state is that a finding can be accepted once and then forgotten
+ * forever. Saying it out loud each time is what keeps it a decision.
+ */
+function reportAcceptedFindings(accepted) {
+  for (const { sha, layer, findings } of accepted) {
+    console.log(`review receipt for ${sha.slice(0, 7)} carries accepted findings from ${layer} (review ${findings.slice(0, 12)})`);
+  }
+}
+
 function refuseMissingReceipts(verdict) {
   const missingLayers = new Set();
   for (const [sha, missing] of Object.entries(verdict.missingBySha)) {
@@ -218,18 +261,19 @@ function check() {
   if (failed) refuseUnreadableRefLines();
 
   const shas = shasToCheck(stdinText);
-  const verdict = evaluateReceipts(readReceipts(), shas);
-  if (verdict.ok) {
-    reportCleanReceipts(shas);
-    return;
-  }
-  refuseMissingReceipts(verdict);
+  const store = readReceipts();
+  const verdict = evaluateReceipts(store, shas);
+  if (!verdict.ok) refuseMissingReceipts(verdict);
+  reportAcceptedFindings(acknowledgedFindings(store, shas));
+  reportCleanReceipts(shas);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
 if (isDirectRun) {
   const [, , command, layer, sha] = process.argv;
-  if (command === 'record') record(layer, sha ?? headSha());
+  const ackIndex = process.argv.indexOf('--acknowledged');
+  const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] ?? 'missing');
+  if (command === 'record') record(layer, sha ?? headSha(), findings);
   else if (command === 'check') check();
   else {
     console.error('usage: check-review-receipts.mjs record <layer> | check');
