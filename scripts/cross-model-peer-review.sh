@@ -111,13 +111,23 @@ refresh_upstream() {
   # another branch's tip and reported success.
   remote=$(tracking_remote)
   [ -n "$remote" ] || return 0
-  git fetch --quiet --no-tags "$remote" 2>/dev/null || return 1
+  # Pair the destination with its source BEFORE fetching, because the fetch can
+  # destroy the evidence. Under fetch.prune, a tracked branch deleted on the
+  # remote takes its tracking ref with it; `@{upstream}` then stops resolving,
+  # the source falls back to refs/heads/main, and the explicit fetch below
+  # writes MAIN'S TIP into refs/remotes/<remote>/topic — recreating a tracking
+  # ref that should be gone, pointing at the wrong branch, so git reports an
+  # upstream that does not exist and the divergence check refuses on it.
   upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
   if [ -n "$upstream" ] && [ "$ref" = "$upstream" ]; then
     source=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).merge" 2>/dev/null) || source=""
+    # An upstream with no configured merge ref leaves nothing safe to name, and
+    # main is the one thing this destination must never be paired with.
+    [ -n "$source" ] || return 0
+  else
+    source=refs/heads/main
   fi
-  # main only where main is the fallback THIS script chose.
-  [ -n "${source:-}" ] || source=refs/heads/main
+  git fetch --quiet --no-tags "$remote" 2>/dev/null || return 1
   # A plain fetch honours remote.<name>.fetch, and a legitimately narrowed
   # refspec can exclude the branch we care about — so the fetch above can
   # SUCCEED without touching the ref the base is read from, leaving a stale base
