@@ -444,8 +444,13 @@ describe('cross-model peer review wrapper', () => {
       // to cover, where that binary is absent — and let the algorithm flag go
       // unpinned, so changing `-a 256` to `-a 1` would have stayed green while
       // producing a 40-character digest the recorder rejects.
+      // It must also check WHAT it was fed. Discarding stdin and printing the
+      // known digest made the assertion self-fulfilling: `shasum -a 256
+      // </dev/null` would have hashed nothing and still passed, which is not
+      // what "byte-for-byte" means.
       const shim =
-        `shasum() { [ "$1" = -a ] && [ "$2" = 256 ] || return 3; cat >/dev/null; ` +
+        `shasum() { [ "$1" = -a ] && [ "$2" = 256 ] || return 3; ` +
+        `got=$(cat); [ "$got" = '${body.trimEnd()}' ] || { echo "shasum: got [$got]" >&2; return 4; }; ` +
         `printf '%s  -\\n' '${expected}'; }\n`;
 
       const run = callWrapperFn(`${hide('sha256sum')}${shim}sha256_of < digest-me.txt`);
