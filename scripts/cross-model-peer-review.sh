@@ -478,7 +478,11 @@ if [ "$RECORD" = "--record" ]; then
     ack_args=(--acknowledged "$digest")
     echo "acknowledging findings; read them in $OUT" >&2
   fi
-  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]}" || {
+  # "${a[@]+"${a[@]}"}" and not "${a[@]}": under `set -u`, bash before 4.4 —
+  # which is what macOS still ships as /bin/bash — treats an EMPTY array
+  # expansion as an unbound variable and aborts. That is the CLEAN path, so the
+  # platform this script just learned to digest on could still not record.
+  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]+"${ack_args[@]}"}" || {
     echo "receipt recording FAILED — the review ran but the gate was not updated" >&2
     exit 7
   }

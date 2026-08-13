@@ -523,6 +523,37 @@ too large to fold into an unrelated refactor, and worth its own pass. Until then
 a test asserting against a stale signature fails silently in exactly the way a
 test is supposed to prevent.
 
+## Peer-wrapper guards still without a test
+
+Source: the clearance review of the wrapper's own suite. The suite pins 28
+cases and no vacuous assertion survives mutation, but the wrapper has ~20 exit
+codes and these are asserted nowhere. Listed so the gap is a decision rather
+than an assumption:
+
+- **exit 16, both directions** — the upstream moving forward past the reviewed
+  commit, and the backwards reset a force-push would ride on. The comment
+  calling the backwards case an escape the forward check misses is the strongest
+  argument for testing it.
+- **exit 11** — an explicit base ahead of the last pushed state, the guard
+  against narrowing the reviewed range by hand.
+- **exit 15** — a worktree already dirty when the review starts (only the
+  mid-review sibling, exit 17, is covered).
+- **exit 10 on the raw diff**, the capture-not-pipe defence, and the
+  binary-hunks half of exit 14.
+- **exit 20 as the wrapper reaches it** — `sha256_of` is tested in isolation but
+  `digest=${digest_line%% *}` and the empty-digest refusal are not.
+- **exits 8, 3, 21, 7, 12, 2**, and `--acknowledge` without `--record`.
+
+Two prompt instructions are also unpinned — "begin your response with that
+line" and the VERDICT-line instruction. Deleting either leaves the suite green
+because the stub recovers both from elsewhere; the cost is a wasted model call
+rather than a false pass, since both fail closed at runtime.
+
+Related: the suite takes ~137s for one file and `sonar.yml` runs it on the
+PR-gating path, so it is a candidate for the slow-suite budget. And the stub is
+written under `os.tmpdir()` and executed, which a `noexec` /tmp would break
+opaquely — not a GitHub runner today.
+
 ## Review receipts are not bound to the range they reviewed
 
 Source: PR #419's own review, by both layers and the external reviewer, three
