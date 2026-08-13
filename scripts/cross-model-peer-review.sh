@@ -64,12 +64,24 @@ git_nr() { git --no-replace-objects "$@"; }
 # the reviewer cannot see it.
 worktree_changes() { git status --porcelain --untracked-files=no; }
 
-# `@{upstream}` is a LOCAL ref, only as fresh as the last fetch. Stale, it names
-# a commit the remote has moved past: the guards below all pass, the review
-# omits what was pushed meanwhile, and the receipt blesses a force-push over it.
+# `@{upstream}` and `origin/main` are LOCAL refs, only as fresh as the last
+# fetch. Stale, they name a commit the remote has moved past: the guards below
+# all pass, the review omits what was pushed meanwhile, and the receipt blesses
+# a force-push over it.
+#
+# A branch with NO configured remote — every newly created local branch,
+# including the one this was found on — used to return success here WITHOUT
+# fetching, so the freshness guard reported success in exactly the case where
+# the pushed state was least known, and default_base then trusted whatever
+# origin/main happened to be. Falling back to the default remote makes the
+# fallback base as fresh as the tracked one. No remote at all is the only
+# honest no-op: there is nothing to be stale about.
 refresh_upstream() {
   local remote
-  remote=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || return 0
+  remote=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || remote=""
+  if [ -z "$remote" ]; then
+    git remote get-url origin >/dev/null 2>&1 && remote=origin || remote=$(git remote | head -1)
+  fi
   [ -n "$remote" ] || return 0
   git fetch --quiet --no-tags "$remote" || return 1
 }
