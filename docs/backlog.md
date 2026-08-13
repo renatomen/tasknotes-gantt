@@ -586,6 +586,11 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   `remote.<name>.fetch` that excludes it leaves the same staleness the by-name
   fetch was added to close, one ref over. Re-fetch the resolved upstream by name
   too, with the same treatment: failure with a surviving local copy is a refusal.
+- **`base_ref` is resolved twice per run**, once by `refresh_upstream` and once
+  by `default_base`. With `fetch.prune` and the upstream branch deleted on the
+  remote mid-run, the ref that was refreshed and the ref the base is read from
+  can differ — the invariant the resolution was unified to establish. Resolve it
+  once at top level and thread it through both.
 - **Recording now needs the network** on branches that were previously
   offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
   a pre-existing one, and an offline maintainer who cannot push is the road to
