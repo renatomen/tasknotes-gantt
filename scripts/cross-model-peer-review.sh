@@ -158,7 +158,10 @@ fi
 if [ "$RECORD" = "--record" ]; then
   refresh_upstream; refresh_status=$?
   if [ "$refresh_status" -eq 2 ]; then
-    echo "the remote's main is gone while a local copy of it remains — that copy is not the pushed state, and trusting it would review a range the remote no longer has" >&2
+    # Deliberately names the STATE, not a cause. The fetch can fail with the
+    # remote's main alive and well — a ref lock, a permission — and an earlier
+    # wording asserted it had been deleted, which was simply not checked.
+    echo "could not refresh the remote's main while a local copy of it remains — that copy may be stale, so the pushed state is unknown" >&2
     exit 19
   elif [ "$refresh_status" -ne 0 ]; then
     echo "cannot fetch the upstream — the last pushed state is unknown, so a receipt could cover commits the remote has moved past" >&2
@@ -360,7 +363,13 @@ if [ "$RECORD" = "--record" ]; then
     echo "HEAD moved during review (${REVIEWED_SHA:0:9} -> ${now:0:9}) — refusing to stamp a receipt for an unreviewed commit" >&2
     exit 6
   fi
-  refresh_upstream || { echo "cannot establish the pushed state before recording (refresh exit $?)" >&2; exit 19; }
+  refresh_upstream; refresh_status=$?
+  if [ "$refresh_status" -ne 0 ]; then
+    [ "$refresh_status" -eq 2 ] \
+      && echo "could not refresh the remote's main before recording while a local copy of it remains — that copy may be stale" >&2 \
+      || echo "cannot fetch the upstream before recording — the pushed state is unknown" >&2
+    exit 19
+  fi
   now_base=$(default_base | head -1)
   if [ -z "${now_base:-}" ]; then
     echo "the last pushed state became unknown during the review — refusing to record" >&2

@@ -580,6 +580,12 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   when it resolves under `refs/remotes/`. Left here as the record of what the
   first attempt got wrong: it refused the value at the FETCH, while the base is
   chosen in `default_base`, so the defect survived its own fix.
+- **The refresh guarantees `main`, but `default_base` prefers `@{upstream}`.**
+  So on a branch that HAS a remote-tracking upstream, the ref actually consumed
+  is not the one the by-name fetch guaranteed fresh — a narrowed
+  `remote.<name>.fetch` that excludes it leaves the same staleness the by-name
+  fetch was added to close, one ref over. Re-fetch the resolved upstream by name
+  too, with the same treatment: failure with a surviving local copy is a refusal.
 - **Recording now needs the network** on branches that were previously
   offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
   a pre-existing one, and an offline maintainer who cannot push is the road to
