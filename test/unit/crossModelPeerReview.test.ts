@@ -444,13 +444,16 @@ describe('cross-model peer review wrapper', () => {
       // to cover, where that binary is absent — and let the algorithm flag go
       // unpinned, so changing `-a 256` to `-a 1` would have stayed green while
       // producing a 40-character digest the recorder rejects.
-      // It must also check WHAT it was fed. Discarding stdin and printing the
-      // known digest made the assertion self-fulfilling: `shasum -a 256
-      // </dev/null` would have hashed nothing and still passed, which is not
-      // what "byte-for-byte" means.
+      // It must also check WHAT it was fed, as raw bytes. Discarding stdin made
+      // the assertion self-fulfilling — `shasum -a 256 </dev/null` hashed
+      // nothing and passed — and comparing via `got=$(cat)` was only better by
+      // degree: command substitution strips trailing newlines from both sides,
+      // so a stream alteration confined to them stayed invisible while changing
+      // the real digest. `cmp` sees every byte.
+      writeFileSync(join(repo, 'expected-body.txt'), body);
       const shim =
         `shasum() { [ "$1" = -a ] && [ "$2" = 256 ] || return 3; ` +
-        `got=$(cat); [ "$got" = '${body.trimEnd()}' ] || { echo "shasum: got [$got]" >&2; return 4; }; ` +
+        `cmp -s - expected-body.txt || { echo "shasum: stdin differs from the review text" >&2; return 4; }; ` +
         `printf '%s  -\\n' '${expected}'; }\n`;
 
       const run = callWrapperFn(`${hide('sha256sum')}${shim}sha256_of < digest-me.txt`);
