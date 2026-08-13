@@ -76,26 +76,37 @@ worktree_changes() { git status --porcelain --untracked-files=no; }
 # origin/main happened to be. Falling back to the default remote makes the
 # fallback base as fresh as the tracked one. No remote at all is the only
 # honest no-op: there is nothing to be stale about.
-refresh_upstream() {
+# A configured remote NAME, or empty. Everything else `branch.<name>.remote`
+# can hold — "." for local tracking, a path, a URL — names something that is
+# not a pushed state, and testing for a real remote covers them all at once
+# where enumerating spellings would keep missing one.
+tracking_remote() {
   local remote
   remote=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || remote=""
-  # "." is git's LOCAL-tracking remote. It is non-empty, so it slips past the
-  # fallback below, `git fetch .` self-fetches happily, and `@{upstream}` then
-  # resolves to a local branch — which default_base's own comment rules out as
-  # evidence of a pushed state.
-  if [ -z "$remote" ] || [ "$remote" = "." ]; then
+  if [ -z "$remote" ] || ! git config --get "remote.$remote.url" >/dev/null 2>&1; then
     git remote get-url origin >/dev/null 2>&1 && remote=origin || remote=$(git remote | head -1)
   fi
+  printf '%s' "$remote"
+}
+
+refresh_upstream() {
+  local remote
+  remote=$(tracking_remote)
   [ -n "$remote" ] || return 0
   git fetch --quiet --no-tags "$remote" || return 1
   # A plain fetch honours remote.<name>.fetch, and a legitimately narrowed
   # refspec can exclude main — so the fetch above can SUCCEED without touching
-  # the very ref default_base falls back to, leaving a stale base to be trusted.
-  # Naming the ref explicitly is the only way to know it was refreshed.
-  # Tolerated on failure because the network is already proven by the fetch
-  # above, so what remains is a remote with no main; default_base then yields
-  # nothing and recording refuses at exit 18 rather than guessing.
-  git fetch --quiet --no-tags "$remote" "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null || true
+  # the ref default_base falls back to, leaving a stale base to be trusted.
+  # Naming the ref explicitly is the only way to know it was refreshed, and it
+  # goes into the remote's OWN namespace: writing refs/remotes/origin/ while
+  # fetching some other remote fabricates a tracking ref for a remote that may
+  # not even exist.
+  if ! git fetch --quiet --no-tags "$remote" "+refs/heads/main:refs/remotes/$remote/main" 2>/dev/null; then
+    # Tolerable ONLY when there is no local ref left to be misled by — a remote
+    # with no main. With a stale one still present this failure is exactly the
+    # fail-open being fixed: the error is swallowed and the stale base trusted.
+    git_nr rev-parse --verify --quiet "refs/remotes/$remote/main" >/dev/null && return 1
+  fi
 }
 
 # The base must be the last PUSHED state: check-review-receipts.mjs gates only
@@ -103,8 +114,19 @@ refresh_upstream() {
 # a later base lets those ancestors through unreviewed. No bare `main` fallback
 # — a local branch is not evidence of a pushed state.
 default_base() {
-  git_nr rev-parse --verify --quiet '@{upstream}' 2>/dev/null && return 0
-  git_nr merge-base origin/main HEAD 2>/dev/null
+  local upstream remote
+  # `@{upstream}` resolves happily to a LOCAL branch when the remote is "." —
+  # and this is where that mattered. Refusing it at the FETCH was fixing the
+  # wrong end: the value is returned here, before origin/main is ever read, so
+  # the guard has to live where the base is chosen. Only a refs/remotes/* ref
+  # is evidence of a pushed state.
+  upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
+  case "$upstream" in
+    refs/remotes/*) git_nr rev-parse --verify --quiet '@{upstream}' && return 0 ;;
+  esac
+  remote=$(tracking_remote)
+  [ -n "$remote" ] || return 0
+  git_nr merge-base "refs/remotes/$remote/main" HEAD 2>/dev/null
 }
 
 # The reviewer reads tracked files, which are the WORKTREE, not the commit — so

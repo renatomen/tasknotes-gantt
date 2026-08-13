@@ -569,14 +569,17 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   it. Mint from `/dev/urandom` and anchor the check to the first non-blank line,
   the way the verdict check already anchors to the last.
 - **`.peer-review-diff.tmp` is untracked but not gitignored**, and its path is
-  fixed rather than per-run. One stray `git add -A` commits it and wedges every
-  later review at exit 17; two overlapping runs delete each other's payload. A
+  fixed rather than per-run. One stray `git add -A` commits it and wedges the
+  next review at exit 17, then every one after at exit 15 — the EXIT trap's own
+  `rm` has become a tracked deletion; two overlapping runs delete each other's
+  payload. A
   `mktemp` path fixes both, and avoids colliding with the prompt's own rule
   against opening ignored files.
-- **`branch.<name>.remote = "."`** is non-empty, so the fallback does not fire,
-  `git fetch .` self-fetches happily, and `@{upstream}` resolves to a LOCAL
-  branch — which `default_base`'s own comment forbids as evidence of a pushed
-  state.
+- ~~**`branch.<name>.remote = "."`**~~ — fixed: `tracking_remote` now accepts
+  only a configured remote NAME, and `default_base` accepts an upstream only
+  when it resolves under `refs/remotes/`. Left here as the record of what the
+  first attempt got wrong: it refused the value at the FETCH, while the base is
+  chosen in `default_base`, so the defect survived its own fix.
 - **Recording now needs the network** on branches that were previously
   offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
   a pre-existing one, and an offline maintainer who cannot push is the road to
