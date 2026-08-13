@@ -89,13 +89,25 @@ tracking_remote() {
 # produced a fetch guaranteeing `main` while the base came from `@{upstream}`,
 # and a stale unused `main` blocking a branch that tracks something else.
 base_ref() {
-  local upstream remote
-  upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
-  case "$upstream" in
-    refs/remotes/*) printf '%s' "$upstream"; return 0 ;;
-  esac
+  local upstream remote configured
   remote=$(tracking_remote)
   [ -n "$remote" ] || return 0
+  # The upstream counts only when the branch's CONFIGURED remote is the remote
+  # that was validated. Keying on the ref namespace instead let the two
+  # disagree: with `remote = old` having a fetch mapping and a tracking ref but
+  # no URL, `@{upstream}` resolves to refs/remotes/old/main while the fetch goes
+  # to origin — so origin's main landed in old's tracking ref, clobbering it and
+  # reviewing the wrong base rather than refusing.
+  #
+  # Comparing the configured remote also stops keying on the namespace at all,
+  # so a remote whose fetch refspec maps elsewhere (refs/cache/origin/topic is
+  # legal) keeps its real upstream instead of being silently downgraded to main.
+  configured=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || configured=""
+  upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
+  if [ -n "$upstream" ] && [ "$configured" = "$remote" ]; then
+    printf '%s' "$upstream"
+    return 0
+  fi
   printf 'refs/remotes/%s/main' "$remote"
 }
 
