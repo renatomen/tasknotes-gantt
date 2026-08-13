@@ -37,21 +37,33 @@ user-facing features**, while the maintainer was blocked from changing the app.
 
 ## Guidance
 
-**Point the gate at product code. When a finding concerns the gate itself, give
-it one round, then record the rest in `docs/backlog.md`.**
+**Point the gate at product code. Judge a finding about the gate itself by what
+it is about, not by how many rounds have passed.**
 
-State the stopping condition before starting a tool-hardening loop, because the
-loop will not supply one. Round count is the wrong metric — quality is the
-metric, and stopping at an arbitrary number is as unprincipled as never
-stopping. The usable signal is *what class of thing the findings are about*:
+Round count is not the metric and must not become one. A genuine defect may
+take four rounds to get right, and stopping at an arbitrary number is as
+unprincipled as never stopping — it just fails in the other direction, leaving
+a half-fixed guard that reports safety it does not provide. What is needed is a
+*stopping condition*, and the loop will not supply one, so it has to be stated
+before the loop starts.
 
-- Findings about the **accident** the tool exists to catch (the review did not
+The usable signal is *what class of thing the findings are about*:
+
+- Findings about the **accident the tool exists to catch** (the review did not
   run; the reviewer never saw the diff; the tree does not match the commit) are
-  worth fixing. They are bounded and few.
+  worth fixing, however many rounds that takes. This set is bounded, so the
+  work terminates on its own.
 - Findings about **edge cases outside this repo's operating context** —
   bash 3.2 on macOS, custom fetch refspecs, multi-valued git config keys,
-  multi-remote push targets — are effectively unbounded. Fix none of them
-  reflexively; record them.
+  multi-remote push targets — are unbounded. Record them; do not fix them
+  reflexively. One is not more tractable than the next, and there is always a
+  next.
+- Findings that the tool **breaks on the everyday path** get fixed immediately
+  and are not really tool-hardening at all — they are the tool not working.
+
+The discriminator is the class, not the count: the first set has a bottom and
+the second does not. If a finding in the first set needs five rounds, take
+five.
 
 The repo already carries the third state that makes stopping possible: a receipt
 can record **findings the maintainer accepted** rather than fixed
@@ -89,8 +101,9 @@ twice contradicted by the comment sitting directly above the line.
 
 ## When to Apply
 
-Before pointing the adversarial reviewer at anything that is not product code,
-and whenever a hardening loop passes its second round without a stated exit.
+Before pointing the adversarial reviewer at anything that is not product code —
+that is the moment to say what would make the loop finished, because afterwards
+every round supplies a reason to continue and none to stop.
 
 Warning signs that the loop has become the work:
 
@@ -130,7 +143,9 @@ Warning signs that the loop has become the work:
 
 **The rule, stated so it survives**
 
-> The gate reviews feature code. A finding about the gate gets one round, then
-> the backlog. If the tool needs a week of work, that is a scheduled piece of
-> work with its own plan — not something to discover mid-session while the
-> feature queue waits.
+> The gate reviews feature code. Fix a finding about the gate when it breaks
+> the everyday path or when it is the accident the gate exists to catch — for
+> as many rounds as that genuinely takes. Record the rest, because that set has
+> no end. And if the tool needs a week of work, that is a scheduled piece of
+> work with its own plan and its own place in the queue — not something to
+> discover mid-session while the features wait.
