@@ -154,9 +154,13 @@ const posix = (p: string): string => p.split('\\').join('/');
  * end-to-end tests because they decide what the review is ABOUT, before a
  * reviewer is ever invoked. Calling them directly is what makes them testable.
  */
-function callWrapperFn(fn: string, cwd = repo): { status: number; stdout: string } {
+function callWrapperFn(
+  fn: string,
+  cwd = repo,
+  envOverride: Record<string, string> = {},
+): { status: number; stdout: string } {
   const source = readFileSync(resolve('scripts/cross-model-peer-review.sh'), 'utf8');
-  const names = ['tracking_remote', 'base_ref', 'refresh_upstream', 'default_base'];
+  const names = ['tracking_remote', 'base_ref', 'refresh_upstream', 'default_base', 'sha256_of'];
   const blocks = names
     .map((name) => {
       const start = source.indexOf(`${name}() {`);
@@ -175,7 +179,11 @@ function callWrapperFn(fn: string, cwd = repo): { status: number; stdout: string
   // never checked. A parse failure has to be a loud error, not a result.
   execFileSync('bash', ['-n', '-c', script], { encoding: 'utf8' });
   try {
-    const stdout = execFileSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: childEnv });
+    const stdout = execFileSync('bash', ['-c', script], {
+      cwd,
+      encoding: 'utf8',
+      env: { ...childEnv, ...envOverride },
+    });
     return { status: 0, stdout: String(stdout) };
   } catch (error) {
     const e = error as { status?: number; stdout?: string };
@@ -410,6 +418,43 @@ describe('cross-model peer review wrapper', () => {
     expect(git(['rev-parse', 'origin/main'])).toBe(theirTip);
   });
 
+  describe('digesting the review text on whatever the platform ships', () => {
+    // Both reviewers found this independently: on any host with sha256sum the
+    // fallback is dead code, so breaking it leaves the suite green while macOS
+    // — which ships shasum and not sha256sum — cannot record an acknowledgement
+    // at all. Narrowing PATH is what makes the other two branches reachable.
+    // Hiding a binary by narrowing PATH also hides bash, and this machine has
+    // no shasum to shim to. Shadowing the `command` builtin makes each branch
+    // reachable on any host without bending the wrapper for the test's benefit.
+    const hide = (...names: string[]): string =>
+      `command() { case "$2" in ${names.join('|')}) return 1 ;; esac; builtin command "$@"; }\n`;
+
+    it('falls back to shasum, byte-for-byte, where sha256sum is absent', () => {
+      const body = 'the review text\n';
+      writeFileSync(join(repo, 'digest-me.txt'), body);
+      const expected = createHash('sha256').update(body).digest('hex');
+
+      const run = callWrapperFn(
+        `${hide('sha256sum')}shasum() { sha256sum; }\nsha256_of < digest-me.txt`,
+      );
+
+      expect(run.status).toBe(0);
+      expect(run.stdout.trim().split(/\s+/)[0]).toBe(expected);
+    });
+
+    it('refuses rather than returning an empty digest when neither hasher exists', () => {
+      // An empty digest is what the recorder rejects as invalid — but only
+      // because this refuses first. A silent empty string was half of the
+      // original chained defect that recorded a FINDINGS review as clean.
+      writeFileSync(join(repo, 'digest-me.txt'), 'anything\n');
+
+      const run = callWrapperFn(`${hide('sha256sum', 'shasum')}sha256_of < digest-me.txt`);
+
+      expect(run.status).toBe(1);
+      expect(run.stdout.trim()).toBe('');
+    });
+  });
+
   describe('choosing the base that defines what gets reviewed', () => {
     it('tolerates a remote that simply has no main', () => {
       // Written as `rev-parse … && return 1`, the guard ended on the FAILED
@@ -572,6 +617,15 @@ describe('cross-model peer review wrapper', () => {
 
     expect(sentinel).toMatch(/^PEER-[0-9a-f]+-\d+$/);
     expect(prompt).not.toContain(sentinel);
+
+    // Shape is not unguessability. A constant sentinel satisfies the regex and
+    // the absence check, while a reviewer that never opened the file could
+    // reproduce it from a previous run. Two runs at the same HEAD must differ,
+    // which isolates the random component from the short-sha one.
+    runWrapper(CLEAN);
+    const second = readFileSync(`${promptFile}.sentinel`, 'utf8').trim();
+    expect(second).toMatch(/^PEER-[0-9a-f]+-\d+$/);
+    expect(second).not.toBe(sentinel);
   });
 
   it('removes the staged diff file once the review is over', () => {
