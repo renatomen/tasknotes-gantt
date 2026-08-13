@@ -240,7 +240,10 @@ beforeEach(() => {
   // the staged payload removes nothing and a completeness assertion cannot
   // fail. The second file is what makes "the reviewer saw all of it" testable.
   commitFile('feature.txt', 'a change to review\n', 'feature');
-  commitFile('second.txt', 'the tail of the change\n', 'second');
+  // Trailing whitespace on purpose: it is a markdown hard break, it is content,
+  // and a fixture without it cannot tell a byte-exact comparison from a trimmed
+  // one — the staging mutation that strips it would change nothing to observe.
+  commitFile('second.txt', 'the tail of the change  \nafter a hard break\n', 'second');
 });
 
 afterEach(() => {
@@ -454,15 +457,18 @@ describe('cross-model peer review wrapper', () => {
     // hunks would never be reviewed before a clean receipt was recorded.
     // Compared against git's own output, so it holds for any number of hunks.
     const staged = readFileSync(`${promptFile}.staged`, 'utf8');
-    const [first, ...body] = staged.split(/\r?\n/);
-    expect(first).toMatch(/^SAW-DIFF: PEER-/);
-
     const expectedDiff = execFileSync(
       'git',
       ['--no-replace-objects', 'diff', '--no-ext-diff', '--no-textconv', 'origin/main..HEAD'],
       { cwd: repo, encoding: 'utf8', env: childEnv },
     );
-    expect(body.join('\n').trim()).toBe(expectedDiff.trim());
+
+    // Only the known protocol separator is removed — the sentinel line and the
+    // blank line after it. No trim() on either side: trimming would hide a
+    // stripped trailing space, and a markdown hard break is exactly that.
+    const separator = /^SAW-DIFF: PEER-[0-9a-f]+-\d+\r?\n\r?\n/;
+    expect(staged).toMatch(separator);
+    expect(staged.replace(separator, '')).toBe(expectedDiff);
     expect(prompt).toMatch(/Never reproduce the token PROMPT-ECHO-\d+-[0-9a-f]+/);
     // The diff itself must NOT be in the prompt any more — that is what lifted
     // the argv ceiling, and a regression would restore it silently.
