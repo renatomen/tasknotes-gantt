@@ -129,11 +129,14 @@ fix -> commit
     -> give review_base..reviewed_sha to both layers
     -> layer 1: ce-code-review on that RANGE (multi-persona, repo-standards-aware)
     -> layer 2: cross-model peer on that RANGE (different family, independent, independence_verified)
-    -> both clean?  no  -> fix -> commit -> repeat from the clean-tree check
-                     yes -> confirm the tree is clean and HEAD still equals reviewed_sha
-                         -> node scripts/check-review-receipts.mjs record ce-code-review
-                            (layer 2 records ITSELF: run the wrapper with --record,
-                             or --acknowledge to accept findings rather than fix them)
+    -> both SETTLED?  a finding settles two ways, and the choice is a judgement:
+         fix it   -> commit -> repeat from the clean-tree check
+         accept it-> only where it is out of scope for this change; the review
+                     still ran, and the acceptance is recorded with it
+                  -> confirm the tree is clean and HEAD still equals reviewed_sha
+                  -> node scripts/check-review-receipts.mjs record ce-code-review
+                     (layer 2 records ITSELF: the wrapper with --record when clean,
+                      or --acknowledge to accept findings rather than fix them)
     -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
 ```
 

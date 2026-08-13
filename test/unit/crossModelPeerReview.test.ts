@@ -235,8 +235,12 @@ beforeEach(() => {
   git(['commit', '-q', '--no-verify', '-m', 'gate']);
   git(['remote', 'add', 'origin', origin]);
   git(['push', '-q', '--no-verify', '-u', 'origin', 'main']);
-  // One reviewable commit on top of the pushed state.
+  // Reviewable work on top of the pushed state — deliberately MORE THAN ONE
+  // FILE. With a single small file the whole diff is seven lines, so truncating
+  // the staged payload removes nothing and a completeness assertion cannot
+  // fail. The second file is what makes "the reviewer saw all of it" testable.
   commitFile('feature.txt', 'a change to review\n', 'feature');
+  commitFile('second.txt', 'the tail of the change\n', 'second');
 });
 
 afterEach(() => {
@@ -443,13 +447,22 @@ describe('cross-model peer review wrapper', () => {
     // assertion was written, and the assertion did not follow it.
     expect(prompt).toMatch(/do not open anything\s+git ignores EXCEPT the diff file named below/);
 
-    // And the staged file must carry the actual change, not just the sentinel:
-    // a wrapper that wrote the first line and no diff would leave every clean
-    // test here green while the reviewer saw no code at all.
+    // And the staged file must carry the WHOLE change. Substring checks on the
+    // fixture's opening lines only prove the beginning arrives: truncating the
+    // staged output to its first seven lines left `a change to review` and
+    // `+++ b/feature.txt` intact and every test green, while later files and
+    // hunks would never be reviewed before a clean receipt was recorded.
+    // Compared against git's own output, so it holds for any number of hunks.
     const staged = readFileSync(`${promptFile}.staged`, 'utf8');
-    expect(staged.split(/\r?\n/)[0]).toMatch(/^SAW-DIFF: PEER-/);
-    expect(staged).toContain('a change to review');
-    expect(staged).toContain('+++ b/feature.txt');
+    const [first, ...body] = staged.split(/\r?\n/);
+    expect(first).toMatch(/^SAW-DIFF: PEER-/);
+
+    const expectedDiff = execFileSync(
+      'git',
+      ['--no-replace-objects', 'diff', '--no-ext-diff', '--no-textconv', 'origin/main..HEAD'],
+      { cwd: repo, encoding: 'utf8', env: childEnv },
+    );
+    expect(body.join('\n').trim()).toBe(expectedDiff.trim());
     expect(prompt).toMatch(/Never reproduce the token PROMPT-ECHO-\d+-[0-9a-f]+/);
     // The diff itself must NOT be in the prompt any more — that is what lifted
     // the argv ceiling, and a regression would restore it silently.

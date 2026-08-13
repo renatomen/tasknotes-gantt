@@ -663,6 +663,17 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   remote mid-run, the ref that was refreshed and the ref the base is read from
   can differ — the invariant the resolution was unified to establish. Resolve it
   once at top level and thread it through both.
+- **The `sha256_of` fallback is tested in isolation, not through the recording
+  path.** Codex proved it: reverting the wrapper's call site to a bare
+  `sha256sum` leaves all tests green, because on Linux and Windows the
+  end-to-end acknowledgement uses `sha256sum` while the direct tests exercise an
+  orphaned helper — so a macOS acknowledgement could exit 20 again unnoticed.
+  The honest test runs an acknowledged-findings flow with `sha256sum` absent,
+  which needs a shim directory of real executables (git, node, shasum) plus
+  spawning bash by absolute path, since `/usr/bin` holds both bash and
+  sha256sum. Recorded rather than fixed because the fallback only matters on a
+  platform nobody here develops on — the unbounded class by this repo's own
+  rule.
 - **Recording now needs the network** on branches that were previously
   offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
   a pre-existing one, and an offline maintainer who cannot push is the road to
