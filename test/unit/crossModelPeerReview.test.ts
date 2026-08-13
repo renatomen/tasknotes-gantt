@@ -448,18 +448,33 @@ describe('cross-model peer review wrapper', () => {
     it('advances the tracked branch its own ref, not some other branch', () => {
       // The positive half. Every other case here asserts a refusal, and nothing
       // stopped a revision from refreshing nothing at all and returning 0.
+      //
+      // Deliberately NOT main: on main the tracked ref and the <remote>/main
+      // fallback are the same ref, so the assertion cannot tell them apart.
+      //
+      // What this pins is that the ref the base is READ from ends up current,
+      // and that main is not advanced in its place. It does not isolate the
+      // by-name fetch — narrowing the refspec to force that turned out to stop
+      // `@{upstream}` resolving at all, at which point falling back to main is
+      // the correct answer, so the by-name fetch is closer to belt-and-braces
+      // than the load-bearing guard its comment implies.
+      git(['checkout', '-q', '-b', 'release']);
+      git(['push', '-q', '--no-verify', '-u', 'origin', 'release']);
       const other = join(repo, '..', 'other');
-      execFileSync('git', ['clone', '-q', origin, other], { env: childEnv });
+      execFileSync('git', ['clone', '-q', '-b', 'release', origin, other], { env: childEnv });
       git(['config', 'user.email', 'o@e.com'], other);
       git(['config', 'user.name', 'O'], other);
       writeFileSync(join(other, 'theirs.txt'), 'pushed by someone else\n');
       git(['add', 'theirs.txt'], other);
       git(['commit', '-q', '--no-verify', '-m', 'theirs'], other);
       const theirTip = git(['rev-parse', 'HEAD'], other);
-      git(['push', '-q', '--no-verify', 'origin', 'main'], other);
+      git(['push', '-q', '--no-verify', 'origin', 'release'], other);
+      const mainBefore = git(['rev-parse', 'refs/remotes/origin/main']);
 
       expect(callWrapperFn('refresh_upstream').status).toBe(0);
-      expect(git(['rev-parse', 'refs/remotes/origin/main'])).toBe(theirTip);
+
+      expect(git(['rev-parse', 'refs/remotes/origin/release'])).toBe(theirTip);
+      expect(git(['rev-parse', 'refs/remotes/origin/main'])).toBe(mainBefore);
     });
 
     it('does not resurrect a pruned tracking ref pointing at main', () => {
