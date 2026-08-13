@@ -109,7 +109,7 @@ interface StubOpts {
  * reverting runWrapper to a literal `PATH` would have left the probe green
  * while every real spawn broke — the same defect the probe exists to catch.
  */
-function stubbedEnv(): NodeJS.ProcessEnv {
+function stubbedEnv(): Record<string, string | undefined> {
   return { ...childEnv, [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}` };
 }
 
