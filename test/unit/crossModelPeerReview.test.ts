@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
@@ -25,6 +26,18 @@ const childEnv = { ...process.env };
 delete childEnv.GIT_DIR;
 delete childEnv.GIT_WORK_TREE;
 delete childEnv.GIT_INDEX_FILE;
+// Ambient git config must not decide these outcomes. With fetch.prune=true set
+// globally, the pruned-ref case returns 0 instead of 2 and a CORRECT wrapper
+// fails here — a suite that passes or fails on the developer's own settings is
+// measuring the wrong thing.
+// Not empty: `main` is pinned, because the fixtures assume it and a bare repo
+// with no default falls back to `master`, so a clone of it checks out nothing
+// these tests recognise. Inheriting that from the developer's config is the
+// same coupling in the other direction.
+const FIXED_GIT_CONFIG = join(mkdtempSync(join(tmpdir(), 'peer-gitconfig-')), 'config');
+writeFileSync(FIXED_GIT_CONFIG, '[init]\n\tdefaultBranch = main\n');
+childEnv.GIT_CONFIG_GLOBAL = FIXED_GIT_CONFIG;
+childEnv.GIT_CONFIG_SYSTEM = FIXED_GIT_CONFIG;
 
 let repo: string;
 let origin: string;
@@ -118,14 +131,17 @@ function runExpectingRefusal(response: string, opts: StubOpts = {}): Run {
 }
 
 function receipts(): Record<string, Record<string, unknown>> {
-  try {
-    return JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).receipts;
-  } catch {
-    return {};
-  }
+  // Only ABSENCE is empty. A blanket catch turned a corrupt store into "no
+  // receipt", which is the very thing nine assertions here try to prove.
+  const path = join(repo, '.git', 'review-receipts.json');
+  if (!existsSync(path)) return {};
+  return JSON.parse(readFileSync(path, 'utf8')).receipts ?? {};
 }
 
 const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
+
+/** Windows paths reach the stub through bash, which reads backslashes as escapes. */
+const posix = (p: string): string => p.split('\\').join('/');
 
 /**
  * Runs one of the wrapper's own shell functions against the current repo.
@@ -152,6 +168,11 @@ function callWrapperFn(fn: string, cwd = repo): { status: number; stdout: string
     })
     .join('\n');
   const script = `set -u\ngit_nr() { git --no-replace-objects "$@"; }\n${blocks}\n${fn}\n`;
+  // Syntax-check OUTSIDE the try. Truncated extraction makes bash exit 2 with
+  // empty stdout — indistinguishable from the guards' own status-2 refusal and
+  // their empty-string answers, so four tests here would report safety they
+  // never checked. A parse failure has to be a loud error, not a result.
+  execFileSync('bash', ['-n', '-c', script], { encoding: 'utf8' });
   try {
     const stdout = execFileSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: childEnv });
     return { status: 0, stdout: String(stdout) };
@@ -232,6 +253,21 @@ describe('cross-model peer review wrapper', () => {
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
 
+  it('refuses to stamp a receipt when HEAD moves during the review', () => {
+    // The sibling of the exit-17 case. A background review outlives its subject,
+    // so a commit landing mid-run would otherwise take a verdict formed on the
+    // previous one.
+    const reviewed = git(['rev-parse', 'HEAD']);
+    const run = runExpectingRefusal(CLEAN, {
+      record: true,
+      sideEffect: `git -C "${posix(repo)}" commit -q --no-verify --allow-empty -m moved`,
+    });
+
+    expect(run.status).toBe(6);
+    expect(run.stderr).toContain('HEAD moved during review');
+    expect(receipts()[reviewed]?.['cross-model-peer']).toBeUndefined();
+  });
+
   it('treats a missing sentinel as never having seen the diff', () => {
     const run = runExpectingRefusal('No sentinel here.\n\nVERDICT: CLEAN', { record: true });
 
@@ -297,6 +333,10 @@ describe('cross-model peer review wrapper', () => {
 
     expect(run.stdout).toContain('VERDICT:FINDINGS');
     const receipt = receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer'] as { findings?: string };
+    // Shape alone re-states a check the recorder already makes, and an empty
+    // or wrong stream satisfies it. Bind it to the actual review text.
+    const reviewText = readFileSync(join(repo, '..', 'peer-out.md'));
+    expect(receipt?.findings).toBe(createHash('sha256').update(reviewText).digest('hex'));
     expect(receipt?.findings).toMatch(/^[0-9a-f]{64}$/);
   });
 
