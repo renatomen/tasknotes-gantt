@@ -523,6 +523,39 @@ too large to fold into an unrelated refactor, and worth its own pass. Until then
 a test asserting against a stale signature fails silently in exactly the way a
 test is supposed to prevent.
 
+## CI e2e flake — a measured instance, on a branch that cannot have caused it
+
+Observed on PR #420, run 31750064985. **37 of 39 specs passed; 2 failed**, on a
+branch whose entire diff is `.gitignore`, docs, one shell script and one unit
+test file — **no `src/` change at all**. Whatever the cause is, it is not the
+plugin code under review, which rules out the most common assumption when a red
+e2e appears on a PR.
+
+The two failures, and what distinguishes them:
+
+- `gantt-calendar-items-sources.e2e.ts` — failed in a **`before each` hook**.
+  That is a SETUP failure, not an assertion failure: the spec never got as far
+  as checking anything. It is also precisely the spec the unpushed
+  `test/ci-readiness-diagnostics` branch instruments, which is a point in that
+  branch's favour — the current failure says only "hook failed".
+- `gantt-dependency-types.e2e.ts` — "shows the dependency tooltip when a real
+  pointer hovers a blocked bar". A previously root-caused flake in this spec was
+  a starter-note stealing the active leaf; whether this is the same cause is
+  unverified.
+
+Also visible throughout the log and worth ruling in or out:
+`WebDriverError: javascript error: No tab group found` appears repeatedly as a
+WARN on specs that then PASS, so it is noise rather than the cause — but it is
+noise that would mask a real signal in exactly this area.
+
+The immediately useful next step is arithmetic rather than analysis: re-run the
+same commit N times and record the pass rate per spec. Two specs failing out of
+39, with one failing in setup, is a much narrower target than "e2e fails ~40% of
+the time", and the previous estimate was never broken down per spec.
+
+One correction to carry forward: an earlier note attributed this to worker
+contention. `maxInstances: 1` — the suite is sequential, so it is not.
+
 ## The peer-review gate is roughly 7x the size its purpose needs
 
 Measured on `main` at 018cbb0: **763 lines (473 shell + 290 node), 21 distinct
