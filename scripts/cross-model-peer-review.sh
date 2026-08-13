@@ -120,10 +120,17 @@ refresh_upstream() {
   # upstream that does not exist and the divergence check refuses on it.
   upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
   if [ -n "$upstream" ] && [ "$ref" = "$upstream" ]; then
-    source=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).merge" 2>/dev/null) || source=""
-    # An upstream with no configured merge ref leaves nothing safe to name, and
-    # main is the one thing this destination must never be paired with.
-    [ -n "$source" ] || return 0
+    # --get-all | head -1, not --get: `@{upstream}` resolves against merge[0]
+    # while --get returns the LAST value, so a duplicated merge entry paired
+    # this destination with a different branch's source and wrote that tip into
+    # it. Read the same element the upstream itself is derived from.
+    source=$(git config --get-all "branch.$(git symbolic-ref --short -q HEAD).merge" 2>/dev/null | head -1) || source=""
+    # An upstream with no usable merge ref leaves nothing safe to name, and main
+    # is the one source this destination must never be paired with. Refusing
+    # rather than returning 0: returning success here reports "refreshed"
+    # having run neither fetch, and the caller then trusts a base nothing
+    # checked.
+    [ -n "$source" ] || return 1
   else
     source=refs/heads/main
   fi
