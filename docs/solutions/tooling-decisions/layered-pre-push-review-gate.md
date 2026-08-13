@@ -1,7 +1,7 @@
 ---
 title: "A single AI reviewer is not a review gate — layer it, and enforce the layers mechanically"
 date: 2026-07-28
-last_refreshed: 2026-07-31
+last_refreshed: 2026-08-14
 category: docs/solutions/tooling-decisions
 module: code-review / pre-push-gate
 problem_type: tooling_decision
@@ -38,7 +38,7 @@ Run a **layered pre-push gate with mechanical enforcement**, not a single review
 
 The two layers differ deliberately. Layer 1 asks "is this right *for this repo*"; layer 2 asks "is this right at all, and what breaks it". Neither subsumes the other.
 
-**The fix-forward loop shape.** Fix → commit → run BOTH layers on the same explicit `review_base..reviewed_sha` range → only a double-clean run records receipts → push. The first base is the last pushed tip; a later fix-forward base may be the exact tip both layers reviewed in the preceding round. Reviewing that explicit range rather than the whole branch is what keeps each cycle affordable; recording receipts only on a double-clean run is what makes the gate mean something.
+**The fix-forward loop shape.** Fix → commit → run BOTH layers on the same explicit `review_base..reviewed_sha` range → only a double-clean run records receipts → push. The first base is the last pushed tip; a later fix-forward base may be the exact tip both layers reviewed in the preceding round. Reviewing that explicit range rather than the whole branch is what keeps each cycle affordable; recording receipts only on a settled run is what makes the gate mean something. A run settles two ways: clean, or with findings the maintainer accepted rather than fixed — the latter recorded as an acknowledgement carrying a digest of the review text, because a reviewer whose purpose is to find things will find something on any sufficiently examined change, and a gate no change can pass is one that gets bypassed. See `CONCEPTS.md` § Acknowledged findings.
 
 **Mechanical enforcement.** The gate is not a habit, it's a hook. `.husky/pre-push` is a single line:
 
@@ -132,7 +132,8 @@ fix -> commit
     -> both clean?  no  -> fix -> commit -> repeat from the clean-tree check
                      yes -> confirm the tree is clean and HEAD still equals reviewed_sha
                          -> node scripts/check-review-receipts.mjs record ce-code-review
-                            node scripts/check-review-receipts.mjs record cross-model-peer
+                            (layer 2 records ITSELF: run the wrapper with --record,
+                             or --acknowledge to accept findings rather than fix them)
     -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
 ```
 

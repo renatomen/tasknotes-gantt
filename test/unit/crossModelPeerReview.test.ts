@@ -239,7 +239,9 @@ describe('cross-model peer review wrapper', () => {
     const run = runWrapper(CLEAN, { record: true });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeDefined();
+    // A bare string is a CLEAN receipt and nothing else can be, so this fails
+    // if the two receipt states are ever confused.
+    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
   });
 
   it('does not count its own output files as a dirty worktree', () => {
@@ -253,7 +255,9 @@ describe('cross-model peer review wrapper', () => {
     const run = runWrapper(CLEAN, { record: true });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeDefined();
+    // A bare string is a CLEAN receipt and nothing else can be, so this fails
+    // if the two receipt states are ever confused.
+    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
   });
 
   it('refuses to record when a TRACKED file changes during the review', () => {
@@ -384,7 +388,10 @@ describe('cross-model peer review wrapper', () => {
     // other instruction here fails closed at runtime if dropped, but this one
     // just quietly lets the reviewer read an ignored .env holding live tokens.
     expect(prompt).toMatch(/Do not open\s+\.env, \.env\.\*, or any key, secret or credential file/);
-    expect(prompt).toMatch(/do not open anything\s+git ignores/);
+    // The EXCEPTION's scope, not just the prohibition's prefix. The clause was
+    // rewritten into a prohibition-with-exception one commit after this
+    // assertion was written, and the assertion did not follow it.
+    expect(prompt).toMatch(/do not open anything\s+git ignores EXCEPT the diff file named below/);
 
     // And the staged file must carry the actual change, not just the sentinel:
     // a wrapper that wrote the first line and no diff would leave every clean
