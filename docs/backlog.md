@@ -522,3 +522,63 @@ will surface an unknown number of existing arity/shape drifts in 160+ suites —
 too large to fold into an unrelated refactor, and worth its own pass. Until then,
 a test asserting against a stale signature fails silently in exactly the way a
 test is supposed to prevent.
+
+## Review receipts are not bound to the range they reviewed
+
+Source: PR #419's own review, by both layers and the external reviewer, three
+times over. A receipt names the commit that was reviewed. A review covers a
+RANGE, and the tip alone cannot say which one.
+
+So a receipt earned for `B..H` also satisfies a push of `H` to a remote sitting
+at an earlier `A`, sending `A..B` along unread; and it satisfies a force-push
+that discards whatever the remote gained since. Neither needs anything unusual
+— another clone pushing while a review runs is enough.
+
+`scripts/check-review-receipts.mjs` already has the missing input in its hand:
+`parsePushedRefLines` validates `tokens[3]`, the destination sha git supplies on
+the pre-push line, and then discards it. The fix is to record `BASE_SHA` beside
+each receipt and, in `check`, refuse a push whose destination is not contained
+in the reviewed base. A brand-new ref reports an all-zero destination and needs
+`origin/main` as the honest stand-in.
+
+Every base guard in `cross-model-peer-review.sh` is review-time defence around
+this gap — the wrapper cannot see the push destination and the gate can. A first
+attempt inside the mechanism branch broke 13 tests and could not record at all
+in a repo with no upstream, so it wants its own branch and its own plan.
+
+## Peer review reads the live worktree, not the commit
+
+Source: the same review, twice. The wrapper checks worktree cleanliness before
+and after Codex runs, but the review is deliberately backgrounded: a tracked
+file saved during it and restored before it ends passes both checks, and the
+receipt then blesses a verdict formed on content the reviewed commit does not
+contain.
+
+Running `codex exec` from a `git worktree add` pinned to the reviewed sha closes
+it structurally — the tree cannot disagree with the commit if it IS the commit —
+and deletes the whole dirty-check apparatus along with it, plus the residual
+that a stray untracked file can reach the reviewer as context.
+
+## Smaller accepted findings on the peer wrapper
+
+All from PR #419, accepted rather than fixed so the review loop could terminate:
+
+- **Sentinel entropy is 15 bits.** `${RANDOM}` is the only secret in the
+  read-proof token, the prefix is derivable, and the verifier matches any line
+  in the answer — so a reviewer emitting many candidate lines could brute-force
+  it. Mint from `/dev/urandom` and anchor the check to the first non-blank line,
+  the way the verdict check already anchors to the last.
+- **`.peer-review-diff.tmp` is untracked but not gitignored**, and its path is
+  fixed rather than per-run. One stray `git add -A` commits it and wedges every
+  later review at exit 17; two overlapping runs delete each other's payload. A
+  `mktemp` path fixes both, and avoids colliding with the prompt's own rule
+  against opening ignored files.
+- **`branch.<name>.remote = "."`** is non-empty, so the fallback does not fire,
+  `git fetch .` self-fetches happily, and `@{upstream}` resolves to a LOCAL
+  branch — which `default_base`'s own comment forbids as evidence of a pushed
+  state.
+- **Recording now needs the network** on branches that were previously
+  offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
+  a pre-existing one, and an offline maintainer who cannot push is the road to
+  `--no-verify`. Either make the trade explicit or record a stale-base marker in
+  the receipt instead of leaving an invisible bypass as the only way through.

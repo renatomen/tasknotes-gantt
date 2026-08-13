@@ -79,11 +79,23 @@ worktree_changes() { git status --porcelain --untracked-files=no; }
 refresh_upstream() {
   local remote
   remote=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || remote=""
-  if [ -z "$remote" ]; then
+  # "." is git's LOCAL-tracking remote. It is non-empty, so it slips past the
+  # fallback below, `git fetch .` self-fetches happily, and `@{upstream}` then
+  # resolves to a local branch — which default_base's own comment rules out as
+  # evidence of a pushed state.
+  if [ -z "$remote" ] || [ "$remote" = "." ]; then
     git remote get-url origin >/dev/null 2>&1 && remote=origin || remote=$(git remote | head -1)
   fi
   [ -n "$remote" ] || return 0
   git fetch --quiet --no-tags "$remote" || return 1
+  # A plain fetch honours remote.<name>.fetch, and a legitimately narrowed
+  # refspec can exclude main — so the fetch above can SUCCEED without touching
+  # the very ref default_base falls back to, leaving a stale base to be trusted.
+  # Naming the ref explicitly is the only way to know it was refreshed.
+  # Tolerated on failure because the network is already proven by the fetch
+  # above, so what remains is a remote with no main; default_base then yields
+  # nothing and recording refuses at exit 18 rather than guessing.
+  git fetch --quiet --no-tags "$remote" "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null || true
 }
 
 # The base must be the last PUSHED state: check-review-receipts.mjs gates only
