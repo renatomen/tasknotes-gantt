@@ -64,28 +64,13 @@ git_nr() { git --no-replace-objects "$@"; }
 # the reviewer cannot see it.
 worktree_changes() { git status --porcelain --untracked-files=no; }
 
-# `@{upstream}` and `origin/main` are LOCAL refs, only as fresh as the last
-# fetch. Stale, they name a commit the remote has moved past: the guards below
-# all pass, the review omits what was pushed meanwhile, and the receipt blesses
-# a force-push over it.
-#
-# A branch with NO configured remote — every newly created local branch,
-# including the one this was found on — used to return success here WITHOUT
-# fetching, so the freshness guard reported success in exactly the case where
-# the pushed state was least known, and default_base then trusted whatever
-# origin/main happened to be. Falling back to the default remote makes the
-# fallback base as fresh as the tracked one. No remote at all is the only
-# honest no-op: there is nothing to be stale about.
-# A configured remote NAME, or empty. Everything else `branch.<name>.remote`
-# can hold — "." for local tracking, a path, a URL — names something that is
-# not a pushed state, and testing for a real remote covers them all at once
-# where enumerating spellings would keep missing one.
+# A configured remote NAME, or nothing. "." (local tracking), a path and a URL
+# are all things `branch.<name>.remote` can hold that do not name a pushed
+# state, and testing for a real remote covers them together where enumerating
+# spellings kept missing one.
 tracking_remote() {
   local remote
   remote=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).remote" 2>/dev/null) || remote=""
-  # A configured remote NAME or nothing. "." (local tracking), a path and a URL
-  # all name something that is not a pushed state, and testing for a real remote
-  # covers them together where enumerating spellings kept missing one.
   if [ -z "$remote" ] || ! git config --get "remote.$remote.url" >/dev/null 2>&1; then
     # origin, or nothing. An earlier revision guessed `git remote | head -1`,
     # which certifies against whichever remote sorts first while a default push
@@ -115,13 +100,24 @@ base_ref() {
 }
 
 refresh_upstream() {
-  local ref remote branch rest
+  local ref remote source upstream
   ref=$(base_ref)
   [ -n "$ref" ] || return 0
-  rest=${ref#refs/remotes/}
-  remote=${rest%%/*}
-  branch=${rest#*/}
-  git fetch --quiet --no-tags "$remote" || return 1
+  # Ask for the remote and the source branch; do NOT reconstruct them by
+  # splitting the ref path. `refs/remotes/gh/fork/main` says nothing about
+  # whether the remote is `gh` or `gh/fork`, and a non-identity
+  # remote.<name>.fetch means the tracking ref's tail is not the branch name at
+  # all — reconstructing it built a refspec that overwrote one tracking ref with
+  # another branch's tip and reported success.
+  remote=$(tracking_remote)
+  [ -n "$remote" ] || return 0
+  git fetch --quiet --no-tags "$remote" 2>/dev/null || return 1
+  upstream=$(git_nr rev-parse --symbolic-full-name --verify --quiet '@{upstream}' 2>/dev/null) || upstream=""
+  if [ -n "$upstream" ] && [ "$ref" = "$upstream" ]; then
+    source=$(git config --get "branch.$(git symbolic-ref --short -q HEAD).merge" 2>/dev/null) || source=""
+  fi
+  # main only where main is the fallback THIS script chose.
+  [ -n "${source:-}" ] || source=refs/heads/main
   # A plain fetch honours remote.<name>.fetch, and a legitimately narrowed
   # refspec can exclude the branch we care about — so the fetch above can
   # SUCCEED without touching the ref the base is read from, leaving a stale base
@@ -129,7 +125,7 @@ refresh_upstream() {
   # refreshed, and it is THIS ref: an earlier revision always refreshed `main`,
   # which both wrote into the wrong remote's namespace and made a stale, unused
   # `main` refuse a branch that tracks something else entirely.
-  if ! git fetch --quiet --no-tags "$remote" "+refs/heads/$branch:$ref" 2>/dev/null; then
+  if ! git fetch --quiet --no-tags "$remote" "+${source}:${ref}" 2>/dev/null; then
     # Tolerable ONLY when there is no local ref left to be misled by — the
     # branch is simply gone from the remote. With a stale copy still present
     # this failure is the fail-open being fixed: swallowed, and the stale base
