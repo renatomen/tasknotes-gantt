@@ -434,9 +434,16 @@ describe('cross-model peer review wrapper', () => {
       writeFileSync(join(repo, 'digest-me.txt'), body);
       const expected = createHash('sha256').update(body).digest('hex');
 
-      const run = callWrapperFn(
-        `${hide('sha256sum')}shasum() { sha256sum; }\nsha256_of < digest-me.txt`,
-      );
+      // The shim asserts its ARGUMENTS and needs no external hasher. Delegating
+      // to sha256sum made this fail on stock macOS — the very platform it claims
+      // to cover, where that binary is absent — and let the algorithm flag go
+      // unpinned, so changing `-a 256` to `-a 1` would have stayed green while
+      // producing a 40-character digest the recorder rejects.
+      const shim =
+        `shasum() { [ "$1" = -a ] && [ "$2" = 256 ] || return 3; cat >/dev/null; ` +
+        `printf '%s  -\\n' '${expected}'; }\n`;
+
+      const run = callWrapperFn(`${hide('sha256sum')}${shim}sha256_of < digest-me.txt`);
 
       expect(run.status).toBe(0);
       expect(run.stdout.trim().split(/\s+/)[0]).toBe(expected);
