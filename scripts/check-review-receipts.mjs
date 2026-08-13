@@ -29,7 +29,23 @@ import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
 
+/**
+ * The peer layer is earned by a wrapper that runs a real review and only then
+ * records; this env var is how the wrapper says so, naming the sha it reviewed.
+ *
+ * Without it, `record cross-model-peer` was a bare command anyone could type —
+ * and the refusal message printed that very command as the fix. Five PRs were
+ * receipted that way, each with a residual note admitting no peer had run. A
+ * layer whose receipt can be stamped by hand is decoration, so stamping it by
+ * hand now requires deliberately forging the attestation instead of following
+ * the tool's own advice.
+ */
+const PEER_LAYER = 'cross-model-peer';
+const PEER_ATTESTATION_ENV = 'OG_PEER_REVIEW_ATTESTED_SHA';
+const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
+
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
 function isDeletion(sha) {
   return /^0+$/.test(sha);
@@ -104,16 +120,66 @@ export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) 
   return { ok: Object.keys(missingBySha).length === 0, missingBySha };
 }
 
-function record(layer) {
+/**
+ * `sha` binds the receipt to the commit that was actually reviewed. A long
+ * review can outlive its own subject: re-reading HEAD here would stamp
+ * whatever commit exists when recording happens, which is how a clean verdict
+ * lands on unreviewed work. Callers that reviewed HEAD may omit it.
+ */
+function record(layer, sha = headSha(), findings = '') {
   if (!REQUIRED_LAYERS.includes(layer)) {
     console.error(`unknown review layer "${layer}" — expected one of: ${REQUIRED_LAYERS.join(', ')}`);
     process.exit(1);
   }
-  const sha = headSha();
+  if (!SHA_PATTERN.test(sha)) {
+    console.error(`invalid commit sha "${sha}" — expected a full object name`);
+    process.exit(1);
+  }
+  if (findings && !DIGEST_PATTERN.test(findings)) {
+    console.error(`invalid review digest "${findings}" — expected a sha256 of the review output`);
+    process.exit(1);
+  }
+  if (layer === PEER_LAYER && process.env[PEER_ATTESTATION_ENV] !== sha) {
+    console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
+    console.error(`  ${PEER_WRAPPER}`);
+    process.exit(1);
+  }
   const store = readReceipts();
-  store.receipts[sha] = { ...store.receipts[sha], [layer]: new Date().toISOString() };
+  const entry = findings ? { at: new Date().toISOString(), findings } : new Date().toISOString();
+  store.receipts[sha] = { ...store.receipts[sha], [layer]: entry };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
-  console.log(`recorded clean ${layer} receipt for ${sha.slice(0, 7)}`);
+  const kind = findings ? `acknowledged (findings ${findings.slice(0, 12)})` : 'clean';
+  console.log(`recorded ${kind} ${layer} receipt for ${sha.slice(0, 7)}`);
+}
+
+/**
+ * Findings a review produced and the maintainer accepted, rather than fixed.
+ *
+ * A reviewer whose job is to find things will find something, so a gate that
+ * stamps only on a clean verdict is one no change can pass — and an unpassable
+ * gate gets bypassed with --no-verify, which is worse than the honour system it
+ * replaced. This is the third state, and it is deliberately narrow: the review
+ * still has to have RUN — that is the wrapper's attestation, and it is what
+ * makes this unforgeable, not the digest.
+ *
+ * The digest is a LABEL, and worth being precise about: it names the review
+ * text that was accepted so two acknowledgements can be told apart and a stale
+ * one is visible. Nothing re-hashes it later, because the review output is a
+ * temp file this gate does not retain — so it identifies, it does not verify.
+ * Claiming otherwise would be the same overclaim as a read-proof that matched
+ * our own prompt.
+ */
+export function acknowledgedFindings(store, shas, requiredLayers = REQUIRED_LAYERS) {
+  const accepted = [];
+  for (const sha of shas) {
+    for (const layer of requiredLayers) {
+      const entry = store.receipts?.[sha]?.[layer];
+      if (entry && typeof entry === 'object' && entry.findings) {
+        accepted.push({ sha, layer, findings: entry.findings });
+      }
+    }
+  }
+  return accepted;
 }
 
 /**
@@ -169,6 +235,17 @@ function reportCleanReceipts(shas) {
   console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
 }
 
+/**
+ * Printed on every push that rides on an acknowledgement, because the cost of
+ * the third state is that a finding can be accepted once and then forgotten
+ * forever. Saying it out loud each time is what keeps it a decision.
+ */
+function reportAcceptedFindings(accepted) {
+  for (const { sha, layer, findings } of accepted) {
+    console.log(`review receipt for ${sha.slice(0, 7)} carries accepted findings from ${layer} (review ${findings.slice(0, 12)})`);
+  }
+}
+
 function refuseMissingReceipts(verdict) {
   const missingLayers = new Set();
   for (const [sha, missing] of Object.entries(verdict.missingBySha)) {
@@ -177,7 +254,9 @@ function refuseMissingReceipts(verdict) {
   }
   console.error('Run both local review layers against each pushed commit, fix every finding, then record:');
   for (const layer of missingLayers) {
-    console.error(`  node scripts/check-review-receipts.mjs record ${layer}`);
+    // Never print a bare `record cross-model-peer`: that is the hand-stamp this
+    // gate exists to prevent, and advertising it is how it kept happening.
+    console.error(layer === PEER_LAYER ? `  ${PEER_WRAPPER}` : `  node scripts/check-review-receipts.mjs record ${layer}`);
   }
   process.exit(1);
 }
@@ -187,18 +266,23 @@ function check() {
   if (failed) refuseUnreadableRefLines();
 
   const shas = shasToCheck(stdinText);
-  const verdict = evaluateReceipts(readReceipts(), shas);
-  if (verdict.ok) {
-    reportCleanReceipts(shas);
-    return;
-  }
-  refuseMissingReceipts(verdict);
+  const store = readReceipts();
+  const verdict = evaluateReceipts(store, shas);
+  if (!verdict.ok) refuseMissingReceipts(verdict);
+  reportAcceptedFindings(acknowledgedFindings(store, shas));
+  reportCleanReceipts(shas);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
 if (isDirectRun) {
-  const [, , command, layer] = process.argv;
-  if (command === 'record') record(layer);
+  const [, , command, layer, sha] = process.argv;
+  const ackIndex = process.argv.indexOf('--acknowledged');
+  // `||`, not `??`: an EMPTY value is the dangerous one. `??` let it through
+  // as '' — falsy, so record() took the clean-receipt branch and a review that
+  // found things was stored as one that found none. The sentinel routes every
+  // unusable value into the digest guard instead.
+  const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] || 'missing');
+  if (command === 'record') record(layer, sha ?? headSha(), findings);
   else if (command === 'check') check();
   else {
     console.error('usage: check-review-receipts.mjs record <layer> | check');
