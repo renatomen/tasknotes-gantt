@@ -23,6 +23,13 @@ const WRAPPER = resolve('scripts/cross-model-peer-review.sh');
 jest.setTimeout(60_000);
 
 const childEnv = { ...process.env };
+// Windows environment variables are case-insensitive; a plain object is not.
+// The runner exposes `Path`, so `childEnv.PATH` was undefined, and the override
+// below handed the child a PATH of only the stub dir — no bash, no git, no node.
+// Locally Git Bash exposes `PATH`, so it passed here and failed on CI: 18 tests
+// (every one that overrides PATH) died, while the 10 that do not override it
+// passed, which is also what disproves the PATHEXT story.
+const PATH_KEY = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
 delete childEnv.GIT_DIR;
 delete childEnv.GIT_WORK_TREE;
 delete childEnv.GIT_INDEX_FILE;
@@ -101,12 +108,12 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
   const args = [WRAPPER, 'origin/main', join(repo, '..', 'peer-out.md')];
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
-  const result = execFileSync(BASH, args, {
+  const result = execFileSync('bash', args, {
     cwd: repo,
     encoding: 'utf8',
     env: {
       ...childEnv,
-      PATH: `${stubDir}${delimiter}${childEnv.PATH ?? ''}`,
+      [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}`,
       PEER_STUB_PROMPT: promptFile,
       PEER_STUB_REPO: repo,
       PEER_STUB_RESPONSE: responseFile,
@@ -145,38 +152,6 @@ const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
 const posix = (p: string): string => p.split('\\').join('/');
 
 /**
- * The bash this suite drives the wrapper with.
- *
- * `execFileSync('bash', ...)` is not portable: on Windows it does not apply
- * PATHEXT, so a `bash.exe` on PATH is not found under the bare name — which is
- * why 18 of these tests died with ENOENT on the windows-latest CI runner while
- * passing locally. Resolved once, by probing, and a failure to find any bash is
- * a loud throw rather than a skip: silently dropping this suite would return the
- * wrapper to the untested state it shipped in.
- */
-const BASH = ((): string => {
-  const candidates = [
-    process.platform === 'win32' ? 'bash.exe' : 'bash',
-    'bash',
-    'C:\\Program Files\\Git\\bin\\bash.exe',
-    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
-    '/usr/bin/bash',
-    '/bin/bash',
-  ];
-  for (const candidate of candidates) {
-    try {
-      execFileSync(candidate, ['-c', 'exit 0'], { stdio: 'ignore' });
-      return candidate;
-    } catch {
-      /* try the next candidate */
-    }
-  }
-  throw new Error(
-    'no usable bash found — this suite drives a shell script and cannot be skipped silently',
-  );
-})();
-
-/**
  * Runs one of the wrapper's own shell functions against the current repo.
  *
  * Three consecutive review rounds each found a real defect in `refresh_upstream`
@@ -209,9 +184,9 @@ function callWrapperFn(
   // empty stdout — indistinguishable from the guards' own status-2 refusal and
   // their empty-string answers, so four tests here would report safety they
   // never checked. A parse failure has to be a loud error, not a result.
-  execFileSync(BASH, ['-n', '-c', script], { encoding: 'utf8' });
+  execFileSync('bash', ['-n', '-c', script], { encoding: 'utf8' });
   try {
-    const stdout = execFileSync(BASH, ['-c', script], {
+    const stdout = execFileSync('bash', ['-c', script], {
       cwd,
       encoding: 'utf8',
       env: { ...childEnv, ...envOverride },
@@ -267,6 +242,25 @@ afterAll(() => {
 });
 
 describe('cross-model peer review wrapper', () => {
+  it('hands the wrapper an environment it can actually work in', () => {
+    // The hole that shipped an empty PATH as green. Windows env keys are
+    // case-insensitive and a spread object is not, so overriding `PATH` while
+    // the platform exposes `Path` left the child with only the stub dir — no
+    // bash, no git, no node. Locally the key was `PATH` so it passed; on the
+    // runner it was `Path` and 18 tests died. Nothing asserted the child could
+    // run anything, which is why a broken environment looked like a pass.
+    const probe = join(repo, 'env-probe.sh');
+    writeFileSync(probe, 'command -v git >/dev/null || exit 21\ncommand -v node >/dev/null || exit 22\ncommand -v codex >/dev/null || exit 23\n');
+
+    const run = execFileSync('bash', [posix(probe)], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...childEnv, [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}` },
+    });
+
+    expect(String(run)).toBe('');
+  });
+
   it('records a receipt when the reviewer echoes the sentinel and returns clean', () => {
     const run = runWrapper(CLEAN, { record: true });
 
