@@ -101,7 +101,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
   const args = [WRAPPER, 'origin/main', join(repo, '..', 'peer-out.md')];
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
-  const result = execFileSync('bash', args, {
+  const result = execFileSync(BASH, args, {
     cwd: repo,
     encoding: 'utf8',
     env: {
@@ -145,6 +145,38 @@ const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
 const posix = (p: string): string => p.split('\\').join('/');
 
 /**
+ * The bash this suite drives the wrapper with.
+ *
+ * `execFileSync('bash', ...)` is not portable: on Windows it does not apply
+ * PATHEXT, so a `bash.exe` on PATH is not found under the bare name — which is
+ * why 18 of these tests died with ENOENT on the windows-latest CI runner while
+ * passing locally. Resolved once, by probing, and a failure to find any bash is
+ * a loud throw rather than a skip: silently dropping this suite would return the
+ * wrapper to the untested state it shipped in.
+ */
+const BASH = ((): string => {
+  const candidates = [
+    process.platform === 'win32' ? 'bash.exe' : 'bash',
+    'bash',
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+    '/usr/bin/bash',
+    '/bin/bash',
+  ];
+  for (const candidate of candidates) {
+    try {
+      execFileSync(candidate, ['-c', 'exit 0'], { stdio: 'ignore' });
+      return candidate;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new Error(
+    'no usable bash found — this suite drives a shell script and cannot be skipped silently',
+  );
+})();
+
+/**
  * Runs one of the wrapper's own shell functions against the current repo.
  *
  * Three consecutive review rounds each found a real defect in `refresh_upstream`
@@ -177,9 +209,9 @@ function callWrapperFn(
   // empty stdout — indistinguishable from the guards' own status-2 refusal and
   // their empty-string answers, so four tests here would report safety they
   // never checked. A parse failure has to be a loud error, not a result.
-  execFileSync('bash', ['-n', '-c', script], { encoding: 'utf8' });
+  execFileSync(BASH, ['-n', '-c', script], { encoding: 'utf8' });
   try {
-    const stdout = execFileSync('bash', ['-c', script], {
+    const stdout = execFileSync(BASH, ['-c', script], {
       cwd,
       encoding: 'utf8',
       env: { ...childEnv, ...envOverride },
