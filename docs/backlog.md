@@ -523,6 +523,47 @@ too large to fold into an unrelated refactor, and worth its own pass. Until then
 a test asserting against a stale signature fails silently in exactly the way a
 test is supposed to prevent.
 
+## The peer-review gate is roughly 7x the size its purpose needs
+
+Measured on `main` at 018cbb0: **763 lines (473 shell + 290 node), 21 distinct
+exit codes, 44 refusal points** — to run a reviewer over a diff, confirm it
+actually read it, and record that it happened. Each round costs 9-15 minutes
+against 30-45 for a GitHub round trip, so the loop does deliver the feedback
+speed it was built for. The question is what the other 660 lines buy.
+
+Sorting the refusals by the threat they answer is the argument:
+
+- **Accident** — the review died, the reviewer never saw the diff, no verdict or
+  a hedged one, the tree does not match the commit, HEAD moved. This is the real
+  threat for a solo maintainer and it produced few defects, all cheap.
+- **Distributed-git correctness** — ancestry, divergence, backwards resets,
+  upstream freshness, tracking-remote validation, base-ahead-of-pushed-state.
+  **Nearly every defect in this file came from here**: three separate tracking-ref
+  corruptions, an inverted exit status that locked out any repo whose remote
+  lacks `main`, and two fetch-fallback fail-opens. It defends force-push and
+  multi-remote scenarios that a single maintainer with one origin does not have.
+- **An adversary who owns the machine** — replace refs, submodule pointer moves,
+  `-diff` gitattribute suppression, attestation forging. Unachievable by
+  construction; the file's own header concedes that anyone who can set the env
+  var can edit the script.
+
+The bug density is empirical evidence, not taste: complexity that answers a
+threat outside the system's context is where the defects live. A second signal
+points the same way — repeated hand traces of the middle category were wrong,
+twice contradicted by the comment sitting directly above the line. Code the
+author cannot reason about is too complex whether or not it is correct.
+
+**Proposal: delete rather than extend.** Keep the accident guards, drop the
+other two categories, and move what survives into `check-review-receipts.mjs`
+where it is natively testable — the shell exists only because `codex` is a CLI.
+Estimate: ~100 lines and about six exit codes (review did not run, did not see
+the diff, no verdict, tree does not match the commit, HEAD moved, recording
+failed).
+
+Deliberately NOT scheduled. It is more work on the tool, and a full session was
+already lost to exactly that. The 28 tests in `test/unit/crossModelPeerReview.test.ts`
+make the deletion safe whenever it is picked up.
+
 ## Peer-wrapper guards still without a test
 
 Source: the clearance review of the wrapper's own suite. The suite pins 28

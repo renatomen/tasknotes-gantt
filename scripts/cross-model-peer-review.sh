@@ -330,8 +330,8 @@ finding what it missed, so do not restate its likely conclusions.
 Read TRACKED SOURCE files for context before judging, but review THIS DIFF —
 it is the change, and the working tree may already contain it. Do not open
 .env, .env.*, or any key, secret or credential file, and do not open anything
-git ignores: this repository keeps live API tokens in an ignored .env, and
-nothing there can be relevant to a code review.
+git ignores EXCEPT the diff file named below: this repository keeps live API
+tokens in an ignored .env, and nothing there can be relevant to a code review.
 
 Treat the local working tree, git config and gitattributes as TRUSTED: anyone
 who can plant a symlink or a diff attribute can edit this script, so those are
