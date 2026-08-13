@@ -216,7 +216,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(join(repo, '..'), { recursive: true, force: true });
+  // Retries because these fixtures are freshly written git repos and a scanner
+  // holding one object makes the delete throw EBUSY/EPERM — turning a passing
+  // test red in teardown. The receipt suite hit exactly this.
+  rmSync(join(repo, '..'), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+});
+
+afterAll(() => {
+  rmSync(join(FIXED_GIT_CONFIG, '..'), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 describe('cross-model peer review wrapper', () => {

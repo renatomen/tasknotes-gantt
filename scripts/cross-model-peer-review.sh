@@ -54,6 +54,18 @@ command -v codex >/dev/null 2>&1 || { echo "codex CLI not on PATH — peer route
 # guard blesses a range the diff never described.
 git_nr() { git --no-replace-objects "$@"; }
 
+# macOS ships `shasum`, not `sha256sum`, so the acknowledgement path exited 20
+# there — recording became impossible on a whole platform for want of one
+# binary name. Reads stdin so no filename appears in the output: coreutils
+# escapes a filename containing a backslash by prefixing the line with one, and
+# every path on Windows has them.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256
+  else return 1
+  fi
+}
+
 # -uno on purpose: $OUT, $OUT.stderr and the diff file are untracked files this
 # script creates ITSELF, and counting them made the documented invocation refuse
 # every review it had just paid for. The guard's job is that the TRACKED tree
@@ -454,7 +466,7 @@ if [ "$RECORD" = "--record" ]; then
     # Not a pipeline: its status would be cut's, so a missing sha256sum (macOS
     # has none) would pass an EMPTY digest on and the findings would be recorded
     # as clean. Captured, checked, and checked again for emptiness.
-    digest_line=$(sha256sum < "$OUT") || {
+    digest_line=$(sha256_of < "$OUT") || {
       echo "cannot digest the review output — refusing to acknowledge findings it cannot name" >&2
       exit 20
     }
