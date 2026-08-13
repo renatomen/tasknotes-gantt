@@ -426,8 +426,13 @@ describe('cross-model peer review wrapper', () => {
     // Hiding a binary by narrowing PATH also hides bash, and this machine has
     // no shasum to shim to. Shadowing the `command` builtin makes each branch
     // reachable on any host without bending the wrapper for the test's benefit.
+    // Masking `command -v` alone is not enough: a broken fallback that simply
+    // runs the binary anyway still succeeds on a host that has it, so the test
+    // passes on Linux and fails on the macOS it exists for. Each hidden name is
+    // therefore shadowed as a failing function too.
     const hide = (...names: string[]): string =>
-      `command() { case "$2" in ${names.join('|')}) return 1 ;; esac; builtin command "$@"; }\n`;
+      `command() { case "$2" in ${names.join('|')}) return 1 ;; esac; builtin command "$@"; }\n` +
+      names.map((n) => `${n}() { echo "${n}: not found" >&2; return 127; }\n`).join('');
 
     it('falls back to shasum, byte-for-byte, where sha256sum is absent', () => {
       const body = 'the review text\n';
@@ -627,12 +632,20 @@ describe('cross-model peer review wrapper', () => {
 
     // Shape is not unguessability. A constant sentinel satisfies the regex and
     // the absence check, while a reviewer that never opened the file could
-    // reproduce it from a previous run. Two runs at the same HEAD must differ,
-    // which isolates the random component from the short-sha one.
-    runWrapper(CLEAN);
-    const second = readFileSync(`${promptFile}.sentinel`, 'utf8').trim();
-    expect(second).toMatch(/^PEER-[0-9a-f]+-\d+$/);
-    expect(second).not.toBe(sentinel);
+    // reproduce it from a previous run.
+    //
+    // Sampled, not paired: $RANDOM carries 15 bits, so two draws collide about
+    // once in 32,768 runs and a pairwise inequality would fail correct code
+    // that often. Requiring only that four draws are not ALL identical makes a
+    // false failure ~1e-13 while still killing a constant.
+    const samples = new Set([sentinel]);
+    for (let i = 0; i < 3; i += 1) {
+      runWrapper(CLEAN);
+      samples.add(readFileSync(`${promptFile}.sentinel`, 'utf8').trim());
+    }
+
+    expect([...samples].every((s) => /^PEER-[0-9a-f]+-\d+$/.test(s))).toBe(true);
+    expect(samples.size).toBeGreaterThan(1);
   });
 
   it('removes the staged diff file once the review is over', () => {
