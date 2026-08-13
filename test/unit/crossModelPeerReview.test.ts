@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 
 /**
  * The peer wrapper's guards, exercised against a stub reviewer.
@@ -103,6 +103,16 @@ interface StubOpts {
   sideEffect?: string;
 }
 
+/**
+ * The child environment, built once and shared. The regression probe must
+ * exercise THIS function: an earlier version rebuilt the environment itself, so
+ * reverting runWrapper to a literal `PATH` would have left the probe green
+ * while every real spawn broke — the same defect the probe exists to catch.
+ */
+function stubbedEnv(): NodeJS.ProcessEnv {
+  return { ...childEnv, [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}` };
+}
+
 function runWrapper(response: string, opts: StubOpts = {}): Run {
   writeFileSync(responseFile, response);
   const args = [WRAPPER, 'origin/main', join(repo, '..', 'peer-out.md')];
@@ -112,8 +122,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
     cwd: repo,
     encoding: 'utf8',
     env: {
-      ...childEnv,
-      [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}`,
+      ...stubbedEnv(),
       PEER_STUB_PROMPT: promptFile,
       PEER_STUB_REPO: repo,
       PEER_STUB_RESPONSE: responseFile,
@@ -250,15 +259,30 @@ describe('cross-model peer review wrapper', () => {
     // runner it was `Path` and 18 tests died. Nothing asserted the child could
     // run anything, which is why a broken environment looked like a pass.
     const probe = join(repo, 'env-probe.sh');
-    writeFileSync(probe, 'command -v git >/dev/null || exit 21\ncommand -v node >/dev/null || exit 22\ncommand -v codex >/dev/null || exit 23\n');
+    writeFileSync(
+      probe,
+      [
+        'command -v git >/dev/null || exit 21',
+        'command -v node >/dev/null || exit 22',
+        // Resolving SOME codex is not enough — a real one is installed on this
+        // machine and would satisfy a bare lookup even with an empty stub dir.
+        'command -v codex',
+        '',
+      ].join('\n'),
+    );
 
-    const run = execFileSync('bash', [posix(probe)], {
-      cwd: repo,
-      encoding: 'utf8',
-      env: { ...childEnv, [PATH_KEY]: `${stubDir}${delimiter}${childEnv[PATH_KEY] ?? ''}` },
-    });
+    // Through stubbedEnv(), the same builder runWrapper uses. An earlier version
+    // rebuilt the environment here instead, so reverting runWrapper to a literal
+    // `PATH` left this green while every real spawn broke.
+    const resolved = String(
+      execFileSync('bash', [posix(probe)], { cwd: repo, encoding: 'utf8', env: stubbedEnv() }),
+    ).trim();
 
-    expect(String(run)).toBe('');
+    // Compared on the unique tail, not the whole path: bash reports the MSYS
+    // form (/tmp/...) where join() gives the Windows one, and they are the same
+    // file. The temp dir's random segment is what makes this OUR stub.
+    const tail = posix(join(basename(dirname(stubDir)), 'bin', 'codex'));
+    expect(posix(resolved).endsWith(tail)).toBe(true);
   });
 
   it('records a receipt when the reviewer echoes the sentinel and returns clean', () => {
