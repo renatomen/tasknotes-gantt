@@ -53,7 +53,8 @@ notes they already own, TaskNotes installed or not.
 - **Reliability, verifiable** — main is always releasable: CI green including
   e2e against real Obsidian. Measured in CI.
 - **Maintainability, verifiable** — cohesion and churn metrics stay healthy so
-  improvements ship fast. Measured by the governance tests' own metrics.
+  improvements ship fast. Measured manually today at each re-measure (churn
+  share and separable-concern count); a mechanical gate is a parked candidate.
 - **External signal** — issues, discussions, or PRs from people other than the
   maintainer, per month. Measured on GitHub.
 
