@@ -38,7 +38,7 @@ The exception test is capability against the requirement, never built-in versus 
 
 **Test:** a second parallel mechanism for a job one already does; a comment saying "exactly as X does"; `app.plugins.getPlugin('tasknotes')` outside the datasource layer; a bespoke checker duplicating an installed lint rule.
 
-*Source: [orchestrate-existing-tool-over-rebuilding](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md), [tasknotes-owns-task-identification](../solutions/conventions/tasknotes-owns-task-identification.md), [2026-08-10 audit](../reports/2026-08-10-svar-conformance-and-maintainability-audit.md).*
+*Source: [tasknotes-owns-task-identification](../solutions/conventions/tasknotes-owns-task-identification.md), [2026-08-10 audit](../reports/2026-08-10-svar-conformance-and-maintainability-audit.md); the toolchain boundary specifically: [orchestrate-existing-tool-over-rebuilding](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md).*
 
 ## 5. Verify at the fastest reliable level; testability is design feedback
 

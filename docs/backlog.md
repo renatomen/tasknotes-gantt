@@ -731,11 +731,12 @@ Recorded per the stopping rule in
 both threads were resolved on the PR with this destination named. Neither
 breaks the everyday path.
 
-- **Layer-1 acknowledgements store a clean-shaped receipt.** `record
-  ce-code-review` has no acknowledged-digest path, so a maintainer accepting a
-  layer-1 finding records what `acknowledgedFindings()` reads as clean — later
-  pushes will not announce it. The wrapper (layer 2) owns the only real
-  acknowledged path today; in practice layer-1 findings have been fixed, not
+- **Layer-1 acknowledgements are recorded clean-shaped in practice.** The
+  receipts script parses `--acknowledged <digest>` generically for any layer,
+  but no wrapper computes a layer-1 digest and the hook's printed remediation
+  omits the flag — so a maintainer accepting a layer-1 finding has no guided
+  path and records what `acknowledgedFindings()` reads as clean; later pushes
+  will not announce it. In practice layer-1 findings have been fixed, not
   acknowledged. Fix belongs to any future scheduled gate work, not a side
   quest.
 - **The peer wrapper's `[out-file]` accepts unprotected in-repo paths.** Only
@@ -757,8 +758,9 @@ mechanically enforcing — likely after the GanttController/register.ts slices.
 
 The starter-note active-leaf steal (the historical #98 flake) is documented
 only in a JSDoc block in `test/specs/gantt-dependency-types.e2e.ts` and in
-session memory — yet two solution docs already cite a `docs/solutions/` entry
-for it that does not exist (`gate-e2e-on-cold-index-before-measuring-render.md`
-and `column-sort-e2e-first-mount-header-race.md` both point at it). Write the
-entry (category `integration-issues/` or `test-failures/`) so the dead pointers
-resolve.
+session memory — two solution docs
+(`gate-e2e-on-cold-index-before-measuring-render.md` and
+`column-sort-e2e-first-mount-header-race.md`) cite it only as the
+session-memory learning, which is not a durable in-repo target. Write the
+entry (category `integration-issues/` or `test-failures/`) so those citations
+gain one.
