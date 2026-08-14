@@ -525,6 +525,8 @@ test is supposed to prevent.
 
 ## CI e2e flake — a measured instance, on a branch that cannot have caused it
 
+Source: PR #420 CI, run 31750064985 attempt 1 (branch `test/peer-wrapper-suite`).
+
 Observed on PR #420, run 31750064985 **attempt 1** — the unqualified run URL
 resolves to attempt 2, the same-SHA rerun, which passed 39/39 (see below).
 **37 of 39 specs passed; 2 failed**, on a branch whose entire diff is
@@ -557,9 +559,10 @@ same commit N times and record the pass rate per spec. Two specs failing out of
 39, with one failing in setup, is a much narrower target than "e2e fails ~40% of
 the time", and the previous estimate was never broken down per spec.
 
-Attempt 2 — the same-SHA rerun — passed 39/39. By this backlog's own protocol
-(a repeat failure on an unchanged commit is deterministic; a pass is the
-flake), both failures above are flake instances, not deterministic breaks.
+Attempt 2 — the same-SHA rerun — passed 39/39. By the standard rerun test
+(a repeat failure on an unchanged commit is deterministic; a pass marks the
+original failure as flake), both failures above are flake instances, not
+deterministic breaks.
 
 One correction to carry forward: an earlier note attributed this to worker
 contention. `maxInstances: 1` — the suite is sequential, so it is not.
