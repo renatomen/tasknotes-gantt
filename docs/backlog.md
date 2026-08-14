@@ -797,10 +797,10 @@ start/end/status/priority/calendar which watch view+resolved pairs.
 Found by the governing-docs follow-up review: the persisted calendar `color`
 field maps to RFC 7986 `COLOR` per `docs/architecture/calendar-rfc-mapping.md`,
 but RFC 7986 §5.9 requires a CSS3 colour NAME while the schema accepts any
-string, `barTreatment.ts` admits hex and functional `rgb()`/`hsl()` forms, and
-`rfcMapping.ts` copies them all verbatim — normal inputs like `#2a9d8f` or
-`rgb(42, 157, 143)` round-trip as nonconforming COLOR values. Decide: constrain
-input to CSS3 names, or record the accepted non-name forms (hex, `rgb()`,
-`hsl()`) as a documented deviation in the mapping doc — a nearest-name mapping is off the table because it rewrites the stored
+non-empty string and `rfcMapping.ts` copies it verbatim — so every accepted
+value that is not a CSS3 name (hex like `#2a9d8f`, functional forms like
+`rgb()`/`rgba()`/`hsl()`/`hsla()`, anything else) round-trips as a
+nonconforming COLOR value. Decide: constrain input to CSS3 names, or record
+the any-string acceptance as a documented deviation in the mapping doc — a nearest-name mapping is off the table because it rewrites the stored
 value irreversibly, which principle 6 forbids for stores. Until decided, the
 mapping doc's lossless claim carries this known exception.
