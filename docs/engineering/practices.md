@@ -153,6 +153,17 @@ Every implementation plan declares a landing strategy. The default is one PR per
 
 **Test:** a branch older than a workday, or a PR whose diff spans multiple plan units, without a written cohesion reason, is a violation.
 
+### Session cadence (E2/E3 binding)
+
+An agent working session is the working-context counterpart of the PR unit, and it degrades the same way a PR does when it grows: a long session carries every dead end and review round of its earlier work into its later judgment, and an agent cannot reliably measure its own degradation from inside — the observable signals (context compaction, acting on stale state, losing track of a ruling) all fire *after* the damage. So the discipline replaces detection with design:
+
+- **One session, one unit, one PR, merged on green — then end.** Ending early with a merged PR is success, not underuse of the session.
+- **Mid-unit abort:** on context compaction or a state-class error (acting on stale state, contradicting a settled ruling), stop at the nearest green checkpoint — last committed, receipt-valid state — persist state, and end. Never push through a degraded context to reach a merge.
+- **Handover is mechanism, not narrative.** Main green and self-describing; the plan on main with progress derived from git; agent memory for rulings and traps only; `docs/backlog.md` for parked work. Genuine narrative residue — a trade-off discussion or dead end no commit or plan can hold — goes to a dated note under `docs/reports/`.
+- **Plans are superseded, never mutated into status.** A plan that must change direction is replaced by a new dated plan whose provenance names the old one and states why; the old plan never records progress or partial completion. Anything larger than a provenance paragraph goes to `docs/reports/`.
+
+**Test:** a session's chat transcript carrying work on a second implementation unit after the first unit's PR merged; a plan edited to record progress or mark units done; a direction change with no superseding plan naming the reason.
+
 ### Charter-owned practice items
 
 Cross-cited by the principles doc, owned here.
