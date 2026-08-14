@@ -12,9 +12,9 @@ No Obsidian or TaskNotes property name is ever hardcoded. Field roles (start, du
 
 ## 2. Derivation is pure and visibility-free; display lives in presentation
 
-The derived instance set is a pure function of the matched data plus data-shaping config (field mappings, expansion mode, default duration). It tags every row with what the view needs and drops nothing. Every row-visibility option is a presentation-layer predicate over that stable array — so a persisted-config re-fire is a no-op sync plus a cheap filter re-apply, and structurally cannot churn.
+The derived instance set is a pure function of the matched data plus data-shaping config (field mappings, expansion mode, default duration, and which calendar item families are ingested — enabling a family changes what is derived, by design). It tags every row with what the view needs and drops nothing it derived. Every task-row visibility option is a presentation-layer predicate over that stable array — so a persisted-config re-fire is a no-op sync plus a cheap filter re-apply, and structurally cannot churn.
 
-**Test:** a view-option toggle that changes the derived array (visible as diff churn or a re-render loop); a visibility field appearing in a derivation config type.
+**Test:** a task-row visibility toggle that changes the derived array (visible as diff churn or a re-render loop); a visibility field appearing in a derivation config type. Source-selection toggles (calendar item families) are data-shaping, not visibility — they legitimately change the derived set.
 
 *Source: [view-display-options-in-presentation-not-derivation](../solutions/architecture-patterns/view-display-options-in-presentation-not-derivation.md).*
 
