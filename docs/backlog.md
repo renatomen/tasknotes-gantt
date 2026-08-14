@@ -804,3 +804,13 @@ nonconforming COLOR value. Decide: constrain input to CSS3 names, or record
 the any-string acceptance as a documented deviation in the mapping doc — a nearest-name mapping is off the table because it rewrites the stored
 value irreversibly, which principle 6 forbids for stores. Until decided, the
 mapping doc's lossless claim carries this known exception.
+
+## Refine the unset-role resolution wording by role class
+
+Acknowledged peer finding (receipt d6a20e99a4bb, PR #423): the glossary and
+principle 1 state unset-role resolution as date/status-priority/standalone
+cases, but some roles resolve without property mappings at all — name falls
+back to `file.basename` (already tolerated in the same paragraph), progress
+can derive from checklist computation, parents from project edges. If the
+sentence family keeps attracting precision findings, restate it as a
+per-role-class table instead of prose qualifiers.
