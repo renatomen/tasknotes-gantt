@@ -87,9 +87,9 @@ as inside it — for decades.
 
 ### Software craftsmanship
 
-Hold high standards of engineering: verifiable reliability and
-maintainability, mechanically gated, so delivery stays fast and the project
-stays joyful.
+Hold high standards of engineering: verifiable reliability (mechanically
+gated in CI) and verifiable maintainability (measured at each re-measure), so
+delivery stays fast and the project stays joyful.
 
 _Why it serves the vision:_ a plugin people trust their planning to must be
 solid — and moving deliberately is how it stays that way.
