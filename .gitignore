@@ -78,3 +78,17 @@ docs/media/_shots/
 
 # Design mocks — local visual explorations, not shipped assets
 docs/mocks/
+
+# The peer reviewer's staged diff. Written and deleted within a single review,
+# but a `git add -A` mid-run commits it — and from then on the worktree never
+# matches the commit, so every later review refuses. Ignored so a routine git
+# command cannot wedge the gate.
+/.peer-review-diff.tmp
+
+# Review output, when the wrapper is given an in-repo out-file. Same wedge as
+# above: committed once, the worktree never matches the commit again. The
+# default out-file is a mktemp outside the repo and needs no entry.
+/peer-out.md
+/peer-out.md.stderr
+/peer-review-*.md
+/peer-review-*.md.stderr

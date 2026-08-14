@@ -523,6 +523,122 @@ too large to fold into an unrelated refactor, and worth its own pass. Until then
 a test asserting against a stale signature fails silently in exactly the way a
 test is supposed to prevent.
 
+## CI e2e flake — a measured instance, on a branch that cannot have caused it
+
+Source: PR #420 CI, run 31750064985 attempt 1 (branch `test/peer-wrapper-suite`).
+
+Observed on PR #420, run 31750064985 **attempt 1** — the unqualified run URL
+resolves to attempt 2, the same-SHA rerun, which passed 39/39 (see below).
+**37 of 39 specs passed; 2 failed**, on a branch whose entire diff is
+`.gitignore`, docs, one shell script and one unit test file — **no `src/`
+change at all**. Whatever the cause is, it is not the
+plugin code under review, which rules out the most common assumption when a red
+e2e appears on a PR.
+
+The two failures, and what distinguishes them:
+
+- `gantt-calendar-items-sources.e2e.ts` — failed in a **`before each` hook**.
+  That is a SETUP failure, not an assertion failure: the spec never got as far
+  as checking anything. It is also precisely the spec the unpushed
+  `test/ci-readiness-diagnostics` branch instruments, which is a point in that
+  branch's favour. Attempt 1's log names the failing condition:
+  `Gantt bars missing: ["Standup 2026-03-23.md"]` from `ensureGanttReady` —
+  the known readiness/indexing symptom, not an anonymous hook error.
+- `gantt-dependency-types.e2e.ts` — "shows the dependency tooltip when a real
+  pointer hovers a blocked bar". A previously root-caused flake in this spec was
+  a starter-note stealing the active leaf; whether this is the same cause is
+  unverified.
+
+Also visible throughout the log and worth ruling in or out:
+`WebDriverError: javascript error: No tab group found` appears repeatedly as a
+WARN on specs that then PASS, so it is noise rather than the cause — but it is
+noise that would mask a real signal in exactly this area.
+
+The immediately useful next step is arithmetic rather than analysis: re-run the
+same commit N times and record the pass rate per spec. Two specs failing out of
+39, with one failing in setup, is a much narrower target than "e2e fails ~40% of
+the time", and the previous estimate was never broken down per spec.
+
+Attempt 2 — the same-SHA rerun — passed 39/39. By the standard rerun test
+(a repeat failure on an unchanged commit is deterministic; a pass marks the
+original failure as flake), both failures above are flake instances, not
+deterministic breaks.
+
+One correction to carry forward: an earlier note attributed this to worker
+contention. `maxInstances: 1` — the suite is sequential, so it is not.
+
+## The peer-review gate is roughly 7x the size its purpose needs
+
+Measured on `main` at 018cbb0: **763 lines (473 shell + 290 node), 21 distinct
+exit codes, 44 refusal points** — to run a reviewer over a diff, confirm it
+actually read it, and record that it happened. Each round costs 9-15 minutes
+against 30-45 for a GitHub round trip, so the loop does deliver the feedback
+speed it was built for. The question is what the other 660 lines buy.
+
+Sorting the refusals by the threat they answer is the argument:
+
+- **Accident** — the review died, the reviewer never saw the diff, no verdict or
+  a hedged one, the tree does not match the commit, HEAD moved. This is the real
+  threat for a solo maintainer and it produced few defects, all cheap.
+- **Distributed-git correctness** — ancestry, divergence, backwards resets,
+  upstream freshness, tracking-remote validation, base-ahead-of-pushed-state.
+  **Nearly every defect in this file came from here**: three separate tracking-ref
+  corruptions, an inverted exit status that locked out any repo whose remote
+  lacks `main`, and two fetch-fallback fail-opens. It defends force-push and
+  multi-remote scenarios that a single maintainer with one origin does not have.
+- **An adversary who owns the machine** — replace refs, submodule pointer moves,
+  `-diff` gitattribute suppression, attestation forging. Unachievable by
+  construction; the file's own header concedes that anyone who can set the env
+  var can edit the script.
+
+The bug density is empirical evidence, not taste: complexity that answers a
+threat outside the system's context is where the defects live. A second signal
+points the same way — repeated hand traces of the middle category were wrong,
+twice contradicted by the comment sitting directly above the line. Code the
+author cannot reason about is too complex whether or not it is correct.
+
+**Proposal: delete rather than extend.** Keep the accident guards, drop the
+other two categories, and move what survives into `check-review-receipts.mjs`
+where it is natively testable — the shell exists only because `codex` is a CLI.
+Estimate: ~100 lines and about six exit codes (review did not run, did not see
+the diff, no verdict, tree does not match the commit, HEAD moved, recording
+failed).
+
+Deliberately NOT scheduled. It is more work on the tool, and a full session was
+already lost to exactly that. The 28 tests in `test/unit/crossModelPeerReview.test.ts`
+make the deletion safe whenever it is picked up.
+
+## Peer-wrapper guards still without a test
+
+Source: the clearance review of the wrapper's own suite. The suite pins 28
+cases and no vacuous assertion survives mutation, but the wrapper has ~20 exit
+codes and these are asserted nowhere. Listed so the gap is a decision rather
+than an assumption:
+
+- **exit 16, both directions** — the upstream moving forward past the reviewed
+  commit, and the backwards reset a force-push would ride on. The comment
+  calling the backwards case an escape the forward check misses is the strongest
+  argument for testing it.
+- **exit 11** — an explicit base ahead of the last pushed state, the guard
+  against narrowing the reviewed range by hand.
+- **exit 15** — a worktree already dirty when the review starts (only the
+  mid-review sibling, exit 17, is covered).
+- **exit 10 on the raw diff**, the capture-not-pipe defence, and the
+  binary-hunks half of exit 14.
+- **exit 20 as the wrapper reaches it** — `sha256_of` is tested in isolation but
+  `digest=${digest_line%% *}` and the empty-digest refusal are not.
+- **exits 8, 3, 21, 7, 12, 2**, and `--acknowledge` without `--record`.
+
+Two prompt instructions are also unpinned — "begin your response with that
+line" and the VERDICT-line instruction. Deleting either leaves the suite green
+because the stub recovers both from elsewhere; the cost is a wasted model call
+rather than a false pass, since both fail closed at runtime.
+
+Related: the suite takes ~137s for one file and `sonar.yml` runs it on the
+PR-gating path, so it is a candidate for the slow-suite budget. And the stub is
+written under `os.tmpdir()` and executed, which a `noexec` /tmp would break
+opaquely — not a GitHub runner today.
+
 ## Review receipts are not bound to the range they reviewed
 
 Source: PR #419's own review, by both layers and the external reviewer, three
@@ -591,6 +707,17 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   remote mid-run, the ref that was refreshed and the ref the base is read from
   can differ — the invariant the resolution was unified to establish. Resolve it
   once at top level and thread it through both.
+- **The `sha256_of` fallback is tested in isolation, not through the recording
+  path.** Codex proved it: reverting the wrapper's call site to a bare
+  `sha256sum` leaves all tests green, because on Linux and Windows the
+  end-to-end acknowledgement uses `sha256sum` while the direct tests exercise an
+  orphaned helper — so a macOS acknowledgement could exit 20 again unnoticed.
+  The honest test runs an acknowledged-findings flow with `sha256sum` absent,
+  which needs a shim directory of real executables (git, node, shasum) plus
+  spawning bash by absolute path, since `/usr/bin` holds both bash and
+  sha256sum. Recorded rather than fixed because the fallback only matters on a
+  platform nobody here develops on — the unbounded class by this repo's own
+  rule.
 - **Recording now needs the network** on branches that were previously
   offline-safe. The refusal is right, but it is a NEW exit 19 on that path, not
   a pre-existing one, and an offline maintainer who cannot push is the road to
