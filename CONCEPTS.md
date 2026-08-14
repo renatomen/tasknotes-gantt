@@ -131,6 +131,17 @@ The inverse of a ghost run: a contiguous run of days a recurring series actually
 ### Series spine
 The honest degraded form of a recurring row at zoom levels where per-instance pieces cannot tile faithfully: a dashed line spanning first-to-last instance, asserting only the series' extent — never a solid bar, which would claim continuous occupancy.
 
+## Governing docs
+
+### Engineering charter
+The durable process document at `docs/engineering/practices.md`: philosophy, practices E1–E12 (each as principle → mechanism → governance test), named divergences, and the binding that ties them to this repo's real gates. The charter owns practice-shaped rules; the principles doc owns structural ones — one owner per rule, cross-cited, never restated.
+
+### Governance test
+The concrete recognition rule attached to a principle or practice: how to spot a violation by direct inspection — of code, config, or artifacts — without re-deriving design intent or history. A principle without one is an aspiration; the test is what makes it reviewable, so every review layer checks against them.
+
+### Named divergence
+A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, dated, and falsifiable.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.

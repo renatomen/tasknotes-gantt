@@ -727,3 +727,67 @@ All from PR #419, accepted rather than fixed so the review loop could terminate:
   a pre-existing one, and an offline maintainer who cannot push is the road to
   `--no-verify`. Either make the trade explicit or record a stale-base marker in
   the receipt instead of leaving an invisible bypass as the only way through.
+
+## Accepted gate findings from PR #420's final-gate review (2026-08-14)
+
+Recorded per the stopping rule in
+`docs/solutions/workflow-issues/bound-work-on-the-review-tool-itself.md`;
+both threads were resolved on the PR with this destination named. Neither
+breaks the everyday path.
+
+- **Layer-1 acknowledgements are recorded clean-shaped in practice.** The
+  receipts script parses `--acknowledged <digest>` generically for any layer,
+  but no wrapper computes a layer-1 digest and the hook's printed remediation
+  omits the flag — so a maintainer accepting a layer-1 finding has no guided
+  path and records what `acknowledgedFindings()` reads as clean; later pushes
+  will not announce it. In practice layer-1 findings have been fixed, not
+  acknowledged. Fix belongs to any future scheduled gate work, not a side
+  quest.
+- **The peer wrapper's `[out-file]` accepts unprotected in-repo paths.** Only
+  three root-level gitignore patterns guard review outputs; a legal path like
+  `notes/codex.md` could be staged by a bulk add and then wedge later reviews
+  at the final worktree check. The documented default (mktemp, outside the
+  repo) and the stage-explicit-paths rule guard the everyday path.
+
+## Candidate ratchet — import-boundary lint gate (parked; adopt on trigger)
+
+A dependency-cruiser-class check enforcing module boundaries (e.g. views never
+import the data layer directly) — "mechanism, not memory" for the layering the
+governing docs now name. Deliberately NOT built with the docs port (no new
+enforcement mechanisms shipped with it). **Trigger:** adopt when the
+maintainability campaign's extractions define stable module boundaries worth
+mechanically enforcing — likely after the GanttController/register.ts slices.
+
+## Per-calendar diagnostics are recorded but never surfaced
+
+Found by the governing-docs port's peer review tracing the degradation
+posture: `schema.ts` records diagnostics for dropped entries and unknown
+timezones, but `resolveCalendars.ts` promotes only calendar-SET diagnostics to
+resolved flags — a linked calendar with `timezone: Mars/Phobos` stays valid
+with the timezone silently removed and the user never sees a flag. Product
+defect candidate: propagate `calendar.definition.diagnostics` into resolved
+flags. The architecture record documents this as a tracked gap against its
+degradation posture.
+
+## BasesDataAdapter still display-formats — adapter/view boundary lag
+
+`BasesDataAdapter.ts` formats dates/booleans/arrays in
+`convertGroupKeyToString` and returns display-formatted values from
+`extractPropertyValue` — violating the adapters-extract/views-format boundary
+the architecture record names as the norm. Queue as an extraction candidate in
+the maintainability campaign (the file is already on the >500-line list);
+fix by extract-and-test, moving display transforms to the view layer.
+
+## Label-only edits are invisible to the entry signature (stale task names)
+
+Found by the governing-docs port's exhaustive claim sweep: `BasesSource.ts`
+builds the task label from `mappings.textProperty` (also used by
+`sortKeyMapping.ts`), but `entrySignature.ts`'s `watchedMappingValues` never
+includes it. With the title role mapped to a `note.*` frontmatter property,
+editing only that property leaves the signature unchanged, the #161 gate
+reuses cached tasks, and the bar/grid label stays stale until some other
+watched field or the entry set changes. (`mappingSignatureTag` catches
+re-mapping the role; the value edit is what is invisible.) Fix shape: add
+`viewMappings.textProperty` to `watchedMappingValues`. Sibling nit for the
+same entry: `progressProperty` is watched only on the view side, unlike
+start/end/status/priority/calendar which watch view+resolved pairs.
