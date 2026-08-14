@@ -1,6 +1,6 @@
 # Calendar schema → RFC 5545 / RFC 7953 mapping
 
-The calendar-note frontmatter uses self-explanatory keys with canonical RFC values. This table is the lossless-boundary proof required by [standards-alignment.md](standards-alignment.md): every schema field maps to an RFC 5545 (iCalendar) or RFC 7953 (VAVAILABILITY) construct, and `src/controller/calendar/rfcMapping.ts` is the executable projection, round-trip-tested in `test/unit/calendarRfcRoundTrip.test.ts`.
+The calendar-note frontmatter uses self-explanatory keys with canonical RFC values. This table is the lossless-boundary proof required by [standards-alignment.md](standards-alignment.md): every schema field maps to an RFC 5545 (iCalendar) or RFC 7953 (VAVAILABILITY) construct — or, where this table records it, a sibling iCalendar-family construct (RFC 7986 `COLOR`), and `src/controller/calendar/rfcMapping.ts` is the executable projection, round-trip-tested in `test/unit/calendarRfcRoundTrip.test.ts`.
 
 ## Field table
 

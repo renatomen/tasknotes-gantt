@@ -25,8 +25,8 @@ work has one authoritative shape to map onto.
 These three are the **named authority**, extended only by sibling
 iCalendar-family standards that [calendar-rfc-mapping.md](calendar-rfc-mapping.md)
 explicitly records (today: RFC 7986 `COLOR` for the persisted calendar colour —
-a mapping carrying a tracked deviation: accepted hex values are not valid
-`COLOR` names, see the backlog entry).
+a mapping carrying a tracked deviation: accepted hex and functional
+`rgb()`/`hsl()` values are not valid `COLOR` names, see the backlog entry).
 No non-iCalendar standard and no proprietary model — including a commercial
 component library's own calendar shape — may become a boundary contract.
 
