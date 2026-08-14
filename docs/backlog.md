@@ -753,14 +753,3 @@ governing docs now name. Deliberately NOT built with the docs port (no new
 enforcement mechanisms shipped with it). **Trigger:** adopt when the
 maintainability campaign's extractions define stable module boundaries worth
 mechanically enforcing — likely after the GanttController/register.ts slices.
-
-## Promote the dependency-flake root cause into docs/solutions
-
-The starter-note active-leaf steal (the historical #98 flake) is documented
-only in a JSDoc block in `test/specs/gantt-dependency-types.e2e.ts` and in
-session memory — two solution docs
-(`gate-e2e-on-cold-index-before-measuring-render.md` and
-`column-sort-e2e-first-mount-header-race.md`) cite it only as the
-session-memory learning, which is not a durable in-repo target. Write the
-entry (category `integration-issues/` or `test-failures/`) so those citations
-gain one.

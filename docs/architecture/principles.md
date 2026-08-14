@@ -4,7 +4,7 @@ Durable design philosophy for TaskNotes Gantt. These principles outlive any plan
 
 ## 1. Property-agnostic field resolution, at exactly one seam
 
-No Obsidian or TaskNotes property name is ever hardcoded. Field roles (start, due, status, priority, progress, estimate, parent, name) resolve from the user-configured field mappings; defaults are computed at one seam — unset resolves from the backing system's own configuration, else stays unset, never an assumed property name — and every consumer reads the resolved value. The raw view config keeps one narrow job: it answers "what did the user choose?", never "which property IS this field?". The only tolerated literals are the Obsidian built-ins `file.name` / `file.basename` as the name-column fallback.
+No Obsidian or TaskNotes property name is ever hardcoded. Field roles (start, due, status, priority, progress, estimate, parent, name) resolve from the user-configured field mappings; defaults are computed at one seam — an unset field resolves from the backing system's own configuration, bottoming out at that system's documented defaults when its settings are absent, and those default names live only in the seam — and every consumer reads the resolved value. The raw view config keeps one narrow job: it answers "what did the user choose?", never "which property IS this field?". The only tolerated literals are the Obsidian built-ins `file.name` / `file.basename` as the name-column fallback.
 
 **Test:** a string literal like `'note.due'` in field-handling code; two call sites answering "which property is X?" from different sources.
 

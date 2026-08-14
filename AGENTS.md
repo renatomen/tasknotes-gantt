@@ -50,7 +50,7 @@ This project uses the **compound-engineering** flow: brainstorm → plan → wor
 
 ## Review guidelines
 
-This section is the shared rubric: every review layer — spec-time ce-doc-review, the local two-layer pre-push gate (ce-code-review + the independent cross-model peer), the hosted final PR gate, SonarCloud — and the human review by it. One text; tightening it tightens every reviewer.
+This section is the shared rubric: every agent review layer — spec-time ce-doc-review, the local two-layer pre-push gate (ce-code-review + the independent cross-model peer), the hosted final PR gate — and the human review by it; SonarCloud is the separately-configured mechanical backstop, not a rubric reader. One text; tightening it tightens every reviewer that reads it.
 
 - **Purpose:** find defects that matter — correctness, security, data integrity, principle violations. Style belongs to linters, not reviewers.
 - **Review against:** the governing plan's requirements and test scenarios; the governance tests in [docs/architecture/principles.md](docs/architecture/principles.md); the charter's practice tests (E4/E5 especially). Specifically check: no weakened, skipped, or mocked-out assertions; **a test's name is a claim — could it pass while the guard it names is broken?**; no hardcoded property names (principle 1); derivation stays visibility-free (principle 2); no second mechanism for a job one already does (principle 4); does the PR span multiple plan units without a written cohesion reason (landing cadence)?
