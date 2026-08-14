@@ -451,6 +451,10 @@ These may already be shipped — confirm against current code before opening an 
 
 ## Parked — revisit only on a trigger
 Low-value or condition-gated; kept here so nothing is lost. Not actionable until the trigger fires.
+- **Mechanical maintainability gate** — compute churn share and separable-concern
+  count in CI instead of manual re-measures. Referenced by STRATEGY.md's
+  maintainability metric ("a mechanical gate is a parked candidate"). Trigger:
+  manual re-measures prove error-prone, or the metrics regress unnoticed.
 - **Validate upgraded release Actions on the next real release** — confirm checkout/setup,
   provenance attestation, and release publication complete. The pre-upgrade workflow base was
   `e6a2e742cf58d0243cf8c41607a1993f24f3a84a`; PR validation covers the shared build path but cannot
