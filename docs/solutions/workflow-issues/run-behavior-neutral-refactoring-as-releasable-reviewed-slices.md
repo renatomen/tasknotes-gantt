@@ -128,7 +128,7 @@ Order verification by feedback speed and relevance:
 5. the relevant real integration, real-SVAR, performance, or Obsidian/WebdriverIO journey;
 6. independent exact-tip review;
 7. PR CI and static analysis; and
-8. the GitHub-hosted final review with zero unresolved threads, each closed as fixed, superseded, moot, or reviewer-agreed wrong, followed by merge only when the maintainer has granted written authorization for this run.
+8. the GitHub-hosted final review with zero unresolved threads, each closed as fixed, superseded, moot, or reviewer-agreed wrong, followed by merge on green — CI passing, both local receipts recorded, zero unresolved final-gate threads — under the standing merge-on-green policy (AGENTS.md; originally this step required per-run written maintainer authorization, superseded 2026-08-14).
 
 Do not use a narrow unit test as a substitute for the integration boundary whose wiring changed. Conversely, do not begin with the slowest end-to-end suite when a focused test can reject a broken extraction in seconds. [#365](https://github.com/renatomen/tasknotes-gantt/pull/365) established real-SVAR synchronization behavior before the modules moved. [#371](https://github.com/renatomen/tasknotes-gantt/pull/371) through [#373](https://github.com/renatomen/tasknotes-gantt/pull/373) paired focused Jest coverage with the real-Obsidian inline-edit journey.
 
@@ -164,10 +164,9 @@ An autonomous executor should continue through planning, characterization, extra
 - evidence contradicts the specified behavior;
 - a product or architectural choice has materially different outcomes;
 - a standard mechanism cannot meet the requirement and bespoke tooling is being considered; or
-- required integration evidence cannot be obtained; or
-- the maintainer has not granted written merge authorization for this run.
+- required integration evidence cannot be obtained.
 
-Difficulty, a slow test, an ordinary review finding, CI repair, waiting for the GitHub-hosted final review, or base refresh is not a reason to stop; each is part of the loop. Expanding product scope, changing a governing quality rule, or merging without written authorization for the current run is. Authorization from an earlier campaign never carries forward.
+Difficulty, a slow test, an ordinary review finding, CI repair, waiting for the GitHub-hosted final review, or base refresh is not a reason to stop; each is part of the loop. Expanding product scope, changing a governing quality rule, or merging past a red gate is. *(Amended 2026-08-15: the original text here made merging without per-run written authorization a stopping boundary; the standing merge-on-green policy — AGENTS.md, ruled 2026-08-14 — supersedes it.)*
 
 ## Why This Matters
 
