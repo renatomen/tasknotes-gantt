@@ -24,7 +24,8 @@ work has one authoritative shape to map onto.
 
 These three are the **named authority**, extended only by sibling
 iCalendar-family standards that [calendar-rfc-mapping.md](calendar-rfc-mapping.md)
-explicitly records (today: RFC 7986 `COLOR` for the persisted calendar colour —
+explicitly records (today: RFC 7986 calendar-level `DESCRIPTION`, and RFC 7986
+`COLOR` for the persisted calendar colour —
 a mapping carrying a tracked deviation: any accepted colour value that is not
 a CSS3 colour name violates §5.9, see the backlog entry).
 No non-iCalendar standard and no proprietary model — including a commercial
