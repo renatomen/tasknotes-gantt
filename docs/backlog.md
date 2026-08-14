@@ -525,9 +525,11 @@ test is supposed to prevent.
 
 ## CI e2e flake — a measured instance, on a branch that cannot have caused it
 
-Observed on PR #420, run 31750064985. **37 of 39 specs passed; 2 failed**, on a
-branch whose entire diff is `.gitignore`, docs, one shell script and one unit
-test file — **no `src/` change at all**. Whatever the cause is, it is not the
+Observed on PR #420, run 31750064985 **attempt 1** — the unqualified run URL
+resolves to attempt 2, the same-SHA rerun, which passed 39/39 (see below).
+**37 of 39 specs passed; 2 failed**, on a branch whose entire diff is
+`.gitignore`, docs, one shell script and one unit test file — **no `src/`
+change at all**. Whatever the cause is, it is not the
 plugin code under review, which rules out the most common assumption when a red
 e2e appears on a PR.
 
@@ -537,7 +539,9 @@ The two failures, and what distinguishes them:
   That is a SETUP failure, not an assertion failure: the spec never got as far
   as checking anything. It is also precisely the spec the unpushed
   `test/ci-readiness-diagnostics` branch instruments, which is a point in that
-  branch's favour — the current failure says only "hook failed".
+  branch's favour. Attempt 1's log names the failing condition:
+  `Gantt bars missing: ["Standup 2026-03-23.md"]` from `ensureGanttReady` —
+  the known readiness/indexing symptom, not an anonymous hook error.
 - `gantt-dependency-types.e2e.ts` — "shows the dependency tooltip when a real
   pointer hovers a blocked bar". A previously root-caused flake in this spec was
   a starter-note stealing the active leaf; whether this is the same cause is
@@ -552,6 +556,10 @@ The immediately useful next step is arithmetic rather than analysis: re-run the
 same commit N times and record the pass rate per spec. Two specs failing out of
 39, with one failing in setup, is a much narrower target than "e2e fails ~40% of
 the time", and the previous estimate was never broken down per spec.
+
+Attempt 2 — the same-SHA rerun — passed 39/39. By this backlog's own protocol
+(a repeat failure on an unchanged commit is deterministic; a pass is the
+flake), both failures above are flake instances, not deterministic breaks.
 
 One correction to carry forward: an earlier note attributed this to worker
 contention. `maxInstances: 1` — the suite is sequential, so it is not.
