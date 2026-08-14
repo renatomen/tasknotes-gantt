@@ -1,6 +1,6 @@
 # Architecture Principles
 
-Durable design philosophy for TaskNotes Gantt. These principles outlive any plan or implementation unit; changes here are maintainer-level decisions. Each principle carries its governance test — how to recognize a violation without reading code — and cites its depth record in the solutions layer, which stays authoritative for the full story.
+Durable design philosophy for TaskNotes Gantt. These principles outlive any plan or implementation unit; changes here are maintainer-level decisions. Each principle carries its governance test — a concrete recognition rule, checkable by direct inspection without re-deriving design intent — and cites its depth record in the solutions layer, which stays authoritative for the full story.
 
 ## 1. Property-agnostic field resolution, at exactly one seam
 

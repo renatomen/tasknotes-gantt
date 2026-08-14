@@ -4,7 +4,7 @@ Durable engineering charter — the process counterpart to the architecture prin
 
 **Lineage.** Dave Farley's *Modern Software Engineering* corpus (channel transcripts, 2020–2025, reviewed thematically across testing, CI/CD, design, process, and AI), synthesized with compound engineering — the plan/review/learning workflow this project is built with. Where we diverge from or extend Farley, the divergence is named and argued in its own section; nothing is smuggled. His own epistemic rule governs this document too: *opinionated, never dogmatic — changed by evidence.*
 
-**Format.** Each practice: the principle → our mechanism → a governance test applicable without reading code.
+**Format.** Each practice: the principle → our mechanism → a governance test — a concrete recognition rule checkable by direct inspection, without re-deriving design intent.
 
 ---
 
@@ -149,7 +149,7 @@ Findings are judged by class, never by round count. Findings about the accident 
 
 ### Landing cadence (E2/E3 binding)
 
-Every implementation plan declares a landing strategy. The default is one PR per unit or named unit-cluster, merged on green before the next starts — typically shippable within about two hours, with four hours as the re-slice trigger. Semantic cohesion may override slicing with a written reason: a split that leaves the product incoherent is worse than a bigger PR. Deviating from the norm requires consulting the maintainer with a justification, by exception.
+Every implementation plan declares a landing strategy. The default is one PR per unit or named unit-cluster, merged on green before the next starts — typically shippable within about two hours, with four hours as the re-slice trigger. Semantic cohesion may override slicing with a written reason: a split that leaves the product incoherent is worse than a bigger PR. The rule is directional: slicing *finer* than a unit — shipping a separable, independently valuable part as its own PR — is always autonomous and never needs permission; landing *coarser* — one PR spanning multiple units — requires the written cohesion reason, or consulting the maintainer, by exception.
 
 **Test:** a branch older than a workday, or a PR whose diff spans multiple plan units, without a written cohesion reason, is a violation.
 

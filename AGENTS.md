@@ -24,7 +24,7 @@ Always-apply contract for every agent and human working in this repo. This file 
 
 ## How we work
 
-This project uses the **compound-engineering** flow: brainstorm → plan → work → review. **Every implementation plan declares a landing strategy; the default is one PR per unit or named unit-cluster, merged on green before the next starts — typically shippable within ~2 hours, 4 hours is the re-slice trigger; semantic cohesion may override slicing with a written reason; deviating from the norm requires consulting the maintainer with a justification, by exception** (charter E2/E3 binding).
+This project uses the **compound-engineering** flow: brainstorm → plan → work → review. **Every implementation plan declares a landing strategy; the default is one PR per unit or named unit-cluster, merged on green before the next starts — typically shippable within ~2 hours, 4 hours is the re-slice trigger. Slicing finer than a unit is always autonomous; landing coarser — one PR spanning multiple units — needs a written cohesion reason, or maintainer consultation, by exception** (charter E2/E3 binding).
 
 **Agent skills** — Pinned in `skills-lock.json` (committed); fetched content in `.agents/skills/` and `.claude/skills/` (gitignored). Managed by the [`skills`](https://github.com/vercel-labs/skills) CLI. Restore after a fresh clone: `npx skills experimental_install` (experimental) or `npx skills add svar-widgets/skills --skill svar-svelte` (always works).
 
