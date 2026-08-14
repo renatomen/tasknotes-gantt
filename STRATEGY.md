@@ -28,8 +28,9 @@ safe write-back over plain Markdown, without ever owning the data.
 Because a task **is** a note with metadata, the chart has a clean, honest data
 source — no hidden store, no separate database, no lock-in. The plugin adds a
 **visualization layer**; it never adds a wall around your data. Membership
-comes from the user's own Base; task truth from TaskNotes (the system of
-record — every write goes through its API); scheduling and dependency
+starts from the user's own Base — the matched seed set; relationship expansion
+may add connected tasks as context. Task truth comes from TaskNotes (the
+system of record — every write goes through its API); scheduling and dependency
 semantics from **open standards** — the iCalendar RFC family (RFC 5545 / 7953
 / 9253) — so the data means the same thing outside this plugin as inside it.
 Standalone it is a read-only viewer; with TaskNotes it is a full editor.
