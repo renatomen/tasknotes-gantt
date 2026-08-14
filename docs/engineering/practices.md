@@ -162,7 +162,7 @@ An agent working session is the working-context counterpart of the PR unit, and 
 - **Handover is mechanism, not narrative.** Main green and self-describing; the plan on main with progress derived from git; agent memory for rulings and traps only; `docs/backlog.md` for parked work. Genuine narrative residue — a trade-off discussion or dead end no commit or plan can hold — goes to a dated note under `docs/reports/`.
 - **Plans are superseded, never mutated into status.** A plan that must change direction is replaced by a new dated plan whose provenance names the old one and states why; the old plan never records progress or partial completion. Anything larger than a provenance paragraph goes to `docs/reports/`.
 
-**Test:** a session's chat transcript carrying a second PR merge, or any work on a new unit or slice after its first merge; a plan edited to record progress or mark units done; a direction change with no superseding plan naming the reason.
+**Test:** a session's chat transcript carrying a second PR merge, or implementation work on a second unit or slice at any point — before or after its first merge (a multi-unit diff inside one PR is the landing cadence's own violation); a plan edited to record progress or mark units done; a direction change with no superseding plan naming the reason.
 
 ### Charter-owned practice items
 
