@@ -102,8 +102,11 @@ controller to `CompositeSource`. The file-level map of both flows is in
   in one round.
 - **Refresh discipline: an entry signature breaks the host's re-notify storm.**
   Every notify recomputes a fingerprint of the matched notes' paths plus the
-  frontmatter values of the fields the view actually reads; an unchanged signature
-  means task reuse, a moved one releases a full re-read. The signature is
+  frontmatter values of the watched field mappings; an unchanged signature
+  means task reuse, a moved one releases a full re-read. The watched set is
+  load-bearing and currently incomplete: the task-name (`textProperty`) mapping
+  is not watched, so a label-only edit reuses the cache — a tracked gap (see
+  `docs/backlog.md`), not the contract. The signature is
   deliberately derived *without* touching the Base's value system, because reading
   through that system is itself what provokes the host into another notify — the
   loop-breaker must not feed the loop. The watched-field set is load-bearing: a
@@ -153,9 +156,11 @@ keep rejecting methods as defensive backstops, but the flag is the truth. A fiel
 without round-trip symmetry (written property ≠ read property) is read-only rather
 than appearing to save. On the optimistic path, failure reverts the echo and only
 the echo; a fence that cannot assemble in time abandons rather than waits. In the
-calendar domain, failure granularity is deliberate: an invalid `pattern`
-invalidates its calendar, while a malformed entry or unknown timezone is dropped
-and the calendar stays valid. Dropped-entry diagnostics are recorded at parse
+calendar domain, failure granularity is deliberate: a parse-invalid `pattern`
+(no `FREQ`) invalidates its calendar, while a malformed entry or unknown
+timezone is dropped and the calendar stays valid. A pattern invalid only at
+evaluation time is today inert rather than invalid — the fail-visible gap
+already tracked as backlog P2b, not the contract. Dropped-entry diagnostics are recorded at parse
 time and are *meant* to surface as flags; today only calendar-set diagnostics
 are promoted while per-calendar definition diagnostics are recorded but not yet
 surfaced — a tracked gap (see `docs/backlog.md`), not the contract.

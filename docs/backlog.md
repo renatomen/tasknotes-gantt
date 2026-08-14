@@ -773,3 +773,17 @@ degradation posture.
 the architecture record names as the norm. Queue as an extraction candidate in
 the maintainability campaign (the file is already on the >500-line list);
 fix by extract-and-test, moving display transforms to the view layer.
+
+## Label-only edits are invisible to the entry signature (stale task names)
+
+Found by the governing-docs port's exhaustive claim sweep: `BasesSource.ts`
+builds the task label from `mappings.textProperty` (also used by
+`sortKeyMapping.ts`), but `entrySignature.ts`'s `watchedMappingValues` never
+includes it. With the title role mapped to a `note.*` frontmatter property,
+editing only that property leaves the signature unchanged, the #161 gate
+reuses cached tasks, and the bar/grid label stays stale until some other
+watched field or the entry set changes. (`mappingSignatureTag` catches
+re-mapping the role; the value edit is what is invisible.) Fix shape: add
+`viewMappings.textProperty` to `watchedMappingValues`. Sibling nit for the
+same entry: `progressProperty` is watched only on the view side, unlike
+start/end/status/priority/calendar which watch view+resolved pairs.
