@@ -157,7 +157,7 @@ The governing question is not “can this helper be made to work?” It is “wh
 
 ### Keep autonomy inside explicit boundaries
 
-An autonomous executor should continue through planning, characterization, extraction, verification, independent review, merge, refresh, and the next unit without routine check-ins. It should stop only when proceeding would cross a genuine boundary, such as:
+An autonomous executor should continue through planning, characterization, extraction, verification, independent review, and merge without routine check-ins. *(Amended 2026-08-15: this list originally continued "…refresh, and the next unit". The charter's session cadence — practices.md § Session cadence — now ends the session at its first merged PR; the next unit belongs to a fresh session. The merge-authorization boundary below is likewise superseded by the standing merge-on-green policy in AGENTS.md.)* It should stop only when proceeding would cross a genuine boundary, such as:
 
 - a behavior change or urgent bug fix is required;
 - complexity above 15 appears unavoidable;
