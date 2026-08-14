@@ -123,7 +123,7 @@ Recorded honestly, with the evidence rule for revisiting each: outcomes (stabili
 
 The operating model first, because every binding below assumes it: a product manager (the maintainer) supervises AI-agent developers. Peer review is one agent reviewing another agent's work; the human sits at strategic arbitration points and intervenes by exception, never as a station on the critical path.
 
-- **Pipeline & gates:** pre-commit is `npm run lint && npm run typecheck` plus a narrow volatile-reference comment guard (`.husky/pre-commit`); pre-push is the two-layer review-receipt gate (`.husky/pre-push` → `scripts/check-review-receipts.mjs`); CI on every PR is a build job — lint, typecheck, unit tests, `perf:isolated`, `probe:svar`, build, bundle hygiene — plus an e2e job that drives real Obsidian (`.github/workflows/ci.yml`); SonarCloud analyzes same-repo PRs (forks and Dependabot excluded) and every push to `main` (`.github/workflows/sonar.yml`). The complexity ceiling under the charter-owned items below rides the lint gate, so it is enforced at pre-commit and in CI. Running the full `npx jest` suite before every push is standing practice.
+- **Pipeline & gates:** pre-commit is `npm run lint && npm run typecheck` plus a narrow volatile-reference comment guard (`.husky/pre-commit`); pre-push is the two-layer review-receipt gate (`.husky/pre-push` → `scripts/check-review-receipts.mjs`); CI on every PR is a build job — lint, typecheck, unit tests, `perf:isolated`, `probe:svar`, build, bundle hygiene — plus an e2e job that drives real Obsidian (`.github/workflows/ci.yml`); SonarCloud analyzes same-repo PRs (forks and Dependabot excluded) and every push to `main` (`.github/workflows/sonar.yml`). The complexity ceiling under the charter-owned items below rides the lint gate, so it is enforced at pre-commit and in CI. Running the full `npx jest` suite before every push is standing practice — deliberately unmechanized today (the pre-push hook gates receipts; CI runs the suite on every PR), which the meta-principle marks as a candidate for a mechanical guard.
 - **Review layers (E6 binding):** five concrete layers instantiate E6's four purposes — the pre-push layer runs twice, independently.
   1. **Spec-time** — `ce-doc-review` multi-persona rounds on plans. Purpose: catch scope, coherence, and feasibility defects before any code exists.
   2. **Pre-push local, standards-aware** — `ce-code-review` on the outgoing diff. Purpose: catch escapes with full knowledge of this repository's conventions before the change leaves the machine.
@@ -136,7 +136,7 @@ The operating model first, because every binding below assumes it: a product man
 
 ### Repo divergences
 
-Each named with its rationale and the evidence that would reopen it.
+Each named with its rationale and the evidence that would reopen it. All four were ruled by the maintainer on 2026-08-14.
 
 - **E4 — coverage targets are allowed as forcing functions.** The Sonar new-code gate has repeatedly forced extract-and-test of view-layer code that would otherwise have shipped as untested glue. The violation is manufacturing assertion-free tests or gaming a metric — never the target itself. Revisit if the gate starts producing assertion-free tests.
 - **E7 — agent-led merges on green gates.** A merge proceeds when the gates are green — CI passing, both local receipts recorded, zero unresolved final-gate threads — with the maintainer intervening by exception as product owner rather than approving each merge. Revisit if the escaped-defect rate rises.

@@ -140,7 +140,7 @@ The durable process document at `docs/engineering/practices.md`: philosophy, pra
 The concrete recognition rule attached to a principle or practice: how to spot a violation by direct inspection — of code, config, or artifacts — without re-deriving design intent or history. A principle without one is an aspiration; the test is what makes it reviewable, so every review layer checks against them.
 
 ### Named divergence
-A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, dated, and falsifiable.
+A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, argued, and falsifiable, dated where the record supplies the ruling.
 
 ## Flagged ambiguities
 
