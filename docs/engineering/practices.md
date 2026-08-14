@@ -131,7 +131,7 @@ The operating model first, because every binding below assumes it: a product man
   4. **Final PR gate** — the GitHub-hosted Codex reviewer; zero unresolved review threads before merge. Purpose: an independently-hosted check on the exact merge candidate.
   5. **Static analysis** — SonarCloud on same-repo PRs and pushes to `main`. Purpose: the tireless linter backstop for defect classes agents overlook.
 
-  Receipts are mechanical, not honor-system: both local layers must record against every pushed tip, and acknowledged-findings receipts exist so a settled run can record accepted findings instead of pretending to be clean (see `CONCEPTS.md` § Review gate).
+  Receipt *checking* is mechanical: the hook refuses any pushed tip without both layers recorded, and acknowledged-findings receipts exist so a settled run can record accepted findings instead of pretending to be clean (see `CONCEPTS.md` § Review gate). Attestation strength differs by layer — the peer layer's receipt proves the reviewer actually read the diff, while the layer-1 receipt attests the run's own claim that the review happened; honest coverage of what a receipt asserts remains repository policy, which is one more reason the two layers are independent.
 - **Specs:** `docs/plans/` unified plans are the E1 specifications. **Learning loop:** `docs/solutions/`, `CONCEPTS.md`, and session memory are the E12 mechanisms; `docs/backlog.md` is parked work.
 
 ### Repo divergences

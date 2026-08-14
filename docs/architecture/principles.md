@@ -36,7 +36,7 @@ Three boundaries, one rule:
 
 The exception test is capability against the requirement, never built-in versus home-grown. The two sanctioned hand-rolls prove it: fullscreen (SVAR's component uses the native browser top layer, which escapes Obsidian's stacking context and hides its popups — CSS-overlay + reparent won, with sign-off) and Pro-gated features (the MIT build force-nulls the entire Pro surface — there is no API being declined). Imitating a mechanism instead of reusing it drifts and multiplies: the audit found four parallel implementations of one job, each a regression seed.
 
-**Test:** a second parallel mechanism for a job one already does; a comment saying "exactly as X does"; `app.plugins.getPlugin('tasknotes')` outside the datasource layer; a bespoke checker duplicating an installed lint rule.
+**Test:** a second parallel mechanism for a job one already does; a comment saying "exactly as X does"; `app.plugins.getPlugin('tasknotes')` used to read or derive task data (identity, fields, relationships, value sets) outside the datasource layer — presence checks and plugin-settings reads for UI wiring are legitimate; a bespoke checker duplicating an installed lint rule.
 
 *Source: [tasknotes-owns-task-identification](../solutions/conventions/tasknotes-owns-task-identification.md), [2026-08-10 audit](../reports/2026-08-10-svar-conformance-and-maintainability-audit.md); the toolchain boundary specifically: [orchestrate-existing-tool-over-rebuilding](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md).*
 
