@@ -66,9 +66,10 @@ A file is too big when it holds separable concerns, not when it crosses a line t
 
 ## Practice-owned rules (cross-references)
 
-Four rules live in the engineering charter ([practices.md](../engineering/practices.md)) because they are practices, not architecture — cite, never restate:
+Five rules live in the engineering charter ([practices.md](../engineering/practices.md)) because they are practices, not architecture — cite, never restate:
 
 - A test's name is a claim the test must prove (charter E4/E5 binding).
 - The cognitive-complexity ceiling of 15, mechanized in eslint (charter E8/E2 binding).
 - Mechanism over memory — the charter's meta-principle.
 - The per-unit-PR landing cadence (charter E2/E3 binding).
+- The session cadence — a session ends at its first merged PR (charter session cadence, E2/E3 binding).

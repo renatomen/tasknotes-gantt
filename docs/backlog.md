@@ -814,3 +814,13 @@ back to `file.basename` (already tolerated in the same paragraph), progress
 can derive from checklist computation, parents from project edges. If the
 sentence family keeps attracting precision findings, restate it as a
 per-role-class table instead of prose qualifiers.
+
+## Mechanize the session-cadence guard
+
+`docs/engineering/practices.md` § Session cadence is deliberately unmechanized:
+repo gates cannot observe session identity, so the one-merge-per-session rule
+is enforced by transcript inspection. Candidate mechanisms if it starts losing
+to momentum: stamp a session identifier into the review-receipt metadata and
+have the receipt checker refuse a second same-session merge receipt, or a
+merge-time check comparing the receipt's session stamp against the last merged
+one. Search the installed toolchain before building anything.
