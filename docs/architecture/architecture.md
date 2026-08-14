@@ -129,7 +129,7 @@ controller to `CompositeSource`. The file-level map of both flows is in
   standards-shaped so the plugin composes with the calendars and tools users
   already have, and so every future calendar feature has one authoritative model
   to map onto. Rejected: a proprietary date model — including letting a component
-  library's own calendar shape become a boundary contract. The rule, the three
+  library's own calendar shape become a boundary contract. The rule, the named
   RFCs, and their roles are owned by
   [standards-alignment.md](standards-alignment.md); the executable lossless proof
   is [calendar-rfc-mapping.md](calendar-rfc-mapping.md) with

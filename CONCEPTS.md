@@ -70,7 +70,7 @@ A short pre-implementation record for a change to concurrency, ordering, or inva
 The user's per-view assignment of one of their own Obsidian properties to a gantt field role (start, end, status, priority, progress, time estimate, parent, name). No property name is ever assumed: a role has meaning only through the property mapped to it.
 
 ### Effective field mappings
-The resolved field mappings — the view's own choices with every unset field filled in from the backing system's configured property, so an unset field behaves exactly as if the user had selected it. This is the single answer to "which property IS this field?", and every consumer reads it rather than the raw view config. Distinct from the view config, which answers only "what did the user choose?" — the right question for gates about the user's intent, and the wrong one for identifying a field.
+The resolved field mappings — the view's own choices with each unset field filled in from the backing system's configured property, so an unset field behaves exactly as if the user had selected it; when a backing system is present, date roles bottom out at its documented default properties (still writable), while a role whose persistence the backing system owns through its own configuration (status, priority) stays unset and read-only when unconfigured (see round-trip symmetry); standalone — no backing system — leaves every unset role unresolved and read-only. This is the single answer to "which property IS this field?", and every consumer reads it rather than the raw view config. Distinct from the view config, which answers only "what did the user choose?" — the right question for gates about the user's intent, and the wrong one for identifying a field.
 
 ### Round-trip symmetry
 The property a field's value is written to is the same one it is read from. It is the license to edit a field inline: the backing system persists status and priority through *its own* configured property, so a view mapped to a different property can only be read. Without symmetry an edit would land where the edited column cannot show it — appearing to save while changing nothing visible — so the field is read-only instead.
@@ -140,7 +140,7 @@ The durable process document at `docs/engineering/practices.md`: philosophy, pra
 The concrete recognition rule attached to a principle or practice: how to spot a violation by direct inspection — of code, config, or artifacts — without re-deriving design intent or history. A principle without one is an aspiration; the test is what makes it reviewable, so every review layer checks against them.
 
 ### Named divergence
-A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, dated, and falsifiable.
+A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, argued, and falsifiable, dated where the record supplies the ruling.
 
 ## Flagged ambiguities
 

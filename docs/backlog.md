@@ -791,3 +791,26 @@ re-mapping the role; the value edit is what is invisible.) Fix shape: add
 `viewMappings.textProperty` to `watchedMappingValues`. Sibling nit for the
 same entry: `progressProperty` is watched only on the view side, unlike
 start/end/status/priority/calendar which watch view+resolved pairs.
+
+## Calendar colour accepts values RFC 7986 COLOR does not permit
+
+Found by the governing-docs follow-up review: the persisted calendar `color`
+field maps to RFC 7986 `COLOR` per `docs/architecture/calendar-rfc-mapping.md`,
+but RFC 7986 §5.9 requires a CSS3 colour NAME while the schema accepts any
+non-empty string and `rfcMapping.ts` copies it verbatim — so every accepted
+value that is not a CSS3 name (hex like `#2a9d8f`, functional forms like
+`rgb()`/`rgba()`/`hsl()`/`hsla()`, anything else) round-trips as a
+nonconforming COLOR value. Decide: constrain input to CSS3 names, or record
+the any-string acceptance as a documented deviation in the mapping doc — a nearest-name mapping is off the table because it rewrites the stored
+value irreversibly, which principle 6 forbids for stores. Until decided, the
+mapping doc's lossless claim carries this known exception.
+
+## Refine the unset-role resolution wording by role class
+
+Acknowledged peer finding (receipt d6a20e99a4bb, PR #423): the glossary and
+principle 1 state unset-role resolution as date/status-priority/standalone
+cases, but some roles resolve without property mappings at all — name falls
+back to `file.basename` (already tolerated in the same paragraph), progress
+can derive from checklist computation, parents from project edges. If the
+sentence family keeps attracting precision findings, restate it as a
+per-role-class table instead of prose qualifiers.
