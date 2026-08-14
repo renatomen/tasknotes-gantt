@@ -791,3 +791,14 @@ re-mapping the role; the value edit is what is invisible.) Fix shape: add
 `viewMappings.textProperty` to `watchedMappingValues`. Sibling nit for the
 same entry: `progressProperty` is watched only on the view side, unlike
 start/end/status/priority/calendar which watch view+resolved pairs.
+
+## Calendar colour accepts hex values RFC 7986 COLOR does not permit
+
+Found by the governing-docs follow-up review: the persisted calendar `color`
+field maps to RFC 7986 `COLOR` per `docs/architecture/calendar-rfc-mapping.md`,
+but RFC 7986 §5.9 requires a CSS3 colour NAME while the editor accepts and
+`rfcMapping.ts` copies arbitrary hex values verbatim — a normal input like
+`#2a9d8f` round-trips as a nonconforming COLOR value. Decide: constrain input
+to CSS3 names, map hex to the nearest name at the boundary, or record the hex
+form as a documented deviation in the mapping doc. Until decided, the mapping
+doc's lossless claim carries this known exception.

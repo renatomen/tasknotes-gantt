@@ -22,9 +22,11 @@ work has one authoritative shape to map onto.
 | **RFC 7953** | Calendar Availability (`VAVAILABILITY`) | Available / unavailable time — working vs non-working schedules | The model for working/non-working days and schedules |
 | **RFC 9253** | Support for iCalendar Relationships | Task dependencies: the four reltypes (FS/FF/SS/SF) plus `GAP` (lag/lead) | Already shipped — the dependency capability |
 
-These three are the **named, exclusive authority**. No other calendar standard and
-no proprietary model — including a commercial component library's own calendar
-shape — may become a boundary contract.
+These three are the **named authority**, extended only by sibling
+iCalendar-family standards that [calendar-rfc-mapping.md](calendar-rfc-mapping.md)
+explicitly records (today: RFC 7986 `COLOR` for the persisted calendar colour).
+No non-iCalendar standard and no proprietary model — including a commercial
+component library's own calendar shape — may become a boundary contract.
 
 ## The rule
 
