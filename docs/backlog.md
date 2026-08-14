@@ -753,3 +753,23 @@ governing docs now name. Deliberately NOT built with the docs port (no new
 enforcement mechanisms shipped with it). **Trigger:** adopt when the
 maintainability campaign's extractions define stable module boundaries worth
 mechanically enforcing — likely after the GanttController/register.ts slices.
+
+## Per-calendar diagnostics are recorded but never surfaced
+
+Found by the governing-docs port's peer review tracing the degradation
+posture: `schema.ts` records diagnostics for dropped entries and unknown
+timezones, but `resolveCalendars.ts` promotes only calendar-SET diagnostics to
+resolved flags — a linked calendar with `timezone: Mars/Phobos` stays valid
+with the timezone silently removed and the user never sees a flag. Product
+defect candidate: propagate `calendar.definition.diagnostics` into resolved
+flags. The architecture record documents this as a tracked gap against its
+degradation posture.
+
+## BasesDataAdapter still display-formats — adapter/view boundary lag
+
+`BasesDataAdapter.ts` formats dates/booleans/arrays in
+`convertGroupKeyToString` and returns display-formatted values from
+`extractPropertyValue` — violating the adapters-extract/views-format boundary
+the architecture record names as the norm. Queue as an extraction candidate in
+the maintainability campaign (the file is already on the >500-line list);
+fix by extract-and-test, moving display transforms to the view layer.

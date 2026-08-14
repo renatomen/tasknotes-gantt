@@ -46,7 +46,10 @@ controller to `CompositeSource`. The file-level map of both flows is in
   different code path.
 - **Data adapters extract raw values; views format for display.**
   [BasesDataAdapter.ts](../../src/bases/services/BasesDataAdapter.ts) yields native
-  types and never formats; formatting is a view concern. This keeps every
+  types; formatting is a view concern. This is the norm, with known lag: the
+  adapter still display-formats group keys and some property values today — a
+  tracked violation queued for the maintainability campaign (see
+  `docs/backlog.md`), not a revision of the boundary. The boundary keeps every
   derivation step testable in jest without a DOM, keeps display conventions
   swappable per view, and preserves round-trips: a value formatted at extraction
   can never restore the raw entry it came from — a wikilink flattened to its
@@ -152,7 +155,10 @@ than appearing to save. On the optimistic path, failure reverts the echo and onl
 the echo; a fence that cannot assemble in time abandons rather than waits. In the
 calendar domain, failure granularity is deliberate: an invalid `pattern`
 invalidates its calendar, while a malformed entry or unknown timezone is dropped
-with a visible diagnostic and the calendar stays valid.
+and the calendar stays valid. Dropped-entry diagnostics are recorded at parse
+time and are *meant* to surface as flags; today only calendar-set diagnostics
+are promoted while per-calendar definition diagnostics are recorded but not yet
+surfaced — a tracked gap (see `docs/backlog.md`), not the contract.
 
 ## Provenance
 
