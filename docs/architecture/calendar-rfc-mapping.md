@@ -8,7 +8,7 @@ The calendar-note frontmatter uses self-explanatory keys with canonical RFC valu
 |---|---|---|
 | `tngantt: calendar` / `calendar-set` | — (vault routing marker) | Not an RFC concept; selects the note's role. |
 | `description` | `DESCRIPTION` (RFC 5545 §3.8.1.5) | Calendar-level description. |
-| `color` | `COLOR` (RFC 7986 §5.9) | CSS colour value; validated at consumption (`isSafeColor`). |
+| `color` | `COLOR` (RFC 7986 §5.9) | CSS colour value; validated at consumption (`isSafeColor`). **Tracked deviation:** accepted hex/`rgb()`/`hsl()` forms are not the CSS3 names §5.9 requires — see the backlog entry; this row is not yet a lossless proof. |
 | `pattern` | `RRULE` of the primary `AVAILABLE` block (RFC 7953 §3.1, RFC 5545 §3.8.5.3) | Literal RRULE string, stored verbatim. Its complement is blocking non-working time; a calendar with no `pattern` is a seven-day working week. |
 | `pattern_start` | `DTSTART` of the `AVAILABLE` block (RFC 5545 §3.8.2.4, `VALUE=DATE`) | Optional anchor; required by `INTERVAL`/`COUNT`/`UNTIL` grammar. |
 | `working_hours` | `AVAILABLE` time spans within the block (RFC 7953 §3.1) | `HH:MM-HH:MM` ranges; day-granular effects in v1, hour effects deferred (R4). |
