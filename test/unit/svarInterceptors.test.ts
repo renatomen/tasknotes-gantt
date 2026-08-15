@@ -275,6 +275,23 @@ describe('show-editor interceptor', () => {
     }
   });
 
+  it('cancels the single activation a real earlier click scheduled, running only the double action', () => {
+    jest.useFakeTimers();
+    try {
+      const { api, backing, activateBar, setSelected } = makeFixture();
+      setSelected(['t1']);
+      api.fire('select-task', { id: 't1' });
+      expect(backing.pendingSingleClick).not.toBeNull();
+      api.fire('show-editor', { id: 't1' });
+      expect(backing.pendingSingleClick).toBeNull();
+      jest.runAllTimers();
+      expect(activateBar).toHaveBeenCalledTimes(1);
+      expect(activateBar).toHaveBeenCalledWith('t1', 'double', false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('routes a calendar-item row with a backing note to a double open-note activation', () => {
     const { api, activateBar, notePaths } = makeFixture({ lastCtrlMeta: true });
     notePaths.set(CAL_ID, 'Notes/feed item.md');
