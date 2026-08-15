@@ -373,6 +373,19 @@ describe('select-task interceptor', () => {
     }
   });
 
+  it('falls back to the pointer-captured modifier when the event carries no toggle', () => {
+    jest.useFakeTimers();
+    try {
+      const { api, activateBar, setSelected } = makeFixture({ lastCtrlMeta: true });
+      setSelected(['t1']);
+      api.fire('select-task', { id: 't1' });
+      jest.advanceTimersByTime(250);
+      expect(activateBar).toHaveBeenCalledWith('t1', 'single', true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('drops a stale pending click from a previous click before deciding', () => {
     jest.useFakeTimers();
     try {
@@ -465,6 +478,11 @@ describe('view-side wiring shape (R6 accessor-property check)', () => {
       path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'),
       'utf8',
     );
+    const literalStart = source.indexOf('const interactionAccess: InterceptorAccess = {');
+    expect(literalStart).toBeGreaterThan(-1);
+    const literalEnd = source.indexOf('};', literalStart);
+    expect(literalEnd).toBeGreaterThan(literalStart);
+    const accessLiteral = source.slice(literalStart, literalEnd);
     for (const member of [
       'syncing',
       'ephemeralSort',
@@ -474,10 +492,13 @@ describe('view-side wiring shape (R6 accessor-property check)', () => {
       'pointerButtonDown',
       'suppressSelectActivation',
     ]) {
-      expect(source).toMatch(new RegExp(`get ${member}\\(\\)`));
+      expect(accessLiteral).toMatch(new RegExp(`get ${member}\\(\\)`));
     }
     for (const written of ['ephemeralSort', 'collapsedIds', 'pendingSingleClick']) {
-      expect(source).toMatch(new RegExp(`set ${written}\\(`));
+      expect(accessLiteral).toMatch(new RegExp(`set ${written}\\(`));
     }
+    // The call site must pass the accessor object itself — a spread or copy
+    // (`{ ...interactionAccess }`) would snapshot values and kill liveness.
+    expect(source).toMatch(/wireInteractionInterceptors\(\s*ganttApi,\s*interactionAccess,\s*interactionDeps\s*\)/);
   });
 });
