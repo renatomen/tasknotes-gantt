@@ -1799,6 +1799,53 @@
   /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
   let dbgInitCount = 0;
 
+  // Every mutable binding crosses the interceptor seam as a live accessor
+  // property closed over this component's scope — never a copied value — so a
+  // handler's write is visible to the next handler, the sync coordinator, and
+  // the template. Built once; initGantt re-registers per re-bound api.
+  const interactionAccess: InterceptorAccess = {
+    get syncing() {
+      return syncing;
+    },
+    get ephemeralSort() {
+      return ephemeralSort;
+    },
+    set ephemeralSort(value) {
+      ephemeralSort = value;
+    },
+    get collapsedIds() {
+      return collapsedIds;
+    },
+    set collapsedIds(value) {
+      collapsedIds = value;
+    },
+    get pendingSingleClick() {
+      return pendingSingleClick;
+    },
+    set pendingSingleClick(value) {
+      pendingSingleClick = value;
+    },
+    get lastCtrlMeta() {
+      return lastCtrlMeta;
+    },
+    get pointerButtonDown() {
+      return pointerButtonDown;
+    },
+    get suppressSelectActivation() {
+      return suppressSelectActivation;
+    },
+  };
+  const interactionDeps = {
+    echoSource: OG_ECHO_SOURCE,
+    restoreBaseOrder,
+    activateBar,
+    notePathOf: (rowId: string) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
+    // Reads the live `api` binding, not a wiring-time parameter: a stale
+    // registration must see the current instance's selection, exactly as the
+    // pre-extraction closure did.
+    getState: () => api?.getState?.(),
+  };
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     // A re-bound api is a new host world: retire in-flight executor work.
@@ -1820,49 +1867,9 @@
     // (open note / open its own edit modal); SVAR's own editor never opens.
     // The interaction-cluster policy bodies (ephemeral sort, collapse
     // persistence, reorder blocking, show-editor routing, select-first
-    // activation) live in svarInterceptors.ts. Every mutable binding crosses
-    // the seam as a live accessor property closed over this component's scope
-    // — never a copied value — so a handler's write is visible to the next
-    // handler, the sync coordinator, and the template.
-    const interactionAccess: InterceptorAccess = {
-      get syncing() {
-        return syncing;
-      },
-      get ephemeralSort() {
-        return ephemeralSort;
-      },
-      set ephemeralSort(value) {
-        ephemeralSort = value;
-      },
-      get collapsedIds() {
-        return collapsedIds;
-      },
-      set collapsedIds(value) {
-        collapsedIds = value;
-      },
-      get pendingSingleClick() {
-        return pendingSingleClick;
-      },
-      set pendingSingleClick(value) {
-        pendingSingleClick = value;
-      },
-      get lastCtrlMeta() {
-        return lastCtrlMeta;
-      },
-      get pointerButtonDown() {
-        return pointerButtonDown;
-      },
-      get suppressSelectActivation() {
-        return suppressSelectActivation;
-      },
-    };
-    wireInteractionInterceptors(ganttApi, interactionAccess, {
-      echoSource: OG_ECHO_SOURCE,
-      restoreBaseOrder,
-      activateBar,
-      notePathOf: (rowId) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
-      getState: () => api?.getState?.(),
-    });
+    // activation) live in svarInterceptors.ts; only the registrations repeat
+    // per re-bound api — the access/deps objects are component-lifetime.
+    wireInteractionInterceptors(ganttApi, interactionAccess, interactionDeps);
 
     // Unified drag wiring. Parents are ordinary (non-summary) tasks, so
     // dragging one moves only that bar — SVAR fires a single committing
