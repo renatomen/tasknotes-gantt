@@ -55,7 +55,7 @@ The campaign's previous target list was "12 files >500 LOC" — a line-count fra
 
 **Landing and side duties**
 
-- R7. The backlog's CI e2e flake record gains the four 2026-08-15 docs-only flake instances (runs 31795160791, 31842006155, 31845072266, plus one earlier unnumbered instance; each green on first re-run), in the same PR.
+- R7. The backlog's CI e2e flake record gains the four 2026-08-15 docs-only flake instances (runs 31795160791, 31842006155, 31845072266, plus one earlier unnumbered instance), each recorded with the verification status the CI logs actually show, in the same PR.
 - R8. The local branch `docs/plan-wire-svar-interceptors` (at `3c62bbe`) is pushed to origin unchanged — no merge, no execution.
 - R9. Everything lands as one docs PR from a branch, merged on green under the standing gates.
 
@@ -78,7 +78,7 @@ The campaign's previous target list was "12 files >500 LOC" — a line-count fra
 
 This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is the current understanding of the campaign, not a committed roadmap.
 
-- **Slice-2 planning (next session)** — Depends on nothing here; runs via ce-plan as a fresh plan. The 2026-08-12 plan on `docs/plan-wire-svar-interceptors` ([docs/plans/2026-08-12-001-refactor-wire-svar-interceptors-plan.md](2026-08-12-001-refactor-wire-svar-interceptors-plan.md) on that branch) is superseded reference-only and receives its tombstone per the charter. The fresh plan carries forward verbatim its measured seven-bindings trap: `initGantt` handlers write seven outer bindings — `syncing`, `ephemeralSort`, `pendingSingleClick`, `pointerButtonDown`, `lastCtrlMeta`, `hostGeneration`, `collapsedIds` — so a naive deps-object extraction compiles and smoke-tests green while silently breaking echo suppression. Precedent slices: #416, #418.
+- **Slice-2 planning (next session)** — Depends on nothing here; runs via ce-plan as a fresh plan. The 2026-08-12 plan on `docs/plan-wire-svar-interceptors` ([docs/plans/2026-08-12-001-refactor-wire-svar-interceptors-plan.md](2026-08-12-001-refactor-wire-svar-interceptors-plan.md) on that branch) is superseded reference-only and receives its tombstone per the charter. The fresh plan carries forward verbatim its measured seven-bindings trap: `initGantt`'s intercept registrations close over seven outer mutable bindings — `syncing`, `ephemeralSort`, `pendingSingleClick`, `pointerButtonDown`, `lastCtrlMeta`, `hostGeneration`, `collapsedIds` — writing some and reading others written by the outer capture listeners (the re-measured read/write split is in the Phase 0 report), so a naive deps-object extraction compiles and smoke-tests green while silently breaking echo suppression. Precedent slices: #416, #418.
 - **Ranked-list execution (later sessions)** — Depends on this plan's report; one session per merged PR, ordered by the ranking, each ending with a measured trend report against R6's baseline.
 - **Still to decide** — whether the slice-2 unit or the report's top-ranked entry goes first when they differ; the maintainer's mission sequences slice-2 planning next, so that ordering stands unless the measurements argue otherwise.
 
@@ -89,8 +89,8 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - [docs/reports/2026-08-10-svar-conformance-and-maintainability-audit.md](../reports/2026-08-10-svar-conformance-and-maintainability-audit.md) — the prior audit this diagnosis updates.
 - [docs/backlog.md](../backlog.md) — the queued defect entries (R4) and the CI e2e flake record (R7).
 - Branch `docs/plan-wire-svar-interceptors` at `3c62bbe` — the superseded slice-2 plan and its seven-bindings measurement.
-- [docs/solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md](../solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md) — extract semantic responsibility, not lines; the intentionally-cohesive stopping condition.
-- [docs/solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md) — the deleted bespoke analyzer; search the toolchain before building any checker.
+- [docs/solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md](../solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md) — extract semantic responsibility, not lines; the intentionally-cohesive stopping condition; the deleted bespoke analyzer that mandates recorded commands over new tooling.
+- [docs/solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md) — the general rule: orchestrate the existing tool rather than rebuilding its capability.
 - [docs/solutions/tooling-decisions/keep-eslint-authoritative-when-sonar-cannot-accurately-import-svelte.md](../solutions/tooling-decisions/keep-eslint-authoritative-when-sonar-cannot-accurately-import-svelte.md) — ESLint is the single complexity authority for `.svelte`; threshold-lowered runs measure pressure.
 - [docs/solutions/workflow-issues/bidirectional-issue-housekeeping-and-backlog.md](../solutions/workflow-issues/bidirectional-issue-housekeeping-and-backlog.md) — verify backlog entries against live code; link, never prematurely promote.
 
@@ -112,7 +112,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 
 ### Assumptions
 
-- The four 2026-08-15 flake instances in R7 are docs-only CI runs 31795160791, 31842006155, and 31845072266 plus one earlier unnumbered instance, each green on first re-run; if the run logs contradict this at execution time, record what the logs show.
+- The four 2026-08-15 flake instances in R7 are docs-only CI runs 31795160791, 31842006155, and 31845072266 plus one earlier unnumbered instance. The session handoff described all four as green on first re-run; the CI API contradicted this for 31795160791 (failed, never same-SHA re-run), and the record carries what the logs show, per this assumption's own contingency.
 
 ---
 
@@ -168,7 +168,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - **Requirements** - R7, R8, R9.
 - **Dependencies** - U4.
 - **Files** - [docs/backlog.md](../backlog.md) (flake-record append), `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
-- **Approach** - Append the R7 flake instances to the backlog's "CI e2e flake — a measured instance" record, keeping its per-spec breakdown style. Push `docs/plan-wire-svar-interceptors` to origin unchanged (durability only — no merge, no PR for it). Branch, commit, open the unit's PR, merge on green under the standing gates.
+- **Approach** - Append the R7 flake instances to the backlog's "CI e2e flake — a measured instance" record with per-run verification status (the per-spec breakdown was not captured for these instances). Push `docs/plan-wire-svar-interceptors` to origin unchanged (durability only — no merge, no PR for it). Branch, commit, open the unit's PR, merge on green under the standing gates.
 - **Test scenarios** - Test expectation: none — docs-only unit.
 - **Verification** - Per the Verification Contract; plus: the branch exists on origin at `3c62bbe`, and the backlog flake record names the R7 run IDs.
 

@@ -572,14 +572,23 @@ One correction to carry forward: an earlier note attributed this to worker
 contention. `maxInstances: 1` — the suite is sequential, so it is not.
 
 **2026-08-15 instances (docs-only branches, governing-docs port).** Four more
-flake instances on branches whose diffs contain no `src/` change, each green on
-its first same-SHA re-run (flake by the standard rerun test): runs
-31795160791, 31842006155, and 31845072266, plus one earlier unnumbered
-instance from the same day. Recorded here per the session-cadence rule —
-post-merge commits to the merged PRs were not available, so the append rode
-the next session's docs PR. The per-spec breakdown was not captured for these
-four; the "re-run the same commit N times and record pass rate per spec"
-next step above stands, now with six measured instances behind it.
+e2e failures on branches whose diffs contain no `src/` change, with mixed
+verification status (checked against the CI API at record time, correcting
+the session handoff's "each green on first re-run" claim):
+
+- Runs **31842006155** and **31845072266** — rerun-confirmed flake by the
+  standard rerun test (same-SHA attempt 2 green).
+- Run **31795160791** — failed on attempt 1 and was **never same-SHA re-run**
+  (its head sha `6ca371b` has no other CI run), so it is a suspected instance
+  only: consistent with the pattern, unconfirmed by the rerun test.
+- One earlier unnumbered instance from the same day — unverifiable by
+  construction (no run ID recorded).
+
+Recorded here per the session-cadence rule — post-merge commits to the merged
+PRs were not available, so the append rode the next session's docs PR. The
+per-spec breakdown was not captured for these instances; the "re-run the same
+commit N times and record pass rate per spec" next step above stands, now
+with four rerun-confirmed instances and two suspected ones behind it.
 
 ## The peer-review gate is roughly 7x the size its purpose needs
 
