@@ -296,7 +296,10 @@ describe('select-task interceptor', () => {
   it('passes a programmatic re-selection through without scheduling while syncing', () => {
     jest.useFakeTimers();
     try {
-      const { api, backing, activateBar } = makeFixture({ syncing: true });
+      const { api, backing, activateBar, setSelected } = makeFixture({ syncing: true });
+      // The row is already selected — without the syncing guard this exact
+      // event would schedule the deferred single activation.
+      setSelected(['t1']);
       expect(api.fire('select-task', { id: 't1' })).toBe(true);
       expect(backing.pendingSingleClick).toBeNull();
       jest.runAllTimers();
@@ -310,10 +313,13 @@ describe('select-task interceptor', () => {
     jest.useFakeTimers();
     try {
       const pending = setTimeout(() => undefined, 250);
-      const { api, backing, activateBar } = makeFixture({
+      const { api, backing, activateBar, setSelected } = makeFixture({
         suppressSelectActivation: true,
         pendingSingleClick: pending,
       });
+      // The row is already selected — without the suppression gate this exact
+      // event would schedule the deferred single activation.
+      setSelected(['t1']);
       expect(api.fire('select-task', { id: 't1' })).toBe(true);
       expect(backing.pendingSingleClick).toBeNull();
       jest.runAllTimers();
