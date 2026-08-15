@@ -18,13 +18,13 @@ All numbers reproduce from these commands at the recorded commit. No committed t
 
 ```bash
 total=$(git rev-list --count 7949fd1135ed32017cb72aafdb92c4f09caf8267)   # 477
-git ls-files -z -- src test scripts | while IFS= read -r -d '' f; do
+git ls-tree -r -z --name-only 7949fd1135ed32017cb72aafdb92c4f09caf8267 -- src test scripts | while IFS= read -r -d '' f; do
   n=$(git log --follow --format=%H 7949fd1135ed32017cb72aafdb92c4f09caf8267 -- "$f" | wc -l)
   printf '%s %s\n' "$n" "$f"
 done | sort -rn
 ```
 
-The loop is NUL-delimited because 93 tracked paths (test-vault fixtures) contain spaces; a word-splitting `for f in $(git ls-files ...)` loop fragments them. The two loop forms produce identical results for every file in the tables below (verified at the recorded sha); the NUL form is the recorded contract.
+The population is enumerated from the recorded commit's tree (`git ls-tree`, not the live index, so a later add/delete/rename cannot shift the 590-file population), and the loop is NUL-delimited because 93 tracked paths (test-vault fixtures) contain spaces, which a word-splitting `for f in $(...)` loop fragments. Both properties were verified at recording time: the pinned-tree and live-index enumerations were identical at this sha, as were the split-safe and word-splitting loops for every file in the tables below.
 
 **Separable-concern counts** — by enumeration with evidence (symbol or line-range), per principle 7: a count you cannot enumerate is a count you cannot dispute. Full lists below.
 
@@ -102,7 +102,15 @@ Bases view/group access (212–253) · Value unwrapping (392–432) · raw prope
 - `test/unit/GanttController.test.ts` (2,461 lines) — 23 describes mirroring the controller's own concern list ~1:1 (source selection 173 · managed paths 204 · choice options 227 · reactive re-selection 255 · recompute race guard 300 · recomputeGeneration 335 · getInstances expansion 489 · gated debug log 526 · getLinks 566 · capabilities 643 · onChange + idempotent backstop 664 · date policy + stable instance set 810 · composite strategy 1271 · status colors 1439 · priority colors 1476 · companion expansion 1521 · settings freshness 1661 · memoization + dependency batching 1708 · readiness re-check 1944 · resultset-change burst 2176 · safe-partial interleave 2276 · `computeRecomputeReason` 2405 · `buildSourceLinks` 2432). Its size is the controller's symptom; one shared `FakeSource` fixture any controller split drags into a shared test util. The last two suites test exported free functions and are separable today.
 - `test/specs/gantt-calendar-editor.e2e.ts` (1,606 lines, 40 tests in one describe) — NOT a single-subject companion: four separable suites (view routing/healing 163–343, form editing/validation 345–535, dirty-state/external-edit races 712–1050, set preview/conflict UI 1193–1587) sharing one serially-mutated fixture vault — ordering coupling a split must untangle, plus repeated `browser.execute` probe blocks wanting helper extraction first.
 
-### `scripts/cross-model-peer-review.sh` — 10 concerns (490 lines today; companion `check-review-receipts.mjs` 291)
+### Remaining defect-targeted files (per the concern-cutoff decision)
+
+- `src/bases/entrySignature.ts` — 262 lines, 4 concerns: per-entry value signatures (`entryValueSignature` 55, `frontmatterSignatureKeys` 81) · the watched-mapping slice (`watchedMappingValues` 104, `mappingSignatureTag` 145 — the defect site: `textProperty` absent) · entry composition + note-cache contract (`composeEntrySignature` 205, `EntryNoteCache` 153) · set-level signature (`entriesSignature` 252). Cohesive; the defect is an omission inside concern 2, not a decomposition target.
+- `src/controller/calendar/resolveCalendars.ts` — 258 lines, 4 concerns: registry build (`buildCalendarRegistry` 58 — the defect site: plain-calendar diagnostics unpromoted) · task-association resolution (`resolveTaskCalendar` 144) · link normalization (`stripSubpath` 212) · blocking-source projection (`datedBlockingSource` 232). Cohesive; the ranked fix must extract because two of these functions sit at complexity 15/13.
+- `src/controller/calendar/schema.ts` — 386 lines, 4 concerns: definition types (9–70) · note parsing (`matchesCalendarMarker` 79, `parseCalendar` 97, `parseCalendarSet` 167 — the COLOR defect site at 113/185) · field readers with diagnostics (`readPattern` 191 through `readDatedEntry` 306) · date/span helpers (339–386). Cohesive.
+- `scripts/check-review-receipts.mjs` — 291 lines, 5 concerns: git/receipt-store plumbing (59–90) · pushed-ref parsing (`parsePushedRefLines` 91) · receipt evaluation (`evaluateReceipts` 113, `acknowledgedFindings` 172) · recording (`record` 129) · CLI check/report shell (233–276). Ranked as part of the gate cluster.
+- `tsconfig.json` — 26-line config file; concern enumeration is not applicable to it — its defect is an absence (`test/` outside `include`), and the measurement is the false-green instance count carried on ranked entry 3.
+
+### `scripts/cross-model-peer-review.sh` — 10 concerns (490 lines today; companion `check-review-receipts.mjs` 291, enumerated above)
 
 Arg parsing · preflight · git anti-tamper primitives · remote/upstream resolution (the densest, most defect-history-laden cluster) · pre-review state guards · diff production + content guards · sentinel/canary anti-spoof · reviewer prompt · invocation + verdict parsing · record-time re-validation + receipts delegation. **Honest correction:** the backlog measured 763 lines / 44 refusal points at an older commit; today it is 490 lines, 21 distinct exit codes, ~39 refusal sites — already shrunk ~36%, so the backlog's deletion proposal starts from a smaller base than it recorded.
 
@@ -221,7 +229,7 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 8. **`src/bases/entrySignature.ts` textProperty gap** — 1.9% churn, point defect, user-visible: rename a task via its mapped title property and the bar label stays stale until an unrelated refresh. Ranked above bigger items on pain-per-fix — the fix shape is one watched-mapping addition plus tests. Classification note: this and rank 9 are backlog-queued coupling/boundary defects whose *fixes* change behavior — they are not from the excluded preserved-behavior list, and each fix is its own test-first unit per that list's rule.
 9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — the fix collides with the gate ceiling, so it must extract, not inline). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid. Same classification note as rank 8.
 10. **`src/bases/types/gantt-view-data.ts` write-callbacks on the display contract** — 6.3% churn on a 323-line types file is the signal: the contract changes with almost every feature because write-path plumbing rides it. Fold into whichever of ranks 1–2's slices touches the seam; not its own unit.
-11. **RFC 7986 COLOR deviation** — tiny, decision-shaped, and half done: the deviation is already recorded as tracked in `docs/architecture/calendar-rfc-mapping.md:11`, so the only open question is whether to constrain `color` to CSS3 names or let the tracked deviation stand permanently (`schema.ts:113/:185` read any string; 3 commits / 0.6% churn). Until decided, the mapping row is not a lossless proof — its own text says so.
+11. **RFC 7986 COLOR deviation** — tiny, decision-shaped, and half done: the deviation is already recorded as tracked in `docs/architecture/calendar-rfc-mapping.md:11` (`schema.ts:113/:185` read any string; 3 commits / 0.6% churn). The tracked deviation is interim by construction — principle 6 permits no permanently lossy store, so the open decision is the conformance *mechanism* (constrain input to CSS3 names, or another mapping that restores §5.9 conformance without rewriting stored values, which principle 6 also forbids), not whether to conform. Until it lands, the mapping row is not a lossless proof — its own text says so.
 
 ## Not debt — verified endpoints
 
