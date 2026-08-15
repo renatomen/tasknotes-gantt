@@ -142,6 +142,17 @@ The concrete recognition rule attached to a principle or practice: how to spot a
 ### Named divergence
 A recorded, argued departure from the charter's source teaching or from a practice's letter — carrying its rationale and a revisit trigger — instead of a silent edit. The charter's own honesty pattern: nothing is smuggled; divergences are visible, argued, and falsifiable, dated where the record supplies the ruling.
 
+## Maintainability measurement
+
+### Churn share
+The fraction of all commits in the measured window that touch a given file, measured rename-aware. One of principle 7's two violation-recognition metrics: a high share marks a file that participates in most changes, which is where maintenance pain concentrates regardless of its size.
+
+### Separable concern
+A named responsibility inside a file that has its own reason to change and could be owned elsewhere, counted by enumeration with evidence (a symbol or line-range), never asserted as a bare number. Principle 7's second metric — and its stopping rule: decomposition ends when no further split would improve cohesion, not at a size target.
+
+### Re-measure
+The named event at which the strategy's maintainability metric is taken: churn share and separable-concern counts recorded with the commands, date, and commit that produced them, so the numbers are reproducible and comparable across measurements. Manual today; a mechanical gate is a parked candidate.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.
