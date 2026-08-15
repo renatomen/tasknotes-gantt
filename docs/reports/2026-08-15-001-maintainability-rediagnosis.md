@@ -18,11 +18,13 @@ All numbers reproduce from these commands at the recorded commit. No committed t
 
 ```bash
 total=$(git rev-list --count 7949fd1135ed32017cb72aafdb92c4f09caf8267)   # 477
-for f in $(git ls-files -- src test scripts); do
+git ls-files -z -- src test scripts | while IFS= read -r -d '' f; do
   n=$(git log --follow --format=%H 7949fd1135ed32017cb72aafdb92c4f09caf8267 -- "$f" | wc -l)
-  echo "$n $f"
+  printf '%s %s\n' "$n" "$f"
 done | sort -rn
 ```
+
+The loop is NUL-delimited because 93 tracked paths (test-vault fixtures) contain spaces; a word-splitting `for f in $(git ls-files ...)` loop fragments them. The two loop forms produce identical results for every file in the tables below (verified at the recorded sha); the NUL form is the recorded contract.
 
 **Separable-concern counts** — by enumeration with evidence (symbol or line-range), per principle 7: a count you cannot enumerate is a count you cannot dispute. Full lists below.
 
@@ -94,11 +96,11 @@ SVAR task shaping (130–541) · task-type registry composition (605–670) · t
 
 Bases view/group access (212–253) · Value unwrapping (392–432) · raw property extraction routing (360–384) · scalar conversion (442–499) · Gantt field extraction (508–674) · **display formatting — the adapters-extract/views-format violation, confirmed at line level:** `convertGroupKeyToString` (274–302) formats dates/booleans/arrays into display strings, `extractPropertyValue` (596–620) is documented "for display in grid columns", and `formatDateYmd` (62–67) is a pure formatter living in the adapter.
 
-### Test companions (judgment, not full enumeration)
+### Test companions
 
-- `test/unit/ganttSync.test.ts` (1,420 lines) — healthy companion; 16 describes (15 top-level) over distinct pure functions; would split cleanly along whatever lines its subject splits.
-- `test/unit/GanttController.test.ts` (2,461 lines) — tracks its subject ~1:1; its size is the controller's symptom. One shared `FakeSource` fixture any controller split drags into a shared test util.
-- `test/specs/gantt-calendar-editor.e2e.ts` (1,606 lines, 40 tests in one describe) — NOT a single-subject companion: four separable suites (view routing/healing, form editing/validation, dirty-state/external-edit races, set preview/conflict UI) sharing one serially-mutated fixture vault — ordering coupling a split must untangle, plus repeated `browser.execute` probe blocks wanting helper extraction first.
+- `test/unit/ganttSync.test.ts` (1,420 lines) — healthy companion; 15 top-level suites, each a separable concern named by its describe with its line anchor: `resolveDateStatusStateToken` (109) · `isNonAuthoredEdgeToken` (119) · `hasNonAuthoredEdgeInstance` (130) · `buildSvarTasks` (140, plus grid-property-values 1019 and row-editability 1035 sub-suites) · `buildTreatmentTaskTypes` (498) · instance cues (638) · `planTaskSync` (930) · `taskStateKey` (1072) · `planLinkSync` (1139) · `planReorder` (1157) · `baseSortDescriptor` (1188) · `shouldBulkReseed` (1235) · `echoTaskPatch` (1314). It would split cleanly along whatever lines its subject splits.
+- `test/unit/GanttController.test.ts` (2,461 lines) — 23 describes mirroring the controller's own concern list ~1:1 (source selection 173 · managed paths 204 · choice options 227 · reactive re-selection 255 · recompute race guard 300 · recomputeGeneration 335 · getInstances expansion 489 · gated debug log 526 · getLinks 566 · capabilities 643 · onChange + idempotent backstop 664 · date policy + stable instance set 810 · composite strategy 1271 · status colors 1439 · priority colors 1476 · companion expansion 1521 · settings freshness 1661 · memoization + dependency batching 1708 · readiness re-check 1944 · resultset-change burst 2176 · safe-partial interleave 2276 · `computeRecomputeReason` 2405 · `buildSourceLinks` 2432). Its size is the controller's symptom; one shared `FakeSource` fixture any controller split drags into a shared test util. The last two suites test exported free functions and are separable today.
+- `test/specs/gantt-calendar-editor.e2e.ts` (1,606 lines, 40 tests in one describe) — NOT a single-subject companion: four separable suites (view routing/healing 163–343, form editing/validation 345–535, dirty-state/external-edit races 712–1050, set preview/conflict UI 1193–1587) sharing one serially-mutated fixture vault — ordering coupling a split must untangle, plus repeated `browser.execute` probe blocks wanting helper extraction first.
 
 ### `scripts/cross-model-peer-review.sh` — 10 concerns (490 lines today; companion `check-review-receipts.mjs` 291)
 
@@ -108,7 +110,79 @@ Arg parsing · preflight · git anti-tamper primitives · remote/upstream resolu
 
 ## Measurement 3 — complexity-gate pressure
 
-69 functions sit in the 11–15 band (threshold-10 sweep; zero suppressions, so nothing can exceed 15 on main). The pressure set that matters — **functions at exactly 15**, where any edit trips the hard gate — is 16: 8 in `src/` (`GanttContainer.svelte:2450`, `calendarSelection.ts:215`, `dragCascadeLane.ts:286`, `ganttSync.ts:340` and `:419`, `resolveCalendars.ts:58`, `stretch.ts:49`, `externalCalendarSource.ts:663`) and 8 in `test/` (`__mocks__/obsidian.ts:375`, five e2e helper closures, `gantt-resultset-storm.perf.e2e.ts:67`, `calendarItemSources.test.ts:98`). Six more sit at 14.
+69 functions sit in the 11–15 band (threshold-10 sweep; zero suppressions, so nothing can exceed 15 on main). ESLint locates each finding by `file:line` (the function is the one whose body starts at that location; the rule's message does not carry names). The full measured set, highest pressure first — the 16 **at exactly 15** are where any edit trips the hard gate:
+
+| Function location | Complexity |
+|---|---|
+| `src/bases/GanttContainer.svelte:2450` | 15 |
+| `src/bases/calendarSelection.ts:215` | 15 |
+| `src/bases/dragCascadeLane.ts:286` | 15 |
+| `src/bases/ganttSync.ts:340` | 15 |
+| `src/bases/ganttSync.ts:419` | 15 |
+| `src/controller/calendar/resolveCalendars.ts:58` | 15 |
+| `src/controller/calendar/stretch.ts:49` | 15 |
+| `src/datasource/calendarItems/externalCalendarSource.ts:663` | 15 |
+| `test/__mocks__/obsidian.ts:375` | 15 |
+| `test/specs/gantt-calendar-items-external.e2e.ts:134` | 15 |
+| `test/specs/gantt-calendar-items-recurring.e2e.ts:179` | 15 |
+| `test/specs/gantt-calendar-items-sources.e2e.ts:148` | 15 |
+| `test/specs/gantt-perf-fullstack.perf.e2e.ts:131` | 15 |
+| `test/specs/gantt-resultset-loop.e2e.ts:134` | 15 |
+| `test/specs/gantt-resultset-storm.perf.e2e.ts:67` | 15 |
+| `test/unit/calendarItemSources.test.ts:98` | 15 |
+| `scripts/releaseFiles.mjs:207` | 14 |
+| `src/bases/calendarItemSources.ts:377` | 14 |
+| `src/bases/fileFilter.ts:51` | 14 |
+| `src/controller/GanttController.ts:1536` | 14 |
+| `src/datasource/calendarItems/externalCalendarSource.ts:507` | 14 |
+| `src/editor/workingPatternModel.ts:50` | 14 |
+| `scripts/update-release-index.mjs:28` | 13 |
+| `src/bases/checklistProgress.ts:40` | 13 |
+| `src/bases/dragCascadeLane.ts:422` | 13 |
+| `src/bases/dragCommitPlan.ts:281` | 13 |
+| `src/controller/GanttController.ts:1615` | 13 |
+| `src/controller/GanttController.ts:1757` | 13 |
+| `src/controller/calendar/resolveCalendars.ts:144` | 13 |
+| `src/datasource/TaskNotesSource.ts:1128` | 13 |
+| `src/datasource/calendarItems/externalCalendarSource.ts:244` | 13 |
+| `test/perf/generator/generate.ts:93` | 13 |
+| `test/perf/generator/graph.ts:174` | 13 |
+| `test/specs/gantt-inferred-drag-write.e2e.ts:238` | 13 |
+| `src/bases/GanttContainer.svelte:1939` | 12 |
+| `src/bases/calendarShading.ts:219` | 12 |
+| `src/bases/cellEditCommit.ts:211` | 12 |
+| `src/bases/dragCommitPlanner.ts:166` | 12 |
+| `src/bases/services/BasesDataAdapter.ts:98` | 12 |
+| `src/bases/services/BasesDataAdapter.ts:274` | 12 |
+| `src/bases/services/BasesDataAdapter.ts:468` | 12 |
+| `src/controller/GanttController.ts:979` | 12 |
+| `src/datasource/parentLink.ts:21` | 12 |
+| `src/editor/calendarEditorState.ts:109` | 12 |
+| `src/editor/calendarEditorState.ts:142` | 12 |
+| `src/editor/weekPreviewLayout.ts:230` | 12 |
+| `test/perf/generator/emitVault.ts:72` | 12 |
+| `test/probe/svar-features.probe.ts:46` | 12 |
+| `src/bases/GanttContainer.svelte:1612` | 11 |
+| `src/bases/GanttContainer.svelte:2008` | 11 |
+| `src/bases/barTreatment.ts:359` | 11 |
+| `src/bases/calendarConflicts.ts:156` | 11 |
+| `src/bases/ganttSync.ts:804` | 11 |
+| `src/bases/legendCatalog.ts:290` | 11 |
+| `src/bases/propertyValues.ts:184` | 11 |
+| `src/bases/retainedAncestorNotice.ts:84` | 11 |
+| `src/controller/calendar/workingDays.ts:52` | 11 |
+| `src/controller/sortKeyMapping.ts:75` | 11 |
+| `src/datasource/BasesSource.ts:174` | 11 |
+| `src/datasource/TaskNotesSource.ts:584` | 11 |
+| `src/datasource/TaskNotesSource.ts:723` | 11 |
+| `src/datasource/calendarItems/externalCalendarSource.ts:970` | 11 |
+| `src/datasource/calendarItems/recurringSource.ts:322` | 11 |
+| `test/perf/generator/generate.test.ts:120` | 11 |
+| `test/specs/gantt-calendar-items-external.e2e.ts:180` | 11 |
+| `test/specs/gantt-calendar-items-sources.e2e.ts:194` | 11 |
+| `test/unit/calendarRfcRoundTrip.test.ts:38` | 11 |
+| `test/unit/dragCommitPlanner.test.ts:447` | 11 |
+| `test/unit/dragCommitPlanner.test.ts:484` | 11 |
 
 Concentrations worth naming: `ganttSync.ts` carries two at-ceiling functions plus one at 11; `externalCalendarSource.ts` carries 15/14/13/11 (stable file, but the day someone edits it, the gate bites immediately); `resolveCalendars.ts` (15 + 13) is also a ranked defect target below, so its fix will collide with the ceiling.
 
@@ -144,8 +218,8 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 5. **`src/bases/services/BasesDataAdapter.ts` display formatting** — 2.5% churn, 6 concerns, 3 functions at 12, and the repo's clearest named boundary violation (adapters extract, views format). Extract-and-test: move `convertGroupKeyToString`'s formatting, `extractPropertyValue`'s display path, and `formatDateYmd` to the view layer.
 6. **`test/specs/gantt-calendar-editor.e2e.ts`** — 5.0% churn (highest of any spec), 1,606 lines, four separable suites serially mutating one fixture vault. Pain: ordering coupling makes every addition risk the 40 tests before it, and the calendar-editor spec family is where CI flake instances concentrate (see the backlog flake record). Helper extraction first, then a four-way split.
 7. **The peer-review gate cluster** — `cross-model-peer-review.sh` (490 lines, 21 exit codes, ~39 refusal sites) + `check-review-receipts.mjs` (291) + three linked backlog defects (untested guards, receipts not range-bound, worktree-not-commit reads). The backlog's own analysis stands: defect density concentrates in the distributed-git cluster that defends threats a solo-maintainer repo does not have; the deletion proposal (keep accident guards, ~100-line target) is deliberately unscheduled but ranked here because every campaign PR pays this gate's complexity twice per push.
-8. **`src/bases/entrySignature.ts` textProperty gap** — 1.9% churn, point defect, user-visible: rename a task via its mapped title property and the bar label stays stale until an unrelated refresh. Ranked above bigger items on pain-per-fix — the fix shape is one watched-mapping addition plus tests.
-9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — the fix collides with the gate ceiling, so it must extract, not inline). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid.
+8. **`src/bases/entrySignature.ts` textProperty gap** — 1.9% churn, point defect, user-visible: rename a task via its mapped title property and the bar label stays stale until an unrelated refresh. Ranked above bigger items on pain-per-fix — the fix shape is one watched-mapping addition plus tests. Classification note: this and rank 9 are backlog-queued coupling/boundary defects whose *fixes* change behavior — they are not from the excluded preserved-behavior list, and each fix is its own test-first unit per that list's rule.
+9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — the fix collides with the gate ceiling, so it must extract, not inline). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid. Same classification note as rank 8.
 10. **`src/bases/types/gantt-view-data.ts` write-callbacks on the display contract** — 6.3% churn on a 323-line types file is the signal: the contract changes with almost every feature because write-path plumbing rides it. Fold into whichever of ranks 1–2's slices touches the seam; not its own unit.
 11. **RFC 7986 COLOR deviation** — tiny, decision-shaped: constrain `color` to CSS3 names or record the documented deviation in `docs/architecture/calendar-rfc-mapping.md` (`schema.ts:113/:185` read any string; 3 commits / 0.6% churn on the file). Until decided, the mapping doc's lossless claim carries a known exception.
 
@@ -158,4 +232,10 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 
 ## Baseline
 
-This report is time-zero for the campaign's trend reporting. The trend metrics, re-measured with the Method commands at each campaign session's end: churn share of the top two files (18.7% / 14.9% — expect these to fall as slices land and their churn disperses to owned modules), enumerated concern counts (30 / 14 / 14), and the at-ceiling function count (16). The strategy's maintainability metric ("measured manually today at each re-measure") reads from here.
+This report is time-zero for the campaign's trend reporting. Full-history churn share is the wrong trend instrument — an extraction commit *touches* the file it shrinks, so the share ticks up on every slice, and a newly extracted module is diluted by the 477 commits that predate it. The trend metrics, re-measured at each campaign session's end, are therefore:
+
+- **Windowed churn** — the Method loop run over `7949fd1..HEAD` (commits since this baseline) instead of full history: does new churn concentrate in owned extracted modules rather than the top-two junction files?
+- **Enumerated concern counts** — 30 (`GanttContainer.svelte`) / 14 (`register.ts`) / 14 (`GanttController.ts`); these fall only when a slice genuinely moves a concern out.
+- **At-ceiling function count** — 16 at complexity 15.
+
+The full-history shares (18.7% / 14.9%) remain the baseline record, not the trend signal. The strategy's maintainability metric ("measured manually today at each re-measure") reads from here.

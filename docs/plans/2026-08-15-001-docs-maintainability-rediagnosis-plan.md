@@ -146,7 +146,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - **Files** - `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
 - **Approach** - ESLint run with `sonarjs/cognitive-complexity` overridden to a lower threshold via CLI rule override (no config edit), findings recorded with file, function, and reported complexity; plus the recorded zero-suppression check. Method section records the invocation.
 - **Test scenarios** - Test expectation: none — docs-only measurement unit.
-- **Verification** - `npm run lint` still passes untouched (proves no config edit leaked); the recorded invocation reproduces the findings list.
+- **Verification** - the unit's diff contains no `eslint.config.mjs` change (a green lint run cannot prove this — a leaked threshold raise also passes); the recorded invocation reproduces the findings list.
 
 ### U4. Fold in backlog defects and compose the ranked list
 
