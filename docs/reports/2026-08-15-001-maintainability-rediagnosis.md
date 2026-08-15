@@ -214,9 +214,11 @@ Checked against live code before ranking; entries reference their backlog headin
 | Calendar colour accepts values RFC 7986 COLOR does not permit | **Live, half resolved** — `schema.ts:113/:185` still read `color` as any string, but the deviation is already documented as tracked in `docs/architecture/calendar-rfc-mapping.md:11`; only the constrain-to-CSS3-names decision remains open |
 | Peer-review gate ~7× oversized | **Stale numbers, live substance** — 490 lines today (was 763); 21 exit codes; deletion proposal stands from a smaller base |
 | Peer-wrapper guards without tests; receipts not bound to reviewed range; review reads live worktree | **Carried as recorded** — wrapper/receipts files exist as described; no contrary evidence found |
+| Smaller accepted findings on the peer wrapper | **Carried, one claim stale** — the entry says `.peer-review-diff.tmp` "is untracked but not gitignored"; `.gitignore:86` ignores it at the measured commit, so that sub-claim is resolved; the remaining sub-claims (sentinel entropy, refresh-vs-default_base ref skew, double resolution, untested `sha256_of` recording path, offline exit 19) carry as recorded |
+| Accepted gate findings from PR #420's final-gate review | **Carried as recorded** — both entries (layer-1 acknowledgement shape, `[out-file]` unprotected in-repo paths) remain accurate; destined for the same future gate unit |
 | Mechanical churn/concern CI gate | **Parked, trigger not fired** — this report is the manual re-measure the strategy names; not proposed here |
 
-Honest negative: no queued maintainability entry was found obsoleted outright; the only correction is the peer-gate size.
+Honest negatives and corrections: no queued maintainability entry was found obsoleted outright; two recorded claims proved stale on verification — the peer-gate size (763 → 490 lines) and the `.peer-review-diff.tmp` gitignore status.
 
 ---
 
@@ -230,7 +232,7 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 4. **`src/controller/GanttController.ts`** — 7.3% churn × 14 concerns × 4 functions at 12–14. Tension with the 2026-08-10 audit's "controller sound" verdict, resolved by scope: the audit judged layering/correctness, this report judges decomposition pressure — both hold. Clearest first slice: the ~80-line mapping-resolution block inside `selectSource` (1206–1272), then the removable #161 debug instrumentation.
 5. **`src/bases/services/BasesDataAdapter.ts` display formatting** — 2.5% churn, 6 concerns, 3 functions at 12, and the repo's clearest named boundary violation (adapters extract, views format). Extract-and-test: move `convertGroupKeyToString`'s formatting, `extractPropertyValue`'s display path, and `formatDateYmd` to the view layer.
 6. **`test/specs/gantt-calendar-editor.e2e.ts`** — 5.0% churn (highest of any spec), 1,606 lines, four separable suites serially mutating one fixture vault. Pain: ordering coupling makes every addition risk the 40 tests before it. (The backlog's measured flake instances name other specs — `gantt-calendar-items-sources` and `gantt-dependency-types` — so flake is not part of this rank's argument.) Helper extraction first, then a four-way split.
-7. **The peer-review gate cluster** — `cross-model-peer-review.sh` (490 lines, 21 exit codes, ~39 refusal sites) + `check-review-receipts.mjs` (291) + three linked backlog defects (untested guards, receipts not range-bound, worktree-not-commit reads). The backlog's own analysis stands: defect density concentrates in the distributed-git cluster that defends threats a solo-maintainer repo does not have; the deletion proposal (keep accident guards, ~100-line target) is deliberately unscheduled but ranked here because every campaign PR pays this gate's complexity twice per push.
+7. **The peer-review gate cluster** — `cross-model-peer-review.sh` (490 lines, 21 exit codes, ~39 refusal sites) + `check-review-receipts.mjs` (291) + five linked backlog groups (untested guards; receipts not range-bound; worktree-not-commit reads; the smaller accepted wrapper findings; the accepted PR #420 gate findings — all verified in the fold-in table above). The backlog's own analysis stands: defect density concentrates in the distributed-git cluster that defends threats a solo-maintainer repo does not have; the deletion proposal (keep accident guards, ~100-line target) is deliberately unscheduled but ranked here because every campaign PR pays this gate's complexity twice per push.
 8. **`src/bases/entrySignature.ts` textProperty gap** — 1.9% churn, point defect, user-visible: rename a task via its mapped title property and the bar label stays stale until an unrelated refresh. Ranked above bigger items on pain-per-fix — the fix shape is one watched-mapping addition plus tests. Classification note: this and rank 9 are backlog-queued coupling/boundary defects whose *fixes* change behavior — they are not from the excluded preserved-behavior list, and each fix is its own test-first unit per that list's rule.
 9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — an inline fix that adds any branch trips the gate, so extraction is the practical fix shape). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid. Same classification note as rank 8.
 10. **`src/bases/types/gantt-view-data.ts` write-callbacks on the display contract** — 6.3% churn on a 323-line types file is the signal: the contract changes with almost every feature because write-path plumbing rides it. Fold into whichever of ranks 1–2's slices touches the seam; not its own unit.
@@ -252,10 +254,12 @@ This report is time-zero for the campaign's trend reporting. Full-history churn 
   ```bash
   range=7949fd1135ed32017cb72aafdb92c4f09caf8267..HEAD
   win=$(git rev-list --count $range)
-  git log --format= --name-only $range -- src test scripts |
+  git log --no-renames --format= --name-only $range -- src test scripts |
   awk -v w="$win" 'NF {c[$0]++} END {for (f in c) printf "%d %.1f%% %s\n", c[f], c[f]*100/w, f}' |
   sort -rn
   ```
+
+  `--no-renames` is load-bearing: with rename detection active, `--name-only` reports only a rename's destination path (verified against commit `3ae65fc`, where the default omitted all five old paths); with it, a rename commit lists both paths, one touch each, matching the stated semantics.
 
   The trend question: does new churn share concentrate in owned extracted modules rather than the top-two junction files?
 - **Enumerated concern counts** — 30 (`GanttContainer.svelte`) / 14 (`register.ts`) / 14 (`GanttController.ts`); these fall only when a slice genuinely moves a concern out.
