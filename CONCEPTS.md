@@ -53,6 +53,11 @@ The pre-drag position a halted cascade leaves behind so its unpaid displacement 
 ### Settled facts
 The authored values a write is known to have persisted, remembered per source because the plugin suppresses its own recompute and the rows it reads therefore still show pre-write values. A settled fact overlays a stale row only until a vault re-read that began after the write has delivered; a read that merely reuses cached tasks proves nothing and cannot retire it.
 
+## Extraction seams
+
+### Live accessor bridge
+The seam by which logic extracted out of the view keeps reading and writing the view's own mutable state: the view hands the extracted module an object of getter/setter properties closed over its component scope, so every read and write crosses live and the state never moves or gets copied. It exists because a value handed across a seam is a snapshot — a snapshot of a flag like the echo-suppression guard silently stops tracking the view the moment it changes — and because reactive state cannot leave the component without losing its reactivity. Members the extracted logic only reads are getter-only; a write made through the bridge is immediately visible to the view's effects, template, and every other handler.
+
 ## Review gate
 
 ### Review receipt
