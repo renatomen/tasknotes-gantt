@@ -177,13 +177,13 @@ export function makeReorderBlocker(
 export function makeShowEditorInterceptor(
   access: InterceptorAccess,
   deps: InteractionInterceptorDeps,
-): (ev: ShowEditorEvent) => boolean {
-  return ({ id }) => {
+): (ev: ShowEditorEvent) => false {
+  const routeDoubleClick = ({ id }: ShowEditorEvent): void => {
     // Ignore programmatic selection/editor events emitted while we reseed the
     // store (add/delete/update during diff-sync) — those are not user clicks.
     // Without this, a per-view settings change that reseeds the chart would
     // spuriously open the TaskNotes edit modal. Same guard as update-task.
-    if (access.syncing) return false;
+    if (access.syncing) return;
     if (access.pendingSingleClick) {
       globalThis.clearTimeout(access.pendingSingleClick);
       access.pendingSingleClick = null;
@@ -194,13 +194,19 @@ export function makeShowEditorInterceptor(
     const route = resolveShowEditorRoute(id, deps.notePathOf);
     if (route.kind === 'open-note') {
       deps.activateBar(String(id), 'double', access.lastCtrlMeta);
-      return false;
+      return;
     }
-    if (route.kind === 'none') return false;
+    if (route.kind === 'none') return;
     // Double-click runs the configured action regardless of selection.
     if (id && resolveClickActivation({ kind: 'double' }) === 'activateDouble') {
       deps.activateBar(String(id), 'double', access.lastCtrlMeta);
     }
+  };
+  // The interceptor's answer to SVAR is the constant `false` — its native
+  // editor never opens; editing is fully delegated to TaskNotes. The routing
+  // above carries the policy; the return carries no decision.
+  return (ev) => {
+    routeDoubleClick(ev);
     return false;
   };
 }
@@ -211,54 +217,60 @@ export function makeShowEditorInterceptor(
 export function makeSelectTaskInterceptor(
   access: InterceptorAccess,
   deps: InteractionInterceptorDeps,
-): (ev: SelectTaskEvent) => boolean {
-  return (ev) => {
+): (ev: SelectTaskEvent) => true {
+  const gateSingleClickActivation = (ev: SelectTaskEvent): void => {
     // Ignore programmatic re-selection emitted during a store reseed (a
     // deleted/re-added selected task makes SVAR fire select-task with
     // syncing=true). Only genuine user clicks drive selection/activation.
-    if (access.syncing) return true;
-    // Focus's programmatic select: apply the highlight (return true) but never
-    // schedule activation, so focusing keeps navigation-only even when the
-    // target was already selected. Drop any stale pending single action.
+    if (access.syncing) return;
+    // Focus's programmatic select: never schedule activation, so focusing
+    // keeps navigation-only even when the target was already selected. Drop
+    // any stale pending single action.
     if (access.suppressSelectActivation) {
       if (access.pendingSingleClick) {
         globalThis.clearTimeout(access.pendingSingleClick);
         access.pendingSingleClick = null;
       }
-      return true;
+      return;
     }
     const id = ev?.id != null ? String(ev.id) : null;
-    if (id) {
-      // Select-first gate: the intercept runs BEFORE SVAR applies this
-      // selection, so getState().selected still holds the pre-click set.
-      const selectedBefore = (deps.getState()?.selected ?? []).map(String);
-      const wasSelected = selectedBefore.includes(id);
+    if (!id) return;
+    // Select-first gate: the intercept runs BEFORE SVAR applies this
+    // selection, so getState().selected still holds the pre-click set.
+    const selectedBefore = (deps.getState()?.selected ?? []).map(String);
+    const wasSelected = selectedBefore.includes(id);
 
-      // Ctrl/Cmd is the new-tab modifier, NOT multi-select (out of scope).
-      // SVAR maps ctrl/meta to `toggle` (add-to-selection); clear it so a
-      // modified click can never leave a lingering multi-selection. Read
-      // the modifier from the pointer event — the same source the double-click
-      // (show-editor) path uses.
-      const ctrlOrMeta = ev.toggle === true || access.lastCtrlMeta;
-      if (ev.toggle) ev.toggle = false;
+    // Ctrl/Cmd is the new-tab modifier, NOT multi-select (out of scope).
+    // SVAR maps ctrl/meta to `toggle` (add-to-selection); clear it so a
+    // modified click can never leave a lingering multi-selection. Read
+    // the modifier from the pointer event — the same source the double-click
+    // (show-editor) path uses.
+    const ctrlOrMeta = ev.toggle === true || access.lastCtrlMeta;
+    if (ev.toggle) ev.toggle = false;
 
-      // Drop any stale deferred action from a previous click.
-      if (access.pendingSingleClick) {
-        globalThis.clearTimeout(access.pendingSingleClick);
-        access.pendingSingleClick = null;
-      }
-
-      if (resolveClickActivation({ kind: 'single', wasSelected }) === 'activateSingle') {
-        // Second click of an already-selected row → run the configured action,
-        // deferred so a following double-click can cancel it.
-        access.pendingSingleClick = setTimeout(() => {
-          access.pendingSingleClick = null;
-          deps.activateBar(id, 'single', ctrlOrMeta);
-        }, 250);
-      }
-      // else: first click of an unselected row → select + highlight only.
-      // We return true so SVAR applies `.wx-selected`; no action is scheduled.
+    // Drop any stale deferred action from a previous click.
+    if (access.pendingSingleClick) {
+      globalThis.clearTimeout(access.pendingSingleClick);
+      access.pendingSingleClick = null;
     }
+
+    if (resolveClickActivation({ kind: 'single', wasSelected }) === 'activateSingle') {
+      // Second click of an already-selected row → run the configured action,
+      // deferred so a following double-click can cancel it.
+      access.pendingSingleClick = setTimeout(() => {
+        access.pendingSingleClick = null;
+        deps.activateBar(id, 'single', ctrlOrMeta);
+      }, 250);
+    }
+    // else: first click of an unselected row → select + highlight only;
+    // no action is scheduled.
+  };
+  // The interceptor's answer to SVAR is the constant `true` — SVAR always
+  // applies its own `.wx-selected` highlight; the gate above only decides
+  // whether a deferred activation gets scheduled. The return carries no
+  // decision.
+  return (ev) => {
+    gateSingleClickActivation(ev);
     return true;
   };
 }
