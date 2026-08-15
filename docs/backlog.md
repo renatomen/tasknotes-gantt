@@ -595,6 +595,13 @@ so the tallies are one rerun-confirmed flaky run with two spec failures
 commit N times and record pass rate per spec" next step above stands, and
 should record run counts and per-spec failure counts as separate columns.
 
+**2026-08-15 instance (PR #425, docs-only diff).** Run **31872079256**
+attempt 1 failed `gantt-dependency-types.e2e.ts` on a diff containing no
+`src/` change; the same-SHA attempt 2 was green — rerun-confirmed flake by
+the standard rerun test. In this record's separate units: one more
+rerun-confirmed flaky *run*, with one *spec-level failure*, in the spec that
+also failed in the 2026-08-14 entry. (Also recorded as a comment on PR #425.)
+
 ## The peer-review gate is roughly 7x the size its purpose needs
 
 Measured on `main` at 018cbb0: **763 lines (473 shell + 290 node), 21 distinct
