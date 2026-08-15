@@ -492,6 +492,14 @@ describe('liveness of the access seam (R6)', () => {
     expect(backing.collapsedIds.has('a')).toBe(true);
     expect(backing.collapsedIds.has('b')).toBe(true);
   });
+
+  it('observes an external collapsedIds replacement made after wiring (collapse-all)', () => {
+    const { api, backing } = makeFixture();
+    backing.collapsedIds = new Set(['external']);
+    api.fire('open-task', { id: 'a', mode: false });
+    expect(backing.collapsedIds.has('external')).toBe(true);
+    expect(backing.collapsedIds.has('a')).toBe(true);
+  });
 });
 
 describe('view-side wiring shape (R6 accessor-property check)', () => {
