@@ -245,18 +245,20 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 
 This report is time-zero for the campaign's trend reporting. Full-history churn share is the wrong trend instrument — an extraction commit *touches* the file it shrinks, so the share ticks up on every slice, and a newly extracted module is diluted by the 477 commits that predate it. The trend metrics, re-measured at each campaign session's end, are therefore:
 
-- **Windowed churn** — commits since this baseline only, with the population enumerated from *both* endpoint trees so files created after the baseline are included (the Method loop's pinned tree alone would miss them):
+- **Windowed churn share** — commits since this baseline only, with the population enumerated from *both* endpoint trees so files created after the baseline are included (the Method loop's pinned tree alone would miss them). No `--follow` inside the window: a file renamed mid-window contributes its pre-rename touches to the old path and its post-rename touches to the new one — the two rows *sum* to the true count instead of double-counting the rename chain under both names. Share = touches / window commits:
 
   ```bash
+  range=7949fd1135ed32017cb72aafdb92c4f09caf8267..HEAD
+  win=$(git rev-list --count $range)
   { git ls-tree -r -z --name-only 7949fd1135ed32017cb72aafdb92c4f09caf8267 -- src test scripts
     git ls-tree -r -z --name-only HEAD -- src test scripts; } | sort -zu |
   while IFS= read -r -d '' f; do
-    n=$(git log --follow --format=%H 7949fd1135ed32017cb72aafdb92c4f09caf8267..HEAD -- "$f" | wc -l)
-    printf '%s %s\n' "$n" "$f"
+    n=$(git log --format=%H $range -- "$f" | wc -l)
+    [ "$n" -gt 0 ] && printf '%s %s%% %s\n' "$n" "$(awk "BEGIN{printf \"%.1f\", $n*100/$win}")" "$f"
   done | sort -rn
   ```
 
-  The trend question: does new churn concentrate in owned extracted modules rather than the top-two junction files?
+  The trend question: does new churn share concentrate in owned extracted modules rather than the top-two junction files?
 - **Enumerated concern counts** — 30 (`GanttContainer.svelte`) / 14 (`register.ts`) / 14 (`GanttController.ts`); these fall only when a slice genuinely moves a concern out.
 - **At-ceiling function count** — 16 at complexity 15.
 
