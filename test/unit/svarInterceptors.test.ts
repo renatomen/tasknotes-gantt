@@ -263,10 +263,13 @@ describe('show-editor interceptor', () => {
   it('clears a pending single-click before routing', () => {
     jest.useFakeTimers();
     try {
-      const pending = setTimeout(() => undefined, 250);
+      const stale = jest.fn();
+      const pending = setTimeout(stale, 250);
       const { api, backing } = makeFixture({ pendingSingleClick: pending });
       api.fire('show-editor', { id: 't1' });
       expect(backing.pendingSingleClick).toBeNull();
+      jest.runAllTimers();
+      expect(stale).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }
@@ -312,7 +315,8 @@ describe('select-task interceptor', () => {
   it('applies the highlight but never schedules while activation is suppressed, dropping any stale pending click', () => {
     jest.useFakeTimers();
     try {
-      const pending = setTimeout(() => undefined, 250);
+      const stale = jest.fn();
+      const pending = setTimeout(stale, 250);
       const { api, backing, activateBar, setSelected } = makeFixture({
         suppressSelectActivation: true,
         pendingSingleClick: pending,
@@ -323,6 +327,7 @@ describe('select-task interceptor', () => {
       expect(api.fire('select-task', { id: 't1' })).toBe(true);
       expect(backing.pendingSingleClick).toBeNull();
       jest.runAllTimers();
+      expect(stale).not.toHaveBeenCalled();
       expect(activateBar).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
@@ -492,10 +497,16 @@ describe('view-side wiring shape (R6 accessor-property check)', () => {
       'pointerButtonDown',
       'suppressSelectActivation',
     ]) {
-      expect(accessLiteral).toMatch(new RegExp(`get ${member}\\(\\)`));
+      // The getter body must return the same-named component binding — a
+      // wiring-time snapshot or a differently-named source would pass a
+      // shape-only check while killing liveness.
+      expect(accessLiteral).toMatch(new RegExp(`get ${member}\\(\\)\\s*\\{\\s*return ${member};`));
     }
     for (const written of ['ephemeralSort', 'collapsedIds', 'pendingSingleClick']) {
-      expect(accessLiteral).toMatch(new RegExp(`set ${written}\\(`));
+      // The setter body must assign to the same-named component binding.
+      expect(accessLiteral).toMatch(
+        new RegExp(`set ${written}\\(value\\)\\s*\\{\\s*${written} = value;`),
+      );
     }
     // The call site must pass the accessor object itself — a spread or copy
     // (`{ ...interactionAccess }`) would snapshot values and kill liveness.
