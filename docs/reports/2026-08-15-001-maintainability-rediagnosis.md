@@ -59,6 +59,9 @@ Top of the table (commits touching file / 477; test companions inline):
 | `src/bases/BarContent.svelte` | 13 | 2.7% |
 | `src/bases/services/BasesDataAdapter.ts` | 12 | 2.5% |
 | `src/bases/calendarShading.ts` | 12 | 2.5% |
+| `test/__mocks__/obsidian.ts` | 12 | 2.5% |
+
+The table is every file with 12 or more commits, in recorded order; two test companions inside that cutoff (`test/unit/viewOptions.test.ts` 19, `test/unit/TaskNotesSource.test.ts` 15) sit with their subjects: `viewOptions.ts` 22 and `TaskNotesSource.ts` 20.
 
 Reference points for the ranked list: `src/bases/entrySignature.ts` 9, `src/bases/cellEditCommit.ts` 7, `scripts/check-review-receipts.mjs` 6, `src/controller/calendar/resolveCalendars.ts` 5, `src/bases/ganttSyncCoordinator.ts` 4, `scripts/cross-model-peer-review.sh` 2, `src/datasource/calendarItems/externalCalendarSource.ts` **1** (0.2% — the audit's "large but stable" verdict, now measured).
 
@@ -112,13 +115,13 @@ Bases view/group access (212–253) · Value unwrapping (392–432) · raw prope
 
 ### `scripts/cross-model-peer-review.sh` — 10 concerns (490 lines today; companion `check-review-receipts.mjs` 291, enumerated above)
 
-Arg parsing · preflight · git anti-tamper primitives · remote/upstream resolution (the densest, most defect-history-laden cluster) · pre-review state guards · diff production + content guards · sentinel/canary anti-spoof · reviewer prompt · invocation + verdict parsing · record-time re-validation + receipts delegation. **Honest correction:** the backlog measured 763 lines / 44 refusal points at an older commit; today it is 490 lines, 21 distinct exit codes, ~39 refusal sites — already shrunk ~36%, so the backlog's deletion proposal starts from a smaller base than it recorded.
+Arg parsing (36–47) · preflight (49–50) · git anti-tamper primitives (`git_nr` 55, `sha256_of` 62–67, `worktree_changes` 69–77) · remote/upstream resolution (`tracking_remote` 83–95, `base_ref` 103–124, `refresh_upstream` 126–184, `default_base` 190–204 — the densest, most defect-history-laden cluster) · pre-review state guards (209–268) · diff production + content guards (272–306, 374–378) · sentinel/canary anti-spoof (308–324, 394–401) · reviewer prompt (326–367) · invocation + verdict parsing (380–416) · record-time re-validation + receipts delegation (418–489). **Honest correction:** the backlog measured 763 lines / 44 refusal points at an older commit; today it is 490 lines, 21 distinct exit codes, ~39 refusal sites — already shrunk ~36%, so the backlog's deletion proposal starts from a smaller base than it recorded.
 
 ---
 
 ## Measurement 3 — complexity-gate pressure
 
-69 functions sit in the 11–15 band (threshold-10 sweep; zero suppressions, so nothing can exceed 15 on main). ESLint locates each finding by `file:line` (the function is the one whose body starts at that location; the rule's message does not carry names). The full measured set, highest pressure first — the 16 **at exactly 15** are where any edit trips the hard gate:
+69 functions sit in the 11–15 band (threshold-10 sweep; zero suppressions, so nothing can exceed 15 on main). ESLint locates each finding by `file:line` (the function is the one whose body starts at that location; the rule's message does not carry names). The full measured set, highest pressure first — the 16 **at exactly 15** are where any complexity-*increasing* edit trips the hard gate (a neutral or reducing edit still passes; the pressure is that there is zero headroom for the ordinary fix shape of adding a branch):
 
 | Function location | Complexity |
 |---|---|
@@ -219,7 +222,7 @@ Honest negative: no queued maintainability entry was found obsoleted outright; t
 
 Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-measuring.
 
-1. **`src/bases/GanttContainer.svelte`** — 18.7% churn × 30 concerns × 4 functions in the pressure band × the `initGantt` weld (5 concerns' handlers closed over 7 mutable bindings). Nearly every fifth commit ever made navigates this file; the maintainer's "few lines of CSS = 4 hours" incident lives in its 1,369-line style block. Pain is compounding: each new feature adds a concern, and each concern multiplies the reading cost of the next change. Next slices are already sequenced — interceptors (slice 2, fresh plan next session, seven-bindings trap carried), then the style block (~1,000 separable CSS lines with zero script coupling), then diff-sync coordination.
+1. **`src/bases/GanttContainer.svelte`** — 18.7% churn × 30 concerns × 4 functions in the pressure band × the `initGantt` weld (5 concerns' handlers closed over at least nine outer mutable dependencies — the Measurement 2 inventory). Nearly every fifth commit ever made navigates this file; the maintainer's "few lines of CSS = 4 hours" incident lives in its 1,369-line style block. Pain is compounding: each new feature adds a concern, and each concern multiplies the reading cost of the next change. Next slices are already sequenced — interceptors (slice 2, fresh plan next session, seven-bindings trap carried), then the style block (~1,000 separable CSS lines with zero script coupling), then diff-sync coordination.
 2. **`src/bases/register.ts`** — 14.9% churn × 14 concerns in 1,872 lines. The junction box every view-level feature passes through: mount orchestration (~370 lines) and `buildGanttData` (~190 lines) are the welds; the ~20 option readers and the calendar/picker cluster are clean extract candidates. Second because its churn is nearly GanttContainer's with half the concern count.
 3. **Test tree is never typechecked** — tooling defect with a proven false-green: four committed tests called a function with the wrong arity and stayed green (backlog: "Test code is never typechecked"). No churn or concern metric applies — the defect is a configuration absence (`tsconfig.json` includes only `src` and `**/*.svelte`); the measurement is the false-green instance count. Pain class: silent assertion rot across 160+ suites — every suite the campaign will lean on while refactoring ranks 1–2. Its own pass, sized by the unknown number of latent arity/shape drifts it will surface.
 4. **`src/controller/GanttController.ts`** — 7.3% churn × 14 concerns × 4 functions at 12–14. Tension with the 2026-08-10 audit's "controller sound" verdict, resolved by scope: the audit judged layering/correctness, this report judges decomposition pressure — both hold. Clearest first slice: the ~80-line mapping-resolution block inside `selectSource` (1206–1272), then the removable #161 debug instrumentation.
@@ -227,7 +230,7 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 6. **`test/specs/gantt-calendar-editor.e2e.ts`** — 5.0% churn (highest of any spec), 1,606 lines, four separable suites serially mutating one fixture vault. Pain: ordering coupling makes every addition risk the 40 tests before it. (The backlog's measured flake instances name other specs — `gantt-calendar-items-sources` and `gantt-dependency-types` — so flake is not part of this rank's argument.) Helper extraction first, then a four-way split.
 7. **The peer-review gate cluster** — `cross-model-peer-review.sh` (490 lines, 21 exit codes, ~39 refusal sites) + `check-review-receipts.mjs` (291) + three linked backlog defects (untested guards, receipts not range-bound, worktree-not-commit reads). The backlog's own analysis stands: defect density concentrates in the distributed-git cluster that defends threats a solo-maintainer repo does not have; the deletion proposal (keep accident guards, ~100-line target) is deliberately unscheduled but ranked here because every campaign PR pays this gate's complexity twice per push.
 8. **`src/bases/entrySignature.ts` textProperty gap** — 1.9% churn, point defect, user-visible: rename a task via its mapped title property and the bar label stays stale until an unrelated refresh. Ranked above bigger items on pain-per-fix — the fix shape is one watched-mapping addition plus tests. Classification note: this and rank 9 are backlog-queued coupling/boundary defects whose *fixes* change behavior — they are not from the excluded preserved-behavior list, and each fix is its own test-first unit per that list's rule.
-9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — the fix collides with the gate ceiling, so it must extract, not inline). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid. Same classification note as rank 8.
+9. **Per-calendar diagnostics never surfaced** — `resolveCalendars.ts` (two functions at 15/13 — an inline fix that adds any branch trips the gate, so extraction is the practical fix shape). Fail-visible contract gap: a calendar with `timezone: Mars/Phobos` stays silently valid. Same classification note as rank 8.
 10. **`src/bases/types/gantt-view-data.ts` write-callbacks on the display contract** — 6.3% churn on a 323-line types file is the signal: the contract changes with almost every feature because write-path plumbing rides it. Fold into whichever of ranks 1–2's slices touches the seam; not its own unit.
 11. **RFC 7986 COLOR deviation** — tiny, decision-shaped, and half done: the deviation is already recorded as tracked in `docs/architecture/calendar-rfc-mapping.md:11` (`schema.ts:113/:185` read any string; 3 commits / 0.6% churn). The tracked deviation is interim by construction — principle 6 permits no permanently lossy store, so the open decision is the conformance *mechanism* (constrain input to CSS3 names, or another mapping that restores §5.9 conformance without rewriting stored values, which principle 6 also forbids), not whether to conform. Until it lands, the mapping row is not a lossless proof — its own text says so.
 
@@ -242,7 +245,18 @@ Rank = measured maintenance pain. Each entry carries its numbers; dispute by re-
 
 This report is time-zero for the campaign's trend reporting. Full-history churn share is the wrong trend instrument — an extraction commit *touches* the file it shrinks, so the share ticks up on every slice, and a newly extracted module is diluted by the 477 commits that predate it. The trend metrics, re-measured at each campaign session's end, are therefore:
 
-- **Windowed churn** — the Method loop run over `7949fd1..HEAD` (commits since this baseline) instead of full history: does new churn concentrate in owned extracted modules rather than the top-two junction files?
+- **Windowed churn** — commits since this baseline only, with the population enumerated from *both* endpoint trees so files created after the baseline are included (the Method loop's pinned tree alone would miss them):
+
+  ```bash
+  { git ls-tree -r -z --name-only 7949fd1135ed32017cb72aafdb92c4f09caf8267 -- src test scripts
+    git ls-tree -r -z --name-only HEAD -- src test scripts; } | sort -zu |
+  while IFS= read -r -d '' f; do
+    n=$(git log --follow --format=%H 7949fd1135ed32017cb72aafdb92c4f09caf8267..HEAD -- "$f" | wc -l)
+    printf '%s %s\n' "$n" "$f"
+  done | sort -rn
+  ```
+
+  The trend question: does new churn concentrate in owned extracted modules rather than the top-two junction files?
 - **Enumerated concern counts** — 30 (`GanttContainer.svelte`) / 14 (`register.ts`) / 14 (`GanttController.ts`); these fall only when a slice genuinely moves a concern out.
 - **At-ceiling function count** — 16 at complexity 15.
 

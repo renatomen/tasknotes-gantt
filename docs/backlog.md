@@ -586,9 +586,14 @@ the session handoff's "each green on first re-run" claim):
 
 Recorded here per the session-cadence rule — post-merge commits to the merged
 PRs were not available, so the append rode the next session's docs PR. The
-per-spec breakdown was not captured for these instances; the "re-run the same
-commit N times and record pass rate per spec" next step above stands, now
-with four rerun-confirmed instances and two suspected ones behind it.
+per-spec breakdown was not captured for these instances. Units differ across
+this record: the 2026-08-14 entry above counts two *spec-level failures*
+inside one failed run, while the 2026-08-15 entries count *workflow runs* —
+so the tallies are one rerun-confirmed flaky run with two spec failures
+(2026-08-14), two rerun-confirmed flaky runs and one never-rerun failed run
+(2026-08-15), plus one unverifiable earlier instance. The "re-run the same
+commit N times and record pass rate per spec" next step above stands, and
+should record run counts and per-spec failure counts as separate columns.
 
 ## The peer-review gate is roughly 7x the size its purpose needs
 
