@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "target": "ES2020",
     "noUncheckedIndexedAccess": false,
     "types": ["jest", "node", "@wdio/globals/types"]
   },
