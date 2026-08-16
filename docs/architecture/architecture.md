@@ -123,7 +123,7 @@ controller to `CompositeSource`. The file-level map of both flows is in
   second support surface. Day granularity now (a day works if the pattern or any
   availability block covers it); hour granularity — sub-day rendering, hourly
   conflicts, RFC 9253 working-time lag — is deferred until the Gantt renders
-  hourly ([backlog](../backlog.md)).
+  hourly ([backlog](../backlogs/backlog.md)).
 - **The iCalendar RFC family is the exclusive semantic authority at every calendar
   boundary.** The decision is structural, not stylistic: boundary shapes are
   standards-shaped so the plugin composes with the calendars and tools users
