@@ -12,5 +12,5 @@
     ]
   },
   "include": ["test/specs", "test/wdio"],
-  "exclude": ["test/specs/_local-*.e2e.ts"]
+  "exclude": ["test/specs/_local-*"]
 }
