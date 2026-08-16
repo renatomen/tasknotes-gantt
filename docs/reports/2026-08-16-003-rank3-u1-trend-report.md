@@ -1,27 +1,28 @@
 # Campaign trend report — rank-3 U1 session (test-tree typecheck mechanism)
 
 **Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
-**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `64e53ca`) — **6 window commits**: the five already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430) plus this unit's one code commit (`64e53ca`, the typecheck mechanism + vitest-tree repairs).
+**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `f515bea`) — **11 window commits**: the five already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430) plus this unit's six branch commits (the typecheck mechanism + vitest-tree repairs, docs, and three review-round fix commits). The unit's commits squash to one on merge, so per-path counts for paths several unit commits touch overstate main's eventual counts; the docs-only commit that lands this re-measure shifts only the denominator.
 **Measured:** 2026-08-16, by running the baseline's § Baseline commands verbatim (per-path touches over `src test scripts`, `--no-renames`).
 
 ## Windowed churn share
 
-The documented command's output at `64e53ca` (docs-only commits count in the denominator only):
+The documented command's output at `f515bea` (docs-only commits count in the denominator only):
 
 ```
-2 33.3% test/unit/svarInterceptors.test.ts
-2 33.3% src/bases/svarInterceptors.ts
-2 33.3% src/bases/GanttContainer.svelte
-1 16.7% test/probe/tooltip-render.probe.ts
-1 16.7% test/perf/isolated/ganttSyncProtocol.perf.ts
-1 16.7% test/perf/generator/buildGanttData.ts
+2 18.2% test/unit/typecheckPartitionGuard.test.ts
+2 18.2% test/unit/svarInterceptors.test.ts
+2 18.2% src/bases/svarInterceptors.ts
+2 18.2% src/bases/GanttContainer.svelte
+1  9.1% test/probe/tooltip-render.probe.ts
+1  9.1% test/perf/isolated/ganttSyncProtocol.perf.ts
+1  9.1% test/perf/generator/buildGanttData.ts
 ```
 
-The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its three code touches are test-tree type repairs surfaced by the new typecheck programs — and the window's `src` churn remains the slice-2 extraction pair. `register.ts` and `GanttController.ts` hold at zero window touches.
+The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are test-tree type repairs surfaced by the new typecheck programs plus the new partition guard test — and the window's `src` churn remains the slice-2 extraction pair. `register.ts` and `GanttController.ts` hold at zero window touches.
 
 ## Concern counts
 
-Unchanged — **29 / 14 / 14** (`GanttContainer.svelte` / `register.ts` / `GanttController.ts`). This session is rank 3 of the ranked defect list, a tooling defect: no concern moved because no junction file was touched. The rank-3 defect itself moved from "configuration absence" to "mechanism landed, one of three programs green": three tsconfig programs now partition the committed test tree, the jest program is a structural catch-all (a new test directory is typechecked by default), and `typecheck:test` runs all three. Latent-error inventory the mechanism surfaced, now the remediation backlog for the next units: jest tree 162, e2e tree 97, vitest tree 0 (repaired this session — including a five-field `GanttData` contract drift in the perf harness, the false-green class in live form).
+Unchanged — **29 / 14 / 14** (`GanttContainer.svelte` / `register.ts` / `GanttController.ts`). This session is rank 3 of the ranked defect list, a tooling defect: no concern moved because no junction file was touched. The rank-3 defect itself moved from "configuration absence" to "mechanism landed, one of three programs green": three tsconfig programs now partition the committed test tree, the jest program is a structural catch-all (a new test directory is typechecked by default), and `typecheck:test` runs all three. Latent-error inventory the mechanism surfaced, now the remediation backlog for the next units: jest tree 160, e2e tree 97, vitest tree 0 (repaired this session — including a five-field `GanttData` contract drift in the perf harness, the false-green class in live form).
 
 ## Complexity-gate pressure
 
