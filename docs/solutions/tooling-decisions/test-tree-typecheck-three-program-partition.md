@@ -15,8 +15,6 @@ tags: [typecheck, tsconfig, jest, wdio, vitest, svelte-check, test-partition, am
 
 # Typechecking a multi-framework test tree — the three-program partition
 
-> **Status: evolving until the gate wires in (plan U4).** Facts below were measured on the 2026-08-16 spike, U1 (PR #431), and U2 (PR #432). All calibrations from PR #431's review threads are **applied** — the unit-program set in U2 (see the paragraph below) and the e2e program's `DOM.Iterable` in U3; nothing is pending. Finalize this doc when `typecheck:test` joins `npm run typecheck`.
-
 ## Context
 
 The test tree (220+ files) was never typechecked (`tsconfig.json` includes only `src` and `*.svelte`), producing a proven false-green class — wrong-arity calls staying green (maintainability re-diagnosis rank 3). Closing it required typechecking three frameworks whose type worlds conflict. Plan: `docs/plans/2026-08-16-001-chore-test-tree-typecheck-gate-plan.md`.
@@ -57,5 +55,6 @@ Measured class-collapse examples: adding `wdio-obsidian-service` to `types` remo
 
 ## Related
 
-- `docs/solutions/developer-experience/mts-configs-escape-typecheck-and-lint.md` — the e2e program now typechecks `test/wdio/*.mts`, but that doc's core guidance **survives**: static gates cannot see runtime WebDriver failures (comment-terminating globs, unsupported commands), so `.mts` changes are still verified by running WDIO. Its typecheck-half closure becomes true only when U4 wires the gate; its lint half remains open (deferred in the plan's scope boundaries).
+- `docs/solutions/developer-experience/mts-configs-escape-typecheck-and-lint.md` — the e2e program now typechecks `test/wdio/*.mts`, closing that doc's typecheck half; its core guidance **survives** regardless: static gates cannot see runtime WebDriver failures (comment-terminating globs, unsupported commands), so `.mts` changes are still verified by running WDIO. Its lint half remains open (deferred in the plan's scope boundaries).
+- `docs/solutions/conventions/wdio-chainablepromisearray-runtime-truth-before-repair.md` — the U3 diagnosis discipline this doc's config-calibration-first sequencing feeds into: once config calibration is ruled out, a remaining static type error over an assertion still needs runtime verification before its repair shape is chosen.
 - `docs/plans/2026-08-16-001-chore-test-tree-typecheck-gate-plan.md` — the governing plan (R1 coverage contract, KTD1-KTD6).
