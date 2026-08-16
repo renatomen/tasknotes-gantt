@@ -1,22 +1,22 @@
 # Campaign trend report — rank-3 U2 session (jest tree green)
 
 **Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
-**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `6830405`) — **14 window commits**: the six already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430, `70cf1b2` #431) plus this unit's eight branch commits (two docs riders/updates, two config calibrations, four remediation batches). The unit's commits squash to one on merge, so per-path counts for paths several unit commits touch overstate main's eventual counts (no path here is touched by more than one unit commit, so the effect is nil this time); the docs-only commits — including the one that lands this re-measure — shift only the denominator.
+**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `7657f03`, after the two review-fix commits — remeasured per the Codex review thread on PR #432) — **17 window commits**: the six already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430, `70cf1b2` #431) plus this unit's eleven branch commits (docs riders/updates, two config calibrations, four remediation batches, the first trend measure, two review-fix commits). The unit's commits squash to one on merge, so per-path counts for paths several unit commits touch overstate main's eventual counts — here `svarInterceptors.test.ts` (2 unit commits) lands on main as 3 total touches, not 4, and `typecheckPartitionGuard.test.ts` (2 unit commits) as 2, not 3; the docs-only commits — including the one that lands this re-measure — shift only the denominator.
 **Measured:** 2026-08-16, by running the baseline's § Baseline commands verbatim (per-path touches over `src test scripts`, `--no-renames`; threshold-10 complexity sweep).
 
 ## Windowed churn share
 
-Top of the documented command's output at `6830405`:
+Top of the documented command's output at `7657f03`:
 
 ```
-3 21.4% test/unit/svarInterceptors.test.ts
-2 14.3% src/bases/svarInterceptors.ts
-2 14.3% src/bases/GanttContainer.svelte
-1  7.1% test/unit/typecheckPartitionGuard.test.ts
-1  7.1% (each) — the 36 jest-tree test files repaired this unit, one touch apiece
+4 23.5% test/unit/svarInterceptors.test.ts
+3 17.6% test/unit/typecheckPartitionGuard.test.ts
+2 11.8% src/bases/svarInterceptors.ts
+2 11.8% src/bases/GanttContainer.svelte
+1  5.9% (each) — the remaining jest-tree test files repaired this unit, one touch apiece
 ```
 
-The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig and 36 test files, each exactly once. The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. `svarInterceptors.test.ts` tops the table only because it now carries three one-touch commits across three different campaigns (extraction, interceptor refactor, this type repair) — breadth of the window, not a hotspot forming.
+The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig, `jest.config.mjs`, the three converted svelte mock stubs, and 36 test files (two of them twice, via the review-fix commits). The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. `svarInterceptors.test.ts` tops the table because it carries commits from three different campaigns (extraction, interceptor refactor, this type repair plus its review fix) — breadth of the window, not a hotspot forming.
 
 ## Concern counts
 
@@ -24,7 +24,7 @@ Unchanged — **29 / 14 / 14** (`GanttContainer.svelte` / `register.ts` / `Gantt
 
 ## Complexity-gate pressure
 
-Repo at-exactly-15 count: **unchanged at 16** (threshold-10 sweep re-run at `6830405`). No `src` function was touched; the repaired test files introduce no function in the pressure band (the ESLint sonarjs gate ran green at every commit).
+Repo at-exactly-15 count: **unchanged at 16** (threshold-10 sweep re-run at `7657f03`). No `src` function was touched; the repaired test files introduce no function in the pressure band (the ESLint sonarjs gate ran green at every commit).
 
 ## Verdict against the mission invariant
 
