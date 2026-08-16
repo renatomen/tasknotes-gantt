@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "noUncheckedIndexedAccess": false,
+    "types": [
+      "node",
+      "@wdio/globals/types",
+      "@wdio/mocha-framework",
+      "expect-webdriverio",
+      "wdio-obsidian-service"
+    ]
+  },
+  "include": ["test/specs", "test/wdio"],
+  "exclude": ["test/specs/_local-*.e2e.ts"]
+}

@@ -34,7 +34,7 @@ const TASKS = [
     },
   },
 ];
-const LINKS = [{ id: 'a->b:e2s:P1D', source: 'a', target: 'b', type: 'e2s' }];
+const LINKS = [{ id: 'a->b:e2s:P1D', source: 'a', target: 'b', type: 'e2s' as const }];
 
 async function mount(): Promise<HTMLElement> {
   const screen = render(TooltipProbeHost, { props: { tasks: TASKS, links: LINKS } });
