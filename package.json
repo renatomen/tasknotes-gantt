@@ -16,7 +16,7 @@
     "test": "jest --passWithNoTests",
     "test:coverage": "jest --coverage --passWithNoTests",
     "lint": "eslint . --max-warnings 0",
-    "typecheck": "svelte-check --tsconfig tsconfig.json",
+    "typecheck": "svelte-check --tsconfig tsconfig.json && npm run typecheck:test",
     "typecheck:test": "tsc -p tsconfig.test-unit.json && tsc -p tsconfig.test-e2e.json && svelte-check --tsconfig tsconfig.test-vitest.json",
     "format": "prettier --write .",
     "version": "node version-bump.mjs && node scripts/generate-release-notes-import.mjs && node scripts/update-release-index.mjs && git add manifest.json versions.json src/releaseNotes.ts docs/releases.md",
