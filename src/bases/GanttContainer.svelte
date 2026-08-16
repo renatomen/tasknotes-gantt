@@ -26,7 +26,6 @@
   import { chartSpanSnapshot } from '../render/svarContract';
   import { lucideIcon } from './lucideIconAction';
   import BarContent from './BarContent.svelte';
-  import { resolveClickActivation } from './taskNotesInteractions';
   import { onDestroy, setContext, tick } from 'svelte';
   import {
     GRID_APP_CONTEXT_KEY,
@@ -41,7 +40,6 @@
     allowsTaskContextMenu,
     hasDerivedBarGeometry,
     refusesUserRowMutation,
-    resolveShowEditorRoute,
   } from './eventRowGuards';
   import {
     buildSvarTasks,
@@ -115,7 +113,8 @@
   import { DEFAULT_CONTEXT_OPACITY } from './viewOptions';
   import { toggleCollapseAll } from './collapseState';
   import { propertyColumnSort } from './columnSort';
-  import { cycleNext, type EphemeralSort } from './sortCycle';
+  import { type EphemeralSort } from './sortCycle';
+  import { wireInteractionInterceptors, type InterceptorAccess } from './svarInterceptors';
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
   import type { SourceSwitcherState, SwitcherRowSource } from './sourceSwitcher';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
@@ -1800,6 +1799,53 @@
   /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
   let dbgInitCount = 0;
 
+  // Every mutable binding crosses the interceptor seam as a live accessor
+  // property closed over this component's scope — never a copied value — so a
+  // handler's write is visible to the next handler, the sync coordinator, and
+  // the template. Built once; initGantt re-registers per re-bound api.
+  const interactionAccess: InterceptorAccess = {
+    get syncing() {
+      return syncing;
+    },
+    get ephemeralSort() {
+      return ephemeralSort;
+    },
+    set ephemeralSort(value) {
+      ephemeralSort = value;
+    },
+    get collapsedIds() {
+      return collapsedIds;
+    },
+    set collapsedIds(value) {
+      collapsedIds = value;
+    },
+    get pendingSingleClick() {
+      return pendingSingleClick;
+    },
+    set pendingSingleClick(value) {
+      pendingSingleClick = value;
+    },
+    get lastCtrlMeta() {
+      return lastCtrlMeta;
+    },
+    get pointerButtonDown() {
+      return pointerButtonDown;
+    },
+    get suppressSelectActivation() {
+      return suppressSelectActivation;
+    },
+  };
+  const interactionDeps = {
+    echoSource: OG_ECHO_SOURCE,
+    restoreBaseOrder,
+    activateBar,
+    notePathOf: (rowId: string) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
+    // Reads the live `api` binding, not a wiring-time parameter: a stale
+    // registration must see the current instance's selection, exactly as the
+    // pre-extraction closure did.
+    getState: () => api?.getState?.(),
+  };
+
   // Initialize API and intercept editor events
   function initGantt(ganttApi: GanttAPI) {
     // A re-bound api is a new host world: retire in-flight executor work.
@@ -1816,175 +1862,14 @@
     dbgInitCount += 1;
     dlog(`[OGDBG] initGantt #${dbgInitCount} svarTasks=${api?.getState?.()?.tasks?.length ?? '?'}`);
 
-    // Native edit interaction (U2): a bar's left/double-click routes to the
-    // TaskNotes interaction service (via onBarActivate) instead of a custom
-    // modal — TaskNotes performs the configured action (open note / open its own
-    // edit modal). Single vs double is disambiguated with a short debounce.
-    //
-    // Double-click → SVAR fires `show-editor` (no modifier info; we use the
-    // last pointer's ctrl/meta). We always return false so SVAR's own editor
-    // never opens — editing is fully delegated to TaskNotes.
-    // Ephemeral column sort (plan 2026-06-22-002, reverses R16): a user header
-    // click cycles the column asc → desc → cleared (cycleNext, U2). SVAR's native
-    // header click is an infinite asc↔desc toggle with no "clear" state, so we
-    // drive the cycle off OUR `ephemeralSort` and inject the third (clear) state
-    // ourselves. For asc/desc we let SVAR perform the sort (its `order` matches
-    // the cycle, since both go no-sort→asc→desc); for the clear we CANCEL SVAR's
-    // toggle-back-to-asc (return falsy) and restore the Base order. Echo-guarded
-    // (mirrors the open-task interceptor) so U4/U5's re-asserts can't re-enter.
-    api.intercept(
-      "sort-tasks",
-      (ev: { key?: string; order?: string; eventSource?: string }) => {
-        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
-        if (typeof ev?.key !== 'string') return true;
-        const nextSort = cycleNext(ephemeralSort, ev.key);
-        if (nextSort === null) {
-          // Third click on the active column → clear. Hide the reset pill now
-          // (synchronous state), and restore the Base order on a deferred tick so
-          // the store finishes cancelling THIS action before we reset `_sort` +
-          // replay the Base-order moves (avoids re-entrancy inside the intercept).
-          // Bail if a new sort started within the tick (a fast re-click) — that
-          // sort now owns the display (mirrors the reseed re-assert's guard).
-          ephemeralSort = null;
-          setTimeout(() => {
-            if (ephemeralSort) return;
-            restoreBaseOrder();
-          }, 0);
-          return false;
-        }
-        ephemeralSort = nextSort;
-        return true;
-      },
-    );
-
-    // Persist user collapse/expand (U7). SVAR fires open-task on a toggle-icon
-    // click — mode=true expands, mode=false collapses. Let it proceed (return
-    // true) and record the change so it survives reload. Ignore our own bulk
-    // collapse-all execs (tagged eventSource) and any event during a reseed.
-    // Veto only the mid-drag collapse: SVAR's reorder gesture folds a parent
-    // (startReorder) before dragging it, so a drag begun on a cell would collapse
-    // the row by surprise. That is the only open-task that fires with a button
-    // held; the deliberate toggles (chevron click, keyboard hotkey) fire with the
-    // pointer already up, so they pass.
-    api.intercept(
-      "open-task",
-      (ev: { id?: string | number; mode?: boolean; eventSource?: string }) => {
-        if (syncing || ev?.eventSource === OG_ECHO_SOURCE) return true;
-        if (pointerButtonDown) return false;
-        const id = ev?.id != null ? String(ev.id) : null;
-        if (!id || typeof ev.mode !== 'boolean') return true;
-        const next = new Set(collapsedIds);
-        if (ev.mode) next.delete(id);
-        else next.add(id);
-        collapsedIds = next;
-        return true;
-      },
-    );
-
-    // Row reordering is disabled. SVAR ships no reorder-toggle prop in this
-    // version (readonly is too broad — it also kills editing and double-click
-    // editor opening), so the documented lever is api.intercept returning false.
-    // A user reorder would not persist (the next data pass rebuilds order) and
-    // its drag-start collapses parents and swallows in-editor text selection.
-    // Our own ordering moves are echo-tagged and pass through. The keyboard
-    // actions and the newer semantic aliases are blocked too so a SVAR bump
-    // can't silently re-enable reordering.
-    const blockUserReorder = (ev?: { eventSource?: string }): boolean =>
-      // Echoes must keep passing even for event rows: planReorder's ordering
-      // moves are the only way appended event rows stay positioned.
-      syncing || ev?.eventSource === OG_ECHO_SOURCE;
-    for (const reorderAction of [
-      "move-task",
-      "move-task:up",
-      "move-task:down",
-      "reorder-tasks",
-      "move-up",
-      "move-down",
-    ]) {
-      api.intercept(reorderAction, blockUserReorder);
-    }
-
-    api.intercept("show-editor", ({ id }: { id: string }) => {
-      // Ignore programmatic selection/editor events emitted while we reseed the
-      // store (add/delete/update during diff-sync) — those are not user clicks.
-      // Without this, a per-view settings change that reseeds the chart would
-      // spuriously open the TaskNotes edit modal. Same guard as update-task.
-      if (syncing) return false;
-      if (pendingSingleClick) {
-        clearTimeout(pendingSingleClick);
-        pendingSingleClick = null;
-      }
-      // A calendar-item row never opens a task editor: with a backing note the
-      // double-click opens that note (activateBar's synthetic id resolves to it
-      // downstream), without one it is a no-op.
-      const route = resolveShowEditorRoute(
-        id,
-        (rowId) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
-      );
-      if (route.kind === 'open-note') {
-        activateBar(String(id), 'double', lastCtrlMeta);
-        return false;
-      }
-      if (route.kind === 'none') return false;
-      // Double-click runs the configured action regardless of selection (R5).
-      if (id && resolveClickActivation({ kind: 'double' }) === 'activateDouble') {
-        activateBar(String(id), 'double', lastCtrlMeta);
-      }
-      return false;
-    });
-
-    // Single-click → SVAR fires `select-task` (carries `toggle` = ctrl/meta).
-    // SVAR applies its own `.wx-selected` highlight when we return true; we add
-    // the select-first gate on top: only an already-selected row activates.
-    api.intercept("select-task", (ev: { id?: string | number; toggle?: boolean }) => {
-      // Ignore programmatic re-selection emitted during a store reseed (a
-      // deleted/re-added selected task makes SVAR fire select-task with
-      // syncing=true). Only genuine user clicks drive selection/activation.
-      if (syncing) return true;
-      // Focus's programmatic select: apply the highlight (return true) but never
-      // schedule activation, so focusing keeps navigation-only even when the
-      // target was already selected (R9). Drop any stale pending single action.
-      if (suppressSelectActivation) {
-        if (pendingSingleClick) {
-          clearTimeout(pendingSingleClick);
-          pendingSingleClick = null;
-        }
-        return true;
-      }
-      const id = ev?.id != null ? String(ev.id) : null;
-      if (id) {
-        // Select-first gate (R1/R2): the intercept runs BEFORE SVAR applies this
-        // selection, so getState().selected still holds the pre-click set.
-        const selectedBefore = (api.getState()?.selected ?? []).map(String);
-        const wasSelected = selectedBefore.includes(id);
-
-        // Ctrl/Cmd is the new-tab modifier (R7), NOT multi-select (out of scope).
-        // SVAR maps ctrl/meta to `toggle` (add-to-selection); clear it so a
-        // modified click can never leave a lingering multi-selection (AE7). Read
-        // the modifier from the pointer event — the same source the double-click
-        // (show-editor) path uses.
-        const ctrlOrMeta = ev.toggle === true || lastCtrlMeta;
-        if (ev.toggle) ev.toggle = false;
-
-        // Drop any stale deferred action from a previous click.
-        if (pendingSingleClick) {
-          clearTimeout(pendingSingleClick);
-          pendingSingleClick = null;
-        }
-
-        if (resolveClickActivation({ kind: 'single', wasSelected }) === 'activateSingle') {
-          // Second click of an already-selected row → run the configured action,
-          // deferred so a following double-click can cancel it (R4/R6).
-          pendingSingleClick = setTimeout(() => {
-            pendingSingleClick = null;
-            activateBar(id, 'single', ctrlOrMeta);
-          }, 250);
-        }
-        // else: first click of an unselected row → select + highlight only (R1).
-        // We return true so SVAR applies `.wx-selected`; no action is scheduled.
-      }
-      return true;
-    });
+    // Native edit interaction: a bar's left/double-click routes to the
+    // TaskNotes interaction service — TaskNotes performs the configured action
+    // (open note / open its own edit modal); SVAR's own editor never opens.
+    // The interaction-cluster policy bodies (ephemeral sort, collapse
+    // persistence, reorder blocking, show-editor routing, select-first
+    // activation) live in svarInterceptors.ts; only the registrations repeat
+    // per re-bound api — the access/deps objects are component-lifetime.
+    wireInteractionInterceptors(ganttApi, interactionAccess, interactionDeps);
 
     // Unified drag wiring. Parents are ordinary (non-summary) tasks, so
     // dragging one moves only that bar — SVAR fires a single committing
