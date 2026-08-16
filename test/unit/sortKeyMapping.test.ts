@@ -34,6 +34,7 @@ function ctask(
     end: null,
     progress: null,
     status: null,
+    priority: null,
     parents: [],
     alsoTopLevel: false,
     ...partial,

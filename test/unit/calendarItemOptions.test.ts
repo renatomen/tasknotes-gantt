@@ -331,6 +331,7 @@ describe('externalCalendarDegradedEntry', () => {
     // text input rendering its placeholder), alongside the session Notice.
     const entry = externalCalendarDegradedEntry();
     expect(entry.type).toBe('text');
+    if (entry.type !== 'text') throw new Error('expected a text option entry');
     expect(entry.default).toBe('');
     expect(entry.displayName).toBe('External calendars');
     expect(entry.placeholder).toContain('unavailable');

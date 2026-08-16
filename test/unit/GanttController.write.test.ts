@@ -40,6 +40,7 @@ function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
     end: null,
     progress: null,
     status: null,
+    priority: null,
     parents: [],
     ...partial,
   };
@@ -240,6 +241,9 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     scheduledProp: 'scheduled',
     dueProp: 'due',
     dateFields: [{ key: 'start', id: 'uf_start', displayName: 'Start' }],
+    timeEstimateProp: null,
+    statusProp: null,
+    priorityProp: null,
   };
 
   function makeBasesScoped(opts: {
@@ -414,7 +418,14 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     // The stale-refresh fix: with no view property, the read key must fall back to
     // TaskNotes' configured timeEstimate field so an edit there flips the signature.
     const { controller } = makeBasesScoped({
-      fieldConfig: { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [], timeEstimateProp: 'estimate' },
+      fieldConfig: {
+        scheduledProp: 'scheduled',
+        dueProp: 'due',
+        dateFields: [],
+        timeEstimateProp: 'estimate',
+        statusProp: null,
+        priorityProp: null,
+      },
     });
     await controller.init();
     expect(controller.getEstimateReadKey()).toBe('note.estimate');

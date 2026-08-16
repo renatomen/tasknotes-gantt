@@ -62,6 +62,7 @@ function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
     isVirtual: over.isVirtual ?? false,
     isCollapsed: over.isCollapsed ?? false,
     dateStatus: over.dateStatus ?? 'complete',
+    estimateMinutes: over.estimateMinutes ?? null,
     status: over.status ?? null,
     priority: over.priority ?? null,
     isFetched: over.isFetched ?? false,

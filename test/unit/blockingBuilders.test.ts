@@ -424,6 +424,7 @@ describe('one-sided re-derivation identity (save-time == refresh-time)', () => {
       end: null,
       progress: null,
       status: null,
+      priority: null,
       parents: [],
       estimate: 3 * 1440,
     };

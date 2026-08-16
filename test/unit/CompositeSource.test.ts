@@ -21,7 +21,7 @@ import type {
 } from '../../src/datasource/types';
 
 function task(path: string, parents: string[] = []): SourceTask {
-  return { path, text: path, start: null, end: null, progress: null, status: null, parents };
+  return { path, text: path, start: null, end: null, progress: null, status: null, priority: null, parents };
 }
 
 /** A controllable fake source; subscription support is opt-in (mirrors TaskNotes). */
