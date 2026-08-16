@@ -884,3 +884,14 @@ stale — README.md already embeds Gantt screenshots; ticked 2026-08-16.)
 The strategy track "Grow the standalone side" should point at this entry
 when STRATEGY.md's tracks are next amended (maintainer-approved edit). When
 picked up, promote to a GitHub issue and delete this entry.
+
+## E2E flake instance: context-aware-legend "before all" hook, run 31929397025
+
+Rerun-confirmed instance of the never-became-ready flake class, recorded on
+PR #430's record (2026-08-16): the `gantt-context-aware-legend` spec's
+"before all" hook failed on the first CI run of the merge candidate and
+passed on a same-SHA rerun, so it is environment/readiness flake, not a
+code defect. Kept here as a data point for the upcoming Reliability
+re-diagnosis denominator (each confirmed instance counts); no diagnosis
+work is scheduled from this entry alone. When the Reliability re-diagnosis
+starts, feed this instance in and delete this entry.
