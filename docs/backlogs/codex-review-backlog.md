@@ -23,9 +23,9 @@ Status legend: 🔲 to triage · 🔧 to fix (confirmed real) · ✅ fixed (thre
 
 | PR | Location | Finding | Record |
 |----|----------|---------|--------|
-| #266 | plan-doc:295 | Refresh the evaluated-date stylesheet on viewport pan/zoom | `docs/backlog.md` ("Deferred Codex review threads"); reply posted naming the record |
+| #266 | plan-doc:295 | Refresh the evaluated-date stylesheet on viewport pan/zoom | `docs/backlogs/backlog.md` ("Deferred Codex review threads"); reply posted naming the record |
 
 Two further provenance questions surfaced by the #336 review are recorded in
-`docs/backlog.md` ("Inferred-edge undo: authorship vs appearance") for one
+`docs/backlogs/backlog.md` ("Inferred-edge undo: authorship vs appearance") for one
 maintainer decision: whether an undo should un-author the date/estimate the
 choice materialised, which needs a patch path that can clear a field.

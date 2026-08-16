@@ -49,7 +49,7 @@ controller to `CompositeSource`. The file-level map of both flows is in
   types; formatting is a view concern. This is the norm, with known lag: the
   adapter still display-formats group keys and some property values today — a
   tracked violation queued for the maintainability campaign (see
-  `docs/backlog.md`), not a revision of the boundary. The boundary keeps every
+  `docs/backlogs/backlog.md`), not a revision of the boundary. The boundary keeps every
   derivation step testable in jest without a DOM, keeps display conventions
   swappable per view, and preserves round-trips: a value formatted at extraction
   can never restore the raw entry it came from — a wikilink flattened to its
@@ -106,7 +106,7 @@ controller to `CompositeSource`. The file-level map of both flows is in
   means task reuse, a moved one releases a full re-read. The watched set is
   load-bearing and currently incomplete: the task-name (`textProperty`) mapping
   is not watched, so a label-only edit reuses the cache — a tracked gap (see
-  `docs/backlog.md`), not the contract. The signature is
+  `docs/backlogs/backlog.md`), not the contract. The signature is
   deliberately derived *without* touching the Base's value system, because reading
   through that system is itself what provokes the host into another notify — the
   loop-breaker must not feed the loop. The watched-field set is load-bearing: a
@@ -163,7 +163,7 @@ evaluation time is today inert rather than invalid — the fail-visible gap
 already tracked as backlog P2b, not the contract. Dropped-entry diagnostics are recorded at parse
 time and are *meant* to surface as flags; today only calendar-set diagnostics
 are promoted while per-calendar definition diagnostics are recorded but not yet
-surfaced — a tracked gap (see `docs/backlog.md`), not the contract.
+surfaced — a tracked gap (see `docs/backlogs/backlog.md`), not the contract.
 
 ## Provenance
 

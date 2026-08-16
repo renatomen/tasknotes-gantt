@@ -30,7 +30,7 @@ While building a feature (the "What's New" redesign), a branch was cut from `rel
 
 **Always base feature branches on `main`.** `main`'s `manifest.json` is a clean `X.Y.Z` (e.g. `0.0.1`); `release/X.Y.Z-beta.N` branches carry a **prerelease** manifest by design and are **not** feature-PR targets. All prior feature PRs (#191–#195) targeted `main`.
 
-**Why release branches carry a `-beta` manifest.** Per [docs/RELEASING.md](../../RELEASING.md) ("manifest-on-`main` invariant"), a `-beta` version must never land on `main` because that's the store-facing version. So a beta is cut *on a branch*: `npm version 0.1.0-beta.N` bumps `manifest.json` to the prerelease, regenerates the bundle + release index, and creates a version commit **plus an annotated tag**. CI triggers on the **tag** (not the branch) and opens a draft prerelease. The tag — and the published prerelease/BRAT entry — is the durable artifact; the `release/*` branch is just what briefly held the commit.
+**Why release branches carry a `-beta` manifest.** Per [docs/releases/RELEASING.md](../../RELEASING.md) ("manifest-on-`main` invariant"), a `-beta` version must never land on `main` because that's the store-facing version. So a beta is cut *on a branch*: `npm version 0.1.0-beta.N` bumps `manifest.json` to the prerelease, regenerates the bundle + release index, and creates a version commit **plus an annotated tag**. CI triggers on the **tag** (not the branch) and opens a draft prerelease. The tag — and the published prerelease/BRAT entry — is the durable artifact; the `release/*` branch is just what briefly held the commit.
 
 **Why they're "ahead of" main.** A release branch is ahead of `main` by exactly its beta-cut commits (the notes commit + the `npm version` bump) — commits *designed never to merge back* (they'd violate the clean-manifest invariant). Meanwhile `main` advances via feature PRs, so the release branch is *also* behind `main`. This is a **permanent, intentional divergence**; the branch was never meant to converge with `main`.
 
@@ -81,7 +81,7 @@ Retargeting an existing PR's base (`gh pr edit N --base main`) is allowed but do
 
 ## Related
 
-- [docs/RELEASING.md](../../RELEASING.md) — the canonical release process and the manifest-on-`main` invariant (the *why*).
+- [docs/releases/RELEASING.md](../../RELEASING.md) — the canonical release process and the manifest-on-`main` invariant (the *why*).
 - [.github/workflows/ci.yml](../../../.github/workflows/ci.yml) — the "Assert manifest is a clean release version" guard (the mechanical enforcement).
 - [docs/solutions/tooling-decisions/build-provenance-attestation-requires-public-repo.md](../tooling-decisions/build-provenance-attestation-requires-public-repo.md) — sibling release-pipeline CI learning.
 - PRs #196 (closed, wrong base) → #197 (merged, rebased onto `main`) — the concrete instance.

@@ -150,7 +150,7 @@ gh attestation verify dist/main.js --repo <owner>/<repo>   # exit 0 = verified
   least-privilege `permissions`). Note the attestation step is the deliberate
   exception that needs `id-token: write` + `attestations: write` on top of that
   doc's `contents: read` baseline.
-- `docs/RELEASING.md` — the maintainer runbook (beta → prod, the publish gate,
+- `docs/releases/RELEASING.md` — the maintainer runbook (beta → prod, the publish gate,
   `gh attestation verify` before publishing) that this constraint feeds into.
 - Origin: `docs/brainstorms/2026-06-23-community-release-pipeline-requirements.md`
   and `docs/plans/2026-06-23-001-feat-community-release-pipeline-plan.md`.

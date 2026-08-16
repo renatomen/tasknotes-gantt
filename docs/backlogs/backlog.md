@@ -602,6 +602,20 @@ the standard rerun test. In this record's separate units: one more
 rerun-confirmed flaky *run*, with one *spec-level failure*, in the spec that
 also failed in the 2026-08-14 entry. (Also recorded as a comment on PR #425.)
 
+**2026-08-16 instance (PR #427 — first `src/`-touching diff in this record).**
+Run **31909561031** attempt 1 failed `gantt-column-sort.e2e.ts` ("Column
+header \"note.due\" did not become clickable") and
+`gantt-default-field-mappings.e2e.ts` ("the managed row's status cell never
+became editable"); 37/39 specs passed. Unlike every prior instance the diff
+touched `src/` (the interceptor extraction), so it got real diagnosis rather
+than the docs-only presumption: the same-SHA attempt 2 was green AND both
+specs passed locally against the identical code — rerun-confirmed flake by
+the standard rerun test, corroborated by local repro. In this record's
+separate units: one more rerun-confirmed flaky *run*, with two *spec-level
+failures*. Both failures are "element never became ready" waits, consistent
+with the readiness/indexing symptom class above; neither failing test
+exercises code the diff changed in a way its assertion observes.
+
 ## The peer-review gate is roughly 7x the size its purpose needs
 
 Measured on `main` at 018cbb0: **763 lines (473 shell + 290 node), 21 distinct
@@ -855,3 +869,17 @@ to momentum: stamp a session identifier into the review-receipt metadata and
 have the receipt checker refuse a second same-session merge receipt, or a
 merge-time check comparing the receipt's session stamp against the last merged
 one. Search the installed toolchain before building anything.
+
+## Community-store submission — the distribution milestone, parked
+
+The submission gate lives at
+`docs/releases/obsidian-submission-checklist.md`: the must-pass code-rule
+audit, the obsidian-releases listing prerequisites, and the open
+confirmations. Parked until the maintainer schedules the submission. Known
+state at parking time: the code-rule audit is dated **2026-06-20 and is
+STALE** — it predates the maintainability campaign and every major merge
+since, so it must be re-run before listing; the README screenshot/GIF is
+still missing; the `minAppVersion` (`1.10.0`) confirmation is still open.
+The strategy track "Grow the standalone side" should point at this entry
+when STRATEGY.md's tracks are next amended (maintainer-approved edit). When
+picked up, promote to a GitHub issue and delete this entry.
