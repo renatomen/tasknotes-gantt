@@ -18,7 +18,7 @@ A two-commit window with one code commit is degenerate for the trend question (d
 
 ## Concern counts
 
-`src/bases/GanttContainer.svelte`: **30 → 29** by the baseline's counting rule. Row-reorder blocking is now fully owned by `src/bases/svarInterceptors.ts`. The ephemeral-sort, collapse-persistence, and click-activation *policy bodies* also relocated, but those concerns keep view-side parts (sort re-assert/restore, collapse-all, capture listeners), so they still count against the view — honest partials, not removals. File size 4,176 → 4,061 lines. The measured `initGantt` weld (five concerns' handlers closed over the 10+1 mutable-binding census) is dissolved for the interaction cluster: 10 of 14 registrations sit behind the typed live-access seam. The data cluster (4 registrations) is U2.
+`src/bases/GanttContainer.svelte`: **30 → 30** by the baseline's counting rule — no enumerated concern left the file this session. The reorder-blocking, ephemeral-sort, collapse-persistence, and click-activation *policy bodies* relocated to `src/bases/svarInterceptors.ts`, but every affected concern keeps view-side parts (reorder clone-hiding CSS, sort re-assert/restore, collapse-all, capture listeners), so all still count against the view. The progress this session is the weld dissolution and the pressure-band exit below, not a concern-count fall — counts are expected to fall in U2 and the style-block slice. File size 4,176 → 4,061 lines. The measured `initGantt` weld (five concerns' handlers closed over the 10+1 mutable-binding census) is dissolved for the interaction cluster: 10 of 14 registrations sit behind the typed live-access seam. The data cluster (4 registrations) is U2.
 
 The new module carries one cohesive concern domain (SVAR interaction interception) with a 540-line test companion — the healthy-companion shape the baseline's Measurement 2 names.
 
@@ -38,4 +38,4 @@ Threshold-10 sweep of the two touched source files at `866204c`:
 
 ## Verdict against the mission invariant
 
-Main is strictly better than the baseline: one fewer pressure-band member, one fewer junction-file concern, five interception policies moved from e2e-only provability to jest with mutation-proven guard coverage, and no metric regressed.
+Main is strictly better than the baseline: one fewer pressure-band member, the initGantt weld dissolved for the interaction cluster, five interception policies moved from e2e-only provability to jest with mutation-proven guard coverage, and no metric regressed (concern counts held at 30/14/14; at-ceiling held at 16).
