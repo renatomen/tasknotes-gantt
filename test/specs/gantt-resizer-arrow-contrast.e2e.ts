@@ -100,7 +100,7 @@ describe("Gantt (OG) resizer arrows — dark-mode contrast", () => {
       const file = app.vault.getAbstractFileByPath("Theme.base");
       if (file) await app.workspace.getLeaf(true).openFile(file as never);
     });
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar").length) > 0, {
       timeout: 60000, timeoutMsg: "chart did not render",
     });
   });

@@ -69,6 +69,12 @@ The settled outcome in which a review produced findings and the maintainer accep
 ### Design-contract preamble
 A short pre-implementation record for a change to concurrency, ordering, or invalidation contracts that names the waits and contracts being changed, the resulting wait or lock graph, and the failure direction of a false positive.
 
+### False-green
+A test that stays green while the guard its name claims to enforce is broken — the assertion cannot fail for the defect it exists to catch. The classic causes are a check the toolchain never runs (a test file outside every typecheck program), a comparison of unawaited promises, and a timer or clock captured before the test fakes are installed. A false-green is worse than a missing test because it actively reports coverage that does not exist; the antidote is the mutation-check: break the guarded behavior on purpose and observe the test fail before trusting it.
+
+### Assertion-preserving repair
+The rule governing any mechanical repair to an existing test — a type fix, a lint fix, a harness migration: after the repair, the test must assert at least what it asserted before, provably. A repair that deletes or loosens an assertion, hides drift behind a cast, or rebinds the test away from the real behavior (creating a false-green) is a review finding, not a fix. When a repair cannot preserve the assertion because the asserted behavior itself changed, that is a stale-assertion or product-defect decision to surface, never a silent adjustment.
+
 ## Field mapping
 
 ### Field mapping

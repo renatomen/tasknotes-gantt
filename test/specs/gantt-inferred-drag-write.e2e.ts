@@ -486,7 +486,7 @@ describe("Gantt (OG) inferred-date drag writes", () => {
     await waitForPrompt(lastDragged);
     await (await $(".modal .checkbox-container")).click(); // Don't ask again
     await chooseAction("Estimate and dates");
-    await browser.waitUntil(async () => (await $$(".modal")).length === 0, {
+    await browser.waitUntil(async () => (await $$(".modal").length) === 0, {
       timeout: 10000,
       timeoutMsg: "the prompt did not close after choosing",
     });

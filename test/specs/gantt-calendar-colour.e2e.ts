@@ -53,7 +53,7 @@ async function openBase(basePath: string): Promise<void> {
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` }
   );
 }

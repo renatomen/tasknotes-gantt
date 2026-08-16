@@ -66,7 +66,7 @@ describe("Gantt (OG) theme + toolbar render", () => {
 
     // Wait for our Svelte root + SVAR chart to mount.
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
       { timeout: 60000, timeoutMsg: "Gantt chart did not render any task bars" }
     );
   });
@@ -82,8 +82,8 @@ describe("Gantt (OG) theme + toolbar render", () => {
     // SVAR's <Willow>/<WillowDark> render a theme-root element carrying one of
     // the willow theme classes; either proves the chart is wrapped in a
     // complete SVAR theme.
-    const light = await $$(".og-bases-gantt .wx-willow-theme");
-    const dark = await $$(".og-bases-gantt .wx-willow-dark-theme");
+    const light = await $$(".og-bases-gantt .wx-willow-theme").getElements();
+    const dark = await $$(".og-bases-gantt .wx-willow-dark-theme").getElements();
     expect(light.length + dark.length).toBeGreaterThan(0);
   });
 });

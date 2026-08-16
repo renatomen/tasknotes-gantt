@@ -78,7 +78,7 @@ describe("Gantt (OG) viewport sizing", () => {
 
     // Wait for our Svelte root + SVAR chart to mount.
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
       { timeout: 60000, timeoutMsg: "Gantt chart did not render any task bars" }
     );
   });

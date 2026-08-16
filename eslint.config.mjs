@@ -161,6 +161,7 @@ export default [
         console: "readonly",
         Buffer: "readonly",
         jest: "readonly",
+        WebdriverIO: "readonly",
       },
     },
   },

@@ -55,7 +55,7 @@ async function openBase(basePath: string): Promise<void> {
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` }
   );
 }
@@ -76,7 +76,7 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
 
   it("renders the stretched bar as pieces with a 15%-opacity blocked ghost", async () => {
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
+      async () => (await $$(`${STRETCH_BAR} .og-ghost-run`).length) > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered" }
     );
     const opacity = await browser.execute((selector: string) => {
@@ -304,7 +304,7 @@ describe("Gantt (OG) working-time stretch ghost rendering", () => {
     // against, and it is a different surface from the fill-mode ghost above.
     await openBase("CalendarStretchStrip.base");
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-ghost-run`)).length > 0,
+      async () => (await $$(`${STRETCH_BAR} .og-ghost-run`).length) > 0,
       { timeout: 30000, timeoutMsg: "ghost pieces never rendered in strip mode" }
     );
     const cue = await browser.execute((selector: string) => {

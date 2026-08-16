@@ -50,7 +50,7 @@ describe("Gantt (OG) theme toggle — no refresh loop", () => {
       const file = app.vault.getAbstractFileByPath("Theme.base");
       if (file) await app.workspace.getLeaf(true).openFile(file as never);
     });
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar").length) > 0, {
       timeout: 60000, timeoutMsg: "chart did not render",
     });
   });
@@ -89,6 +89,6 @@ describe("Gantt (OG) theme toggle — no refresh loop", () => {
     expect(refreshCount).toBeLessThanOrEqual(1);
 
     // Sanity: the chart is still alive (not stalled/blanked).
-    expect((await $$(".og-bases-gantt .wx-bar")).length).toBeGreaterThan(0);
+    expect((await $$(".og-bases-gantt .wx-bar").length)).toBeGreaterThan(0);
   });
 });

@@ -1,4 +1,3 @@
-import { type Options } from "@wdio/types";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
@@ -30,7 +29,7 @@ try {
   /* noop */
 }
 
-export const config: Options.Testrunner = {
+export const config: WebdriverIO.Config = {
   runner: "local",
   framework: "mocha",
   specs: ["../specs/**/*.perf.e2e.ts"],

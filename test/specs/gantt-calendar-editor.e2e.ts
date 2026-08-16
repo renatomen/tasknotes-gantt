@@ -1376,7 +1376,7 @@ describe("Gantt (OG) calendar editor routing", () => {
 
     // Add a second, disagreeing member through the Member calendars field.
     await (await $(".og-cal-add")).click();
-    const memberInputs = await $$(".og-cal-entry-member input");
+    const memberInputs = await $$(".og-cal-entry-member input").getElements();
     await memberInputs[memberInputs.length - 1].setValue("[[Sun Thu]]");
 
     // The banner now reports conflicts — driven purely by the live member edit.
