@@ -1,6 +1,6 @@
 ---
 name: TaskNotes Gantt
-last_updated: 2026-08-14
+last_updated: 2026-08-16
 ---
 
 # TaskNotes Gantt Strategy
@@ -36,9 +36,9 @@ semantics from **open standards** — the iCalendar RFC family (RFC 5545 / 7953
 Standalone it is a read-only viewer; with TaskNotes it is a full editor.
 
 Beside professional-grade Gantt timeline features, the plugin must hold high
-standards of **software craftsmanship**, with verifiable high reliability and
-high maintainability, so that improvements and maintenance can be delivered
-fast.
+standards of **software craftsmanship** — verifiably maintainable, reliable,
+performant, and secure — so that improvements and maintenance can be
+delivered fast.
 
 ## Who it's for
 
@@ -56,6 +56,10 @@ notes they already own, TaskNotes installed or not.
 - **Maintainability, verifiable** — cohesion and churn metrics stay healthy so
   improvements ship fast. Measured manually today at each re-measure (churn
   share and separable-concern count); a mechanical gate is a parked candidate.
+- **Performance and security, verifiable** — commissioned: each pillar's
+  metric set is defined by its re-diagnosis when it lands (performance from
+  the existing perf harness; security from a plugin threat model). Until
+  measured, no "extremely" claim is made for either.
 - **External signal** — issues, discussions, or PRs from people other than the
   maintainer, per month. Measured on GitHub.
 
@@ -72,7 +76,9 @@ community already uses.
 ### Grow the standalone side
 
 Anyone with dated notes gets value from the timeline — TaskNotes installed or
-not; community-store submission when ready.
+not. The distribution milestone is community-store submission: parked and
+anchored in `docs/backlogs/backlog.md`, gated by the checklist at
+`docs/releases/obsidian-submission-checklist.md`.
 
 _Why it serves the vision:_ the read-only viewer is the purest lens, and it
 adds no wall.
@@ -88,9 +94,17 @@ as inside it — for decades.
 
 ### Software craftsmanship
 
-Hold high standards of engineering: verifiable reliability (mechanically
-gated in CI) and verifiable maintainability (measured at each re-measure), so
-delivery stays fast and the project stays joyful.
+Hold four engineering pillars — **extremely maintainable, extremely reliable,
+extremely performant, extremely secure** — each earned the same way, never by
+assertion: a measured baseline, a ranked defect list worked top-down, a
+per-session trend report, and a mechanical gate that keeps it. Pillar
+authorities: **maintainability** is measured — baseline and ranked list at
+`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`, held by the
+complexity gate and per-session re-measure. **Reliability**, **performance**,
+and **security** re-diagnoses are commissioned but not yet measured;
+reliability goes first — its flake-rate raw data already accumulates in
+`docs/backlogs/backlog.md`'s CI e2e flake record — with CI-on-real-Obsidian
+and the review-receipt gate as its standing mechanisms meanwhile.
 
 _Why it serves the vision:_ a plugin people trust their planning to must be
 solid — and moving deliberately is how it stays that way.
