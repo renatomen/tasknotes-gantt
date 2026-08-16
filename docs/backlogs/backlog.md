@@ -895,3 +895,20 @@ code defect. Kept here as a data point for the upcoming Reliability
 re-diagnosis denominator (each confirmed instance counts); no diagnosis
 work is scheduled from this entry alone. When the Reliability re-diagnosis
 starts, feed this instance in and delete this entry.
+
+## Scheduled perf job red since 2026-07-13: Show-undated storm chart-alive assertion
+
+Discovered during U3 of the test-tree typecheck plan (2026-08-17): the weekly
+`perf.yml` full-stack job has concluded `failure` on every run since at least
+2026-07-13, and the 2026-08-10 run's log (SHA `2af3648`, predating the U3
+branch) fails on exactly one test — `gantt-resultset-storm.perf.e2e.ts:248`,
+"a Show-undated toggle does NOT ignite a re-render storm (#161 U5)", where the
+post-toggle chart-alive check `expect(bars).toBeGreaterThan(0)` receives 0.
+Reproduced locally at the U3 tip: deterministic (fails on same-SHA rerun, so
+NOT the never-became-ready flake class), while the Hide-top twin test in the
+same file and the fullstack spec's own storm test both pass. The recompute
+bound itself passes — the chart renders zero bars after the Show-undated
+toggle at storm scale, which may be a real presentation-layer regression of
+the #161 U5 contract or a stale spec expectation. Diagnosis was out of scope
+for U3 (pre-existing on main, unrelated to type repair). When picked up,
+promote to a GitHub issue and delete this entry.
