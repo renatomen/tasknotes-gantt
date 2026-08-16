@@ -1037,7 +1037,10 @@ describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', ()
     expect(depsLiteral).toMatch(/cellEditColumnIds:\s*\(\)\s*=>\s*cellEditColumnIds\b/);
   });
 
-  it('GanttContainer contains no api.intercept call site (R1 grep gate)', () => {
-    expect(source.includes('api.intercept')).toBe(false);
+  it('GanttContainer contains no intercept call site (R1 grep gate)', () => {
+    // Any receiver counts — `initGantt` holds the api as `ganttApi`, so a
+    // literal 'api.intercept' check would let `ganttApi.intercept(...)`
+    // silently escape the centralized seam.
+    expect(/\.intercept\s*\(/.test(source)).toBe(false);
   });
 });
