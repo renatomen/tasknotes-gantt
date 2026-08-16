@@ -174,10 +174,10 @@ describe("Gantt (OG) #161 — view-option toggle storm repro (note.in / multi-vi
       const file = app.vault.getAbstractFileByPath("Generated.base");
       if (file) await app.workspace.getLeaf(true).openFile(file as never);
     });
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, { timeout: 120000, interval: 500, timeoutMsg: "gantt did not render bars" });
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar").length) > 0, { timeout: 120000, interval: 500, timeoutMsg: "gantt did not render bars" });
     let prev = -1; let stable = 0;
     await browser.waitUntil(async () => {
-      const n = (await $$(".og-bases-gantt .wx-bar")).length;
+      const n = (await $$(".og-bases-gantt .wx-bar").length);
       stable = n > 0 && n === prev ? stable + 1 : 0;
       prev = n;
       return stable >= 4;
@@ -232,7 +232,7 @@ describe("Gantt (OG) #161 — view-option toggle storm repro (note.in / multi-vi
     // so PRE-FIX (PERF_STORM_DISABLE_FIX=1) this MUST fail, proving the repro.
     expect(counts.recomputes).toBeLessThanOrEqual(8);
     // Chart still alive + bounded window (no freeze/crash).
-    expect((await $$(".og-bases-gantt .wx-bar")).length).toBeGreaterThan(0);
+    expect((await $$(".og-bases-gantt .wx-bar").length)).toBeGreaterThan(0);
   });
 
   it("a Show-undated toggle does NOT ignite a re-render storm (#161 U5 — same contract as Hide-top)", async () => {
@@ -245,6 +245,6 @@ describe("Gantt (OG) #161 — view-option toggle storm repro (note.in / multi-vi
     const { recomputes, fired } = await measureToggleStorm("tngantt_showUndatedTasks", false);
     expect(fired.set && fired.configChanged).toBe(true); // wiring reached the view
     expect(recomputes).toBeLessThanOrEqual(8);
-    expect((await $$(".og-bases-gantt .wx-bar")).length).toBeGreaterThan(0);
+    expect((await $$(".og-bases-gantt .wx-bar").length)).toBeGreaterThan(0);
   });
 });

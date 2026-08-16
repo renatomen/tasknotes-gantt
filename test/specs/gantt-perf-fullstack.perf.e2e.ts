@@ -85,7 +85,7 @@ async function settledRowCount(): Promise<number> {
   let stable = 0;
   await browser.waitUntil(
     async () => {
-      const n = (await $$(".og-bases-gantt .wx-row")).length;
+      const n = (await $$(".og-bases-gantt .wx-row").length);
       const ok = n > 0 && n === prev;
       stable = ok ? stable + 1 : 0;
       prev = n;
@@ -93,7 +93,7 @@ async function settledRowCount(): Promise<number> {
     },
     { timeout: 30000, interval: 250, timeoutMsg: "row count never stabilized" }
   );
-  return (await $$(".og-bases-gantt .wx-row")).length;
+  return (await $$(".og-bases-gantt .wx-row").length);
 }
 
 /**
@@ -268,6 +268,7 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
     // open-time snapshot includes the expansion (else the gate could pass on a
     // matched-only render that never exercised the #161 path).
     if (sampleParentPath) {
+      const gatedParentPath = sampleParentPath;
       await browser.waitUntil(
         async () =>
           browser.executeObsidian(async ({ app }, parentPath) => {
@@ -282,7 +283,7 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
             } catch {
               return false;
             }
-          }, sampleParentPath),
+          }, gatedParentPath),
         { timeout: INDEX_TIMEOUT_MS, interval: 1000, timeoutMsg: "TaskNotes relationships did not resolve — Show-all expansion would be inactive" }
       );
     }
@@ -299,7 +300,7 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
       }
     });
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
       {
         timeout: RENDER_TIMEOUT_MS,
         timeoutMsg: `Indexing finished but the Gantt rendered no bars within ${RENDER_TIMEOUT_MS}ms — a real render problem (the #161 freeze), not a cold scan.`,
@@ -323,7 +324,7 @@ describe("Gantt (OG) full-stack perf — generated large vault", () => {
   });
 
   it("opens the generated base and shows the matched set without freezing", async () => {
-    const bars = (await $$(".og-bases-gantt .wx-bar")).length;
+    const bars = (await $$(".og-bases-gantt .wx-bar").length);
     expect(bars).toBeGreaterThan(0);
   });
 

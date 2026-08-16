@@ -58,7 +58,7 @@ async function openBaseAndWaitForBars(): Promise<void> {
     }
   });
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: "Gantt chart did not render any task bars" }
   );
 }
@@ -88,14 +88,14 @@ describe("Gantt (OG) focus on task", () => {
   });
 
   it("focuses a collapsed child: expands its parent and selects it (R4/R7)", async () => {
-    const initialBars = (await $$(".og-bases-gantt .wx-bar")).length;
+    const initialBars = (await $$(".og-bases-gantt .wx-bar").length);
     expect(initialBars).toBe(5); // Phase A, Phase B, Task A1, Shared Task ×2 (multi-parent)
 
     // Collapse all → Phase A/B collapse, hiding Task A1 (and Shared Task).
     const collapseBtn = await $(".og-bases-gantt .collapse-all");
     await collapseBtn.click();
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-bar")).length < initialBars,
+      async () => (await $$(".og-bases-gantt .wx-bar").length) < initialBars,
       { timeout: 5000, timeoutMsg: "collapse-all did not hide child bars" }
     );
     // The Task A1 bar is gone while its parent is collapsed.
@@ -111,11 +111,11 @@ describe("Gantt (OG) focus on task", () => {
 
     // Parent re-expanded → the Task A1 bar exists again, and is selected.
     await browser.waitUntil(
-      async () => (await $$('.og-bases-gantt .wx-bar[data-id*="Task A1.md"]')).length > 0,
+      async () => (await $$('.og-bases-gantt .wx-bar[data-id*="Task A1.md"]').length) > 0,
       { timeout: 5000, timeoutMsg: "focus did not expand the parent to reveal Task A1" }
     );
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-selected")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-selected").length) > 0,
       { timeout: 5000, timeoutMsg: "focus did not select/highlight a bar" }
     );
   });
@@ -129,11 +129,11 @@ describe("Gantt (OG) focus on task", () => {
     await browser.keys("Enter");
 
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-selected")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-selected").length) > 0,
       { timeout: 5000, timeoutMsg: "focusing a top-level task did not select it" }
     );
     // No expansion was needed; the Phase B bar is present and selected.
-    expect((await $$('.og-bases-gantt .wx-bar[data-id*="Phase B.md"]')).length).toBeGreaterThan(0);
+    expect((await $$('.og-bases-gantt .wx-bar[data-id*="Phase B.md"]').length)).toBeGreaterThan(0);
   });
 
   it("focusing an already-selected task stays navigation-only — opens nothing (R9)", async () => {
@@ -142,7 +142,7 @@ describe("Gantt (OG) focus on task", () => {
     // First focus selects Phase B.
     await focusViaSearch("Phase B");
     await browser.waitUntil(
-      async () => (await $$(".og-bases-gantt .wx-selected")).length > 0,
+      async () => (await $$(".og-bases-gantt .wx-selected").length) > 0,
       { timeout: 5000, timeoutMsg: "first focus did not select Phase B" }
     );
 

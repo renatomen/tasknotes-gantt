@@ -49,7 +49,7 @@ async function openBase(basePath: string): Promise<void> {
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` }
   );
 }
@@ -68,7 +68,7 @@ async function zoomOut(steps: number): Promise<void> {
 }
 
 const markerCount = async (): Promise<number> =>
-  (await $$(".og-bases-gantt .og-marker")).length;
+  (await $$(".og-bases-gantt .og-marker").length);
 
 const isoDay = (offsetDays: number): string => {
   const date = new Date();
@@ -159,7 +159,7 @@ describe("Gantt (OG) calendar markers", () => {
 
   it("renders the generated today line inside the drawn span", async () => {
     await browser.waitUntil(
-      async () => (await $$('.og-bases-gantt .og-marker[data-og-marker="today"]')).length > 0,
+      async () => (await $$('.og-bases-gantt .og-marker[data-og-marker="today"]').length) > 0,
       { timeout: 30000, timeoutMsg: "today line never rendered" }
     );
     const today = await $('.og-bases-gantt .og-marker[data-og-marker="today"]');
@@ -176,7 +176,7 @@ describe("Gantt (OG) calendar markers", () => {
       async () => {
         const marker = await $$(
           '.og-bases-gantt .og-marker[data-og-marker="Release Cutoff"]'
-        );
+        ).getElements();
         return marker.length > 0;
       },
       { timeout: 20000, timeoutMsg: "marker disappeared after zooming out" }

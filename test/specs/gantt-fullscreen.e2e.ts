@@ -33,7 +33,7 @@ const __dirname = path.dirname(__filename);
 const fixtureVault = path.resolve(__dirname, "../vaults/gantt-viewport");
 
 async function isMaximized(): Promise<boolean> {
-  return (await $$(".og-bases-gantt.is-maximized")).length > 0;
+  return (await $$(".og-bases-gantt.is-maximized").length) > 0;
 }
 
 /** No native fullscreen element should ever be created by this toggle. */
@@ -59,7 +59,7 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
       const file = app.vault.getAbstractFileByPath("Roadmap.base");
       if (file) await app.workspace.getLeaf(true).openFile(file as never);
     });
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar").length) > 0, {
       timeout: 60000, timeoutMsg: "Gantt chart did not render any task bars",
     });
   });
@@ -68,9 +68,9 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
     // Close any lingering modal first (the command palette has no close button →
     // Escape; while a modal is open our handler leaves maximize alone), then leave
     // no test maximized (would skew the next).
-    if ((await $$(".modal-container")).length > 0) {
+    if ((await $$(".modal-container").length) > 0) {
       await browser.keys(["Escape"]);
-      await browser.waitUntil(async () => (await $$(".modal-container")).length === 0, { timeout: 5000 }).catch(() => {});
+      await browser.waitUntil(async () => (await $$(".modal-container").length) === 0, { timeout: 5000 }).catch(() => {});
     }
     if (await isMaximized()) {
       await browser.keys(["Escape"]); // no modal now → our handler exits maximize
@@ -116,7 +116,7 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
       (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
         .commands.executeCommandById("command-palette:open");
     });
-    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt").length) > 0, {
       timeout: 8000, timeoutMsg: "command palette did not open",
     });
 
@@ -141,7 +141,7 @@ describe("Gantt (OG) full-screen (maximize within Obsidian)", () => {
       (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
         .commands.executeCommandById("command-palette:open");
     });
-    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt").length) > 0, {
       timeout: 8000, timeoutMsg: "command palette did not open",
     });
 

@@ -68,7 +68,7 @@ async function openTwoBases(a: string, b: string): Promise<void> {
 
   await browser.waitUntil(
     async () =>
-      (await $$(".og-bases-gantt")).length >= 2 && (await $$(".og-bases-gantt .wx-bar")).length >= 2,
+      (await $$(".og-bases-gantt").length) >= 2 && (await $$(".og-bases-gantt .wx-bar").length) >= 2,
     { timeout: 60000, timeoutMsg: "two Gantt instances did not both render bars" },
   );
 }

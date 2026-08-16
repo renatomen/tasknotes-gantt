@@ -87,14 +87,14 @@ describe("What's New view", () => {
 
     before(async () => {
       await seedBundle(FIXTURE_BUNDLE);
-      await browser.waitUntil(async () => (await $$(".tng-release-version")).length === 3, {
+      await browser.waitUntil(async () => (await $$(".tng-release-version").length) === 3, {
         timeout: 30000,
         timeoutMsg: "three release cards never rendered",
       });
     });
 
     it("renders one collapsible card per release, newest-first", async () => {
-      const cards = await $$(".tng-release-version");
+      const cards = await $$(".tng-release-version").getElements();
       const names: string[] = [];
       for (let i = 0; i < cards.length; i++) {
         names.push(await cards[i].$(".tng-release-version-name").getText());
@@ -103,7 +103,7 @@ describe("What's New view", () => {
     });
 
     it("marks the current release with the pill and expands current + first prior", async () => {
-      const cards = await $$(".tng-release-version");
+      const cards = await $$(".tng-release-version").getElements();
       // AE1: current card has the pill; current + first-prior expanded; the rest collapsed.
       expect(await cards[0].$(".tng-release-version-current").isExisting()).toBe(true);
       expect(await cards[0].getAttribute("open")).not.toBeNull();
@@ -113,13 +113,13 @@ describe("What's New view", () => {
 
     it("shows the human-formatted date, not the ISO string", async () => {
       // AE2: '2026-07-01' renders as 'July 1, 2026'.
-      const cards = await $$(".tng-release-version");
+      const cards = await $$(".tng-release-version").getElements();
       expect(await cards[0].$(".tng-release-version-date").getText()).toBe("July 1, 2026");
     });
 
     it("reaches the earliest release at the bottom of the list", async () => {
       // AE3: scroll-to-bottom reachable — the last card is the earliest bundle entry.
-      const cards = await $$(".tng-release-version");
+      const cards = await $$(".tng-release-version").getElements();
       expect(await cards[cards.length - 1].$(".tng-release-version-name").getText()).toBe("9.9.7");
     });
   });
@@ -127,7 +127,7 @@ describe("What's New view", () => {
   describe("release with no date (seeded bundle)", () => {
     before(async () => {
       await seedBundle([{ version: "1.0.0", content: "# 1.0.0\n\n- something\n", date: null, isCurrent: true }]);
-      await browser.waitUntil(async () => (await $$(".tng-release-version")).length === 1, {
+      await browser.waitUntil(async () => (await $$(".tng-release-version").length) === 1, {
         timeout: 30000,
         timeoutMsg: "single release card never rendered",
       });

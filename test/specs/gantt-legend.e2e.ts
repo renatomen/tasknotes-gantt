@@ -121,7 +121,7 @@ async function waitForLegendRecurringTaskReady(): Promise<void> {
 }
 
 async function waitForCompletedRecurringPiece(): Promise<void> {
-  await browser.waitUntil(async () => (await $$(LEGEND_COMPLETED_PIECE_SELECTOR)).length === 1, {
+  await browser.waitUntil(async () => (await $$(LEGEND_COMPLETED_PIECE_SELECTOR).length) === 1, {
     timeout: 10000,
     timeoutMsg: "Legend Recurring did not render its completed occurrence piece",
   });
@@ -146,7 +146,7 @@ async function restoreTransientObsidianNotices(): Promise<void> {
 async function openLegend(): Promise<void> {
   const trigger = await $(".og-bases-gantt .og-legend-toggle");
   await trigger.click();
-  await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+  await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, {
     timeout: 8000,
     timeoutMsg: "Legend panel did not open",
   });
@@ -156,7 +156,7 @@ async function closeLegend(): Promise<void> {
   await browser.execute(() => {
     (document.querySelector(".og-gantt-legend .og-legend-dismiss") as HTMLButtonElement | null)?.click();
   });
-  await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+  await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 0, {
     timeout: 8000,
     timeoutMsg: "Legend panel did not close",
   });
@@ -255,7 +255,7 @@ async function chartViewState(): Promise<ChartViewState> {
 }
 
 async function ensureRealChartSelection(): Promise<void> {
-  if ((await $$(".og-bases-gantt .wx-selected")).length === 0) {
+  if ((await $$(".og-bases-gantt .wx-selected").length) === 0) {
     const clicked = await browser.execute((selector) => {
       const bar = document.querySelector(selector) as HTMLElement | null;
       if (!bar) return false;
@@ -271,7 +271,7 @@ async function ensureRealChartSelection(): Promise<void> {
       return false;
     }, LEGEND_TASK_PROPERTY_EVENT_SELECTOR);
     expect(clicked).toBe(true);
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected").length) > 0, {
       timeout: 8000,
       timeoutMsg: "Legend fixture bar did not become selected",
     });
@@ -300,7 +300,7 @@ async function openFixtureBase(): Promise<void> {
     markdownLeaves.forEach((leaf) => leaf.detach?.());
     workspace.detachLeavesOfType("bases");
   });
-  await browser.waitUntil(async () => (await $$(".og-bases-gantt")).length === 0, {
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt").length) === 0, {
     timeout: 15000,
     timeoutMsg: "Gantt legend fixture did not unmount its previous chart root",
   });
@@ -318,7 +318,7 @@ async function waitForSingleFixtureRoot(
   try {
     await browser.waitUntil(
       async () => {
-        observedCount = (await $$(".og-bases-gantt")).length;
+        observedCount = (await $$(".og-bases-gantt").length);
         return observedCount === 1;
       },
       { timeout, timeoutMsg },
@@ -363,12 +363,12 @@ async function restoreTaskNotesLegendStatuses(): Promise<boolean> {
 async function remountMaximizedFixture(): Promise<void> {
   await openFixtureBase();
   await waitForSingleFixtureRoot();
-  await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle")).length === 1, {
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt .og-fullscreen-toggle").length) === 1, {
     timeout: 15000,
     timeoutMsg: "Gantt fixture did not remount",
   });
   await clickFullscreenToggle("Gantt fixture maximize control did not become clickable");
-  await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+  await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized").length) === 1, {
     timeout: 8000,
   });
 }
@@ -429,7 +429,7 @@ async function restoreFixtureCalendarAxes(): Promise<void> {
         async () =>
           (await $$(
             '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"] .og-ghost-run.og-ghost-blocked',
-          )).length > 0,
+          ).length) > 0,
         {
           timeout: 8000,
           timeoutMsg: "Gantt legend fixture did not render its restored split non-working time",
@@ -561,7 +561,7 @@ describe("Gantt (OG) context-aware legend", () => {
     }
     try {
       await browser.waitUntil(
-        async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+        async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
         { timeout: 30000, timeoutMsg: "Gantt legend fixture did not render a task bar" },
       );
     } catch (error) {
@@ -579,7 +579,7 @@ describe("Gantt (OG) context-aware legend", () => {
       throw new Error(`${String(error)}; diagnostic=${JSON.stringify(diagnostic)}`);
     }
     await clickFullscreenToggle("Gantt maximize control did not become clickable for the overlay scenarios");
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized")).length === 1, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized").length) === 1, {
       timeout: 8000,
       timeoutMsg: "Gantt did not maximize for the overlay scenarios",
     });
@@ -597,15 +597,15 @@ describe("Gantt (OG) context-aware legend", () => {
     };
 
     await attemptCleanup(async () => {
-      if ((await $$(".modal-container")).length === 0) return;
+      if ((await $$(".modal-container").length) === 0) return;
       await browser.keys(["Escape"]);
-      await browser.waitUntil(async () => (await $$(".modal-container")).length === 0, {
+      await browser.waitUntil(async () => (await $$(".modal-container").length) === 0, {
         timeout: 8000,
         timeoutMsg: "Gantt legend cleanup did not close the Obsidian modal",
       });
     });
     await attemptCleanup(async () => {
-      if ((await $$(".og-gantt-legend")).length > 0) await closeLegend();
+      if ((await $$(".og-gantt-legend").length) > 0) await closeLegend();
     });
     await attemptCleanup(async () => {
       if (await restoreTaskNotesLegendStatuses()) {
@@ -710,7 +710,7 @@ describe("Gantt (OG) context-aware legend", () => {
         async () => browser.execute(() => document.body.classList.contains("theme-dark")),
         { timeout: 10000, timeoutMsg: "Obsidian did not switch to dark theme" },
       );
-      await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar")).length > 0, { timeout: 30000 });
+      await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-bar").length) > 0, { timeout: 30000 });
     }
 
     await openLegend();
@@ -744,8 +744,8 @@ describe("Gantt (OG) context-aware legend", () => {
     await openLegend();
     await browser.waitUntil(
       async () =>
-        (await $$('.og-bases-gantt .wx-bar.datestatus-zigzag-start[data-id$="Legend Flagged.md"]'))
-          .length === 1,
+        (await $$('.og-bases-gantt .wx-bar.datestatus-zigzag-start[data-id$="Legend Flagged.md"]')
+          .length) === 1,
       { timeout: 20000, timeoutMsg: "the inferred-start fixture bar was never stamped as torn" },
     );
 
@@ -1446,7 +1446,7 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("explains enabled read-only calendar-event bars with their production paint", async () => {
-    await browser.waitUntil(async () => (await $$(LEGEND_TASK_PROPERTY_EVENT_SELECTOR)).length === 1, {
+    await browser.waitUntil(async () => (await $$(LEGEND_TASK_PROPERTY_EVENT_SELECTOR).length) === 1, {
       timeout: 10000,
       timeoutMsg: "Property-event fixture did not render its read-only event bar",
     });
@@ -1566,13 +1566,13 @@ describe("Gantt (OG) context-aware legend", () => {
       return false;
     });
     expect(clickedUncoveredBar).toBe(true);
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected")).length > 0, {
+    await browser.waitUntil(async () => (await $$(".og-bases-gantt .wx-selected").length) > 0, {
       timeout: 8000,
       timeoutMsg: "Uncovered chart bar was not selectable through the overlay",
     });
-    const selectedBefore = await $$(".og-bases-gantt .wx-selected");
+    const selectedBefore = await $$(".og-bases-gantt .wx-selected").getElements();
     await $(".og-gantt-legend .og-legend-title-block").click();
-    const selectedAfter = await $$(".og-bases-gantt .wx-selected");
+    const selectedAfter = await $$(".og-bases-gantt .wx-selected").getElements();
     expect(selectedAfter).toHaveLength(selectedBefore.length);
   });
 
@@ -1758,7 +1758,7 @@ describe("Gantt (OG) context-aware legend", () => {
   it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
     const trigger = await $(".og-bases-gantt .og-legend-toggle");
     await trigger.click();
-    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, { timeout: 8000 });
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
     await browser.execute(() => {
       const right = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
@@ -1776,18 +1776,18 @@ describe("Gantt (OG) context-aware legend", () => {
     await scroll.click();
     await browser.keys(["ArrowRight"]);
     await browser.keys(["Escape"]);
-    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, { timeout: 8000 });
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 0, { timeout: 8000 });
     await expect(trigger).toBeFocused();
   });
 
   it("keeps Obsidian's command-palette keymap available while Legend is open", async () => {
     await browser.execute(() => document.querySelector<HTMLButtonElement>(".og-legend-toggle")?.click());
-    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 1, {
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, {
       timeout: 8000,
       timeoutMsg: "Legend did not open for the keymap check",
     });
     await browser.keys(["Control", "p"]);
-    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, {
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt").length) === 1, {
       timeout: 8000,
       timeoutMsg: "Command-palette hotkey did not open while Legend was active",
     });
@@ -1801,9 +1801,9 @@ describe("Gantt (OG) context-aware legend", () => {
       (app as unknown as { commands: { executeCommandById: (id: string) => unknown } })
         .commands.executeCommandById("command-palette:open");
     });
-    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 1, { timeout: 8000 });
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt").length) === 1, { timeout: 8000 });
     await browser.keys(["Escape"]);
-    await browser.waitUntil(async () => (await $$(".modal-container .prompt")).length === 0, {
+    await browser.waitUntil(async () => (await $$(".modal-container .prompt").length) === 0, {
       timeout: 8000,
       timeoutMsg: "First Escape did not close the Obsidian popup",
     });
@@ -1817,7 +1817,7 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(firstEscape).toEqual({ legendOpen: true, maximized: true, modalOpen: false });
 
     await browser.keys(["Escape"]);
-    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 0, {
       timeout: 8000,
       timeoutMsg: "Second Escape did not close Legend",
     });
@@ -1831,7 +1831,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await browser.executeObsidian(async ({ app }) => {
       app.workspace.getLeaf(true);
     });
-    await browser.waitUntil(async () => (await $$(".og-gantt-legend")).length === 0, {
+    await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 0, {
       timeout: 8000,
       timeoutMsg: "Legend stayed active after its owning leaf became inactive",
     });

@@ -50,7 +50,7 @@ async function openBase(basePath: string): Promise<void> {
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` }
   );
 }
@@ -74,7 +74,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     // The concrete (authored start+due) task reveals segments — impossible under
     // the old fused knob, where only inferred/stretched bars ever ghosted.
     await browser.waitUntil(
-      async () => (await $$(`${CONCRETE_BAR} .og-ghost-run`)).length > 0,
+      async () => (await $$(`${CONCRETE_BAR} .og-ghost-run`).length) > 0,
       { timeout: 30000, timeoutMsg: "concrete bar never rendered segments under split" }
     );
     const opacity = await browser.execute((selector: string) => {
@@ -107,7 +107,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     // The overridden task (effective calendar-days ≠ the working-days default)
     // shows the corner dot, hoverable for the interpretation.
     await browser.waitUntil(
-      async () => (await $$(`${OVERRIDE_BAR} .og-override-dot`)).length > 0,
+      async () => (await $$(`${OVERRIDE_BAR} .og-override-dot`).length) > 0,
       { timeout: 30000, timeoutMsg: "override dot never rendered on the overridden bar" }
     );
     const dotTitle = await browser.execute((selector: string) => {
@@ -124,7 +124,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
     await expect($(STRETCH_BAR)).toExist();
     // Task Stretch follows the working-days default, so it starts without a dot.
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length === 0,
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`).length) === 0,
       { timeout: 30000, timeoutMsg: "Task Stretch unexpectedly started with an override dot" }
     );
     // Edit its mapped `est_meaning` to calendar-days (≠ the view default) while the
@@ -139,7 +139,7 @@ describe("Gantt (OG) decoupled calendar axes", () => {
       });
     });
     await browser.waitUntil(
-      async () => (await $$(`${STRETCH_BAR} .og-override-dot`)).length > 0,
+      async () => (await $$(`${STRETCH_BAR} .og-override-dot`).length) > 0,
       { timeout: 30000, timeoutMsg: "override dot never appeared after editing est_meaning live" }
     );
     const dotTitle = await browser.execute((selector: string) => {

@@ -47,7 +47,7 @@ async function openBase(basePath: string): Promise<void> {
   }, basePath);
 
   await browser.waitUntil(
-    async () => (await $$(".og-bases-gantt .wx-bar")).length > 0,
+    async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
     { timeout: 60000, timeoutMsg: `Gantt did not render bars for ${basePath}` }
   );
 }
@@ -98,7 +98,7 @@ describe("Gantt (OG) calendar picker + union shading", () => {
   async function openPickerFromBanner(): Promise<void> {
     await (await $(".og-calendar-banner")).click();
     await browser.waitUntil(
-      async () => (await $$(".modal .og-cal-picker-row")).length > 0,
+      async () => (await $$(".modal .og-cal-picker-row").length) > 0,
       { timeout: 15000, timeoutMsg: "banner click never opened the calendar picker" }
     );
   }
@@ -141,7 +141,7 @@ describe("Gantt (OG) calendar picker + union shading", () => {
     // … and the banner no longer reports two calendars.
     await browser.waitUntil(
       async () => {
-        const banners = await $$(".og-calendar-banner");
+        const banners = await $$(".og-calendar-banner").getElements();
         if (banners.length === 0) return true;
         const text = await banners[0].getText();
         return !text.includes("Displaying 2 calendars");
