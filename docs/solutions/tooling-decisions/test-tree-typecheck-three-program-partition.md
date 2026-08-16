@@ -15,7 +15,7 @@ tags: [typecheck, tsconfig, jest, wdio, vitest, svelte-check, test-partition, am
 
 # Typechecking a multi-framework test tree — the three-program partition
 
-> **Status: evolving until the gate wires in (plan U4).** Facts below were measured on the 2026-08-16 spike and U1 (PR #431). Two accepted-but-unapplied calibrations from PR #431's review threads will change the residual numbers; finalize this doc when `typecheck:test` joins `npm run typecheck`.
+> **Status: evolving until the gate wires in (plan U4).** Facts below were measured on the 2026-08-16 spike, U1 (PR #431), and U2 (PR #432). The unit-program calibrations from PR #431's review threads are **applied** (see the U2 paragraph below); only the e2e program's `DOM.Iterable` calibration remains pending (U3's opener). Finalize this doc when `typecheck:test` joins `npm run typecheck`.
 
 ## Context
 

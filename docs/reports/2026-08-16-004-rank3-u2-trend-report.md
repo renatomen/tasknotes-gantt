@@ -1,22 +1,23 @@
 # Campaign trend report — rank-3 U2 session (jest tree green)
 
 **Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
-**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `7657f03`, after the two review-fix commits — remeasured per the Codex review thread on PR #432) — **17 window commits**: the six already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430, `70cf1b2` #431) plus this unit's eleven branch commits (docs riders/updates, two config calibrations, four remediation batches, the first trend measure, two review-fix commits). The unit's commits squash to one on merge, so per-path counts for paths several unit commits touch overstate main's eventual counts — here `svarInterceptors.test.ts` (2 unit commits) lands on main as 3 total touches, not 4, and `typecheckPartitionGuard.test.ts` (2 unit commits) as 2, not 3; the docs-only commits — including the one that lands this re-measure — shift only the denominator.
+**Window:** the baseline's documented range `7949fd1..HEAD`. The tip-invariant statement first, because review-round commits kept moving the branch tip under earlier revisions of this report: **the unit squash-merges as one commit, so on main every path this PR touches gains exactly +1 window touch, whatever the pre-squash table below says.** The pre-squash view was last measured at `8c596a4` — **21 window commits**: six already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429, `d74d0cc` #430, `70cf1b2` #431) plus this unit's fifteen branch commits (docs riders/updates, two config calibrations, four remediation batches, trend measures, and the review-round fix commits from the layered gate). Docs-only commits — including any later revision of this report — shift only the denominator; later review-round commits shift only their own paths' pre-squash counts, never the on-main +1.
 **Measured:** 2026-08-16, by running the baseline's § Baseline commands verbatim (per-path touches over `src test scripts`, `--no-renames`; threshold-10 complexity sweep).
 
 ## Windowed churn share
 
-Top of the documented command's output at `7657f03`:
+Top of the documented command's output at `8c596a4`:
 
 ```
-4 23.5% test/unit/svarInterceptors.test.ts
-3 17.6% test/unit/typecheckPartitionGuard.test.ts
-2 11.8% src/bases/svarInterceptors.ts
-2 11.8% src/bases/GanttContainer.svelte
-1  5.9% (each) — the remaining jest-tree test files repaired this unit, one touch apiece
+4 19.0% test/unit/typecheckPartitionGuard.test.ts
+4 19.0% test/unit/svarInterceptors.test.ts
+2  9.5% test/unit/focusController.test.ts
+2  9.5% src/bases/svarInterceptors.ts
+2  9.5% src/bases/GanttContainer.svelte
+1  4.8% (each) — the remaining jest-tree test files repaired this unit, one touch apiece
 ```
 
-The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig, `jest.config.mjs`, the three converted svelte mock stubs, and 37 test files (two of them twice, via the review-fix commits). The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. `svarInterceptors.test.ts` tops the table because it carries commits from three different campaigns (extraction, interceptor refactor, this type repair plus its review fix) — breadth of the window, not a hotspot forming.
+The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig, `jest.config.mjs`, the three converted svelte mock stubs, and 37 test files (a handful touched again by the layered gate's review-round fix commits). The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. The two files atop the table are there for review-round reasons — `svarInterceptors.test.ts` carries commits from three campaigns (extraction, interceptor refactor, this repair plus its review fix), and `typecheckPartitionGuard.test.ts` accreted its guard hardening one review finding at a time — breadth and gate-iteration, not a hotspot forming; both collapse on squash per the window note above.
 
 ## Concern counts
 
@@ -24,7 +25,7 @@ Unchanged — **29 / 14 / 14** (`GanttContainer.svelte` / `register.ts` / `Gantt
 
 ## Complexity-gate pressure
 
-Repo at-exactly-15 count: **unchanged at 16** (threshold-10 sweep re-run at `7657f03`). No `src` function was touched; the repaired test files introduce no function in the pressure band (the ESLint sonarjs gate ran green at every commit).
+Repo at-exactly-15 count: **unchanged at 16** (threshold-10 sweep re-run at `8c596a4`). No `src` function was touched; the repaired test files introduce no function in the pressure band (the ESLint sonarjs gate ran green at every commit).
 
 ## Verdict against the mission invariant
 
