@@ -4,7 +4,7 @@ The release process is **review-gated**: release notes are AI-drafted, the
 maintainer reviews and edits them, and nothing reaches users until the maintainer
 **publishes** the draft GitHub release. One reviewed source —
 `docs/releases/<version>.md` — feeds the GitHub release body, the in-app "What's
-New" view, and the [`docs/releases.md`](releases.md) index.
+New" view, and the [`docs/releases.md`](../releases.md) index.
 
 There are **two approval beats**:
 
@@ -84,7 +84,7 @@ gh pr create --base main --fill      # NO manifest change → the clean-manifest
 
 > The `npm version` in Step 2 regenerates `docs/releases.md` too, but on the
 > never-merged `release/*` branch — so the index must be refreshed **here** to keep
-> `main`'s public [release index](releases.md) current for every beta. Because
+> `main`'s public [release index](../releases.md) current for every beta. Because
 > `manifest.json` is untouched, this stays a clean-manifest notes PR.
 
 **Step 2 — cut the beta from `main` (manifest bump + tag only).**
@@ -120,7 +120,7 @@ Landing notes on `main` first makes `main` the single place all history accumula
 every regeneration is complete and **no backfill is ever needed**. The one thing that
 legitimately must stay off `main` — the `-beta` manifest string — is the *only* thing
 the throwaway branch carries. Full rationale:
-[docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md](solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md).
+[docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md](../solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md).
 
 ### Three things to know about betas
 

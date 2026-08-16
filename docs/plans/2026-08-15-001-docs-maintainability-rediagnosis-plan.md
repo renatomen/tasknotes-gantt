@@ -25,7 +25,7 @@ execution: code
 
 ### Summary
 
-Measure churn share per file, separable-concern counts for the worst offenders, and complexity-gate pressure; fold in the maintainability and coupling defects already queued in [docs/backlog.md](../backlog.md); and publish the result as a ranked defect list where every rank is argued from the recorded measurements. The same PR appends the 2026-08-15 e2e flake instances to the backlog flake record, and the local branch `docs/plan-wire-svar-interceptors` is pushed for durability.
+Measure churn share per file, separable-concern counts for the worst offenders, and complexity-gate pressure; fold in the maintainability and coupling defects already queued in [docs/backlog.md](../backlogs/backlog.md); and publish the result as a ranked defect list where every rank is argued from the recorded measurements. The same PR appends the 2026-08-15 e2e flake instances to the backlog flake record, and the local branch `docs/plan-wire-svar-interceptors` is pushed for durability.
 
 ### Problem Frame
 
@@ -46,7 +46,7 @@ The campaign's previous target list was "12 files >500 LOC" — a line-count fra
 - R1. Churn share per file is measured from git history, with the command and window recorded so the numbers are reproducible.
 - R2. The worst churn offenders get a separable-concern count, each concern named so the count is checkable rather than asserted.
 - R3. Complexity-gate pressure is measured: which files and functions sit at or near the cognitive-complexity ceiling of 15, including any sanctioned suppressions.
-- R4. The maintainability, coupling, and boundary defect entries queued in [docs/backlog.md](../backlog.md) join the candidate set — production and tooling classes alike — each carried with its existing evidence. Behavior-defect fix queues (e.g. the preserved-behavior list) stay out; they are their own future units, not maintainability targets.
+- R4. The maintainability, coupling, and boundary defect entries queued in [docs/backlog.md](../backlogs/backlog.md) join the candidate set — production and tooling classes alike — each carried with its existing evidence. Behavior-defect fix queues (e.g. the preserved-behavior list) stay out; they are their own future units, not maintainability targets.
 
 **Ranked defect list**
 
@@ -87,7 +87,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - [docs/architecture/principles.md](../architecture/principles.md) — principle 7 (metrics: churn share, separable-concern count; falsifiability test) and principle 5 (verification tiers).
 - [docs/engineering/practices.md](../engineering/practices.md) — landing cadence and session cadence bounding this unit.
 - [docs/reports/2026-08-10-svar-conformance-and-maintainability-audit.md](../reports/2026-08-10-svar-conformance-and-maintainability-audit.md) — the prior audit this diagnosis updates.
-- [docs/backlog.md](../backlog.md) — the queued defect entries (R4) and the CI e2e flake record (R7).
+- [docs/backlog.md](../backlogs/backlog.md) — the queued defect entries (R4) and the CI e2e flake record (R7).
 - Branch `docs/plan-wire-svar-interceptors` at `3c62bbe` — the superseded slice-2 plan and its seven-bindings measurement.
 - [docs/solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md](../solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md) — extract semantic responsibility, not lines; the intentionally-cohesive stopping condition; the deleted bespoke analyzer that mandates recorded commands over new tooling.
 - [docs/solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md](../solutions/tooling-decisions/orchestrate-existing-tool-over-rebuilding.md) — the general rule: orchestrate the existing tool rather than rebuilding its capability.
@@ -153,7 +153,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - **Goal** - The ranked defect list: every entry carries its measurements and an argued maintenance-pain rank.
 - **Requirements** - R4, R5, R6; fold-in discipline per KTD7, report shape per KTD5.
 - **Dependencies** - U1, U2, U3.
-- **Files** - `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`, [docs/backlog.md](../backlog.md) (read-only here).
+- **Files** - `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`, [docs/backlog.md](../backlogs/backlog.md) (read-only here).
 - **Approach**
   1. Verify each backlog maintainability, coupling, and boundary entry against live code; drop obsoleted ones as recorded honest negatives.
   2. Merge verified entries with the U1–U3 measurement findings into one candidate set.
@@ -167,7 +167,7 @@ This plan owns the campaign's Phase 0 (diagnosis) only. The breakdown below is t
 - **Goal** - One docs PR merged on green; flake record appended; interceptor branch durable on origin.
 - **Requirements** - R7, R8, R9.
 - **Dependencies** - U4.
-- **Files** - [docs/backlog.md](../backlog.md) (flake-record append), `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
+- **Files** - [docs/backlog.md](../backlogs/backlog.md) (flake-record append), `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
 - **Approach** - Append the R7 flake instances to the backlog's "CI e2e flake — a measured instance" record with per-run verification status (the per-spec breakdown was not captured for these instances). Push `docs/plan-wire-svar-interceptors` to origin unchanged (durability only — no merge, no PR for it). Branch, commit, open the unit's PR, merge on green under the standing gates.
 - **Test scenarios** - Test expectation: none — docs-only unit.
 - **Verification** - Per the Verification Contract; plus: the branch exists on origin at `3c62bbe`, and the backlog flake record names the R7 run IDs.

@@ -102,5 +102,5 @@ which:
 3. **Inserts** the pinned markdown `![]()` into the matching PR-body section.
 
 Commit the asset(s) with the change. At release time `/tng-release` reuses the same
-committed file, re-pinned to the tag, and parks a reminder in `docs/backlog.md` when a
+committed file, re-pinned to the tag, and parks a reminder in `docs/backlogs/backlog.md` when a
 UI-affecting change shipped without one.

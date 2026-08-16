@@ -134,7 +134,7 @@ Warning signs that the loop has become the work:
 > everyday path). Record everything else:
 >
 > ```
-> docs/backlog.md
+> docs/backlogs/backlog.md
 >   ## Peer-wrapper guards still without a test
 >   ## The peer-review gate is roughly 7x the size its purpose needs
 > ```

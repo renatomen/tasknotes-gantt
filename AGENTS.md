@@ -20,7 +20,7 @@ Always-apply contract for every agent and human working in this repo. This file 
 - [docs/engineering/practices.md](docs/engineering/practices.md) — the engineering charter (E1–E12) and this repo's binding: review layers, named divergences, operational stopping rules, landing cadence
 - `docs/plans/` — execution specifications; `docs/brainstorms/` — requirements
 - `docs/solutions/` — durable learnings: **check before solving, write after solving** (category folders, YAML frontmatter for searching)
-- [docs/backlog.md](docs/backlog.md) — parked work (not GitHub Issues, by choice while solo); promote to an issue when picked up, then delete the entry
+- [docs/backlogs/backlog.md](docs/backlogs/backlog.md) — parked work (not GitHub Issues, by choice while solo); promote to an issue when picked up, then delete the entry
 
 ## How we work
 

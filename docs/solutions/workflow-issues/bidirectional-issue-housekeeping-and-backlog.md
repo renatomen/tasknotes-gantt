@@ -62,7 +62,7 @@ a "learning" doc that live code had already obsoleted, and caught it only by che
 *(session history)*.
 
 **3. For a solo dev, park untracked work in a doc-layer backlog, not premature GitHub issues.** A
-single version-controlled `docs/backlog.md` beats N speculative issues. Each entry links its **source
+single version-controlled `docs/backlogs/backlog.md` beats N speculative issues. Each entry links its **source
 plan** (full context one click away), carries a **priority tier**, and notes **where it would nest if
 promoted**. Write the governing rule into both the file and `AGENTS.md`:
 
@@ -111,7 +111,7 @@ a clear doc-only-vs-file recommendation — not as a mechanical dump.
 2 epic checklists refreshed (closed children re-checked), 2 issues cross-linked across epics, 1 bug
 triaged — 5 touched, 5 deliberately left alone (PR #186).
 
-**Backlog entry shape** (`docs/backlog.md`) — source-linked, tiered, with a promotion target:
+**Backlog entry shape** (`docs/backlogs/backlog.md`) — source-linked, tiered, with a promotion target:
 
 ```markdown
 ### P2 — Open render/index residuals (#161 tail)
@@ -122,7 +122,7 @@ triaged — 5 touched, 5 deliberately left alone (PR #186).
 Promote → nests under #161 follow-up. `gh issue create` when picked up, then delete this entry.
 ```
 
-**Governing rule** (written into both `docs/backlog.md` and `AGENTS.md` "How we work"):
+**Governing rule** (written into both `docs/backlogs/backlog.md` and `AGENTS.md` "How we work"):
 
 > GitHub Issues = active work; backlog = parked work. When you start a backlog item, `gh issue create`
 > from its entry, then delete it from the backlog.
@@ -132,7 +132,7 @@ found already shipped (the repo is Vite-only now), and dropped before filing —
 
 ## Related
 
-- `docs/backlog.md` — the live instance of this pattern (created in PR #186; "Last swept: 2026-06-29").
+- `docs/backlogs/backlog.md` — the live instance of this pattern (created in PR #186; "Last swept: 2026-06-29").
 - `AGENTS.md` → "How we work" — where the active-vs-parked convention is codified for agents.
 - `docs/solutions/tooling-decisions/test-at-the-fastest-level-not-redundant-e2e.md` — sibling
   residual-work discipline: that doc decides *whether to build* a deferred item (test-pyramid); this

@@ -22,7 +22,7 @@ jobs:
       - name: Assert manifest is a clean release version (no prerelease suffix on main)
         # A `-beta` manifest must never merge to main: it is the store-facing
         # version. Betas are cut on a tag, not on main. Mechanical guard for the
-        # manifest-on-main invariant (see docs/RELEASING.md), per "enforce always-X
+        # manifest-on-main invariant (see docs/releases/RELEASING.md), per "enforce always-X
         # with a mechanism, not memory".
         shell: bash
         run: |

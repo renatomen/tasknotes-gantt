@@ -7,7 +7,7 @@ description: Draft the next release's notes (docs/releases/X.Y.Z.md) from merged
 Draft the next version's release notes for **TaskNotes Gantt** and stop for the
 maintainer to review. This command **only drafts a file**; it never bumps the
 version, commits, tags, or publishes. The full release procedure is in
-[docs/RELEASING.md](../../docs/RELEASING.md).
+[docs/releases/RELEASING.md](../../docs/releases/RELEASING.md).
 
 `$ARGUMENTS` may contain a release type hint: `beta` (cut a `-beta.N` prerelease)
 or `stable` (default). If empty, infer from the change set and confirm with the
@@ -79,7 +79,7 @@ references pin to **this release's tag**.
   asset; `/tng-demo` reuses it (re-pinned to the tag) rather than re-recording.
 - **Missing asset:** if a UI-affecting change shipped without one and can't be
   captured now, park a short reminder in
-  [docs/backlog.md](../../docs/backlog.md) ("Visual assets — capture for
+  [docs/backlogs/backlog.md](../../docs/backlogs/backlog.md) ("Visual assets — capture for
   &lt;feature&gt; (&lt;version&gt;)") rather than leaving it in the merged PR body.
 - **Markdown image syntax only** — never raw HTML, relative paths, or catbox URLs;
   the generator and the image validator fail the build otherwise.
@@ -135,7 +135,7 @@ feature → minor, fixes-only → patch). For a beta, use `X.Y.Z-beta.N`
 
 Present the drafted file path, the suggested version, and the attribution list.
 **Do not** run `npm version`, commit, tag, or publish — the maintainer reviews and
-edits the file, then follows [docs/RELEASING.md](../../docs/RELEASING.md) to cut the
+edits the file, then follows [docs/releases/RELEASING.md](../../docs/releases/RELEASING.md) to cut the
 release. No AI attribution on any commit/PR/issue.
 
 **Where the drafted notes go:** the notes file + its `docs/media/` assets land on
@@ -145,5 +145,5 @@ separate throwaway `release/*` branch cut from `main` — never on the notes PR,
 mixed into feature work. This keeps `main`'s release-notes history complete so the next
 release's in-app "What's New" bundle regenerates without gaps (a beta cut from `main`
 can only bundle the notes present on `main`). See
-[docs/RELEASING.md](../../docs/RELEASING.md) and
+[docs/releases/RELEASING.md](../../docs/releases/RELEASING.md) and
 [docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md](../../docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md).

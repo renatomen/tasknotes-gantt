@@ -87,10 +87,10 @@ prerelease manifest string — and that is the *only* thing the throwaway branch
 A sturdier long-term fix is to have `scripts/generate-release-notes-import.mjs` read notes from the
 release **tags** rather than the working tree — the tags are the real immutable source of truth, so the
 bundle would be correct regardless of what any branch happens to contain. Larger change; parked in
-`docs/backlog.md`.
+`docs/backlogs/backlog.md`.
 
 ## See also
 
-- `docs/RELEASING.md` — the two-step beta procedure this learning encodes.
+- `docs/releases/RELEASING.md` — the two-step beta procedure this learning encodes.
 - `.claude/commands/tng-release.md` — drafts the notes destined for `main`.
 - The manifest-on-main invariant and the CI guard in `.github/workflows/ci.yml`.
