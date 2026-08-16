@@ -6,7 +6,8 @@
  */
 
 import { describe, expect, it } from '@jest/globals';
-import { App, FakeElement } from 'obsidian';
+import { App } from 'obsidian';
+import type { FakeElement } from '../__mocks__/obsidian';
 import {
   createSourceSwitcherState,
   type ActiveSwitcherSource,

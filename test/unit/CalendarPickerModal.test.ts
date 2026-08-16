@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it, jest } from '@jest/globals';
-import { App, FakeElement } from 'obsidian';
+import { App } from 'obsidian';
+import type { FakeElement, Modal as MockModal } from '../__mocks__/obsidian';
 import {
   buildCalendarRegistry,
   stripSubpath,
@@ -384,7 +385,7 @@ describe('CalendarPickerModal wiring', () => {
     button?.trigger('click');
     await Promise.resolve();
     expect(createCalendar).toHaveBeenCalledTimes(1);
-    expect(modal.closed).toBe(true);
+    expect((modal as unknown as MockModal).closed).toBe(true);
   });
 
   it('a failed create keeps the modal open', async () => {
@@ -406,6 +407,6 @@ describe('CalendarPickerModal wiring', () => {
     contentEl.query((el) => el.tagName === 'BUTTON')?.trigger('click');
     await Promise.resolve();
     await Promise.resolve();
-    expect(modal.closed).toBe(false);
+    expect((modal as unknown as MockModal).closed).toBe(false);
   });
 });
