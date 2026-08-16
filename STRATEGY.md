@@ -102,7 +102,9 @@ report, and a mechanical gate that keeps it. Pillar
 authorities: **maintainability** is measured — baseline and ranked list at
 `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`; its one
 mechanized dimension is the complexity gate, while churn share and concern
-counts are held by the per-session manual re-measure (their CI gate is a
+counts are held by the per-session manual re-measure, whose trend reports
+land as dated notes under `docs/reports/` (first post-baseline report:
+`docs/reports/2026-08-16-001-slice2-u1-trend-report.md`; their CI gate is a
 deliberately parked candidate). **Reliability**, **performance**,
 and **security** re-diagnoses are commissioned but not yet measured;
 reliability goes first — an e2e flake *incident record* already accumulates
