@@ -878,8 +878,9 @@ audit, the obsidian-releases listing prerequisites, and the open
 confirmations. Parked until the maintainer schedules the submission. Known
 state at parking time: the code-rule audit is dated **2026-06-20 and is
 STALE** — it predates the maintainability campaign and every major merge
-since, so it must be re-run before listing; the README screenshot/GIF is
-still missing; the `minAppVersion` (`1.10.0`) confirmation is still open.
+since, so it must be re-run before listing; the `minAppVersion` (`1.10.0`)
+confirmation is still open. (The checklist's README-screenshot item was
+stale — README.md already embeds Gantt screenshots; ticked 2026-08-16.)
 The strategy track "Grow the standalone side" should point at this entry
 when STRATEGY.md's tracks are next amended (maintainer-approved edit). When
 picked up, promote to a GitHub issue and delete this entry.

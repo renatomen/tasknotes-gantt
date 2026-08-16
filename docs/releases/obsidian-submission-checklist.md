@@ -21,7 +21,7 @@ Before opening the PR to [`obsidianmd/obsidian-releases`](https://github.com/obs
 - [ ] The release contains **`main.js`**, **`manifest.json`**, and **`styles.css`** as assets (the release workflow attaches all three).
 - [ ] `main.js`/`styles.css` carry a **build-provenance attestation** (the workflow asserts one was produced; verify with `gh attestation verify`).
 - [ ] `manifest.json` fields are non-empty and accurate: `id` (`tasknotes-gantt`), `name` ("TaskNotes Gantt", no "Obsidian"), `version`, `minAppVersion` (`1.10.0` — **confirm this is the released Obsidian version that ships the Bases API** before listing), `description`, `author`, `authorUrl`, `isDesktopOnly: false` (mobile-validated).
-- [ ] `README.md` includes a **screenshot/GIF** of the Gantt view (add before submitting — not yet present).
+- [x] `README.md` includes a **screenshot/GIF** of the Gantt view (satisfied since: bar-treatment, weekend-shading, and legend screenshots are embedded — verified 2026-08-16).
 - [ ] Root files present: `README.md`, `LICENSE` (MIT), `versions.json`.
 - [ ] The `obsidian-releases` PR adds the entry to `community-plugins.json` with id `tasknotes-gantt`.
 
