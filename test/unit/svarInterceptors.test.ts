@@ -39,9 +39,10 @@ const CAL_ID = 'og-calendar://feed/item-1';
  * The global setTimeout pinned to the handle type the interceptor access seam
  * stores (`ReturnType<typeof setTimeout>`) — the merged DOM/Node overloads
  * otherwise resolve the bare call to the wrong member of the overload set.
+ * Resolved at invocation (not module load) so jest fake timers apply.
  */
-const scheduleTimeout: (callback: () => void, ms: number) => ReturnType<typeof setTimeout> =
-  setTimeout;
+const scheduleTimeout = (callback: () => void, ms: number): ReturnType<typeof setTimeout> =>
+  setTimeout(callback, ms);
 
 interface Registration {
   action: string;
