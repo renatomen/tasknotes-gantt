@@ -114,7 +114,12 @@
   import { toggleCollapseAll } from './collapseState';
   import { propertyColumnSort } from './columnSort';
   import { type EphemeralSort } from './sortCycle';
-  import { wireInteractionInterceptors, type InterceptorAccess } from './svarInterceptors';
+  import {
+    wireSvarInterceptors,
+    type InterceptorAccess,
+    type SvarInterceptorDeps,
+    type UpdateTaskEvent,
+  } from './svarInterceptors';
   import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
   import type { SourceSwitcherState, SwitcherRowSource } from './sourceSwitcher';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
@@ -1283,24 +1288,6 @@
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
   // path reads. `inProgress` marks mid-gesture frames; `eventSource` carries our
   // own echo tag on programmatic writes.
-  interface UpdateTaskEvent {
-    id?: string | number;
-    inProgress?: boolean;
-    eventSource?: string;
-    task?: Record<string, unknown>;
-  }
-
-  // The slice of SVAR's `add-link`/`delete-link` event payloads the dependency
-  // authoring path reads. `delete-link` carries `{ id }`; `add-link` carries
-  // `{ link: { source, target, type } }` (a user-drawn link has no id until SVAR
-  // assigns one after the intercept). `eventSource` is our echo tag.
-  interface LinkEvent {
-    id?: string | number;
-    inProgress?: boolean;
-    eventSource?: string;
-    link?: { source?: string | number; target?: string | number; type?: string };
-  }
-
   // SVAR Gantt API - using unknown with type assertions for third-party API
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type GanttAPI = any;
@@ -1803,7 +1790,7 @@
   // property closed over this component's scope — never a copied value — so a
   // handler's write is visible to the next handler, the sync coordinator, and
   // the template. Built once; initGantt re-registers per re-bound api.
-  const interactionAccess: InterceptorAccess = {
+  const interceptorAccess: InterceptorAccess = {
     get syncing() {
       return syncing;
     },
@@ -1835,7 +1822,7 @@
       return suppressSelectActivation;
     },
   };
-  const interactionDeps = {
+  const interceptorDeps: SvarInterceptorDeps = {
     echoSource: OG_ECHO_SOURCE,
     restoreBaseOrder,
     activateBar,
@@ -1844,6 +1831,29 @@
     // registration must see the current instance's selection, exactly as the
     // pre-extraction closure did.
     getState: () => api?.getState?.(),
+    // Live `$derived` reads: a capabilities flip or a grid-column edit changes
+    // these without a SVAR re-init, so the handlers read them at event time.
+    isReadOnly: () => readOnly,
+    cellEditColumnIds: () => cellEditColumnIds,
+    allowsRowMutation,
+    refusesUserRowMutation,
+    allowsLinkEndpoints,
+    rowHasDerivedGeometry,
+    linkTouchesDerivedGeometry,
+    classifyUpdateEvent,
+    classifyUpdateGesture,
+    classifyLinkCreate,
+    storedPropertiesOf,
+    handleCellEditCommit,
+    reseedRowFlatKeys,
+    handleUserBarGesture,
+    onMutate,
+    onAddDependency,
+    onRemoveDependency,
+    lookupAppliedLink: (linkId: string) => appliedSyncState.links.get(linkId),
+    notify: (message: string) => {
+      new Notice(message);
+    },
   };
 
   // Initialize API and intercept editor events
@@ -1865,129 +1875,12 @@
     // Native edit interaction: a bar's left/double-click routes to the
     // TaskNotes interaction service — TaskNotes performs the configured action
     // (open note / open its own edit modal); SVAR's own editor never opens.
-    // The interaction-cluster policy bodies (ephemeral sort, collapse
-    // persistence, reorder blocking, show-editor routing, select-first
-    // activation) live in svarInterceptors.ts; only the registrations repeat
-    // per re-bound api — the access/deps objects are component-lifetime.
-    wireInteractionInterceptors(ganttApi, interactionAccess, interactionDeps);
-
-    // Unified drag wiring. Parents are ordinary (non-summary) tasks, so
-    // dragging one moves only that bar — SVAR fires a single committing
-    // `update-task` (no eventSource) and no cascade. The committed gesture is
-    // submitted to the drag executor, which runs the planner's gesture plan
-    // and its deferred cascade pass (subtree shift, shrink-fit, gated ancestor
-    // extend) in one per-source queue slot. `inProgress` frames and our own
-    // echoes / refreshes are ignored; `action` events stay a no-op (no
-    // moveSummaryKids/resetSummaryDates fire for non-summary rows).
-    // Read-only calendar-item rows: refusing `drag-task` makes SVAR abort
-    // the move/resize gesture natively at the first frame — the bar never moves.
-    // Occupancy rows refuse the same way: their bar is a DERIVED envelope of
-    // instances, so a drag (even on a bare gap stretch between pieces) would
-    // commit absolute envelope dates into scheduled/due.
-    api.intercept(
-      "drag-task",
-      (ev: { id?: string | number }) =>
-        allowsRowMutation(ev?.id) && !rowHasDerivedGeometry(ev?.id),
-    );
-
-    api.intercept("update-task", (ev: UpdateTaskEvent) => {
-      if (!ev || ev.inProgress) return true;
-      // Read-only calendar-item rows: refuse any user change (cell edit,
-      // progress, dates) before gesture classification; our echoes and
-      // programmatic refreshes keep passing so the diff-sync applies.
-      if (refusesUserRowMutation(ev, { syncing, echoSource: OG_ECHO_SOURCE })) return false;
-      // Cell edits fold into the same event stream: the grid's update-cell
-      // bridge re-emits a committed inline edit as an untagged `update-task`
-      // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
-      // from drag/resize gestures by diffing flat keys against stored values.
-      const gesture = classifyUpdateGesture(ev, {
-        echoSource: OG_ECHO_SOURCE,
-        syncing,
-        cellEditColumnIds,
-        storedProperties: storedPropertiesOf(ev.id),
-      });
-      if (gesture.kind === 'cell-edit') {
-        return ev.id != null
-          ? handleCellEditCommit(String(ev.id), gesture.columnId, gesture.value)
-          : false;
-      }
-      // Re-committing the current value: nothing to write, nothing to revert.
-      if (gesture.kind === 'cell-edit-noop') return false;
-      // More than one flat key diffs (a stale committed key over an externally
-      // changed note): writing either could clobber the external change, so
-      // block the apply, re-align the row's flat keys with the stored truth,
-      // and tell the user the silently-dropped edit needs a retry.
-      if (gesture.kind === 'cell-edit-ambiguous') {
-        if (ev.id != null) reseedRowFlatKeys(String(ev.id));
-        new Notice("Couldn't save — the row changed externally; try again.");
-        return false;
-      }
-      if (gesture.kind === 'user-gesture' && !readOnly && !!onMutate && ev.id != null) {
-        return handleUserBarGesture(ev, String(ev.id));
-      }
-      return true;
-    });
-
-    // Drag-to-create an FS dependency (M2/U4). SVAR fires `add-link` on drop; a
-    // user-drawn link has no id yet (SVAR assigns a temp id in the router AFTER
-    // this intercept), so we return `false` and let the controller write drive
-    // the arrow via the diff-sync (KTD4) — no optimistic add, no temp-id revert.
-    // Only `e2s` (finish→start) is accepted; other geometries / self-links are
-    // rejected. Our own echo / programmatic refresh (cls !== 'user-gesture')
-    // passes through so the diff-sync's add-link applies.
-    api.intercept("add-link", (ev: LinkEvent) => {
-      if (!ev || ev.inProgress) return true;
-      if (classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing }) !== 'user-gesture') {
-        return true;
-      }
-      if (readOnly || !onAddDependency || !ev.link) return false;
-      // Dependencies never touch a read-only calendar-item row on either end,
-      // nor an occupancy row — an edge would anchor to its derived envelope.
-      if (!allowsLinkEndpoints(ev.link.source, ev.link.target)) return false;
-      if (linkTouchesDerivedGeometry(ev.link.source, ev.link.target)) return false;
-      const roles = classifyLinkCreate({
-        source: String(ev.link.source ?? ''),
-        target: String(ev.link.target ?? ''),
-        type: String(ev.link.type ?? ''),
-      });
-      if (!roles) {
-        new Notice('Only Finish-to-Start links can be created for now.');
-        return false;
-      }
-      void onAddDependency(roles.predecessor, roles.dependent).catch((err) => {
-        console.error('[GanttContainer] add-dependency failed:', err);
-        new Notice("Couldn't create the dependency — check TaskNotes is running.");
-      });
-      return false;
-    });
-
-    // Delete a dependency (M2/U3). SVAR fires `delete-link { id }` from its
-    // native select-and-delete. Resolve the link's endpoints from the applied-
-    // links map (its id may carry SVAR's leading `:`), remove the edge via the
-    // controller, and return `false` so the diff-sync removal — not SVAR's
-    // optimistic one — drives the arrow's disappearance. No confirm; no revert
-    // needed (nothing removed locally).
-    api.intercept("delete-link", (ev: LinkEvent) => {
-      if (!ev) return true;
-      if (classifyUpdateEvent(ev, { echoSource: OG_ECHO_SOURCE, syncing }) !== 'user-gesture') {
-        return true;
-      }
-      if (readOnly || !onRemoveDependency || ev.id == null) return false;
-      const rawId = String(ev.id);
-      const link = appliedSyncState.links.get(
-        rawId.startsWith(':') ? rawId.slice(1) : rawId,
-      );
-      if (!link) return false;
-      // A resolved edge touching a read-only calendar-item row is never
-      // removable; same for an occupancy (derived-geometry) row.
-      if (!allowsLinkEndpoints(link.source, link.target)) return false;
-      if (linkTouchesDerivedGeometry(link.source, link.target)) return false;
-      void onRemoveDependency(link.source, link.target).catch((err) => {
-        console.error('[GanttContainer] remove-dependency failed:', err);
-        new Notice("Couldn't remove the dependency — check TaskNotes is running.");
-      });
-      return false;
-    });
+    // Every interception policy — ephemeral sort, collapse persistence,
+    // reorder blocking, show-editor routing, select-first activation, drag
+    // vetoes, cell-edit routing, link authoring — lives in svarInterceptors.ts
+    // and registers in the preserved order; only the registrations repeat per
+    // re-bound api — the access/deps objects are component-lifetime.
+    wireSvarInterceptors(ganttApi, interceptorAccess, interceptorDeps);
 
     // Fix initial scroll position - ensure the grid starts with first column
     // visible. SVAR Gantt sometimes initializes with horizontal scroll that hides

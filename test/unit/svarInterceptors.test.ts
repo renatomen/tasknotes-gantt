@@ -991,13 +991,13 @@ describe('liveness of the data-cluster getter deps (R6)', () => {
   });
 });
 
-describe('view-side wiring shape (R6 accessor-property check)', () => {
+describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', () => {
+  const viewSource = () =>
+    fs.readFileSync(path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'), 'utf8');
+
   it('GanttContainer passes an access object whose census members are accessor properties', () => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'),
-      'utf8',
-    );
-    const literalStart = source.indexOf('const interactionAccess: InterceptorAccess = {');
+    const source = viewSource();
+    const literalStart = source.indexOf('const interceptorAccess: InterceptorAccess = {');
     expect(literalStart).toBeGreaterThan(-1);
     const literalEnd = source.indexOf('};', literalStart);
     expect(literalEnd).toBeGreaterThan(literalStart);
@@ -1023,7 +1023,22 @@ describe('view-side wiring shape (R6 accessor-property check)', () => {
       );
     }
     // The call site must pass the accessor object itself — a spread or copy
-    // (`{ ...interactionAccess }`) would snapshot values and kill liveness.
-    expect(source).toMatch(/wireInteractionInterceptors\(\s*ganttApi,\s*interactionAccess,\s*interactionDeps\s*\)/);
+    // (`{ ...interceptorAccess }`) would snapshot values and kill liveness.
+    expect(source).toMatch(/wireSvarInterceptors\(\s*ganttApi,\s*interceptorAccess,\s*interceptorDeps\s*\)/);
+  });
+
+  it('GanttContainer passes the reactive $derived reads as live getter-valued deps', () => {
+    const source = viewSource();
+    const literalStart = source.indexOf('const interceptorDeps: SvarInterceptorDeps = {');
+    expect(literalStart).toBeGreaterThan(-1);
+    const depsLiteral = source.slice(literalStart, source.indexOf('wireSvarInterceptors', literalStart));
+    // Arrow bodies reading the same-named `$derived` binding at event time —
+    // `isReadOnly: readOnly` (a value) would freeze the policy at wiring.
+    expect(depsLiteral).toMatch(/isReadOnly:\s*\(\)\s*=>\s*readOnly\b/);
+    expect(depsLiteral).toMatch(/cellEditColumnIds:\s*\(\)\s*=>\s*cellEditColumnIds\b/);
+  });
+
+  it('GanttContainer contains no api.intercept call site (R1 grep gate)', () => {
+    expect(viewSource().includes('api.intercept')).toBe(false);
   });
 });
