@@ -9,11 +9,26 @@
  */
 import {
   INTERACTION_INTERCEPT_ACTIONS,
+  SVAR_INTERCEPT_ACTIONS,
   wireInteractionInterceptors,
+  wireSvarInterceptors,
   type InteractionInterceptorDeps,
   type InterceptorAccess,
+  type SvarInterceptorDeps,
 } from '../../src/bases/svarInterceptors';
 import type { EphemeralSort } from '../../src/bases/sortCycle';
+import {
+  classifyLinkCreate,
+  classifyUpdateEvent,
+  classifyUpdateGesture,
+} from '../../src/bases/cascadeGate';
+import {
+  allowsLinkEndpoints,
+  allowsRowMutation,
+  refusesUserRowMutation,
+} from '../../src/bases/eventRowGuards';
+import type { TypedValue } from '../../src/bases/propertyValues';
+import { flushMicrotasks } from './dragExecutorTestKit';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -47,7 +62,7 @@ interface Backing {
   suppressSelectActivation: boolean;
 }
 
-function makeFixture(overrides: Partial<Backing> = {}) {
+function makeAccess(overrides: Partial<Backing> = {}): { backing: Backing; access: InterceptorAccess } {
   const backing: Backing = {
     syncing: false,
     ephemeralSort: null,
@@ -90,6 +105,11 @@ function makeFixture(overrides: Partial<Backing> = {}) {
       return backing.suppressSelectActivation;
     },
   };
+  return { backing, access };
+}
+
+function makeFixture(overrides: Partial<Backing> = {}) {
+  const { backing, access } = makeAccess(overrides);
   const restoreBaseOrder = jest.fn();
   const activateBar = jest.fn();
   const notePaths = new Map<string, string>();
@@ -502,13 +522,482 @@ describe('liveness of the access seam (R6)', () => {
   });
 });
 
-describe('view-side wiring shape (R6 accessor-property check)', () => {
+// ── Data-mutation cluster (drag-task / update-task / add-link / delete-link) ──
+//
+// The syncing/echo guards for this cluster live inside the pure classifiers
+// (`classifyUpdateEvent`, `classifyUpdateGesture`, `refusesUserRowMutation`),
+// which are already unit-tested — so the fixture passes the REAL classifiers,
+// wrapped in recording spies. A fake that reimplemented a guard would let a
+// deleted handler plumb pass vacuously; the real classifier plus a verdict
+// assertion fails instead: dropping the live `syncing` read or the
+// `echoSource` tag changes the recorded verdict.
+
+const text = (value: string): TypedValue => ({ kind: 'text', value }) as TypedValue;
+
+interface DataFixtureOptions {
+  backing?: Partial<Backing>;
+  readOnly?: boolean;
+  cellEditColumnIds?: string[];
+  withoutOnMutate?: boolean;
+  withoutOnAddDependency?: boolean;
+  withoutOnRemoveDependency?: boolean;
+}
+
+function makeDataFixture(options: DataFixtureOptions = {}) {
+  const { backing, access } = makeAccess(options.backing);
+  const live = {
+    readOnly: options.readOnly ?? false,
+    cellEditColumnIds: options.cellEditColumnIds ?? ['status'],
+  };
+  const derivedGeometryIds = new Set<string>();
+  const storedProperties = new Map<string, Record<string, TypedValue>>();
+  const appliedLinks = new Map<string, { source: string; target: string }>();
+  const notify = jest.fn();
+  const handleCellEditCommit = jest.fn((): boolean => true);
+  const reseedRowFlatKeys = jest.fn();
+  const handleUserBarGesture = jest.fn((): boolean => true);
+  const onMutate = options.withoutOnMutate ? undefined : jest.fn(async () => {});
+  const onAddDependency = options.withoutOnAddDependency ? undefined : jest.fn(async () => {});
+  const onRemoveDependency = options.withoutOnRemoveDependency ? undefined : jest.fn(async () => {});
+  const classifyUpdateEventSpy = jest.fn(classifyUpdateEvent);
+  const classifyUpdateGestureSpy = jest.fn(classifyUpdateGesture);
+  const deps: SvarInterceptorDeps = {
+    echoSource: ECHO,
+    restoreBaseOrder: jest.fn(),
+    activateBar: jest.fn(),
+    notePathOf: () => undefined,
+    getState: () => ({ selected: [] }),
+    isReadOnly: () => live.readOnly,
+    cellEditColumnIds: () => live.cellEditColumnIds,
+    allowsRowMutation,
+    refusesUserRowMutation,
+    allowsLinkEndpoints,
+    rowHasDerivedGeometry: (id) => id != null && derivedGeometryIds.has(String(id)),
+    linkTouchesDerivedGeometry: (source, target) =>
+      derivedGeometryIds.has(String(source)) || derivedGeometryIds.has(String(target)),
+    classifyUpdateEvent: classifyUpdateEventSpy,
+    classifyUpdateGesture: classifyUpdateGestureSpy,
+    classifyLinkCreate,
+    storedPropertiesOf: (id) => (id == null ? undefined : storedProperties.get(String(id))),
+    handleCellEditCommit,
+    reseedRowFlatKeys,
+    handleUserBarGesture,
+    onMutate,
+    onAddDependency,
+    onRemoveDependency,
+    lookupAppliedLink: (linkId) => appliedLinks.get(linkId),
+    notify,
+  };
+  const api = new FakeInterceptApi();
+  wireSvarInterceptors(api, access, deps);
+  return {
+    api,
+    backing,
+    live,
+    derivedGeometryIds,
+    storedProperties,
+    appliedLinks,
+    notify,
+    handleCellEditCommit,
+    reseedRowFlatKeys,
+    handleUserBarGesture,
+    onAddDependency,
+    onRemoveDependency,
+    classifyUpdateEventSpy,
+    classifyUpdateGestureSpy,
+  };
+}
+
+describe('wireSvarInterceptors registration contract (R10)', () => {
+  it('registers all fourteen actions in the preserved order — interaction cluster first, data cluster last', () => {
+    const { api } = makeDataFixture();
+    expect(api.registrations.map((r) => r.action)).toEqual([
+      'sort-tasks',
+      'open-task',
+      'move-task',
+      'move-task:up',
+      'move-task:down',
+      'reorder-tasks',
+      'move-up',
+      'move-down',
+      'show-editor',
+      'select-task',
+      'drag-task',
+      'update-task',
+      'add-link',
+      'delete-link',
+    ]);
+    expect([...SVAR_INTERCEPT_ACTIONS]).toEqual(api.registrations.map((r) => r.action));
+  });
+});
+
+describe('drag-task interceptor', () => {
+  it('refuses a drag on a row that disallows mutation', () => {
+    const { api } = makeDataFixture();
+    expect(api.fire('drag-task', { id: CAL_ID })).toBe(false);
+  });
+
+  it('refuses a drag on a derived-geometry row', () => {
+    const { api, derivedGeometryIds } = makeDataFixture();
+    derivedGeometryIds.add('t1');
+    expect(api.fire('drag-task', { id: 't1' })).toBe(false);
+  });
+
+  it('allows a drag on an ordinary writable row', () => {
+    const { api } = makeDataFixture();
+    expect(api.fire('drag-task', { id: 't1' })).toBe(true);
+  });
+});
+
+describe('update-task interceptor', () => {
+  it('passes inProgress frames through without committing', () => {
+    const { api, handleCellEditCommit, handleUserBarGesture } = makeDataFixture();
+    expect(api.fire('update-task', { id: 't1', inProgress: true, task: { status: 'done' } })).toBe(true);
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+
+  it('passes any event through while syncing with no echo source (R5: syncing guard alone)', () => {
+    const { api, backing, handleCellEditCommit, handleUserBarGesture, classifyUpdateGestureSpy } =
+      makeDataFixture();
+    backing.syncing = true;
+    // Without the live syncing read this exact event classifies as a cell edit.
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done' } })).toBe(true);
+    expect(classifyUpdateGestureSpy.mock.results[0]?.value).toEqual({ kind: 'syncing' });
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+
+  it('passes an echo-tagged event through while syncing is false (R5: echo guard alone)', () => {
+    const { api, handleCellEditCommit, handleUserBarGesture, classifyUpdateGestureSpy } =
+      makeDataFixture();
+    expect(api.fire('update-task', { id: 't1', eventSource: ECHO, task: { status: 'done' } })).toBe(true);
+    // 'echo', not 'ignore': a dropped echoSource plumb fails here.
+    expect(classifyUpdateGestureSpy.mock.results[0]?.value).toEqual({ kind: 'echo' });
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+
+  it('keeps an echo-tagged update on a calendar-item row passing so the diff-sync applies (R5: echo guard alone)', () => {
+    const { api } = makeDataFixture();
+    expect(api.fire('update-task', { id: CAL_ID, eventSource: ECHO, task: { status: 'done' } })).toBe(true);
+  });
+
+  it('keeps a syncing-window update on a calendar-item row passing (R5: syncing guard alone)', () => {
+    const { api, backing } = makeDataFixture();
+    backing.syncing = true;
+    expect(api.fire('update-task', { id: CAL_ID, task: { status: 'done' } })).toBe(true);
+  });
+
+  it('refuses an untagged user update on a calendar-item row', () => {
+    const { api, handleCellEditCommit, handleUserBarGesture } = makeDataFixture();
+    expect(api.fire('update-task', { id: CAL_ID, task: { status: 'done' } })).toBe(false);
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+
+  it('routes a committed cell edit to the commit handler with column and value', () => {
+    const { api, storedProperties, handleCellEditCommit } = makeDataFixture();
+    storedProperties.set('t1', { status: text('todo') });
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done', start: 1, end: 2 } })).toBe(true);
+    expect(handleCellEditCommit).toHaveBeenCalledWith('t1', 'status', 'done');
+  });
+
+  it('returns the commit handler verdict for a refused cell edit', () => {
+    const { api, storedProperties, handleCellEditCommit } = makeDataFixture();
+    handleCellEditCommit.mockReturnValue(false);
+    storedProperties.set('t1', { status: text('todo') });
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done' } })).toBe(false);
+  });
+
+  it('returns false for a cell edit without a row id', () => {
+    const { api, handleCellEditCommit } = makeDataFixture();
+    expect(api.fire('update-task', { task: { status: 'done' } })).toBe(false);
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+  });
+
+  it('returns false for a cell-edit no-op without committing', () => {
+    const { api, storedProperties, handleCellEditCommit } = makeDataFixture();
+    storedProperties.set('t1', { status: text('done') });
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done' } })).toBe(false);
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+  });
+
+  it('reseeds the row flat keys, notifies, and returns false for an ambiguous cell edit', () => {
+    const { api, storedProperties, reseedRowFlatKeys, notify, handleCellEditCommit } = makeDataFixture({
+      cellEditColumnIds: ['status', 'priority'],
+    });
+    storedProperties.set('t1', { status: text('todo'), priority: text('low') });
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done', priority: 'high' } })).toBe(false);
+    expect(reseedRowFlatKeys).toHaveBeenCalledWith('t1');
+    expect(notify).toHaveBeenCalledWith("Couldn't save — the row changed externally; try again.");
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+  });
+
+  it('routes a user bar gesture to the gesture handler when writable', () => {
+    const { api, handleUserBarGesture } = makeDataFixture();
+    const ev = { id: 't1', task: { start: 1, end: 2 } };
+    expect(api.fire('update-task', ev)).toBe(true);
+    expect(handleUserBarGesture).toHaveBeenCalledWith(ev, 't1');
+  });
+
+  it('returns the gesture handler verdict for a refused bar gesture', () => {
+    const { api, handleUserBarGesture } = makeDataFixture();
+    handleUserBarGesture.mockReturnValue(false);
+    expect(api.fire('update-task', { id: 't1', task: { start: 1, end: 2 } })).toBe(false);
+  });
+
+  it('passes a user bar gesture through untouched while read-only', () => {
+    const { api, handleUserBarGesture } = makeDataFixture({ readOnly: true });
+    expect(api.fire('update-task', { id: 't1', task: { start: 1, end: 2 } })).toBe(true);
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+
+  it('passes a user bar gesture through untouched without an onMutate handler', () => {
+    const { api, handleUserBarGesture } = makeDataFixture({ withoutOnMutate: true });
+    expect(api.fire('update-task', { id: 't1', task: { start: 1, end: 2 } })).toBe(true);
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+  });
+});
+
+describe('add-link interceptor', () => {
+  const validLink = { source: 't1', target: 't2', type: 'e2s' };
+
+  it('passes inProgress frames through', () => {
+    const { api, onAddDependency } = makeDataFixture();
+    expect(api.fire('add-link', { inProgress: true, link: validLink })).toBe(true);
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('passes any event through while syncing with no echo source (R5: syncing guard alone)', () => {
+    const { api, backing, onAddDependency, classifyUpdateEventSpy } = makeDataFixture();
+    backing.syncing = true;
+    expect(api.fire('add-link', { link: validLink })).toBe(true);
+    expect(classifyUpdateEventSpy.mock.results[0]?.value).toBe('syncing');
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('passes an echo-tagged event through while syncing is false (R5: echo guard alone)', () => {
+    const { api, onAddDependency, classifyUpdateEventSpy } = makeDataFixture();
+    expect(api.fire('add-link', { eventSource: ECHO, link: validLink })).toBe(true);
+    // 'echo', not 'ignore': a dropped echoSource plumb fails here.
+    expect(classifyUpdateEventSpy.mock.results[0]?.value).toBe('echo');
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false without invoking the callback while read-only', () => {
+    const { api, onAddDependency } = makeDataFixture({ readOnly: true });
+    expect(api.fire('add-link', { link: validLink })).toBe(false);
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false without an add-dependency callback', () => {
+    const { api } = makeDataFixture({ withoutOnAddDependency: true });
+    expect(api.fire('add-link', { link: validLink })).toBe(false);
+  });
+
+  it('returns false without a link payload', () => {
+    const { api, onAddDependency } = makeDataFixture();
+    expect(api.fire('add-link', {})).toBe(false);
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false for a link touching a disallowed endpoint', () => {
+    const { api, onAddDependency } = makeDataFixture();
+    expect(api.fire('add-link', { link: { source: CAL_ID, target: 't2', type: 'e2s' } })).toBe(false);
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false for a link touching a derived-geometry endpoint', () => {
+    const { api, derivedGeometryIds, onAddDependency } = makeDataFixture();
+    derivedGeometryIds.add('t2');
+    expect(api.fire('add-link', { link: validLink })).toBe(false);
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('notifies and returns false for a non-finish-to-start geometry', () => {
+    const { api, notify, onAddDependency } = makeDataFixture();
+    expect(api.fire('add-link', { link: { source: 't1', target: 't2', type: 's2s' } })).toBe(false);
+    expect(notify).toHaveBeenCalledWith('Only Finish-to-Start links can be created for now.');
+    expect(onAddDependency).not.toHaveBeenCalled();
+  });
+
+  it('invokes the add callback with predecessor and dependent for a valid link and returns false', () => {
+    const { api, onAddDependency } = makeDataFixture();
+    expect(api.fire('add-link', { link: validLink })).toBe(false);
+    expect(onAddDependency).toHaveBeenCalledWith('t1', 't2');
+  });
+
+  it('notifies when the add callback rejects', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { api, notify, onAddDependency } = makeDataFixture();
+      onAddDependency?.mockRejectedValue(new Error('offline'));
+      api.fire('add-link', { link: validLink });
+      await flushMicrotasks();
+      expect(notify).toHaveBeenCalledWith("Couldn't create the dependency — check TaskNotes is running.");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
+describe('delete-link interceptor', () => {
+  it('passes a missing event through', () => {
+    const { api } = makeDataFixture();
+    expect(api.fire('delete-link', undefined)).toBe(true);
+  });
+
+  it('passes any event through while syncing with no echo source (R5: syncing guard alone)', () => {
+    const { api, backing, appliedLinks, onRemoveDependency, classifyUpdateEventSpy } = makeDataFixture();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    backing.syncing = true;
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(true);
+    expect(classifyUpdateEventSpy.mock.results[0]?.value).toBe('syncing');
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('passes an echo-tagged event through while syncing is false (R5: echo guard alone)', () => {
+    const { api, appliedLinks, onRemoveDependency, classifyUpdateEventSpy } = makeDataFixture();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    expect(api.fire('delete-link', { id: 'L1', eventSource: ECHO })).toBe(true);
+    // 'echo', not 'ignore': a dropped echoSource plumb fails here.
+    expect(classifyUpdateEventSpy.mock.results[0]?.value).toBe('echo');
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false while read-only', () => {
+    const { api, appliedLinks, onRemoveDependency } = makeDataFixture({ readOnly: true });
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false without a remove-dependency callback', () => {
+    const { api, appliedLinks } = makeDataFixture({ withoutOnRemoveDependency: true });
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+  });
+
+  it('returns false without an id', () => {
+    const { api, onRemoveDependency } = makeDataFixture();
+    expect(api.fire('delete-link', {})).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('resolves a leading-colon id through the applied-links lookup', () => {
+    const { api, appliedLinks, onRemoveDependency } = makeDataFixture();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    expect(api.fire('delete-link', { id: ':L1' })).toBe(false);
+    expect(onRemoveDependency).toHaveBeenCalledWith('t1', 't2');
+  });
+
+  it('returns false for an unresolvable id without invoking the callback', () => {
+    const { api, onRemoveDependency } = makeDataFixture();
+    expect(api.fire('delete-link', { id: 'missing' })).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false when the resolved edge touches a disallowed endpoint', () => {
+    const { api, appliedLinks, onRemoveDependency } = makeDataFixture();
+    appliedLinks.set('L1', { source: CAL_ID, target: 't2' });
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('returns false when the resolved edge touches a derived-geometry endpoint', () => {
+    const { api, appliedLinks, derivedGeometryIds, onRemoveDependency } = makeDataFixture();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    derivedGeometryIds.add('t2');
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+  });
+
+  it('invokes the remove callback for a valid resolution and returns false', () => {
+    const { api, appliedLinks, onRemoveDependency } = makeDataFixture();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+    expect(onRemoveDependency).toHaveBeenCalledWith('t1', 't2');
+  });
+
+  it('notifies when the remove callback rejects', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { api, appliedLinks, notify, onRemoveDependency } = makeDataFixture();
+      appliedLinks.set('L1', { source: 't1', target: 't2' });
+      onRemoveDependency?.mockRejectedValue(new Error('offline'));
+      api.fire('delete-link', { id: 'L1' });
+      await flushMicrotasks();
+      expect(notify).toHaveBeenCalledWith("Couldn't remove the dependency — check TaskNotes is running.");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
+describe('liveness of the data-cluster getter deps (R6)', () => {
+  it('update-task observes a syncing flip made after wiring', () => {
+    const { api, backing, storedProperties, handleCellEditCommit } = makeDataFixture();
+    storedProperties.set('t1', { status: text('todo') });
+    backing.syncing = true;
+    expect(api.fire('update-task', { id: 't1', task: { status: 'done' } })).toBe(true);
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    backing.syncing = false;
+    api.fire('update-task', { id: 't1', task: { status: 'done' } });
+    expect(handleCellEditCommit).toHaveBeenCalledWith('t1', 'status', 'done');
+  });
+
+  it('update-task observes a readOnly flip made after wiring', () => {
+    const { api, live, handleUserBarGesture } = makeDataFixture();
+    live.readOnly = true;
+    api.fire('update-task', { id: 't1', task: { start: 1, end: 2 } });
+    expect(handleUserBarGesture).not.toHaveBeenCalled();
+    live.readOnly = false;
+    api.fire('update-task', { id: 't1', task: { start: 1, end: 2 } });
+    expect(handleUserBarGesture).toHaveBeenCalledTimes(1);
+  });
+
+  it('add-link observes a readOnly flip made after wiring', () => {
+    const { api, live, onAddDependency } = makeDataFixture();
+    live.readOnly = true;
+    expect(api.fire('add-link', { link: { source: 't1', target: 't2', type: 'e2s' } })).toBe(false);
+    expect(onAddDependency).not.toHaveBeenCalled();
+    live.readOnly = false;
+    api.fire('add-link', { link: { source: 't1', target: 't2', type: 'e2s' } });
+    expect(onAddDependency).toHaveBeenCalledTimes(1);
+  });
+
+  it('update-task classifies against cellEditColumnIds values changed after wiring', () => {
+    const { api, live, storedProperties, handleCellEditCommit, handleUserBarGesture } =
+      makeDataFixture({ cellEditColumnIds: [] });
+    storedProperties.set('t1', { status: text('todo') });
+    // No configured columns: the same payload is a user gesture, not a cell edit.
+    api.fire('update-task', { id: 't1', task: { status: 'done' } });
+    expect(handleCellEditCommit).not.toHaveBeenCalled();
+    expect(handleUserBarGesture).toHaveBeenCalledTimes(1);
+    live.cellEditColumnIds = ['status'];
+    api.fire('update-task', { id: 't1', task: { status: 'done' } });
+    expect(handleCellEditCommit).toHaveBeenCalledWith('t1', 'status', 'done');
+  });
+
+  it('delete-link resolves through the applied-links map as it changes after wiring', () => {
+    const { api, appliedLinks, onRemoveDependency } = makeDataFixture();
+    expect(api.fire('delete-link', { id: 'L1' })).toBe(false);
+    expect(onRemoveDependency).not.toHaveBeenCalled();
+    appliedLinks.set('L1', { source: 't1', target: 't2' });
+    api.fire('delete-link', { id: 'L1' });
+    expect(onRemoveDependency).toHaveBeenCalledWith('t1', 't2');
+  });
+});
+
+describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', () => {
+  const source = fs.readFileSync(
+    path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'),
+    'utf8',
+  );
+
   it('GanttContainer passes an access object whose census members are accessor properties', () => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'),
-      'utf8',
-    );
-    const literalStart = source.indexOf('const interactionAccess: InterceptorAccess = {');
+    const literalStart = source.indexOf('const interceptorAccess: InterceptorAccess = {');
     expect(literalStart).toBeGreaterThan(-1);
     const literalEnd = source.indexOf('};', literalStart);
     expect(literalEnd).toBeGreaterThan(literalStart);
@@ -534,7 +1023,24 @@ describe('view-side wiring shape (R6 accessor-property check)', () => {
       );
     }
     // The call site must pass the accessor object itself — a spread or copy
-    // (`{ ...interactionAccess }`) would snapshot values and kill liveness.
-    expect(source).toMatch(/wireInteractionInterceptors\(\s*ganttApi,\s*interactionAccess,\s*interactionDeps\s*\)/);
+    // (`{ ...interceptorAccess }`) would snapshot values and kill liveness.
+    expect(source).toMatch(/wireSvarInterceptors\(\s*ganttApi,\s*interceptorAccess,\s*interceptorDeps\s*\)/);
+  });
+
+  it('GanttContainer passes the reactive $derived reads as live getter-valued deps', () => {
+    const literalStart = source.indexOf('const interceptorDeps: SvarInterceptorDeps = {');
+    expect(literalStart).toBeGreaterThan(-1);
+    const depsLiteral = source.slice(literalStart, source.indexOf('wireSvarInterceptors', literalStart));
+    // Arrow bodies reading the same-named `$derived` binding at event time —
+    // `isReadOnly: readOnly` (a value) would freeze the policy at wiring.
+    expect(depsLiteral).toMatch(/isReadOnly:\s*\(\)\s*=>\s*readOnly\b/);
+    expect(depsLiteral).toMatch(/cellEditColumnIds:\s*\(\)\s*=>\s*cellEditColumnIds\b/);
+  });
+
+  it('GanttContainer contains no intercept call site (R1 grep gate)', () => {
+    // Any receiver counts — `initGantt` holds the api as `ganttApi`, so a
+    // literal 'api.intercept' check would let `ganttApi.intercept(...)`
+    // silently escape the centralized seam.
+    expect(/\.intercept\s*\(/.test(source)).toBe(false);
   });
 });

@@ -1,19 +1,24 @@
 /**
- * SVAR interaction-cluster interceptor policies, extracted from
- * `GanttContainer.svelte` so echo suppression, collapse persistence, reorder
- * blocking, and selection/activation semantics are provable in jest.
+ * SVAR interceptor policies, extracted from `GanttContainer.svelte` so echo
+ * suppression, collapse persistence, reorder blocking, selection/activation
+ * semantics, drag vetoes, cell-edit routing, and link authoring are provable
+ * in jest.
  *
  * The view owns every piece of mutable state. Handlers reach it only through
  * {@link InterceptorAccess} — live getter/setter properties closed over the
  * view's scope — never through copied values: a snapshot of `syncing` would
  * silently stop suppressing echo re-entry the first time the sync coordinator
- * raises it.
+ * raises it. Reactive `$derived` reads (`readOnly`, `cellEditColumnIds`)
+ * cross the same way, as getter-valued deps: both change without a SVAR
+ * re-init, so a wiring-time value would freeze the policy.
  *
  * @module bases/svarInterceptors
  */
 import { cycleNext, type EphemeralSort } from './sortCycle';
 import { resolveShowEditorRoute } from './eventRowGuards';
 import { resolveClickActivation } from './taskNotesInteractions';
+import type { DrawnLink, UpdateEventClass, UpdateGesture } from './cascadeGate';
+import type { TypedValue } from './propertyValues';
 
 /**
  * Live access to the view's mutable interaction state. Members the handlers
@@ -277,8 +282,8 @@ export function makeSelectTaskInterceptor(
 
 /**
  * Register the interaction cluster against the SVAR api in the preserved
- * order. The data-mutation cluster (drag/update/link handlers) is the next
- * extraction slice; until then the view registers those inline after this call.
+ * order. Composed by {@link wireSvarInterceptors}, which the view calls once;
+ * exported separately as the interaction cluster's own test seam.
  */
 export function wireInteractionInterceptors(
   api: SvarInterceptApi,
@@ -293,4 +298,251 @@ export function wireInteractionInterceptors(
   }
   api.intercept('show-editor', makeShowEditorInterceptor(access, deps));
   api.intercept('select-task', makeSelectTaskInterceptor(access, deps));
+}
+
+// ── Data-mutation cluster (drag-task / update-task / add-link / delete-link) ──
+
+/** The slice of SVAR's `update-task` payload the data-mutation policies read. */
+export interface UpdateTaskEvent {
+  id?: string | number;
+  inProgress?: boolean;
+  eventSource?: string;
+  task?: Record<string, unknown>;
+}
+
+/**
+ * The slice of SVAR's `add-link`/`delete-link` event payloads the dependency
+ * authoring path reads. `delete-link` carries `{ id }`; `add-link` carries
+ * `{ link: { source, target, type } }` (a user-drawn link has no id until SVAR
+ * assigns one after the intercept). `eventSource` is our echo tag.
+ */
+export interface LinkEvent {
+  id?: string | number;
+  inProgress?: boolean;
+  eventSource?: string;
+  link?: { source?: string | number; target?: string | number; type?: string };
+}
+
+/**
+ * Stable collaborators plus live getter-valued reads for the data-mutation
+ * handlers. `isReadOnly` and `cellEditColumnIds` wrap the view's `$derived`
+ * bindings — a capabilities flip or a grid-column edit changes them without a
+ * SVAR re-init, so they must be read at event time, never captured at wiring.
+ * The classifiers and row/link predicates cross as deps (not module imports)
+ * so tests drive the handlers' plumbing of live state into them.
+ */
+export interface DataInterceptorDeps {
+  /** The echo tag our own programmatic execs carry (`OG_ECHO_SOURCE`). */
+  echoSource: string;
+  /** Live read of the view's `$derived` write-capability flag. */
+  isReadOnly(): boolean;
+  /** Live read of the view's `$derived` editor-attached column ids. */
+  cellEditColumnIds(): ReadonlyArray<string>;
+  allowsRowMutation(id: unknown): boolean;
+  refusesUserRowMutation(
+    ev: { id?: unknown; eventSource?: string },
+    context: { syncing: boolean; echoSource: string },
+  ): boolean;
+  allowsLinkEndpoints(source: unknown, target: unknown): boolean;
+  /** Live per-row lookup of derived (occupancy) bar geometry (closes over the view's api binding). */
+  rowHasDerivedGeometry(id: string | number | undefined): boolean;
+  linkTouchesDerivedGeometry(source: unknown, target: unknown): boolean;
+  classifyUpdateEvent(
+    ev: { eventSource?: string | null },
+    opts: { echoSource: string; syncing: boolean },
+  ): UpdateEventClass;
+  classifyUpdateGesture(
+    ev: { eventSource?: string | null; task?: Record<string, unknown> },
+    opts: {
+      echoSource: string;
+      syncing: boolean;
+      cellEditColumnIds: ReadonlyArray<string>;
+      storedProperties: Readonly<Record<string, TypedValue>> | undefined;
+    },
+  ): UpdateGesture;
+  classifyLinkCreate(link: DrawnLink): { predecessor: string; dependent: string } | null;
+  /** Live lookup of a row's stored typed values (closes over the view's api binding). */
+  storedPropertiesOf(id: string | number | undefined): Record<string, TypedValue> | undefined;
+  handleCellEditCommit(instanceId: string, columnId: string, rawValue: unknown): boolean;
+  reseedRowFlatKeys(instanceId: string): void;
+  handleUserBarGesture(ev: UpdateTaskEvent, id: string): boolean;
+  /** Presence gates the bar-gesture route; the gesture handler persists through it. */
+  onMutate?(instanceId: string, patch: unknown): Promise<void>;
+  onAddDependency?(predecessorInstanceId: string, dependentInstanceId: string): Promise<void>;
+  onRemoveDependency?(predecessorInstanceId: string, dependentInstanceId: string): Promise<void>;
+  /** Live lookup into the applied diff-sync link map (closes over the view's applied state). */
+  lookupAppliedLink(linkId: string): { source: string; target: string } | undefined;
+  /** User-facing notice (the view backs it with Obsidian's `Notice`). */
+  notify(message: string): void;
+}
+
+/** Everything one {@link wireSvarInterceptors} call needs: both clusters' collaborators. */
+export interface SvarInterceptorDeps extends InteractionInterceptorDeps, DataInterceptorDeps {}
+
+// Unified drag veto. Read-only calendar-item rows: refusing `drag-task` makes
+// SVAR abort the move/resize gesture natively at the first frame — the bar
+// never moves. Occupancy rows refuse the same way: their bar is a DERIVED
+// envelope of instances, so a drag (even on a bare gap stretch between pieces)
+// would commit absolute envelope dates into scheduled/due.
+export function makeDragTaskInterceptor(
+  deps: DataInterceptorDeps,
+): (ev: { id?: string | number }) => boolean {
+  return (ev) => deps.allowsRowMutation(ev?.id) && !deps.rowHasDerivedGeometry(ev?.id);
+}
+
+// Committed update routing. Parents are ordinary (non-summary) tasks, so
+// dragging one moves only that bar — SVAR fires a single committing
+// `update-task` (no eventSource) and no cascade. The committed gesture is
+// submitted to the gesture handler, which runs the planner's gesture plan and
+// its deferred cascade pass in one per-source queue slot. `inProgress` frames
+// and our own echoes / refreshes pass through untouched.
+export function makeUpdateTaskInterceptor(
+  access: InterceptorAccess,
+  deps: DataInterceptorDeps,
+): (ev: UpdateTaskEvent) => boolean {
+  return (ev) => {
+    if (!ev || ev.inProgress) return true;
+    // Read-only calendar-item rows: refuse any user change (cell edit,
+    // progress, dates) before gesture classification; our echoes and
+    // programmatic refreshes keep passing so the diff-sync applies.
+    if (deps.refusesUserRowMutation(ev, { syncing: access.syncing, echoSource: deps.echoSource })) {
+      return false;
+    }
+    // Cell edits fold into the same event stream: the grid's update-cell
+    // bridge re-emits a committed inline edit as an untagged `update-task`
+    // with a flat `[columnId]` key; classifyUpdateGesture tells those apart
+    // from drag/resize gestures by diffing flat keys against stored values.
+    const gesture = deps.classifyUpdateGesture(ev, {
+      echoSource: deps.echoSource,
+      syncing: access.syncing,
+      cellEditColumnIds: deps.cellEditColumnIds(),
+      storedProperties: deps.storedPropertiesOf(ev.id),
+    });
+    if (gesture.kind === 'cell-edit') {
+      return ev.id != null
+        ? deps.handleCellEditCommit(String(ev.id), gesture.columnId, gesture.value)
+        : false;
+    }
+    // Re-committing the current value: nothing to write, nothing to revert.
+    if (gesture.kind === 'cell-edit-noop') return false;
+    // More than one flat key diffs (a stale committed key over an externally
+    // changed note): writing either could clobber the external change, so
+    // block the apply, re-align the row's flat keys with the stored truth,
+    // and tell the user the silently-dropped edit needs a retry.
+    if (gesture.kind === 'cell-edit-ambiguous') {
+      if (ev.id != null) deps.reseedRowFlatKeys(String(ev.id));
+      deps.notify("Couldn't save — the row changed externally; try again.");
+      return false;
+    }
+    if (gesture.kind === 'user-gesture' && !deps.isReadOnly() && !!deps.onMutate && ev.id != null) {
+      return deps.handleUserBarGesture(ev, String(ev.id));
+    }
+    return true;
+  };
+}
+
+// Drag-to-create an FS dependency. SVAR fires `add-link` on drop; a
+// user-drawn link has no id yet (SVAR assigns a temp id in the router AFTER
+// this intercept), so we return `false` and let the controller write drive
+// the arrow via the diff-sync — no optimistic add, no temp-id revert.
+// Only `e2s` (finish→start) is accepted; other geometries / self-links are
+// rejected. Our own echo / programmatic refresh (cls !== 'user-gesture')
+// passes through so the diff-sync's add-link applies.
+export function makeAddLinkInterceptor(
+  access: InterceptorAccess,
+  deps: DataInterceptorDeps,
+): (ev: LinkEvent) => boolean {
+  return (ev) => {
+    if (!ev || ev.inProgress) return true;
+    if (
+      deps.classifyUpdateEvent(ev, { echoSource: deps.echoSource, syncing: access.syncing }) !==
+      'user-gesture'
+    ) {
+      return true;
+    }
+    const onAddDependency = deps.onAddDependency;
+    if (deps.isReadOnly() || !onAddDependency || !ev.link) return false;
+    // Dependencies never touch a read-only calendar-item row on either end,
+    // nor an occupancy row — an edge would anchor to its derived envelope.
+    if (!deps.allowsLinkEndpoints(ev.link.source, ev.link.target)) return false;
+    if (deps.linkTouchesDerivedGeometry(ev.link.source, ev.link.target)) return false;
+    const roles = deps.classifyLinkCreate({
+      source: String(ev.link.source ?? ''),
+      target: String(ev.link.target ?? ''),
+      type: String(ev.link.type ?? ''),
+    });
+    if (!roles) {
+      deps.notify('Only Finish-to-Start links can be created for now.');
+      return false;
+    }
+    void onAddDependency(roles.predecessor, roles.dependent).catch((err) => {
+      console.error('[GanttContainer] add-dependency failed:', err);
+      deps.notify("Couldn't create the dependency — check TaskNotes is running.");
+    });
+    return false;
+  };
+}
+
+// Delete a dependency. SVAR fires `delete-link { id }` from its
+// native select-and-delete. Resolve the link's endpoints from the applied-
+// links map (its id may carry SVAR's leading `:`), remove the edge via the
+// controller, and return `false` so the diff-sync removal — not SVAR's
+// optimistic one — drives the arrow's disappearance. No confirm; no revert
+// needed (nothing removed locally).
+export function makeDeleteLinkInterceptor(
+  access: InterceptorAccess,
+  deps: DataInterceptorDeps,
+): (ev: LinkEvent) => boolean {
+  return (ev) => {
+    if (!ev) return true;
+    if (
+      deps.classifyUpdateEvent(ev, { echoSource: deps.echoSource, syncing: access.syncing }) !==
+      'user-gesture'
+    ) {
+      return true;
+    }
+    const onRemoveDependency = deps.onRemoveDependency;
+    if (deps.isReadOnly() || !onRemoveDependency || ev.id == null) return false;
+    const rawId = String(ev.id);
+    const link = deps.lookupAppliedLink(rawId.startsWith(':') ? rawId.slice(1) : rawId);
+    if (!link) return false;
+    // A resolved edge touching a read-only calendar-item row is never
+    // removable; same for an occupancy (derived-geometry) row.
+    if (!deps.allowsLinkEndpoints(link.source, link.target)) return false;
+    if (deps.linkTouchesDerivedGeometry(link.source, link.target)) return false;
+    void onRemoveDependency(link.source, link.target).catch((err) => {
+      console.error('[GanttContainer] remove-dependency failed:', err);
+      deps.notify("Couldn't remove the dependency — check TaskNotes is running.");
+    });
+    return false;
+  };
+}
+
+const DATA_INTERCEPT_ACTIONS = ['drag-task', 'update-task', 'add-link', 'delete-link'] as const;
+
+/**
+ * The full registration sequence — interaction cluster first, data cluster
+ * last, exactly as the view has always registered it. Re-ordering could change
+ * which handler sees an event first, which is not a refactor.
+ */
+export const SVAR_INTERCEPT_ACTIONS = [
+  ...INTERACTION_INTERCEPT_ACTIONS,
+  ...DATA_INTERCEPT_ACTIONS,
+] as const;
+
+/**
+ * Register every interceptor policy against the SVAR api in the preserved
+ * order ({@link SVAR_INTERCEPT_ACTIONS}). The view's single wiring call:
+ * `api.intercept` never appears in `GanttContainer.svelte` itself.
+ */
+export function wireSvarInterceptors(
+  api: SvarInterceptApi,
+  access: InterceptorAccess,
+  deps: SvarInterceptorDeps,
+): void {
+  wireInteractionInterceptors(api, access, deps);
+  api.intercept('drag-task', makeDragTaskInterceptor(deps));
+  api.intercept('update-task', makeUpdateTaskInterceptor(access, deps));
+  api.intercept('add-link', makeAddLinkInterceptor(access, deps));
+  api.intercept('delete-link', makeDeleteLinkInterceptor(access, deps));
 }
