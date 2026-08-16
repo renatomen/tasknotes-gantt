@@ -28,7 +28,7 @@ The repo's typecheck gate (`npm run typecheck`, run by pre-commit and CI) covers
 
 ### Requirements
 
-- R1. Every committed `test/**` TypeScript file (`.ts`, `.mts`) is included in exactly one typecheck program. The only exclusions are gitignored personal probes (`test/specs/_local-*.e2e.ts`), excluded by explicit pattern, never by omission.
+- R1. Every committed `test/**` TypeScript file (`.ts`, `.mts`) is included in at least one typecheck program, and the programs' include roots partition the tree exactly. A helper imported across trees is additionally checked by the importing program, which must carry the ambient types that helper needs — double-checking is sanctioned; escaping is not. The only exclusions are gitignored personal probes (`test/specs/_local-*.e2e.ts`), excluded by explicit pattern and guarded by a case-insensitive tracked-file test, never by omission.
 - R2. The gate runs through the existing `npm run typecheck` script so pre-commit (`.husky/pre-commit`) and CI (`.github/workflows/ci.yml`) inherit it with no workflow edits.
 - R3. Surfaced type errors are fixed by repairing the test — correct arity, awaited values, accurate types — preserving or strengthening what each test asserts. An error silenced by deleting or loosening an assertion, or by a cast that hides the drift, is a review finding.
 - R4. The gate is mutation-checked before it is trusted: a planted type error in each tree makes `npm run typecheck` fail, then is removed.

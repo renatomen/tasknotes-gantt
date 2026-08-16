@@ -11,7 +11,7 @@ describe('typecheck partition guard', () => {
   it('no committed test file hides under the _local-* personal-probe convention', () => {
     const tracked = execFileSync('git', ['ls-files', 'test'], { encoding: 'utf8' })
       .split('\n')
-      .filter((path) => /(^|\/)_local-/.test(path));
+      .filter((path) => /(^|\/)_local-/i.test(path));
     expect(tracked).toEqual([]);
   });
 });
