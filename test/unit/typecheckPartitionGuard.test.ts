@@ -25,7 +25,12 @@ describe('typecheck partition guard', () => {
    * their own programs and are out of scope here).
    */
   it('no tracked JS under the jest tree escapes typecheck', () => {
-    const excludedTrees = /^test\/(specs|wdio|perf\/isolated|probe)\//i;
+    // Case-SENSITIVE on purpose, matching the compiler: tsconfig excludes are
+    // case-sensitive on a case-sensitive checkout, so a `test/Specs/` file
+    // would join the jest program — the exemption must not be wider than the
+    // compiler's. (The extension match below stays case-insensitive: a .JS
+    // file is still JS.)
+    const excludedTrees = /^test\/(specs|wdio|perf\/isolated|probe)\//;
     const tracked = execFileSync('git', ['ls-files', 'test'], { encoding: 'utf8' })
       .split('\n')
       .filter((path) => /\.(js|cjs|mjs|jsx)$/i.test(path))

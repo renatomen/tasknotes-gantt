@@ -368,9 +368,11 @@ describe('pickActiveFocusEntry', () => {
       [c1, 'entry-1'],
       [c2, 'entry-2'],
     ]);
-    const active = container(c2); // active leaf contains c2
+    // c1 is deliberately NOT the last entry: the last-entry fallback also
+    // returns entry-2, so expecting the last one could pass with matching broken.
+    const active = container(c1); // active leaf contains c1
 
-    expect(pickActiveFocusEntry(entries, active)).toBe('entry-2');
+    expect(pickActiveFocusEntry(entries, active)).toBe('entry-1');
   });
 
   it('falls back to the most-recently-registered entry when the active leaf matches none', () => {
