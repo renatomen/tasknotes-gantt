@@ -1,7 +1,7 @@
 ---
 title: "A single AI reviewer is not a review gate — layer it, and enforce the layers mechanically"
 date: 2026-07-28
-last_refreshed: 2026-08-14
+last_refreshed: 2026-08-17
 category: docs/solutions/tooling-decisions
 module: code-review / pre-push-gate
 problem_type: tooling_decision
@@ -165,6 +165,7 @@ Line two answers itself. That is why the preamble is now required before code fo
 
 ## Related
 
+- [A reviewer subagent's "tree is clean" claim is unverified until git status says so](../workflow-issues/verify-git-status-after-subagent-review.md) — a gap in Layer 1 not covered above: `ce-code-review`'s own reviewer subagents run with Bash access directly in the shared checkout (not an isolated worktree) when the in-process roster is selected, and a subagent's self-reported "I reverted my probe" can be false. The receipt mechanism here gates *what got pushed*; it does not by itself catch a reviewer subagent's own stray mutation before that push — an orchestrator-side `git status` check after the review wave is the missing piece.
 - [Secure SonarCloud CI analysis for TypeScript](../tooling-decisions/secure-sonarcloud-ci-analysis-for-typescript.md) — the same shape one layer down: harden the *gate* mechanically rather than fixing the individual PR.
 - [Orchestrate an existing tool over rebuilding it](../tooling-decisions/orchestrate-existing-tool-over-rebuilding.md) — why layer 2 wires in an existing external CLI rather than growing a bespoke in-repo adversarial reviewer.
 - [Test behavior at the fastest reliable level](../tooling-decisions/test-at-the-fastest-level-not-redundant-e2e.md) — the sibling layering question for verification rather than review.
