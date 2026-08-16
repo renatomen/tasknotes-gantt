@@ -40,7 +40,7 @@ The test tree (220+ files) was never typechecked (`tsconfig.json` includes only 
 
 **Exclusions:** only the gitignored personal-probe family `test/specs/_local-*`, matching `.gitignore` exactly — backstopped by a case-insensitive jest guard (`test/unit/typecheckPartitionGuard.test.ts`) that fails on any *tracked* `test/**/_local-*` path.
 
-**Pending calibrations (accepted on PR #431's review threads, unapplied as of this writing):** the unit program's `target` must move to ES2020 to match the jest transform (else spurious TS2737 on `42n` bigint literals — planned as U2's opener), and the e2e program's `lib` needs `DOM.Iterable` (else 11 spurious TS2488 — planned as U3's opener). Until they land, treat those two diagnostic classes as config noise, not test drift.
+**Calibrations applied in U2 (the unit program now describes the real jest runtime):** `target: ES2020` (accepted on PR #431's review threads; matches the jest transform — removed the spurious TS2737 `42n` bigint class), `lib: ["ES2022", "DOM"]` (tests run on Node 20 where `Array.prototype.at` exists; root's ES2019 lib made valid `.at()` usage error TS2550), and `allowJs: true` with `checkJs` off (tests legitimately import `scripts/*.mjs`; this removes the TS7016 class and gives the imports real inferred types without typechecking the scripts themselves — that stays deferred per the plan's scope boundaries). **Still pending:** the e2e program's `lib` needs `DOM.Iterable` (else 11 spurious TS2488 — U3's opener). Until it lands, treat that diagnostic class as config noise, not test drift.
 
 ## Why This Matters
 
