@@ -1,17 +1,17 @@
 # Campaign trend report — slice-2 U2 session
 
 **Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
-**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's code tip (`HEAD` = `4b63e05`, the U2 branch before this report's own commit) — **6 window commits**: the four already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429) plus this unit's two (`834fa3d` factories + tests, `4b63e05` view delegation). The unit's commits squash to one on merge, so the per-path touch counts below overstate main's eventual counts by one for the paths both commits touch.
+**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this unit's final code state (`HEAD` = `5973c4b`) — **7 window commits**: the four already on main (`bd95b56` #425, `866204c` #427, `00f540d` #428, `354e0af` #429) plus this unit's three (`834fa3d` factories + tests, `4b63e05` view delegation, `5973c4b` simplify-pass test tweaks). The unit's commits squash to one on merge, so the per-path touch counts below overstate main's eventual counts for paths several unit commits touch.
 **Measured:** 2026-08-16, by running the baseline's § Baseline commands verbatim (per-path touches over `src test scripts`, `--no-renames`; threshold-10 complexity sweep via the installed ESLint sonarjs rule).
 
 ## Windowed churn share
 
-The documented command's output at `4b63e05` (docs-only commits count in the denominator only):
+The documented command's output at `5973c4b` (docs-only commits count in the denominator only):
 
 ```
-3 50.0% test/unit/svarInterceptors.test.ts
-2 33.3% src/bases/svarInterceptors.ts
-2 33.3% src/bases/GanttContainer.svelte
+4 57.1% test/unit/svarInterceptors.test.ts
+2 28.6% src/bases/svarInterceptors.ts
+2 28.6% src/bases/GanttContainer.svelte
 ```
 
 First non-degenerate reading of the trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): the window's code touches now sit majority in the extracted module and its test companion; `GanttContainer.svelte` is touched only by the extraction commits that shrink it, and `register.ts` / `GanttController.ts` — the other baseline junctions — have zero window touches. Directionally right; still a small window.
@@ -24,7 +24,7 @@ The measured `initGantt` weld is now fully dissolved: all **14 of 14** registrat
 
 ## Complexity-gate pressure
 
-Threshold-10 sweep of the touched source files at `4b63e05`:
+Threshold-10 sweep of the touched source files at `4b63e05` (unchanged at `5973c4b`, which touches only the test file):
 
 | Function location | Complexity |
 |---|---|
