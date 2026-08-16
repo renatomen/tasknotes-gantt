@@ -28,6 +28,7 @@ import {
   refusesUserRowMutation,
 } from '../../src/bases/eventRowGuards';
 import type { TypedValue } from '../../src/bases/propertyValues';
+import { flushMicrotasks } from './dragExecutorTestKit';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -607,8 +608,6 @@ function makeDataFixture(options: DataFixtureOptions = {}) {
   };
 }
 
-const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 describe('wireSvarInterceptors registration contract (R10)', () => {
   it('registers all fourteen actions in the preserved order — interaction cluster first, data cluster last', () => {
     const { api } = makeDataFixture();
@@ -992,11 +991,12 @@ describe('liveness of the data-cluster getter deps (R6)', () => {
 });
 
 describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', () => {
-  const viewSource = () =>
-    fs.readFileSync(path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'), 'utf8');
+  const source = fs.readFileSync(
+    path.resolve(process.cwd(), 'src', 'bases', 'GanttContainer.svelte'),
+    'utf8',
+  );
 
   it('GanttContainer passes an access object whose census members are accessor properties', () => {
-    const source = viewSource();
     const literalStart = source.indexOf('const interceptorAccess: InterceptorAccess = {');
     expect(literalStart).toBeGreaterThan(-1);
     const literalEnd = source.indexOf('};', literalStart);
@@ -1028,7 +1028,6 @@ describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', ()
   });
 
   it('GanttContainer passes the reactive $derived reads as live getter-valued deps', () => {
-    const source = viewSource();
     const literalStart = source.indexOf('const interceptorDeps: SvarInterceptorDeps = {');
     expect(literalStart).toBeGreaterThan(-1);
     const depsLiteral = source.slice(literalStart, source.indexOf('wireSvarInterceptors', literalStart));
@@ -1039,6 +1038,6 @@ describe('view-side wiring shape (R6 accessor-property check, R1 grep gate)', ()
   });
 
   it('GanttContainer contains no api.intercept call site (R1 grep gate)', () => {
-    expect(viewSource().includes('api.intercept')).toBe(false);
+    expect(source.includes('api.intercept')).toBe(false);
   });
 });
