@@ -99,8 +99,10 @@ extremely performant, extremely secure** — each earned the same way, never by
 assertion: a measured baseline, a ranked defect list worked top-down, a
 per-session trend report, and a mechanical gate that keeps it. Pillar
 authorities: **maintainability** is measured — baseline and ranked list at
-`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`, held by the
-complexity gate and per-session re-measure. **Reliability**, **performance**,
+`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`; its one
+mechanized dimension is the complexity gate, while churn share and concern
+counts are held by the per-session manual re-measure (their CI gate is a
+deliberately parked candidate). **Reliability**, **performance**,
 and **security** re-diagnoses are commissioned but not yet measured;
 reliability goes first — its flake-rate raw data already accumulates in
 `docs/backlogs/backlog.md`'s CI e2e flake record — with CI-on-real-Obsidian
