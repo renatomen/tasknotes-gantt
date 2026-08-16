@@ -94,10 +94,11 @@ as inside it — for decades.
 
 ### Software craftsmanship
 
-Hold four engineering pillars — **extremely maintainable, extremely reliable,
-extremely performant, extremely secure** — each earned the same way, never by
-assertion: a measured baseline, a ranked defect list worked top-down, a
-per-session trend report, and a mechanical gate that keeps it. Pillar
+Hold four engineering pillars — **maintainability, reliability, performance,
+security** — each aimed at an *extremely* bar that is earned, never asserted:
+a pillar carries that label only once its measurements say so, through a
+measured baseline, a ranked defect list worked top-down, a per-session trend
+report, and a mechanical gate that keeps it. Pillar
 authorities: **maintainability** is measured — baseline and ranked list at
 `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`; its one
 mechanized dimension is the complexity gate, while churn share and concern
