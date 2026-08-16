@@ -16,7 +16,7 @@ Top of the documented command's output at `7657f03`:
 1  5.9% (each) — the remaining jest-tree test files repaired this unit, one touch apiece
 ```
 
-The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig, `jest.config.mjs`, the three converted svelte mock stubs, and 36 test files (two of them twice, via the review-fix commits). The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. `svarInterceptors.test.ts` tops the table because it carries commits from three different campaigns (extraction, interceptor refactor, this type repair plus its review fix) — breadth of the window, not a hotspot forming.
+The trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?): still directionally right. This session touched no `src/` file at all — its code touches are one tsconfig, `jest.config.mjs`, the three converted svelte mock stubs, and 37 test files (two of them twice, via the review-fix commits). The window's `src` churn remains the slice-2 extraction pair from earlier commits; `register.ts` and `GanttController.ts` hold at zero window touches. `svarInterceptors.test.ts` tops the table because it carries commits from three different campaigns (extraction, interceptor refactor, this type repair plus its review fix) — breadth of the window, not a hotspot forming.
 
 ## Concern counts
 
