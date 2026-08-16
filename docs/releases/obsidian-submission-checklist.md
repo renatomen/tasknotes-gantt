@@ -28,4 +28,3 @@ Before opening the PR to [`obsidianmd/obsidian-releases`](https://github.com/obs
 ## Open confirmations carried from the plan
 
 - Confirm `minAppVersion: 1.10.0` against the Obsidian changelog (sourced from the `requireApiVersion('1.10.0')` gate in `src/bases/register.ts`).
-- Add the README screenshot asset.
