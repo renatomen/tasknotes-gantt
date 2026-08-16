@@ -1,21 +1,20 @@
 # Campaign trend report — slice-2 U1 session (PR #427)
 
-**Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md` (time-zero at `bd95b56`).
-**Window:** commits on `main` since the baseline at this session's end — exactly one, the #427 squash `866204c` (the interceptor extraction with its riding docs).
-**Measured:** 2026-08-16, per the baseline's § Baseline semantics (per-path touches, no rename chaining; threshold-10 complexity sweep via the installed ESLint sonarjs rule).
+**Baseline:** `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`.
+**Window:** the baseline's documented range `7949fd1..HEAD`, evaluated at this session's end (`HEAD` = `866204c`) — **2 window commits**: `bd95b56` (the baseline report's own merge, #425) and `866204c` (the interceptor extraction, #427).
+**Measured:** 2026-08-16, by running the baseline's § Baseline commands verbatim (per-path touches over `src test scripts`, `--no-renames`; threshold-10 complexity sweep via the installed ESLint sonarjs rule).
 
 ## Windowed churn share
 
-One commit in the window; per-path touches / window commits:
+The documented command's output at `866204c` (docs paths excluded by the contract's `src test scripts` pathspec; the docs-only baseline-merge commit counts in the denominator only):
 
-| Path | Touches | Share |
-|---|---|---|
-| `src/bases/GanttContainer.svelte` | 1/1 | 100% |
-| `src/bases/svarInterceptors.ts` (new, owned module) | 1/1 | 100% |
-| `test/unit/svarInterceptors.test.ts` (new companion) | 1/1 | 100% |
-| 5 docs paths | 1/1 each | 100% |
+```
+1 50.0% test/unit/svarInterceptors.test.ts
+1 50.0% src/bases/svarInterceptors.ts
+1 50.0% src/bases/GanttContainer.svelte
+```
 
-A one-commit window is degenerate for the trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?) — the extraction commit necessarily touches both the junction file and the module it creates. The instrument needs more window commits before it discriminates; recorded, not interpreted.
+A two-commit window with one code commit is degenerate for the trend question (does new churn concentrate in owned extracted modules rather than the top-two junction files?) — the extraction commit necessarily touches both the junction file and the module it creates. The instrument needs more window commits before it discriminates; recorded, not interpreted.
 
 ## Concern counts
 
