@@ -104,9 +104,11 @@ mechanized dimension is the complexity gate, while churn share and concern
 counts are held by the per-session manual re-measure (their CI gate is a
 deliberately parked candidate). **Reliability**, **performance**,
 and **security** re-diagnoses are commissioned but not yet measured;
-reliability goes first — its flake-rate raw data already accumulates in
-`docs/backlogs/backlog.md`'s CI e2e flake record — with CI-on-real-Obsidian
-and the review-receipt gate as its standing mechanisms meanwhile.
+reliability goes first — an e2e flake *incident record* already accumulates
+in `docs/backlogs/backlog.md` (failures only; establishing a true flake
+*rate* with a consistent per-spec denominator is the re-diagnosis's first
+job) — with CI-on-real-Obsidian and the review-receipt gate as its standing
+mechanisms meanwhile.
 
 _Why it serves the vision:_ a plugin people trust their planning to must be
 solid — and moving deliberately is how it stays that way.
