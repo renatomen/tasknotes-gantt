@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "noUncheckedIndexedAccess": false,
-    "types": ["jest", "node"]
+    "types": ["jest", "node", "@wdio/globals/types"]
   },
   "include": ["test"],
   "exclude": [
