@@ -221,6 +221,7 @@ describe('createDragExecutor', () => {
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
     const rebase = createDequeueBeforeRebase({ gestureBefore: beforeOf(spanB), after: spanC, readLive: () => beforeOf(store.span) });
     let queuedPlan: GesturePlan | null = null;
+    const plannedQueued = () => queuedPlan;
     const second = executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {
@@ -238,9 +239,9 @@ describe('createDragExecutor', () => {
     // The queued gesture planned the FULL A→C write — a real write off the
     // reverted row, not the stale gesture-time B — and it landed.
     expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4', 'persist:5-6']);
-    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    expect(plannedQueued()?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
     // Its revert baseline is A, where the row really sat at dequeue.
-    expect(queuedPlan?.reverts[0]?.rows[0]?.payload).toEqual({
+    expect(plannedQueued()?.reverts[0]?.rows[0]?.payload).toEqual({
       kind: 'geometry',
       geometry: { ...spanA, flagged: false, ghostRuns: [] },
     });
@@ -280,6 +281,7 @@ describe('createDragExecutor', () => {
       movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
     });
     let queuedPlan: GesturePlan | null = null;
+    const plannedQueued = () => queuedPlan;
     const second = executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {
@@ -297,8 +299,8 @@ describe('createDragExecutor', () => {
     // The rebase trusted the live row (vault truth A), so the queued gesture is
     // a no-op — no write, and no stale B-baselined revert waiting to misfire.
     expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4']);
-    expect(queuedPlan?.writes).toEqual([]);
-    expect(queuedPlan?.reverts).toEqual([]);
+    expect(plannedQueued()?.writes).toEqual([]);
+    expect(plannedQueued()?.reverts).toEqual([]);
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'no-cascade' }]);
   });
 
@@ -334,6 +336,7 @@ describe('createDragExecutor', () => {
       movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
     });
     let queuedPlan: GesturePlan | null = null;
+    const plannedQueued = () => queuedPlan;
     await executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {
@@ -348,8 +351,8 @@ describe('createDragExecutor', () => {
 
     // The baseline predates the revert, so the rebase saw the moved row and
     // trusted the live span: a clean no-op, never a stale B-baselined write.
-    expect(queuedPlan?.writes).toEqual([]);
-    expect(queuedPlan?.reverts).toEqual([]);
+    expect(plannedQueued()?.writes).toEqual([]);
+    expect(plannedQueued()?.reverts).toEqual([]);
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'no-cascade' }]);
   });
 
@@ -382,6 +385,7 @@ describe('createDragExecutor', () => {
       movedByPredecessor: () => executor.echoSeqOf('a.md') !== echoSeqAtCapture,
     });
     let queuedPlan: GesturePlan | null = null;
+    const plannedQueued = () => queuedPlan;
     const second = executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {
@@ -400,7 +404,7 @@ describe('createDragExecutor', () => {
     // its own B capture and planned the real B→C date write — never a no-op
     // born of mistaking the untouched span for a predecessor's landing.
     expect(h.echoed.some((e) => e.rows.some((r) => r.payload.kind === 'progress'))).toBe(true);
-    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    expect(plannedQueued()?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
     expect(h.settled).toEqual([{ kind: 'aborted' }, { kind: 'plain' }]);
   });
 
@@ -426,6 +430,7 @@ describe('createDragExecutor', () => {
     store.span = { ...spanC }; // the user drags the echoed bar B→C; SVAR applies it
     const rebase = createDequeueBeforeRebase({ gestureBefore: beforeOf(spanB), after: spanC, readLive: () => beforeOf(store.span) });
     let queuedPlan: GesturePlan | null = null;
+    const plannedQueued = () => queuedPlan;
     const second = executor.submit({
       sourcePath: 'a.md',
       snapshot: () => {
@@ -443,8 +448,8 @@ describe('createDragExecutor', () => {
     // The row still shows this gesture's own post-drag span, so the capture
     // stands: B→C writes C with reverts baselined at B.
     expect(h.log.filter((e) => e.startsWith('persist'))).toEqual(['persist:3-4', 'persist:5-6']);
-    expect(queuedPlan?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
-    expect(queuedPlan?.reverts[0]?.rows[0]?.payload).toEqual({
+    expect(plannedQueued()?.writes[0]?.patch).toEqual({ start: spanC.start, end: spanC.end });
+    expect(plannedQueued()?.reverts[0]?.rows[0]?.payload).toEqual({
       kind: 'geometry',
       geometry: { ...spanB, flagged: false, ghostRuns: [] },
     });

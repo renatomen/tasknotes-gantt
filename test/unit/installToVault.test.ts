@@ -8,7 +8,6 @@ import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-// @ts-expect-error — plain .mjs build script, no types
 import { installToVault, parseVaults } from '../../scripts/install-to-vault.mjs';
 
 const silent = { log: () => {}, warn: () => {} };

@@ -5,10 +5,19 @@
  * `WorkspaceLeaf`, not left to e2e alone.
  */
 import { describe, expect, it, jest, afterEach } from '@jest/globals';
-import { TFile, WorkspaceLeaf } from 'obsidian';
+import { TFile, WorkspaceLeaf, type Plugin } from 'obsidian';
+import type * as MockObsidian from '../__mocks__/obsidian';
 import { registerCalendarEditor } from '../../src/editor/registerCalendarEditor';
 import { CALENDAR_EDITOR_VIEW_TYPE, suspendRouting } from '../../src/editor/calendarEditorRouting';
 import { CalendarEditorView } from '../../src/editor/CalendarEditorView';
+
+/**
+ * Under jest, `obsidian` resolves to the mock, whose `WorkspaceLeaf` carries
+ * the test-only surface (root-aware constructor, `lastState`, `detached`).
+ * This bridge gives the same runtime class its mock type — never a duplicate
+ * hand-written shape.
+ */
+const MockWorkspaceLeaf = WorkspaceLeaf as unknown as typeof MockObsidian.WorkspaceLeaf;
 
 /** A fake plugin/app exposing exactly what the register module reads. */
 type MenuHandler = (menu: unknown, file: unknown, source: string, leaf: unknown) => void;
@@ -17,6 +26,7 @@ function makePlugin(markedPaths: string[]) {
   const rootSplit = { id: 'root' };
   const registerView = jest.fn();
   let fileMenuHandler: MenuHandler | null = null;
+  const detachLeavesOfType: (type: string) => void = jest.fn();
   const app = {
     workspace: {
       rootSplit,
@@ -27,7 +37,7 @@ function makePlugin(markedPaths: string[]) {
         return {};
       },
       offref: jest.fn(),
-      detachLeavesOfType: jest.fn(),
+      detachLeavesOfType,
     },
     vault: {
       getAbstractFileByPath: (path: string) => {
@@ -43,7 +53,8 @@ function makePlugin(markedPaths: string[]) {
     },
   };
   return {
-    plugin: { app, registerView } as never,
+    plugin: { app, registerView } as unknown as Plugin,
+    app,
     rootSplit,
     registerView,
     getFileMenuHandler: () => fileMenuHandler,
@@ -82,7 +93,7 @@ function fakeLeaf(viewType: string) {
 }
 
 /** A leaf whose getRoot() places it in the primary workspace. */
-const primaryLeaf = (root: unknown) => new WorkspaceLeaf(root);
+const primaryLeaf = (root: unknown) => new MockWorkspaceLeaf(root);
 
 const original = WorkspaceLeaf.prototype.setViewState;
 const originalDetach = WorkspaceLeaf.prototype.detach;
@@ -187,24 +198,24 @@ describe('registerCalendarEditor', () => {
   });
 
   it('patches leaf detach and the workspace bulk-detach, restoring both on teardown', () => {
-    const { plugin } = makePlugin([]);
+    const { plugin, app } = makePlugin([]);
     const beforeDetach = WorkspaceLeaf.prototype.detach;
-    const beforeBulk = plugin.app.workspace.detachLeavesOfType;
+    const beforeBulk = app.workspace.detachLeavesOfType;
 
     const teardown = registerCalendarEditor(plugin);
     expect(WorkspaceLeaf.prototype.detach).not.toBe(beforeDetach);
-    expect(plugin.app.workspace.detachLeavesOfType).not.toBe(beforeBulk);
+    expect(app.workspace.detachLeavesOfType).not.toBe(beforeBulk);
 
     teardown();
     expect(WorkspaceLeaf.prototype.detach).toBe(beforeDetach);
-    expect(plugin.app.workspace.detachLeavesOfType).toBe(beforeBulk);
+    expect(app.workspace.detachLeavesOfType).toBe(beforeBulk);
   });
 
   it('prompts before closing a calendar editor with unsaved edits, detaching only once resolved', () => {
     const { plugin, rootSplit } = makePlugin([]);
     const teardown = registerCalendarEditor(plugin);
 
-    const leaf = new WorkspaceLeaf(rootSplit);
+    const leaf = new MockWorkspaceLeaf(rootSplit);
     const view = new CalendarEditorView(leaf as never);
     jest.spyOn(view, 'hasUnsavedEdits').mockReturnValue(true);
     let proceed: (() => void) | null = null;
@@ -228,10 +239,10 @@ describe('registerCalendarEditor', () => {
   });
 
   it('does not prompt when a calendar editor is closed inside a bulk detachLeavesOfType', () => {
-    const { plugin, rootSplit } = makePlugin([]);
+    const { plugin, app, rootSplit } = makePlugin([]);
     // A bulk detach that actually closes its leaf, so the suspend seam is real.
-    const leaf = new WorkspaceLeaf(rootSplit);
-    plugin.app.workspace.detachLeavesOfType = () => {
+    const leaf = new MockWorkspaceLeaf(rootSplit);
+    app.workspace.detachLeavesOfType = () => {
       leaf.detach();
     };
     const teardown = registerCalendarEditor(plugin);
@@ -241,7 +252,7 @@ describe('registerCalendarEditor', () => {
     const confirmClose = jest.spyOn(view, 'confirmClose').mockResolvedValue(undefined);
     (leaf as unknown as { view: unknown }).view = view;
 
-    plugin.app.workspace.detachLeavesOfType(CALENDAR_EDITOR_VIEW_TYPE);
+    app.workspace.detachLeavesOfType(CALENDAR_EDITOR_VIEW_TYPE);
     expect(confirmClose).not.toHaveBeenCalled();
     expect((leaf as unknown as { detached: boolean }).detached).toBe(true);
 
@@ -252,7 +263,7 @@ describe('registerCalendarEditor', () => {
     const { plugin, rootSplit } = makePlugin([]);
     const teardown = registerCalendarEditor(plugin);
 
-    const leaf = new WorkspaceLeaf(rootSplit);
+    const leaf = new MockWorkspaceLeaf(rootSplit);
     // A plain markdown leaf, not a calendar editor — the guard must let it go.
     (leaf as unknown as { view: unknown }).view = { getViewType: () => 'markdown' };
     leaf.detach();

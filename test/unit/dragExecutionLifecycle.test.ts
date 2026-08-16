@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, jest } from '@jest/globals';
 import { createExecutionLifecycle } from '../../src/bases/dragExecutionLifecycle';
-import type { GestureChoice, PlannedWrite } from '../../src/bases/dragCommitPlan';
+import type { GestureChoice, PlannedWrite, PromptRequest } from '../../src/bases/dragCommitPlan';
 import type { PromptAnswer } from '../../src/bases/dragExecutor';
 import { deferred, execution, harness, planOf, revertOf, writeOf } from './dragExecutorTestKit';
 
@@ -215,7 +215,7 @@ describe('createExecutionLifecycle', () => {
 
   it('emits the optimistic echoes, collects the prompt choice, and executes the re-planned commit', async () => {
     const choiceGiven: GestureChoice = { action: 'estimate-only' };
-    const resolvePrompt = jest.fn(() =>
+    const resolvePrompt = jest.fn<(prompt: PromptRequest) => Promise<PromptAnswer | null>>(() =>
       Promise.resolve<PromptAnswer | null>({ kind: 'inferred-drag', choice: choiceGiven }),
     );
     const h = harness({ resolvePrompt });

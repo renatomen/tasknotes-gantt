@@ -497,6 +497,9 @@ describe('createAndOpenCalendarNote', () => {
     // creator must park on the cache listener rather than open too early.
     let indexed = false;
     let changedCb: ((f: { path: string }) => void) | null = null;
+    // Read through a function: the assignment lives in a nested closure, so a
+    // top-level read would stay narrowed to the initial `null`.
+    const emitChanged = (f: { path: string }): void => changedCb?.(f);
     const opened: unknown[] = [];
     const livePaths = new Set<string>();
     const app = {
@@ -538,7 +541,7 @@ describe('createAndOpenCalendarNote', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(opened).toHaveLength(0); // parked, not yet opened
     indexed = true;
-    changedCb?.({ path: 'Calendars/New Calendar.md' });
+    emitChanged({ path: 'Calendars/New Calendar.md' });
     await promise;
     expect(opened).toHaveLength(1);
   });

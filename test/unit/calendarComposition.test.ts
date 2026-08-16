@@ -3,7 +3,7 @@ import type { App, Plugin } from 'obsidian';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
-import type { PluginLifetime } from '../../src/bases/createCalendarNote';
+import type { CalendarNoteKind, PluginLifetime } from '../../src/bases/createCalendarNote';
 import { createCalendarComposition } from '../../src/calendarComposition';
 
 function isCalendarCompositionCall(node: ts.Node): node is ts.CallExpression {
@@ -24,9 +24,9 @@ function countDirectOnloadCalls(node: ts.Node): number {
   ) {
     return 0;
   }
-  const declarations = (node.body?.statements ?? [])
-    .filter(ts.isVariableStatement)
-    .flatMap((statement) => [...statement.declarationList.declarations]);
+  const declarations = (node.body?.statements ?? []).flatMap((statement) =>
+    ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [],
+  );
   return declarations.filter(
     (declaration) =>
       declaration.initializer && isCalendarCompositionCall(declaration.initializer),
@@ -68,10 +68,14 @@ it('shares one plugin lifetime across Bases registration and calendar creation',
       close: () => {},
     }),
   };
-  const createLifetime = jest.fn(() => lifetime);
+  const createLifetime = jest.fn<(plugin: Plugin) => PluginLifetime>(() => lifetime);
   const unregisterBases = jest.fn();
-  const registerBases = jest.fn(() => unregisterBases);
-  const createNote = jest.fn(async () => {});
+  const registerBases = jest.fn<(plugin: Plugin, lifetime: PluginLifetime) => () => void>(
+    () => unregisterBases,
+  );
+  const createNote = jest.fn<
+    (app: App, kind: CalendarNoteKind, lifetime: PluginLifetime) => Promise<void>
+  >(async () => {});
 
   const composition = createCalendarComposition(plugin, {
     createLifetime,
@@ -82,9 +86,11 @@ it('shares one plugin lifetime across Bases registration and calendar creation',
   await composition.createNote('calendar');
 
   expect(createLifetime).toHaveBeenCalledTimes(1);
-  expect(createLifetime).toHaveBeenCalledWith(plugin);
-  expect(registerBases).toHaveBeenCalledWith(plugin, lifetime);
-  expect(createNote).toHaveBeenCalledWith(app, 'calendar', lifetime);
+  // `mock.calls` + `toEqual` sidesteps TS2589: obsidian's recursive `Plugin`
+  // type blows up `toHaveBeenCalledWith`'s deep matcher expansion. Same claim.
+  expect(createLifetime.mock.calls).toEqual([[plugin]]);
+  expect(registerBases.mock.calls).toEqual([[plugin, lifetime]]);
+  expect(createNote.mock.calls).toEqual([[app, 'calendar', lifetime]]);
   expect(unregister).toBe(unregisterBases);
 });
 
