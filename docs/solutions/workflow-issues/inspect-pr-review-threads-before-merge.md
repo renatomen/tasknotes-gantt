@@ -26,11 +26,19 @@ On PR #431 (2026-08-16), the hosted `chatgpt-codex-connector` posted two valid i
 Before every merge, fetch and **read** the PR's review threads — counts are not inspection:
 
 ```bash
-gh api graphql -f query='{repository(owner:"renatomen",name:"tasknotes-gantt"){pullRequest(number:<N>){reviewThreads(first:20){nodes{isResolved comments(first:1){nodes{author{login} body}}}}}}}' \
-  --jq '.data.repository.pullRequest.reviewThreads.nodes'
+gh api graphql -f query='{repository(owner:"renatomen",name:"tasknotes-gantt"){pullRequest(number:<N>){reviewThreads(first:100){pageInfo{hasNextPage endCursor} nodes{id isResolved comments(first:1){nodes{author{login} body}}}}}}}' \
+  --jq '.data.repository.pullRequest.reviewThreads'
 ```
 
-Any unresolved thread is either fixed pre-merge, or answered with a reply that records acceptance and routing — **before** `gh pr merge`. A thread's existence, author, and body are the gate's inputs; `reviews`/`comments` array lengths are not, because the bot's summary review (state `COMMENTED`) and a SonarCloud comment are always present and tell you nothing about inline threads.
+If `pageInfo.hasNextPage` is true, page through with `reviewThreads(first:100, after:"<endCursor>")` until it is false — a truncated read can falsely authorize a merge, exactly the count-check failure in a new shape.
+
+Any unresolved thread is either fixed pre-merge, or answered with a reply that records acceptance and routing — and then **explicitly marked resolved** — before `gh pr merge`. Fixing or replying does not flip GitHub's `isResolved` bit; the gate predicate is `isResolved`, so close the loop with the thread's `id` from the query above:
+
+```bash
+gh api graphql -f query='mutation{resolveReviewThread(input:{threadId:"<thread-id>"}){thread{isResolved}}}'
+```
+
+then re-run the read query and confirm every node is `isResolved: true`. A thread's existence, author, body, and `isResolved` state are the gate's inputs; `reviews`/`comments` array lengths are not, because the bot's summary review (state `COMMENTED`) and a SonarCloud comment are always present and tell you nothing about inline threads.
 
 Candidate future mechanism (unbuilt, deliberately): a merge wrapper that refuses while unresolved `reviewThreads` exist — same shape as `scripts/check-review-receipts.mjs` for the push gate. Per the house rule, search the installed toolchain first (a branch ruleset requiring conversation resolution is GitHub-native and may be the zero-code mechanism).
 
@@ -47,7 +55,7 @@ The repo's rule is "mechanism, not memory," and this incident is the rule's text
 
 Wrong (what happened on #431): `gh pr view 431 --json reviews,comments --jq '{reviews: (.reviews|length), comments: (.comments|length)}'` → saw `1/1`, assumed boilerplate, merged.
 
-Right: the GraphQL query above → two nodes with `isResolved: false` and P2 bodies → fix or answer-with-recorded-acceptance first, then merge.
+Right: the GraphQL query above → two nodes with `isResolved: false` and P2 bodies → fix or answer-with-recorded-acceptance, mark each thread resolved via the mutation, re-read to confirm zero `isResolved: false`, then merge.
 
 ## Related
 
