@@ -436,9 +436,10 @@ function bulkAdditionData(data: GanttData): {
   );
   const next = cloneData(data);
   const templateProperties = next.propertyValues.get(template.sourcePath) ?? {};
+  const managedPaths = new Set(next.managedPaths);
   for (const addition of additions) {
     next.propertyValues.set(addition.sourcePath, { ...templateProperties });
-    next.managedPaths.add(addition.sourcePath);
+    managedPaths.add(addition.sourcePath);
   }
   const [firstExisting, ...remainingExisting] = next.instances;
   const [firstAdded] = additions;
@@ -446,6 +447,7 @@ function bulkAdditionData(data: GanttData): {
   return {
     next: {
       ...next,
+      managedPaths,
       instances: [firstExisting, ...additions, ...remainingExisting],
     },
     firstAdded,
