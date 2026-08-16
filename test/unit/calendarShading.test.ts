@@ -6,6 +6,7 @@ import {
   computeCalendarShadingCss,
   createShadingCssCache,
   shadingWindow,
+  type ShadingComputation,
 } from '../../src/bases/calendarShading';
 import { shadingCacheKey } from '../../src/controller/calendar/derivation';
 import { parseCalendarFrontmatter, type CalendarDefinition } from '../../src/controller/calendar/schema';
@@ -236,14 +237,27 @@ describe('shading cache (skip-if-unchanged gate)', () => {
   it('skips the producer on an unchanged key and recomputes when the key changes', () => {
     const cache = createShadingCssCache();
     let produced = 0;
-    const produce = (): string => {
+    const produce = (): ShadingComputation => {
       produced += 1;
-      return `css-${produced}`;
+      return {
+        css: `css-${produced}`,
+        displayedCount: 0,
+        conflictCount: 0,
+        conflictCalendars: [],
+        invalidCount: 0,
+        flaggedCount: 0,
+        markers: [],
+        calendarMarkerColor: undefined,
+        calendarPalette: [],
+        calendarBySource: new Map<string, string>(),
+        markedNotePaths: [],
+      };
     };
-    expect(cache.compute('a', produce)).toBe('css-1');
-    expect(cache.compute('a', produce)).toBe('css-1');
+    const first = cache.compute('a', produce);
+    expect(first.css).toBe('css-1');
+    expect(cache.compute('a', produce)).toBe(first);
     expect(produced).toBe(1);
-    expect(cache.compute('b', produce)).toBe('css-2');
+    expect(cache.compute('b', produce).css).toBe('css-2');
     expect(produced).toBe(2);
   });
 });

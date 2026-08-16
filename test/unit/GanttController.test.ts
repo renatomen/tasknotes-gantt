@@ -44,6 +44,7 @@ function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
     end: null,
     progress: null,
     status: null,
+    priority: null,
     parents: [],
     ...partial,
   };
@@ -84,7 +85,14 @@ class FakeSource implements DataSource {
     this.fieldConfig =
       opts.fieldConfig ??
       (opts.write
-        ? { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [] }
+        ? {
+            scheduledProp: 'scheduled',
+            dueProp: 'due',
+            dateFields: [],
+            timeEstimateProp: null,
+            statusProp: null,
+            priorityProp: null,
+          }
         : null);
   }
 
@@ -544,20 +552,22 @@ describe('GanttController — gated debug build log (#161)', () => {
     });
   }
 
-  const sawBuildLog = (spy: jest.SpyInstance): boolean =>
-    spy.mock.calls.some((args) =>
-      args.some((a) => typeof a === 'string' && a.includes('[OGDBG] build')),
+  const spyOnConsoleLog = () => jest.spyOn(console, 'log').mockImplementation(() => {});
+
+  const sawBuildLog = (spy: ReturnType<typeof spyOnConsoleLog>): boolean =>
+    spy.mock.calls.some((args: unknown[]) =>
+      args.some((a: unknown) => typeof a === 'string' && a.includes('[OGDBG] build')),
     );
 
   it('stays silent (no build diagnostic) when debug is off — the default', async () => {
-    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const spy = spyOnConsoleLog();
     await buildLogController().init();
     expect(sawBuildLog(spy)).toBe(false);
   });
 
   it('emits the build stage-timing diagnostic when window.__tnGanttDebug is enabled', async () => {
     flagged.__tnGanttDebug = true;
-    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const spy = spyOnConsoleLog();
     await buildLogController().init();
     expect(sawBuildLog(spy)).toBe(true);
   });
@@ -1902,7 +1912,14 @@ describe('GanttController — source memoization + dependency batching (plan #16
     // Cache warms (background indexing). A plain refresh re-reads getFieldConfig
     // from the SAME (memoized) source object — no re-create, but the warm config
     // is now observed and write is enabled.
-    live.fieldConfig = { scheduledProp: 'scheduled', dueProp: 'due', dateFields: [] };
+    live.fieldConfig = {
+      scheduledProp: 'scheduled',
+      dueProp: 'due',
+      dateFields: [],
+      timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
+    };
     await controller.refreshSource();
     expect(createTaskNotesSource).toHaveBeenCalledTimes(1); // still memoized
     expect(controller.capabilities.write).toBe(true);

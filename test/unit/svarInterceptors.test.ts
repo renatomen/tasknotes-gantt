@@ -35,6 +35,15 @@ import * as path from 'path';
 const ECHO = 'og-self';
 const CAL_ID = 'og-calendar://feed/item-1';
 
+/**
+ * The global setTimeout pinned to the handle type the interceptor access seam
+ * stores (`ReturnType<typeof setTimeout>`) — the merged DOM/Node overloads
+ * otherwise resolve the bare call to the wrong member of the overload set.
+ * Resolved at invocation (not module load) so jest fake timers apply.
+ */
+const scheduleTimeout = (callback: () => void, ms: number): ReturnType<typeof setTimeout> =>
+  setTimeout(callback, ms);
+
 interface Registration {
   action: string;
   handler: (ev: unknown) => boolean | void;
@@ -284,7 +293,7 @@ describe('show-editor interceptor', () => {
     jest.useFakeTimers();
     try {
       const stale = jest.fn();
-      const pending = setTimeout(stale, 250);
+      const pending = scheduleTimeout(stale, 250);
       const { api, backing } = makeFixture({ pendingSingleClick: pending });
       api.fire('show-editor', { id: 't1' });
       expect(backing.pendingSingleClick).toBeNull();
@@ -353,7 +362,7 @@ describe('select-task interceptor', () => {
     jest.useFakeTimers();
     try {
       const stale = jest.fn();
-      const pending = setTimeout(stale, 250);
+      const pending = scheduleTimeout(stale, 250);
       const { api, backing, activateBar, setSelected } = makeFixture({
         suppressSelectActivation: true,
         pendingSingleClick: pending,
@@ -432,7 +441,7 @@ describe('select-task interceptor', () => {
     jest.useFakeTimers();
     try {
       const stale = jest.fn();
-      const pending = setTimeout(stale, 250);
+      const pending = scheduleTimeout(stale, 250);
       const { api, activateBar, setSelected } = makeFixture({ pendingSingleClick: pending });
       setSelected([]);
       api.fire('select-task', { id: 't1' });

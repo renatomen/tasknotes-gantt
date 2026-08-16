@@ -78,7 +78,9 @@ describe('timeblockSource — flat event rows from daily-note timeblocks', () =>
   });
 
   it('passes the derivation window to the injected daily-note accessor', async () => {
-    const listDailyNotes = jest.fn(() => [] as readonly DailyNoteTimeblocks[]);
+    const listDailyNotes = jest.fn<TimeblockSourceDeps['listDailyNotes']>(
+      () => [] as readonly DailyNoteTimeblocks[],
+    );
 
     await makeSource([], { showTimeblocks: true }, { listDailyNotes }).collect(CONTEXT);
 

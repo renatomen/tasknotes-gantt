@@ -37,9 +37,9 @@ const config = {
     // a minimal mock; type-only imports elsewhere are erased and never hit this.
     "^obsidian$": "<rootDir>/test/__mocks__/obsidian.ts",
     // *.svelte imports are stubbed in unit tests; components are e2e-tested.
-    "\\.svelte$": "<rootDir>/test/__mocks__/svelteComponent.js",
-    "^svelte$": "<rootDir>/test/__mocks__/svelteRuntime.js",
-    "^svelte/store$": "<rootDir>/test/__mocks__/svelteStore.js",
+    "\\.svelte$": "<rootDir>/test/__mocks__/svelteComponent.ts",
+    "^svelte$": "<rootDir>/test/__mocks__/svelteRuntime.ts",
+    "^svelte/store$": "<rootDir>/test/__mocks__/svelteStore.ts",
   },
   // Coverage (enabled via `--coverage`, i.e. `npm run test:coverage`).
   // V8 provider: the @swc/jest transform replaces Babel, so Babel-based

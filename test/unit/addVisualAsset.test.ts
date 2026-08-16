@@ -1,5 +1,13 @@
 import { parseArgs, planAsset } from "../../scripts/addVisualAsset.mjs";
 
+/**
+ * The negative tests hand `planAsset` input its signature forbids, to pin the
+ * runtime guards. Anchoring on `Parameters<typeof planAsset>` keeps the call
+ * tracking the script's real signature instead of a hand-written duplicate.
+ */
+const planAssetMissing = (args: Partial<Parameters<typeof planAsset>[0]>) =>
+  planAsset(args as Parameters<typeof planAsset>[0]);
+
 describe("parseArgs", () => {
   it("reads positional source + slug and the flag options", () => {
     expect(parseArgs(["demo.gif", "focus-on-task", "--theme", "dark", "--ref", "0.1.0", "--ext", "png"])).toEqual({
@@ -38,7 +46,7 @@ describe("planAsset", () => {
   });
 
   it("throws when the source is missing", () => {
-    expect(() => planAsset({ slug: "x", ref: "0.1.0" })).toThrow();
+    expect(() => planAssetMissing({ slug: "x", ref: "0.1.0" })).toThrow();
   });
 
   it("throws when the extension cannot be inferred", () => {
@@ -50,6 +58,6 @@ describe("planAsset", () => {
   });
 
   it("throws when no ref is available", () => {
-    expect(() => planAsset({ source: "x.gif", slug: "focus" })).toThrow();
+    expect(() => planAssetMissing({ source: "x.gif", slug: "focus" })).toThrow();
   });
 });

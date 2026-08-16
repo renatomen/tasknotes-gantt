@@ -217,6 +217,8 @@ describe('createDragPromptResolver', () => {
     async (approved) => {
       const extensions = [
         {
+          instanceId: 'Tasks/Ancestor.md',
+          sourcePath: 'Tasks/Ancestor.md',
           name: 'Ancestor',
           oldStart: new Date(2026, 0, 1),
           oldEnd: new Date(2026, 0, 8),

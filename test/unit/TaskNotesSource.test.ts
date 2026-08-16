@@ -173,7 +173,7 @@ describe('TaskNotesSource — dependency writes (M2)', () => {
 
     it('forwards the MutationContext to tasks.update', async () => {
       const { source, updateSpy } = await makeWritableSource({ tasks: [{ path: 'dep.md' }] });
-      const ctx = { correlationId: 'abc' };
+      const ctx = { source: 'tasknotes-gantt', correlationId: 'abc' };
       await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART', ctx);
       expect(updateSpy.mock.calls[0]![2]).toBe(ctx);
     });
@@ -929,6 +929,8 @@ describe('TaskNotesSource', () => {
       });
       const source = await TaskNotesSource.create(makeApp(api));
       const index = await source!.getRelationshipIndex();
+      expect(index).not.toBeNull();
+      if (index === null) throw new Error('relationship index unexpectedly not ready');
 
       const children = index.childrenByPath.get('P.md') ?? [];
       expect(children.map((c) => c.path).sort()).toEqual(['child-a.md', 'child-b.md']);
@@ -952,6 +954,8 @@ describe('TaskNotesSource', () => {
       });
       const source = await TaskNotesSource.create(makeApp(api));
       const index = await source!.getRelationshipIndex();
+      expect(index).not.toBeNull();
+      if (index === null) throw new Error('relationship index unexpectedly not ready');
       expect(index.childrenByPath.get('P1.md')!.map((c) => c.path)).toEqual(['C.md']);
       expect(index.childrenByPath.get('P2.md')!.map((c) => c.path)).toEqual(['C.md']);
       expect(index.parentsByPath.get('C.md')).toEqual(['P1.md', 'P2.md']);
@@ -1024,7 +1028,9 @@ describe('TaskNotesSource', () => {
 
     it('getParents returns [] when the accessor returns a non-array', async () => {
       const { api } = makeApi({ parents: { 'x.md': [] } });
-      api.relationships!.parents = (() => null) as unknown as typeof api.relationships.parents;
+      api.relationships!.parents = (() => null) as unknown as NonNullable<
+        typeof api.relationships
+      >['parents'];
       const bad = await TaskNotesSource.create(makeApp(api));
       expect(await bad!.getParents('x.md')).toEqual([]);
     });

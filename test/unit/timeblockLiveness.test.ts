@@ -41,7 +41,9 @@ const DAILY_PATH = 'Daily/2026-08-04.md';
 function dailyNoteAccessFixture(): DailyNoteAccess {
   return {
     listDailyNotes: () => [{ date: '2026-08-04', path: DAILY_PATH, timeblocks: [] }],
+    earliestDailyNoteDay: () => '2026-08-04',
     isDailyNote: (path) => path.startsWith('Daily/'),
+    configTag: () => 'daily-notes:fixture',
   };
 }
 
@@ -87,8 +89,10 @@ describe('createTimeblockLiveness', () => {
     const liveness = createTimeblockLiveness({
       dailyNotes: {
         listDailyNotes: () => [{ date: '2026-08-04', path: DAILY_PATH, timeblocks: [] }],
+        earliestDailyNoteDay: () => null,
         // A note the probe no longer answers for (daily-notes folder changed).
         isDailyNote: () => false,
+        configTag: () => 'daily-notes:folder-changed',
       },
       onEpochBump: () => {},
       scheduler: timers.scheduler,

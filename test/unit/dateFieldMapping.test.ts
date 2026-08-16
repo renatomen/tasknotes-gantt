@@ -26,6 +26,9 @@ const cfg: FieldConfig = {
     { key: 'start', id: 'uf_start', displayName: 'Start' },
     { key: 'kickoff', id: 'uf_kickoff', displayName: 'Kickoff' },
   ],
+  timeEstimateProp: null,
+  statusProp: null,
+  priorityProp: null,
 };
 
 describe('resolveDateMapping', () => {
@@ -84,7 +87,14 @@ describe('resolveDateMapping', () => {
   });
 
   it('falls back to the canonical name when fieldConfig lacks scheduled/due props', () => {
-    const bare: FieldConfig = { scheduledProp: null, dueProp: null, dateFields: [] };
+    const bare: FieldConfig = {
+      scheduledProp: null,
+      dueProp: null,
+      dateFields: [],
+      timeEstimateProp: null,
+      statusProp: null,
+      priorityProp: null,
+    };
     expect(resolveDateMapping(undefined, 'start', bare)).toEqual({
       readProp: 'scheduled',
       writeTarget: { kind: 'scheduled' },

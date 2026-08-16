@@ -69,7 +69,7 @@ describe('toRfcCalendar', () => {
   it('preserves exclusive DTEND semantics for authored inclusive ranges', () => {
     const model = toRfcCalendar(definition());
     const shutdown = model.events.find((event) => event.summary === 'Summer shutdown');
-    expect(shutdown?.dtstart.value).toBe('2026-12-29');
+    expect(shutdown?.dtstart?.value).toBe('2026-12-29');
     expect(shutdown?.dtend?.value).toBe('2027-01-03');
   });
 

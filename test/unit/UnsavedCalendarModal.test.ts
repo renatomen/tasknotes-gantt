@@ -5,7 +5,8 @@
  * a dismiss never loses work.
  */
 import { describe, expect, it } from '@jest/globals';
-import { App, FakeElement } from 'obsidian';
+import { App } from 'obsidian';
+import type { FakeElement } from '../__mocks__/obsidian';
 import { UnsavedCalendarModal } from '../../src/editor/UnsavedCalendarModal';
 
 function open(canSave: boolean, saving = false) {

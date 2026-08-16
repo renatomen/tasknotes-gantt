@@ -34,7 +34,7 @@ const coercionCases: CoercionCase[] = [
     name: 'receiver-dependent toString',
     create: () => ({
       label: 'calendar',
-      toString() {
+      toString(this: { label: string }) {
         return this.label;
       },
     }),
@@ -50,7 +50,7 @@ const coercionCases: CoercionCase[] = [
     name: 'Symbol.toPrimitive with string hint and receiver',
     create: () => ({
       label: 'timeline',
-      [Symbol.toPrimitive](hint: string) {
+      [Symbol.toPrimitive](this: { label: string }, hint: string) {
         return `${this.label}:${hint}`;
       },
     }),

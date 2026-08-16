@@ -20,7 +20,7 @@ import {
 import type { SourceTask } from "../../src/datasource/types";
 
 function task(path: string, over: Partial<SourceTask> = {}): SourceTask {
-  return { path, text: path, start: null, end: null, progress: null, status: null, parents: [], ...over };
+  return { path, text: path, start: null, end: null, progress: null, status: null, priority: null, parents: [], ...over };
 }
 
 /**

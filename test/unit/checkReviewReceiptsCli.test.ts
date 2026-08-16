@@ -82,8 +82,8 @@ function runScript(
   const env = { ...childEnv, ...extraEnv };
   const options =
     typeof stdin === 'number'
-      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as const, env }
-      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as const, env };
+      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as Array<number | 'pipe'>, env }
+      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as Array<number | 'pipe'>, env };
   try {
     const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
@@ -100,7 +100,8 @@ const runCheck = (stdin: string | number): Run => runScript(['check'], stdin);
  */
 const runRecord = (layer: string, sha?: string): Run => {
   const target = sha ?? git(['rev-parse', 'HEAD']);
-  const attest = layer === 'cross-model-peer' ? { OG_PEER_REVIEW_ATTESTED_SHA: target } : {};
+  const attest: Record<string, string> =
+    layer === 'cross-model-peer' ? { OG_PEER_REVIEW_ATTESTED_SHA: target } : {};
   return runScript(sha ? ['record', layer, sha] : ['record', layer], '', attest);
 };
 

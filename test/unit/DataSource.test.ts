@@ -48,6 +48,7 @@ function task(partial: Partial<SourceTask> & { path: string }): SourceTask {
     end: null,
     progress: null,
     status: null,
+    priority: null,
     parents: [],
     ...partial,
   };

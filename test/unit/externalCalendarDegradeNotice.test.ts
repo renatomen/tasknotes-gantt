@@ -10,6 +10,7 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import { Notice } from 'obsidian';
 import type { BasesAllOptions, BasesViewConfig, Plugin } from 'obsidian';
+import type * as MockObsidian from '../__mocks__/obsidian';
 import {
   createExternalCalendarDegradeSignal,
   sessionExternalCalendarDegradeSignal,
@@ -24,6 +25,12 @@ import {
 } from '../../src/datasource/calendarItems/externalCalendarSource';
 import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
 import type { PluginLifetime } from '../../src/bases/createCalendarNote';
+
+/**
+ * The manual mock's Notice exposes a `created` construction registry the real
+ * `obsidian` types don't declare — bridge to the mock's own type for it.
+ */
+const MockNotice = Notice as unknown as typeof MockObsidian.Notice;
 
 describe('createExternalCalendarDegradeSignal', () => {
   it('fires exactly one Notice for the first degraded collect and flips the session flag', () => {
@@ -124,7 +131,7 @@ describe('register wiring: degraded collect → session Notice → options degra
     const config = { get: () => undefined } as unknown as BasesViewConfig;
 
     expect(hasDegradedEntry(options(config))).toBe(false);
-    expect(Notice.created).toHaveLength(0);
+    expect(MockNotice.created).toHaveLength(0);
     expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
   });
 
@@ -134,12 +141,12 @@ describe('register wiring: degraded collect → session Notice → options degra
 
     expect(hasDegradedEntry(options(config))).toBe(true);
     expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(true);
-    expect(Notice.created.map((notice) => notice.message)).toEqual([
+    expect(MockNotice.created.map((notice) => notice.message)).toEqual([
       EXTERNAL_CALENDAR_DEGRADED_NOTICE,
     ]);
 
     expect(hasDegradedEntry(options(config))).toBe(true);
-    expect(Notice.created).toHaveLength(1);
+    expect(MockNotice.created).toHaveLength(1);
   });
 
   it('throwing discovery surfaces report degradation while retaining successful empty catalog data', () => {
@@ -192,7 +199,7 @@ describe('register wiring: degraded collect → session Notice → options degra
 
     expect(batch.degraded).toBe(true);
     expect(loadingStates).toEqual([false]);
-    expect(Notice.created).toHaveLength(1);
+    expect(MockNotice.created).toHaveLength(1);
     expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(true);
     expect(hasDegradedEntry(options(config))).toBe(true);
   });
