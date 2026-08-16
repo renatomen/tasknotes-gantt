@@ -15,7 +15,7 @@ tags: [typecheck, tsconfig, jest, wdio, vitest, svelte-check, test-partition, am
 
 # Typechecking a multi-framework test tree — the three-program partition
 
-> **Status: evolving until the gate wires in (plan U4).** Facts below were measured on the 2026-08-16 spike, U1 (PR #431), and U2 (PR #432). The unit-program calibrations from PR #431's review threads are **applied** (see the U2 paragraph below); only the e2e program's `DOM.Iterable` calibration remains pending (U3's opener). Finalize this doc when `typecheck:test` joins `npm run typecheck`.
+> **Status: evolving until the gate wires in (plan U4).** Facts below were measured on the 2026-08-16 spike, U1 (PR #431), and U2 (PR #432). All calibrations from PR #431's review threads are **applied** — the unit-program set in U2 (see the paragraph below) and the e2e program's `DOM.Iterable` in U3; nothing is pending. Finalize this doc when `typecheck:test` joins `npm run typecheck`.
 
 ## Context
 
@@ -40,7 +40,7 @@ The test tree (220+ files) was never typechecked (`tsconfig.json` includes only 
 
 **Exclusions:** only the gitignored personal-probe family `test/specs/_local-*`, matching `.gitignore` exactly — backstopped by a case-insensitive jest guard (`test/unit/typecheckPartitionGuard.test.ts`) that fails on any *tracked* `test/**/_local-*` path.
 
-**Calibrations applied in U2 (the unit program now describes the real jest runtime):** `target: ES2020` (accepted on PR #431's review threads; matches the jest transform — removed the spurious TS2737 `42n` bigint class), `lib: ["ES2022", "DOM"]` (tests run on Node 20 where `Array.prototype.at` exists; root's ES2019 lib made valid `.at()` usage error TS2550), and `allowJs: true` with `checkJs` off (tests legitimately import `scripts/*.mjs`; this removes the TS7016 class and gives the imports real inferred types without typechecking the scripts themselves — that stays deferred per the plan's scope boundaries). `allowJs` cannot silently admit unchecked test JS: tracked JS is banned across all of `test/` by the partition guard (`typecheckPartitionGuard.test.ts` fails on any tracked `.js`/`.cjs`/`.mjs`/`.jsx` anywhere under `test/` — no e2e/vitest exemption, because those programs never admit JS and TypeScript follows imports across `exclude`), so the flag serves only the out-of-tree `scripts/*.mjs` imports. **Still pending:** the e2e program's `lib` needs `DOM.Iterable` (else 11 spurious TS2488 — U3's opener). Until it lands, treat that diagnostic class as config noise, not test drift.
+**Calibrations applied in U2 (the unit program now describes the real jest runtime):** `target: ES2020` (accepted on PR #431's review threads; matches the jest transform — removed the spurious TS2737 `42n` bigint class), `lib: ["ES2022", "DOM"]` (tests run on Node 20 where `Array.prototype.at` exists; root's ES2019 lib made valid `.at()` usage error TS2550), and `allowJs: true` with `checkJs` off (tests legitimately import `scripts/*.mjs`; this removes the TS7016 class and gives the imports real inferred types without typechecking the scripts themselves — that stays deferred per the plan's scope boundaries). `allowJs` cannot silently admit unchecked test JS: tracked JS is banned across all of `test/` by the partition guard (`typecheckPartitionGuard.test.ts` fails on any tracked `.js`/`.cjs`/`.mjs`/`.jsx` anywhere under `test/` — no e2e/vitest exemption, because those programs never admit JS and TypeScript follows imports across `exclude`), so the flag serves only the out-of-tree `scripts/*.mjs` imports. **Applied in U3:** the e2e program's `lib` gained `DOM.Iterable` (removed all 11 spurious TS2488, measured). No calibrations remain pending.
 
 ## Why This Matters
 
@@ -53,7 +53,7 @@ Every remediation unit (U2/U3) and every future test-tree edit reads errors thro
 
 ## Examples
 
-Measured class-collapse examples: adding `wdio-obsidian-service` to `types` removed 689 errors in one line; the pending ES2020 target removes the whole `42n` class; `DOM.Iterable` removes all 11 TS2488. Conversely, the five-field `GanttData` drift in `test/perf/generator/buildGanttData.ts` was *real* drift — the perf harness had fallen behind the production contract (the rank-3 false-green class, caught live).
+Measured class-collapse examples: adding `wdio-obsidian-service` to `types` removed 689 errors in one line; the ES2020 target removed the whole `42n` class; `DOM.Iterable` removed all 11 TS2488. Conversely, the five-field `GanttData` drift in `test/perf/generator/buildGanttData.ts` was *real* drift — the perf harness had fallen behind the production contract (the rank-3 false-green class, caught live).
 
 ## Related
 
