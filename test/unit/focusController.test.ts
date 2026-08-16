@@ -15,7 +15,7 @@ import {
   focusItemText,
   pickActiveFocusEntry,
 } from '../../src/bases/focusController';
-import type { FocusInstance, ZoomLevel } from '../../src/bases/focusController';
+import type { ContainerEl, FocusInstance, ZoomLevel } from '../../src/bases/focusController';
 import { buildZoomConfig } from '../../src/bases/zoomConfig';
 
 // ---------------------------------------------------------------------------
@@ -351,15 +351,20 @@ describe('focusItemText', () => {
 
 describe('pickActiveFocusEntry', () => {
   /** A fake container that "contains" exactly the elements in its set. */
-  function container(...owned: object[]): { contains(other: unknown): boolean } {
+  function container(...owned: ContainerEl[]): ContainerEl {
     const set = new Set<unknown>(owned);
     return { contains: (other: unknown) => set.has(other) };
   }
 
+  /** A registered view container — never itself asked to contain anything. */
+  function element(): ContainerEl {
+    return { contains: () => false };
+  }
+
   it('returns the entry whose container is inside the active leaf', () => {
-    const c1 = {};
-    const c2 = {};
-    const entries = new Map<object, string>([
+    const c1 = element();
+    const c2 = element();
+    const entries = new Map<ContainerEl, string>([
       [c1, 'entry-1'],
       [c2, 'entry-2'],
     ]);
@@ -369,9 +374,9 @@ describe('pickActiveFocusEntry', () => {
   });
 
   it('falls back to the most-recently-registered entry when the active leaf matches none', () => {
-    const c1 = {};
-    const c2 = {};
-    const entries = new Map<object, string>([
+    const c1 = element();
+    const c2 = element();
+    const entries = new Map<ContainerEl, string>([
       [c1, 'entry-1'],
       [c2, 'entry-2'],
     ]);
@@ -381,15 +386,15 @@ describe('pickActiveFocusEntry', () => {
   });
 
   it('falls back to the last entry when no active container is given', () => {
-    const entries = new Map<object, string>([
-      [{}, 'entry-1'],
-      [{}, 'entry-2'],
+    const entries = new Map<ContainerEl, string>([
+      [element(), 'entry-1'],
+      [element(), 'entry-2'],
     ]);
 
     expect(pickActiveFocusEntry(entries, null)).toBe('entry-2');
   });
 
   it('returns null when there are no entries', () => {
-    expect(pickActiveFocusEntry(new Map<object, string>(), container())).toBeNull();
+    expect(pickActiveFocusEntry(new Map<ContainerEl, string>(), container())).toBeNull();
   });
 });

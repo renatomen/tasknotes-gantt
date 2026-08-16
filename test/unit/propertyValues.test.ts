@@ -47,9 +47,9 @@ describe('classifyTypedValue', () => {
   });
 
   it('tags numbers and booleans by primitive type', () => {
-    expect(classifyTypedValue(42)).toEqual<TypedValue>({ kind: 'number', value: 42 });
-    expect(classifyTypedValue(true)).toEqual<TypedValue>({ kind: 'boolean', value: true });
-    expect(classifyTypedValue(false)).toEqual<TypedValue>({ kind: 'boolean', value: false });
+    expect(classifyTypedValue(42)).toEqual({ kind: 'number', value: 42 } satisfies TypedValue);
+    expect(classifyTypedValue(true)).toEqual({ kind: 'boolean', value: true } satisfies TypedValue);
+    expect(classifyTypedValue(false)).toEqual({ kind: 'boolean', value: false } satisfies TypedValue);
   });
 
   it('tags an array as a list of display strings', () => {
@@ -59,47 +59,47 @@ describe('classifyTypedValue', () => {
   });
 
   it('resolves wikilink and path strings to link display text (basename / alias)', () => {
-    expect(classifyTypedValue('[[Alice]]')).toEqual<TypedValue>({ kind: 'link', value: 'Alice' });
-    expect(classifyTypedValue('[[people/Bob|Bobby]]')).toEqual<TypedValue>({ kind: 'link', value: 'Bobby' });
-    expect(classifyTypedValue('[[people/Carol]]')).toEqual<TypedValue>({ kind: 'link', value: 'Carol' });
-    expect(classifyTypedValue('projects/Plan.md')).toEqual<TypedValue>({ kind: 'link', value: 'Plan' });
+    expect(classifyTypedValue('[[Alice]]')).toEqual({ kind: 'link', value: 'Alice' } satisfies TypedValue);
+    expect(classifyTypedValue('[[people/Bob|Bobby]]')).toEqual({ kind: 'link', value: 'Bobby' } satisfies TypedValue);
+    expect(classifyTypedValue('[[people/Carol]]')).toEqual({ kind: 'link', value: 'Carol' } satisfies TypedValue);
+    expect(classifyTypedValue('projects/Plan.md')).toEqual({ kind: 'link', value: 'Plan' } satisfies TypedValue);
     // Root-level note path (no folder) — still a link, extension stripped.
-    expect(classifyTypedValue('Note.md')).toEqual<TypedValue>({ kind: 'link', value: 'Note' });
+    expect(classifyTypedValue('Note.md')).toEqual({ kind: 'link', value: 'Note' } satisfies TypedValue);
   });
 
   it('resolves FileValue-shaped objects and link list items to basenames', () => {
-    expect(classifyTypedValue({ file: { path: 'people/Dave.md' } })).toEqual<TypedValue>({
+    expect(classifyTypedValue({ file: { path: 'people/Dave.md' } })).toEqual({
       kind: 'link',
       value: 'Dave',
-    });
+    } satisfies TypedValue);
     const list = classifyTypedValue(['[[people/Eve]]', { file: { path: 'people/Frank.md' } }]);
-    expect(list).toEqual<TypedValue>({ kind: 'list', value: ['Eve', 'Frank'] });
+    expect(list).toEqual({ kind: 'list', value: ['Eve', 'Frank'] } satisfies TypedValue);
   });
 
   it('tags a plain string as text and does not coerce non-date strings', () => {
-    expect(classifyTypedValue('in-progress')).toEqual<TypedValue>({ kind: 'text', value: 'in-progress' });
-    expect(classifyTypedValue('Meeting 2026 notes')).toEqual<TypedValue>({
+    expect(classifyTypedValue('in-progress')).toEqual({ kind: 'text', value: 'in-progress' } satisfies TypedValue);
+    expect(classifyTypedValue('Meeting 2026 notes')).toEqual({
       kind: 'text',
       value: 'Meeting 2026 notes',
-    });
+    } satisfies TypedValue);
   });
 
   it('falls back to text when an ISO-shaped string is not a parseable date', () => {
     // Matches ISO_DATE_RE (digit shape) but `new Date(...)` is Invalid, so the
     // date branch declines and the value is tagged as plain text (characterization).
-    expect(classifyTypedValue('2026-13-45T99:99')).toEqual<TypedValue>({
+    expect(classifyTypedValue('2026-13-45T99:99')).toEqual({
       kind: 'text',
       value: '2026-13-45T99:99',
-    });
+    } satisfies TypedValue);
   });
 
   it('tags a plain object without a string file.path as text via String()', () => {
     // No `file.path` string → not a link object → final String(raw) fallback
     // (characterization of the unknown-shape branch).
-    expect(classifyTypedValue({ foo: 1 })).toEqual<TypedValue>({
+    expect(classifyTypedValue({ foo: 1 })).toEqual({
       kind: 'text',
       value: String({ foo: 1 }),
-    });
+    } satisfies TypedValue);
   });
 
   it('tags null/undefined/empty-string/empty-array/NaN as empty', () => {

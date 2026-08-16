@@ -170,6 +170,14 @@ interface PluginFixtureInput {
   lastFetchedById?: Readonly<Record<string, string>>;
 }
 
+/** The service surface as the source reads it, so a test can swap in a plain replacement. */
+interface IcsSubscriptionServiceFixture {
+  getSubscriptions: () => IcsSubscriptionFixture[];
+  getAllEvents: () => IcsEventFixture[];
+  getLastFetched: (id: string) => string | undefined;
+  on: ReturnType<typeof emitterStub>['on'];
+}
+
 function pluginFixture(input: PluginFixtureInput = {}) {
   const emitter = emitterStub();
   const state = {
@@ -180,17 +188,21 @@ function pluginFixture(input: PluginFixtureInput = {}) {
   const icsSubscriptionService = {
     getSubscriptions: jest.fn(() => state.subscriptions),
     getAllEvents: jest.fn(() => state.icsEvents),
-    getLastFetched: jest.fn((id: string) => state.lastFetchedById[id]),
+    getLastFetched: jest.fn((id: string): string | undefined => state.lastFetchedById[id]),
     on: emitter.on,
   };
   const calendarProviderRegistry = {
     getAllProviders: jest.fn(() => input.providers ?? []),
   };
+  const plugin: {
+    icsSubscriptionService: IcsSubscriptionServiceFixture;
+    calendarProviderRegistry: typeof calendarProviderRegistry;
+  } = { icsSubscriptionService, calendarProviderRegistry };
   return {
     state,
     emitter,
     icsSubscriptionService,
-    plugin: { icsSubscriptionService, calendarProviderRegistry },
+    plugin,
   };
 }
 

@@ -20,17 +20,17 @@ import {
 describe('chipsFromStoredList', () => {
   it('maps a mixed link + plain list to link and plain chips', () => {
     const chips = chipsFromStoredList(['[[WS Alpha]]', 'Ad-hoc item']);
-    expect(chips).toEqual<ListChip[]>([
+    expect(chips).toEqual([
       { raw: '[[WS Alpha]]', display: 'WS Alpha', isLink: true },
       { raw: 'Ad-hoc item', display: 'Ad-hoc item', isLink: false },
-    ]);
+    ] satisfies ListChip[]);
   });
 
   it('shows the alias as the display label for an aliased wikilink', () => {
     const chips = chipsFromStoredList(['[[people/Charles|Chuck Norris]]']);
-    expect(chips).toEqual<ListChip[]>([
+    expect(chips).toEqual([
       { raw: '[[people/Charles|Chuck Norris]]', display: 'Chuck Norris', isLink: true },
-    ]);
+    ] satisfies ListChip[]);
   });
 
   it('shows the basename (not the folder path) for a pathful wikilink', () => {
@@ -45,9 +45,9 @@ describe('chipsFromStoredList', () => {
   });
 
   it('treats a single scalar string as a one-item list', () => {
-    expect(chipsFromStoredList('[[Solo]]')).toEqual<ListChip[]>([
+    expect(chipsFromStoredList('[[Solo]]')).toEqual([
       { raw: '[[Solo]]', display: 'Solo', isLink: true },
-    ]);
+    ] satisfies ListChip[]);
   });
 
   it('returns no chips for an empty, null, undefined, or blank value', () => {
