@@ -930,19 +930,32 @@ diagnosed and fixed on 2026-06-29 (PR #182) with a specific-header
 readiness gate — `ensureGanttReady` waiting for the exact `note.due`
 header rather than any `[data-header-id]`. See
 `docs/solutions/developer-experience/column-sort-e2e-first-mount-header-race.md`.
-That PR's body recorded a **deferred hardening**, explicitly conditioned on
-"only needed if the flake ever resurfaces": after the click lands in
-`sortByColumn`, assert the sort actually registered (`aria-sort` / reset
-pill) and retry, closing the residual post-click tail-re-render window.
-**That trigger has now fired** — this is a concrete, already-specified
-first action for the Reliability re-diagnosis, not open-ended work.
+The readiness gate that fixed it is therefore already in place and still
+failed, so whatever the gate waits on is not sufficient here.
 
-**Rate signal, which matters more than any individual instance:** three
-rerun-confirmed instances landed across roughly four e2e runs on a single
-day (2026-08-17), all three on a PR that changed only `.md` files and so
-cannot have caused any of them. The re-diagnosis was scoped believing the
-denominator held one instance. It does not. Establishing the true per-spec
-rate is more urgent than that framing implied.
+**PR #182's deferred hardening does NOT address this failure mode** — a
+correction worth recording, because the obvious move is to reach for it.
+That hardening was a *post-click* retry (assert the sort registered via
+`aria-sort` / reset pill, then retry). But `clickColumnHeader` returns true
+the instant it finds and clicks the header, so the
+`did not become clickable` timeout fires only when **no click ever landed**
+during the full 10s wait. A post-click assertion cannot help a click that
+never happened. The live question is why `ensureGanttReady`'s header wait
+passed in `beforeEach` while the header was absent 10s later at click time
+— header present-then-gone (a mid-suite column-config reseed re-rendering
+it away), or a gate that observed something weaker than what the click
+needs. Diagnose that before writing any fix.
+
+**Rate signal, stated precisely:** three rerun-confirmed instances inside
+two days — one on 2026-08-16 (run 31929397025, on PR #430, which *did*
+change `src/`, so flake-vs-cause there rests on the same-SHA rerun alone)
+and two on 2026-08-17 (runs 31997862224 and 32000640719, both on the
+docs-only PR #435, which changed no code and so gives those two an
+unusually clean attribution). Two instances across roughly four e2e runs
+on one PR in a single day is the sharper number; do not inflate it to
+"three in four, all docs-only", which conflates the 2026-08-16 instance's
+different circumstances. Even stated conservatively this is far above what
+the one-instance denominator implied when the re-diagnosis was scoped.
 
 When the Reliability re-diagnosis starts, feed all three instances in and
 delete all three entries.
