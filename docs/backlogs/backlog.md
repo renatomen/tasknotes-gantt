@@ -885,16 +885,33 @@ The strategy track "Grow the standalone side" should point at this entry
 when STRATEGY.md's tracks are next amended (maintainer-approved edit). When
 picked up, promote to a GitHub issue and delete this entry.
 
-## E2E flake instance: context-aware-legend "before all" hook, run 31929397025
+## E2E nondeterministic failure — cause UNRESOLVED: context-aware-legend "before all" hook, run 31929397025
 
-Rerun-confirmed instance of the never-became-ready flake class, recorded on
-PR #430's record (2026-08-16): the `gantt-context-aware-legend` spec's
-"before all" hook failed on the first CI run of the merge candidate and
-passed on a same-SHA rerun, so it is environment/readiness flake, not a
-code defect. Kept here as a data point for the upcoming Reliability
-re-diagnosis denominator (each confirmed instance counts); no diagnosis
-work is scheduled from this entry alone. When the Reliability re-diagnosis
-starts, feed this instance in and delete this entry.
+Recorded on PR #430's record (2026-08-16): the `gantt-context-aware-legend`
+spec's "before all" hook failed on the first CI run of the merge candidate
+and passed on a same-SHA rerun. It presents as the never-became-ready
+class.
+
+**Do not treat the passing rerun as exonerating PR #430.** A same-SHA
+failure followed by a same-SHA pass proves the symptom is
+**nondeterministic** — it does not prove the diff is uninvolved, because an
+intermittent race *introduced by* that PR produces exactly the same
+sequence. PR #430 changed `src/bases/GanttContainer.svelte` and
+`src/bases/svarInterceptors.ts` (the data-mutation interceptor extraction),
+so a newly-introduced race is a live hypothesis, not a ruled-out one. This
+entry was originally written as "environment/readiness flake, not a code
+defect"; that conclusion outran its evidence and is retracted here.
+
+Causality stays **open** until either the base and changed SHAs are run
+repeatedly and compared, or the failure is diagnosed directly. The
+distinction matters for the re-diagnosis: counting this as confirmed
+environmental flake could bury a real regression. The three 2026-08-17
+instances below are different — they surfaced on a docs-only PR whose diff
+cannot have introduced a race, so for those the rerun genuinely does
+isolate the cause to the environment.
+
+When the Reliability re-diagnosis starts, feed this instance in — flagged
+as cause-unresolved, not as confirmed flake — and delete this entry.
 
 ## E2E flake instances: two specs in one run, run 31997862224
 
@@ -961,23 +978,29 @@ needs. Diagnose that before writing any fix.
 by CI run, because one run can carry several independent failures (this
 set's whole correction history turns on that distinction):
 
-- 2026-08-16, run 31929397025, on PR #430 — `gantt-context-aware-legend`.
-  That PR *did* change `src/`, so flake-vs-cause there rests on the
-  same-SHA rerun alone, not on the diff being inert.
 - 2026-08-17, run 31997862224, on docs-only PR #435 — **two** specs:
   `gantt-legend` and `gantt-calendar-items-sources`.
 - 2026-08-17, run 32000640719, on docs-only PR #435 — `gantt-column-sort`.
 
-So: **four failing specs across four distinct spec files, in three e2e
-runs, over two days** — three of those specs on a single docs-only PR
-whose diff cannot have caused anything, inside roughly four e2e runs of
-that PR. Do not round this to "three instances", which was the earlier
-undercount, nor to "all docs-only", which conflates the 2026-08-16 case.
-Even stated conservatively it is far above what the one-instance
-denominator implied when the re-diagnosis was scoped, and the per-run
-clustering (two specs failing in one run) is itself a signal worth
-testing: it hints at a shared environmental cause rather than N
-independent per-spec races.
+That is **three failing specs across three distinct spec files, in two e2e
+runs, inside roughly four e2e runs of one PR on one day** — and that PR
+changed only `.md` files, so its diff cannot have introduced a race and the
+same-SHA reruns genuinely isolate the cause to the environment. This is the
+clean sample; it is the number to reason from.
+
+A fourth failing spec (`gantt-context-aware-legend`, run 31929397025,
+2026-08-16) is recorded above but sits in a **different evidentiary
+category** — it surfaced on PR #430, which changed `src/`, so its passing
+rerun establishes nondeterminism without establishing that the diff was
+uninvolved. Count it separately or not at all; do not fold it into the
+clean sample to reach "four", which is what an earlier revision of this
+entry did.
+
+Even on the conservative three, this is far above what the one-instance
+denominator implied when the re-diagnosis was scoped. The per-run
+clustering (two unrelated specs failing in a single run) is itself a signal
+worth testing early: it hints at a shared environmental cause rather than N
+independent per-spec races, which would change the shape of any fix.
 
 When the Reliability re-diagnosis starts, feed all of these in and delete
 all three entries.
