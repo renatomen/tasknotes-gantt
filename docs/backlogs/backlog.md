@@ -911,12 +911,41 @@ categorically cannot affect legend interactability — an unusually clean
 attribution, since the usual ambiguity (did my change cause this?) does not
 apply.
 
-**Pattern worth carrying into the re-diagnosis:** both confirmed instances
-so far implicate the legend spec family — this one and run 31929397025
-(`gantt-context-aware-legend` "before all" hook). Two data points is not a
-trend, but if the re-diagnosis finds a per-spec concentration, this is where
-to look first. When the Reliability re-diagnosis starts, feed both instances
-in and delete both entries.
+A legend-spec pattern was briefly hypothesised here from this instance plus
+run 31929397025; the third instance below (a different spec entirely)
+refuted it within the hour. The shared property is the never-became-ready
+*class*, not any one spec. Recorded rather than silently edited, because
+"two points looked like a trend and were not" is itself the lesson.
+
+## E2E flake instance: gantt-column-sort header clickability, run 32000640719
+
+Rerun-confirmed instance of the never-became-ready class, recorded on
+PR #435's record (2026-08-17), on the same docs-only PR as the entry above:
+`test/specs/gantt-column-sort.e2e.ts` failed its ephemeral-column-sort AE1
+test with `Column header "note.due" did not become clickable`; 38 of 39
+spec files passed, and a same-SHA rerun of the identical job went green.
+
+**This is a resurfacing, not a new defect.** The identical symptom was
+diagnosed and fixed on 2026-06-29 (PR #182) with a specific-header
+readiness gate — `ensureGanttReady` waiting for the exact `note.due`
+header rather than any `[data-header-id]`. See
+`docs/solutions/developer-experience/column-sort-e2e-first-mount-header-race.md`.
+That PR's body recorded a **deferred hardening**, explicitly conditioned on
+"only needed if the flake ever resurfaces": after the click lands in
+`sortByColumn`, assert the sort actually registered (`aria-sort` / reset
+pill) and retry, closing the residual post-click tail-re-render window.
+**That trigger has now fired** — this is a concrete, already-specified
+first action for the Reliability re-diagnosis, not open-ended work.
+
+**Rate signal, which matters more than any individual instance:** three
+rerun-confirmed instances landed across roughly four e2e runs on a single
+day (2026-08-17), all three on a PR that changed only `.md` files and so
+cannot have caused any of them. The re-diagnosis was scoped believing the
+denominator held one instance. It does not. Establishing the true per-spec
+rate is more urgent than that framing implied.
+
+When the Reliability re-diagnosis starts, feed all three instances in and
+delete all three entries.
 
 ## Scheduled perf job red since 2026-07-13: Show-undated storm chart-alive assertion
 
