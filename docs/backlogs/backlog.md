@@ -896,26 +896,37 @@ re-diagnosis denominator (each confirmed instance counts); no diagnosis
 work is scheduled from this entry alone. When the Reliability re-diagnosis
 starts, feed this instance in and delete this entry.
 
-## E2E flake instance: gantt-legend interactability, run 31997862224
+## E2E flake instances: two specs in one run, run 31997862224
 
-Rerun-confirmed instance of the never-became-ready flake class, recorded on
-PR #435's record (2026-08-17): two tests in `test/specs/gantt-legend.e2e.ts`
-— "keeps Legend available and opens the default right panel without the
-optional toolbar (AE10)" and "paints the dark composite sample with the
-chart's production treatment channels (AE1)" — failed with `element did not
-become interactable` on the `.og-legend-toggle` button; the other 25 tests
-in that spec passed, and 37 of 39 spec files passed. A same-SHA rerun of the
-identical job went green, so it is environment/readiness flake, not a code
-defect. The PR it surfaced on changed only `.md` files under `docs/`, which
-categorically cannot affect legend interactability — an unusually clean
-attribution, since the usual ambiguity (did my change cause this?) does not
-apply.
+Rerun-confirmed instances of the never-became-ready class, recorded on
+PR #435's record (2026-08-17). Attempt 1 failed **two** spec files of 39; a
+same-SHA rerun of the identical job passed 39/39, so both are
+environment/readiness flake, not code defects. The PR changed only `.md`
+files under `docs/`, which cannot affect either surface — an unusually
+clean attribution, since the usual "did my change cause this?" ambiguity
+does not apply.
 
-A legend-spec pattern was briefly hypothesised here from this instance plus
-run 31929397025; the third instance below (a different spec entirely)
-refuted it within the hour. The shared property is the never-became-ready
-*class*, not any one spec. Recorded rather than silently edited, because
-"two points looked like a trend and were not" is itself the lesson.
+- `test/specs/gantt-legend.e2e.ts` — "keeps Legend available and opens the
+  default right panel without the optional toolbar (AE10)" and "paints the
+  dark composite sample with the chart's production treatment channels
+  (AE1)" failed with `element did not become interactable` on the
+  `.og-legend-toggle` button; the spec's other 25 tests passed.
+- `test/specs/gantt-calendar-items-sources.e2e.ts` — the `before each` hook
+  failed in `ensureGanttReady` with
+  `not ready: Gantt bars missing: ["Standup 2026-03-23.md"]` (via
+  `test/specs/helpers/waitReady.ts`).
+
+**A legend-spec pattern was hypothesised from this run and was already
+wrong when it was written.** The hypothesis was formed after reading only
+the legend failure, even though the same run's summary said two spec files
+failed — the second was a different surface entirely (calendar-items
+sources), and the later column-sort instance below made three distinct
+specs. The shared property is the never-became-ready *class*, never a spec
+concentration. Kept visible rather than edited away, because the failure
+mode is instructive: a same-run counter-example was sitting in the summary
+line, unread, while the pattern was being asserted. **For the re-diagnosis
+this is a method requirement, not an anecdote — enumerate every failing
+spec in a run before characterising any distribution.**
 
 ## E2E flake instance: gantt-column-sort header clickability, run 32000640719
 
@@ -946,19 +957,30 @@ passed in `beforeEach` while the header was absent 10s later at click time
 it away), or a gate that observed something weaker than what the click
 needs. Diagnose that before writing any fix.
 
-**Rate signal, stated precisely:** three rerun-confirmed instances inside
-two days — one on 2026-08-16 (run 31929397025, on PR #430, which *did*
-change `src/`, so flake-vs-cause there rests on the same-SHA rerun alone)
-and two on 2026-08-17 (runs 31997862224 and 32000640719, both on the
-docs-only PR #435, which changed no code and so gives those two an
-unusually clean attribution). Two instances across roughly four e2e runs
-on one PR in a single day is the sharper number; do not inflate it to
-"three in four, all docs-only", which conflates the 2026-08-16 instance's
-different circumstances. Even stated conservatively this is far above what
-the one-instance denominator implied when the re-diagnosis was scoped.
+**Rate signal, stated precisely.** Counting by *failing spec* rather than
+by CI run, because one run can carry several independent failures (this
+set's whole correction history turns on that distinction):
 
-When the Reliability re-diagnosis starts, feed all three instances in and
-delete all three entries.
+- 2026-08-16, run 31929397025, on PR #430 — `gantt-context-aware-legend`.
+  That PR *did* change `src/`, so flake-vs-cause there rests on the
+  same-SHA rerun alone, not on the diff being inert.
+- 2026-08-17, run 31997862224, on docs-only PR #435 — **two** specs:
+  `gantt-legend` and `gantt-calendar-items-sources`.
+- 2026-08-17, run 32000640719, on docs-only PR #435 — `gantt-column-sort`.
+
+So: **four failing specs across four distinct spec files, in three e2e
+runs, over two days** — three of those specs on a single docs-only PR
+whose diff cannot have caused anything, inside roughly four e2e runs of
+that PR. Do not round this to "three instances", which was the earlier
+undercount, nor to "all docs-only", which conflates the 2026-08-16 case.
+Even stated conservatively it is far above what the one-instance
+denominator implied when the re-diagnosis was scoped, and the per-run
+clustering (two specs failing in one run) is itself a signal worth
+testing: it hints at a shared environmental cause rather than N
+independent per-spec races.
+
+When the Reliability re-diagnosis starts, feed all of these in and delete
+all three entries.
 
 ## Scheduled perf job red since 2026-07-13: Show-undated storm chart-alive assertion
 
