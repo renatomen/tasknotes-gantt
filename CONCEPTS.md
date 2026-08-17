@@ -164,6 +164,17 @@ A named responsibility inside a file that has its own reason to change and could
 ### Re-measure
 The named event at which the strategy's maintainability metric is taken: churn share and separable-concern counts recorded with the commands, date, and commit that produced them, so the numbers are reproducible and comparable across measurements. Manual today; a mechanical gate is a parked candidate.
 
+## Reliability measurement
+
+### Never-became-ready class
+The e2e failure class in which a readiness or interactability wait times out — the spec never observed the application reach the state it gates on (bars present, header clickable, view maximized). It is a class, not a spec concentration: the recorded instances span unrelated specs and, within one spec, distinct symptoms, so a fix aimed at one error string or one spec misses the class.
+
+### Flake
+A nondeterministic failure: the same SHA fails and then passes with no change. The word carries no causal verdict — a same-SHA pass proves nondeterminism, never that the diff or the codebase is innocent, and "flake" never means "not a code defect". Harness-vs-src attribution for a flake stays open until evidence distinguishes them.
+
+### Honest denominator
+The execution count a failure rate is stated over, counted exactly from its source of record: `run_attempt` summed across the window's CI runs for ordinary-CI incident windows, and the enumerated matrix-leg conclusions for repeat-run executions — re-derived from that source on every recount. Rates are stated with this denominator, never as bare instance counts; a rerun counted as evidence is counted in the denominator, and a leg that ran fewer than the expected specs is excluded as invalid with its exclusion reported, never counted as a pass.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.
