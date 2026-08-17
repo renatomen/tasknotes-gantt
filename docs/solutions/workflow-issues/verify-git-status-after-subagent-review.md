@@ -55,19 +55,19 @@ This check has two preconditions it does not verify for you: the working tree mu
 Confirm the tree is clean, then capture `HEAD`, before dispatching the wave:
 
 ```bash
-[ -z "$(git status --porcelain=v1)" ] || { echo "tree not clean before dispatch — resolve first"; exit 1; }
+[ -z "$(git status --porcelain=v1 --untracked-files=all)" ] || { echo "tree not clean before dispatch — resolve first"; exit 1; }
 PRE_WAVE_HEAD=$(git rev-parse HEAD) || { echo "git rev-parse failed — stop"; exit 1; }
 ```
 
 Minimal, concrete check to run right after the wave completes, before touching `git add` or `git commit` — fail closed, not just print a warning:
 
 ```bash
-[ -z "$(git status --porcelain=v1)" ] || { echo "dirty tree after subagent wave — stop"; exit 1; }
+[ -z "$(git status --porcelain=v1 --untracked-files=all)" ] || { echo "dirty tree after subagent wave — stop"; exit 1; }
 POST_WAVE_HEAD=$(git rev-parse HEAD) || { echo "git rev-parse failed — stop"; exit 1; }
 [ "$POST_WAVE_HEAD" = "$PRE_WAVE_HEAD" ] || { echo "HEAD moved: a subagent committed or amended — stop"; exit 1; }
 ```
 
-A version that only echoes on failure (`git status --porcelain=v1; [ ... ] || echo "..."`) is not a gate — both branches exit 0, so automation built on it proceeds past a caught problem instead of stopping on it. The `exit 1` is load-bearing, not decorative.
+A version that only echoes on failure (`git status --porcelain=v1; [ ... ] || echo "..."`) is not a gate — both branches exit 0, so automation built on it proceeds past a caught problem instead of stopping on it. The `exit 1` is load-bearing, not decorative. `--untracked-files=all` is equally deliberate: bare `git status` honors a developer's `status.showUntrackedFiles=no`, so a subagent's brand-new file would go unreported and a later `git add .` would sweep it into the commit — a gate that inherits user configuration is not a gate.
 
 Clean and unmoved (expected, safe to proceed):
 
