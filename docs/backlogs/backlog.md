@@ -993,43 +993,61 @@ needs. Diagnose that before writing any fix.
 by CI run, because one run can carry several independent failures (this
 set's whole correction history turns on that distinction):
 
-- 2026-08-17, run 31997862224, on docs-only PR #435 — **two** specs:
-  `gantt-legend` and `gantt-calendar-items-sources`.
-- 2026-08-17, run 32000640719, on docs-only PR #435 — `gantt-column-sort`.
+- run 31997862224 attempt 1 — **two** specs: `gantt-legend`
+  (`element did not become interactable` on `.og-legend-toggle`) and
+  `gantt-calendar-items-sources` (`beforeEach` →
+  `not ready: Gantt bars missing: ["Standup 2026-03-23.md"]`).
+- run 32000640719 attempt 1 — `gantt-column-sort`
+  (`Column header "note.due" did not become clickable`).
+- run 32010463010 attempt 1 — `gantt-legend` again, but a **different
+  symptom**: the `before all` hook at `gantt-legend.e2e.ts:582` failed with
+  `Gantt did not maximize for the overlay scenarios`.
 
-**Denominator, counted exactly.** PR #435 ran the CI workflow 5 times;
-two of those runs were rerun once each (runs 31997862224 and 32000640719,
-`run_attempt=2`), so the e2e job executed **7** times in total on this PR,
-all on 2026-08-17. Two of those 7 executions carried a never-became-ready
-failure, totalling three failing specs across three distinct spec files.
+All on docs-only PR #435, 2026-08-17. Every one passed on a same-SHA rerun.
 
-An earlier revision said "roughly four e2e runs", which was both wrong and
-incoherent: it leaned on the passing reruns as the evidence for
-nondeterminism while leaving them out of the denominator they belong to. If
-a rerun counts as evidence it counts as a run. **Use 7 as the denominator**
-— the failure rate is 2/7 executions, not 2/4, and the honest number is the
-less alarming one.
+**Denominator, counted exactly** (`run_attempt` summed over every CI run on
+the branch: 31994474738=1, 31995840304=1, 31997862224=2, 32000640719=2,
+32005598340=1, 32010463010=2). The e2e job executed **9** times. **Three of
+those 9 executions failed** — a **1-in-3 failure rate** — carrying four
+failing specs across three distinct spec files.
+
+Two earlier revisions of this line were wrong in the same direction: first
+"roughly four e2e runs" (which leaned on the passing reruns as evidence for
+nondeterminism while excluding them from the denominator), then 2/7 before
+the third failure landed. Recount from `run_attempt` rather than adjusting
+a remembered number.
+
+**At 1-in-3 this is not background flake — the e2e gate is currently
+unreliable enough to obstruct ordinary merges.** This PR changed only `.md`
+files and still needed three reruns to land. That is a stronger and more
+urgent signal than "a flake rate worth measuring", and it should shape how
+the re-diagnosis is prioritised.
 
 These are the best-attributed instances, since the PR's `.md`-only diff is
 provably uninvolved — but that property does *not* make them environmental
 (see the entry above: a latent race in `src/` or the harness on the base
 SHA fits the same evidence).
 
-A fourth failing spec (`gantt-context-aware-legend`, run 31929397025,
+A further failure (`gantt-context-aware-legend`, run 31929397025,
 2026-08-16) is recorded above but sits in a **different evidentiary
 category** — it surfaced on PR #430, which changed `src/`, so its passing
 rerun establishes nondeterminism without establishing that the diff was
 uninvolved. Count it separately or not at all; do not fold it into the
-best-attributed sample to reach "four", which is what an earlier revision
-of this entry did.
+PR #435 rate, whose denominator is specific to that PR's 9 executions.
 
-Even at 2 failing executions in 7, this is well above what the
-one-instance denominator implied when the re-diagnosis was scoped — but
-state it as 2/7, not as a bare count of instances, or the next reader
-inherits the same inflation this entry kept producing. The per-run
-clustering (two unrelated specs failing in a single execution) is a signal
-worth testing early: it hints at one shared cause rather than N
-independent per-spec races, which would change the shape of any fix.
+State it as the rate 3/9, not as a bare count of instances, or the next
+reader inherits the inflation this entry kept producing. Two further
+signals worth testing early, both of which would change the shape of any
+fix:
+
+- **Per-execution clustering** — two unrelated specs failed together in
+  run 31997862224, hinting at one shared cause rather than N independent
+  per-spec races.
+- **One spec, two symptoms** — `gantt-legend` failed both as
+  `element did not become interactable` and, in a different execution, as
+  `Gantt did not maximize for the overlay scenarios`. A per-symptom fix
+  would have addressed only one of them, which argues against treating
+  any single message as *the* bug.
 
 When the Reliability re-diagnosis starts, feed all of these in and delete
 all three entries.
