@@ -19,6 +19,11 @@ try {
   /* noop */
 }
 
+// Per-spec machine-readable results land here regardless of the cwd wdio was
+// launched from.
+const resultsDir = path.resolve(pluginRoot, ".wdio-results");
+const MERGED_RESULTS_FILENAME = "wdio-merged-results.json";
+
 export const config: WebdriverIO.Config = {
   runner: "local",
   framework: "mocha",
@@ -63,6 +68,37 @@ export const config: WebdriverIO.Config = {
     },
   ],
   services: ["obsidian"],
-  reporters: ["obsidian", "spec"],
+  // The json reporter writes one wdio-<cid>-json-reporter.json per session into
+  // `.wdio-results/` (the `.wdio-*` prefix is already gitignored, lint-ignored,
+  // and inside CI's e2e artifact upload glob); onComplete merges them into a
+  // single per-execution file the reliability aggregation consumes.
+  reporters: ["obsidian", "spec", ["json", { outputDir: resultsDir }]],
   mochaOpts: { ui: "bdd", timeout: 180000 },
+  // Stale results are cleared ONLY here: onPrepare runs once in the launcher.
+  // This file is re-imported by every worker session, so module-scope cleanup
+  // would delete earlier specs' session files mid-run and silently understate
+  // the merged results (observed: 39-spec run merged to 1 spec).
+  onPrepare: () => {
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+  },
+  onComplete: async (_exitCode, _config, _capabilities, results) => {
+    const { default: mergeResults } = await import("@wdio/json-reporter/mergeResults");
+    await mergeResults(resultsDir, "wdio-.*-json-reporter.json", MERGED_RESULTS_FILENAME);
+    // Fail closed: a crashed worker, a session that never wrote its file, or a
+    // pattern miss would otherwise merge into a valid-looking artifact that
+    // silently omits specs — the exact understatement this instrument exists to
+    // prevent. The launcher's `results.finished` is the scheduled-run count, so
+    // an absent writer cannot shrink both sides of the comparison. Throwing here
+    // surfaces as a failed run (the launcher's onComplete catch sets exit code 1).
+    const finishedRuns = results?.finished ?? 0;
+    const merged = JSON.parse(
+      fs.readFileSync(path.join(resultsDir, MERGED_RESULTS_FILENAME), "utf8"),
+    ) as { specs?: string[] };
+    const mergedSpecCount = new Set(merged.specs ?? []).size;
+    if (finishedRuns === 0 || mergedSpecCount < finishedRuns) {
+      throw new Error(
+        `e2e results understated: ${finishedRuns} finished spec run(s) but ${mergedSpecCount} merged spec(s)`,
+      );
+    }
+  },
 };
