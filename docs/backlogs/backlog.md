@@ -906,22 +906,29 @@ Causality stays **open** until either the base and changed SHAs are run
 repeatedly and compared, or the failure is diagnosed directly. The
 distinction matters for the re-diagnosis: counting this as confirmed
 environmental flake could bury a real regression. The three 2026-08-17
-instances below are different — they surfaced on a docs-only PR whose diff
-cannot have introduced a race, so for those the rerun genuinely does
-isolate the cause to the environment.
+instances below differ only in that their PR's diff is provably
+uninvolved — which narrows *which* code could be responsible, not whether
+code is responsible at all.
 
 When the Reliability re-diagnosis starts, feed this instance in — flagged
 as cause-unresolved, not as confirmed flake — and delete this entry.
 
 ## E2E flake instances: two specs in one run, run 31997862224
 
-Rerun-confirmed instances of the never-became-ready class, recorded on
+Nondeterministic failures of the never-became-ready class, recorded on
 PR #435's record (2026-08-17). Attempt 1 failed **two** spec files of 39; a
-same-SHA rerun of the identical job passed 39/39, so both are
-environment/readiness flake, not code defects. The PR changed only `.md`
-files under `docs/`, which cannot affect either surface — an unusually
-clean attribution, since the usual "did my change cause this?" ambiguity
-does not apply.
+same-SHA rerun of the identical job passed 39/39.
+
+The PR changed only `.md` files, so **its diff is provably uninvolved** —
+the usual "did my change cause this?" ambiguity does not apply. That is the
+only thing it establishes. It does **not** make these environmental: a
+latent race in `src/` or in the test harness, already present on the base
+SHA, produces exactly this signature too. Root cause stays **open**, and
+"flake" here means "nondeterministic", never "not a code defect".
+
+The column-sort entry below is direct counterevidence against the
+environmental reading: its readiness gate is demonstrably insufficient,
+which is a harness defect, not a CI-environment condition.
 
 - `test/specs/gantt-legend.e2e.ts` — "keeps Legend available and opens the
   default right panel without the optional toolbar (AE10)" and "paints the
@@ -983,18 +990,19 @@ set's whole correction history turns on that distinction):
 - 2026-08-17, run 32000640719, on docs-only PR #435 — `gantt-column-sort`.
 
 That is **three failing specs across three distinct spec files, in two e2e
-runs, inside roughly four e2e runs of one PR on one day** — and that PR
-changed only `.md` files, so its diff cannot have introduced a race and the
-same-SHA reruns genuinely isolate the cause to the environment. This is the
-clean sample; it is the number to reason from.
+runs, inside roughly four e2e runs of one PR on one day** — on a PR whose
+`.md`-only diff is provably uninvolved. That property makes these the
+best-attributed sample, and it is the number to reason from; it does *not*
+make them environmental (see the entry above — a latent race in `src/` or
+the harness on the base SHA fits the same evidence).
 
 A fourth failing spec (`gantt-context-aware-legend`, run 31929397025,
 2026-08-16) is recorded above but sits in a **different evidentiary
 category** — it surfaced on PR #430, which changed `src/`, so its passing
 rerun establishes nondeterminism without establishing that the diff was
 uninvolved. Count it separately or not at all; do not fold it into the
-clean sample to reach "four", which is what an earlier revision of this
-entry did.
+best-attributed sample to reach "four", which is what an earlier revision
+of this entry did.
 
 Even on the conservative three, this is far above what the one-instance
 denominator implied when the re-diagnosis was scoped. The per-run
