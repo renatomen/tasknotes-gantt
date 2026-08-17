@@ -31,7 +31,7 @@ That self-report was wrong. The plant was still in the file. The orchestrator ca
 
 Any subagent given Bash/write tool access into a **shared** (non-isolated) working tree — for verification, reproduction, or empirical testing, not just for writing product code — can leave behind uncommitted mutations if its own "I reverted this" claim is wrong: unverified, partially applied, or lost to a race. This risk is general to any workflow that dispatches "verify this claim empirically" subagents (code reviewers, debuggers, reproduction agents) into a shared checkout instead of a per-subagent isolated worktree.
 
-The mitigating practice: after any subagent wave that had Bash/write access to the shared tree — especially one whose job involved "reproduce/verify empirically" — run `git status --porcelain=v1` (or equivalent) **before** staging or committing anything, and before trusting the subagent's own "tree is clean" self-report. Treat that self-report as an assertion to verify, not a fact. If the harness surfaces a system-level file-modification reminder, treat it as corroborating signal, not noise: an unexplained "modified by the user or a linter" note when neither the user nor a linter touched the file is itself a hint to check `git status` immediately.
+The mitigating practice: before dispatching the wave, capture `HEAD`'s sha. After any subagent wave that had Bash/write access to the shared tree — especially one whose job involved "reproduce/verify empirically" — check **both** `git status --porcelain=v1` (or equivalent) **and** that `HEAD` still equals the captured sha, **before** staging or committing anything, and before trusting the subagent's own "tree is clean" self-report. Checking working-tree status alone is not enough: a subagent that *commits or amends* its planted mutation, rather than leaving it uncommitted, produces an empty `git status --porcelain` — the index and worktree are clean, but `HEAD` has moved to a commit the orchestrator never authored. Treat the self-report as an assertion to verify, not a fact. If the harness surfaces a system-level file-modification reminder, treat it as corroborating signal, not noise: an unexplained "modified by the user or a linter" note when neither the user nor a linter touched the file is itself a hint to check immediately.
 
 A related, pre-existing convention in this repo generalizes the same instinct: sessions running the layered pre-push review gate (`scripts/cross-model-peer-review.sh`) hold a "tree freeze" discipline while a background review runs, repeatedly checking `git status --porcelain` before proceeding, to guarantee the reviewed diff and the pushed diff are identical (auto memory / session history). That convention protects against the *orchestrator's own* concurrent edits landing mid-review; this learning extends the same check to also catch a *subagent's* own unrevoked side effect after the review itself completes.
 
@@ -42,25 +42,32 @@ A related compound-engineering skill (`ce-work`'s native-dispatch guidance) alre
 ## When to Apply
 
 - Before staging or committing anything, whenever a review, debugging, or reproduction workflow just dispatched one or more subagents with Bash/write tool access into the current (non-worktree) checkout.
-- Whenever a subagent's completion report includes a "reverted my changes" / "tree is clean" claim — treat it as unverified until `git status` says so.
+- Whenever a subagent's completion report includes a "reverted my changes" / "tree is clean" claim — treat it as unverified until both `git status` and `HEAD` say so; status alone does not catch a subagent that committed or amended instead of leaving an uncommitted mutation.
 - Whenever the harness surfaces an unexplained file-modification reminder ("modified by the user or a linter") that doesn't match anything the orchestrator itself just did — investigate immediately rather than dismissing it as stale or irrelevant.
 - Applies to any local/in-process reviewer roster (not just `ce-code-review`'s adversarial persona) and to any other skill that spawns "verify this empirically" subagents into a shared tree instead of an isolated worktree.
 
 ## Examples
 
+Capture `HEAD` before dispatching the wave:
+
+```bash
+PRE_WAVE_HEAD=$(git rev-parse HEAD)
+```
+
 Minimal, concrete check to run right after a shared-tree subagent wave completes, before touching `git add` or `git commit`:
 
 ```bash
 git status --porcelain=v1
+[ "$(git rev-parse HEAD)" = "$PRE_WAVE_HEAD" ] || echo "HEAD moved: a subagent committed or amended"
 ```
 
-Clean (expected, safe to proceed):
+Clean and unmoved (expected, safe to proceed):
 
 ```
-(no output)
+(no output from either check)
 ```
 
-Dirty (a subagent's self-reported cleanup was wrong — stop and investigate before staging anything):
+Dirty worktree (a subagent's self-reported cleanup was wrong — stop and investigate before staging anything):
 
 ```
  M test/unit/BasesDataAdapter.test.ts
@@ -72,6 +79,8 @@ In the incident, this is exactly the signal the orchestrator saw after the adver
 git checkout -- test/unit/BasesDataAdapter.test.ts
 git status --porcelain=v1   # confirms empty output before proceeding
 ```
+
+**Moved HEAD, clean worktree** (the sharper failure mode a status-only check misses): a subagent commits or amends its planted mutation instead of leaving it uncommitted. `git status --porcelain=v1` reports nothing — index and worktree are both clean — but `git rev-parse HEAD` no longer matches `PRE_WAVE_HEAD`. The fix is the same shape, one level up: reset to the captured sha (after inspecting what the extra commit actually contains, in case it captured something worth keeping) rather than trusting a clean `git status` alone.
 
 If a subagent's job is inherently "mutate to verify, then revert" (planting a deliberate type error, reproducing a bug, running a destructive repro step), prefer dispatching it into an isolated git worktree instead of the shared checkout when the tooling allows it — that removes the need to trust the self-report at all, since nothing it does can land in the orchestrator's tree by mistake.
 
