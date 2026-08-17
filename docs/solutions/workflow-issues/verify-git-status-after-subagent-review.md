@@ -85,7 +85,7 @@ In the incident, this is exactly the signal the orchestrator saw after the adver
 
 ```bash
 git checkout -- test/unit/BasesDataAdapter.test.ts
-git status --porcelain=v1   # confirms empty output before proceeding
+git status --porcelain=v1 --untracked-files=all   # confirms empty output before proceeding
 ```
 
 **Moved HEAD, clean worktree** (the sharper failure mode a status-only check misses): a subagent commits or amends its planted mutation instead of leaving it uncommitted. `git status --porcelain=v1` reports nothing — index and worktree are both clean — but `git rev-parse HEAD` no longer matches `PRE_WAVE_HEAD`. The fix is the same shape, one level up: reset to the captured sha (after inspecting what the extra commit actually contains, in case it captured something worth keeping) rather than trusting a clean `git status` alone.
