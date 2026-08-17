@@ -48,17 +48,21 @@ A related compound-engineering skill (`ce-work`'s native-dispatch guidance) alre
 
 ## Examples
 
-Capture `HEAD` before dispatching the wave:
+This check has two preconditions it does not verify for you: the working tree must already be clean and `HEAD` known-good **before** dispatching the wave (otherwise the post-wave check cannot distinguish the subagent's residue from pre-existing work, and a recovery `git checkout -- <file>` risks discarding real changes instead of a stray mutation), and each `git` command's own exit status should be checked in a production script — a substitution like `$(git status --porcelain=v1)` swallows a `git` failure (corrupt index, not a repo) as an empty string, which reads identically to "clean." The snippet below illustrates the check's shape for an already-clean, known-good starting tree; harden it for unattended use.
+
+Confirm the tree is clean, then capture `HEAD`, before dispatching the wave:
 
 ```bash
-PRE_WAVE_HEAD=$(git rev-parse HEAD)
+[ -z "$(git status --porcelain=v1)" ] || { echo "tree not clean before dispatch — resolve first"; exit 1; }
+PRE_WAVE_HEAD=$(git rev-parse HEAD) || { echo "git rev-parse failed — stop"; exit 1; }
 ```
 
-Minimal, concrete check to run right after a shared-tree subagent wave completes, before touching `git add` or `git commit` — fail closed, not just print a warning:
+Minimal, concrete check to run right after the wave completes, before touching `git add` or `git commit` — fail closed, not just print a warning:
 
 ```bash
 [ -z "$(git status --porcelain=v1)" ] || { echo "dirty tree after subagent wave — stop"; exit 1; }
-[ "$(git rev-parse HEAD)" = "$PRE_WAVE_HEAD" ] || { echo "HEAD moved: a subagent committed or amended — stop"; exit 1; }
+POST_WAVE_HEAD=$(git rev-parse HEAD) || { echo "git rev-parse failed — stop"; exit 1; }
+[ "$POST_WAVE_HEAD" = "$PRE_WAVE_HEAD" ] || { echo "HEAD moved: a subagent committed or amended — stop"; exit 1; }
 ```
 
 A version that only echoes on failure (`git status --porcelain=v1; [ ... ] || echo "..."`) is not a gate — both branches exit 0, so automation built on it proceeds past a caught problem instead of stopping on it. The `exit 1` is load-bearing, not decorative.
