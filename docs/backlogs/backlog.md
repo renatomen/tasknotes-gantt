@@ -926,9 +926,13 @@ latent race in `src/` or in the test harness, already present on the base
 SHA, produces exactly this signature too. Root cause stays **open**, and
 "flake" here means "nondeterministic", never "not a code defect".
 
-The column-sort entry below is direct counterevidence against the
-environmental reading: its readiness gate is demonstrably insufficient,
-which is a harness defect, not a CI-environment condition.
+The column-sort entry below argues against a *purely* environmental
+reading: a readiness gate passed and the header was gone 10s later, which
+implicates code or harness somewhere. It does **not** say which. The gate
+samples once, so either the gate is too weak (harness) or a latent
+application race removed and recreated the header (`src/`) — and in the
+second case the spec is correctly reporting a product defect. Harness
+versus application stays undecided on this evidence.
 
 - `test/specs/gantt-legend.e2e.ts` — "keeps Legend available and opens the
   default right panel without the optional toolbar (AE10)" and "paints the
@@ -965,8 +969,12 @@ diagnosed and fixed on 2026-06-29 (PR #182) with a specific-header
 readiness gate — `ensureGanttReady` waiting for the exact `note.due`
 header rather than any `[data-header-id]`. See
 `docs/solutions/developer-experience/column-sort-e2e-first-mount-header-race.md`.
-The readiness gate that fixed it is therefore already in place and still
-failed, so whatever the gate waits on is not sufficient here.
+The readiness gate that fixed it is therefore already in place and the
+failure still occurred — so either the gate is insufficient, or something
+invalidates it after it passes. Do not assume the former; the gate samples
+the header once, so an application-side re-render that removes and
+recreates `note.due` would produce this with the gate behaving correctly,
+and in that case the spec is reporting a real product defect.
 
 **PR #182's deferred hardening does NOT address this failure mode** — a
 correction worth recording, because the obvious move is to reach for it.
