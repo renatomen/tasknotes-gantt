@@ -55,6 +55,6 @@ Measured class-collapse examples: adding `wdio-obsidian-service` to `types` remo
 
 ## Related
 
-- `docs/solutions/developer-experience/mts-configs-escape-typecheck-and-lint.md` — the e2e program now typechecks `test/wdio/*.mts`, closing that doc's typecheck half; its core guidance **survives** regardless: static gates cannot see runtime WebDriver failures (comment-terminating globs, unsupported commands), so `.mts` changes are still verified by running WDIO. Its lint half remains open (deferred in the plan's scope boundaries).
+- `docs/solutions/developer-experience/wdio-runtime-behavior-needs-a-real-run.md` — the e2e program now typechecks `test/wdio/*.mts`, and ESLint's flat config covers them too (`eslint.config.mjs` targets `**/*.{ts,tsx,mts}`), so both halves of the old ".mts escapes the gates" record are closed; the surviving guidance is that static gates cannot see runtime WebDriver or lifecycle failures, so `.mts` changes are still verified by running WDIO.
 - `docs/solutions/conventions/wdio-chainablepromisearray-runtime-truth-before-repair.md` — the U3 diagnosis discipline this doc's config-calibration-first sequencing feeds into: once config calibration is ruled out, a remaining static type error over an assertion still needs runtime verification before its repair shape is chosen.
 - `docs/plans/2026-08-16-001-chore-test-tree-typecheck-gate-plan.md` — the governing plan (R1 coverage contract, KTD1-KTD6).
