@@ -84,5 +84,21 @@ export const config: WebdriverIO.Config = {
   onComplete: async () => {
     const { default: mergeResults } = await import("@wdio/json-reporter/mergeResults");
     await mergeResults(resultsDir, "wdio-.*-json-reporter.json", MERGED_RESULTS_FILENAME);
+    // Fail closed: a crashed worker or a pattern miss would otherwise merge into
+    // a valid-looking artifact that silently omits specs — the exact
+    // understatement this instrument exists to prevent. Throwing here surfaces
+    // as a failed run (the launcher's onComplete catch sets exit code 1).
+    const sessionFiles = fs
+      .readdirSync(resultsDir)
+      .filter((f) => /^wdio-.*-json-reporter\.json$/.test(f));
+    const merged = JSON.parse(
+      fs.readFileSync(path.join(resultsDir, MERGED_RESULTS_FILENAME), "utf8"),
+    ) as { specs?: string[] };
+    const mergedSpecCount = new Set(merged.specs ?? []).size;
+    if (sessionFiles.length === 0 || mergedSpecCount < sessionFiles.length) {
+      throw new Error(
+        `e2e results understated: ${sessionFiles.length} session file(s) but ${mergedSpecCount} merged spec(s)`,
+      );
+    }
   },
 };
