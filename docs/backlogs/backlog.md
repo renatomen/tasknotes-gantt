@@ -896,6 +896,28 @@ re-diagnosis denominator (each confirmed instance counts); no diagnosis
 work is scheduled from this entry alone. When the Reliability re-diagnosis
 starts, feed this instance in and delete this entry.
 
+## E2E flake instance: gantt-legend interactability, run 31997862224
+
+Rerun-confirmed instance of the never-became-ready flake class, recorded on
+PR #435's record (2026-08-17): two tests in `test/specs/gantt-legend.e2e.ts`
+— "keeps Legend available and opens the default right panel without the
+optional toolbar (AE10)" and "paints the dark composite sample with the
+chart's production treatment channels (AE1)" — failed with `element did not
+become interactable` on the `.og-legend-toggle` button; the other 25 tests
+in that spec passed, and 37 of 39 spec files passed. A same-SHA rerun of the
+identical job went green, so it is environment/readiness flake, not a code
+defect. The PR it surfaced on changed only `.md` files under `docs/`, which
+categorically cannot affect legend interactability — an unusually clean
+attribution, since the usual ambiguity (did my change cause this?) does not
+apply.
+
+**Pattern worth carrying into the re-diagnosis:** both confirmed instances
+so far implicate the legend spec family — this one and run 31929397025
+(`gantt-context-aware-legend` "before all" hook). Two data points is not a
+trend, but if the re-diagnosis finds a per-spec concentration, this is where
+to look first. When the Reliability re-diagnosis starts, feed both instances
+in and delete both entries.
+
 ## Scheduled perf job red since 2026-07-13: Show-undated storm chart-alive assertion
 
 Discovered during U3 of the test-tree typecheck plan (2026-08-17): the weekly
