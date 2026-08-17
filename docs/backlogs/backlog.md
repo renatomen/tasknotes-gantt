@@ -997,12 +997,23 @@ set's whole correction history turns on that distinction):
   `gantt-legend` and `gantt-calendar-items-sources`.
 - 2026-08-17, run 32000640719, on docs-only PR #435 — `gantt-column-sort`.
 
-That is **three failing specs across three distinct spec files, in two e2e
-runs, inside roughly four e2e runs of one PR on one day** — on a PR whose
-`.md`-only diff is provably uninvolved. That property makes these the
-best-attributed sample, and it is the number to reason from; it does *not*
-make them environmental (see the entry above — a latent race in `src/` or
-the harness on the base SHA fits the same evidence).
+**Denominator, counted exactly.** PR #435 ran the CI workflow 5 times;
+two of those runs were rerun once each (runs 31997862224 and 32000640719,
+`run_attempt=2`), so the e2e job executed **7** times in total on this PR,
+all on 2026-08-17. Two of those 7 executions carried a never-became-ready
+failure, totalling three failing specs across three distinct spec files.
+
+An earlier revision said "roughly four e2e runs", which was both wrong and
+incoherent: it leaned on the passing reruns as the evidence for
+nondeterminism while leaving them out of the denominator they belong to. If
+a rerun counts as evidence it counts as a run. **Use 7 as the denominator**
+— the failure rate is 2/7 executions, not 2/4, and the honest number is the
+less alarming one.
+
+These are the best-attributed instances, since the PR's `.md`-only diff is
+provably uninvolved — but that property does *not* make them environmental
+(see the entry above: a latent race in `src/` or the harness on the base
+SHA fits the same evidence).
 
 A fourth failing spec (`gantt-context-aware-legend`, run 31929397025,
 2026-08-16) is recorded above but sits in a **different evidentiary
@@ -1012,10 +1023,12 @@ uninvolved. Count it separately or not at all; do not fold it into the
 best-attributed sample to reach "four", which is what an earlier revision
 of this entry did.
 
-Even on the conservative three, this is far above what the one-instance
-denominator implied when the re-diagnosis was scoped. The per-run
-clustering (two unrelated specs failing in a single run) is itself a signal
-worth testing early: it hints at a shared environmental cause rather than N
+Even at 2 failing executions in 7, this is well above what the
+one-instance denominator implied when the re-diagnosis was scoped — but
+state it as 2/7, not as a bare count of instances, or the next reader
+inherits the same inflation this entry kept producing. The per-run
+clustering (two unrelated specs failing in a single execution) is a signal
+worth testing early: it hints at one shared cause rather than N
 independent per-spec races, which would change the shape of any fix.
 
 When the Reliability re-diagnosis starts, feed all of these in and delete
