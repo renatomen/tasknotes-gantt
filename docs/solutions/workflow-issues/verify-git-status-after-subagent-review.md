@@ -54,12 +54,14 @@ Capture `HEAD` before dispatching the wave:
 PRE_WAVE_HEAD=$(git rev-parse HEAD)
 ```
 
-Minimal, concrete check to run right after a shared-tree subagent wave completes, before touching `git add` or `git commit`:
+Minimal, concrete check to run right after a shared-tree subagent wave completes, before touching `git add` or `git commit` — fail closed, not just print a warning:
 
 ```bash
-git status --porcelain=v1
-[ "$(git rev-parse HEAD)" = "$PRE_WAVE_HEAD" ] || echo "HEAD moved: a subagent committed or amended"
+[ -z "$(git status --porcelain=v1)" ] || { echo "dirty tree after subagent wave — stop"; exit 1; }
+[ "$(git rev-parse HEAD)" = "$PRE_WAVE_HEAD" ] || { echo "HEAD moved: a subagent committed or amended — stop"; exit 1; }
 ```
+
+A version that only echoes on failure (`git status --porcelain=v1; [ ... ] || echo "..."`) is not a gate — both branches exit 0, so automation built on it proceeds past a caught problem instead of stopping on it. The `exit 1` is load-bearing, not decorative.
 
 Clean and unmoved (expected, safe to proceed):
 
