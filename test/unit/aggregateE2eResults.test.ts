@@ -253,6 +253,48 @@ describe('aggregateLegs', () => {
     expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-merged-results' }]);
   });
 
+  it('excludes a leg whose merged specs contain a non-string entry instead of crashing', () => {
+    const legs = [
+      ...makeLegs(2),
+      {
+        leg: 'leg-03',
+        merged: { specs: [null, ...allSpecNames().slice(1).map(specUrl)] as never },
+        sessions: allSpecNames().map((name) => makeSession(name)),
+      },
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-merged-results' }]);
+  });
+
+  it('excludes a leg containing a session with non-numeric state counts', () => {
+    const sessions = allSpecNames().map((name) =>
+      name === 'spec-04.e2e.ts'
+        ? { specs: [specUrl(name)], state: { passed: 1, failed: 0 } as never }
+        : makeSession(name),
+    );
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
+  });
+
+  it('excludes a leg containing a session whose specs hold a non-string entry', () => {
+    const sessions = allSpecNames().map((name) =>
+      name === 'spec-04.e2e.ts' ? { specs: [null] as never, state: { passed: 1, failed: 0, skipped: 0 } } : makeSession(name),
+    );
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
+  });
+
   it('excludes a leg containing a session without state or specs instead of crashing', () => {
     const sessions = [...allSpecNames().map((name) => makeSession(name)), {} as never];
     const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];

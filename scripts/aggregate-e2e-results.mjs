@@ -39,6 +39,14 @@ const SESSION_RESULTS_PATTERN = /^wdio-.+-json-reporter\.json$/;
 
 const specKeyFromUrl = (specUrl) => specUrl.split('/').pop();
 
+const isStringArray = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+const isValidSessionShape = (session) =>
+  isStringArray(session.specs) &&
+  session.state !== undefined &&
+  session.state !== null &&
+  [session.state.passed, session.state.failed, session.state.skipped].every(Number.isInteger);
+
 function classifyLeg(leg, expectedSpecCount) {
   if (leg.artifactMissing) {
     return { exclusion: { leg: leg.leg, reason: 'missing-artifact' } };
@@ -49,7 +57,7 @@ function classifyLeg(leg, expectedSpecCount) {
   if (!leg.merged) {
     return { exclusion: { leg: leg.leg, reason: 'missing-merged-results' } };
   }
-  if (!Array.isArray(leg.merged.specs)) {
+  if (!isStringArray(leg.merged.specs)) {
     return { exclusion: { leg: leg.leg, reason: 'malformed-merged-results' } };
   }
   const mergedSpecCount = new Set(leg.merged.specs.map(specKeyFromUrl)).size;
@@ -69,7 +77,7 @@ function classifyLeg(leg, expectedSpecCount) {
 function classifySessions(leg, expectedSpecCount) {
   const outcomes = new Map();
   for (const session of leg.sessions) {
-    if (!session.state || !Array.isArray(session.specs)) {
+    if (!isValidSessionShape(session)) {
       return { exclusion: { leg: leg.leg, reason: 'malformed-session-results' } };
     }
     if (session.state.passed + session.state.failed + session.state.skipped === 0) {
