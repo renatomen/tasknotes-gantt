@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
  * Aggregate per-leg e2e results from the repeat-run workflow into per-spec and
- * per-execution failure rates (reliability re-diagnosis, KTD5 leg validity).
+ * per-execution failure rates with an honest invalid-leg exclusion report.
  *
- *   node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir>
+ *   node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> [expected-executions]
  *
  * The directory is the target of `gh run download <run-id>` for ONE
  * e2e-repeat.yml run (attempt 1 only — re-run attempts mix artifact
  * generations): one `e2e-results-leg-<N>` subdirectory per leg, each holding
  * a `.wdio-results/` tree with per-session `wdio-<cid>-json-reporter.json`
  * files and the `wdio-merged-results.json` the launcher writes on completion.
+ * Pass the dispatched execution count so legs whose artifact never uploaded
+ * (a job dead before wdio ran) surface as exclusions instead of vanishing.
  *
  * A leg counts toward the product denominator only if its merged file exists,
  * records exactly the expected spec count, and every session ran at least one
@@ -29,7 +31,7 @@ const SESSION_RESULTS_PATTERN = /^wdio-.+-json-reporter\.json$/;
 /**
  * @typedef {{ passed: number, failed: number, skipped: number }} SessionState
  * @typedef {{ specs: string[], state: SessionState }} SessionResults
- * @typedef {{ leg: string, merged: { specs: string[] } | null, sessions: SessionResults[], corruptFiles?: string[] }} LegResults
+ * @typedef {{ leg: string, merged: { specs: string[] } | null, sessions: SessionResults[], corruptFiles?: string[], artifactMissing?: boolean }} LegResults
  * @typedef {'passed' | 'failed'} SpecOutcome
  * @typedef {{ leg: string, reason: string } & Record<string, unknown>} LegExclusion
  */
@@ -37,11 +39,17 @@ const SESSION_RESULTS_PATTERN = /^wdio-.+-json-reporter\.json$/;
 const specKeyFromUrl = (specUrl) => specUrl.split('/').pop();
 
 function classifyLeg(leg, expectedSpecCount) {
+  if (leg.artifactMissing) {
+    return { exclusion: { leg: leg.leg, reason: 'missing-artifact' } };
+  }
   if (leg.corruptFiles?.length) {
     return { exclusion: { leg: leg.leg, reason: 'corrupt-results-file', files: leg.corruptFiles } };
   }
   if (!leg.merged) {
     return { exclusion: { leg: leg.leg, reason: 'missing-merged-results' } };
+  }
+  if (!Array.isArray(leg.merged.specs)) {
+    return { exclusion: { leg: leg.leg, reason: 'malformed-merged-results' } };
   }
   const mergedSpecCount = new Set(leg.merged.specs.map(specKeyFromUrl)).size;
   if (mergedSpecCount !== expectedSpecCount) {
@@ -60,6 +68,9 @@ function classifyLeg(leg, expectedSpecCount) {
 function classifySessions(leg, expectedSpecCount) {
   const outcomes = new Map();
   for (const session of leg.sessions) {
+    if (!session.state || !Array.isArray(session.specs)) {
+      return { exclusion: { leg: leg.leg, reason: 'malformed-session-results' } };
+    }
     if (session.state.passed + session.state.failed === 0) {
       const spec = session.specs.length > 0 ? specKeyFromUrl(session.specs[0]) : null;
       return { exclusion: { leg: leg.leg, reason: 'zero-test-session', spec } };
@@ -81,6 +92,20 @@ function classifySessions(leg, expectedSpecCount) {
     };
   }
   return { outcomes };
+}
+
+function assertSpecIdentityConsistent(matrix, validLegCount, expectedSpecCount) {
+  if (validLegCount === 0) return;
+  const divergent = Object.entries(matrix)
+    .filter(([, outcomesByLeg]) => Object.keys(outcomesByLeg).length !== validLegCount)
+    .map(([spec]) => spec);
+  if (divergent.length > 0 || Object.keys(matrix).length !== expectedSpecCount) {
+    throw new Error(
+      `valid legs disagree on spec identity (divergent specs: ${divergent.join(', ') || 'none'}; ` +
+        `distinct specs: ${Object.keys(matrix).length}, expected: ${expectedSpecCount}) — ` +
+        'mixed artifact generations or a renamed spec would silently dilute per-spec rates',
+    );
+  }
 }
 
 /**
@@ -112,6 +137,7 @@ export function aggregateLegs(legs, { expectedSpecCount }) {
   }
 
   const validLegCount = validLegs.length;
+  assertSpecIdentityConsistent(matrix, validLegCount, expectedSpecCount);
   /** @type {Record<string, { failures: number, rate: number }>} */
   const perSpecFailureRates = {};
   for (const [spec, outcomesByLeg] of Object.entries(matrix)) {
@@ -159,22 +185,38 @@ function readLegFromDirectory(legDirName, legDir) {
   return leg;
 }
 
-export function readLegsFromDirectory(artifactsDir) {
-  return readdirSync(artifactsDir, { withFileTypes: true })
+/**
+ * @param {string} artifactsDir
+ * @param {number | null} [expectedExecutions]
+ */
+export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
+  const legs = readdirSync(artifactsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith(LEG_ARTIFACT_PREFIX))
     .map((entry) => entry.name)
     .sort()
     .map((legDirName) => readLegFromDirectory(legDirName, join(artifactsDir, legDirName)));
+  if (expectedExecutions === null) return legs;
+  const present = new Set(legs.map((leg) => leg.leg));
+  for (let legNumber = 1; legNumber <= expectedExecutions; legNumber += 1) {
+    const legDirName = `${LEG_ARTIFACT_PREFIX}${legNumber}`;
+    if (!present.has(legDirName)) {
+      legs.push({ leg: legDirName, merged: null, sessions: [], artifactMissing: true });
+    }
+  }
+  return legs;
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
-  const artifactsDir = process.argv[2];
-  if (!artifactsDir) {
-    console.error('usage: node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir>');
+  const [, , artifactsDir, executionsArg] = process.argv;
+  const expectedExecutions = executionsArg === undefined ? null : Number(executionsArg);
+  const executionsInvalid =
+    expectedExecutions !== null && (!Number.isInteger(expectedExecutions) || expectedExecutions < 1);
+  if (!artifactsDir || executionsInvalid) {
+    console.error('usage: node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> [expected-executions]');
     process.exit(1);
   }
-  const legs = readLegsFromDirectory(artifactsDir);
+  const legs = readLegsFromDirectory(artifactsDir, expectedExecutions);
   if (legs.length === 0) {
     console.error(`no ${LEG_ARTIFACT_PREFIX}* directories found under ${artifactsDir}`);
     process.exit(1);

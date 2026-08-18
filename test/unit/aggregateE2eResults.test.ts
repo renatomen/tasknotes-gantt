@@ -1,4 +1,8 @@
-import { aggregateLegs } from '../../scripts/aggregate-e2e-results.mjs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { aggregateLegs, readLegsFromDirectory } from '../../scripts/aggregate-e2e-results.mjs';
 
 const EXPECTED = 39;
 
@@ -30,6 +34,72 @@ const makeLegs = (count: number, failures: Record<string, Record<string, number>
     const leg = `leg-${String(index + 1).padStart(2, '0')}`;
     return makeLeg(leg, failures[leg] ?? {});
   });
+
+describe('readLegsFromDirectory', () => {
+  let artifactsDir: string;
+
+  beforeEach(() => {
+    artifactsDir = mkdtempSync(join(tmpdir(), 'aggregate-e2e-'));
+  });
+
+  afterEach(() => {
+    rmSync(artifactsDir, { recursive: true, force: true });
+  });
+
+  const writeLegFixture = (legNumber: number, files: Record<string, string>) => {
+    const resultsDir = join(artifactsDir, `e2e-results-leg-${legNumber}`, '.wdio-results');
+    mkdirSync(resultsDir, { recursive: true });
+    for (const [name, content] of Object.entries(files)) {
+      writeFileSync(join(resultsDir, name), content);
+    }
+  };
+
+  it('routes the merged file and session files into the leg and records the values it read', () => {
+    const session = JSON.stringify(makeSession('spec-01.e2e.ts'));
+    writeLegFixture(1, {
+      'wdio-merged-results.json': JSON.stringify({ specs: [specUrl('spec-01.e2e.ts')] }),
+      'wdio-0-0-json-reporter.json': session,
+    });
+
+    const legs = readLegsFromDirectory(artifactsDir);
+
+    expect(legs).toEqual([
+      {
+        leg: 'e2e-results-leg-1',
+        merged: { specs: [specUrl('spec-01.e2e.ts')] },
+        sessions: [JSON.parse(session)],
+        corruptFiles: [],
+      },
+    ]);
+  });
+
+  it('captures an unparseable results file in corruptFiles instead of dropping it', () => {
+    writeLegFixture(1, {
+      'wdio-merged-results.json': JSON.stringify({ specs: [] }),
+      'wdio-0-0-json-reporter.json': '{broken',
+    });
+
+    const legs = readLegsFromDirectory(artifactsDir);
+
+    expect(legs[0].corruptFiles).toEqual(['wdio-0-0-json-reporter.json']);
+  });
+
+  it('synthesizes artifact-missing legs for expected executions with no directory', () => {
+    writeLegFixture(2, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+
+    const legs = readLegsFromDirectory(artifactsDir, 3);
+
+    expect(legs.map((leg: { leg: string }) => leg.leg)).toEqual([
+      'e2e-results-leg-2',
+      'e2e-results-leg-1',
+      'e2e-results-leg-3',
+    ]);
+    expect(legs.filter((leg: { artifactMissing?: boolean }) => leg.artifactMissing).map((leg: { leg: string }) => leg.leg)).toEqual([
+      'e2e-results-leg-1',
+      'e2e-results-leg-3',
+    ]);
+  });
+});
 
 describe('aggregateLegs', () => {
   it('computes per-spec and per-execution failure rates over the valid-leg denominator', () => {
@@ -149,6 +219,85 @@ describe('aggregateLegs', () => {
     expect(report.excludedLegs).toEqual([
       { leg: 'leg-03', reason: 'corrupt-results-file', files: ['wdio-0-0-json-reporter.json'] },
     ]);
+  });
+
+  it('excludes a leg whose merged results parsed but lack a specs array (the zero-session mergeResults output)', () => {
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: {} as never, sessions: [] }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-merged-results' }]);
+  });
+
+  it('excludes a leg containing a session without state or specs instead of crashing', () => {
+    const sessions = [...allSpecNames().map((name) => makeSession(name)), {} as never];
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
+  });
+
+  it('excludes a leg marked artifact-missing so absent uploads stay in the denominator report', () => {
+    const legs = [
+      ...makeLegs(2),
+      { leg: 'e2e-results-leg-3', merged: null as never, sessions: [], artifactMissing: true },
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'e2e-results-leg-3', reason: 'missing-artifact' }]);
+  });
+
+  it('excludes a leg whose merged specs list only reaches the expected count through duplicates', () => {
+    const duplicated = [...allSpecNames().slice(0, EXPECTED - 1), specName(0)];
+    const legs = [
+      ...makeLegs(2),
+      {
+        leg: 'leg-03',
+        merged: { specs: duplicated.map(specUrl) },
+        sessions: duplicated.map((name) => makeSession(name)),
+      },
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([
+      { leg: 'leg-03', reason: 'unexpected-spec-count', recordedSpecCount: EXPECTED - 1, expectedSpecCount: EXPECTED },
+    ]);
+  });
+
+  it('keeps a spec failed when a later session entry for the same spec passes', () => {
+    const legs = makeLegs(1);
+    legs[0].sessions = [
+      makeSession('spec-01.e2e.ts', { failed: 1 }),
+      makeSession('spec-01.e2e.ts'),
+      ...allSpecNames()
+        .slice(1)
+        .map((name) => makeSession(name)),
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01']);
+    expect(report.matrix['spec-01.e2e.ts']['leg-01']).toBe('failed');
+    expect(report.perSpecFailureRates['spec-01.e2e.ts']).toEqual({ failures: 1, rate: 1 });
+  });
+
+  it('fails loudly when valid legs disagree on spec identity instead of diluting rates', () => {
+    const legs = makeLegs(2);
+    const swapped = [...allSpecNames().slice(0, EXPECTED - 1), 'spec-99.e2e.ts'];
+    legs.push({
+      leg: 'leg-03',
+      merged: { specs: swapped.map(specUrl) },
+      sessions: swapped.map((name) => makeSession(name)),
+    });
+
+    expect(() => aggregateLegs(legs, { expectedSpecCount: EXPECTED })).toThrow(/spec identity|spec-99/);
   });
 
   it('reports null rates instead of dividing by zero when no leg is valid', () => {
