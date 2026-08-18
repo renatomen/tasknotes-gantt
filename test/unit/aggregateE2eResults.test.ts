@@ -132,6 +132,25 @@ describe('aggregateLegs', () => {
     ]);
   });
 
+  it('excludes a leg with an unparseable results file under its own reason, not as missing', () => {
+    const legs = [
+      ...makeLegs(2),
+      {
+        leg: 'leg-03',
+        merged: { specs: allSpecNames().map(specUrl) },
+        sessions: allSpecNames().map((name) => makeSession(name)),
+        corruptFiles: ['wdio-0-0-json-reporter.json'],
+      },
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([
+      { leg: 'leg-03', reason: 'corrupt-results-file', files: ['wdio-0-0-json-reporter.json'] },
+    ]);
+  });
+
   it('reports null rates instead of dividing by zero when no leg is valid', () => {
     const legs = [{ leg: 'leg-01', merged: null as never, sessions: [] }];
 

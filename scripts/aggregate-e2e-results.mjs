@@ -18,6 +18,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_SPEC_COUNT = 39;
 
@@ -28,7 +29,7 @@ const SESSION_RESULTS_PATTERN = /^wdio-.+-json-reporter\.json$/;
 /**
  * @typedef {{ passed: number, failed: number, skipped: number }} SessionState
  * @typedef {{ specs: string[], state: SessionState }} SessionResults
- * @typedef {{ leg: string, merged: { specs: string[] } | null, sessions: SessionResults[] }} LegResults
+ * @typedef {{ leg: string, merged: { specs: string[] } | null, sessions: SessionResults[], corruptFiles?: string[] }} LegResults
  * @typedef {'passed' | 'failed'} SpecOutcome
  * @typedef {{ leg: string, reason: string } & Record<string, unknown>} LegExclusion
  */
@@ -36,6 +37,9 @@ const SESSION_RESULTS_PATTERN = /^wdio-.+-json-reporter\.json$/;
 const specKeyFromUrl = (specUrl) => specUrl.split('/').pop();
 
 function classifyLeg(leg, expectedSpecCount) {
+  if (leg.corruptFiles?.length) {
+    return { exclusion: { leg: leg.leg, reason: 'corrupt-results-file', files: leg.corruptFiles } };
+  }
   if (!leg.merged) {
     return { exclusion: { leg: leg.leg, reason: 'missing-merged-results' } };
   }
@@ -57,7 +61,7 @@ function classifySessions(leg, expectedSpecCount) {
   const outcomes = new Map();
   for (const session of leg.sessions) {
     if (session.state.passed + session.state.failed === 0) {
-      const spec = session.specs.map(specKeyFromUrl)[0] ?? null;
+      const spec = session.specs.length > 0 ? specKeyFromUrl(session.specs[0]) : null;
       return { exclusion: { leg: leg.leg, reason: 'zero-test-session', spec } };
     }
     for (const specUrl of session.specs) {
@@ -128,42 +132,42 @@ export function aggregateLegs(legs, { expectedSpecCount }) {
   };
 }
 
-function findFilesRecursively(dir, matches) {
+function listFilesRecursively(dir) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const entryPath = join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...findFilesRecursively(entryPath, matches));
-    else if (matches(entry.name)) found.push(entryPath);
+    if (entry.isDirectory()) found.push(...listFilesRecursively(entryPath));
+    else found.push({ name: entry.name, path: entryPath });
   }
   return found;
 }
 
-function readJsonOrNull(filePath) {
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
+function readLegFromDirectory(legDirName, legDir) {
+  /** @type {LegResults} */
+  const leg = { leg: legDirName, merged: null, sessions: [], corruptFiles: [] };
+  for (const file of listFilesRecursively(legDir)) {
+    const isMerged = file.name === MERGED_RESULTS_FILENAME;
+    if (!isMerged && !SESSION_RESULTS_PATTERN.test(file.name)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(file.path, 'utf8'));
+      if (isMerged) leg.merged = parsed;
+      else leg.sessions.push(parsed);
+    } catch {
+      leg.corruptFiles?.push(file.name);
+    }
   }
+  return leg;
 }
 
 export function readLegsFromDirectory(artifactsDir) {
-  const legDirNames = readdirSync(artifactsDir, { withFileTypes: true })
+  return readdirSync(artifactsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith(LEG_ARTIFACT_PREFIX))
     .map((entry) => entry.name)
-    .sort();
-  return legDirNames.map((legDirName) => {
-    const legDir = join(artifactsDir, legDirName);
-    const mergedPath = findFilesRecursively(legDir, (name) => name === MERGED_RESULTS_FILENAME)[0];
-    const sessionPaths = findFilesRecursively(legDir, (name) => SESSION_RESULTS_PATTERN.test(name));
-    return {
-      leg: legDirName,
-      merged: mergedPath ? readJsonOrNull(mergedPath) : null,
-      sessions: sessionPaths.map(readJsonOrNull).filter(Boolean),
-    };
-  });
+    .sort()
+    .map((legDirName) => readLegFromDirectory(legDirName, join(artifactsDir, legDirName)));
 }
 
-const isDirectRun = process.argv[1]?.endsWith('aggregate-e2e-results.mjs');
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   const artifactsDir = process.argv[2];
   if (!artifactsDir) {
