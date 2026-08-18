@@ -13,7 +13,11 @@
  * files and the `wdio-merged-results.json` the launcher writes on completion.
  * Additional dispatches against the same SHA pool into one denominator by
  * passing each run's download directory with its own execution count; legs
- * are then namespaced `dispatch-<i>/` so runs never collide.
+ * are then namespaced `dispatch-<i>/` so runs never collide, and the same
+ * directory twice is rejected. The artifacts carry no SHA receipt, so
+ * same-SHA provenance across dispatches is the operator's contract: the
+ * dispatch pins the SHA, and the report must record each pooled run id and
+ * its SHA so the numbers stay reproducible.
  * The dispatched execution count is mandatory: legs whose artifact never
  * uploaded (a job dead before wdio ran) surface as exclusions instead of
  * vanishing, and leg directories beyond the dispatched set fail loudly.
@@ -24,7 +28,7 @@
  * report instead of the rate.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_SPEC_COUNT = 39;
@@ -237,6 +241,14 @@ export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
  * @param {Array<{ artifactsDir: string, expectedExecutions: number }>} dispatches
  */
 export function readLegsFromDispatchDirectories(dispatches) {
+  const seenDirs = new Set();
+  for (const { artifactsDir } of dispatches) {
+    const resolved = resolve(artifactsDir);
+    if (seenDirs.has(resolved)) {
+      throw new Error(`same download directory supplied twice: ${artifactsDir} — one run must not double-count`);
+    }
+    seenDirs.add(resolved);
+  }
   return dispatches.flatMap(({ artifactsDir, expectedExecutions }, index) => {
     const legs = readLegsFromDirectory(artifactsDir, expectedExecutions);
     if (dispatches.length === 1) return legs;

@@ -123,6 +123,17 @@ describe('readLegsFromDirectory', () => {
     }
   });
 
+  it('rejects the same download directory supplied twice — one run must not double-count', () => {
+    writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+
+    expect(() =>
+      readLegsFromDispatchDirectories([
+        { artifactsDir, expectedExecutions: 1 },
+        { artifactsDir, expectedExecutions: 1 },
+      ]),
+    ).toThrow(/same download directory/);
+  });
+
   it('keeps single-dispatch leg names unprefixed', () => {
     writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
 
