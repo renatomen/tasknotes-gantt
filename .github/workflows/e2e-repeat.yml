@@ -1,0 +1,67 @@
+name: e2e-repeat
+
+# Dispatchable N-execution measurement of one SHA: every leg runs the
+# step-identical e2e gate (e2e.yml) against the same pinned commit, so the
+# aggregated per-spec results measure the exact environment the PR gate flakes
+# in. Deliberately no caching: the measured path must not diverge from the
+# gate's fresh-download environment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA to measure (every leg checks out this exact commit)
+        required: true
+        type: string
+      executions:
+        description: Number of full-suite executions (integer, max 24)
+        required: false
+        type: string
+        default: '12'
+
+# Least privilege: the workflow only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      legs: ${{ steps.legs.outputs.legs }}
+    steps:
+      - name: Validate inputs and build the leg matrix
+        id: legs
+        # env: indirection keeps the untrusted dispatch inputs out of shell
+        # interpolation (script-injection hardening).
+        env:
+          MEASURED_SHA: ${{ inputs.sha }}
+          EXECUTIONS: ${{ inputs.executions }}
+        run: |
+          # Full 40-hex only: a branch name would re-resolve at every leg's own
+          # checkout time (legs can queue for hours), silently mixing commits
+          # into a baseline whose whole point is one pinned SHA.
+          if ! [[ "$MEASURED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::sha must be a full 40-hex commit SHA, not a branch or short ref"
+            exit 1
+          fi
+          # No leading zero: bash arithmetic reads 030 as octal 24 while seq
+          # reads it as decimal 30, so a leading-zero value slips the ceiling.
+          if ! [[ "$EXECUTIONS" =~ ^[1-9][0-9]?$ ]] || (( EXECUTIONS > 24 )); then
+            echo "::error::executions must be an integer between 1 and 24"
+            exit 1
+          fi
+          echo "legs=[$(seq -s, 1 "$EXECUTIONS")]" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    needs: setup
+    strategy:
+      # GitHub's default (true) cancels remaining legs on the first failure —
+      # the run would measure "executions until first failure", not N executions.
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.setup.outputs.legs) }}
+    uses: ./.github/workflows/e2e.yml
+    with:
+      ref: ${{ inputs.sha }}
+      # Distinct name per leg: upload-artifact v4+ hard-fails duplicate names.
+      artifact-name: e2e-results-leg-${{ matrix.leg }}
