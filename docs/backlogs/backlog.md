@@ -1052,6 +1052,53 @@ fix:
 When the Reliability re-diagnosis starts, feed all of these in and delete
 all three entries.
 
+## E2E flake instances: three consecutive failed executions, run 32075292739
+
+Nondeterministic failures — two of the never-became-ready class and one of a
+distinct state-preservation class (see attempt 1) — recorded on PR
+#437's record (2026-08-17, merged 2026-08-18). The PR changed only four
+`docs/solutions/` markdown files, so **its diff is provably uninvolved** — which
+does not make these environmental (a latent race in `src/` or the harness on
+the base SHA fits identically). The base SHA already contained the U1 reporter
+(PR #436); whether U1 altered timing is **open**, not assumed either way.
+
+**Rate, counted exactly.** One CI run, four attempts (`run_attempt` 1-4 of run
+32075292739). The e2e job executed **4** times; **3 of 4 executions failed**,
+each with exactly one failing spec file (38/39 passed each time), and attempt 4
+passed 39/39 on the same SHA — proving nondeterminism, never innocence.
+
+Per-attempt enumeration (every failing spec named before any distribution claim):
+
+- Attempt 1 — `test/specs/gantt-legend.e2e.ts`: "switches live without reflow,
+  preserves selection/zoom/scroll, then reopens at the Appearance default
+  (AE4/AE5)" failed on a direct state comparison (`gantt-legend.e2e.ts:1514`,
+  `scaleLabel` changed from `2` to `3`) — **not** a readiness/interactability
+  timeout, so this is a **state-preservation symptom class distinct from
+  never-became-ready**, and a third distinct symptom for `gantt-legend` across
+  the incident record (prior: `.og-legend-toggle` not interactable; "Gantt did
+  not maximize for the overlay scenarios") — reinforcing that no single error
+  message is *the* bug.
+- Attempt 2 — `test/specs/gantt-default-field-mappings.e2e.ts`: "opens the
+  configured-statuses picker on the unmapped status cell" failed plus a
+  `before each` hook failure ("unset field mappings default to TaskNotes'
+  properties"). **A resurfacing**: the same spec failed in run 31909561031
+  (2026-08-16, PR #427 — "the managed row's status cell never became
+  editable"), recorded earlier in this backlog.
+- Attempt 3 — `test/specs/gantt-calendar-items-sources.e2e.ts`: `before each`
+  hook failed — **the same spec that failed in run 31997862224** (PR #435).
+- Attempt 4 — 39/39 passed.
+
+**Three consecutive failures is a rate signal, stated cautiously.** If
+executions were independent at the incident-window rate of 1-in-3, three
+consecutive failures is a ~3.7% event. Either the rate has worsened, or
+executions within a window are correlated (a bad-runner hour), or this is an
+unlucky draw — the re-diagnosis's controlled repeat-run distinguishes these;
+do not conclude from this entry alone. Cause stays **open** for all three
+instances (harness-vs-src undecided; no distinguishing evidence gathered).
+
+When the Reliability re-diagnosis starts, feed this instance in with the
+entries above and delete this entry.
+
 ## Scheduled perf job red since 2026-07-13: Show-undated storm chart-alive assertion
 
 Discovered during U3 of the test-tree typecheck plan (2026-08-17): the weekly
