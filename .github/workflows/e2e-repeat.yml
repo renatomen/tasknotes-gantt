@@ -29,15 +29,25 @@ jobs:
     outputs:
       legs: ${{ steps.legs.outputs.legs }}
     steps:
-      - name: Validate executions and build the leg matrix
+      - name: Validate inputs and build the leg matrix
         id: legs
-        # env: indirection keeps the untrusted dispatch input out of shell
+        # env: indirection keeps the untrusted dispatch inputs out of shell
         # interpolation (script-injection hardening).
         env:
+          MEASURED_SHA: ${{ inputs.sha }}
           EXECUTIONS: ${{ inputs.executions }}
         run: |
-          if ! [[ "$EXECUTIONS" =~ ^[0-9]+$ ]] || (( EXECUTIONS < 1 || EXECUTIONS > 24 )); then
-            echo "::error::executions must be an integer between 1 and 24, got '$EXECUTIONS'"
+          # Full 40-hex only: a branch name would re-resolve at every leg's own
+          # checkout time (legs can queue for hours), silently mixing commits
+          # into a baseline whose whole point is one pinned SHA.
+          if ! [[ "$MEASURED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::sha must be a full 40-hex commit SHA, not a branch or short ref"
+            exit 1
+          fi
+          # No leading zero: bash arithmetic reads 030 as octal 24 while seq
+          # reads it as decimal 30, so a leading-zero value slips the ceiling.
+          if ! [[ "$EXECUTIONS" =~ ^[1-9][0-9]?$ ]] || (( EXECUTIONS > 24 )); then
+            echo "::error::executions must be an integer between 1 and 24"
             exit 1
           fi
           echo "legs=[$(seq -s, 1 "$EXECUTIONS")]" >> "$GITHUB_OUTPUT"
