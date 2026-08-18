@@ -45,6 +45,7 @@ const isValidSessionShape = (session) =>
   typeof session === 'object' &&
   session !== null &&
   isStringArray(session.specs) &&
+  session.specs.length > 0 &&
   session.state !== undefined &&
   session.state !== null &&
   [session.state.passed, session.state.failed, session.state.skipped].every(Number.isInteger);
@@ -62,29 +63,28 @@ function classifyLeg(leg, expectedSpecCount) {
   if (!isStringArray(leg.merged.specs)) {
     return { exclusion: { leg: leg.leg, reason: 'malformed-merged-results' } };
   }
-  const mergedSpecCount = new Set(leg.merged.specs.map(specKeyFromUrl)).size;
-  if (mergedSpecCount !== expectedSpecCount) {
+  const mergedSpecKeys = new Set(leg.merged.specs.map(specKeyFromUrl));
+  if (mergedSpecKeys.size !== expectedSpecCount) {
     return {
       exclusion: {
         leg: leg.leg,
         reason: 'unexpected-spec-count',
-        recordedSpecCount: mergedSpecCount,
+        recordedSpecCount: mergedSpecKeys.size,
         expectedSpecCount,
       },
     };
   }
-  return classifySessions(leg, expectedSpecCount);
+  return classifySessions(leg, expectedSpecCount, mergedSpecKeys);
 }
 
-function classifySessions(leg, expectedSpecCount) {
+function classifySessions(leg, expectedSpecCount, mergedSpecKeys) {
   const outcomes = new Map();
   for (const session of leg.sessions) {
     if (!isValidSessionShape(session)) {
       return { exclusion: { leg: leg.leg, reason: 'malformed-session-results' } };
     }
     if (session.state.passed + session.state.failed + session.state.skipped === 0) {
-      const spec = session.specs.length > 0 ? specKeyFromUrl(session.specs[0]) : null;
-      return { exclusion: { leg: leg.leg, reason: 'zero-test-session', spec } };
+      return { exclusion: { leg: leg.leg, reason: 'zero-test-session', spec: specKeyFromUrl(session.specs[0]) } };
     }
     for (const specUrl of session.specs) {
       const spec = specKeyFromUrl(specUrl);
@@ -92,7 +92,8 @@ function classifySessions(leg, expectedSpecCount) {
       outcomes.set(spec, failed ? 'failed' : 'passed');
     }
   }
-  if (outcomes.size !== expectedSpecCount) {
+  const identityMismatch = [...outcomes.keys()].some((spec) => !mergedSpecKeys.has(spec));
+  if (identityMismatch || outcomes.size !== expectedSpecCount) {
     return {
       exclusion: {
         leg: leg.leg,

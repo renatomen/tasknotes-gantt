@@ -295,6 +295,44 @@ describe('aggregateLegs', () => {
     expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
   });
 
+  it('excludes a leg containing a session with no associated specs — an orphan failure must not vanish', () => {
+    const sessions = [
+      ...allSpecNames().map((name) => makeSession(name)),
+      { specs: [], state: { passed: 0, failed: 1, skipped: 0 } },
+    ];
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
+  });
+
+  it('excludes a leg whose session specs differ from the merged receipt in identity, not just count', () => {
+    const receiptNames = allSpecNames();
+    const sessionNames = [...allSpecNames().slice(1), 'spec-40.e2e.ts'];
+    const legs = [
+      ...makeLegs(2),
+      {
+        leg: 'leg-03',
+        merged: { specs: receiptNames.map(specUrl) },
+        sessions: sessionNames.map((name) => makeSession(name)),
+      },
+    ];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([
+      {
+        leg: 'leg-03',
+        reason: 'session-spec-mismatch',
+        sessionSpecCount: EXPECTED,
+        expectedSpecCount: EXPECTED,
+      },
+    ]);
+  });
+
   it('excludes a leg containing a session that parsed as null instead of crashing', () => {
     const sessions = [...allSpecNames().map((name) => makeSession(name)), null as never];
     const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
