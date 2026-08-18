@@ -243,7 +243,8 @@ export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
 export function readLegsFromDispatchDirectories(dispatches) {
   const seenDirs = new Set();
   for (const { artifactsDir } of dispatches) {
-    const resolved = resolve(artifactsDir);
+    const resolvedPath = resolve(artifactsDir);
+    const resolved = process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath;
     if (seenDirs.has(resolved)) {
       throw new Error(`same download directory supplied twice: ${artifactsDir} — one run must not double-count`);
     }

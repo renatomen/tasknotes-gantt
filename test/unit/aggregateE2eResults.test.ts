@@ -134,6 +134,18 @@ describe('readLegsFromDirectory', () => {
     ).toThrow(/same download directory/);
   });
 
+  it('rejects a case-variant duplicate of the same download directory on Windows', () => {
+    if (process.platform !== 'win32') return;
+    writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+
+    expect(() =>
+      readLegsFromDispatchDirectories([
+        { artifactsDir: artifactsDir.toLowerCase(), expectedExecutions: 1 },
+        { artifactsDir: artifactsDir.toUpperCase(), expectedExecutions: 1 },
+      ]),
+    ).toThrow(/same download directory/);
+  });
+
   it('keeps single-dispatch leg names unprefixed', () => {
     writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
 
