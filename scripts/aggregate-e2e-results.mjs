@@ -3,15 +3,16 @@
  * Aggregate per-leg e2e results from the repeat-run workflow into per-spec and
  * per-execution failure rates with an honest invalid-leg exclusion report.
  *
- *   node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> [expected-executions]
+ *   node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> <expected-executions>
  *
  * The directory is the target of `gh run download <run-id>` for ONE
  * e2e-repeat.yml run (attempt 1 only — re-run attempts mix artifact
  * generations): one `e2e-results-leg-<N>` subdirectory per leg, each holding
  * a `.wdio-results/` tree with per-session `wdio-<cid>-json-reporter.json`
  * files and the `wdio-merged-results.json` the launcher writes on completion.
- * Pass the dispatched execution count so legs whose artifact never uploaded
- * (a job dead before wdio ran) surface as exclusions instead of vanishing.
+ * The dispatched execution count is mandatory: legs whose artifact never
+ * uploaded (a job dead before wdio ran) surface as exclusions instead of
+ * vanishing, and leg directories beyond the dispatched set fail loudly.
  *
  * A leg counts toward the product denominator only if its merged file exists,
  * records exactly the expected spec count, and every session ran at least one
@@ -196,6 +197,17 @@ export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
     .sort()
     .map((legDirName) => readLegFromDirectory(legDirName, join(artifactsDir, legDirName)));
   if (expectedExecutions === null) return legs;
+  const expected = new Set(
+    Array.from({ length: expectedExecutions }, (_, index) => `${LEG_ARTIFACT_PREFIX}${index + 1}`),
+  );
+  const unexpected = legs.filter((leg) => !expected.has(leg.leg)).map((leg) => leg.leg);
+  if (unexpected.length > 0) {
+    throw new Error(
+      `unexpected leg artifact directories beyond the ${expectedExecutions} dispatched executions: ` +
+        `${unexpected.join(', ')} — stale or cross-attempt artifacts pollute the denominator; ` +
+        'aggregate a fresh download of one run (attempt 1)',
+    );
+  }
   const present = new Set(legs.map((leg) => leg.leg));
   for (let legNumber = 1; legNumber <= expectedExecutions; legNumber += 1) {
     const legDirName = `${LEG_ARTIFACT_PREFIX}${legNumber}`;
@@ -209,11 +221,9 @@ export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   const [, , artifactsDir, executionsArg] = process.argv;
-  const expectedExecutions = executionsArg === undefined ? null : Number(executionsArg);
-  const executionsInvalid =
-    expectedExecutions !== null && (!Number.isInteger(expectedExecutions) || expectedExecutions < 1);
-  if (!artifactsDir || executionsInvalid) {
-    console.error('usage: node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> [expected-executions]');
+  const expectedExecutions = Number(executionsArg);
+  if (!artifactsDir || !Number.isInteger(expectedExecutions) || expectedExecutions < 1) {
+    console.error('usage: node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> <expected-executions>');
     process.exit(1);
   }
   const legs = readLegsFromDirectory(artifactsDir, expectedExecutions);

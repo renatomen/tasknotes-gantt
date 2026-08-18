@@ -85,6 +85,14 @@ describe('readLegsFromDirectory', () => {
     expect(legs[0].corruptFiles).toEqual(['wdio-0-0-json-reporter.json']);
   });
 
+  it('rejects leg directories beyond the expected execution count instead of widening the denominator', () => {
+    writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+    writeLegFixture(2, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+    writeLegFixture(3, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+
+    expect(() => readLegsFromDirectory(artifactsDir, 2)).toThrow(/e2e-results-leg-3/);
+  });
+
   it('synthesizes artifact-missing legs for expected executions with no directory', () => {
     writeLegFixture(2, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
 
