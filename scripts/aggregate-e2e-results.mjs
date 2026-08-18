@@ -42,6 +42,8 @@ const specKeyFromUrl = (specUrl) => specUrl.split('/').pop();
 const isStringArray = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 const isValidSessionShape = (session) =>
+  typeof session === 'object' &&
+  session !== null &&
   isStringArray(session.specs) &&
   session.state !== undefined &&
   session.state !== null &&

@@ -295,6 +295,16 @@ describe('aggregateLegs', () => {
     expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
   });
 
+  it('excludes a leg containing a session that parsed as null instead of crashing', () => {
+    const sessions = [...allSpecNames().map((name) => makeSession(name)), null as never];
+    const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02']);
+    expect(report.excludedLegs).toEqual([{ leg: 'leg-03', reason: 'malformed-session-results' }]);
+  });
+
   it('excludes a leg containing a session without state or specs instead of crashing', () => {
     const sessions = [...allSpecNames().map((name) => makeSession(name)), {} as never];
     const legs = [...makeLegs(2), { leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions }];
