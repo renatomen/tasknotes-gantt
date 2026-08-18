@@ -97,12 +97,12 @@ Observations the ranked list uses:
 
 ## Incident record (fold-in, verify-first)
 
-Folded from `docs/backlogs/backlog.md` per R3; every denominator below was recounted from `run_attempt` at reporting time and matched the backlog's figure unless noted. Instances are grouped by window because denominators are window-specific and never pool across windows.
+Folded from `docs/backlogs/backlog.md` per R3; every denominator below was recounted from `run_attempt` at reporting time and matched the backlog's figure unless noted. Instances are grouped by window because denominators are window-specific and never pool across windows. Two diagnostic leads carried from the folded entries: the suite is strictly sequential (`maxInstances: 1`), so worker contention is ruled out as a cause class; and `WebDriverError: javascript error: No tab group found` recurs as a WARN on specs that then pass — noise, not a cause, but noise that could mask a real signal in exactly the never-became-ready area.
 
 | Window | Runs (ids) | Executions (`run_attempt` sum) | Failed | Failing specs |
 |---|---|---|---|---|
 | PR #420 (2026-08-14, docs/gate-only diff) | 31750064985 | 2 | 1 | `gantt-calendar-items-sources` (beforeEach: `Gantt bars missing: ["Standup 2026-03-23.md"]`), `gantt-dependency-types` (tooltip hover) — one run, two spec failures |
-| Governing-docs port (2026-08-15, docs-only) | 31842006155, 31845072266, 31795160791 | 2+2+1 = 5 | 3 | per-spec breakdown not captured at record time; 31795160791 was never same-SHA re-run (suspected instance only) |
+| Governing-docs port (2026-08-15, docs-only) | 31842006155, 31845072266, 31795160791 | 2+2+1 = 5 | 3 | per-spec breakdown not captured at record time; 31795160791 was never same-SHA re-run (suspected instance only). A fourth same-day instance was recorded with no run id — unverifiable by construction, carried outside every denominator |
 | PR #425 (2026-08-15, docs-only) | 31872079256 | 2 | 1 | `gantt-dependency-types` |
 | PR #427 (2026-08-16, src-touching) | 31909561031 | 2 | 1 | `gantt-column-sort` ("did not become clickable"), `gantt-default-field-mappings` (status cell never editable) — corroborated by local pass on identical code |
 | PR #435 (2026-08-17, docs-only) | 31994474738, 31995840304, 31997862224, 32000640719, 32005598340, 32010463010 | 1+1+2+2+1+2 = **9** | **3** | run 31997862224: `gantt-legend` (`.og-legend-toggle` not interactable) + `gantt-calendar-items-sources` (beforeEach bars missing); run 32000640719: `gantt-column-sort` (`note.due` not clickable); run 32010463010: `gantt-legend` ("did not maximize") |
