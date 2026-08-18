@@ -3,13 +3,17 @@
  * Aggregate per-leg e2e results from the repeat-run workflow into per-spec and
  * per-execution failure rates with an honest invalid-leg exclusion report.
  *
- *   node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> <expected-executions>
+ *   node scripts/aggregate-e2e-results.mjs <artifacts-dir> <expected-executions> \
+ *        [<artifacts-dir> <expected-executions> ...]
  *
- * The directory is the target of `gh run download <run-id>` for ONE
+ * Each directory is the target of `gh run download <run-id>` for ONE
  * e2e-repeat.yml run (attempt 1 only — re-run attempts mix artifact
  * generations): one `e2e-results-leg-<N>` subdirectory per leg, each holding
  * a `.wdio-results/` tree with per-session `wdio-<cid>-json-reporter.json`
  * files and the `wdio-merged-results.json` the launcher writes on completion.
+ * Additional dispatches against the same SHA pool into one denominator by
+ * passing each run's download directory with its own execution count; legs
+ * are then namespaced `dispatch-<i>/` so runs never collide.
  * The dispatched execution count is mandatory: legs whose artifact never
  * uploaded (a job dead before wdio ran) surface as exclusions instead of
  * vanishing, and leg directories beyond the dispatched set fail loudly.
@@ -229,17 +233,41 @@ export function readLegsFromDirectory(artifactsDir, expectedExecutions = null) {
   return legs;
 }
 
+/**
+ * @param {Array<{ artifactsDir: string, expectedExecutions: number }>} dispatches
+ */
+export function readLegsFromDispatchDirectories(dispatches) {
+  return dispatches.flatMap(({ artifactsDir, expectedExecutions }, index) => {
+    const legs = readLegsFromDirectory(artifactsDir, expectedExecutions);
+    if (dispatches.length === 1) return legs;
+    return legs.map((leg) => ({ ...leg, leg: `dispatch-${index + 1}/${leg.leg}` }));
+  });
+}
+
+function parseDispatchArguments(args) {
+  if (args.length === 0 || args.length % 2 !== 0) return null;
+  const dispatches = [];
+  for (let index = 0; index < args.length; index += 2) {
+    const expectedExecutions = Number(args[index + 1]);
+    if (!Number.isInteger(expectedExecutions) || expectedExecutions < 1) return null;
+    dispatches.push({ artifactsDir: args[index], expectedExecutions });
+  }
+  return dispatches;
+}
+
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
-  const [, , artifactsDir, executionsArg] = process.argv;
-  const expectedExecutions = Number(executionsArg);
-  if (!artifactsDir || !Number.isInteger(expectedExecutions) || expectedExecutions < 1) {
-    console.error('usage: node scripts/aggregate-e2e-results.mjs <downloaded-artifacts-dir> <expected-executions>');
+  const dispatches = parseDispatchArguments(process.argv.slice(2));
+  if (!dispatches) {
+    console.error(
+      'usage: node scripts/aggregate-e2e-results.mjs <artifacts-dir> <expected-executions> ' +
+        '[<artifacts-dir> <expected-executions> ...]',
+    );
     process.exit(1);
   }
-  const legs = readLegsFromDirectory(artifactsDir, expectedExecutions);
+  const legs = readLegsFromDispatchDirectories(dispatches);
   if (legs.length === 0) {
-    console.error(`no ${LEG_ARTIFACT_PREFIX}* directories found under ${artifactsDir}`);
+    console.error(`no ${LEG_ARTIFACT_PREFIX}* directories found under the given directories`);
     process.exit(1);
   }
   console.log(JSON.stringify(aggregateLegs(legs, { expectedSpecCount: EXPECTED_SPEC_COUNT }), null, 2));

@@ -2,7 +2,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { aggregateLegs, readLegsFromDirectory } from '../../scripts/aggregate-e2e-results.mjs';
+import {
+  aggregateLegs,
+  readLegsFromDirectory,
+  readLegsFromDispatchDirectories,
+} from '../../scripts/aggregate-e2e-results.mjs';
 
 const EXPECTED = 39;
 
@@ -91,6 +95,40 @@ describe('readLegsFromDirectory', () => {
     writeLegFixture(3, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
 
     expect(() => readLegsFromDirectory(artifactsDir, 2)).toThrow(/e2e-results-leg-3/);
+  });
+
+  it('pools legs from multiple dispatch downloads under distinct dispatch namespaces', () => {
+    const secondRoot = mkdtempSync(join(tmpdir(), 'aggregate-e2e-b-'));
+    try {
+      writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+      const otherResults = join(secondRoot, 'e2e-results-leg-1', '.wdio-results');
+      mkdirSync(otherResults, { recursive: true });
+      writeFileSync(join(otherResults, 'wdio-merged-results.json'), JSON.stringify({ specs: [] }));
+
+      const legs = readLegsFromDispatchDirectories([
+        { artifactsDir, expectedExecutions: 2 },
+        { artifactsDir: secondRoot, expectedExecutions: 1 },
+      ]);
+
+      expect(legs.map((leg: { leg: string }) => leg.leg)).toEqual([
+        'dispatch-1/e2e-results-leg-1',
+        'dispatch-1/e2e-results-leg-2',
+        'dispatch-2/e2e-results-leg-1',
+      ]);
+      expect(
+        legs.filter((leg: { artifactMissing?: boolean }) => leg.artifactMissing).map((leg: { leg: string }) => leg.leg),
+      ).toEqual(['dispatch-1/e2e-results-leg-2']);
+    } finally {
+      rmSync(secondRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps single-dispatch leg names unprefixed', () => {
+    writeLegFixture(1, { 'wdio-merged-results.json': JSON.stringify({ specs: [] }) });
+
+    const legs = readLegsFromDispatchDirectories([{ artifactsDir, expectedExecutions: 1 }]);
+
+    expect(legs.map((leg: { leg: string }) => leg.leg)).toEqual(['e2e-results-leg-1']);
   });
 
   it('synthesizes artifact-missing legs for expected executions with no directory', () => {
