@@ -172,6 +172,9 @@ The e2e failure class in which a readiness or interactability wait times out —
 ### Flake
 A nondeterministic failure: the same SHA fails and then passes with no change. The word carries no causal verdict — a same-SHA pass proves nondeterminism, never that the diff or the codebase is innocent, and "flake" never means "not a code defect". Harness-vs-src attribution for a flake stays open until evidence distinguishes them.
 
+### Leg
+One matrix execution of the full e2e suite inside a repeat-run measurement dispatch, carrying its own results artifact. A leg is either valid — it demonstrably recorded every spec in the suite, with every session's results well-formed — or excluded with a named reason (artifact never uploaded, results missing, corrupt, or malformed, a session that ran nothing, or recorded specs disagreeing with the suite). Excluded legs never enter the valid-leg denominator and never count as passes; their exclusion reasons are part of the measurement's output, not noise. Legs from additional dispatches against the same commit pool into one denominator; that the pooled dispatches measured the same commit is the operator's contract, recorded alongside the result.
+
 ### Honest denominator
 The execution count a failure rate is stated over, counted exactly from its source of record: `run_attempt` summed across the window's CI runs for ordinary-CI incident windows, and the enumerated matrix-leg conclusions for repeat-run executions — re-derived from that source on every recount. Rates are stated with this denominator, never as bare instance counts; a rerun counted as evidence is counted in the denominator, and a leg that ran fewer than the expected specs is excluded as invalid with its exclusion reported, never counted as a pass.
 
