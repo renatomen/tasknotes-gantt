@@ -13,11 +13,12 @@ const allSpecNames = () => Array.from({ length: EXPECTED }, (_, index) => specNa
 interface SessionOverride {
   passed?: number;
   failed?: number;
+  skipped?: number;
 }
 
-const makeSession = (name: string, { passed = 1, failed = 0 }: SessionOverride = {}) => ({
+const makeSession = (name: string, { passed = 1, failed = 0, skipped = 0 }: SessionOverride = {}) => ({
   specs: [specUrl(name)],
-  state: { passed, failed, skipped: 0 },
+  state: { passed, failed, skipped },
 });
 
 const makeLeg = (leg: string, failuresBySpec: Record<string, number> = {}) => {
@@ -219,6 +220,20 @@ describe('aggregateLegs', () => {
     expect(report.excludedLegs).toEqual([
       { leg: 'leg-03', reason: 'corrupt-results-file', files: ['wdio-0-0-json-reporter.json'] },
     ]);
+  });
+
+  it('keeps a leg valid when a session recorded only skipped tests — skipping is not an infrastructure failure', () => {
+    const legs = makeLegs(2);
+    const sessions = allSpecNames().map((name) =>
+      name === 'spec-04.e2e.ts' ? makeSession(name, { passed: 0, failed: 0, skipped: 2 }) : makeSession(name),
+    );
+    legs.push({ leg: 'leg-03', merged: { specs: allSpecNames().map(specUrl) }, sessions });
+
+    const report = aggregateLegs(legs, { expectedSpecCount: EXPECTED });
+
+    expect(report.validLegs).toEqual(['leg-01', 'leg-02', 'leg-03']);
+    expect(report.excludedLegs).toEqual([]);
+    expect(report.matrix['spec-04.e2e.ts']['leg-03']).toBe('passed');
   });
 
   it('excludes a leg whose merged results parsed but lack a specs array (the zero-session mergeResults output)', () => {

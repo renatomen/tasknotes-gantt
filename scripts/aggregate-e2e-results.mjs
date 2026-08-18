@@ -71,7 +71,7 @@ function classifySessions(leg, expectedSpecCount) {
     if (!session.state || !Array.isArray(session.specs)) {
       return { exclusion: { leg: leg.leg, reason: 'malformed-session-results' } };
     }
-    if (session.state.passed + session.state.failed === 0) {
+    if (session.state.passed + session.state.failed + session.state.skipped === 0) {
       const spec = session.specs.length > 0 ? specKeyFromUrl(session.specs[0]) : null;
       return { exclusion: { leg: leg.leg, reason: 'zero-test-session', spec } };
     }
