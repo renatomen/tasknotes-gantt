@@ -1,0 +1,73 @@
+name: e2e
+
+# The single definition of the e2e gate, callable by the PR pipeline (ci.yml)
+# and the repeat-run measurement workflow. The inner job id is `e2e` so the
+# composite check name callers report is the predictable `e2e / e2e`.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit SHA or ref to check out (defaults to the caller's ref)
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: Name for the uploaded e2e artifact
+        required: false
+        type: string
+        default: e2e-artifacts
+
+# Least privilege: the job only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        # --ignore-scripts: supply-chain hardening; native deps (rollup/esbuild/
+        # @swc) are optionalDependencies, not install scripts, so build is unaffected.
+        run: npm ci --ignore-scripts
+      - name: Prepare temp vault path
+        shell: pwsh
+        run: |
+          $vault = "$Env:RUNNER_TEMP\\vault"
+          echo "OBSIDIAN_TEST_VAULT=$vault" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path $vault | Out-Null
+      - name: Build plugin
+        # The Vite build installs the plugin into OBSIDIAN_TEST_VAULT (set above,
+        # and the temp vault exists) via its closeBundle hook — no separate
+        # install step needed. See scripts/install-to-vault.mjs.
+        run: npm run build
+      - name: Run E2E tests (WDIO)
+        # GITHUB_TOKEN authenticates obsidian-launcher's GitHub API calls when it
+        # downloads the TaskNotes release (the dependency spec installs it via
+        # { repo, version }). Without it the unauthenticated 60/hr shared-runner
+        # rate limit intermittently blocks the download → TaskNotes never loads →
+        # the dependency spec fails. Authenticated lifts the limit to 5000/hr.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run e2e
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          # Dot-prefixed paths (.wdio-results, .wdio-vault) are excluded by
+          # default since upload-artifact v4; without this the per-spec results
+          # never reach the artifact. `warn` (not `ignore`): an empty upload is
+          # the "reporter wrote nothing" signal the aggregation depends on.
+          include-hidden-files: true
+          if-no-files-found: warn
+          path: |
+            .wdio-*
+            test-results
+            **/wdio-*.log

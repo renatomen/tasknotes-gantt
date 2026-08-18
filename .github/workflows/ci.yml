@@ -77,46 +77,8 @@ jobs:
         run: node scripts/check-bundle-hygiene.mjs
 
   e2e:
-    runs-on: windows-latest
+    # The gate itself lives in e2e.yml (workflow_call) so the repeat-run
+    # measurement workflow executes the step-identical job. Required check
+    # name: `e2e / e2e`.
     needs: build
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22'
-      - name: Install dependencies
-        # --ignore-scripts: supply-chain hardening (see build job above).
-        run: npm ci --ignore-scripts
-      - name: Prepare temp vault path
-        shell: pwsh
-        run: |
-          $vault = "$Env:RUNNER_TEMP\\vault"
-          echo "OBSIDIAN_TEST_VAULT=$vault" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          New-Item -ItemType Directory -Force -Path $vault | Out-Null
-      - name: Build plugin
-        # The Vite build installs the plugin into OBSIDIAN_TEST_VAULT (set above,
-        # and the temp vault exists) via its closeBundle hook — no separate
-        # install step needed. See scripts/install-to-vault.mjs.
-        run: npm run build
-      - name: Run E2E tests (WDIO)
-        # GITHUB_TOKEN authenticates obsidian-launcher's GitHub API calls when it
-        # downloads the TaskNotes release (the dependency spec installs it via
-        # { repo, version }). Without it the unauthenticated 60/hr shared-runner
-        # rate limit intermittently blocks the download → TaskNotes never loads →
-        # the dependency spec fails. Authenticated lifts the limit to 5000/hr.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run e2e
-      - name: Upload E2E artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: e2e-artifacts
-          # Dot-prefixed paths (.wdio-results, .wdio-vault) are excluded by
-          # default since upload-artifact v4; without this the per-spec results
-          # never reach the artifact.
-          include-hidden-files: true
-          path: |
-            .wdio-*
-            test-results
-            **/wdio-*.log
+    uses: ./.github/workflows/e2e.yml
