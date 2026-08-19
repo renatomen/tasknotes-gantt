@@ -128,7 +128,7 @@ Corrections surfaced by the recount: the PR #440 attempt-1 failure was remembere
 
 ## The ranked defect list
 
-Rank = measured failure frequency (baseline + incident record) weighted by what the evidence says about cause class. Each entry carries its numbers, a reproduce command, a KTD7 four-way classification — (a) no readiness gate, (b) gate on a signal the assertion doesn't consume, (c) infrastructure, (d) genuine product nondeterminism — and harness-vs-src attribution, which stays **open** on every entry: no distinguishing evidence has landed for any of them (method requirement 4). The common reproduce instrument for every entry is the repeat-run:
+Rank = measured failure frequency (baseline + incident record) weighted by what the evidence says about cause class. Instance counts read against explicit denominators (R8): a baseline instance is a per-spec rate over the 14 valid legs, stated per entry; an incident instance is a per-execution occurrence whose denominator is its window's execution count in the incident table above — every instance below is cited by run id so its rate reproduces from that table's row, and windows are never pooled into a single cross-window rate because denominators are window-specific. Each entry carries its numbers, a reproduce command, a KTD7 four-way classification — (a) no readiness gate, (b) gate on a signal the assertion doesn't consume, (c) infrastructure, (d) genuine product nondeterminism — and harness-vs-src attribution, which stays **open** on every entry: no distinguishing evidence has landed for any of them (method requirement 4). The common reproduce instrument for every entry is the repeat-run:
 
 ```bash
 gh workflow run e2e-repeat.yml -f sha=<full-40-hex-sha> -f executions=12
