@@ -14,7 +14,7 @@ The diagnosis's stopping rule: this report ends at the ranked list. Dimensions n
 
 All numbers reproduce from these commands. The instruments are the repeat-run workflow (`.github/workflows/e2e-repeat.yml`), the reusable e2e workflow it calls (`.github/workflows/e2e.yml` — the identical definition the PR gate runs), the per-spec JSON reporter (`@wdio/json-reporter`, wired in `test/wdio/wdio.conf.mts`), and the aggregation script (`scripts/aggregate-e2e-results.mjs`).
 
-**Committed-tooling divergence, argued.** The maintainability re-diagnosis added no committed tooling; this one commissions four pieces (the two workflows, the reporter wiring, the aggregation script — PRs #436, #439, #440, #441). The divergence is deliberate: STRATEGY.md makes establishing a true per-spec flake rate the re-diagnosis's first job, CI retains only per-diff executions (every historical run tested a different SHA), and the WDIO config previously emitted no machine-readable per-spec results — the rate is unmeasurable without instruments that persist.
+**Committed-tooling divergence, argued.** The maintainability re-diagnosis added no committed tooling; this one commissions four pieces (the two workflows, the reporter wiring, the aggregation script — PRs #436, #439, #440, #441). The divergence is deliberate: STRATEGY.md makes establishing a true per-spec flake rate the re-diagnosis's first job, ordinary CI supplies only per-diff executions plus occasional demand-driven same-SHA reruns — never a controlled N-execution sample of one SHA — and the WDIO config previously emitted no machine-readable per-spec results — the rate is unmeasurable without instruments that persist.
 
 **Repeat-run baseline** — N executions ("legs", CONCEPTS.md § Leg) of the full 39-spec suite against one pinned main SHA, in the environment where every recorded failure occurred (windows-latest, step-identical to the PR gate via the shared `e2e.yml`):
 
@@ -28,7 +28,7 @@ Additional same-SHA dispatches pool into one denominator by appending `<dir2> <e
 
 **Leg validity** — a leg enters the product denominator only if its merged results file records exactly 39 distinct specs and every session ran at least one test; anything less is excluded with a named reason and reported beside the rate, never counted as a pass. The zero-test-session class (a worker that launched and ran nothing — the failure mode diagnosed on PR #437, `docs/solutions/test-failures/wdio-config-reimport-wipes-cross-session-state.md`) lands in exclusions, never in the numerator or denominator of the product rate.
 
-**Merge-commit nuance.** The PR gate runs `refs/pull/N/merge` — a synthetic merge of the PR head into main — while the repeat-run checks out the pinned head SHA itself. A head-SHA measurement therefore approximates the gate's tree exactly when main has not moved past the merge base; the baseline SHA is a main commit, where the two coincide.
+**Merge-commit nuance.** The PR gate runs `refs/pull/N/merge` — a synthetic merge of the PR head into its base — while the repeat-run checks out the pinned SHA itself. A repeat-run against a PR head therefore measures the gate's tree only when the base has not advanced past the merge base (the merge result then has the head's tree); once the base moves, the gate tests a tree no head-SHA measurement reproduces. The baseline here sidesteps the nuance: its SHA is a main commit, dispatched directly, with no merge synthesis involved.
 
 **Incident-window denominators** — `run_attempt` summed over every CI run in the window, from the API as source of record:
 
