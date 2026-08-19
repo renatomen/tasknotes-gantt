@@ -105,13 +105,14 @@ mechanized dimension is the complexity gate, while churn share and concern
 counts are held by the per-session manual re-measure, whose trend reports
 land as dated notes under `docs/reports/` (first post-baseline report:
 `docs/reports/2026-08-16-001-slice2-u1-trend-report.md`; their CI gate is a
-deliberately parked candidate). **Reliability**, **performance**,
-and **security** re-diagnoses are commissioned but not yet measured;
-reliability goes first — an e2e flake *incident record* already accumulates
-in `docs/backlogs/backlog.md` (failures only; establishing a true flake
-*rate* with a consistent per-spec denominator is the re-diagnosis's first
-job) — with CI-on-real-Obsidian and the review-receipt gate as its standing
-mechanisms meanwhile.
+deliberately parked candidate). **Reliability** is measured — baseline
+flake rate, incident record, and ranked defect list at
+`docs/reports/2026-08-19-001-reliability-rediagnosis.md`, which also names
+the pillar's trend metrics and nominates its mechanical-gate candidate; its
+ranked list is worked top-down before maintainability's resumes, with
+CI-on-real-Obsidian and the review-receipt gate as standing mechanisms
+meanwhile. **Performance** and **security** re-diagnoses are commissioned
+but not yet measured.
 
 _Why it serves the vision:_ a plugin people trust their planning to must be
 solid — and moving deliberately is how it stays that way.
