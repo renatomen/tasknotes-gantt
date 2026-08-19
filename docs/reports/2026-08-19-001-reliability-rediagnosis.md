@@ -20,7 +20,11 @@ All numbers reproduce from these commands. The instruments are the repeat-run wo
 
 ```bash
 gh workflow run e2e-repeat.yml -f sha=a386c4a245ae3d60cc1ded152777e82f221d473a -f executions=12
-gh run download <run-id> -D <download-dir>        # attempt 1 only — reruns mix artifact generations
+gh run download <run-id> -D <download-dir>
+# gh run download has no attempt selector — it fetches the run's LATEST attempt's
+# artifacts. Attempt-1-only is therefore an operator contract: never rerun a
+# measurement dispatch (a rerun would silently mix artifact generations). Both
+# pooled runs below have exactly one attempt.
 node scripts/aggregate-e2e-results.mjs <download-dir> 12
 ```
 
@@ -102,7 +106,7 @@ Observations the ranked list uses:
 
 ## Incident record (fold-in, verify-first)
 
-Folded from `docs/backlogs/backlog.md` per R3; every denominator below was recounted from `run_attempt` at reporting time and matched the backlog's figure unless noted. Instances are grouped by window because denominators are window-specific and never pool across windows. Two diagnostic leads carried from the folded entries: the suite is strictly sequential (`maxInstances: 1`), so worker contention is ruled out as a cause class; and `WebDriverError: javascript error: No tab group found` recurs as a WARN on specs that then pass — noise, not a cause, but noise that could mask a real signal in exactly the never-became-ready area.
+Folded from `docs/backlogs/backlog.md` per R3 — from the entries that sat at pre-fold lines 530–617, 888–914, 916–957, 959–1053, and 1055–1100 (line references elsewhere, including the governing plan's "near line 530", predate this fold; this table is now the record). Every denominator below was recounted from `run_attempt` at reporting time and matched the backlog's figure unless noted. Instances are grouped by window because denominators are window-specific and never pool across windows. Two diagnostic leads carried from the folded entries: the suite is strictly sequential (`maxInstances: 1`), so worker contention is ruled out as a cause class; and `WebDriverError: javascript error: No tab group found` recurs as a WARN on specs that then pass — noise, not a cause, but noise that could mask a real signal in exactly the never-became-ready area.
 
 | Window | Runs (ids) | Executions (`run_attempt` sum) | Failed | Failing specs |
 |---|---|---|---|---|
