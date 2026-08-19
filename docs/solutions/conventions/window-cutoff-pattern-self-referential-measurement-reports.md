@@ -28,7 +28,7 @@ Give the window row an explicit **cutoff run id**, stated in the table itself:
 The cutoff turns an open-ended, self-mutating record into a fixed one:
 
 - **Later executions are excluded by definition**, not by omission — the boundary is a stated fact, not a silent stopping point a reader has to infer from "when the author stopped pushing."
-- **The row reproduces exactly at its stated scope.** Anyone recounting `run_attempt` sums through the cited run id gets the same numbers forever, regardless of what happens to the branch afterward.
+- **The row reproduces exactly at its stated scope — provided the scope pins attempts, not just run ids.** A rerun of a counted workflow keeps its run id while raising `run_attempt`, so a bare run-id boundary can drift later. The cutoff therefore includes the per-run attempt counts recorded in the row at cutoff time (the report writes each pooled run as `<run-id> (<attempts>)`); attempts added by any later rerun fall outside the window exactly as later runs do.
 - **Post-cutoff flakes are still captured — just not here.** They land in the pillar's ongoing trend metrics (the repeat-run rate, per-spec frequency, and incident-window rate defined in the same report's § Baseline and trend), which is the appropriate place for behavior discovered *after* the incident record closed.
 - The alternative — keep amending the table on every green push until the branch stabilizes — has no fixed point: each fold-in is itself a CI execution eligible for folding in, so the loop only terminates by fiat. Stating the cutoff makes that fiat explicit and auditable instead of implicit and undocumented.
 
