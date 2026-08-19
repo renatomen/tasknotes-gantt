@@ -40,6 +40,8 @@ gh api repos/renatomen/tasknotes-gantt/actions/runs/<run-id> --jq .head_sha
 # repeat-run reproduction of that window's defect needs
 ```
 
+Reproduction caveat for pre-campaign incidents: a dispatched leg checks out and runs the pinned tree itself, and trees predating the JSON reporter (PR #436) emit no `.wdio-results` — every such leg would be excluded as `missing-merged-results`. To chase a pre-#436 incident's defect, dispatch a reporter-enabled tree (current main) and accept that it measures the spec's current behaviour, or read that incident run's logs directly (`gh run view --job <job-id> --log-failed`); the derived historical SHA is the provenance record, not a runnable measurement target.
+
 **The six method requirements (binding, R11)** — adopted from the incident record's own correction history; later campaign sessions inherit them from here:
 
 1. Enumerate every failing spec in a run before characterising any distribution.
