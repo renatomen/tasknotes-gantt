@@ -89,7 +89,7 @@ Per-execution enumeration — every failing spec in every failing execution, nam
 Observations the ranked list uses:
 
 - **The baseline reproduced exactly the incident record's top three specs** — the same three spec files that dominate the incident record below are the only three that failed in 14 controlled legs. The flake surface is concentrated, not diffuse.
-- **No within-execution clustering in this measurement**: each failing leg failed exactly one spec (the incident record holds one two-spec execution, run 31997862224 — clustering exists but is not the dominant mode).
+- **No within-execution clustering in this measurement**: each failing leg failed exactly one spec. The incident record holds three two-spec executions — runs 31750064985 (`gantt-calendar-items-sources` + `gantt-dependency-types`), 31909561031 (`gantt-column-sort` + `gantt-default-field-mappings`), and 31997862224 (`gantt-legend` + `gantt-calendar-items-sources`) — so clustering exists in ordinary CI but did not appear in these 14 legs.
 - **No spec failed twice in 14 legs** — per-spec rates are low individually (~7%) and the execution-level rate (~21%) is their union. A fix aimed at any single spec addresses at most a third of the measured obstruction.
 - All three baseline failures are of the **never-became-ready class** ([CONCEPTS.md](../../CONCEPTS.md) § Never-became-ready class); the state-preservation symptom (PR #437 attempt 1) did not recur.
 
