@@ -47,7 +47,7 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, capture the owning scale row and baseline cell identity/geometry exactly when the test establishes `expectedState` after its own zoom/scroll. Capture again after Return and on failure. Do not add full geometry scans inside polling.
+For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot after Return only once width restoration and resize-driven layout have settled, and again on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. Do not add full geometry scans inside polling.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
@@ -59,7 +59,7 @@ U2 measures the full 40-hex main squash-merge SHA from U1.
 
 - Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, consecutively, before any post-dispatch lookup.
 - Immediately before dispatch, record the existing repeat-run IDs and a UTC cutoff. Preserve each command's exact return timestamp and resolve the two new run IDs only after both commands return.
-- GitHub's server-side `created_at` for both runs must precede the earliest measured e2e job `started_at`; local command-return timestamps are supplementary only. Ambiguous server ordering invalidates the window without replacement.
+- Resolve only run IDs absent from the pre-dispatch inventory whose server-side `created_at` falls after the recorded UTC cutoff and whose workflow, event, inputs, and pinned SHA identify the two commands; record each `created_at` and command-return timestamp. The two independent same-SHA runs need not precede one another's jobs.
 - Use `run_attempt=1` only. Attempt 2 is never evidence.
 - Require both workflow definitions to match the pinned U1 versions and verify each leg checked out the U1 SHA.
 - Download into fresh directories and aggregate once with the U1 version of `node scripts/aggregate-e2e-results.mjs <dir1> 24 <dir2> 24`.
