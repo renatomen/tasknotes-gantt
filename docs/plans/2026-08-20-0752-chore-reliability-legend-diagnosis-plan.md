@@ -47,7 +47,7 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, instrument the measured AE4/AE5 action site: capture a bounded authoritative snapshot when that test establishes `expectedState` after zoom/scroll, then at its existing assertion immediately after `openLegend()`, and on failure. Snapshot the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, chart scroll, selected-state facts, and the owning scale row/cell identity, label, and geometry. Tag AE6 resize/Return checkpoints separately; they may diagnose an independent recurrence but cannot serve as the measured AE4/AE5 failure's matched control. Add no action, retry, wait, or changed assertion cadence.
+For `scaleLabel`, instrument the measured AE4/AE5 action site and its preceding zoom/scroll deliveries. Capture source/delivery generations and a bounded authoritative snapshot when the test establishes `expectedState`, then at its existing assertion immediately after `openLegend()`, and on failure. Snapshot the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, chart scroll, selected-state facts, and the owning scale row/cell identity, label, and geometry. Tag AE6 resize/Return checkpoints separately; they may diagnose an independent recurrence but cannot serve as the measured AE4/AE5 failure's matched control. Add no action, retry, wait, or changed assertion cadence.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
@@ -57,9 +57,9 @@ Failure retrieval saves the original error first, is best-effort and bounded, an
 
 U2 measures the full 40-hex main squash-merge SHA from U1.
 
-- Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, consecutively, before any post-dispatch lookup.
-- Immediately before dispatch, record the existing repeat-run IDs and a UTC cutoff floored to GitHub's whole-second `created_at` precision. Preserve each command's exact return timestamp and resolve the two new run IDs only after both commands return.
-- Capture the run URL/ID returned by each dispatch command and require both; verify those exact IDs were absent from the pre-dispatch inventory, have server-side `created_at` at or after the floored cutoff, and match the workflow, event, inputs, and pinned SHA. Record each ID, URL, `created_at`, and command-return timestamp. Missing or contradictory identity invalidates the window without replacement; the two independent same-SHA runs need not precede one another's jobs.
+- Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, one at a time, binding each accepted dispatch to its run ID before issuing the next.
+- Immediately before each command, record the existing repeat-run IDs and a UTC cutoff floored to GitHub's whole-second `created_at` precision; preserve the command's exact return timestamp.
+- Prefer the run URL/ID returned by the command. If absent, resolve the sole new matching ID from the pre-command inventory and its cutoff-to-return interval. Verify the bound ID's workflow, event, inputs, and pinned SHA, and record its ID, URL, `created_at`, and command-return timestamp. Zero, multiple, or contradictory candidates invalidate the window without replacement; after an ambiguous first dispatch, do not issue the second.
 - Use `run_attempt=1` only. Attempt 2 is never evidence.
 - Require both workflow definitions to match the pinned U1 versions and verify each leg checked out the U1 SHA.
 - Download into fresh directories and aggregate once with the U1 version of `node scripts/aggregate-e2e-results.mjs <dir1> 24 <dir2> 24`.
@@ -76,7 +76,7 @@ Every verdict requires a complete failure trace and a complete passing control f
 |---|---|---|---|
 | Maximize timeout | The harness selected a stale/non-owning node or acted before an explicit product readiness contract, while the live owning control was correctly consumable. | The enabled live owning control received the action and the controller/source lifecycle contradicted the requested maximized state without a legitimate other-leaf exit or remount. | Open. |
 | Legend toggle | The harness selected a stale/non-owning/occluded node while the live owning toggle was correctly consumable. | The enabled live owning toggle received the action but plugin-owned state failed to open or retain Legend without a valid invalidator. | Open. |
-| `scaleLabel` `2` to `3` | At the measured AE4/AE5 post-open assertion, authoritative scale/scroll and the logical baseline interval remain correct while the DOM `:first` proxy moved to another recycled cell. | The same-mount trace ties `openLegend()` delivery to authoritative scale/scroll changing, or the restored in-viewport logical baseline position renders the wrong label, without a reload, other-leaf exit, reseed, or unrelated resize. | Open when the post-open authoritative/logical comparison is incomplete; AE6 Return evidence is separate. |
+| `scaleLabel` `2` to `3` | A pre-open zoom/scroll delivery was still pending at the baseline and completed across `openLegend()`, after which authoritative scale/scroll and the logical baseline are correct; or those facts were already correct at the assertion while only the DOM `:first` proxy moved. | All recorded pre-open zoom/scroll deliveries settled before the baseline, then the same-mount trace ties `openLegend()` delivery to authoritative scale/scroll changing or the restored logical baseline rendering the wrong label, without a reload, other-leaf exit, reseed, or unrelated resize. | Open when pre-open settlement, causality, or the authoritative/logical comparison is incomplete; AE6 Return evidence is separate. |
 
 Classify each recurrence independently. If complete recurrences for one symptom support both classes, report that symptom as open-conflicting and commission no single-cause fix.
 
@@ -116,7 +116,7 @@ The dated report embeds the complete bounded failure/control traces and the raw-
 
 - U1 instrumentation is default-off, bounded, mount-specific, no-throw, and does not change waits, retries, readiness, product behavior, or workflow configuration.
 - U1 proves the real mount path and preserves original click mechanisms and failures.
-- U2 contains exactly two attempt-1 24-leg dispatches on one full SHA, issued consecutively before post-dispatch lookup, with no rerun/replacement/top-up.
+- U2 contains exactly two bound attempt-1 24-leg dispatches on one full SHA, with no rerun/replacement/top-up.
 - Every failing spec is enumerated and every correction/exclusion is reproducible from reporter artifacts, terminal payloads, and raw logs.
 - Each non-open verdict has one complete, matched failure/control pair and the positive distinguishing fact required by the table.
 - Missing, incomplete, observer-conditioned, or conflicting evidence remains open.
