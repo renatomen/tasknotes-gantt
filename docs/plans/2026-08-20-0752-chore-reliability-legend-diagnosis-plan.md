@@ -47,7 +47,7 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot at the existing post-Return checkpoint and again on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. Add no wait or poll: unless the trace itself proves width restoration, resize delivery, and layout settlement before that checkpoint, the scale verdict stays open.
+For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot at the existing post-Return checkpoint and on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. After saving the original assertion error, terminal retrieval may boundedly observe later resize/layout markers and one final snapshot without another action, retry, or changed assertion cadence.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
@@ -59,7 +59,7 @@ U2 measures the full 40-hex main squash-merge SHA from U1.
 
 - Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, consecutively, before any post-dispatch lookup.
 - Immediately before dispatch, record the existing repeat-run IDs and a UTC cutoff. Preserve each command's exact return timestamp and resolve the two new run IDs only after both commands return.
-- Resolve only run IDs absent from the pre-dispatch inventory whose server-side `created_at` falls after the recorded UTC cutoff and whose workflow, event, inputs, and pinned SHA identify the two commands; record each `created_at` and command-return timestamp. The two independent same-SHA runs need not precede one another's jobs.
+- Capture the run URL/ID returned by each dispatch command and require both; verify those exact IDs were absent from the pre-dispatch inventory, have server-side `created_at` after the UTC cutoff, and match the workflow, event, inputs, and pinned SHA. Record each ID, URL, `created_at`, and command-return timestamp. Missing or contradictory identity invalidates the window without replacement; the two independent same-SHA runs need not precede one another's jobs.
 - Use `run_attempt=1` only. Attempt 2 is never evidence.
 - Require both workflow definitions to match the pinned U1 versions and verify each leg checked out the U1 SHA.
 - Download into fresh directories and aggregate once with the U1 version of `node scripts/aggregate-e2e-results.mjs <dir1> 24 <dir2> 24`.
@@ -76,7 +76,7 @@ Every verdict requires a complete failure trace and a complete passing control f
 |---|---|---|---|
 | Maximize timeout | The harness selected a stale/non-owning node or acted before an explicit product readiness contract, while the live owning control was correctly consumable. | The enabled live owning control received the action and the controller/source lifecycle contradicted the requested maximized state without a legitimate other-leaf exit or remount. | Open. |
 | Legend toggle | The harness selected a stale/non-owning/occluded node while the live owning toggle was correctly consumable. | The enabled live owning toggle received the action but plugin-owned state failed to open or retain Legend without a valid invalidator. | Open. |
-| `scaleLabel` `2` to `3` | After the test's controlled resize/Return/width-restoration sequence, authoritative scale/scroll is restored and the baseline logical interval remains correct while `:first` moved to another recycled cell. | The trace ties the controlled sequence to authoritative scale/scroll failing to restore, or the restored in-viewport logical baseline position renders the wrong label, without a remount, reload, other-leaf exit, reseed, or unrequested resize. | Open when transient recycling prevents the post-restoration logical comparison. |
+| `scaleLabel` `2` to `3` | Either authoritative scale/scroll is restored at the assertion while `:first` moved to another recycled cell, or the failed checkpoint is followed on the same mount by recorded resize/layout delivery and authoritative restoration to the correct logical baseline without another action. | The trace ties the controlled sequence to authoritative scale/scroll failing to restore after recorded resize/layout settlement, or the restored in-viewport logical baseline position renders the wrong label, without a remount, reload, other-leaf exit, reseed, or unrequested resize. | Open when settlement or the post-restoration logical comparison is unproven. |
 
 Classify each recurrence independently. If complete recurrences for one symptom support both classes, report that symptom as open-conflicting and commission no single-cause fix.
 
@@ -116,7 +116,7 @@ The dated report embeds the complete bounded failure/control traces and the raw-
 
 - U1 instrumentation is default-off, bounded, mount-specific, no-throw, and does not change waits, retries, readiness, product behavior, or workflow configuration.
 - U1 proves the real mount path and preserves original click mechanisms and failures.
-- U2 contains exactly two attempt-1 24-leg dispatches on one full SHA, issued before any measured e2e job starts, with no rerun/replacement/top-up.
+- U2 contains exactly two attempt-1 24-leg dispatches on one full SHA, issued consecutively before post-dispatch lookup, with no rerun/replacement/top-up.
 - Every failing spec is enumerated and every correction/exclusion is reproducible from reporter artifacts, terminal payloads, and raw logs.
 - Each non-open verdict has one complete, matched failure/control pair and the positive distinguishing fact required by the table.
 - Missing, incomplete, observer-conditioned, or conflicting evidence remains open.
