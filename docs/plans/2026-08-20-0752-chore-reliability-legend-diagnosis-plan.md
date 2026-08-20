@@ -47,7 +47,7 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot after Return only once width restoration and resize-driven layout have settled, and again on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. Do not add full geometry scans inside polling.
+For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot at the existing post-Return checkpoint and again on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. Add no wait or poll: unless the trace itself proves width restoration, resize delivery, and layout settlement before that checkpoint, the scale verdict stays open.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
