@@ -74,6 +74,13 @@ export const config: WebdriverIO.Config = {
   // single per-execution file the reliability aggregation consumes.
   reporters: ["obsidian", "spec", ["json", { outputDir: resultsDir }]],
   mochaOpts: { ui: "bdd", timeout: 180000 },
+  afterTest: async (test, _context, result) => {
+    if (!result.error) return;
+    const reporter = (globalThis as typeof globalThis & {
+      __tnGanttLegendRunnerFailureReporter?: (testTitle: string, error: unknown) => Promise<void>;
+    }).__tnGanttLegendRunnerFailureReporter;
+    await reporter?.(test.title, result.error);
+  },
   // Stale results are cleared ONLY here: onPrepare runs once in the launcher.
   // This file is re-imported by every worker session, so module-scope cleanup
   // would delete earlier specs' session files mid-run and silently understate
