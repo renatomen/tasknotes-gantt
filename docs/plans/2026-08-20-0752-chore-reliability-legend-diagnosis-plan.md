@@ -47,7 +47,9 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, instrument the measured AE4/AE5 action site and its preceding zoom/scroll deliveries. Capture source/delivery generations and one atomic, JSON-safe scalar snapshot when the test establishes `expectedState`, then at its existing assertion immediately after `openLegend()`, and on failure: DOM and SVAR-store scroll, scalar `xArea`, `_scales` start/end, length/min unit and width, numeric `diff(end,start,lengthUnit)` evaluation, selected-state facts, and the logical scale-cell index/value plus rendered identity, label, and geometry. Verify this shape through the actual WebDriver/JSON retrieval path; never serialize the `diff` function. Tag AE6 resize/Return checkpoints separately; they may diagnose an independent recurrence but cannot serve as the measured AE4/AE5 failure's matched control. Add no action, retry, wait, or changed assertion cadence.
+For `scaleLabel`, instrument the measured AE4/AE5 action site and its preceding zoom/scroll deliveries. Capture source/delivery generations and one atomic, JSON-safe scalar snapshot when the test establishes `expectedState`, then at its existing assertion immediately after `openLegend()`, and on failure: DOM and SVAR-store scroll, scalar `xArea`, `_scales` start/end, length/min unit and width, numeric `diff(end,start,lengthUnit)` evaluation, selected-state facts, and the logical scale-cell index/value plus rendered identity, label, and geometry. Verify this shape through the actual WebDriver/JSON retrieval path; never serialize the `diff` function.
+
+A zoom/scroll generation is terminally settled only after handler delivery, Svelte update completion, and identical authoritative/store/DOM viewport scalars across two following animation-frame observations. These diagnostic observations never gate the test. If that chain is incomplete before the baseline checkpoint, descendant work is unproven and class (d) is unavailable. Tag AE6 resize/Return checkpoints separately; they may diagnose an independent recurrence but cannot serve as the measured AE4/AE5 failure's matched control. Add no action, retry, wait, or changed assertion cadence.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
@@ -100,7 +102,7 @@ The dated report embeds the complete bounded failure/control traces and the raw-
 
 - **Files:** `src/debugLog.ts`, `test/unit/debugLog.test.ts`, `src/bases/register.ts`, `src/bases/GanttContainer.svelte`, `test/specs/gantt-legend.e2e.ts`
 - Add the sink, mount identity, ordered source markers, action capture, scale checkpoints, and bounded terminal retrieval.
-- Test ring overflow/fault incompleteness, mount retry separation, click-mechanism preservation, primary-error preservation, and complete passing/failing trace shapes.
+- Test ring overflow/fault incompleteness, mount retry separation, click-mechanism preservation, primary-error preservation, complete passing/failing trace shapes, and deterministic pending-versus-terminal zoom/scroll generations.
 - Run unit, lint, typecheck, build, the Legend e2e spec, fullscreen e2e control, and full CI.
 - Land as its own squash-merged PR. End the session. Do not fix the defect.
 
