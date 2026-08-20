@@ -15,7 +15,7 @@ Diagnose the three rank-1 `gantt-legend.e2e.ts` symptoms without changing the be
 
 - `.og-legend-toggle` never interactable (one measured instance)
 - `Gantt did not maximize for the overlay scenarios` in the context-aware-Legend `before` hook (three instances)
-- `scaleLabel` changes from `2` to `3` across maximize/Return (one instance)
+- `scaleLabel` changes from `2` to `3` at the AE4/AE5 state-preservation assertion immediately after opening Legend (one instance)
 
 `docs/reports/2026-08-19-001-reliability-rediagnosis.md` is the governing evidence source. Its run IDs, symptoms, SHA derivation, scope boundaries, and all six R11 Method requirements are incorporated by reference and override this plan. Its historical `executions=12` reproduce example is evidence context; this plan's pre-registered `2×24` sample is the explicit U2 measurement decision.
 
@@ -47,7 +47,7 @@ The ordered maximize/Legend spine is:
 
 The same spine covers maximize and Legend-toggle because both depend on the owning mount, controller, and active leaf. It does not assume they share a cause.
 
-For `scaleLabel`, capture a bounded authoritative snapshot exactly when the test establishes `expectedState` after its own zoom/scroll: the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, plus chart scroll and the existing selected-state facts. Capture the same snapshot at the existing post-Return checkpoint and on failure; keep the owning scale row/cell identity, label, and geometry as rendered corroboration. After saving the original assertion error, terminal retrieval may boundedly observe later resize/layout markers and one final snapshot without another action, retry, or changed assertion cadence.
+For `scaleLabel`, instrument the measured AE4/AE5 action site: capture a bounded authoritative snapshot when that test establishes `expectedState` after zoom/scroll, then at its existing assertion immediately after `openLegend()`, and on failure. Snapshot the owning SVAR API's `_scales` start/end, diff, length/min unit, and width, chart scroll, selected-state facts, and the owning scale row/cell identity, label, and geometry. Tag AE6 resize/Return checkpoints separately; they may diagnose an independent recurrence but cannot serve as the measured AE4/AE5 failure's matched control. Add no action, retry, wait, or changed assertion cadence.
 
 Wrap each existing Legend action only to capture terminal evidence. Preserve its original mechanism: WDIO clicks remain WDIO clicks; renderer-side `HTMLElement.click()` remains renderer-side. A renderer click is never a passing control for a WDIO failure.
 
@@ -58,8 +58,8 @@ Failure retrieval saves the original error first, is best-effort and bounded, an
 U2 measures the full 40-hex main squash-merge SHA from U1.
 
 - Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, consecutively, before any post-dispatch lookup.
-- Immediately before dispatch, record the existing repeat-run IDs and a UTC cutoff. Preserve each command's exact return timestamp and resolve the two new run IDs only after both commands return.
-- Capture the run URL/ID returned by each dispatch command and require both; verify those exact IDs were absent from the pre-dispatch inventory, have server-side `created_at` after the UTC cutoff, and match the workflow, event, inputs, and pinned SHA. Record each ID, URL, `created_at`, and command-return timestamp. Missing or contradictory identity invalidates the window without replacement; the two independent same-SHA runs need not precede one another's jobs.
+- Immediately before dispatch, record the existing repeat-run IDs and a UTC cutoff floored to GitHub's whole-second `created_at` precision. Preserve each command's exact return timestamp and resolve the two new run IDs only after both commands return.
+- Capture the run URL/ID returned by each dispatch command and require both; verify those exact IDs were absent from the pre-dispatch inventory, have server-side `created_at` at or after the floored cutoff, and match the workflow, event, inputs, and pinned SHA. Record each ID, URL, `created_at`, and command-return timestamp. Missing or contradictory identity invalidates the window without replacement; the two independent same-SHA runs need not precede one another's jobs.
 - Use `run_attempt=1` only. Attempt 2 is never evidence.
 - Require both workflow definitions to match the pinned U1 versions and verify each leg checked out the U1 SHA.
 - Download into fresh directories and aggregate once with the U1 version of `node scripts/aggregate-e2e-results.mjs <dir1> 24 <dir2> 24`.
@@ -76,7 +76,7 @@ Every verdict requires a complete failure trace and a complete passing control f
 |---|---|---|---|
 | Maximize timeout | The harness selected a stale/non-owning node or acted before an explicit product readiness contract, while the live owning control was correctly consumable. | The enabled live owning control received the action and the controller/source lifecycle contradicted the requested maximized state without a legitimate other-leaf exit or remount. | Open. |
 | Legend toggle | The harness selected a stale/non-owning/occluded node while the live owning toggle was correctly consumable. | The enabled live owning toggle received the action but plugin-owned state failed to open or retain Legend without a valid invalidator. | Open. |
-| `scaleLabel` `2` to `3` | Either authoritative scale/scroll is restored at the assertion while `:first` moved to another recycled cell, or the failed checkpoint is followed on the same mount by recorded resize/layout delivery and authoritative restoration to the correct logical baseline without another action. | The trace ties the controlled sequence to authoritative scale/scroll failing to restore after recorded resize/layout settlement, or the restored in-viewport logical baseline position renders the wrong label, without a remount, reload, other-leaf exit, reseed, or unrequested resize. | Open when settlement or the post-restoration logical comparison is unproven. |
+| `scaleLabel` `2` to `3` | At the measured AE4/AE5 post-open assertion, authoritative scale/scroll and the logical baseline interval remain correct while the DOM `:first` proxy moved to another recycled cell. | The same-mount trace ties `openLegend()` delivery to authoritative scale/scroll changing, or the restored in-viewport logical baseline position renders the wrong label, without a reload, other-leaf exit, reseed, or unrelated resize. | Open when the post-open authoritative/logical comparison is incomplete; AE6 Return evidence is separate. |
 
 Classify each recurrence independently. If complete recurrences for one symptom support both classes, report that symptom as open-conflicting and commission no single-cause fix.
 
