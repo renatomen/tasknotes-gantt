@@ -57,9 +57,9 @@ Failure retrieval saves the original error first, is best-effort and bounded, an
 
 U2 measures the full 40-hex main squash-merge SHA from U1.
 
-- Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, one at a time, binding each accepted dispatch to its run ID before issuing the next.
+- Dispatch exactly two `e2e-repeat.yml` runs with `executions=24`, one at a time, using the current workflow-dispatch response that returns the created run URL/ID; bind each accepted dispatch before issuing the next.
 - Immediately before each command, record the existing repeat-run IDs and a UTC cutoff floored to GitHub's whole-second `created_at` precision; preserve the command's exact return timestamp.
-- Prefer the run URL/ID returned by the command. If absent, resolve the sole new matching ID from the pre-command inventory and its cutoff-to-return interval. Verify the bound ID's workflow, event, inputs, and pinned SHA, and record its ID, URL, `created_at`, and command-return timestamp. Zero, multiple, or contradictory candidates invalidate the window without replacement; after an ambiguous first dispatch, do not issue the second.
+- Require the returned run URL/ID—never infer identity by polling. Verify that exact ID was absent from the pre-command inventory and matches the workflow, event, inputs, and pinned SHA; record its URL, `created_at`, and command-return timestamp. A missing or contradictory returned identity invalidates the window without replacement; after an invalid first dispatch, do not issue the second.
 - Use `run_attempt=1` only. Attempt 2 is never evidence.
 - Require both workflow definitions to match the pinned U1 versions and verify each leg checked out the U1 SHA.
 - Download into fresh directories and aggregate once with the U1 version of `node scripts/aggregate-e2e-results.mjs <dir1> 24 <dir2> 24`.
