@@ -1814,7 +1814,11 @@
     }
   }
 
-  function captureViewportDelivery(action: string, originatingHostGeneration: number): void {
+  function captureViewportDelivery(
+    action: string,
+    originatingHostGeneration: number,
+    deliveryFacts: GanttLifecycleFacts = {},
+  ): void {
     if (viewportDiagnosticsDisposed || !isGanttLifecycleCaptureActive()) return;
     if (originatingHostGeneration !== hostGeneration) return;
     const sourceMatch = takeViewportSource(action, originatingHostGeneration);
@@ -1829,6 +1833,7 @@
     latestViewportPhase = phase;
     latestViewportHostGeneration = originatingHostGeneration;
     captureLifecycle('viewport-handler-delivered', {
+      ...deliveryFacts,
       action,
       viewportGeneration: generation,
       sourceObserved: source !== null,
@@ -1863,7 +1868,12 @@
     const captureChartScrollDelivery = (event: Event): void => {
       const target = event.target;
       if (!(target instanceof HTMLElement) || !target.matches('.wx-chart')) return;
-      captureViewportDelivery('scroll-chart', hostGeneration);
+      captureViewportDelivery('scroll-chart', hostGeneration, {
+        mechanism: 'dom-scroll',
+        deliveredScrollLeft: target.scrollLeft,
+        eventPhase: event.eventPhase,
+        deliveredTrusted: event.isTrusted,
+      });
     };
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
     root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);

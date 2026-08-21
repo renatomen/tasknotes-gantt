@@ -1,4 +1,4 @@
-/* global AbortSignal, CustomEvent, fetch, getComputedStyle, HTMLButtonElement, MouseEvent */
+/* global AbortSignal, CustomEvent, Event, fetch, getComputedStyle, HTMLButtonElement, MouseEvent */
 import { browser, expect, $, $$ } from "@wdio/globals";
 import type { ChainablePromiseElement } from "webdriverio";
 import WebSocket from "ws";
@@ -2719,6 +2719,11 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(scrollGeneration).toEqual(expect.any(Number));
     expect(scrollDeliveryIndex).toBeGreaterThan(scrollSourceIndex);
     expect(ae4Records[scrollDeliveryIndex]?.facts?.sourceObserved).toBe(true);
+    expect(ae4Records[scrollDeliveryIndex]?.facts).toMatchObject({
+      mechanism: "dom-scroll",
+      deliveredScrollLeft: expect.any(Number),
+      eventPhase: Event.CAPTURING_PHASE,
+    });
     expect(scrollSvelteIndex).toBeGreaterThan(scrollDeliveryIndex);
     expect(scrollFrameIndexes.length).toBeGreaterThanOrEqual(2);
     expect(scrollFrameIndexes[0]).toBeGreaterThan(scrollSvelteIndex);
