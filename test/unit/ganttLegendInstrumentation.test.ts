@@ -8,11 +8,16 @@ const RENDERER_ACTION_HELPERS = {
   clickRendererAction: 'target',
 } as const;
 const LAYOUT_READ_METHODS = new Set([
+  'caretPositionFromPoint',
+  'caretRangeFromPoint',
+  'checkVisibility',
   'elementFromPoint',
   'elementsFromPoint',
+  'getBoxQuads',
   'getBoundingClientRect',
   'getClientRects',
   'getComputedStyle',
+  'scrollIntoView',
 ]);
 const LAYOUT_READ_PROPERTIES = new Set([
   'clientHeight',
@@ -21,12 +26,25 @@ const LAYOUT_READ_PROPERTIES = new Set([
   'clientWidth',
   'offsetHeight',
   'offsetLeft',
+  'offsetParent',
   'offsetTop',
   'offsetWidth',
   'scrollHeight',
   'scrollLeft',
   'scrollTop',
   'scrollWidth',
+  'innerText',
+]);
+const DEFERRED_CALLBACK_METHODS = new Set([
+  'addEventListener',
+  'catch',
+  'finally',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'requestIdleCallback',
+  'setInterval',
+  'setTimeout',
+  'then',
 ]);
 
 type RendererActionHelper = keyof typeof RENDERER_ACTION_HELPERS;
@@ -83,19 +101,26 @@ function rendererActionHelper(node: ts.Node): RendererActionHelper | null {
   return name in RENDERER_ACTION_HELPERS ? name : null;
 }
 
+function isDeferredCallback(node: ts.Node): boolean {
+  if (
+    !ts.isArrowFunction(node) &&
+    !ts.isFunctionExpression(node)
+  ) {
+    return false;
+  }
+  const call = node.parent;
+  if (!ts.isCallExpression(call)) return false;
+  const method = memberName(call.expression);
+  const globalMethod = ts.isIdentifier(call.expression) ? call.expression.text : null;
+  return DEFERRED_CALLBACK_METHODS.has(method ?? globalMethod ?? '');
+}
+
 function collectExecutableNodes(
   callback: ts.ArrowFunction | ts.FunctionExpression,
 ): ts.Node[] {
   const nodes: ts.Node[] = [];
   const visit = (node: ts.Node): void => {
-    if (
-      node !== callback &&
-      (ts.isArrowFunction(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isFunctionDeclaration(node))
-    ) {
-      return;
-    }
+    if (node !== callback && isDeferredCallback(node)) return;
     nodes.push(node);
     ts.forEachChild(node, visit);
   };
@@ -210,6 +235,7 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
         const target = document.querySelector('button')!;
         target.getBoundingClientRect();
         document.elementFromPoint(0, 0);
+        (() => target.getClientRects())();
         target.click();
       });
     }
@@ -217,6 +243,8 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
       await browser.execute(() => {
         const toggle = document.querySelector('button')!;
         document.elementsFromPoint(toggle.offsetLeft, toggle.offsetTop);
+        toggle.checkVisibility();
+        toggle.offsetParent;
         toggle.click();
       });
     }
@@ -228,9 +256,12 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
     layoutReads: [
       { helper: 'clickRendererAction', member: 'getBoundingClientRect' },
       { helper: 'clickRendererAction', member: 'elementFromPoint' },
+      { helper: 'clickRendererAction', member: 'getClientRects' },
       { helper: 'clickFullscreenToggle', member: 'elementsFromPoint' },
       { helper: 'clickFullscreenToggle', member: 'offsetLeft' },
       { helper: 'clickFullscreenToggle', member: 'offsetTop' },
+      { helper: 'clickFullscreenToggle', member: 'checkVisibility' },
+      { helper: 'clickFullscreenToggle', member: 'offsetParent' },
     ],
   });
 });
