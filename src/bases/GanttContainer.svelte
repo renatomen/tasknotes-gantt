@@ -467,7 +467,7 @@
       ganttApi.on(event, () => {
         if (hostGeneration !== wiredHostGeneration) return;
         refreshMarkerGeometry();
-        if (event === 'zoom-scale') captureViewportDelivery(event, wiredHostGeneration);
+        if (event !== 'resize-chart') captureViewportDelivery(event, wiredHostGeneration);
       });
     }
   }
@@ -1610,20 +1610,28 @@
     return source.generation;
   }
 
-  function takeViewportSource(
+  function matchViewportSource(
     action: string,
     originatingHostGeneration: number,
+    consume: boolean,
   ): ViewportSourceMatch {
     const source = pendingViewportSources.get(action);
     const captureGeneration = currentGanttLifecycleCaptureGeneration();
     if (!source || captureGeneration === null) return { source: null, stale: false };
-    pendingViewportSources.delete(action);
+    if (consume) pendingViewportSources.delete(action);
     const matchesCurrentCapture = source.captureGeneration === captureGeneration &&
       source.hostGeneration === originatingHostGeneration;
     return {
       source: matchesCurrentCapture ? source : null,
       stale: !matchesCurrentCapture,
     };
+  }
+
+  function takeViewportSource(
+    action: string,
+    originatingHostGeneration: number,
+  ): ViewportSourceMatch {
+    return matchViewportSource(action, originatingHostGeneration, true);
   }
 
   function abortPendingViewportSources(facts: GanttLifecycleFacts): void {
@@ -1818,8 +1826,6 @@
     action: string,
     originatingHostGeneration: number,
     deliveryFacts: GanttLifecycleFacts = {},
-    deliveryEvent: 'viewport-handler-delivered' | 'viewport-event-delivered' =
-      'viewport-handler-delivered',
   ): void {
     if (viewportDiagnosticsDisposed || !isGanttLifecycleCaptureActive()) return;
     if (originatingHostGeneration !== hostGeneration) return;
@@ -1834,13 +1840,34 @@
     latestViewportAction = action;
     latestViewportPhase = phase;
     latestViewportHostGeneration = originatingHostGeneration;
-    captureLifecycle(deliveryEvent, {
+    captureLifecycle('viewport-handler-delivered', {
       ...deliveryFacts,
       action,
       viewportGeneration: generation,
       sourceObserved: source !== null,
     }, phase, originatingHostGeneration);
     void observeViewportSettlement();
+  }
+
+  function captureViewportEvent(
+    action: string,
+    originatingHostGeneration: number,
+    eventFacts: GanttLifecycleFacts,
+  ): void {
+    if (viewportDiagnosticsDisposed || !isGanttLifecycleCaptureActive()) return;
+    if (originatingHostGeneration !== hostGeneration) return;
+    const sourceMatch = matchViewportSource(action, originatingHostGeneration, false);
+    if (sourceMatch.stale) return;
+    const { source } = sourceMatch;
+    const phase = source?.phase ?? currentGanttLifecyclePhase();
+    if (phase === null) return;
+    if (!source) viewportGeneration += 1;
+    captureLifecycle('viewport-event-delivered', {
+      ...eventFacts,
+      action,
+      viewportGeneration: source?.generation ?? viewportGeneration,
+      sourceObserved: source !== null,
+    }, phase, originatingHostGeneration);
   }
 
   $effect(() => {
@@ -1878,12 +1905,12 @@
     const captureChartScrollDelivery = (event: Event): void => {
       const target = event.target;
       if (!(target instanceof HTMLElement) || !target.matches('.wx-chart')) return;
-      captureViewportDelivery('scroll-chart', hostGeneration, {
+      captureViewportEvent('scroll-chart', hostGeneration, {
         mechanism: 'dom-scroll',
         deliveredScrollLeft: target.scrollLeft,
         eventPhase: event.eventPhase,
         deliveredTrusted: event.isTrusted,
-      }, 'viewport-event-delivered');
+      });
     };
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
     root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);

@@ -2649,8 +2649,14 @@ describe("Gantt (OG) context-aware legend", () => {
         facts?.action === "scroll-chart" &&
         facts?.viewportGeneration === scrollGeneration,
     );
-    const scrollSvelteIndex = ae4Records.findIndex(
+    const scrollHandlerIndex = ae4Records.findIndex(
       ({ event, facts }, index) => index > scrollDeliveryIndex &&
+        event === "viewport-handler-delivered" &&
+        facts?.action === "scroll-chart" &&
+        facts?.viewportGeneration === scrollGeneration,
+    );
+    const scrollSvelteIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > scrollHandlerIndex &&
         event === "viewport-svelte-update" && facts?.viewportGeneration === scrollGeneration,
     );
     const scrollFrameIndexes = ae4Records.flatMap(({ event, facts }, index) =>
@@ -2726,6 +2732,8 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(scrollGeneration).toEqual(expect.any(Number));
     expect(scrollDeliveryIndex).toBeGreaterThan(scrollSourceIndex);
     expect(ae4Records[scrollDeliveryIndex]?.facts?.sourceObserved).toBe(true);
+    expect(scrollHandlerIndex).toBeGreaterThan(scrollDeliveryIndex);
+    expect(ae4Records[scrollHandlerIndex]?.facts?.sourceObserved).toBe(true);
     expect(scrollSourceFacts?.sourceScrollLeft).toEqual(expect.any(Number));
     expect(scrollSourceFacts?.requestedScrollLeft).toEqual(expect.any(Number));
     expect(scrollSourceFacts?.sourceScrollLeft).not.toBe(scrollSourceFacts?.requestedScrollLeft);
@@ -2737,7 +2745,7 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     expect(ae4Records[scrollDeliveryIndex]?.facts?.deliveredScrollLeft)
       .toBe(scrollSourceFacts?.requestedScrollLeft);
-    expect(scrollSvelteIndex).toBeGreaterThan(scrollDeliveryIndex);
+    expect(scrollSvelteIndex).toBeGreaterThan(scrollHandlerIndex);
     expect(scrollFrameIndexes.length).toBeGreaterThanOrEqual(2);
     expect(scrollFrameIndexes[0]).toBeGreaterThan(scrollSvelteIndex);
     expect(scrollTerminalIndex).toBeGreaterThan(scrollFrameIndexes.at(-1) ?? -1);
