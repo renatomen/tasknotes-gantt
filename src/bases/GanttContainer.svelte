@@ -1859,10 +1859,18 @@
         ...readViewportDiagnostics().facts,
       });
     };
-    const captureChartScrollSource = (): void => {
+    const captureChartScrollSource = (event: Event): void => {
+      const detail = (event as CustomEvent<{ requestedScrollLeft?: unknown }>).detail;
+      const requestedScrollLeft = typeof detail?.requestedScrollLeft === 'number' &&
+        Number.isFinite(detail.requestedScrollLeft)
+        ? detail.requestedScrollLeft
+        : null;
+      const chart = root.querySelector<HTMLElement>('.wx-chart');
       captureViewportSource('scroll-chart', {
         mechanism: 'renderer-scroll',
         source: 'test-assignment',
+        sourceScrollLeft: chart?.scrollLeft ?? null,
+        requestedScrollLeft,
       });
     };
     const captureChartScrollDelivery = (event: Event): void => {

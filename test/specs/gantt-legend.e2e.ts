@@ -811,7 +811,9 @@ async function setChartScrollLeft(scrollLeft: number): Promise<number> {
     const maximum = chart.scrollWidth - chart.clientWidth;
     const targetScrollLeft = Math.min(requestedScrollLeft, maximum);
     if (targetScrollLeft === chart.scrollLeft) return maximum;
-    root.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-scroll-source"));
+    root.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-scroll-source", {
+      detail: { requestedScrollLeft: targetScrollLeft },
+    }));
     chart.scrollLeft = targetScrollLeft;
     return maximum;
   }, scrollLeft);
@@ -2635,6 +2637,7 @@ describe("Gantt (OG) context-aware legend", () => {
       ({ event, facts }) => event === "viewport-source-invoked" &&
         facts?.action === "scroll-chart" && facts?.source === "test-assignment",
     );
+    const scrollSourceFacts = ae4Records[scrollSourceIndex]?.facts;
     const scrollGeneration = ae4Records[scrollSourceIndex]?.facts?.viewportGeneration;
     const scrollDeliveryIndex = ae4Records.findIndex(
       ({ event, facts }, index) => index > scrollSourceIndex &&
@@ -2719,12 +2722,17 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(scrollGeneration).toEqual(expect.any(Number));
     expect(scrollDeliveryIndex).toBeGreaterThan(scrollSourceIndex);
     expect(ae4Records[scrollDeliveryIndex]?.facts?.sourceObserved).toBe(true);
+    expect(scrollSourceFacts?.sourceScrollLeft).toEqual(expect.any(Number));
+    expect(scrollSourceFacts?.requestedScrollLeft).toEqual(expect.any(Number));
+    expect(scrollSourceFacts?.sourceScrollLeft).not.toBe(scrollSourceFacts?.requestedScrollLeft);
     expect(ae4Records[scrollDeliveryIndex]?.facts).toMatchObject({
       mechanism: "dom-scroll",
       deliveredScrollLeft: expect.any(Number),
       eventPhase: Event.CAPTURING_PHASE,
       deliveredTrusted: true,
     });
+    expect(ae4Records[scrollDeliveryIndex]?.facts?.deliveredScrollLeft)
+      .toBe(scrollSourceFacts?.requestedScrollLeft);
     expect(scrollSvelteIndex).toBeGreaterThan(scrollDeliveryIndex);
     expect(scrollFrameIndexes.length).toBeGreaterThanOrEqual(2);
     expect(scrollFrameIndexes[0]).toBeGreaterThan(scrollSvelteIndex);
