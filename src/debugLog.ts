@@ -84,8 +84,34 @@ export interface ViewportObservation {
   renderedScaleCellWidth: number | null;
 }
 
+export interface RenderedScaleCellIdentityInput {
+  width: number | null;
+  value: string | number | null;
+}
+
 const DEFAULT_LIFECYCLE_PHASE = 'unassigned';
 const MAX_LIFECYCLE_CAPACITY = 4_096;
+const SCALE_CELL_OFFSET_TOLERANCE_PX = 1;
+
+/** Correlate a rendered cell's scale-relative offset to its model cell. */
+export function renderedScaleCellIdentity(
+  cells: readonly RenderedScaleCellIdentityInput[],
+  renderedLeft: number | null,
+): string | null {
+  if (renderedLeft === null || renderedLeft < -SCALE_CELL_OFFSET_TOLERANCE_PX) return null;
+  let cellLeft = 0;
+  for (let index = 0; index < cells.length; index += 1) {
+    const cell = cells[index];
+    if (!cell) return null;
+    if (Math.abs(renderedLeft - cellLeft) <= SCALE_CELL_OFFSET_TOLERANCE_PX) {
+      return `scale-cell:${index}:${String(cell.value ?? 'unknown')}`;
+    }
+    const width = cell.width;
+    if (width === null || width <= 0) return null;
+    cellLeft += width;
+  }
+  return null;
+}
 
 function copyFacts(facts: GanttLifecycleFacts | undefined): GanttLifecycleFacts | undefined {
   if (!facts) return undefined;

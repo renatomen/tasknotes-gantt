@@ -2806,6 +2806,7 @@ describe("Gantt (OG) context-aware legend", () => {
       scalesLengthUnit: expect.any(String),
       scalesMinUnit: expect.any(String),
       selectedCount: expect.any(Number),
+      renderedScaleCellIdentity: expect.stringMatching(/^scale-cell:\d+:/),
       renderedScaleCellLabel: expect.any(String),
     }));
     expect(() => JSON.stringify(snapshot)).not.toThrow();

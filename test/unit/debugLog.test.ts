@@ -18,6 +18,7 @@ import {
   ganttLifecycleErrorFacts,
   isGanttDebugEnabled,
   isGanttLifecycleCaptureActive,
+  renderedScaleCellIdentity,
   readDiagnosticsPreservingPrimary,
   withGanttDiagnosticDeadline,
   type GanttLifecycleRecord,
@@ -420,6 +421,27 @@ describe('debugLog', () => {
           diagnosticError: null,
           trace: null,
         }));
+      });
+    });
+
+    describe('renderedScaleCellIdentity', () => {
+      it('identifies the rendered model cell from its scale-relative geometry', () => {
+        const cells = [
+          { width: 40, value: 1_724_112_000_000 },
+          { width: 40, value: 1_724_198_400_000 },
+          { width: 40, value: 1_724_284_800_000 },
+        ];
+
+        expect(renderedScaleCellIdentity(cells, 80.4)).toBe(
+          'scale-cell:2:1724284800000',
+        );
+      });
+
+      it('fails closed when preceding model geometry is incomplete', () => {
+        expect(renderedScaleCellIdentity([
+          { width: null, value: 1_724_112_000_000 },
+          { width: 40, value: 1_724_198_400_000 },
+        ], 40)).toBeNull();
       });
     });
   });

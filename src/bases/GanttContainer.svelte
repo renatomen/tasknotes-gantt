@@ -139,6 +139,7 @@
     currentGanttLifecyclePhase,
     dlog,
     isGanttLifecycleCaptureActive,
+    renderedScaleCellIdentity,
     type GanttLifecycleFacts,
     type ViewportObservation,
   } from '../debugLog';
@@ -1366,6 +1367,7 @@
   interface DiagnosticScaleCell {
     start?: unknown;
     value?: unknown;
+    width?: unknown;
   }
 
   interface DiagnosticScales {
@@ -1392,6 +1394,11 @@
 
   function dateMillis(value: unknown): number | null {
     return value instanceof Date && Number.isFinite(value.getTime()) ? value.getTime() : null;
+  }
+
+  function diagnosticScaleCellValue(cell: DiagnosticScaleCell | undefined): string | number | null {
+    return dateMillis(cell?.start) ??
+      (typeof cell?.value === 'string' || typeof cell?.value === 'number' ? cell.value : null);
   }
 
   function captureLifecycle(
@@ -1443,13 +1450,21 @@
       const xArea = state?.xArea;
       const scales = state?._scales;
       const chart = rootEl?.querySelector<HTMLElement>('.wx-chart') ?? null;
-      const scaleRows = rootEl?.querySelectorAll<HTMLElement>('.wx-scale .wx-row');
-      const renderedCell = scaleRows?.[scaleRows.length - 1]?.querySelector<HTMLElement>('.wx-cell') ?? null;
+      const scaleElement = rootEl?.querySelector<HTMLElement>('.wx-scale') ?? null;
+      const renderedScaleRows = scaleElement?.querySelectorAll<HTMLElement>('.wx-row');
+      const renderedCell = renderedScaleRows?.[renderedScaleRows.length - 1]
+        ?.querySelector<HTMLElement>('.wx-cell') ?? null;
+      const scaleRows = scales?.rows;
+      const scaleCells = scaleRows?.[scaleRows.length - 1]?.cells ?? [];
       const logicalCellIndex = finiteNumber(xArea?.start);
       const logicalCell = logicalCellIndex === null
         ? undefined
-        : scales?.rows?.[scales.rows.length - 1]?.cells?.[logicalCellIndex];
+        : scaleCells[logicalCellIndex];
       const renderedBounds = renderedCell?.getBoundingClientRect();
+      const scaleBounds = scaleElement?.getBoundingClientRect();
+      const renderedScaleRelativeLeft = renderedBounds && scaleBounds
+        ? finiteNumber(renderedBounds.left - scaleBounds.left)
+        : null;
       const scalesStart = scales?.start instanceof Date ? scales.start : null;
       const scalesEnd = scales?.end instanceof Date ? scales.end : null;
       const lengthUnit = typeof scales?.lengthUnit === 'string' ? scales.lengthUnit : null;
@@ -1477,11 +1492,14 @@
         scalesWidth: finiteNumber(scales?.width),
         scalesDiff: scaleDiff,
         logicalScaleCellIndex: logicalCellIndex,
-        logicalScaleCellValue: dateMillis(logicalCell?.start) ??
-          (typeof logicalCell?.value === 'string' || typeof logicalCell?.value === 'number'
-            ? logicalCell.value
-            : null),
-        renderedScaleCellIdentity: renderedCell?.dataset.id ?? renderedCell?.className.slice(0, 80) ?? null,
+        logicalScaleCellValue: diagnosticScaleCellValue(logicalCell),
+        renderedScaleCellIdentity: renderedScaleCellIdentity(
+          scaleCells.map((cell) => ({
+            width: finiteNumber(cell.width),
+            value: diagnosticScaleCellValue(cell),
+          })),
+          renderedScaleRelativeLeft,
+        ),
         renderedScaleCellLabel: renderedCell?.textContent?.trim().slice(0, 80) ?? null,
         renderedScaleCellLeft: finiteNumber(renderedBounds?.left),
         renderedScaleCellWidth: finiteNumber(renderedBounds?.width),
