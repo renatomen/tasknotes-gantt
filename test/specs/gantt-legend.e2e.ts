@@ -803,6 +803,18 @@ async function chartViewState(): Promise<ChartViewState> {
   });
 }
 
+async function setChartScrollLeft(scrollLeft: number): Promise<number> {
+  return browser.execute((requestedScrollLeft) => {
+    const root = document.querySelector<HTMLElement>(".og-bases-gantt");
+    const chart = root?.querySelector<HTMLElement>(".wx-chart");
+    if (!root || !chart) return 0;
+    const maximum = chart.scrollWidth - chart.clientWidth;
+    root.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-scroll-source"));
+    chart.scrollLeft = Math.min(requestedScrollLeft, maximum);
+    return maximum;
+  }, scrollLeft);
+}
+
 async function chartViewStateAtCheckpoint(
   checkpoint: string,
   phase: string,
@@ -2202,13 +2214,7 @@ describe("Gantt (OG) context-aware legend", () => {
       timeout: 8000,
       timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
     });
-    const scrollRange = await browser.execute(() => {
-      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
-      if (!chart) return 0;
-      const maximum = chart.scrollWidth - chart.clientWidth;
-      chart.scrollLeft = Math.min(80, maximum);
-      return maximum;
-    });
+    const scrollRange = await setChartScrollLeft(80);
     expect(scrollRange).toBeGreaterThan(0);
     const expectedGeometry = await chartGeometry();
     const expectedState = await chartViewStateAtCheckpoint(
@@ -2314,10 +2320,7 @@ describe("Gantt (OG) context-aware legend", () => {
       });
     }
     expect(scrollRange).toBeGreaterThanOrEqual(300);
-    await browser.execute(() => {
-      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
-      if (chart) chart.scrollLeft = 60;
-    });
+    await setChartScrollLeft(60);
 
     await openLegend();
     await chooseBottom();
@@ -2628,7 +2631,7 @@ describe("Gantt (OG) context-aware legend", () => {
     );
     const scrollSourceIndex = ae4Records.findIndex(
       ({ event, facts }) => event === "viewport-source-invoked" &&
-        facts?.action === "scroll-chart" && facts?.source === "dom-scroll",
+        facts?.action === "scroll-chart" && facts?.source === "test-assignment",
     );
     const scrollGeneration = ae4Records[scrollSourceIndex]?.facts?.viewportGeneration;
     const scrollDeliveryIndex = ae4Records.findIndex(

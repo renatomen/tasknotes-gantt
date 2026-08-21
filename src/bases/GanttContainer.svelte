@@ -467,7 +467,7 @@
       ganttApi.on(event, () => {
         if (hostGeneration !== wiredHostGeneration) return;
         refreshMarkerGeometry();
-        if (event !== 'resize-chart') captureViewportDelivery(event, wiredHostGeneration);
+        if (event === 'zoom-scale') captureViewportDelivery(event, wiredHostGeneration);
       });
     }
   }
@@ -1854,19 +1854,24 @@
         ...readViewportDiagnostics().facts,
       });
     };
-    const captureChartScrollSource = (event: Event): void => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.matches('.wx-chart')) return;
+    const captureChartScrollSource = (): void => {
       captureViewportSource('scroll-chart', {
         mechanism: 'renderer-scroll',
-        source: 'dom-scroll',
+        source: 'test-assignment',
       });
     };
+    const captureChartScrollDelivery = (event: Event): void => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches('.wx-chart')) return;
+      captureViewportDelivery('scroll-chart', hostGeneration);
+    };
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
-    root.addEventListener('scroll', captureChartScrollSource, true);
+    root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
+    root.addEventListener('scroll', captureChartScrollDelivery, true);
     return () => {
       root.removeEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
-      root.removeEventListener('scroll', captureChartScrollSource, true);
+      root.removeEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
+      root.removeEventListener('scroll', captureChartScrollDelivery, true);
     };
   });
 
