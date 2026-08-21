@@ -443,6 +443,19 @@ describe('debugLog', () => {
           { width: 40, value: 1_724_198_400_000 },
         ], 40)).toBeNull();
       });
+
+      it('fails closed when rendered geometry is unavailable', () => {
+        expect(renderedScaleCellIdentity([
+          { width: 40, value: 1_724_112_000_000 },
+        ], null)).toBeNull();
+      });
+
+      it('fails closed when rendered geometry matches no model cell', () => {
+        expect(renderedScaleCellIdentity([
+          { width: 40, value: 1_724_112_000_000 },
+          { width: 40, value: 1_724_198_400_000 },
+        ], 30)).toBeNull();
+      });
     });
   });
 });

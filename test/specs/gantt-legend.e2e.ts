@@ -2800,13 +2800,17 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(legendWdioAttemptRecords[0]?.webdriverElementId).toEqual(expect.any(String));
     expect(legendDelivery?.facts?.browserDeliveryId).toEqual(expect.any(String));
     expect(checkpoint?.scope).toBe(identity.scope);
+    const logicalScaleCellIndex = checkpoint?.facts?.logicalScaleCellIndex;
+    const logicalScaleCellValue = checkpoint?.facts?.logicalScaleCellValue;
+    expect(logicalScaleCellIndex).toEqual(expect.any(Number));
+    expect(['number', 'string']).toContain(typeof logicalScaleCellValue);
     expect(checkpoint?.facts).toEqual(expect.objectContaining({
       scalesStart: expect.any(Number),
       scalesEnd: expect.any(Number),
       scalesLengthUnit: expect.any(String),
       scalesMinUnit: expect.any(String),
       selectedCount: expect.any(Number),
-      renderedScaleCellIdentity: expect.stringMatching(/^scale-cell:\d+:/),
+      renderedScaleCellIdentity: `scale-cell:${String(logicalScaleCellIndex)}:${String(logicalScaleCellValue)}`,
       renderedScaleCellLabel: expect.any(String),
     }));
     expect(() => JSON.stringify(snapshot)).not.toThrow();
