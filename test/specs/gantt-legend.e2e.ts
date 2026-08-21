@@ -146,7 +146,7 @@ function viewportSourceSettledBefore(
     record.sequence < baselineSequence &&
     record.facts?.viewportGeneration === viewportGeneration);
   const deliveryIndex = chain.findIndex(({ event, facts }) =>
-    isViewportDeliveryEvent(event) && facts?.sourceObserved === true);
+    event === "viewport-handler-delivered" && facts?.sourceObserved === true);
   const svelteIndex = chain.findIndex(({ event }, index) =>
     index > deliveryIndex && event === "viewport-svelte-update");
   const frameIndexes = chain.flatMap(({ event }, index) =>
