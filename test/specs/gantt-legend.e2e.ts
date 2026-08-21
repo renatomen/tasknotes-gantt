@@ -218,11 +218,6 @@ async function startLegendLifecycleCapture(): Promise<void> {
       const selector = isLegendToggle
         ? ".og-bases-gantt .og-legend-toggle"
         : ".og-gantt-legend .og-legend-dismiss";
-      const bounds = target.getBoundingClientRect();
-      const hitTarget = document.elementFromPoint(
-        bounds.left + bounds.width / 2,
-        bounds.top + bounds.height / 2,
-      );
       const common = {
         scope: [...root.classList]
           .find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? "unknown",
@@ -239,7 +234,7 @@ async function startLegendLifecycleCapture(): Promise<void> {
         targetExists: true,
         targetConnected: target.isConnected,
         targetDisabled: target instanceof HTMLButtonElement ? target.disabled : null,
-        targetHitOwnsCenter: hitTarget === target || target.contains(hitTarget),
+        targetHitOwnsCenter: null,
         targetAriaExpanded: target.getAttribute("aria-expanded"),
         deliveredTrusted: true,
         evidenceTiming: "trusted-click-capture",
@@ -2697,6 +2692,7 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(snapshot.records.map(({ sequence }) => sequence)).toEqual(
       [...snapshot.records.map(({ sequence }) => sequence)].sort((left, right) => left - right),
     );
+    expect(legendDelivery?.facts?.targetHitOwnsCenter).toBeNull();
     expect(ae4BaselineSequence).toBeGreaterThan(0);
     expect(ae4AfterOpenSequence).toBeGreaterThan(ae4BaselineSequence);
     expect(preBaselineViewportSources.length).toBeGreaterThan(0);
