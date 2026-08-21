@@ -130,6 +130,10 @@ interface LegendDiagnosticNodeGlobal {
 
 type LifecycleRecord = GanttLifecycleSnapshot["records"][number];
 
+function isViewportDeliveryEvent(event: string): boolean {
+  return event === "viewport-handler-delivered" || event === "viewport-event-delivered";
+}
+
 function viewportSourceSettledBefore(
   records: LifecycleRecord[],
   source: LifecycleRecord,
@@ -142,7 +146,7 @@ function viewportSourceSettledBefore(
     record.sequence < baselineSequence &&
     record.facts?.viewportGeneration === viewportGeneration);
   const deliveryIndex = chain.findIndex(({ event, facts }) =>
-    event === "viewport-handler-delivered" && facts?.sourceObserved === true);
+    isViewportDeliveryEvent(event) && facts?.sourceObserved === true);
   const svelteIndex = chain.findIndex(({ event }, index) =>
     index > deliveryIndex && event === "viewport-svelte-update");
   const frameIndexes = chain.flatMap(({ event }, index) =>
@@ -2641,7 +2645,7 @@ describe("Gantt (OG) context-aware legend", () => {
     const scrollGeneration = ae4Records[scrollSourceIndex]?.facts?.viewportGeneration;
     const scrollDeliveryIndex = ae4Records.findIndex(
       ({ event, facts }, index) => index > scrollSourceIndex &&
-        event === "viewport-handler-delivered" &&
+        event === "viewport-event-delivered" &&
         facts?.action === "scroll-chart" &&
         facts?.viewportGeneration === scrollGeneration,
     );
@@ -2674,7 +2678,7 @@ describe("Gantt (OG) context-aware legend", () => {
       (facts?.action === "zoom-scale" || facts?.action === "scroll-chart"));
     const firstPreBaselineSourceSequence = preBaselineViewportSources[0]?.sequence ?? ae4BaselineSequence;
     const measuredPreBaselineDeliveries = mountRecords.filter(({ event, facts, sequence }) =>
-      event === "viewport-handler-delivered" &&
+      isViewportDeliveryEvent(event) &&
       sequence > firstPreBaselineSourceSequence &&
       sequence < ae4BaselineSequence &&
       (facts?.action === "zoom-scale" || facts?.action === "scroll-chart"));

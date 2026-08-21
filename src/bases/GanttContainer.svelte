@@ -1818,6 +1818,8 @@
     action: string,
     originatingHostGeneration: number,
     deliveryFacts: GanttLifecycleFacts = {},
+    deliveryEvent: 'viewport-handler-delivered' | 'viewport-event-delivered' =
+      'viewport-handler-delivered',
   ): void {
     if (viewportDiagnosticsDisposed || !isGanttLifecycleCaptureActive()) return;
     if (originatingHostGeneration !== hostGeneration) return;
@@ -1832,7 +1834,7 @@
     latestViewportAction = action;
     latestViewportPhase = phase;
     latestViewportHostGeneration = originatingHostGeneration;
-    captureLifecycle('viewport-handler-delivered', {
+    captureLifecycle(deliveryEvent, {
       ...deliveryFacts,
       action,
       viewportGeneration: generation,
@@ -1881,7 +1883,7 @@
         deliveredScrollLeft: target.scrollLeft,
         eventPhase: event.eventPhase,
         deliveredTrusted: event.isTrusted,
-      });
+      }, 'viewport-event-delivered');
     };
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
     root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
