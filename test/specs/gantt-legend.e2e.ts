@@ -2723,6 +2723,7 @@ describe("Gantt (OG) context-aware legend", () => {
       mechanism: "dom-scroll",
       deliveredScrollLeft: expect.any(Number),
       eventPhase: Event.CAPTURING_PHASE,
+      deliveredTrusted: true,
     });
     expect(scrollSvelteIndex).toBeGreaterThan(scrollDeliveryIndex);
     expect(scrollFrameIndexes.length).toBeGreaterThanOrEqual(2);
