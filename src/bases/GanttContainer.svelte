@@ -1861,11 +1861,10 @@
     const { source } = sourceMatch;
     const phase = source?.phase ?? currentGanttLifecyclePhase();
     if (phase === null) return;
-    if (!source) viewportGeneration += 1;
     captureLifecycle('viewport-event-delivered', {
       ...eventFacts,
       action,
-      viewportGeneration: source?.generation ?? viewportGeneration,
+      viewportGeneration: source?.generation ?? null,
       sourceObserved: source !== null,
     }, phase, originatingHostGeneration);
   }
