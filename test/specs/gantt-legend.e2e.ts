@@ -1,11 +1,20 @@
-/* global HTMLButtonElement, getComputedStyle */
+/* global AbortSignal, CustomEvent, Event, fetch, getComputedStyle, HTMLButtonElement, MouseEvent */
 import { browser, expect, $, $$ } from "@wdio/globals";
+import type { ChainablePromiseElement } from "webdriverio";
+import WebSocket from "ws";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import type { EstimateMeaning, NonWorkingRendering } from "../../src/bases/viewOptions";
 import type { GanttVisualSemanticId } from "../../src/bases/visualSemantics";
+import {
+  buildGanttLifecycleReport,
+  readDiagnosticsPreservingPrimary,
+  withGanttDiagnosticDeadline,
+  type GanttLifecycleControl,
+  type GanttLifecycleSnapshot,
+} from "../../src/debugLog";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,9 +30,15 @@ const LEGEND_TASK_BAR_SELECTOR =
   '.og-bases-gantt .wx-bar[data-id$="Legend Task.md"]';
 const LEGEND_TASK_FALLBACK_PAINT_SELECTOR = ".og-ghost-run:not(.og-ghost-blocked)";
 const EXPECTED_DEFAULT_CHILD_FILL = "rgb(31, 111, 235)";
+const AE4_TEST_TITLE =
+  "switches live without reflow, preserves selection/zoom/scroll, then reopens at the Appearance default (AE4/AE5)";
+const REAL_MOUNT_LIFECYCLE_TEST_TITLE =
+  "captures the bounded real mount spine and preserves renderer/WDIO click mechanisms (U1)";
 
 let fixtureCalendarAxesNeedReset = false;
 let fixtureBarChannelsNeedReset = false;
+let legendOriginalFailureSeen = false;
+const legendPrimaryErrors = new WeakMap<object, unknown>();
 
 interface ElementRect {
   left: number;
@@ -49,6 +64,542 @@ interface FallbackPaintFacts {
   paintWidth: number;
   background: string | null;
   stripContent: string;
+}
+
+interface WdioClickFailureEvidence {
+  control: string;
+  selector: string;
+  mechanism: "wdio-click";
+  webdriverElementId: string;
+  selectedElementState: "stale" | "not-proven-stale";
+  currentElementIsReplacement: boolean | null;
+  replacementEvidence: "stale-element-plus-current-selector" | "not-established";
+  failure: string | null;
+  targetFacts: WdioClickFailureTargetFacts | null;
+  targetFactsFailure: string | null;
+}
+
+interface WdioClickAttemptEvidence {
+  event: "control-selected" | "click-invoked";
+  phase: string;
+  control: string;
+  selector: string;
+  mechanism: "wdio-click";
+  invocationId: string;
+  webdriverElementId: string;
+}
+
+interface WdioClickFailureTargetFacts {
+  evidenceTiming: "post-failure-cdp-current-selector";
+  ganttRootCount: number;
+  candidateCount: number;
+  scope: string | null;
+  mountToken: number;
+  targetExists: boolean;
+  targetConnected: boolean | null;
+  targetOwnedByRoot: boolean | null;
+  targetDisabled: boolean | null;
+  targetHitOwnsCenter: boolean | null;
+  targetAriaExpanded: string | null;
+}
+
+interface FailedClickBrowserEvidence {
+  facts: WdioClickFailureTargetFacts | null;
+  scriptFailure: string | null;
+}
+
+interface CdpTargetDescriptor {
+  type?: string;
+  webSocketDebuggerUrl?: string;
+}
+
+interface CdpEvaluationResponse {
+  id?: number;
+  error?: { message?: string };
+  result?: {
+    exceptionDetails?: { text?: string };
+    result?: { value?: unknown };
+  };
+}
+
+type LegendRunnerFailureReporter = (testTitle: string, error: unknown) => Promise<void>;
+
+interface LegendDiagnosticNodeGlobal {
+  __tnGanttLegendRunnerFailureReporter?: LegendRunnerFailureReporter;
+}
+
+type LifecycleRecord = GanttLifecycleSnapshot["records"][number];
+
+function isViewportDeliveryEvent(event: string): boolean {
+  return event === "viewport-handler-delivered" || event === "viewport-event-delivered";
+}
+
+function viewportSourceSettledBefore(
+  records: LifecycleRecord[],
+  source: LifecycleRecord,
+  baselineSequence: number,
+): boolean {
+  const viewportGeneration = source.facts?.viewportGeneration;
+  if (typeof viewportGeneration !== "number") return false;
+  const chain = records.filter((record) =>
+    record.sequence > source.sequence &&
+    record.sequence < baselineSequence &&
+    record.facts?.viewportGeneration === viewportGeneration);
+  const deliveryIndex = chain.findIndex(({ event, facts }) =>
+    event === "viewport-handler-delivered" && facts?.sourceObserved === true);
+  const svelteIndex = chain.findIndex(({ event }, index) =>
+    index > deliveryIndex && event === "viewport-svelte-update");
+  const frameIndexes = chain.flatMap(({ event }, index) =>
+    index > svelteIndex && event === "viewport-frame" ? [index] : []);
+  const terminalIndex = chain.findIndex(({ event }, index) =>
+    index > svelteIndex && event === "viewport-terminal");
+  return deliveryIndex >= 0 &&
+    svelteIndex > deliveryIndex &&
+    frameIndexes.length >= 2 &&
+    frameIndexes[0] > svelteIndex &&
+    terminalIndex > (frameIndexes.at(-1) ?? -1) &&
+    !chain.some(({ event }) => event === "viewport-pending");
+}
+
+function viewportSourceHasDeterministicOutcome(
+  records: LifecycleRecord[],
+  source: LifecycleRecord,
+  beforeSequence: number = Number.POSITIVE_INFINITY,
+): boolean {
+  const viewportGeneration = source.facts?.viewportGeneration;
+  if (typeof viewportGeneration !== "number") return false;
+  const laterGenerationRecords = records.filter((record) =>
+    record.sequence > source.sequence &&
+    record.sequence < beforeSequence &&
+    record.facts?.viewportGeneration === viewportGeneration);
+  return laterGenerationRecords.some(({ event }) => event === "viewport-pending") ||
+    viewportSourceSettledBefore(records, source, beforeSequence);
+}
+
+const DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS = 7_500;
+const legendWdioClickFailures: WdioClickFailureEvidence[] = [];
+const legendWdioClickAttempts: WdioClickAttemptEvidence[] = [];
+let legendWdioInvocationSequence = 0;
+let currentLegendLifecyclePhase = "suite-before";
+
+async function startLegendLifecycleCapture(): Promise<void> {
+  legendWdioClickFailures.length = 0;
+  legendWdioClickAttempts.length = 0;
+  legendWdioInvocationSequence = 0;
+  currentLegendLifecyclePhase = "suite-before";
+  const started = await browser.execute((capacity) => {
+    type DiagnosticGlobal = typeof globalThis & {
+      __tnGanttLifecycle?: GanttLifecycleControl;
+      __tnGanttTrustedClickCleanup?: () => void;
+      __tnGanttWdioDeliverySequence?: number;
+    };
+    const diagnosticGlobal = globalThis as DiagnosticGlobal;
+    const control = diagnosticGlobal.__tnGanttLifecycle;
+    if (!control) return false;
+    control.start(capacity);
+    control.setPhase("suite-before");
+    diagnosticGlobal.__tnGanttWdioDeliverySequence = 0;
+    diagnosticGlobal.__tnGanttTrustedClickCleanup?.();
+    const captureTrustedClick = (event: MouseEvent): void => {
+      if (!event.isTrusted) return;
+      const eventTarget = event.target;
+      const closest = (eventTarget as { closest?: <T extends HTMLElement>(selector: string) => T | null } | null)
+        ?.closest;
+      if (!eventTarget || !closest) return;
+      const target = closest.call(eventTarget,
+        ".og-bases-gantt .og-legend-toggle, .og-gantt-legend .og-legend-dismiss",
+      );
+      if (!target) return;
+      const root = target.closest<HTMLElement>(".og-bases-gantt");
+      const lifecycle = diagnosticGlobal.__tnGanttLifecycle;
+      if (!root || !lifecycle) return;
+      const isLegendToggle = target.matches(".og-legend-toggle");
+      const controlName = isLegendToggle
+        ? "legend"
+        : target.textContent?.includes("Return")
+            ? "legend-return"
+            : "legend-dismiss";
+      const selector = isLegendToggle
+        ? ".og-bases-gantt .og-legend-toggle"
+        : ".og-gantt-legend .og-legend-dismiss";
+      const common = {
+        scope: [...root.classList]
+          .find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? "unknown",
+        mountToken: Number(root.dataset.ogMountToken ?? 0),
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+      };
+      const facts = {
+        control: controlName,
+        selector,
+        mechanism: "wdio-click",
+        browserDeliveryId: `wdio-delivery-${(diagnosticGlobal.__tnGanttWdioDeliverySequence ?? 0) + 1}`,
+        targetExists: true,
+        targetConnected: target.isConnected,
+        targetDisabled: target instanceof HTMLButtonElement ? target.disabled : null,
+        targetHitOwnsCenter: null,
+        targetAriaExpanded: target.getAttribute("aria-expanded"),
+        deliveredTrusted: true,
+        evidenceTiming: "trusted-click-capture",
+      };
+      diagnosticGlobal.__tnGanttWdioDeliverySequence =
+        (diagnosticGlobal.__tnGanttWdioDeliverySequence ?? 0) + 1;
+      lifecycle.record({ ...common, event: "click-delivered", facts });
+    };
+    document.addEventListener("click", captureTrustedClick, true);
+    diagnosticGlobal.__tnGanttTrustedClickCleanup = () => {
+      document.removeEventListener("click", captureTrustedClick, true);
+      delete diagnosticGlobal.__tnGanttTrustedClickCleanup;
+    };
+    return control.snapshot()?.capacity === capacity;
+  }, 512);
+  if (!started) throw new Error("Gantt lifecycle collector was unavailable after plugin reload");
+}
+
+function chromeDebuggerAddress(): string {
+  const capabilities = browser.capabilities as Record<string, unknown>;
+  const chromeOptions = capabilities["goog:chromeOptions"];
+  if (typeof chromeOptions !== "object" || chromeOptions === null) {
+    throw new Error("Chrome debugger options are unavailable for bounded diagnostics");
+  }
+  const debuggerAddress = (chromeOptions as Record<string, unknown>).debuggerAddress;
+  if (typeof debuggerAddress !== "string" || debuggerAddress.length === 0) {
+    throw new Error("Chrome debugger address is unavailable for bounded diagnostics");
+  }
+  return debuggerAddress;
+}
+
+async function evaluateBoundedCdp<T>(expression: string, signal: AbortSignal): Promise<T> {
+  const targetResponse = await fetch(`http://${chromeDebuggerAddress()}/json/list`, { signal });
+  if (!targetResponse.ok) throw new Error(`Chrome diagnostic target lookup failed: ${targetResponse.status}`);
+  const targets = await targetResponse.json() as CdpTargetDescriptor[];
+  const target = targets.find(({ type, webSocketDebuggerUrl }) =>
+    type === "page" && typeof webSocketDebuggerUrl === "string");
+  if (!target?.webSocketDebuggerUrl) throw new Error("Obsidian Chrome diagnostic target is unavailable");
+
+  return new Promise<T>((resolve, reject) => {
+    const socket = new WebSocket(target.webSocketDebuggerUrl as string);
+    let settled = false;
+    const finish = (outcome: { value: T } | { error: unknown }): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      socket.close();
+      if ("error" in outcome) reject(outcome.error);
+      else resolve(outcome.value);
+    };
+    const abort = (): void => finish({ error: new Error("Chrome diagnostic retrieval was cancelled") });
+    signal.addEventListener("abort", abort, { once: true });
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({
+        id: 1,
+        method: "Runtime.evaluate",
+        params: { expression, returnByValue: true, awaitPromise: false },
+      }));
+    }, { once: true });
+    socket.addEventListener("message", (event) => {
+      try {
+        const response = JSON.parse(String(event.data)) as CdpEvaluationResponse;
+        if (response.id !== 1) return;
+        const protocolFailure = response.error?.message ?? response.result?.exceptionDetails?.text;
+        if (protocolFailure) {
+          finish({ error: new Error(`Chrome diagnostic evaluation failed: ${protocolFailure}`) });
+          return;
+        }
+        finish({ value: response.result?.result?.value as T });
+      } catch (error) {
+        finish({ error });
+      }
+    });
+    socket.addEventListener("error", () => {
+      finish({ error: new Error("Chrome diagnostic connection failed") });
+    }, { once: true });
+  });
+}
+
+async function setLegendLifecyclePhase(phase: string): Promise<void> {
+  currentLegendLifecyclePhase = phase;
+  await browser.execute((nextPhase) => {
+    (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl })
+      .__tnGanttLifecycle?.setPhase(nextPhase);
+  }, phase);
+}
+
+async function readLegendLifecycle(): Promise<GanttLifecycleSnapshot | null> {
+  return browser.execute(() =>
+    (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl })
+      .__tnGanttLifecycle?.snapshot() ?? null);
+}
+
+async function readLegendLifecycleAfterFailure(): Promise<GanttLifecycleSnapshot | null> {
+  return withGanttDiagnosticDeadline(
+    (signal) => evaluateBoundedCdp<GanttLifecycleSnapshot | null>(
+      "globalThis.__tnGanttLifecycle?.snapshot() ?? null",
+      signal,
+    ),
+    DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS,
+  );
+}
+
+async function stopLegendLifecycleCapture(): Promise<void> {
+  await browser.execute(() => {
+    const diagnosticGlobal = globalThis as typeof globalThis & {
+      __tnGanttLifecycle?: GanttLifecycleControl;
+      __tnGanttTrustedClickCleanup?: () => void;
+    };
+    diagnosticGlobal.__tnGanttTrustedClickCleanup?.();
+    diagnosticGlobal.__tnGanttLifecycle?.stop();
+  });
+}
+
+async function readFailedClickEvidence(
+  selector: string,
+): Promise<FailedClickBrowserEvidence> {
+  const targetSelector = JSON.stringify(selector);
+  const expression = `(() => {
+    try {
+      const candidates = [...document.querySelectorAll(${targetSelector})];
+      const currentTarget = candidates[0] ?? null;
+      const root = currentTarget?.closest(".og-bases-gantt") ?? null;
+      const bounds = currentTarget?.getBoundingClientRect() ?? null;
+      const hitTarget = bounds
+        ? document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+        : null;
+      return {
+        facts: {
+          evidenceTiming: "post-failure-cdp-current-selector",
+          ganttRootCount: document.querySelectorAll(".og-bases-gantt").length,
+          candidateCount: candidates.length,
+          scope: root
+            ? [...root.classList].find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? null
+            : null,
+          mountToken: Number(root?.dataset.ogMountToken ?? 0),
+          targetExists: currentTarget !== null,
+          targetConnected: currentTarget?.isConnected ?? null,
+          targetOwnedByRoot: currentTarget ? root?.contains(currentTarget) ?? false : null,
+          targetDisabled: currentTarget instanceof HTMLButtonElement ? currentTarget.disabled : null,
+          targetHitOwnsCenter: currentTarget
+            ? hitTarget === currentTarget || currentTarget.contains(hitTarget)
+            : null,
+          targetAriaExpanded: currentTarget?.getAttribute("aria-expanded") ?? null
+        },
+        scriptFailure: null
+      };
+    } catch (error) {
+      return {
+        facts: null,
+        scriptFailure: error instanceof Error ? error.message : String(error)
+      };
+    }
+  })()`;
+  return withGanttDiagnosticDeadline(
+    (signal) => evaluateBoundedCdp<FailedClickBrowserEvidence>(expression, signal),
+    DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS,
+  );
+}
+
+async function clickWdioAction(
+  target: ChainablePromiseElement,
+  selector: string,
+  controlName: string,
+): Promise<void> {
+  const selectedTarget = await target as unknown as WebdriverIO.Element;
+  const invocationId = `wdio-${legendWdioInvocationSequence + 1}`;
+  legendWdioInvocationSequence += 1;
+  const attempt = {
+    phase: currentLegendLifecyclePhase,
+    control: controlName,
+    selector,
+    mechanism: "wdio-click" as const,
+    invocationId,
+    webdriverElementId: selectedTarget.elementId,
+  };
+  legendWdioClickAttempts.push({ ...attempt, event: "control-selected" });
+  legendWdioClickAttempts.push({ ...attempt, event: "click-invoked" });
+  try {
+    await selectedTarget.click();
+  } catch (error) {
+    let targetFacts: WdioClickFailureTargetFacts | null = null;
+    let targetFactsFailure: string | null = null;
+    try {
+      const failureEvidence = await readFailedClickEvidence(selector);
+      targetFacts = failureEvidence.facts;
+      targetFactsFailure = failureEvidence.scriptFailure;
+    } catch (targetFactsError) {
+      targetFactsFailure = renderFailure(targetFactsError);
+    }
+    const selectedElementWasStale = isStaleWebdriverElementFailure(error);
+    const currentElementIsReplacement = selectedElementWasStale && targetFacts
+      ? targetFacts.targetExists
+      : null;
+    legendWdioClickFailures.push({
+      control: controlName,
+      selector,
+      mechanism: "wdio-click",
+      webdriverElementId: selectedTarget.elementId,
+      selectedElementState: selectedElementWasStale ? "stale" : "not-proven-stale",
+      currentElementIsReplacement,
+      replacementEvidence: currentElementIsReplacement === null
+        ? "not-established"
+        : "stale-element-plus-current-selector",
+      failure: renderFailure(error),
+      targetFacts,
+      targetFactsFailure,
+    });
+    throw error;
+  }
+}
+
+async function clickRendererAction(
+  selector: string,
+  controlName: string,
+  textMatch: string | null = null,
+): Promise<void> {
+  await browser.execute((targetSelector, control, expectedText) => {
+    const candidates = [...document.querySelectorAll<HTMLButtonElement>(targetSelector)];
+    const target = expectedText === null
+      ? candidates[0]
+      : candidates.find((candidate) => candidate.textContent?.trim() === expectedText);
+    if (!target) return;
+    const root = target.closest<HTMLElement>(".og-bases-gantt");
+    const lifecycle = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
+    if (lifecycle && root) {
+      const common = {
+        scope: [...root.classList]
+          .find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? "unknown",
+        mountToken: Number(root.dataset.ogMountToken ?? 0),
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+      };
+      const facts = {
+        control,
+        selector: targetSelector,
+        mechanism: "renderer-click",
+        targetExists: true,
+        targetConnected: target.isConnected,
+        targetDisabled: target.disabled,
+        targetHitOwnsCenter: null,
+        targetAriaExpanded: target.getAttribute("aria-expanded"),
+      };
+      target.addEventListener("click", (event) => {
+        lifecycle.record({
+          ...common,
+          event: "click-delivered",
+          facts: {
+            ...facts,
+            mechanism: event.isTrusted ? "wdio-click" : "renderer-click",
+            deliveredTrusted: event.isTrusted,
+          },
+        });
+      }, { capture: true, once: true });
+      lifecycle.record({ ...common, event: "control-selected", facts });
+      lifecycle.record({ ...common, event: "click-invoked", facts });
+    }
+    target.click();
+  }, selector, controlName, textMatch);
+}
+
+async function captureViewportCheckpoint(checkpoint: string): Promise<void> {
+  await browser.execute((name) => {
+    document.querySelector(".og-bases-gantt")?.dispatchEvent(new CustomEvent(
+      "tn-gantt-lifecycle-checkpoint",
+      { detail: { checkpoint: name } },
+    ));
+  }, checkpoint);
+}
+
+function renderFailure(error: unknown): string | null {
+  if (error === null || error === undefined) return null;
+  try {
+    return (error instanceof Error ? (error.stack ?? error.message) : String(error)).slice(0, 2000);
+  } catch {
+    return "Unrenderable failure";
+  }
+}
+
+function isStaleWebdriverElementFailure(error: unknown): boolean {
+  return renderFailure(error)?.toLowerCase().includes("stale element reference") === true;
+}
+
+async function reportLegendLifecycle(origin: string, primaryError: unknown): Promise<void> {
+  const hasPrimaryFailure = primaryError !== null && primaryError !== undefined;
+  if (hasPrimaryFailure) legendOriginalFailureSeen = true;
+  const readLifecycle = hasPrimaryFailure ? readLegendLifecycleAfterFailure : readLegendLifecycle;
+  const result = await readDiagnosticsPreservingPrimary(primaryError, readLifecycle);
+  const lifecycleUnavailable = result.diagnosticValue === null || result.diagnosticValue === undefined;
+  const diagnosticValue = lifecycleUnavailable
+    ? undefined
+    : {
+        ...result.diagnosticValue,
+        wdioClickAttempts: [...legendWdioClickAttempts],
+        wdioClickFailures: [...legendWdioClickFailures],
+      };
+  const diagnosticError = result.diagnosticError;
+  try {
+    console.error(`[OG-LIFECYCLE] ${JSON.stringify(buildGanttLifecycleReport({
+      origin,
+      originalOutcome: hasPrimaryFailure ? "failed" : (legendOriginalFailureSeen ? "failed-earlier" : "passed"),
+      originalError: renderFailure(result.primaryError),
+      diagnosticError,
+      diagnosticValue,
+    }))}`);
+  } catch (error) {
+    console.error(`[OG-LIFECYCLE] terminal payload serialization failed: ${renderFailure(error)}`);
+  }
+}
+
+function reportLegendLifecycleRetrievalFailure(
+  origin: string,
+  error: unknown,
+  primaryError: unknown = null,
+): void {
+  const hasPrimaryFailure = primaryError !== null && primaryError !== undefined;
+  try {
+    console.error(`[OG-LIFECYCLE] ${JSON.stringify(buildGanttLifecycleReport({
+      origin,
+      originalOutcome: hasPrimaryFailure ? "failed" : (legendOriginalFailureSeen ? "failed-earlier" : "passed"),
+      originalError: renderFailure(primaryError),
+      diagnosticError: renderFailure(error) ?? "Unknown terminal diagnostic failure",
+    }))}`);
+  } catch {
+    // Terminal diagnostics must not change the suite outcome.
+  }
+}
+
+async function reportAfterEachFailure(testTitle: string, error: unknown): Promise<void> {
+  legendOriginalFailureSeen = true;
+  const diagnosticFailure = await attemptLegendFailureDiagnostics(
+    `afterEach:${testTitle}`,
+    error,
+  );
+  if (diagnosticFailure !== null) {
+    reportLegendLifecycleRetrievalFailure(`afterEach:${testTitle}`, diagnosticFailure, error);
+  }
+}
+
+async function attemptLegendFailureDiagnostics(
+  origin: string,
+  primaryError: unknown,
+): Promise<unknown | null> {
+  if (primaryError !== null && primaryError !== undefined) legendOriginalFailureSeen = true;
+  try {
+    if (primaryError !== null && primaryError !== undefined) {
+      await reportLegendLifecycle(origin, primaryError);
+    }
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+function logSuppressedDiagnosticFailure(error: unknown): void {
+  try {
+    console.error(`[OG-LIFECYCLE] diagnostic failure after primary failure: ${renderFailure(error)}`);
+  } catch {
+    // A diagnostic failure must not replace the product failure already captured by Mocha.
+  }
 }
 
 async function enableBases(): Promise<void> {
@@ -144,8 +695,9 @@ async function restoreTransientObsidianNotices(): Promise<void> {
 }
 
 async function openLegend(): Promise<void> {
-  const trigger = await $(".og-bases-gantt .og-legend-toggle");
-  await trigger.click();
+  const selector = ".og-bases-gantt .og-legend-toggle";
+  const trigger = await $(selector);
+  await clickWdioAction(trigger, selector, "legend");
   await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, {
     timeout: 8000,
     timeoutMsg: "Legend panel did not open",
@@ -153,9 +705,8 @@ async function openLegend(): Promise<void> {
 }
 
 async function closeLegend(): Promise<void> {
-  await browser.execute(() => {
-    (document.querySelector(".og-gantt-legend .og-legend-dismiss") as HTMLButtonElement | null)?.click();
-  });
+  const selector = ".og-gantt-legend .og-legend-dismiss";
+  await clickRendererAction(selector, "legend-dismiss");
   await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 0, {
     timeout: 8000,
     timeoutMsg: "Legend panel did not close",
@@ -213,11 +764,8 @@ async function legendLayout(): Promise<string | null> {
 }
 
 async function chooseBottom(): Promise<void> {
-  await browser.execute(() => {
-    const button = [...document.querySelectorAll<HTMLButtonElement>(".og-gantt-legend [role='radio']")]
-      .find((candidate) => candidate.textContent?.trim() === "Bottom");
-    button?.click();
-  });
+  const selector = ".og-gantt-legend [role='radio']";
+  await clickRendererAction(selector, "legend-bottom", "Bottom");
 }
 
 async function chartGeometry(): Promise<ChartGeometry> {
@@ -252,6 +800,46 @@ async function chartViewState(): Promise<ChartViewState> {
       scaleLabel: scaleCell.textContent?.trim() ?? "",
     };
   });
+}
+
+async function setChartScrollLeft(scrollLeft: number): Promise<number> {
+  return browser.execute((requestedScrollLeft) => {
+    const root = document.querySelector<HTMLElement>(".og-bases-gantt");
+    const chart = root?.querySelector<HTMLElement>(".wx-chart");
+    if (!root || !chart) return 0;
+    const maximum = chart.scrollWidth - chart.clientWidth;
+    const targetScrollLeft = Math.min(requestedScrollLeft, maximum);
+    if (targetScrollLeft === chart.scrollLeft) return maximum;
+    root.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-scroll-source", {
+      detail: { requestedScrollLeft: targetScrollLeft },
+    }));
+    chart.scrollLeft = targetScrollLeft;
+    return maximum;
+  }, scrollLeft);
+}
+
+async function chartViewStateAtCheckpoint(
+  checkpoint: string,
+  phase: string,
+): Promise<ChartViewState> {
+  currentLegendLifecyclePhase = phase;
+  return browser.execute((checkpointName, checkpointPhase) => {
+    const lifecycle = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
+    lifecycle?.setPhase(checkpointPhase);
+    const root = document.querySelector<HTMLElement>(".og-bases-gantt");
+    root?.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-checkpoint", {
+      detail: { checkpoint: checkpointName },
+    }));
+    const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement;
+    const scaleRows = document.querySelectorAll(".og-bases-gantt .wx-scale .wx-row");
+    const scaleCell = scaleRows[scaleRows.length - 1]?.querySelector(".wx-cell") as HTMLElement;
+    return {
+      selectedCount: document.querySelectorAll(".og-bases-gantt .wx-selected").length,
+      scrollLeft: chart.scrollLeft,
+      scaleCellWidth: scaleCell.getBoundingClientRect().width,
+      scaleLabel: scaleCell.textContent?.trim() ?? "",
+    };
+  }, checkpoint, phase);
 }
 
 async function ensureRealChartSelection(): Promise<void> {
@@ -336,6 +924,49 @@ async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
     async () => browser.execute((targetSelector) => {
       const toggle = document.querySelector<HTMLButtonElement>(targetSelector);
       if (!toggle || toggle.disabled) return false;
+      const root = toggle.closest<HTMLElement>(".og-bases-gantt");
+      const control = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
+      const scope = root
+        ? [...root.classList].find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? "unknown"
+        : "unknown";
+      const common = {
+        scope,
+        mountToken: Number(root?.dataset.ogMountToken ?? 0),
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+      };
+      const facts = {
+        control: "maximize",
+        selector: targetSelector,
+        mechanism: "renderer-click",
+        targetExists: true,
+        targetConnected: toggle.isConnected,
+        targetDisabled: toggle.disabled,
+        targetHitOwnsCenter: null,
+        targetAriaExpanded: toggle.getAttribute("aria-expanded"),
+      };
+      toggle.addEventListener("click", (event) => {
+        control?.record({
+          ...common,
+          event: "click-delivered",
+          facts: {
+            ...facts,
+            mechanism: event.isTrusted ? "wdio-click" : "renderer-click",
+            deliveredTrusted: event.isTrusted,
+          },
+        });
+      }, { capture: true, once: true });
+      control?.record({
+        ...common,
+        event: "control-selected",
+        facts,
+      });
+      control?.record({
+        ...common,
+        event: "click-invoked",
+        facts,
+      });
       toggle.click();
       return true;
     }, selector),
@@ -380,7 +1011,9 @@ function createCombinedFailure(message: string, failures: unknown[]): Error {
       return `Failure ${index + 1}: ${rendered}`;
     })
     .join("\n");
-  return new Error(`${message}\n${details}`);
+  const combined = new Error(`${message}\n${details}`) as Error & { cause?: unknown };
+  combined.cause = failures[0];
+  return combined;
 }
 
 async function writeFixtureCalendarAxes(
@@ -538,55 +1171,82 @@ async function restoreFixtureBarChannels(): Promise<void> {
 describe("Gantt (OG) context-aware legend", () => {
   before(async function () {
     this.timeout(420000);
-    const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
-    fs.rmSync(tmpVault, { recursive: true, force: true });
-    fs.cpSync(fixtureVault, tmpVault, { recursive: true });
+    try {
+      const tmpVault = path.join(os.tmpdir(), "og-gantt-legend-e2e");
+      fs.rmSync(tmpVault, { recursive: true, force: true });
+      fs.cpSync(fixtureVault, tmpVault, { recursive: true });
 
-    await browser.reloadObsidian({
-      vault: tmpVault,
-      plugins: ["tasknotes-gantt", "tasknotes"],
-    });
-    await suppressTransientObsidianNotices();
-    await enableBases();
-    await waitForTaskNotesReady();
-    await waitForLegendRecurringTaskReady();
-    await openFixtureBase();
-    try {
-      await waitForSingleFixtureRoot();
-    } catch {
-      // TaskNotes can finish its startup navigation after lifecycle.ready and
-      // steal the active leaf once. Reopen the fixture after that bounded race.
-      await openFixtureBase();
-      await waitForSingleFixtureRoot(60000, "Gantt legend fixture did not mount the plugin view after reopening");
-    }
-    try {
-      await browser.waitUntil(
-        async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
-        { timeout: 30000, timeoutMsg: "Gantt legend fixture did not render a task bar" },
-      );
-    } catch (error) {
-      const diagnostic = await browser.execute(() => {
-        const root = document.querySelector(".og-bases-gantt") as HTMLElement | null;
-        const chart = root?.querySelector(".og-chart-area") as HTMLElement | null;
-        const surface = root?.querySelector(".og-chart-surface") as HTMLElement | null;
-        return {
-          rootText: root?.innerText.slice(0, 300),
-          chartHeight: chart?.getBoundingClientRect().height,
-          surfaceHeight: surface?.getBoundingClientRect().height,
-          ganttCount: root?.querySelectorAll(".wx-gantt").length,
-        };
+      await browser.reloadObsidian({
+        vault: tmpVault,
+        plugins: ["tasknotes-gantt", "tasknotes"],
       });
-      throw new Error(`${String(error)}; diagnostic=${JSON.stringify(diagnostic)}`);
+      await startLegendLifecycleCapture();
+      (globalThis as LegendDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter =
+        async (testTitle, error) => {
+          legendOriginalFailureSeen = true;
+          const diagnosticFailure = await attemptLegendFailureDiagnostics(`afterTest:${testTitle}`, error);
+          if (diagnosticFailure !== null) {
+            reportLegendLifecycleRetrievalFailure(`afterTest:${testTitle}`, diagnosticFailure, error);
+          }
+        };
+      await suppressTransientObsidianNotices();
+      await enableBases();
+      await waitForTaskNotesReady();
+      await waitForLegendRecurringTaskReady();
+      await openFixtureBase();
+      try {
+        await waitForSingleFixtureRoot();
+      } catch {
+        // TaskNotes can finish its startup navigation after lifecycle.ready and
+        // steal the active leaf once. Reopen the fixture after that bounded race.
+        await openFixtureBase();
+        await waitForSingleFixtureRoot(60000, "Gantt legend fixture did not mount the plugin view after reopening");
+      }
+      try {
+        await browser.waitUntil(
+          async () => (await $$(".og-bases-gantt .wx-bar").length) > 0,
+          { timeout: 30000, timeoutMsg: "Gantt legend fixture did not render a task bar" },
+        );
+      } catch (error) {
+        const diagnostic = await browser.execute(() => {
+          const root = document.querySelector(".og-bases-gantt") as HTMLElement | null;
+          const chart = root?.querySelector(".og-chart-area") as HTMLElement | null;
+          const surface = root?.querySelector(".og-chart-surface") as HTMLElement | null;
+          return {
+            rootText: root?.innerText.slice(0, 300),
+            chartHeight: chart?.getBoundingClientRect().height,
+            surfaceHeight: surface?.getBoundingClientRect().height,
+            ganttCount: root?.querySelectorAll(".wx-gantt").length,
+          };
+        });
+        throw new Error(`${String(error)}; diagnostic=${JSON.stringify(diagnostic)}`);
+      }
+      await clickFullscreenToggle("Gantt maximize control did not become clickable for the overlay scenarios");
+      await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized").length) === 1, {
+        timeout: 8000,
+        timeoutMsg: "Gantt did not maximize for the overlay scenarios",
+      });
+    } catch (error) {
+      await reportLegendLifecycle("before-hook", error);
+      throw error;
     }
-    await clickFullscreenToggle("Gantt maximize control did not become clickable for the overlay scenarios");
-    await browser.waitUntil(async () => (await $$(".og-bases-gantt.is-maximized").length) === 1, {
-      timeout: 8000,
-      timeoutMsg: "Gantt did not maximize for the overlay scenarios",
-    });
   });
 
   afterEach(async function () {
     this.timeout(240000);
+    const currentTest = this.currentTest as { title?: string; err?: unknown; state?: string } | undefined;
+    const primaryError = (currentTest ? legendPrimaryErrors.get(currentTest) : undefined) ?? currentTest?.err;
+    const diagnosticFailure = await attemptLegendFailureDiagnostics(
+      `test:${currentTest?.title ?? "unknown"}`,
+      primaryError,
+    );
+    if (diagnosticFailure !== null) {
+      reportLegendLifecycleRetrievalFailure(
+        `test:${currentTest?.title ?? "unknown"}`,
+        diagnosticFailure,
+        primaryError,
+      );
+    }
     const cleanupFailures: unknown[] = [];
     const attemptCleanup = async (cleanup: () => Promise<void>): Promise<void> => {
       try {
@@ -628,39 +1288,95 @@ describe("Gantt (OG) context-aware legend", () => {
         if (host) host.style.width = "";
       });
     });
-    if (cleanupFailures.length === 1) throw cleanupFailures[0];
-    if (cleanupFailures.length > 1) {
-      throw createCombinedFailure("Multiple Gantt legend fixture cleanups failed", cleanupFailures);
+    const hasPrimaryFailure = primaryError !== null && primaryError !== undefined;
+    if (hasPrimaryFailure) {
+      if (cleanupFailures.length > 0) {
+        const combinedFailure = createCombinedFailure(
+          "Gantt legend test failed and fixture cleanup also failed",
+          [primaryError, ...cleanupFailures],
+        );
+        await reportAfterEachFailure(currentTest?.title ?? "unknown", combinedFailure);
+        throw combinedFailure;
+      }
+      return;
+    }
+
+    const hookFailures = cleanupFailures;
+    if (hookFailures.length > 0) {
+      const hookFailure = hookFailures.length === 1
+        ? hookFailures[0]
+        : createCombinedFailure("Multiple Gantt legend afterEach operations failed", hookFailures);
+      await reportAfterEachFailure(currentTest?.title ?? "unknown", hookFailure);
+      throw hookFailure;
     }
   });
 
   beforeEach(async function () {
     this.timeout(30000);
-    await suppressTransientObsidianNotices();
-    const shieldEffective = await browser.execute(() => {
-      const container = document.createElement("div");
-      container.className = "notice-container";
-      container.style.cssText = "position:fixed;left:-9999px;top:0;";
-      const probe = document.createElement("div");
-      probe.className = "notice";
-      container.appendChild(probe);
-      document.body.appendChild(container);
-      const effective = getComputedStyle(probe).pointerEvents === "none";
-      container.remove();
-      return effective;
-    });
-    if (!shieldEffective) {
-      throw new Error("Gantt legend e2e notice shield no longer disables notice hit-testing");
+    const currentTest = this.currentTest as {
+      title?: string;
+      fn?: (this: unknown, ...args: unknown[]) => unknown;
+    } | undefined;
+    const originalTest = currentTest?.fn;
+    if (currentTest && originalTest) {
+      currentTest.fn = async function (this: unknown, ...args: unknown[]): Promise<unknown> {
+        try {
+          return await originalTest.apply(this, args);
+        } catch (error) {
+          legendPrimaryErrors.set(currentTest, error);
+          throw error;
+        }
+      };
+    }
+    try {
+      await setLegendLifecyclePhase(`test:${currentTest?.title ?? "unknown"}`);
+      await suppressTransientObsidianNotices();
+      const shieldEffective = await browser.execute(() => {
+        const container = document.createElement("div");
+        container.className = "notice-container";
+        container.style.cssText = "position:fixed;left:-9999px;top:0;";
+        const probe = document.createElement("div");
+        probe.className = "notice";
+        container.appendChild(probe);
+        document.body.appendChild(container);
+        const effective = getComputedStyle(probe).pointerEvents === "none";
+        container.remove();
+        return effective;
+      });
+      if (!shieldEffective) {
+        throw new Error("Gantt legend e2e notice shield no longer disables notice hit-testing");
+      }
+    } catch (error) {
+      if (currentTest) legendPrimaryErrors.set(currentTest, error);
+      legendOriginalFailureSeen = true;
+      const diagnosticFailure = await attemptLegendFailureDiagnostics(
+        `beforeEach:${currentTest?.title ?? "unknown"}`,
+        error,
+      );
+      if (diagnosticFailure !== null) logSuppressedDiagnosticFailure(diagnosticFailure);
+      throw error;
     }
   });
 
   after(async function () {
     this.timeout(60000);
     try {
+      await setLegendLifecyclePhase("suite-after");
+      await reportLegendLifecycle("suite-after", null);
+    } catch (error) {
+      reportLegendLifecycleRetrievalFailure("suite-after", error);
+    }
+    try {
       await restoreTransientObsidianNotices();
     } catch {
       // The browser session can already be gone after a before-hook failure.
     }
+    try {
+      await stopLegendLifecycleCapture();
+    } catch {
+      // The browser session can already be gone after a before-hook failure.
+    }
+    delete (globalThis as LegendDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
   });
 
   it("keeps Legend available and opens the default right panel without the optional toolbar (AE10)", async () => {
@@ -669,7 +1385,7 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(trigger).toBeExisting();
     await expect(trigger).toHaveAttribute("aria-label", "Legend");
 
-    await trigger.click();
+    await clickWdioAction(trigger, ".og-bases-gantt .og-legend-toggle", "legend");
     const panel = await $(".og-bases-gantt .og-gantt-legend[data-layout='right']");
     await expect(panel).toBeExisting();
     await expect(panel).toHaveAttribute("aria-label", "Gantt legend");
@@ -1485,7 +2201,7 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(result.chartUnchanged).toBe(true);
   });
 
-  it("switches live without reflow, preserves selection/zoom/scroll, then reopens at the Appearance default (AE4/AE5)", async () => {
+  it(AE4_TEST_TITLE, async () => {
     await ensureRealChartSelection();
     const beforeZoom = await chartViewState();
     await $(".og-bases-gantt .zoom-in").click();
@@ -1496,22 +2212,24 @@ describe("Gantt (OG) context-aware legend", () => {
       timeout: 8000,
       timeoutMsg: "Zoom control did not visibly change the real Gantt scale",
     });
-    const scrollRange = await browser.execute(() => {
-      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
-      if (!chart) return 0;
-      const maximum = chart.scrollWidth - chart.clientWidth;
-      chart.scrollLeft = Math.min(80, maximum);
-      return maximum;
-    });
+    const scrollRange = await setChartScrollLeft(80);
     expect(scrollRange).toBeGreaterThan(0);
     const expectedGeometry = await chartGeometry();
-    const expectedState = await chartViewState();
+    const expectedState = await chartViewStateAtCheckpoint(
+      "ae4-expected-state",
+      "AE4/AE5 before openLegend",
+    );
     expect(expectedState.selectedCount).toBeGreaterThan(0);
     expect(expectedState.scrollLeft).toBeGreaterThan(0);
 
     await openLegend();
-    expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
-    expect(await chartViewState()).toEqual(expectedState);
+    const geometryAfterOpen = await chartGeometry();
+    const stateAfterOpen = await chartViewStateAtCheckpoint(
+      "ae4-after-open",
+      "AE4/AE5 immediately after openLegend",
+    );
+    expectGeometryUnchanged(geometryAfterOpen, expectedGeometry);
+    expect(stateAfterOpen).toEqual(expectedState);
 
     await chooseBottom();
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", {
@@ -1548,6 +2266,11 @@ describe("Gantt (OG) context-aware legend", () => {
     expectGeometryUnchanged(await chartGeometry(), expectedGeometry);
     expect(await chartViewState()).toEqual(expectedState);
   });
+
+  it(
+    REAL_MOUNT_LIFECYCLE_TEST_TITLE,
+    assertRealMountLifecycle,
+  );
 
   it("leaves an uncovered bar interactive and keeps panel clicks out of the chart (R8)", async () => {
     await openLegend();
@@ -1595,15 +2318,15 @@ describe("Gantt (OG) context-aware legend", () => {
       });
     }
     expect(scrollRange).toBeGreaterThanOrEqual(300);
-    await browser.execute(() => {
-      const chart = document.querySelector(".og-bases-gantt .wx-chart") as HTMLElement | null;
-      if (chart) chart.scrollLeft = 60;
-    });
+    await setChartScrollLeft(60);
 
     await openLegend();
     await chooseBottom();
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
-    const expectedState = await chartViewState();
+    const expectedState = await chartViewStateAtCheckpoint(
+      "ae6-before-full",
+      "AE6 before constrained full mode",
+    );
     expect(expectedState.selectedCount).toBeGreaterThan(0);
     expect(expectedState.scrollLeft).toBeGreaterThan(0);
     const focusedPositionControl = await browser.execute(() => {
@@ -1635,7 +2358,10 @@ describe("Gantt (OG) context-aware legend", () => {
     const returnButton = await $(".og-gantt-legend .og-legend-dismiss");
     await expect(returnButton).toHaveText(expect.stringContaining("Return"));
     await expect(returnButton).toBeFocused();
-    expect(await chartViewState()).toEqual(expectedState);
+    expect(await chartViewStateAtCheckpoint(
+      "ae6-full-entered",
+      "AE6 constrained full mode",
+    )).toEqual(expectedState);
 
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
@@ -1655,7 +2381,10 @@ describe("Gantt (OG) context-aware legend", () => {
     });
     expect(restoredAccessibility).toEqual({ inert: false, ariaHidden: null });
     await expect($(".og-gantt-legend .og-legend-dismiss")).toHaveText(expect.stringContaining("Close"));
-    const automaticallyRestoredState = await chartViewState();
+    const automaticallyRestoredState = await chartViewStateAtCheckpoint(
+      "ae6-auto-restored",
+      "AE6 automatic position restoration",
+    );
     expect(automaticallyRestoredState.selectedCount).toBe(expectedState.selectedCount);
     expect(automaticallyRestoredState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
     expect(automaticallyRestoredState.scaleLabel).toBe(expectedState.scaleLabel);
@@ -1677,12 +2406,19 @@ describe("Gantt (OG) context-aware legend", () => {
     await expect(restoredReturnButton).toHaveText(expect.stringContaining("Return"));
     await expect($(".og-gantt-legend .og-legend-scroll")).toBeFocused();
 
-    await restoredReturnButton.click();
+    await clickWdioAction(
+      restoredReturnButton,
+      ".og-gantt-legend .og-legend-dismiss",
+      "legend-return",
+    );
     await browser.execute(() => {
       const host = document.querySelector(".og-bases-gantt .gtcell") as HTMLElement | null;
       if (host) host.style.width = "";
     });
-    const returnedState = await chartViewState();
+    const returnedState = await chartViewStateAtCheckpoint(
+      "ae6-returned",
+      "AE6 explicit Return",
+    );
     expect(returnedState.selectedCount).toBe(expectedState.selectedCount);
     expect(returnedState.scaleCellWidth).toBe(expectedState.scaleCellWidth);
     expect(returnedState.scaleLabel).toBe(expectedState.scaleLabel);
@@ -1728,7 +2464,8 @@ describe("Gantt (OG) context-aware legend", () => {
         ?.remove();
     });
     await browser.waitUntil(async () => (await legendLayout()) === "bottom", { timeout: 8000 });
-    await $(".og-gantt-legend .og-legend-dismiss").click();
+    const dismiss = await $(".og-gantt-legend .og-legend-dismiss");
+    await clickWdioAction(dismiss, ".og-gantt-legend .og-legend-dismiss", "legend-dismiss");
   });
 
   it("repaints live with the Obsidian theme without closing or losing session position (AE8)", async () => {
@@ -1757,7 +2494,7 @@ describe("Gantt (OG) context-aware legend", () => {
 
   it("supports keyboard open, live move, scroll focus, Escape close, and trigger focus restoration (AE9)", async () => {
     const trigger = await $(".og-bases-gantt .og-legend-toggle");
-    await trigger.click();
+    await clickWdioAction(trigger, ".og-bases-gantt .og-legend-toggle", "legend");
     await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, { timeout: 8000 });
     await expect($(".og-legend-dismiss")).toBeFocused();
     await browser.execute(() => {
@@ -1781,7 +2518,7 @@ describe("Gantt (OG) context-aware legend", () => {
   });
 
   it("keeps Obsidian's command-palette keymap available while Legend is open", async () => {
-    await browser.execute(() => document.querySelector<HTMLButtonElement>(".og-legend-toggle")?.click());
+    await clickRendererAction(".og-legend-toggle", "legend");
     await browser.waitUntil(async () => (await $$(".og-gantt-legend").length) === 1, {
       timeout: 8000,
       timeoutMsg: "Legend did not open for the keymap check",
@@ -1824,6 +2561,261 @@ describe("Gantt (OG) context-aware legend", () => {
     expect(await $$(".og-bases-gantt.is-maximized")).toHaveLength(1);
     await expect(trigger).toBeFocused();
   });
+
+  async function assertRealMountLifecycle(): Promise<void> {
+    await openLegend();
+    await captureViewportCheckpoint("real-mount-control");
+    await closeLegend();
+
+    const identity = await browser.execute(() => {
+      const root = document.querySelector<HTMLElement>(".og-bases-gantt");
+      return {
+        mountToken: Number(root?.dataset.ogMountToken ?? 0),
+        scope: root
+          ? [...root.classList].find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? null
+          : null,
+      };
+    });
+    const snapshot = await readLegendLifecycle();
+    if (!snapshot) throw new Error("Gantt lifecycle snapshot was unavailable on the real mount path");
+    const boundedFailureTransportSnapshot = await readLegendLifecycleAfterFailure();
+    expect(boundedFailureTransportSnapshot).toEqual(snapshot);
+    const mountRecords = snapshot.records.filter(
+      (record) => record.mountToken === identity.mountToken && record.scope === identity.scope,
+    );
+    const owningRecords = mountRecords.filter(
+      ({ phase }) => phase === `test:${REAL_MOUNT_LIFECYCLE_TEST_TITLE}`,
+    );
+    const ae4Records = mountRecords.filter(({ phase }) => phase === `test:${AE4_TEST_TITLE}`);
+    const currentPhaseStartSequence = owningRecords[0]?.sequence ?? Number.POSITIVE_INFINITY;
+    const recordsBeforeCurrentPhase = mountRecords.filter(
+      ({ sequence }) => sequence < currentPhaseStartSequence,
+    );
+    const maximizeStartIndex = recordsBeforeCurrentPhase.map(({ event, facts }) =>
+      event === "control-selected" && facts?.control === "maximize").lastIndexOf(true);
+    const maximizeRecords = maximizeStartIndex < 0
+      ? []
+      : recordsBeforeCurrentPhase.slice(maximizeStartIndex);
+    const legendActionMechanisms = owningRecords
+      .filter(({ event }) => event === "click-delivered")
+      .map(({ facts }) => `${facts?.control}:${facts?.mechanism}`);
+    const maximizeActionMechanisms = maximizeRecords
+      .filter(({ event }) => event === "click-delivered")
+      .map(({ facts }) => `${facts?.control}:${facts?.mechanism}`);
+    const rendererActionFacts = [...maximizeRecords, ...owningRecords]
+      .filter(({ event, facts }) =>
+        (event === "control-selected" || event === "click-invoked" || event === "click-delivered") &&
+        facts?.mechanism === "renderer-click")
+      .map(({ facts }) => facts);
+    const checkpoint = owningRecords.find(
+      ({ event, facts }) => event === "viewport-checkpoint" && facts?.checkpoint === "real-mount-control",
+    );
+    const viewportSourceIndex = ae4Records.findIndex(
+      ({ event, facts }) => event === "viewport-source-invoked" && facts?.action === "zoom-scale",
+    );
+    const viewportGeneration = ae4Records[viewportSourceIndex]?.facts?.viewportGeneration;
+    const viewportHandlerIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > viewportSourceIndex &&
+        event === "viewport-handler-delivered" &&
+        facts?.action === "zoom-scale" &&
+        facts?.viewportGeneration === viewportGeneration,
+    );
+    const viewportSvelteIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > viewportHandlerIndex &&
+        event === "viewport-svelte-update" && facts?.viewportGeneration === viewportGeneration,
+    );
+    const viewportFrameIndexes = ae4Records.flatMap(({ event, facts }, index) =>
+      event === "viewport-frame" && facts?.viewportGeneration === viewportGeneration ? [index] : [],
+    );
+    const viewportTerminalIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > viewportSvelteIndex &&
+        event === "viewport-terminal" &&
+        facts?.viewportGeneration === viewportGeneration,
+    );
+    const scrollSourceIndex = ae4Records.findIndex(
+      ({ event, facts }) => event === "viewport-source-invoked" &&
+        facts?.action === "scroll-chart" && facts?.source === "test-assignment",
+    );
+    const scrollSourceFacts = ae4Records[scrollSourceIndex]?.facts;
+    const scrollGeneration = ae4Records[scrollSourceIndex]?.facts?.viewportGeneration;
+    const scrollDeliveryIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > scrollSourceIndex &&
+        event === "viewport-event-delivered" &&
+        facts?.action === "scroll-chart" &&
+        facts?.viewportGeneration === scrollGeneration,
+    );
+    const scrollHandlerIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > scrollDeliveryIndex &&
+        event === "viewport-handler-delivered" &&
+        facts?.action === "scroll-chart" &&
+        facts?.viewportGeneration === scrollGeneration,
+    );
+    const scrollSvelteIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > scrollHandlerIndex &&
+        event === "viewport-svelte-update" && facts?.viewportGeneration === scrollGeneration,
+    );
+    const scrollFrameIndexes = ae4Records.flatMap(({ event, facts }, index) =>
+      event === "viewport-frame" &&
+        facts?.viewportGeneration === scrollGeneration &&
+        index > scrollSvelteIndex
+        ? [index]
+        : [],
+    );
+    const scrollTerminalIndex = ae4Records.findIndex(
+      ({ event, facts }, index) => index > scrollSvelteIndex &&
+        event === "viewport-terminal" && facts?.viewportGeneration === scrollGeneration,
+    );
+    const ae4Baseline = mountRecords.find(
+      ({ event, facts }) => event === "viewport-checkpoint" && facts?.checkpoint === "ae4-expected-state",
+    );
+    const ae4BaselineSequence = ae4Baseline?.sequence ?? -1;
+    const ae4AfterOpen = mountRecords.find(
+      ({ event, facts }) => event === "viewport-checkpoint" && facts?.checkpoint === "ae4-after-open",
+    );
+    const ae4AfterOpenSequence = ae4AfterOpen?.sequence ?? -1;
+    const preBaselineViewportSources = mountRecords.filter(({ event, facts, sequence }) =>
+      event === "viewport-source-invoked" &&
+      sequence < ae4BaselineSequence &&
+      (facts?.action === "zoom-scale" || facts?.action === "scroll-chart"));
+    const firstPreBaselineSourceSequence = preBaselineViewportSources[0]?.sequence ?? ae4BaselineSequence;
+    const measuredPreBaselineDeliveries = mountRecords.filter(({ event, facts, sequence }) =>
+      isViewportDeliveryEvent(event) &&
+      sequence > firstPreBaselineSourceSequence &&
+      sequence < ae4BaselineSequence &&
+      (facts?.action === "zoom-scale" || facts?.action === "scroll-chart"));
+    const baselineToAfterOpenViewportSources = mountRecords.filter(({ event, sequence }) =>
+      sequence > ae4BaselineSequence &&
+      sequence < ae4AfterOpenSequence &&
+      event === "viewport-source-invoked");
+    const checkpointIndex = checkpoint ? owningRecords.indexOf(checkpoint) : -1;
+    const legendDelivery = owningRecords.slice(0, checkpointIndex).reverse().find(({ event, facts }) =>
+      event === "click-delivered" && facts?.control === "legend" && facts?.mechanism === "wdio-click");
+    const legendWdioAttemptRecords = legendWdioClickAttempts.filter((attempt) =>
+      attempt.phase === `test:${REAL_MOUNT_LIFECYCLE_TEST_TITLE}` &&
+      attempt.control === "legend");
+    const unresolvedAtBaselineViewportSources = preBaselineViewportSources.filter((source) =>
+      !viewportSourceHasDeterministicOutcome(mountRecords, source, ae4BaselineSequence));
+    const baselineReportedPendingViewportWork = ae4Baseline?.facts?.viewportObservationPending === true ||
+      Number(ae4Baseline?.facts?.pendingViewportSourceCount ?? 0) > 0;
+
+    expect(identity.mountToken).toBeGreaterThan(0);
+    expect(identity.scope).toBeTruthy();
+    expect(snapshot.capacity).toBe(512);
+    expect(snapshot.incomplete).toEqual({ overflow: false, collectorFailure: false });
+    expect(snapshot.records.map(({ sequence }) => sequence)).toEqual(
+      [...snapshot.records.map(({ sequence }) => sequence)].sort((left, right) => left - right),
+    );
+    expect(legendDelivery?.facts?.targetHitOwnsCenter).toBeNull();
+    expect(ae4BaselineSequence).toBeGreaterThan(0);
+    expect(ae4AfterOpenSequence).toBeGreaterThan(ae4BaselineSequence);
+    expect(preBaselineViewportSources.length).toBeGreaterThan(0);
+    expect(preBaselineViewportSources.every((source) =>
+      viewportSourceHasDeterministicOutcome(mountRecords, source))).toBe(true);
+    expect(
+      unresolvedAtBaselineViewportSources.length === 0 || baselineReportedPendingViewportWork,
+    ).toBe(true);
+    expect(measuredPreBaselineDeliveries.every(({ facts }) => facts?.sourceObserved === true)).toBe(true);
+    expect(baselineToAfterOpenViewportSources).toHaveLength(0);
+    expect(viewportGeneration).toEqual(expect.any(Number));
+    expect(viewportSourceIndex).toBeGreaterThan(-1);
+    expect(viewportHandlerIndex).toBeGreaterThan(viewportSourceIndex);
+    expect(ae4Records[viewportHandlerIndex]?.facts?.sourceObserved).toBe(true);
+    expect(viewportSvelteIndex).toBeGreaterThan(viewportHandlerIndex);
+    expect(viewportFrameIndexes.length).toBeGreaterThanOrEqual(2);
+    expect(viewportFrameIndexes[0]).toBeGreaterThan(viewportSvelteIndex);
+    expect(viewportTerminalIndex).toBeGreaterThan(viewportFrameIndexes.at(-1) ?? -1);
+    expect(scrollGeneration).toEqual(expect.any(Number));
+    expect(scrollDeliveryIndex).toBeGreaterThan(scrollSourceIndex);
+    expect(ae4Records[scrollDeliveryIndex]?.facts?.sourceObserved).toBe(true);
+    expect(scrollHandlerIndex).toBeGreaterThan(scrollDeliveryIndex);
+    expect(ae4Records[scrollHandlerIndex]?.facts?.sourceObserved).toBe(true);
+    expect(scrollSourceFacts?.sourceScrollLeft).toEqual(expect.any(Number));
+    expect(scrollSourceFacts?.requestedScrollLeft).toEqual(expect.any(Number));
+    expect(scrollSourceFacts?.sourceScrollLeft).not.toBe(scrollSourceFacts?.requestedScrollLeft);
+    expect(ae4Records[scrollDeliveryIndex]?.facts).toMatchObject({
+      mechanism: "dom-scroll",
+      deliveredScrollLeft: expect.any(Number),
+      eventPhase: Event.CAPTURING_PHASE,
+      deliveredTrusted: true,
+    });
+    expect(ae4Records[scrollDeliveryIndex]?.facts?.deliveredScrollLeft)
+      .toBe(scrollSourceFacts?.requestedScrollLeft);
+    expect(scrollSvelteIndex).toBeGreaterThan(scrollHandlerIndex);
+    expect(scrollFrameIndexes.length).toBeGreaterThanOrEqual(2);
+    expect(scrollFrameIndexes[0]).toBeGreaterThan(scrollSvelteIndex);
+    expect(scrollTerminalIndex).toBeGreaterThan(scrollFrameIndexes.at(-1) ?? -1);
+    const mountSteps: Array<{ event: string; control?: string }> = [
+      { event: "mount-start" },
+      { event: "controller-ready" },
+      { event: "svar-ready" },
+      { event: "component-mounted" },
+    ];
+    const maximizeSteps: Array<{ event: string; control?: string }> = [
+      { event: "control-selected", control: "maximize" },
+      { event: "click-invoked", control: "maximize" },
+      { event: "click-delivered", control: "maximize" },
+      { event: "maximize-handler-delivered" },
+      { event: "maximize-state-transition" },
+      { event: "maximize-dom-promoted" },
+      { event: "maximize-rendered" },
+    ];
+    const legendSteps: Array<{ event: string; control?: string }> = [
+      { event: "click-delivered", control: "legend" },
+      { event: "legend-handler-delivered" },
+      { event: "legend-rendered" },
+      { event: "control-selected", control: "legend-dismiss" },
+      { event: "click-invoked", control: "legend-dismiss" },
+      { event: "click-delivered", control: "legend-dismiss" },
+      { event: "legend-closed" },
+    ];
+    const expectOrderedSteps = (
+      records: typeof owningRecords,
+      steps: Array<{ event: string; control?: string }>,
+    ): void => {
+      let previousEventIndex = -1;
+      for (const step of steps) {
+        const eventIndex = records.findIndex((record, index) =>
+          index > previousEventIndex &&
+          record.event === step.event &&
+          (step.control === undefined || record.facts?.control === step.control));
+        expect(eventIndex).toBeGreaterThan(previousEventIndex);
+        previousEventIndex = eventIndex;
+      }
+    };
+    expectOrderedSteps(mountRecords, mountSteps);
+    expectOrderedSteps(maximizeRecords, maximizeSteps);
+    expectOrderedSteps(owningRecords, legendSteps);
+    expect(maximizeActionMechanisms).toEqual(expect.arrayContaining(["maximize:renderer-click"]));
+    expect(rendererActionFacts.length).toBeGreaterThan(0);
+    expect(rendererActionFacts.every((facts) => facts?.targetHitOwnsCenter === null)).toBe(true);
+    expect(legendActionMechanisms).toEqual(expect.arrayContaining([
+      "legend:wdio-click",
+      "legend-dismiss:renderer-click",
+    ]));
+    expect(legendWdioAttemptRecords.map(({ event }) => event)).toEqual([
+      "control-selected",
+      "click-invoked",
+    ]);
+    expect(new Set(legendWdioAttemptRecords.map(({ invocationId }) => invocationId)).size).toBe(1);
+    expect(legendWdioAttemptRecords[0]?.webdriverElementId).toEqual(expect.any(String));
+    expect(legendDelivery?.facts?.browserDeliveryId).toEqual(expect.any(String));
+    expect(checkpoint?.scope).toBe(identity.scope);
+    const logicalScaleCellIndex = checkpoint?.facts?.logicalScaleCellIndex;
+    const logicalScaleCellValue = checkpoint?.facts?.logicalScaleCellValue;
+    expect(logicalScaleCellIndex).toEqual(expect.any(Number));
+    expect(['number', 'string']).toContain(typeof logicalScaleCellValue);
+    expect(checkpoint?.facts).toEqual(expect.objectContaining({
+      scalesStart: expect.any(Number),
+      scalesEnd: expect.any(Number),
+      scalesLengthUnit: expect.any(String),
+      scalesMinUnit: expect.any(String),
+      selectedCount: expect.any(Number),
+      renderedScaleCellIdentity: `scale-cell:${String(logicalScaleCellIndex)}:${String(logicalScaleCellValue)}`,
+      renderedScaleCellLabel: expect.any(String),
+    }));
+    expect(() => JSON.stringify(snapshot)).not.toThrow();
+    await remountMaximizedFixture();
+  }
 
   // LAST test: it deliberately leaves another leaf active.
   it("deactivates Legend without focusing its hidden trigger when another leaf becomes active", async () => {

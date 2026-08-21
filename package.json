@@ -36,6 +36,7 @@
     "@swc/jest": "^0.2.39",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.44.0",
     "@typescript-eslint/parser": "^8.44.1",
     "@vitest/browser": "^4.1.10",
@@ -65,7 +66,8 @@
     "vitest-browser-svelte": "^2.1.1",
     "wdio-obsidian-reporter": "^2.1.2",
     "wdio-obsidian-service": "^2.1.2",
-    "webdriverio": "^9.19.2"
+    "webdriverio": "^9.19.2",
+    "ws": "^7.5.13"
   },
   "dependencies": {
     "@svar-ui/svelte-gantt": "^2.7.0",

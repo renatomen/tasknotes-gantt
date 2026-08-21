@@ -179,7 +179,13 @@ import {
 } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from '../datasource/parentLink';
-import { dlog, isGanttDebugEnabled } from '../debugLog';
+import {
+  captureGanttLifecycle,
+  dlog,
+  ganttLifecycleErrorFacts,
+  isGanttDebugEnabled,
+  type GanttLifecycleFacts,
+} from '../debugLog';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
 
@@ -269,6 +275,27 @@ export function wireExternalBatchFlags(
   return (flags) => {
     setExternalEventsLoading(flags.loading);
     sessionExternalCalendarDegradeSignal.observeCollect(flags);
+  };
+}
+
+export interface MountTokenLifecycle {
+  beginMount(): number;
+  invalidate(): number;
+  isCurrent(token: number): boolean;
+  current(): number;
+}
+
+export function createMountTokenLifecycle(): MountTokenLifecycle {
+  let token = 0;
+  const advance = (): number => {
+    token += 1;
+    return token;
+  };
+  return {
+    beginMount: advance,
+    invalidate: advance,
+    isCurrent: (candidate) => candidate === token,
+    current: () => token,
   };
 }
 
@@ -399,7 +426,25 @@ class ObsidianGanttBasesView extends BasesView {
    * unmount that races an in-flight one bumps this so the stale async mount
    * bails instead of clobbering the live component.
    */
-  private mountToken = 0;
+  private readonly mountTokens = createMountTokenLifecycle();
+
+  private captureMountLifecycle(
+    mountToken: number,
+    event: string,
+    facts?: GanttLifecycleFacts,
+    controller: GanttController | null = this.ganttController,
+  ): void {
+    const generation = controller?.recomputeGeneration() ?? null;
+    captureGanttLifecycle({
+      scope: this.treatmentScopeClass,
+      mountToken,
+      controllerStarted: generation?.started ?? null,
+      controllerDelivered: generation?.delivered ?? null,
+      svarGeneration: null,
+      event,
+      facts,
+    });
+  }
 
   /** [OGDBG #161] view-instance counter: a bump here = Bases recreated the view
    * (a remount). Distinguishes "we looped in one view" from "Bases re-created us". */
@@ -1053,7 +1098,10 @@ class ObsidianGanttBasesView extends BasesView {
    * remount/unmount that races this in-flight mount discards the stale result.
    */
   private async mountGantt(): Promise<void> {
-    const token = ++this.mountToken;
+    const token = this.mountTokens.beginMount();
+    this.captureMountLifecycle(token, 'mount-start', {
+      connected: this.containerEl?.isConnected ?? false,
+    }, null);
     try {
       // Calendar-item families read the RAW TaskNotes task list (recurrence
       // state, time entries) — richer than the SourceTask projection — so they
@@ -1191,8 +1239,14 @@ class ObsidianGanttBasesView extends BasesView {
         throw error;
       }
 
+      this.captureMountLifecycle(token, 'controller-ready', undefined, controller);
+
       // A newer mount or an unmount happened while we awaited init() — discard.
-      if (token !== this.mountToken) {
+      if (!this.mountTokens.isCurrent(token)) {
+        this.captureMountLifecycle(token, 'mount-discarded', {
+          currentMountToken: this.mountTokens.current(),
+          stage: 'controller-init',
+        }, controller);
         disposeMountResources();
         return;
       }
@@ -1259,7 +1313,11 @@ class ObsidianGanttBasesView extends BasesView {
       this.lastEntrySignature = this.computeEntrySignature();
 
       // Re-check after the second await window.
-      if (token !== this.mountToken) {
+      if (!this.mountTokens.isCurrent(token)) {
+        this.captureMountLifecycle(token, 'mount-discarded', {
+          currentMountToken: this.mountTokens.current(),
+          stage: 'data-build',
+        }, controller);
         disposeMountResources();
         return;
       }
@@ -1294,6 +1352,8 @@ class ObsidianGanttBasesView extends BasesView {
           // sheet under this class and the shading sheet built here uses the same,
           // so neither leaks onto another view sharing `.og-bases-gantt`.
           scopeClass: this.treatmentScopeClass,
+          mountToken: token,
+          controllerGeneration: () => controller.recomputeGeneration(),
           // Theme toolbar (plan 002 U3/U4): the initial per-view theme mode and
           // a persist callback closing over config.set so the toolbar never
           // touches config directly. Toolbar VISIBILITY is NOT passed here — it
@@ -1382,6 +1442,7 @@ class ObsidianGanttBasesView extends BasesView {
           },
         },
       });
+      this.captureMountLifecycle(token, 'component-mounted', undefined, controller);
       // [OGDBG #161] synchronous cost of Svelte mount() (SVAR's eager init). If
       // this is small but the UI still freezes, the cost is SVAR's deferred
       // (rAF/effect) layout over the instance set, not our mount path.
@@ -1391,7 +1452,7 @@ class ObsidianGanttBasesView extends BasesView {
       // data update / capability flip) refresh the store in place — no remount,
       // so the SVAR view state (zoom, scroll, selection) is preserved.
       controller.onChange(() => {
-        if (token === this.mountToken) {
+        if (this.mountTokens.isCurrent(token)) {
           void this.refreshData();
         }
       });
@@ -1409,12 +1470,13 @@ class ObsidianGanttBasesView extends BasesView {
         // Re-checked at fire time: a stale attempt landing during teardown must not
         // re-fetch against a disposed controller (R6) — mirrors the coalescer's
         // isConnected + mountToken guards.
-        isAlive: () => !!this.containerEl?.isConnected && token === this.mountToken,
+        isAlive: () => !!this.containerEl?.isConnected && this.mountTokens.isCurrent(token),
       });
       this.readinessOrchestrator.maybeStart();
     } catch (error) {
+      this.captureMountLifecycle(token, 'mount-failed', ganttLifecycleErrorFacts(error), null);
       console.error('[Gantt] Failed to mount GanttContainer:', error);
-      if (token === this.mountToken) {
+      if (this.mountTokens.isCurrent(token)) {
         this.containerEl.empty();
         this.containerEl.createDiv({
           cls: 'og-bases-gantt-error',
@@ -1738,7 +1800,11 @@ class ObsidianGanttBasesView extends BasesView {
 
   private unmountGantt(): void {
     // Invalidate any in-flight async mount so it does not resurrect the view.
-    this.mountToken++;
+    const unmountedToken = this.mountTokens.current();
+    this.captureMountLifecycle(unmountedToken, 'mount-cleanup-start', {
+      componentMounted: this.svelteComponent !== null,
+    });
+    this.mountTokens.invalidate();
     livePickerEntries.delete(this.containerEl);
     this.unregisterSwitcherEntry?.();
     this.unregisterSwitcherEntry = null;
@@ -1779,6 +1845,7 @@ class ObsidianGanttBasesView extends BasesView {
 
     this.dataStore = null;
     this.containerEl.empty();
+    this.captureMountLifecycle(unmountedToken, 'mount-cleanup-complete', undefined, null);
   }
 }
 
