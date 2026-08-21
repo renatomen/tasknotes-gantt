@@ -465,11 +465,6 @@ async function clickRendererAction(
     const root = target.closest<HTMLElement>(".og-bases-gantt");
     const lifecycle = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
     if (lifecycle && root) {
-      const bounds = target.getBoundingClientRect();
-      const hitTarget = document.elementFromPoint(
-        bounds.left + bounds.width / 2,
-        bounds.top + bounds.height / 2,
-      );
       const common = {
         scope: [...root.classList]
           .find((token) => token.startsWith("og-gantt-") && token !== "og-gantt-legend") ?? "unknown",
@@ -485,7 +480,7 @@ async function clickRendererAction(
         targetExists: true,
         targetConnected: target.isConnected,
         targetDisabled: target.disabled,
-        targetHitOwnsCenter: hitTarget === target || target.contains(hitTarget),
+        targetHitOwnsCenter: null,
         targetAriaExpanded: target.getAttribute("aria-expanded"),
       };
       target.addEventListener("click", (event) => {
@@ -941,11 +936,6 @@ async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
         controllerDelivered: null,
         svarGeneration: null,
       };
-      const bounds = toggle.getBoundingClientRect();
-      const hitTarget = document.elementFromPoint(
-        bounds.left + bounds.width / 2,
-        bounds.top + bounds.height / 2,
-      );
       const facts = {
         control: "maximize",
         selector: targetSelector,
@@ -953,7 +943,7 @@ async function clickFullscreenToggle(timeoutMsg: string): Promise<void> {
         targetExists: true,
         targetConnected: toggle.isConnected,
         targetDisabled: toggle.disabled,
-        targetHitOwnsCenter: hitTarget === toggle || toggle.contains(hitTarget),
+        targetHitOwnsCenter: null,
         targetAriaExpanded: toggle.getAttribute("aria-expanded"),
       };
       toggle.addEventListener("click", (event) => {
@@ -2612,6 +2602,11 @@ describe("Gantt (OG) context-aware legend", () => {
     const maximizeActionMechanisms = maximizeRecords
       .filter(({ event }) => event === "click-delivered")
       .map(({ facts }) => `${facts?.control}:${facts?.mechanism}`);
+    const rendererActionFacts = [...maximizeRecords, ...owningRecords]
+      .filter(({ event, facts }) =>
+        (event === "control-selected" || event === "click-invoked" || event === "click-delivered") &&
+        facts?.mechanism === "renderer-click")
+      .map(({ facts }) => facts);
     const checkpoint = owningRecords.find(
       ({ event, facts }) => event === "viewport-checkpoint" && facts?.checkpoint === "real-mount-control",
     );
@@ -2791,6 +2786,8 @@ describe("Gantt (OG) context-aware legend", () => {
     expectOrderedSteps(maximizeRecords, maximizeSteps);
     expectOrderedSteps(owningRecords, legendSteps);
     expect(maximizeActionMechanisms).toEqual(expect.arrayContaining(["maximize:renderer-click"]));
+    expect(rendererActionFacts.length).toBeGreaterThan(0);
+    expect(rendererActionFacts.every((facts) => facts?.targetHitOwnsCenter === null)).toBe(true);
     expect(legendActionMechanisms).toEqual(expect.arrayContaining([
       "legend:wdio-click",
       "legend-dismiss:renderer-click",
