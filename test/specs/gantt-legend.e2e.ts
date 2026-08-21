@@ -809,8 +809,10 @@ async function setChartScrollLeft(scrollLeft: number): Promise<number> {
     const chart = root?.querySelector<HTMLElement>(".wx-chart");
     if (!root || !chart) return 0;
     const maximum = chart.scrollWidth - chart.clientWidth;
+    const targetScrollLeft = Math.min(requestedScrollLeft, maximum);
+    if (targetScrollLeft === chart.scrollLeft) return maximum;
     root.dispatchEvent(new CustomEvent("tn-gantt-lifecycle-scroll-source"));
-    chart.scrollLeft = Math.min(requestedScrollLeft, maximum);
+    chart.scrollLeft = targetScrollLeft;
     return maximum;
   }, scrollLeft);
 }
