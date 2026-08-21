@@ -367,11 +367,14 @@ interface GanttLifecycleReportInput<T> {
 export function buildGanttLifecycleReport<T>(
   input: GanttLifecycleReportInput<T>,
 ): GanttLifecycleReport<T> {
-  const diagnosticOutcome = input.diagnosticError !== undefined
-    ? 'failed'
-    : input.diagnosticValue === null || input.diagnosticValue === undefined
-      ? 'unavailable'
-      : 'captured';
+  let diagnosticOutcome: GanttLifecycleReport<T>['diagnosticOutcome'];
+  if (input.diagnosticError !== undefined) {
+    diagnosticOutcome = 'failed';
+  } else if (input.diagnosticValue === null || input.diagnosticValue === undefined) {
+    diagnosticOutcome = 'unavailable';
+  } else {
+    diagnosticOutcome = 'captured';
+  }
   return {
     origin: input.origin,
     originalOutcome: input.originalOutcome,
