@@ -63,6 +63,10 @@ function memberName(node: ts.Node): string | null {
   ) {
     return node.argumentExpression.text;
   }
+  if (ts.isBindingElement(node)) {
+    const key = node.propertyName ?? node.name;
+    if (ts.isIdentifier(key) || ts.isStringLiteral(key)) return key.text;
+  }
   return null;
 }
 
@@ -76,23 +80,21 @@ function isBrowserExecute(node: ts.Node): node is ts.CallExpression {
   );
 }
 
-function browserExecuteCallback(
+function browserExecuteCallbacks(
   declaration: ts.FunctionDeclaration,
-): ts.ArrowFunction | ts.FunctionExpression | null {
-  let callback: ts.ArrowFunction | ts.FunctionExpression | null = null;
+): Array<ts.ArrowFunction | ts.FunctionExpression> {
+  const callbacks: Array<ts.ArrowFunction | ts.FunctionExpression> = [];
   const visit = (node: ts.Node): void => {
-    if (callback) return;
     if (isBrowserExecute(node)) {
       const candidate = node.arguments[0];
       if (candidate && (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate))) {
-        callback = candidate;
-        return;
+        callbacks.push(candidate);
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(declaration.body!);
-  return callback;
+  return callbacks;
 }
 
 function rendererActionHelper(node: ts.Node): RendererActionHelper | null {
@@ -128,18 +130,18 @@ function collectExecutableNodes(
   return nodes;
 }
 
-function rendererDispatchPosition(
+function rendererDispatchPositions(
   nodes: ts.Node[],
   receiver: string,
   sourceFile: ts.SourceFile,
-): number | null {
-  const dispatch = nodes.find((node) =>
+): number[] {
+  return nodes.filter((node) =>
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
     ts.isIdentifier(node.expression.expression) &&
     node.expression.expression.text === receiver &&
-    node.expression.name.text === 'click');
-  return dispatch?.getStart(sourceFile) ?? null;
+    node.expression.name.text === 'click')
+    .map((node) => node.getStart(sourceFile));
 }
 
 function layoutReadsBefore(
@@ -165,7 +167,7 @@ function layoutReadsBefore(
 
 function inspectRendererActionPreludes(source: string): {
   helpersFound: RendererActionHelper[];
-  dispatchesFound: RendererActionHelper[];
+  shapeViolations: string[];
   layoutReads: LayoutRead[];
 } {
   const sourceFile = ts.createSourceFile(
@@ -176,7 +178,7 @@ function inspectRendererActionPreludes(source: string): {
     ts.ScriptKind.TS,
   );
   const helpersFound: RendererActionHelper[] = [];
-  const dispatchesFound: RendererActionHelper[] = [];
+  const shapeViolations: string[] = [];
   const layoutReads: LayoutRead[] = [];
 
   const visit = (node: ts.Node): void => {
@@ -187,28 +189,38 @@ function inspectRendererActionPreludes(source: string): {
     }
     helpersFound.push(helper);
 
-    const callback = browserExecuteCallback(node as ts.FunctionDeclaration);
-    if (!callback) return;
-    const executableNodes = collectExecutableNodes(callback);
-    const dispatchPosition = rendererDispatchPosition(
-      executableNodes,
-      RENDERER_ACTION_HELPERS[helper],
-      sourceFile,
-    );
-    if (dispatchPosition === null) return;
-    dispatchesFound.push(helper);
-    layoutReads.push(...layoutReadsBefore(
-      executableNodes,
-      dispatchPosition,
-      sourceFile,
-      helper,
-    ));
+    const callbacks = browserExecuteCallbacks(node as ts.FunctionDeclaration);
+    if (callbacks.length !== 1) {
+      shapeViolations.push(`${helper}:browser-execute-count:${callbacks.length}`);
+    }
+    for (const callback of callbacks) {
+      const executableNodes = collectExecutableNodes(callback);
+      if (executableNodes.some(ts.isFunctionDeclaration)) {
+        shapeViolations.push(`${helper}:local-function-declaration`);
+      }
+      const dispatchPositions = rendererDispatchPositions(
+        executableNodes,
+        RENDERER_ACTION_HELPERS[helper],
+        sourceFile,
+      );
+      if (dispatchPositions.length !== 1) {
+        shapeViolations.push(`${helper}:receiver-click-count:${dispatchPositions.length}`);
+      }
+      const dispatchPosition = dispatchPositions[0];
+      if (dispatchPosition === undefined) continue;
+      layoutReads.push(...layoutReadsBefore(
+        executableNodes,
+        dispatchPosition,
+        sourceFile,
+        helper,
+      ));
+    }
   };
 
   visit(sourceFile);
   return {
     helpersFound: helpersFound.sort(),
-    dispatchesFound: dispatchesFound.sort(),
+    shapeViolations,
     layoutReads,
   };
 }
@@ -223,7 +235,7 @@ it('keeps renderer action helpers free of layout reads before click dispatch', (
 
   expect(inspectRendererActionPreludes(source)).toEqual({
     helpersFound: expectedHelpers,
-    dispatchesFound: expectedHelpers,
+    shapeViolations: [],
     layoutReads: [],
   });
 });
@@ -245,6 +257,8 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
         document.elementsFromPoint(toggle.offsetLeft, toggle.offsetTop);
         toggle.checkVisibility();
         toggle.offsetParent;
+        const { offsetWidth } = toggle;
+        const { elementFromPoint } = document;
         toggle.click();
       });
     }
@@ -252,7 +266,7 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
 
   expect(inspectRendererActionPreludes(mutatedSource)).toEqual({
     helpersFound: expectedHelpers,
-    dispatchesFound: expectedHelpers,
+    shapeViolations: [],
     layoutReads: [
       { helper: 'clickRendererAction', member: 'getBoundingClientRect' },
       { helper: 'clickRendererAction', member: 'elementFromPoint' },
@@ -262,6 +276,8 @@ it('detects nested and discarded layout reads before both renderer dispatches', 
       { helper: 'clickFullscreenToggle', member: 'offsetTop' },
       { helper: 'clickFullscreenToggle', member: 'checkVisibility' },
       { helper: 'clickFullscreenToggle', member: 'offsetParent' },
+      { helper: 'clickFullscreenToggle', member: 'offsetWidth' },
+      { helper: 'clickFullscreenToggle', member: 'elementFromPoint' },
     ],
   });
 });
@@ -287,7 +303,33 @@ it('allows geometry observed only after renderer click dispatch', () => {
 
   expect(inspectRendererActionPreludes(source)).toEqual({
     helpersFound: expectedHelpers,
-    dispatchesFound: expectedHelpers,
+    shapeViolations: [],
+    layoutReads: [],
+  });
+});
+
+it('fails closed when renderer callback execution order is ambiguous', () => {
+  const source = `
+    async function clickRendererAction(): Promise<void> {
+      await browser.execute(() => target.click());
+      await browser.execute(() => target.click());
+    }
+    async function clickFullscreenToggle(): Promise<void> {
+      await browser.execute(() => {
+        function measure(): void {}
+        toggle.click();
+        toggle.click();
+      });
+    }
+  `;
+
+  expect(inspectRendererActionPreludes(source)).toEqual({
+    helpersFound: expectedHelpers,
+    shapeViolations: [
+      'clickRendererAction:browser-execute-count:2',
+      'clickFullscreenToggle:local-function-declaration',
+      'clickFullscreenToggle:receiver-click-count:2',
+    ],
     layoutReads: [],
   });
 });
