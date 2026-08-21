@@ -3,29 +3,144 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 
-const RENDERER_ACTION_HELPERS = [
-  'clickRendererAction',
-  'clickFullscreenToggle',
-] as const;
+const RENDERER_ACTION_HELPERS = {
+  clickFullscreenToggle: 'toggle',
+  clickRendererAction: 'target',
+} as const;
 const LAYOUT_READ_METHODS = new Set([
   'elementFromPoint',
+  'elementsFromPoint',
   'getBoundingClientRect',
+  'getClientRects',
+  'getComputedStyle',
+]);
+const LAYOUT_READ_PROPERTIES = new Set([
+  'clientHeight',
+  'clientLeft',
+  'clientTop',
+  'clientWidth',
+  'offsetHeight',
+  'offsetLeft',
+  'offsetTop',
+  'offsetWidth',
+  'scrollHeight',
+  'scrollLeft',
+  'scrollTop',
+  'scrollWidth',
 ]);
 
+type RendererActionHelper = keyof typeof RENDERER_ACTION_HELPERS;
+
 interface LayoutRead {
-  helper: string;
-  method: string;
+  helper: RendererActionHelper;
+  member: string;
 }
 
-function calledMethod(node: ts.Node): string | null {
-  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
-    return null;
+function memberName(node: ts.Node): string | null {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    return node.argumentExpression.text;
   }
-  return node.expression.name.text;
+  return null;
+}
+
+function isBrowserExecute(node: ts.Node): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === 'browser' &&
+    node.expression.name.text === 'execute'
+  );
+}
+
+function browserExecuteCallback(
+  declaration: ts.FunctionDeclaration,
+): ts.ArrowFunction | ts.FunctionExpression | null {
+  let callback: ts.ArrowFunction | ts.FunctionExpression | null = null;
+  const visit = (node: ts.Node): void => {
+    if (callback) return;
+    if (isBrowserExecute(node)) {
+      const candidate = node.arguments[0];
+      if (candidate && (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate))) {
+        callback = candidate;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.body!);
+  return callback;
+}
+
+function rendererActionHelper(node: ts.Node): RendererActionHelper | null {
+  if (!ts.isFunctionDeclaration(node) || !node.name || !node.body) return null;
+  const name = node.name.text as RendererActionHelper;
+  return name in RENDERER_ACTION_HELPERS ? name : null;
+}
+
+function collectExecutableNodes(
+  callback: ts.ArrowFunction | ts.FunctionExpression,
+): ts.Node[] {
+  const nodes: ts.Node[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      node !== callback &&
+      (ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isFunctionDeclaration(node))
+    ) {
+      return;
+    }
+    nodes.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(callback);
+  return nodes;
+}
+
+function rendererDispatchPosition(
+  nodes: ts.Node[],
+  receiver: string,
+  sourceFile: ts.SourceFile,
+): number | null {
+  const dispatch = nodes.find((node) =>
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === receiver &&
+    node.expression.name.text === 'click');
+  return dispatch?.getStart(sourceFile) ?? null;
+}
+
+function layoutReadsBefore(
+  nodes: ts.Node[],
+  dispatchPosition: number,
+  sourceFile: ts.SourceFile,
+  helper: RendererActionHelper,
+): LayoutRead[] {
+  return nodes.flatMap((node) => {
+    if (node.getStart(sourceFile) >= dispatchPosition) return [];
+    const member = memberName(node);
+    const globalMethod =
+      ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+        ? node.expression.text
+        : null;
+    const layoutMember = member ?? globalMethod;
+    return layoutMember &&
+      (LAYOUT_READ_METHODS.has(layoutMember) || LAYOUT_READ_PROPERTIES.has(layoutMember))
+      ? [{ helper, member: layoutMember }]
+      : [];
+  });
 }
 
 function inspectRendererActionPreludes(source: string): {
-  helpersFound: string[];
+  helpersFound: RendererActionHelper[];
+  dispatchesFound: RendererActionHelper[];
   layoutReads: LayoutRead[];
 } {
   const sourceFile = ts.createSourceFile(
@@ -35,49 +150,45 @@ function inspectRendererActionPreludes(source: string): {
     true,
     ts.ScriptKind.TS,
   );
-  const reads: LayoutRead[] = [];
-  const helpersFound: string[] = [];
+  const helpersFound: RendererActionHelper[] = [];
+  const dispatchesFound: RendererActionHelper[] = [];
+  const layoutReads: LayoutRead[] = [];
 
   const visit = (node: ts.Node): void => {
-    if (
-      !ts.isFunctionDeclaration(node) ||
-      !node.name ||
-      !node.body ||
-      !RENDERER_ACTION_HELPERS.includes(node.name.text as typeof RENDERER_ACTION_HELPERS[number])
-    ) {
+    const helper = rendererActionHelper(node);
+    if (!helper) {
       ts.forEachChild(node, visit);
       return;
     }
-    helpersFound.push(node.name.text);
+    helpersFound.push(helper);
 
-    let clickPosition = Number.POSITIVE_INFINITY;
-    const calls: ts.CallExpression[] = [];
-    const collectCalls = (child: ts.Node): void => {
-      if (ts.isCallExpression(child)) calls.push(child);
-      ts.forEachChild(child, collectCalls);
-    };
-    collectCalls(node.body);
-
-    for (const call of calls) {
-      if (calledMethod(call) === 'click') {
-        clickPosition = Math.min(clickPosition, call.getStart(sourceFile));
-      }
-    }
-    for (const call of calls) {
-      const method = calledMethod(call);
-      if (
-        method &&
-        LAYOUT_READ_METHODS.has(method) &&
-        call.getStart(sourceFile) < clickPosition
-      ) {
-        reads.push({ helper: node.name.text, method });
-      }
-    }
+    const callback = browserExecuteCallback(node as ts.FunctionDeclaration);
+    if (!callback) return;
+    const executableNodes = collectExecutableNodes(callback);
+    const dispatchPosition = rendererDispatchPosition(
+      executableNodes,
+      RENDERER_ACTION_HELPERS[helper],
+      sourceFile,
+    );
+    if (dispatchPosition === null) return;
+    dispatchesFound.push(helper);
+    layoutReads.push(...layoutReadsBefore(
+      executableNodes,
+      dispatchPosition,
+      sourceFile,
+      helper,
+    ));
   };
 
   visit(sourceFile);
-  return { helpersFound, layoutReads: reads };
+  return {
+    helpersFound: helpersFound.sort(),
+    dispatchesFound: dispatchesFound.sort(),
+    layoutReads,
+  };
 }
+
+const expectedHelpers = Object.keys(RENDERER_ACTION_HELPERS).sort();
 
 it('keeps renderer action helpers free of layout reads before click dispatch', () => {
   const source = readFileSync(
@@ -86,25 +197,66 @@ it('keeps renderer action helpers free of layout reads before click dispatch', (
   );
 
   expect(inspectRendererActionPreludes(source)).toEqual({
-    helpersFound: [...RENDERER_ACTION_HELPERS],
+    helpersFound: expectedHelpers,
+    dispatchesFound: expectedHelpers,
     layoutReads: [],
   });
 });
 
-it('detects discarded layout reads before renderer click dispatch', () => {
+it('detects nested and discarded layout reads before both renderer dispatches', () => {
   const mutatedSource = `
-    async function clickRendererAction(target: HTMLElement): Promise<void> {
-      target.getBoundingClientRect();
-      document.elementFromPoint(0, 0);
-      target.click();
+    async function clickRendererAction(): Promise<void> {
+      await browser.execute(() => {
+        const target = document.querySelector('button')!;
+        target.getBoundingClientRect();
+        document.elementFromPoint(0, 0);
+        target.click();
+      });
+    }
+    async function clickFullscreenToggle(): Promise<void> {
+      await browser.execute(() => {
+        const toggle = document.querySelector('button')!;
+        document.elementsFromPoint(toggle.offsetLeft, toggle.offsetTop);
+        toggle.click();
+      });
     }
   `;
 
   expect(inspectRendererActionPreludes(mutatedSource)).toEqual({
-    helpersFound: ['clickRendererAction'],
+    helpersFound: expectedHelpers,
+    dispatchesFound: expectedHelpers,
     layoutReads: [
-      { helper: 'clickRendererAction', method: 'getBoundingClientRect' },
-      { helper: 'clickRendererAction', method: 'elementFromPoint' },
+      { helper: 'clickRendererAction', member: 'getBoundingClientRect' },
+      { helper: 'clickRendererAction', member: 'elementFromPoint' },
+      { helper: 'clickFullscreenToggle', member: 'elementsFromPoint' },
+      { helper: 'clickFullscreenToggle', member: 'offsetLeft' },
+      { helper: 'clickFullscreenToggle', member: 'offsetTop' },
     ],
+  });
+});
+
+it('allows geometry observed only after renderer click dispatch', () => {
+  const source = `
+    async function clickRendererAction(): Promise<void> {
+      await browser.execute(() => {
+        const target = document.querySelector('button')!;
+        target.addEventListener('click', () => target.getBoundingClientRect());
+        target.click();
+        document.elementFromPoint(0, 0);
+      });
+    }
+    async function clickFullscreenToggle(): Promise<void> {
+      await browser.execute(() => {
+        const toggle = document.querySelector('button')!;
+        toggle.click();
+        toggle.getClientRects();
+      });
+    }
+  `;
+
+  expect(inspectRendererActionPreludes(source)).toEqual({
+    helpersFound: expectedHelpers,
+    dispatchesFound: expectedHelpers,
+    layoutReads: [],
   });
 });
