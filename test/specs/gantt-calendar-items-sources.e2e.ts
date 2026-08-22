@@ -171,9 +171,10 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf(diagnosticCheckpoint);
-      missing = diagnosticCheckpoint
+      const diagnosticMissing = diagnosticCheckpoint
         ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)
-        : await missingBars();
+        : null;
+      missing = diagnosticMissing ?? await missingBars();
       return missing.length === 0;
     },
     () => `Gantt bars missing: ${JSON.stringify(missing)}`,

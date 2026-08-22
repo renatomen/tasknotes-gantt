@@ -13,6 +13,7 @@ import {
   type CalendarItemsSourcesTargetFacts,
 } from './calendarItemsSourcesDiagnosis';
 import {
+  attemptDiagnosticOperation,
   captureLifecycleEnvelope,
   evaluateBoundedCdp,
   writeLifecycleEnvelope,
@@ -45,11 +46,11 @@ interface SourcesLifecycleReportTrace {
 }
 
 let originalFailureSeen = false;
+let lastReadinessBoundary: CalendarItemsSourcesBoundary | null = null;
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
 
 interface SourcesBoundaryCaptureOptions {
   record: boolean;
-  saveAsLastReadinessBoundary: boolean;
   taskNames: readonly string[];
 }
 
@@ -59,13 +60,13 @@ export function noteSourcesOriginalFailure(): void {
 
 export async function startSourcesLifecycleCapture(): Promise<void> {
   originalFailureSeen = false;
+  lastReadinessBoundary = null;
   snapshots.length = 0;
   const started = await browser.execute((capacity, schema) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
-      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
     if (!control) return false;
@@ -73,7 +74,6 @@ export async function startSourcesLifecycleCapture(): Promise<void> {
     control.setPhase('suite-before');
     diagnosticGlobal.__tnGanttSourcesActionHistory = [];
     delete diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint;
-    delete diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary;
     control.record({
       scope: 'calendar-items-sources',
       mountToken: 0,
@@ -92,13 +92,16 @@ async function captureSourcesBoundary(
   phase: CalendarItemsSourcesPhase,
   checkpoint: string,
   options: SourcesBoundaryCaptureOptions,
-): Promise<{ snapshot: CalendarItemsSourcesSnapshot; missingBars: string[] }> {
+): Promise<{
+  boundary: CalendarItemsSourcesBoundary;
+  snapshot: CalendarItemsSourcesSnapshot;
+  missingBars: string[];
+}> {
   const result = await browser.executeObsidian(async ({ app }, args) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
-      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
     if (args.record) control?.setPhase(args.phase);
@@ -275,9 +278,6 @@ async function captureSourcesBoundary(
       overflow: collectorSnapshot?.incomplete.overflow ?? true,
       collectorFailure: collectorSnapshot?.incomplete.collectorFailure ?? true,
     } satisfies CalendarItemsSourcesBoundary;
-    if (args.saveAsLastReadinessBoundary) {
-      diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary = boundary;
-    }
     const barIds = Array.from(globallySelectedRoot?.querySelectorAll<HTMLElement>('.wx-bar') ?? [])
       .map((bar) => bar.getAttribute('data-id') ?? '');
     const missingBars = args.taskNames.filter((name: string) =>
@@ -292,12 +292,11 @@ async function captureSourcesBoundary(
     configActions: CONFIG_ACTIONS,
     traversalLimit: SOURCES_DIAGNOSTIC_TRAVERSAL_LIMIT,
     record: options.record,
-    saveAsLastReadinessBoundary: options.saveAsLastReadinessBoundary,
     taskNames: options.taskNames,
   });
   const snapshot = buildCalendarItemsSourcesSnapshot(result.boundary);
   if (options.record) snapshots.push(snapshot);
-  return { snapshot, missingBars: result.missingBars };
+  return { boundary: result.boundary, snapshot, missingBars: result.missingBars };
 }
 
 export async function captureSourcesCheckpoint(
@@ -306,7 +305,6 @@ export async function captureSourcesCheckpoint(
 ): Promise<CalendarItemsSourcesSnapshot> {
   const { snapshot } = await captureSourcesBoundary(phase, checkpoint, {
     record: true,
-    saveAsLastReadinessBoundary: false,
     taskNames: [],
   });
   return snapshot;
@@ -315,13 +313,20 @@ export async function captureSourcesCheckpoint(
 export async function captureSourcesReadinessPoll(
   checkpoint: string,
   taskNames: readonly string[],
-): Promise<string[]> {
-  const { missingBars } = await captureSourcesBoundary('before-each', checkpoint, {
-    record: false,
-    saveAsLastReadinessBoundary: true,
-    taskNames,
+): Promise<string[] | null> {
+  lastReadinessBoundary = null;
+  const captureState: {
+    value: Awaited<ReturnType<typeof captureSourcesBoundary>> | null;
+  } = { value: null };
+  const diagnosticFailure = await attemptDiagnosticOperation(async () => {
+    captureState.value = await captureSourcesBoundary('before-each', checkpoint, {
+      record: false,
+      taskNames,
+    });
   });
-  return missingBars;
+  if (diagnosticFailure !== null || captureState.value === null) return null;
+  lastReadinessBoundary = captureState.value.boundary;
+  return captureState.value.missingBars;
 }
 
 async function readSourcesLifecycle(): Promise<SourcesLifecycleTrace> {
@@ -472,23 +477,18 @@ async function readSourcesLifecycleAfterFailure(
         liveBaseHostPresent,
         liveBaseTargetPresent,
         rootCount: rootFacts.length,
-        savedReadinessBoundaryPresent: globalThis.__tnGanttSourcesLastReadinessBoundary != null
+        sameCheckpointObservation: false
       }
     });
-    return {
-      lifecycle: control?.snapshot() ?? null,
-      boundary: resampledBoundary,
-      savedReadinessBoundary: globalThis.__tnGanttSourcesLastReadinessBoundary ?? null
-    };
+    return { lifecycle: control?.snapshot() ?? null, boundary: resampledBoundary };
   })()`;
   const result = await evaluateBoundedCdp<{
     lifecycle: GanttLifecycleSnapshot | null;
     boundary: CalendarItemsSourcesBoundary;
-    savedReadinessBoundary: CalendarItemsSourcesBoundary | null;
   }>(browser.capabilities as Record<string, unknown>, expression);
   const terminalBoundary = selectCalendarItemsSourcesTerminalBoundary(
     origin,
-    result.savedReadinessBoundary,
+    lastReadinessBoundary,
     result.boundary,
   );
   return {
@@ -580,12 +580,12 @@ export function writeSourcesRetrievalFailure(
 }
 
 export function stopSourcesLifecycleCapture(): Promise<void> {
+  lastReadinessBoundary = null;
   return browser.execute(() => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
-      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
     control?.setPhase('teardown');
@@ -601,6 +601,5 @@ export function stopSourcesLifecycleCapture(): Promise<void> {
     control?.stop();
     delete diagnosticGlobal.__tnGanttSourcesActionHistory;
     delete diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint;
-    delete diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary;
   });
 }
