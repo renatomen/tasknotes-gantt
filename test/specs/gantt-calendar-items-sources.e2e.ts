@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { GanttLifecycleControl } from "../../src/debugLog";
 import {
   attemptSourcesFailureDiagnostics,
+  beginSourcesReadinessPoll,
   captureSourcesCheckpoint,
   captureSourcesReadinessPoll,
   noteSourcesOriginalFailure,
@@ -170,6 +171,7 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
   await waitUntilOrExplain(
     async () => {
+      beginSourcesReadinessPoll();
       await activateBaseLeaf(diagnosticCheckpoint);
       const diagnosticMissing = diagnosticCheckpoint
         ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)

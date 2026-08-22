@@ -1,13 +1,16 @@
 # Gantt calendar-item sources diagnosis — open without a traced recurrence
 
-**Date:** 2026-08-22  
-**Historical measurement:** `27d0c711ef3450394ed1b6a97b7305ded355bbd2`, 48 valid legs across runs `32482076419` and `32483108735`  
-**Evidence source:** [the immutable Legend reliability diagnosis](2026-08-22-001-reliability-legend-diagnosis.md)  
+**Date:** 2026-08-22
+
+**Historical measurement:** `27d0c711ef3450394ed1b6a97b7305ded355bbd2`, 48 valid legs across runs `32482076419` and `32483108735`
+
+**Evidence source:** [the immutable Legend reliability diagnosis](2026-08-22-001-reliability-legend-diagnosis.md)
+
 **Diagnostic plan:** [the local calendar-sources diagnosis plan](../plans/2026-08-22-0734-chore-calendar-sources-diagnosis-plan.md)
 
 The six recorded `gantt-calendar-items-sources.e2e.ts` failures remain **open — no traced recurrence**. They share one symptom: the second test's `beforeEach` reported `not ready: Gantt bars missing: ["Standup 2026-03-23.md"]`. The historical executions predate the boundary probe and therefore contain no same-mount terminal trace or matched passing control that can distinguish a weak readiness/proxy observation, class (b), from product nondeterminism, class (d).
 
-U1 added and verified the bounded diagnostic capability locally. Its ordinary focused verification passed 4/4 and did not organically reproduce the symptom. That green execution proves the probe preserves the journey; it does not reclassify the historical 6/48 failures and is not part of their denominator. U2 and U3 are not activated. No fix or additional measurement window is commissioned.
+U1 added and verified the bounded diagnostic capability locally. Its initial four behavior tests passed 4/4, and the final instrumented spec passed 5/5 without organically reproducing the symptom. That green execution proves the probe preserves the journey; it does not reclassify the historical 6/48 failures and is not part of their denominator. U2 and U3 are not activated. No fix or additional measurement window is commissioned.
 
 ---
 
@@ -62,7 +65,7 @@ The declared algorithm permits a non-open verdict only from complete, comparable
 | Question | Available evidence | Decision |
 |---|---|---|
 | Did the six historical failures capture the U1 boundary schema? | No. They occurred before U1 existed. | They remain observations, not retrospectively localized causes. |
-| Did ordinary U1 verification organically reproduce the missing occurrence? | No. The focused sources spec passed 4/4. | No terminal failure trace exists to compare with a control. |
+| Did ordinary U1 verification organically reproduce the missing occurrence? | No. The initial four behavior tests passed 4/4, and the final instrumented spec passed 5/5. | No terminal failure trace exists to compare with a control. |
 | Does the green U1 execution prove a weak readiness gate or proxy? | No. A later pass is not a positive distinguishing fact about a historical failure. | Class (b) is unavailable. |
 | Does any trace prove a first product-side contradiction? | No. No failing U1 trace reached the host-to-controller or synchronization decision gates. | Class (d) is unavailable; U2 and U3 stay inactive. |
 | Are there complete causal branches supporting different classes? | No. There is no complete failing branch. | `open-conflicting` is unavailable. |

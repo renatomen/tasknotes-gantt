@@ -47,6 +47,7 @@ interface SourcesLifecycleReportTrace {
 
 let originalFailureSeen = false;
 let lastReadinessBoundary: CalendarItemsSourcesBoundary | null = null;
+let lastReadinessPollFailed = false;
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
 
 interface SourcesBoundaryCaptureOptions {
@@ -61,6 +62,7 @@ export function noteSourcesOriginalFailure(): void {
 export async function startSourcesLifecycleCapture(): Promise<void> {
   originalFailureSeen = false;
   lastReadinessBoundary = null;
+  lastReadinessPollFailed = false;
   snapshots.length = 0;
   const started = await browser.execute((capacity, schema) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
@@ -315,6 +317,7 @@ export async function captureSourcesReadinessPoll(
   taskNames: readonly string[],
 ): Promise<string[] | null> {
   lastReadinessBoundary = null;
+  lastReadinessPollFailed = false;
   const captureState: {
     value: Awaited<ReturnType<typeof captureSourcesBoundary>> | null;
   } = { value: null };
@@ -326,7 +329,13 @@ export async function captureSourcesReadinessPoll(
   });
   if (diagnosticFailure !== null || captureState.value === null) return null;
   lastReadinessBoundary = captureState.value.boundary;
+  lastReadinessPollFailed = captureState.value.missingBars.length > 0;
   return captureState.value.missingBars;
+}
+
+export function beginSourcesReadinessPoll(): void {
+  lastReadinessBoundary = null;
+  lastReadinessPollFailed = false;
 }
 
 async function readSourcesLifecycle(): Promise<SourcesLifecycleTrace> {
@@ -490,6 +499,7 @@ async function readSourcesLifecycleAfterFailure(
     origin,
     lastReadinessBoundary,
     result.boundary,
+    lastReadinessPollFailed,
   );
   return {
     lifecycle: result.lifecycle,
@@ -581,6 +591,7 @@ export function writeSourcesRetrievalFailure(
 
 export function stopSourcesLifecycleCapture(): Promise<void> {
   lastReadinessBoundary = null;
+  lastReadinessPollFailed = false;
   return browser.execute(() => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;

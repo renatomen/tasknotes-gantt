@@ -215,15 +215,23 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       'beforeEach:before-each-2',
       savedBoundary,
       resampledBoundary,
+      true,
     )).toEqual(expect.objectContaining({
       checkpoint: 'before-each-2',
       phase: 'terminal-failure',
       sameCheckpointObservation: true,
     }));
     expect(selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      savedBoundary,
+      resampledBoundary,
+      false,
+    )).toBe(resampledBoundary);
+    expect(selectCalendarItemsSourcesTerminalBoundary(
       'test:property events',
       savedBoundary,
       resampledBoundary,
+      true,
     )).toBe(resampledBoundary);
   });
 

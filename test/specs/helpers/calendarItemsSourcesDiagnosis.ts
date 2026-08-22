@@ -179,8 +179,10 @@ export function selectCalendarItemsSourcesTerminalBoundary(
   origin: string,
   savedReadinessBoundary: CalendarItemsSourcesBoundary | null,
   resampledBoundary: CalendarItemsSourcesBoundary,
+  readinessPollFailed: boolean,
 ): CalendarItemsSourcesBoundary {
-  if (savedReadinessBoundary === null
+  if (!readinessPollFailed
+      || savedReadinessBoundary === null
       || origin !== `beforeEach:${savedReadinessBoundary.checkpoint}`) {
     return resampledBoundary;
   }
