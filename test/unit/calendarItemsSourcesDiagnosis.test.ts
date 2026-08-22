@@ -59,8 +59,7 @@ const noDisqualifiers: SourcesDiagnosisDisqualifiers = {
 };
 
 function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
-  return {
-    schema: 'calendar-items-sources/v1',
+  return buildCalendarItemsSourcesSnapshot({
     phase: 'terminal-failure',
     checkpoint: 'second-before-each',
     sequence: 12,
@@ -78,14 +77,14 @@ function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
       {
         rootId: 'proxy',
         mountToken: 1,
-        ownerLeafId: 'base-leaf-stale',
+        ownerLeafId: 'base-leaf-other',
         selectedByGlobalProxy: true,
-        connected: false,
-        visible: false,
+        connected: true,
+        visible: true,
         ownsBase: false,
-        ownerDomMember: false,
+        ownerDomMember: true,
         ownerLiveBaseHostPresent: true,
-        ownerLiveBaseTargetPresent: true,
+        ownerLiveBaseTargetPresent: false,
         targetPresent: false,
       },
       {
@@ -102,16 +101,12 @@ function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
         targetPresent: true,
       },
     ],
-    prerequisite: { name: 'tasknotes-concrete-occurrence', state: 'terminal' },
-    workState: 'settled',
-    completeness: complete,
-    disqualifiers: noDisqualifiers,
-    matchedControl: {
-      kind: 'simultaneous-owner',
-      available: true,
-      equality,
-    },
-  };
+    sameCheckpointObservation: true,
+    initialReadinessCaptured: true,
+    actionHistoryMatches: true,
+    overflow: false,
+    collectorFailure: false,
+  });
 }
 
 function matchedControl(snapshot: CalendarItemsSourcesSnapshot): SourcesMatchedControl {
@@ -120,7 +115,7 @@ function matchedControl(snapshot: CalendarItemsSourcesSnapshot): SourcesMatchedC
 }
 
 describe('classifyCalendarItemsSourcesDiagnosis', () => {
-  it('classifies only a complete simultaneous owning root as a wrong-owner proxy', () => {
+  it('classifies a capture-realizable simultaneous owning root as a wrong-owner proxy', () => {
     expect(classifyCalendarItemsSourcesDiagnosis(wrongOwnerSnapshot())).toEqual({
       status: 'class-b',
       cause: 'wrong-owner-proxy',
@@ -313,6 +308,33 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     expect(sealed.boundary).toBe(completedBoundary);
     expect(sealed.pollFailed).toBe(true);
     expect(invalidateCalendarItemsSourcesReadinessEvidence(sealed)).toBe(sealed);
+  });
+
+  it('drops an earlier capture when a later readiness poll completes without a census', () => {
+    const fixture = wrongOwnerSnapshot();
+    const boundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'second-before-each',
+      sequence: 20,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    };
+    const captured = recordCalendarItemsSourcesReadinessEvidence(
+      startCalendarItemsSourcesReadinessEvidence(),
+      boundary,
+      ['Standup 2026-03-23.md'],
+    );
+
+    expect(invalidateCalendarItemsSourcesReadinessEvidence(captured)).toEqual({
+      open: true,
+      boundary: null,
+      pollFailed: false,
+    });
   });
 
   it('captures readiness boundaries only after a missing-bar observation and at the throttle edge', () => {

@@ -42,14 +42,14 @@ The test-owned probe:
 - captures the terminal failure envelope through a CDP path bounded to 7.5 seconds;
 - keeps the original WDIO error primary when diagnostic retrieval succeeds or fails;
 - requires leaf-correlated ownership and fails closed on ambiguous, incomplete, cross-mount, overflowing, or unmatched evidence;
-- keeps the original lightweight missing-bar query as the sole readiness gate, then captures the root census only after a missing-bar observation and at most once per five seconds; the pure classifier emits class (b) only when the terminal failure matches saved missing-bar evidence and positively demonstrates a wrong-owner proxy with a simultaneous authoritative-owner control;
+- keeps the original lightweight missing-bar query as the sole readiness gate, then captures the root census only after a missing-bar observation and at most once per five seconds after the preceding capture completes; only the capture's own missing-bar result is eligible, and a failed capture or any later completed poll without a census invalidates prior readiness evidence; the pure classifier emits class (b) only when the terminal failure matches that last completed poll and positively demonstrates a wrong-owner proxy with a simultaneous authoritative-owner control;
 - marks the bounded post-failure CDP resample as later evidence, never as the failed poll itself, so it remains `open`; readiness evidence without a distinct matched execution also remains `open`, and U1 does not emit class (d).
 
 Verification receipts for the final local U1 state:
 
 | Check | Result | Evidence meaning |
 |---|---|---|
-| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 55 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, missing-only throttled readiness capture, matching failing-poll selection, post-deadline write refusal, concurrent-remount refusal, green-teardown verdict refusal, post-failure resample refusal, and other fail-closed cases |
+| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 56 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, missing-only throttled readiness capture, matching failing-poll selection, uncaptured later-poll invalidation, post-deadline write refusal, concurrent-remount refusal, green-teardown verdict refusal, post-failure resample refusal, and other fail-closed cases |
 | `npm run typecheck` | Passed; 0 errors, with existing Svelte warnings only | Source, test, and e2e TypeScript serialization contracts remain valid |
 | `npm run lint` | Passed | Repository static rules remain satisfied |
 | `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | 28 passed | Shared lifecycle extraction preserves the existing Legend envelope in real Obsidian |

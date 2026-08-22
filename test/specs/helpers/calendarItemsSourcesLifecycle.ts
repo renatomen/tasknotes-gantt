@@ -327,7 +327,6 @@ export async function captureSourcesCheckpoint(
 export async function captureSourcesReadinessPoll(
   checkpoint: string,
   taskNames: readonly string[],
-  observedMissingBars: readonly string[],
 ): Promise<boolean> {
   const captureState: {
     value: Awaited<ReturnType<typeof captureSourcesBoundary>> | null;
@@ -338,11 +337,14 @@ export async function captureSourcesReadinessPoll(
       taskNames,
     });
   });
-  if (diagnosticFailure !== null || captureState.value === null) return false;
+  if (diagnosticFailure !== null || captureState.value === null) {
+    readinessEvidence = invalidateCalendarItemsSourcesReadinessEvidence(readinessEvidence);
+    return false;
+  }
   readinessEvidence = recordCalendarItemsSourcesReadinessEvidence(
     readinessEvidence,
     captureState.value.boundary,
-    observedMissingBars,
+    captureState.value.missingBars,
   );
   return true;
 }

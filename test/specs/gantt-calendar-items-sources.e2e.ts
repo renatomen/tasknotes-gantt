@@ -186,6 +186,7 @@ async function missingBars(): Promise<string[]> {
 async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
   let lastDiagnosticCaptureAt: number | null = null;
+  let readinessCaptureAvailable = true;
   if (diagnosticCheckpoint) startSourcesReadinessWindow();
   try {
     await waitUntilOrExplain(
@@ -198,14 +199,19 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
               invalidateSourcesReadinessEvidence();
             } else {
               const now = Date.now();
-              if (shouldCaptureCalendarItemsSourcesReadinessBoundary(
+              if (readinessCaptureAvailable && shouldCaptureCalendarItemsSourcesReadinessBoundary(
                 missing,
                 now,
                 lastDiagnosticCaptureAt,
                 READINESS_DIAGNOSTIC_CAPTURE_INTERVAL_MS,
               )) {
-                lastDiagnosticCaptureAt = now;
-                await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES, missing);
+                readinessCaptureAvailable = await captureSourcesReadinessPoll(
+                  diagnosticCheckpoint,
+                  TASK_NOTES,
+                );
+                lastDiagnosticCaptureAt = Date.now();
+              } else {
+                invalidateSourcesReadinessEvidence();
               }
             }
           }
