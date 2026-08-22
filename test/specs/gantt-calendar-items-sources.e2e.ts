@@ -14,6 +14,7 @@ import {
   stopSourcesLifecycleCapture,
   writeSourcesRetrievalFailure,
 } from "./helpers/calendarItemsSourcesLifecycle";
+import { attemptDiagnosticOperation } from "./helpers/lifecycleTrace";
 import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
@@ -75,6 +76,16 @@ interface SourcesDiagnosticNodeGlobal {
 
 let sourcesBeforeEachSequence = 0;
 const sourcesPrimaryErrors = new WeakMap<object, unknown>();
+
+async function captureSourcesDiagnostic(
+  origin: string,
+  operation: () => Promise<unknown>,
+): Promise<void> {
+  const diagnosticFailure = await attemptDiagnosticOperation(operation);
+  if (diagnosticFailure !== null) {
+    writeSourcesRetrievalFailure(origin, diagnosticFailure, null);
+  }
+}
 
 const CALENDAR_CONFIG_KEYS = [
   "tngantt_showRecurring",
@@ -424,7 +435,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
     sourcesBeforeEachSequence = 0;
-    await startSourcesLifecycleCapture();
+    await captureSourcesDiagnostic("collector-start", startSourcesLifecycleCapture);
     (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter =
       async (testTitle, error) => {
         noteSourcesOriginalFailure();
@@ -470,7 +481,8 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     );
 
     await ensureGanttReady();
-    await captureSourcesCheckpoint("initial-readiness", "initial-readiness");
+    await captureSourcesDiagnostic("initial-readiness", () =>
+      captureSourcesCheckpoint("initial-readiness", "initial-readiness"));
     } catch (error) {
       noteSourcesOriginalFailure();
       const diagnosticFailure = await attemptSourcesFailureDiagnostics("before-hook", error);
@@ -501,7 +513,8 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     const checkpoint = `before-each:${sourcesBeforeEachSequence}:${currentTest?.title ?? "unknown"}`;
     try {
       await ensureGanttReady(checkpoint);
-      await captureSourcesCheckpoint("before-each", checkpoint);
+      await captureSourcesDiagnostic(checkpoint, () =>
+        captureSourcesCheckpoint("before-each", checkpoint));
     } catch (error) {
       if (currentTest) sourcesPrimaryErrors.set(currentTest, error);
       noteSourcesOriginalFailure();

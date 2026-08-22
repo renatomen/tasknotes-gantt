@@ -131,25 +131,17 @@ export interface SourcesDiagnosisDisqualifiers {
 }
 
 export interface SourcesMatchedControlEquality {
-  buildSha: boolean;
-  fixtureVersion: boolean;
-  pluginVersions: boolean;
   basePath: boolean;
   orderedJourney: boolean;
   configHistory: boolean;
   targetIdentity: boolean;
-  traceSchema: boolean;
-  boundaryInputs: boolean;
-  phase: boolean;
   terminalPrerequisites: boolean;
 }
 
 export interface SourcesMatchedControl {
-  kind: 'distinct-execution' | 'simultaneous-owner';
+  kind: 'simultaneous-owner';
   available: boolean;
   equality: SourcesMatchedControlEquality;
-  targetBeforePrerequisite: boolean;
-  targetAfterPrerequisite: boolean;
 }
 
 export interface CalendarItemsSourcesSnapshot {
@@ -194,7 +186,20 @@ export function buildCalendarItemsSourcesSnapshot(
   const terminalEvidence = boundary.phase === 'terminal-failure'
     || boundary.phase === 'suite-after'
     || boundary.phase === 'teardown';
-  const wrongOwnerObserved = ownership.wrongOwnerObserved;
+  const authoritativeRoot = ownership.authoritativeRoot;
+  const matchedControl = authoritativeRoot === null ? null : {
+    kind: 'simultaneous-owner' as const,
+    available: true,
+    equality: {
+      basePath: authoritativeRoot.ownsBase === true,
+      orderedJourney: boundary.initialReadinessCaptured,
+      configHistory: boundary.actionHistoryMatches,
+      targetIdentity: boundary.target.liveBaseTargetPresent === true
+        && authoritativeRoot.ownerLiveBaseTargetPresent === true
+        && authoritativeRoot.targetPresent,
+      terminalPrerequisites: prerequisiteTerminal,
+    },
+  };
 
   return {
     schema: CALENDAR_ITEMS_SOURCES_TRACE_SCHEMA,
@@ -232,7 +237,7 @@ export function buildCalendarItemsSourcesSnapshot(
       genericApiReadyOnly: false,
       missingPrerequisiteEvent: boundary.target.taskNotesOccurrenceListed === null,
       divergentConfigHistory: false,
-      missingPostTransitionControl: !wrongOwnerObserved,
+      missingPostTransitionControl: matchedControl === null,
       unknownOwner: ownership.ambiguousOwner
         || boundary.roots.some(({ ownsBase, ownerLeafId }) => ownsBase === null || ownerLeafId === null),
       disconnectedAuthoritativeRoot: boundary.roots.some(({ ownsBase, connected }) =>
@@ -252,33 +257,15 @@ export function buildCalendarItemsSourcesSnapshot(
       overflow: boundary.overflow,
       collectorFailure: boundary.collectorFailure,
       diagnosticRetrievalFailure: false,
-      unmatchedControl: !wrongOwnerObserved,
+      unmatchedControl: matchedControl === null || !allTrue(matchedControl.equality),
     },
-    matchedControl: wrongOwnerObserved ? {
-      kind: 'simultaneous-owner',
-      available: true,
-      equality: {
-        buildSha: true,
-        fixtureVersion: true,
-        pluginVersions: true,
-        basePath: true,
-        orderedJourney: true,
-        configHistory: true,
-        targetIdentity: true,
-        traceSchema: true,
-        boundaryInputs: true,
-        phase: true,
-        terminalPrerequisites: prerequisiteTerminal,
-      },
-      targetBeforePrerequisite: true,
-      targetAfterPrerequisite: true,
-    } : null,
+    matchedControl,
   };
 }
 
 export type CalendarItemsSourcesVerdict =
   | { status: 'open' }
-  | { status: 'class-b'; cause: 'weak-readiness' | 'wrong-owner-proxy' };
+  | { status: 'class-b'; cause: 'wrong-owner-proxy' };
 
 function allTrue(values: object): boolean {
   return Object.values(values).every((value) => value === true);
@@ -290,15 +277,6 @@ function isComplete(snapshot: CalendarItemsSourcesSnapshot): boolean {
     && snapshot.workState === 'settled'
     && snapshot.matchedControl?.available === true
     && allTrue(snapshot.matchedControl.equality);
-}
-
-function isWeakReadiness(snapshot: CalendarItemsSourcesSnapshot): boolean {
-  return snapshot.prerequisite.name !== null
-    && snapshot.prerequisite.state === 'pending'
-    && snapshot.matchedControl?.kind === 'distinct-execution'
-    && snapshot.matchedControl.targetBeforePrerequisite === false
-    && snapshot.matchedControl.targetAfterPrerequisite === true
-    && snapshot.roots.some(({ targetPresent }) => !targetPresent);
 }
 
 function isWrongOwnerProxy(snapshot: CalendarItemsSourcesSnapshot): boolean {
@@ -314,7 +292,6 @@ export function classifyCalendarItemsSourcesDiagnosis(
   snapshot: CalendarItemsSourcesSnapshot,
 ): CalendarItemsSourcesVerdict {
   if (!isComplete(snapshot)) return { status: 'open' };
-  if (isWeakReadiness(snapshot)) return { status: 'class-b', cause: 'weak-readiness' };
   if (isWrongOwnerProxy(snapshot)) return { status: 'class-b', cause: 'wrong-owner-proxy' };
   return { status: 'open' };
 }

@@ -1,10 +1,30 @@
 import {
+  attemptDiagnosticOperation,
   captureLifecycleEnvelope,
   renderLifecycleFailure,
   type LifecycleTraceReaders,
 } from '../specs/helpers/lifecycleTrace';
 
 describe('lifecycleTrace', () => {
+  it('returns a diagnostic failure without changing the observed operation outcome', async () => {
+    const failure = new Error('checkpoint unavailable');
+
+    const diagnosticFailure = await attemptDiagnosticOperation(async () => {
+      throw failure;
+    });
+
+    expect(diagnosticFailure).toBe(failure);
+  });
+
+  it('bounds a diagnostic operation that never settles', async () => {
+    const diagnosticFailure = await attemptDiagnosticOperation(
+      () => new Promise(() => undefined),
+      1,
+    );
+
+    expect(renderLifecycleFailure(diagnosticFailure)).toContain('exceeded 1ms');
+  });
+
   it('characterizes a successful ordinary lifecycle retrieval', async () => {
     const trace = { records: [{ event: 'ready' }] };
 

@@ -21,16 +21,10 @@ const complete = {
 };
 
 const equality = {
-  buildSha: true,
-  fixtureVersion: true,
-  pluginVersions: true,
   basePath: true,
   orderedJourney: true,
   configHistory: true,
   targetIdentity: true,
-  traceSchema: true,
-  boundaryInputs: true,
-  phase: true,
   terminalPrerequisites: true,
 };
 
@@ -109,8 +103,6 @@ function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
       kind: 'simultaneous-owner',
       available: true,
       equality,
-      targetBeforePrerequisite: true,
-      targetAfterPrerequisite: true,
     },
   };
 }
@@ -128,35 +120,51 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     });
   });
 
-  it('classifies weak readiness only with a named transition and positive matched control', () => {
-    const snapshot = wrongOwnerSnapshot();
-    snapshot.prerequisite = { name: 'tasknotes-concrete-occurrence', state: 'pending' };
-    snapshot.roots = [
-      {
-        rootId: 'owner',
-        mountToken: 2,
-        ownerLeafId: 'base-leaf-current',
-        selectedByGlobalProxy: true,
-        connected: true,
-        visible: true,
-        ownsBase: true,
-        ownerDomMember: true,
-        ownerLiveBaseHostPresent: true,
-        ownerLiveBaseTargetPresent: false,
-        targetPresent: false,
+  it('keeps pending readiness open without a distinct matched execution', () => {
+    const fixture = wrongOwnerSnapshot();
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'terminal-failure',
+      checkpoint: 'pending-prerequisite',
+      sequence: 13,
+      target: {
+        ...fixture.target,
+        taskNotesOccurrenceListed: false,
+        recurrenceParentPresent: false,
+        occurrenceDateMatches: false,
+        liveBaseTargetPresent: false,
       },
-    ];
-    snapshot.matchedControl = {
-      ...matchedControl(snapshot),
-      kind: 'distinct-execution',
-      targetBeforePrerequisite: false,
-      targetAfterPrerequisite: true,
-    };
-
-    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({
-      status: 'class-b',
-      cause: 'weak-readiness',
+      roots: fixture.roots,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
     });
+
+    expect(snapshot.prerequisite.state).toBe('pending');
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('derives a simultaneous control from the authoritative owner before classifying the proxy', () => {
+    const fixture = wrongOwnerSnapshot();
+    const owner = { ...fixture.roots[1], selectedByGlobalProxy: true };
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'terminal-failure',
+      checkpoint: 'authoritative-control',
+      sequence: 14,
+      target: fixture.target,
+      roots: [owner],
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    });
+
+    expect(snapshot.matchedControl).toEqual(expect.objectContaining({
+      kind: 'simultaneous-owner',
+      available: true,
+      equality,
+    }));
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
   });
 
   it.each(Object.keys(complete) as Array<keyof typeof complete>)(
@@ -248,7 +256,10 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       crossMountJoin: true,
       authoritativeTargetAbsent: true,
     }));
-    expect(snapshot.matchedControl).toBeNull();
+    expect(snapshot.matchedControl).toEqual(expect.objectContaining({
+      equality: expect.objectContaining({ targetIdentity: false }),
+    }));
+    expect(snapshot.disqualifiers.unmatchedControl).toBe(true);
     expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
   });
 

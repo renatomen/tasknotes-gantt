@@ -132,6 +132,18 @@ export function renderLifecycleFailure(error: unknown): string | null {
   }
 }
 
+export async function attemptDiagnosticOperation(
+  operation: () => Promise<unknown>,
+  timeoutMs = LIFECYCLE_RETRIEVAL_TIMEOUT_MS,
+): Promise<unknown | null> {
+  try {
+    await withGanttDiagnosticDeadline(() => operation(), timeoutMs);
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 async function readFailureTrace<T>(
   readers: LifecycleTraceReaders<T>,
   strategy: LifecycleFailureRetrieval,

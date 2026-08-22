@@ -39,13 +39,13 @@ The test-owned probe:
 - captures the terminal failure envelope through a CDP path bounded to 7.5 seconds;
 - keeps the original WDIO error primary when diagnostic retrieval succeeds or fails;
 - requires leaf-correlated ownership and fails closed on ambiguous, incomplete, cross-mount, overflowing, or unmatched evidence;
-- can emit class (b) only for a positively demonstrated weak readiness gate or wrong-owner proxy with a matched control; U1 does not emit class (d).
+- can emit class (b) only for a positively demonstrated wrong-owner proxy with a simultaneous authoritative-owner control; readiness evidence without a distinct matched execution remains `open`, and U1 does not emit class (d).
 
 Verification receipts for the final local U1 state:
 
 | Check | Result | Evidence meaning |
 |---|---|---|
-| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 44 passed | Bounded retrieval, primary-error preservation, ownership production, classifier positives, and refusal cases |
+| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 47 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, observed simultaneous-owner controls, and fail-closed refusal cases |
 | `npm run typecheck` | Passed; 0 errors, with existing Svelte warnings only | Source, test, and e2e TypeScript serialization contracts remain valid |
 | `npm run lint` | Passed | Repository static rules remain satisfied |
 | `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | 28 passed | Shared lifecycle extraction preserves the existing Legend envelope in real Obsidian |

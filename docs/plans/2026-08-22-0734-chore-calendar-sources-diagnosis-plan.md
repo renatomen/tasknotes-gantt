@@ -119,9 +119,9 @@ sequenceDiagram
 
     Spec->>View: initial beforeEach proves all 3 bars
     Spec->>Config: enable property events
-    Spec->>Config: set date picker
+    Spec->>Config: set start picker
+    Spec->>Config: set end picker
     Spec->>Config: set title picker
-    Spec->>Config: set color picker
     Note over Config,Controller: config settle, onDataUpdated, coalescing, reuse/recompute, latest-wins may overlap
     Config->>Host: request or reuse matched entries
     Host->>Controller: raw task rows
@@ -182,7 +182,7 @@ The first contradictory boundary owns the localization. Later missing states are
 
 ### Landing strategy
 
-The plan artifact is managed locally and is not promoted to an issue. During later execution, each activated implementation unit lands as its own squash-merged PR after local review, independent peer review, required local receipts, green CI, and zero unresolved hosted final-gate threads. The first PR is U1 only.
+The plan artifact is managed locally and is not promoted to an issue. During later execution, each activated implementation unit normally lands as its own squash-merged PR after local review, independent peer review, required local receipts, green CI, and zero unresolved hosted final-gate threads. This execution lands U1 with U4 as one bounded cluster because ordinary U1 verification produced no recurrence, U2 and U3 therefore remained inactive, and U4 immediately closes that same diagnosis as `open — no traced recurrence`; splitting them would strand the probe without its required dated outcome. No conditional tracing or product fix joins the cluster.
 
 A work session ends at its first merged PR or, when nothing merges, its first primary work product. At four elapsed hours on any implementation unit, stop at the nearest green checkpoint and re-slice before continuing. Conditional units are not pre-authorized bundles: activate only the next unit justified by the preceding evidence.
 
